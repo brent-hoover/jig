@@ -35,3 +35,40 @@ class TestInit:
         result = runner.invoke(cli, ["init", "--path", str(tmp_path)])
         assert result.exit_code != 0
         assert "git" in result.output.lower()
+
+
+from jig.models import Issue, IssueStatus
+from jig.persistence import save_issue
+
+
+class TestStatus:
+    def test_no_issues(self, runner: CliRunner, tmp_jig_project: Path):
+        result = runner.invoke(cli, ["status", "--path", str(tmp_jig_project)])
+        assert result.exit_code == 0
+        assert "No issues" in result.output
+
+    def test_with_issues(self, runner: CliRunner, tmp_jig_project: Path):
+        save_issue(tmp_jig_project, Issue(id="issue-1", title="Add auth"))
+        save_issue(
+            tmp_jig_project,
+            Issue(
+                id="issue-2",
+                title="Fix bug",
+                status=IssueStatus.IN_PROGRESS,
+                current_phase="implement",
+            ),
+        )
+        result = runner.invoke(cli, ["status", "--path", str(tmp_jig_project)])
+        assert result.exit_code == 0
+        assert "issue-1" in result.output
+        assert "Add auth" in result.output
+        assert "pending" in result.output
+        assert "issue-2" in result.output
+        assert "Fix bug" in result.output
+        assert "in_progress" in result.output
+        assert "implement" in result.output
+
+    def test_not_initialized(self, runner: CliRunner, tmp_project: Path):
+        result = runner.invoke(cli, ["status", "--path", str(tmp_project)])
+        assert result.exit_code != 0
+        assert "not initialized" in result.output.lower()

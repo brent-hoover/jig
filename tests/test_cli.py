@@ -123,8 +123,10 @@ class TestStart:
         issue = load_issue(tmp_jig_project, "feat-auth")
         assert issue.title == "Add authentication"
 
-        # Orchestrator should be called
-        MockOrchestrator.assert_called_once_with(tmp_jig_project, "feat-auth")
+        # Orchestrator should be called with emitter kwarg
+        call_args = MockOrchestrator.call_args
+        assert call_args.args == (tmp_jig_project, "feat-auth")
+        assert "emitter" in call_args.kwargs
         mock_instance.run.assert_called_once()
 
     @patch("jig.cli.Orchestrator")

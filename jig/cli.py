@@ -7,6 +7,8 @@ import click
 
 from jig.models import Issue
 from jig.orchestrator import Orchestrator, OrchestratorPaused, OrchestratorFailed
+from jig.events import EventEmitter
+from jig.ws_server import WebSocketServer
 from jig.persistence import init_project, list_issues, load_issue, load_project, save_default_agent_types, save_default_workflow, save_issue
 from jig.worktree import remove_worktree
 
@@ -81,9 +83,20 @@ def start(path: Path, issue_id: str, title: str | None) -> None:
 
     click.echo(f"Starting workflow for {issue_id}...")
 
-    orchestrator = Orchestrator(path, issue_id)
+    async def run_with_ws():
+        emitter = EventEmitter()
+        ws_server = WebSocketServer(emitter, port=9100)
+        await ws_server.start()
+        click.echo(f"WebSocket server listening on ws://127.0.0.1:{ws_server.port}")
+
+        orchestrator = Orchestrator(path, issue_id, emitter=emitter)
+        try:
+            await orchestrator.run()
+        finally:
+            await ws_server.stop()
+
     try:
-        asyncio.run(orchestrator.run())
+        asyncio.run(run_with_ws())
         click.echo(f"Workflow completed for {issue_id}.")
     except OrchestratorPaused as e:
         click.echo(f"Workflow paused: {e}")

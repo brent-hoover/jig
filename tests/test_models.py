@@ -137,3 +137,42 @@ class TestMessage:
         assert restored.type == msg.type
         assert restored.payload == msg.payload
         assert restored.id == msg.id
+
+
+from jig.models import AgentTypeConfig
+
+
+class TestAgentTypeConfig:
+    def test_defaults(self):
+        config = AgentTypeConfig(
+            name="dev",
+            system_prompt="You are a dev agent.",
+        )
+        assert config.name == "dev"
+        assert config.system_prompt == "You are a dev agent."
+        assert config.allowed_tools == []
+        assert config.denied_tools == []
+        assert config.default_context == []
+
+    def test_full_config(self):
+        config = AgentTypeConfig(
+            name="test",
+            system_prompt="You are a test agent.",
+            allowed_tools=["Read", "Bash", "Grep"],
+            denied_tools=["Write"],
+            default_context=["issue://design", "**/*_test.py"],
+        )
+        assert config.allowed_tools == ["Read", "Bash", "Grep"]
+        assert config.denied_tools == ["Write"]
+        assert config.default_context == ["issue://design", "**/*_test.py"]
+
+    def test_serialization_roundtrip(self):
+        config = AgentTypeConfig(
+            name="dev",
+            system_prompt="You are a dev agent.",
+            allowed_tools=["Read", "Edit"],
+        )
+        data = config.model_dump()
+        restored = AgentTypeConfig.model_validate(data)
+        assert restored.name == config.name
+        assert restored.allowed_tools == config.allowed_tools

@@ -61,3 +61,11 @@ class Message(BaseModel):
     payload: dict = {}
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     correlation_id: str | None = None
+
+
+class AgentTypeConfig(BaseModel):
+    name: str
+    system_prompt: str
+    allowed_tools: list[str] = []
+    denied_tools: list[str] = []
+    default_context: list[str] = []

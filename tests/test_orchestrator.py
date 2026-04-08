@@ -282,3 +282,27 @@ class TestOrchestratorResume:
 
         # Should run all 4 phases (spec re-run + test + implement + review)
         assert mock_run_agent.call_count == 4
+
+
+from jig.events import EventEmitter, JigEvent
+
+
+class TestOrchestratorEvents:
+    @patch("jig.orchestrator.run_agent")
+    async def test_emits_phase_events(self, mock_run_agent, git_project: Path):
+        mock_run_agent.return_value = "Done"
+        emitter = EventEmitter()
+        queue = emitter.subscribe()
+
+        orchestrator = Orchestrator(git_project, "issue-1", emitter=emitter)
+        await orchestrator.run()
+
+        events = []
+        while not queue.empty():
+            events.append(await queue.get())
+
+        types = [e.type for e in events]
+        assert "workflow_started" in types
+        assert "phase_started" in types
+        assert "phase_completed" in types
+        assert "workflow_completed" in types

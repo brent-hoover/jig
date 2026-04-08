@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from jig.agent import run_agent
+from jig.events import EventEmitter, JigEvent
 from jig.models import (
     CompletionState,
     Issue,
@@ -22,10 +23,21 @@ from jig.worktree import commit_worktree, create_worktree, remove_worktree
 
 
 class Orchestrator:
-    def __init__(self, project_path: Path, issue_id: str, workflow_name: str = "default") -> None:
+    def __init__(
+        self,
+        project_path: Path,
+        issue_id: str,
+        workflow_name: str = "default",
+        emitter: EventEmitter | None = None,
+    ) -> None:
         self._project_path = project_path
         self._issue_id = issue_id
         self._workflow_name = workflow_name
+        self._emitter = emitter
+
+    async def _emit(self, event_type: str, data: dict | None = None) -> None:
+        if self._emitter:
+            await self._emitter.emit(JigEvent(type=event_type, data=data or {}))
 
     async def run(self) -> None:
         """Execute the full workflow for the issue."""
@@ -37,12 +49,14 @@ class Orchestrator:
 
         issue.status = IssueStatus.IN_PROGRESS
         save_issue(self._project_path, issue)
+        await self._emit("workflow_started", {"issue_id": self._issue_id, "workflow": self._workflow_name})
 
         for phase in workflow.phases[start_index:]:
             await self._execute_phase(phase, issue)
 
         issue.status = IssueStatus.COMPLETED
         save_issue(self._project_path, issue)
+        await self._emit("workflow_completed", {"issue_id": self._issue_id})
 
     def _find_resume_index(self, phases: list[PhaseConfig], issue: Issue) -> int:
         """Find which phase to start from based on issue state."""
@@ -64,6 +78,7 @@ class Orchestrator:
         """Execute a single workflow phase."""
         issue.current_phase = phase.name.value
         save_issue(self._project_path, issue)
+        await self._emit("phase_started", {"phase": phase.name.value, "agent_type": phase.agent_type})
 
         agent_type = load_agent_type(self._project_path, phase.agent_type)
 
@@ -110,6 +125,7 @@ class Orchestrator:
 
         # Commit worktree changes
         await commit_worktree(worktree_path, f"{phase.name.value}: {issue.title}")
+        await self._emit("phase_completed", {"phase": phase.name.value})
 
         # Reload task to check completion state set by agent
         task = load_task(self._project_path, self._issue_id, task.id)

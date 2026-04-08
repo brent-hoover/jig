@@ -172,3 +172,32 @@ class TestAgentTypePersistence:
     def test_load_nonexistent_raises(self, tmp_jig_project: Path):
         with pytest.raises(FileNotFoundError):
             load_agent_type(tmp_jig_project, "nope")
+
+
+from jig.persistence import save_default_agent_types
+
+
+class TestDefaultAgentTypes:
+    def test_creates_four_types(self, tmp_jig_project: Path):
+        save_default_agent_types(tmp_jig_project)
+        types = list_agent_types(tmp_jig_project)
+        names = {t.name for t in types}
+        assert names == {"spec", "test", "dev", "review"}
+
+    def test_each_has_system_prompt(self, tmp_jig_project: Path):
+        save_default_agent_types(tmp_jig_project)
+        for name in ("spec", "test", "dev", "review"):
+            config = load_agent_type(tmp_jig_project, name)
+            assert len(config.system_prompt) > 0
+
+    def test_each_has_allowed_tools(self, tmp_jig_project: Path):
+        save_default_agent_types(tmp_jig_project)
+        for name in ("spec", "test", "dev", "review"):
+            config = load_agent_type(tmp_jig_project, name)
+            assert len(config.allowed_tools) > 0
+
+    def test_each_has_default_context(self, tmp_jig_project: Path):
+        save_default_agent_types(tmp_jig_project)
+        for name in ("spec", "test", "dev", "review"):
+            config = load_agent_type(tmp_jig_project, name)
+            assert len(config.default_context) > 0

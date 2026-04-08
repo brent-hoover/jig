@@ -72,3 +72,15 @@ class TestStatus:
         result = runner.invoke(cli, ["status", "--path", str(tmp_project)])
         assert result.exit_code != 0
         assert "not initialized" in result.output.lower()
+
+
+from jig.persistence import list_agent_types
+
+
+class TestInitCreatesAgentTypes:
+    def test_init_creates_default_agent_types(self, runner: CliRunner, tmp_project: Path):
+        result = runner.invoke(cli, ["init", "--path", str(tmp_project)])
+        assert result.exit_code == 0
+        types = list_agent_types(tmp_project)
+        names = {t.name for t in types}
+        assert names == {"spec", "test", "dev", "review"}

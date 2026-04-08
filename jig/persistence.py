@@ -115,3 +115,52 @@ def list_agent_types(project_path: Path) -> list[AgentTypeConfig]:
         data = yaml.safe_load(yaml_file.read_text())
         configs.append(AgentTypeConfig.model_validate(data))
     return configs
+
+
+def save_default_agent_types(project_path: Path) -> None:
+    """Create the default v1 agent type configs."""
+    defaults = [
+        AgentTypeConfig(
+            name="spec",
+            system_prompt=(
+                "You are a specification agent. Your job is to draft a design document "
+                "from the issue description. Analyze requirements, identify components, "
+                "and produce a clear, actionable design doc in markdown format. "
+                "Use the report_completion tool when finished."
+            ),
+            allowed_tools=["Read", "Glob", "Grep"],
+            default_context=["issue://description"],
+        ),
+        AgentTypeConfig(
+            name="test",
+            system_prompt=(
+                "You are a test agent. Your job is to write tests based on the design doc "
+                "and implementation plan. Write comprehensive tests that cover the specified "
+                "behavior and edge cases. Use the report_completion tool when finished."
+            ),
+            allowed_tools=["Read", "Write", "Glob", "Grep", "Bash"],
+            default_context=["issue://design", "issue://plan"],
+        ),
+        AgentTypeConfig(
+            name="dev",
+            system_prompt=(
+                "You are a development agent. Your job is to implement code changes based "
+                "on the design doc and implementation plan. Write clean, well-structured code "
+                "that passes the existing tests. Use the report_completion tool when finished."
+            ),
+            allowed_tools=["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+            default_context=["issue://design", "issue://plan"],
+        ),
+        AgentTypeConfig(
+            name="review",
+            system_prompt=(
+                "You are a review agent. Your job is to review the implementation for "
+                "correctness, quality, and adherence to the design doc. Run tests and linters. "
+                "Report issues found. Use the report_completion tool when finished."
+            ),
+            allowed_tools=["Read", "Glob", "Grep", "Bash"],
+            default_context=["issue://design", "issue://plan"],
+        ),
+    ]
+    for config in defaults:
+        save_agent_type(project_path, config)

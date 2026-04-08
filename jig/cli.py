@@ -4,7 +4,7 @@ from pathlib import Path
 
 import click
 
-from jig.persistence import init_project, list_issues, load_project
+from jig.persistence import init_project, list_issues, load_project, save_default_agent_types
 
 
 @click.group()
@@ -19,6 +19,7 @@ def init(path: Path, branch: str) -> None:
     """Initialize .jig/ in a project."""
     try:
         init_project(path, default_branch=branch)
+        save_default_agent_types(path)
         click.echo(f"Initialized Jig in {path / '.jig'}")
     except FileExistsError:
         raise click.ClickException(f"Already initialized: {path / '.jig'}")

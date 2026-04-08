@@ -22,7 +22,7 @@ class MessageBus:
 
     async def publish(self, issue_id: str, message: Message) -> None:
         """Persist a message to JSONL, then route to subscribers."""
-        append_message(self._project_path, issue_id, message)
+        await asyncio.to_thread(append_message, self._project_path, issue_id, message)
 
         subs = self._subscribers.get(issue_id, {})
         if message.recipient == "broadcast":

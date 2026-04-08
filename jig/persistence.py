@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from jig.models import ProjectConfig
+from jig.models import ProjectConfig, Issue
 
 
 def _jig_dir(project_path: Path) -> Path:
@@ -38,3 +38,34 @@ def load_project(project_path: Path) -> ProjectConfig:
     config_path = _jig_dir(project_path) / "config.yaml"
     data = yaml.safe_load(config_path.read_text())
     return ProjectConfig.model_validate(data)
+
+
+def save_issue(project_path: Path, issue: Issue) -> None:
+    """Save an issue to .jig/issues/<id>/issue.yaml."""
+    issue_dir = _jig_dir(project_path) / "issues" / issue.id
+    issue_dir.mkdir(exist_ok=True)
+    (issue_dir / "tasks").mkdir(exist_ok=True)
+    (issue_dir / "issue.yaml").write_text(
+        yaml.dump(issue.model_dump(mode="json"), default_flow_style=False)
+    )
+
+
+def load_issue(project_path: Path, issue_id: str) -> Issue:
+    """Load an issue from .jig/issues/<id>/issue.yaml."""
+    issue_path = _jig_dir(project_path) / "issues" / issue_id / "issue.yaml"
+    if not issue_path.is_file():
+        raise FileNotFoundError(f"Issue {issue_id} not found")
+    data = yaml.safe_load(issue_path.read_text())
+    return Issue.model_validate(data)
+
+
+def list_issues(project_path: Path) -> list[Issue]:
+    """List all issues in .jig/issues/."""
+    issues_dir = _jig_dir(project_path) / "issues"
+    issues = []
+    for issue_dir in sorted(issues_dir.iterdir()):
+        issue_file = issue_dir / "issue.yaml"
+        if issue_file.is_file():
+            data = yaml.safe_load(issue_file.read_text())
+            issues.append(Issue.model_validate(data))
+    return issues

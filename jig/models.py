@@ -69,3 +69,20 @@ class AgentTypeConfig(BaseModel):
     allowed_tools: list[str] = []
     denied_tools: list[str] = []
     default_context: list[str] = []
+
+
+class WorkflowPhase(str, Enum):
+    SPEC = "spec"
+    TEST = "test"
+    IMPLEMENT = "implement"
+    REVIEW = "review"
+
+
+class PhaseConfig(BaseModel):
+    name: WorkflowPhase
+    agent_type: str
+
+
+class WorkflowConfig(BaseModel):
+    name: str
+    phases: list[PhaseConfig]

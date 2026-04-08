@@ -139,6 +139,54 @@ class TestMessage:
         assert restored.id == msg.id
 
 
+from jig.models import WorkflowPhase, PhaseConfig, WorkflowConfig
+
+
+class TestWorkflowPhase:
+    def test_values(self):
+        assert WorkflowPhase.SPEC == "spec"
+        assert WorkflowPhase.TEST == "test"
+        assert WorkflowPhase.IMPLEMENT == "implement"
+        assert WorkflowPhase.REVIEW == "review"
+
+
+class TestPhaseConfig:
+    def test_creation(self):
+        phase = PhaseConfig(
+            name=WorkflowPhase.SPEC,
+            agent_type="spec",
+        )
+        assert phase.name == "spec"
+        assert phase.agent_type == "spec"
+
+
+class TestWorkflowConfig:
+    def test_creation(self):
+        workflow = WorkflowConfig(
+            name="default",
+            phases=[
+                PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
+                PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
+            ],
+        )
+        assert workflow.name == "default"
+        assert len(workflow.phases) == 2
+        assert workflow.phases[0].name == "spec"
+        assert workflow.phases[1].agent_type == "test"
+
+    def test_serialization_roundtrip(self):
+        workflow = WorkflowConfig(
+            name="default",
+            phases=[
+                PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
+            ],
+        )
+        data = workflow.model_dump()
+        restored = WorkflowConfig.model_validate(data)
+        assert restored.name == workflow.name
+        assert len(restored.phases) == 1
+
+
 from jig.models import AgentTypeConfig
 
 

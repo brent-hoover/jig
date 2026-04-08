@@ -8,6 +8,7 @@ import click
 from jig.models import Issue
 from jig.orchestrator import Orchestrator, OrchestratorPaused, OrchestratorFailed
 from jig.persistence import init_project, list_issues, load_issue, load_project, save_default_agent_types, save_default_workflow, save_issue
+from jig.worktree import remove_worktree
 
 
 @click.group()
@@ -91,3 +92,31 @@ def start(path: Path, issue_id: str, title: str | None) -> None:
         raise click.ClickException(f"Workflow failed: {e}")
     except KeyboardInterrupt:
         click.echo("\nWorkflow interrupted. Run 'jig start' again to resume.")
+
+
+@cli.command()
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--issue-id", required=True, help="Issue to validate.")
+def validate(path: Path, issue_id: str) -> None:
+    """Validate an issue and clean up worktrees."""
+    jig_dir = path / ".jig"
+    if not jig_dir.is_dir():
+        raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
+
+    try:
+        issue = load_issue(path, issue_id)
+    except FileNotFoundError:
+        raise click.ClickException(f"Issue '{issue_id}' not found.")
+
+    # Clean up worktrees for this issue
+    worktrees_dir = jig_dir / "worktrees" / issue_id
+    if worktrees_dir.is_dir():
+        for phase_dir in worktrees_dir.iterdir():
+            if phase_dir.is_dir():
+                try:
+                    asyncio.run(remove_worktree(path, issue_id, phase_dir.name))
+                    click.echo(f"  Removed worktree: {phase_dir.name}")
+                except RuntimeError:
+                    click.echo(f"  Warning: could not remove worktree {phase_dir.name}")
+
+    click.echo(f"Issue {issue_id} validated.")

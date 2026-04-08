@@ -150,3 +150,49 @@ class TestStart:
         ])
         assert result.exit_code != 0
         assert "not initialized" in result.output.lower()
+
+
+import subprocess
+
+
+class TestValidate:
+    @pytest.fixture
+    def git_jig_project(self, tmp_path: Path) -> Path:
+        """A real git repo with .jig/ initialized."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True, capture_output=True)
+        (repo / "README.md").write_text("# Test\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "checkout", "-b", "main"], cwd=repo, capture_output=True)
+
+        # Initialize jig
+        result = CliRunner().invoke(cli, ["init", "--path", str(repo)])
+        assert result.exit_code == 0
+
+        # Commit .jig
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "jig init"], cwd=repo, check=True, capture_output=True)
+
+        # Create a completed issue
+        save_issue(repo, Issue(
+            id="issue-1", title="Test", status=IssueStatus.COMPLETED, current_phase="spec",
+        ))
+
+        return repo
+
+    def test_validates_issue(self, runner: CliRunner, git_jig_project: Path):
+        result = runner.invoke(cli, [
+            "validate", "--path", str(git_jig_project), "--issue-id", "issue-1",
+        ])
+        assert result.exit_code == 0
+        assert "validated" in result.output.lower()
+
+    def test_nonexistent_issue(self, runner: CliRunner, tmp_jig_project: Path):
+        result = runner.invoke(cli, [
+            "validate", "--path", str(tmp_jig_project), "--issue-id", "nope",
+        ])
+        assert result.exit_code != 0

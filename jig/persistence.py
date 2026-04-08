@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from jig.models import ProjectConfig, Issue, Message, AgentTypeConfig
+from jig.models import ProjectConfig, Issue, Message, AgentTypeConfig, Task
 
 
 def _jig_dir(project_path: Path) -> Path:
@@ -164,3 +164,22 @@ def save_default_agent_types(project_path: Path) -> None:
     ]
     for config in defaults:
         save_agent_type(project_path, config)
+
+
+def save_task(project_path: Path, issue_id: str, task: Task) -> None:
+    """Save a task to .jig/issues/<issue_id>/tasks/<task_id>.yaml."""
+    tasks_dir = _jig_dir(project_path) / "issues" / issue_id / "tasks"
+    tasks_dir.mkdir(exist_ok=True)
+    task_path = tasks_dir / f"{task.id}.yaml"
+    task_path.write_text(
+        yaml.dump(task.model_dump(mode="json"), default_flow_style=False)
+    )
+
+
+def load_task(project_path: Path, issue_id: str, task_id: str) -> Task:
+    """Load a task from .jig/issues/<issue_id>/tasks/<task_id>.yaml."""
+    task_path = _jig_dir(project_path) / "issues" / issue_id / "tasks" / f"{task_id}.yaml"
+    if not task_path.is_file():
+        raise FileNotFoundError(f"Task {task_id} not found in issue {issue_id}")
+    data = yaml.safe_load(task_path.read_text())
+    return Task.model_validate(data)

@@ -201,3 +201,50 @@ class TestDefaultAgentTypes:
         for name in ("spec", "test", "dev", "review"):
             config = load_agent_type(tmp_jig_project, name)
             assert len(config.default_context) > 0
+
+
+from jig.models import Task, CompletionState
+from jig.persistence import save_task, load_task
+
+
+class TestTaskPersistence:
+    def test_save_and_load(self, tmp_jig_project: Path):
+        issue = Issue(id="issue-1", title="Test")
+        save_issue(tmp_jig_project, issue)
+        task = Task(
+            id="task-1",
+            description="Implement feature",
+            acceptance_criteria="Tests pass",
+            agent_type="dev",
+        )
+        save_task(tmp_jig_project, "issue-1", task)
+        loaded = load_task(tmp_jig_project, "issue-1", "task-1")
+        assert loaded.id == "task-1"
+        assert loaded.description == "Implement feature"
+        assert loaded.agent_type == "dev"
+
+    def test_saves_to_correct_path(self, tmp_jig_project: Path):
+        issue = Issue(id="issue-1", title="Test")
+        save_issue(tmp_jig_project, issue)
+        task = Task(id="task-1", description="Do thing", acceptance_criteria="Done", agent_type="dev")
+        save_task(tmp_jig_project, "issue-1", task)
+        task_path = tmp_jig_project / ".jig" / "issues" / "issue-1" / "tasks" / "task-1.yaml"
+        assert task_path.is_file()
+
+    def test_update_with_completion(self, tmp_jig_project: Path):
+        issue = Issue(id="issue-1", title="Test")
+        save_issue(tmp_jig_project, issue)
+        task = Task(id="task-1", description="Do thing", acceptance_criteria="Done", agent_type="dev")
+        save_task(tmp_jig_project, "issue-1", task)
+        task.completion_state = CompletionState.SUCCESS
+        task.completion_reason = "All tests pass"
+        save_task(tmp_jig_project, "issue-1", task)
+        loaded = load_task(tmp_jig_project, "issue-1", "task-1")
+        assert loaded.completion_state == CompletionState.SUCCESS
+        assert loaded.completion_reason == "All tests pass"
+
+    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
+        issue = Issue(id="issue-1", title="Test")
+        save_issue(tmp_jig_project, issue)
+        with pytest.raises(FileNotFoundError):
+            load_task(tmp_jig_project, "issue-1", "nope")

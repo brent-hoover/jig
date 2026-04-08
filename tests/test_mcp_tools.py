@@ -101,3 +101,23 @@ class TestHandleRequestContext:
             args={"path": "nonexistent.py"},
         )
         assert "not found" in result.lower()
+
+
+from jig.mcp_tools import create_jig_mcp_server
+
+
+class TestCreateJigMcpServer:
+    def test_returns_server_config(self, tmp_jig_project: Path):
+        save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
+        task = Task(id="task-1", description="Do", acceptance_criteria="Done", agent_type="dev")
+        save_task(tmp_jig_project, "issue-1", task)
+        bus = MessageBus(tmp_jig_project)
+        server = create_jig_mcp_server(
+            bus=bus,
+            project_path=tmp_jig_project,
+            issue_id="issue-1",
+            task_id="task-1",
+            agent_name="dev-agent",
+            worktree_path=tmp_jig_project,
+        )
+        assert server is not None

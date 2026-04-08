@@ -231,3 +231,54 @@ class TestOrchestratorErrorHandling:
 
         issue = load_issue(git_project_full_workflow, "issue-1")
         assert issue.status == IssueStatus.FAILED
+
+
+class TestOrchestratorResume:
+    @patch("jig.orchestrator.run_agent")
+    async def test_resumes_from_last_completed_phase(self, mock_run_agent, git_project_full_workflow: Path):
+        """If spec phase was completed, resume from test phase."""
+        mock_run_agent.return_value = "Done"
+
+        # Simulate spec phase already completed
+        issue = load_issue(git_project_full_workflow, "issue-1")
+        issue.current_phase = "spec"
+        issue.status = IssueStatus.IN_PROGRESS
+        save_issue(git_project_full_workflow, issue)
+
+        task = Task(
+            id="spec",
+            description="Spec phase",
+            acceptance_criteria="Done",
+            agent_type="spec",
+            completion_state=CompletionState.SUCCESS,
+            completion_reason="Design doc written",
+        )
+        save_task(git_project_full_workflow, "issue-1", task)
+
+        orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
+        await orchestrator.run()
+
+        # Should only run 3 remaining phases (test, implement, review)
+        assert mock_run_agent.call_count == 3
+        agent_types = [
+            call.kwargs["agent_type"].name
+            for call in mock_run_agent.call_args_list
+        ]
+        assert agent_types == ["test", "dev", "review"]
+
+    @patch("jig.orchestrator.run_agent")
+    async def test_resumes_incomplete_phase(self, mock_run_agent, git_project_full_workflow: Path):
+        """If spec phase started but task not completed, re-run it."""
+        mock_run_agent.return_value = "Done"
+
+        # Simulate spec phase started but no task completion
+        issue = load_issue(git_project_full_workflow, "issue-1")
+        issue.current_phase = "spec"
+        issue.status = IssueStatus.IN_PROGRESS
+        save_issue(git_project_full_workflow, issue)
+
+        orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
+        await orchestrator.run()
+
+        # Should run all 4 phases (spec re-run + test + implement + review)
+        assert mock_run_agent.call_count == 4

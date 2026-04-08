@@ -67,13 +67,20 @@ class Orchestrator:
 
         agent_type = load_agent_type(self._project_path, phase.agent_type)
 
-        # Clean up any existing worktree from a prior incomplete run
+        # Clean up any existing worktree/branch from a prior incomplete run
         worktree_path = self._project_path / ".jig" / "worktrees" / self._issue_id / phase.name.value
+        branch_name = f"jig/{self._issue_id}/{phase.name.value}"
         if worktree_path.exists():
             try:
                 await remove_worktree(self._project_path, self._issue_id, phase.name.value)
             except RuntimeError:
                 pass
+        # Also try deleting the branch in case worktree was already removed but branch lingers
+        try:
+            from jig.worktree import _run_git
+            await _run_git(self._project_path, "branch", "-D", branch_name)
+        except RuntimeError:
+            pass  # Branch doesn't exist, that's fine
 
         # Create worktree
         worktree_path = await create_worktree(

@@ -248,3 +248,60 @@ class TestTaskPersistence:
         save_issue(tmp_jig_project, issue)
         with pytest.raises(FileNotFoundError):
             load_task(tmp_jig_project, "issue-1", "nope")
+
+
+from jig.models import WorkflowPhase, PhaseConfig, WorkflowConfig
+from jig.persistence import save_workflow, load_workflow, save_default_workflow
+
+
+class TestWorkflowPersistence:
+    def test_save_and_load(self, tmp_jig_project: Path):
+        workflow = WorkflowConfig(
+            name="custom",
+            phases=[
+                PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
+                PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
+            ],
+        )
+        save_workflow(tmp_jig_project, workflow)
+        loaded = load_workflow(tmp_jig_project, "custom")
+        assert loaded.name == "custom"
+        assert len(loaded.phases) == 2
+
+    def test_saves_to_correct_path(self, tmp_jig_project: Path):
+        workflow = WorkflowConfig(
+            name="custom",
+            phases=[PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec")],
+        )
+        save_workflow(tmp_jig_project, workflow)
+        path = tmp_jig_project / ".jig" / "workflows" / "custom.yaml"
+        assert path.is_file()
+
+    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
+        with pytest.raises(FileNotFoundError):
+            load_workflow(tmp_jig_project, "nope")
+
+
+class TestDefaultWorkflow:
+    def test_creates_default(self, tmp_jig_project: Path):
+        save_default_workflow(tmp_jig_project)
+        workflow = load_workflow(tmp_jig_project, "default")
+        assert workflow.name == "default"
+        phase_names = [p.name for p in workflow.phases]
+        assert phase_names == [
+            WorkflowPhase.SPEC,
+            WorkflowPhase.TEST,
+            WorkflowPhase.IMPLEMENT,
+            WorkflowPhase.REVIEW,
+        ]
+
+    def test_agent_types_correct(self, tmp_jig_project: Path):
+        save_default_workflow(tmp_jig_project)
+        workflow = load_workflow(tmp_jig_project, "default")
+        agent_types = {p.name.value: p.agent_type for p in workflow.phases}
+        assert agent_types == {
+            "spec": "spec",
+            "test": "test",
+            "implement": "dev",
+            "review": "review",
+        }

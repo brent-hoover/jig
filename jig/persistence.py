@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from jig.models import ProjectConfig, Issue, Message, AgentTypeConfig, Task
+from jig.models import ProjectConfig, Issue, Message, AgentTypeConfig, Task, WorkflowConfig, PhaseConfig, WorkflowPhase
 
 
 def _jig_dir(project_path: Path) -> Path:
@@ -164,6 +164,37 @@ def save_default_agent_types(project_path: Path) -> None:
     ]
     for config in defaults:
         save_agent_type(project_path, config)
+
+
+def save_workflow(project_path: Path, workflow: WorkflowConfig) -> None:
+    """Save a workflow config to .jig/workflows/<name>.yaml."""
+    wf_path = _jig_dir(project_path) / "workflows" / f"{workflow.name}.yaml"
+    wf_path.write_text(
+        yaml.dump(workflow.model_dump(mode="json"), default_flow_style=False)
+    )
+
+
+def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
+    """Load a workflow config from .jig/workflows/<name>.yaml."""
+    wf_path = _jig_dir(project_path) / "workflows" / f"{name}.yaml"
+    if not wf_path.is_file():
+        raise FileNotFoundError(f"Workflow '{name}' not found")
+    data = yaml.safe_load(wf_path.read_text())
+    return WorkflowConfig.model_validate(data)
+
+
+def save_default_workflow(project_path: Path) -> None:
+    """Create the default v1 linear workflow."""
+    workflow = WorkflowConfig(
+        name="default",
+        phases=[
+            PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
+            PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
+            PhaseConfig(name=WorkflowPhase.IMPLEMENT, agent_type="dev"),
+            PhaseConfig(name=WorkflowPhase.REVIEW, agent_type="review"),
+        ],
+    )
+    save_workflow(project_path, workflow)
 
 
 def save_task(project_path: Path, issue_id: str, task: Task) -> None:

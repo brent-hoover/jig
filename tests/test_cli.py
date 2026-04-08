@@ -84,3 +84,15 @@ class TestInitCreatesAgentTypes:
         types = list_agent_types(tmp_project)
         names = {t.name for t in types}
         assert names == {"spec", "test", "dev", "review"}
+
+
+from jig.persistence import load_workflow
+
+
+class TestInitCreatesWorkflow:
+    def test_init_creates_default_workflow(self, runner: CliRunner, tmp_project: Path):
+        result = runner.invoke(cli, ["init", "--path", str(tmp_project)])
+        assert result.exit_code == 0
+        workflow = load_workflow(tmp_project, "default")
+        assert workflow.name == "default"
+        assert len(workflow.phases) == 4

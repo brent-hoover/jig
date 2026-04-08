@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from jig.models import ProjectConfig, Issue, Message
+from jig.models import ProjectConfig, Issue, Message, AgentTypeConfig
 
 
 def _jig_dir(project_path: Path) -> Path:
@@ -88,3 +88,30 @@ def load_messages(project_path: Path, issue_id: str) -> list[Message]:
         if line.strip():
             messages.append(Message.model_validate_json(line))
     return messages
+
+
+def save_agent_type(project_path: Path, config: AgentTypeConfig) -> None:
+    """Save an agent type config to .jig/agent_types/<name>.yaml."""
+    type_path = _jig_dir(project_path) / "agent_types" / f"{config.name}.yaml"
+    type_path.write_text(
+        yaml.dump(config.model_dump(), default_flow_style=False)
+    )
+
+
+def load_agent_type(project_path: Path, name: str) -> AgentTypeConfig:
+    """Load an agent type config from .jig/agent_types/<name>.yaml."""
+    type_path = _jig_dir(project_path) / "agent_types" / f"{name}.yaml"
+    if not type_path.is_file():
+        raise FileNotFoundError(f"Agent type '{name}' not found")
+    data = yaml.safe_load(type_path.read_text())
+    return AgentTypeConfig.model_validate(data)
+
+
+def list_agent_types(project_path: Path) -> list[AgentTypeConfig]:
+    """List all agent type configs in .jig/agent_types/."""
+    types_dir = _jig_dir(project_path) / "agent_types"
+    configs = []
+    for yaml_file in sorted(types_dir.glob("*.yaml")):
+        data = yaml.safe_load(yaml_file.read_text())
+        configs.append(AgentTypeConfig.model_validate(data))
+    return configs

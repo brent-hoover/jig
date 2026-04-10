@@ -4,7 +4,18 @@ from pathlib import Path
 
 import yaml
 
-from jig.models import ProjectConfig, ProjectContext, Issue, Message, AgentTypeConfig, Task, WorkflowConfig, PhaseConfig, WorkflowPhase
+from jig.models import (
+    AgentTypeConfig,
+    Issue,
+    Message,
+    PhaseConfig,
+    PhaseHistoryEntry,
+    ProjectConfig,
+    ProjectContext,
+    Task,
+    WorkflowConfig,
+    WorkflowPhase,
+)
 
 
 def _jig_dir(project_path: Path) -> Path:
@@ -213,3 +224,31 @@ def load_task(project_path: Path, issue_id: str, task_id: str) -> Task:
         raise FileNotFoundError(f"Task {task_id} not found in issue {issue_id}")
     data = yaml.safe_load(task_path.read_text())
     return Task.model_validate(data)
+
+
+def _phase_history_path(project_path: Path, issue_id: str) -> Path:
+    return _jig_dir(project_path) / "issues" / issue_id / "phase_history.jsonl"
+
+
+def append_phase_history(project_path: Path, issue_id: str, entry: PhaseHistoryEntry) -> None:
+    """Append a phase history entry to .jig/issues/<id>/phase_history.jsonl.
+
+    The file is append-only so each entry is durable on its own line, and the
+    history can be replayed in order across orchestrator restarts.
+    """
+    path = _phase_history_path(project_path, issue_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(entry.model_dump_json() + "\n")
+
+
+def load_phase_history(project_path: Path, issue_id: str) -> list[PhaseHistoryEntry]:
+    """Load all phase history entries for an issue, in append order."""
+    path = _phase_history_path(project_path, issue_id)
+    if not path.is_file():
+        return []
+    entries = []
+    for line in path.read_text().splitlines():
+        if line.strip():
+            entries.append(PhaseHistoryEntry.model_validate_json(line))
+    return entries

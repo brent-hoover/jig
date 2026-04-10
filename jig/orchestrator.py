@@ -13,13 +13,16 @@ from jig.models import (
     Issue,
     IssueStatus,
     PhaseConfig,
+    PhaseHistoryEntry,
     ProjectContext,
     Task,
     WorkflowConfig,
 )
 from jig.persistence import (
+    append_phase_history,
     load_agent_type,
     load_issue,
+    load_phase_history,
     load_project_context,
     load_task,
     load_workflow,
@@ -56,7 +59,16 @@ class Orchestrator:
         workflow = load_workflow(self._project_path, self._workflow_name)
         issue = load_issue(self._project_path, self._issue_id)
         self._project_context = load_project_context(self._project_path)
+
+        # Load persisted phase history so resumed runs see what previous
+        # invocations already accomplished. Set _last_branch to the most
+        # recent successful phase's branch (if any) so worktrees chain.
+        persisted = load_phase_history(self._project_path, self._issue_id)
+        self._phase_history = [self._entry_to_dict(e) for e in persisted]
         self._last_branch = issue.base_branch
+        for entry in persisted:
+            if entry.result == "success" and entry.branch:
+                self._last_branch = entry.branch
 
         issue.status = IssueStatus.IN_PROGRESS
         save_issue(self._project_path, issue)
@@ -95,11 +107,12 @@ class Orchestrator:
             phase_config = self._find_phase(workflow, phase_name)
             if not phase_config:
                 await self._emit("orchestrator_info", {"message": f"Unknown phase '{phase_name}', skipping"})
-                self._phase_history.append({
-                    "phase": phase_name,
-                    "result": "error",
-                    "reason": f"Phase '{phase_name}' not found in workflow",
-                })
+                self._record_history(PhaseHistoryEntry(
+                    phase=phase_name,
+                    agent_type="",
+                    result="error",
+                    reason=f"Phase '{phase_name}' not found in workflow",
+                ))
                 continue
 
             # Determine base branch — use last successful branch or issue base
@@ -109,7 +122,13 @@ class Orchestrator:
             extra_context = decision.get("context_for_agent", "")
 
             result = await self._execute_phase(phase_config, issue, base_branch, extra_context)
-            self._phase_history.append(result)
+            self._record_history(PhaseHistoryEntry(
+                phase=result["phase"],
+                agent_type=phase_config.agent_type,
+                result=result["result"],
+                branch=result["branch"],
+                reason=result.get("reason", ""),
+            ))
 
             if result["result"] == "success":
                 self._last_branch = result["branch"]
@@ -151,6 +170,22 @@ class Orchestrator:
                 return phase
         return None
 
+    @staticmethod
+    def _entry_to_dict(entry: PhaseHistoryEntry) -> dict:
+        """Project a PhaseHistoryEntry to the dict shape used by the LLM prompt."""
+        return {
+            "phase": entry.phase,
+            "agent_type": entry.agent_type,
+            "result": entry.result,
+            "branch": entry.branch,
+            "reason": entry.reason,
+        }
+
+    def _record_history(self, entry: PhaseHistoryEntry) -> None:
+        """Append a phase result to in-memory history and durable storage."""
+        self._phase_history.append(self._entry_to_dict(entry))
+        append_phase_history(self._project_path, self._issue_id, entry)
+
     async def _decide_next_phase(self, workflow: WorkflowConfig, issue: Issue) -> dict:
         """Ask the orchestrator LLM to decide what phase to run next."""
         phases_list = [
@@ -158,17 +193,37 @@ class Orchestrator:
             for p in workflow.phases
         ]
 
+        # Build a status view: which phases are already successful, which
+        # have failed/needed-info, which are untouched. This is what keeps
+        # resume deterministic — the LLM sees exactly what's done.
+        successful = {
+            h["phase"] for h in self._phase_history if h.get("result") == "success"
+        }
+        phase_status_lines = []
+        for p in workflow.phases:
+            name = p.name.value
+            if name in successful:
+                marker = "DONE"
+            else:
+                last = next(
+                    (h for h in reversed(self._phase_history) if h.get("phase") == name),
+                    None,
+                )
+                marker = (last.get("result") if last else "pending").upper()
+            phase_status_lines.append(f"  - {name} ({p.agent_type}): {marker}")
+        phase_status = "\n".join(phase_status_lines)
+
         prompt = f"""You are the orchestrator for a software development workflow.
 
 ## Issue
 - **ID**: {issue.id}
 - **Title**: {issue.title}
-- **Description**: {issue.description or 'No description'}
+- **Description**: {issue.description or '(no description provided — proceed using the title)'}
 
-## Available Phases
-{json.dumps(phases_list, indent=2)}
+## Workflow Phases (declared order, with current status)
+{phase_status}
 
-## Phase History (what has been executed so far)
+## Phase History (full record of attempts in chronological order)
 {json.dumps(self._phase_history, indent=2) if self._phase_history else "No phases executed yet."}
 
 ## Your Job
@@ -177,15 +232,19 @@ Decide what to do next. You MUST respond with a valid JSON object (and nothing e
 - `action`: one of "run_phase", "done", "fail", "pause"
 - `phase`: (required if action is "run_phase") the phase name to execute next
 - `reasoning`: brief explanation of your decision
-- `context_for_agent`: (optional) additional instructions or context to pass to the agent for this phase, especially if this is a retry due to a prior failure
+- `context_for_agent`: (optional) extra instructions for the agent, especially for retries after failure
 
-## Rules
-- Follow the workflow order (spec → test → implement → review → validate → document) for the initial pass
-- If a phase failed, you may route back to an earlier phase to fix the issue. Include context_for_agent explaining what needs to be fixed
-- If the same phase has failed 3+ times, consider failing the workflow
-- When all phases have completed successfully, return action "done"
-- If you need user input to proceed, return action "pause" with reasoning
-- Be concise in reasoning
+## Hard rules (these are not negotiable)
+1. **Never pick a phase whose status is DONE.** Those phases are already complete; re-running them wastes work and corrupts state.
+2. **If the most recent entry in Phase History has `result: needs_info`, return action `"pause"`** with that entry's reason. `needs_info` is an agent telling you it needs input from the human user — you cannot route around it; only the user can resolve it.
+3. **Never pause on your own initiative for a missing issue description.** If the description is empty, use the title and proceed. Pausing is only valid for rule 2.
+4. **Do not return `"done"` while any phase still has status PENDING.** Every declared phase must reach DONE status before the workflow is complete. "validate" is not the end of the pipeline — check the declared list above. If you see pending phases, pick one.
+5. If a phase has the same failure 3+ times in history, return action `"fail"` with the reason.
+
+## Routing guidance (use judgment within these defaults)
+- The declared workflow order is the default forward path. On a happy initial pass, walk it in order until every phase is DONE.
+- After a `failed` or `blocked` result you may route back to an earlier phase to fix the underlying issue — include `context_for_agent` describing what needs to change.
+- Skipping a phase is only acceptable if you have a concrete, specific reason the issue does not need it. Default to running every declared phase.
 
 Respond with ONLY the JSON object, no markdown fences, no explanation outside the JSON."""
 

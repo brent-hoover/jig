@@ -11,6 +11,7 @@ from jig.models import (
     Issue,
     IssueStatus,
     PhaseConfig,
+    PhaseHistoryEntry,
     ProjectConfig,
     Task,
     WorkflowConfig,
@@ -18,7 +19,9 @@ from jig.models import (
 )
 from jig.orchestrator import Orchestrator, OrchestratorPaused, OrchestratorFailed
 from jig.persistence import (
+    append_phase_history,
     load_issue,
+    load_phase_history,
     load_task,
     save_agent_type,
     save_issue,
@@ -241,21 +244,31 @@ class TestOrchestratorResume:
         """If spec phase was completed, resume from test phase."""
         mock_run_agent.return_value = "Done"
 
-        # Simulate spec phase already completed
+        # Simulate spec phase already completed: create the spec branch
+        # the prior run would have produced and persist a success entry.
+        subprocess.run(
+            ["git", "branch", "jig/issue-1/spec"],
+            cwd=git_project_full_workflow,
+            check=True,
+            capture_output=True,
+        )
+
         issue = load_issue(git_project_full_workflow, "issue-1")
         issue.current_phase = "spec"
         issue.status = IssueStatus.IN_PROGRESS
         save_issue(git_project_full_workflow, issue)
 
-        task = Task(
-            id="spec",
-            description="Spec phase",
-            acceptance_criteria="Done",
-            agent_type="spec",
-            completion_state=CompletionState.SUCCESS,
-            completion_reason="Design doc written",
+        append_phase_history(
+            git_project_full_workflow,
+            "issue-1",
+            PhaseHistoryEntry(
+                phase="spec",
+                agent_type="spec",
+                result="success",
+                branch="jig/issue-1/spec",
+                reason="Design doc written",
+            ),
         )
-        save_task(git_project_full_workflow, "issue-1", task)
 
         orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
         await orchestrator.run()

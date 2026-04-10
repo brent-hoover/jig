@@ -112,3 +112,13 @@ class PhaseConfig(BaseModel):
 class WorkflowConfig(BaseModel):
     name: str
     phases: list[PhaseConfig]
+
+
+class PhaseHistoryEntry(BaseModel):
+    """A persisted record of a phase execution attempt."""
+    phase: str
+    agent_type: str
+    result: str  # "success", "needs_info", "blocked", "failed", "error"
+    branch: str | None = None
+    reason: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

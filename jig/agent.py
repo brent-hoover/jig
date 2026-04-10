@@ -143,6 +143,13 @@ async def run_agent(
     if issue:
         prompt_parts.append(_build_issue_section(issue))
 
+    # Inject agent memories if available
+    if agent_instance and agent_instance.memory:
+        memory_lines = "\n".join(f"- {m}" for m in agent_instance.memory)
+        prompt_parts.append(
+            f"## Your Memories (from previous sessions)\n\n{memory_lines}\n\n"
+        )
+
     prompt_parts.append(
         f"## Task\n\n{task.description}\n\n"
         f"## Acceptance Criteria\n\n{task.acceptance_criteria}\n\n"

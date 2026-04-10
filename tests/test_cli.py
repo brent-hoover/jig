@@ -31,10 +31,30 @@ class TestInit:
         assert result.exit_code != 0
         assert "already" in result.output.lower()
 
-    def test_not_git_repo(self, runner: CliRunner, tmp_path: Path):
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)])
+    def test_not_git_repo_no_input_errors(self, runner: CliRunner, tmp_path: Path):
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code != 0
         assert "git" in result.output.lower()
+
+    def test_not_git_repo_prompt_accept_creates_repo(
+        self, runner: CliRunner, tmp_path: Path
+    ):
+        # "y" to confirm git init, then blank lines to accept project-context defaults
+        result = runner.invoke(
+            cli, ["init", "--path", str(tmp_path)], input="y\n" + "\n" * 20
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / ".git").is_dir()
+        assert (tmp_path / ".jig").is_dir()
+        assert "Initialized empty git repository" in result.output
+
+    def test_not_git_repo_prompt_decline_aborts(
+        self, runner: CliRunner, tmp_path: Path
+    ):
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="n\n")
+        assert result.exit_code != 0
+        assert not (tmp_path / ".jig").exists()
+        assert "Aborted" in result.output
 
 
 from jig.models import Issue, IssueStatus

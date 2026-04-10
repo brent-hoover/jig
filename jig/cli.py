@@ -47,6 +47,23 @@ def _detect_branch(path: Path) -> str:
 @click.option("--no-input", is_flag=True, help="Skip interactive prompts.")
 def init(path: Path, branch: str | None, no_input: bool) -> None:
     """Initialize .jig/ in a project."""
+    if not (path / ".git").is_dir():
+        if no_input:
+            raise click.ClickException(
+                f"{path} is not a git repository. Run 'git init' first, or omit --no-input to be prompted."
+            )
+        if not click.confirm(
+            f"{path} is not a git repository. Initialize one?", default=True
+        ):
+            raise click.ClickException("Aborted: jig requires a git repository.")
+        init_branch = branch or "main"
+        result = subprocess.run(
+            ["git", "init", "-b", init_branch], cwd=path, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise click.ClickException(f"git init failed: {result.stderr.strip()}")
+        click.echo(f"Initialized empty git repository in {path} (branch: {init_branch})")
+
     if branch is None:
         branch = _detect_branch(path)
     try:

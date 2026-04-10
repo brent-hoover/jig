@@ -93,3 +93,9 @@ class MessageBus:
         results = await self._collection.find_where(topic=topic)
         results.sort(key=lambda m: m.timestamp)
         return results[-limit:]
+
+    async def add_websocket_listener(
+        self, callback: Callable[[Message], Awaitable[None]]
+    ) -> None:
+        async with self._lock:
+            self._listeners.append(callback)

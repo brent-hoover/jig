@@ -177,3 +177,72 @@ async def test_bus_get_history_respects_limit(tmp_path):
         ))
     history = await bus.get_history("JIG-1", limit=2)
     assert [m.payload["i"] for m in history] == [3, 4]
+
+
+async def test_bus_websocket_listener_fires_on_publish(tmp_path):
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    await bus.load()
+    received: list[Message] = []
+
+    async def listener(msg: Message) -> None:
+        received.append(msg)
+
+    await bus.add_websocket_listener(listener)
+    await bus.publish(Message(
+        sender="a", to="b", type=MessageType.STATUS,
+        payload={}, topic="JIG-1",
+    ))
+    assert len(received) == 1 and received[0].sender == "a"
+
+
+async def test_bus_raising_listener_does_not_break_delivery(tmp_path):
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    await bus.load()
+    queue = await bus.subscribe("JIG-1")
+
+    async def broken(msg: Message) -> None:
+        raise RuntimeError("boom")
+
+    await bus.add_websocket_listener(broken)
+    # Publish should not raise
+    await bus.publish(Message(
+        sender="a", to="b", type=MessageType.STATUS,
+        payload={}, topic="JIG-1",
+    ))
+    received = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert received.sender == "a"
+
+
+async def test_bus_load_does_not_replay_to_queues(tmp_path):
+    path = tmp_path / "messages.jsonl"
+    bus1 = MessageBus(path)
+    await bus1.load()
+    await bus1.publish(Message(
+        sender="a", to="b", type=MessageType.STATUS,
+        payload={}, topic="JIG-1",
+    ))
+
+    bus2 = MessageBus(path)
+    await bus2.load()
+    queue = await bus2.subscribe("JIG-1")
+    # No new message has been published on bus2
+    assert queue.empty()
+
+
+async def test_bus_crash_recovery_via_get_history(tmp_path):
+    path = tmp_path / "messages.jsonl"
+    bus1 = MessageBus(path)
+    await bus1.load()
+    await bus1.publish(Message(
+        sender="a", to="b", type=MessageType.STATUS,
+        payload={"i": 1}, topic="JIG-1",
+    ))
+    await bus1.publish(Message(
+        sender="a", to="b", type=MessageType.STATUS,
+        payload={"i": 2}, topic="JIG-1",
+    ))
+
+    bus2 = MessageBus(path)
+    await bus2.load()
+    history = await bus2.get_history("JIG-1")
+    assert [m.payload["i"] for m in history] == [1, 2]

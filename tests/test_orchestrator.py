@@ -15,7 +15,6 @@ from jig.models import (
     ProjectConfig,
     Task,
     WorkflowConfig,
-    WorkflowPhase,
 )
 from jig.orchestrator import Orchestrator, OrchestratorPaused, OrchestratorFailed
 from jig.persistence import (
@@ -54,13 +53,13 @@ def git_project(tmp_path: Path) -> Path:
 
     # Add agent type
     save_agent_type(repo, AgentTypeConfig(
-        name="spec", system_prompt="Spec agent.", allowed_tools=["Read"],
+        role="spec", system_prompt="Spec agent.", allowed_tools=["Read"],
     ))
 
     # Add single-phase workflow
     save_workflow(repo, WorkflowConfig(
         name="default",
-        phases=[PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec")],
+        phases=[PhaseConfig(name="spec", role="spec")],
     ))
 
     # Add issue
@@ -84,7 +83,7 @@ class TestOrchestratorSinglePhase:
         mock_run_agent.assert_called_once()
         call_kwargs = mock_run_agent.call_args.kwargs
         assert call_kwargs["issue_id"] == "issue-1"
-        assert call_kwargs["agent_type"].name == "spec"
+        assert call_kwargs["agent_type"].role == "spec"
 
     @patch("jig.orchestrator.run_agent")
     async def test_updates_issue_status_to_completed(self, mock_run_agent, git_project: Path):
@@ -137,20 +136,20 @@ def git_project_full_workflow(tmp_path: Path) -> Path:
     config = ProjectConfig(repo_path=str(repo))
     (jig_dir / "config.yaml").write_text(yaml.dump(config.model_dump(), default_flow_style=False))
 
-    for name in ("spec", "test", "dev", "review", "validate", "document"):
+    for role_name in ("spec", "test", "dev", "review", "validate", "document"):
         save_agent_type(repo, AgentTypeConfig(
-            name=name, system_prompt=f"{name} agent.", allowed_tools=["Read"],
+            role=role_name, system_prompt=f"{role_name} agent.", allowed_tools=["Read"],
         ))
 
     save_workflow(repo, WorkflowConfig(
         name="default",
         phases=[
-            PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
-            PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
-            PhaseConfig(name=WorkflowPhase.IMPLEMENT, agent_type="dev"),
-            PhaseConfig(name=WorkflowPhase.REVIEW, agent_type="review"),
-            PhaseConfig(name=WorkflowPhase.VALIDATE, agent_type="validate"),
-            PhaseConfig(name=WorkflowPhase.DOCUMENT, agent_type="document"),
+            PhaseConfig(name="spec", role="spec"),
+            PhaseConfig(name="test", role="test"),
+            PhaseConfig(name="implement", role="dev"),
+            PhaseConfig(name="review", role="review"),
+            PhaseConfig(name="validate", role="validate"),
+            PhaseConfig(name="document", role="document"),
         ],
     ))
 
@@ -172,7 +171,7 @@ class TestOrchestratorMultiPhase:
 
         assert mock_run_agent.call_count == 6
         agent_types = [
-            call.kwargs["agent_type"].name
+            call.kwargs["agent_type"].role
             for call in mock_run_agent.call_args_list
         ]
         assert agent_types == ["spec", "test", "dev", "review", "validate", "document"]
@@ -276,7 +275,7 @@ class TestOrchestratorResume:
         # Should only run 5 remaining phases (test, implement, review, validate, document)
         assert mock_run_agent.call_count == 5
         agent_types = [
-            call.kwargs["agent_type"].name
+            call.kwargs["agent_type"].role
             for call in mock_run_agent.call_args_list
         ]
         assert agent_types == ["test", "dev", "review", "validate", "document"]

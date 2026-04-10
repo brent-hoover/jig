@@ -16,7 +16,7 @@ class TestRunAgent:
     @pytest.fixture
     def agent_type(self) -> AgentTypeConfig:
         return AgentTypeConfig(
-            name="dev",
+            role="dev",
             system_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )

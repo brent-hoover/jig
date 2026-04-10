@@ -130,7 +130,7 @@ class Orchestrator:
             result = await self._execute_phase(phase_config, issue, base_branch, extra_context)
             self._record_history(PhaseHistoryEntry(
                 phase=result["phase"],
-                agent_type=phase_config.agent_type,
+                agent_type=phase_config.role,
                 result=result["result"],
                 branch=result["branch"],
                 reason=result.get("reason", ""),
@@ -172,7 +172,7 @@ class Orchestrator:
     def _find_phase(self, workflow: WorkflowConfig, phase_name: str) -> PhaseConfig | None:
         """Find a phase config by name."""
         for phase in workflow.phases:
-            if phase.name.value == phase_name:
+            if phase.name == phase_name:
                 return phase
         return None
 
@@ -197,7 +197,7 @@ class Orchestrator:
             first = workflow.phases[0]
             return {
                 "action": "run_phase",
-                "phase": first.name.value,
+                "phase": first.name,
                 "reasoning": "Starting the workflow at the first declared phase.",
             }
 
@@ -237,10 +237,10 @@ class Orchestrator:
         # Run the first declared phase that has no success entry yet.
         successful = {h.get("phase") for h in history if h.get("result") == "success"}
         for phase in workflow.phases:
-            if phase.name.value not in successful:
+            if phase.name not in successful:
                 return {
                     "action": "run_phase",
-                    "phase": phase.name.value,
+                    "phase": phase.name,
                     "reasoning": f"Advancing to next pending phase after {last_phase} succeeded.",
                 }
 
@@ -285,7 +285,7 @@ class Orchestrator:
         }
         phase_status_lines = []
         for p in workflow.phases:
-            name = p.name.value
+            name = p.name
             if name in successful:
                 marker = "DONE"
             else:
@@ -294,7 +294,7 @@ class Orchestrator:
                     None,
                 )
                 marker = (entry.get("result") if entry else "pending").upper()
-            phase_status_lines.append(f"  - {name} ({p.agent_type}): {marker}")
+            phase_status_lines.append(f"  - {name} ({p.role}): {marker}")
         phase_status = "\n".join(phase_status_lines)
 
         prompt = f"""You are the orchestrator for a software development workflow. A phase just failed and you need to decide how to recover.
@@ -373,19 +373,19 @@ Respond with ONLY the JSON object, no markdown fences, no explanation outside th
 
     async def _execute_phase(self, phase: PhaseConfig, issue: Issue, base_branch: str, extra_context: str = "") -> dict:
         """Execute a single workflow phase. Returns a result dict for history."""
-        issue.current_phase = phase.name.value
+        issue.current_phase = phase.name
         save_issue(self._project_path, issue)
-        await self._emit("phase_started", {"phase": phase.name.value, "agent_type": phase.agent_type})
+        await self._emit("phase_started", {"phase": phase.name, "agent_type": phase.role})
 
-        agent_type = load_agent_type(self._project_path, phase.agent_type)
+        agent_type = load_agent_type(self._project_path, phase.role)
 
         # Clean up any existing worktree/branch from a prior run
-        worktree_path = self._project_path / ".jig" / "worktrees" / self._issue_id / phase.name.value
-        branch_name = f"jig/{self._issue_id}/{phase.name.value}"
+        worktree_path = self._project_path / ".jig" / "worktrees" / self._issue_id / phase.name
+        branch_name = f"jig/{self._issue_id}/{phase.name}"
         if worktree_path.exists():
-            await self._emit("orchestrator_info", {"message": f"Cleaning up prior worktree for {phase.name.value}"})
+            await self._emit("orchestrator_info", {"message": f"Cleaning up prior worktree for {phase.name}"})
             try:
-                await remove_worktree(self._project_path, self._issue_id, phase.name.value)
+                await remove_worktree(self._project_path, self._issue_id, phase.name)
             except RuntimeError:
                 pass
         try:
@@ -395,29 +395,29 @@ Respond with ONLY the JSON object, no markdown fences, no explanation outside th
             pass
 
         # Create worktree
-        await self._emit("orchestrator_info", {"message": f"Creating worktree for {phase.name.value} from {base_branch}"})
+        await self._emit("orchestrator_info", {"message": f"Creating worktree for {phase.name} from {base_branch}"})
         worktree_path = await create_worktree(
             self._project_path,
             self._issue_id,
-            phase.name.value,
+            phase.name,
             base_branch,
         )
 
         # Create task — include extra context from orchestrator if this is a retry
-        description = f"Execute {phase.name.value} phase for issue: {issue.title}"
+        description = f"Execute {phase.name} phase for issue: {issue.title}"
         if extra_context:
             description += f"\n\n## Additional Context from Orchestrator\n\n{extra_context}"
 
         task = Task(
-            id=phase.name.value,
+            id=phase.name,
             description=description,
-            acceptance_criteria=f"Complete the {phase.name.value} phase successfully",
-            agent_type=phase.agent_type,
+            acceptance_criteria=f"Complete the {phase.name} phase successfully",
+            agent_type=phase.role,
         )
         save_task(self._project_path, self._issue_id, task)
 
         # Run agent
-        await self._emit("orchestrator_info", {"message": f"Launching {phase.agent_type} agent"})
+        await self._emit("orchestrator_info", {"message": f"Launching {phase.role} agent"})
         await run_agent(
             project_path=self._project_path,
             issue_id=self._issue_id,
@@ -430,15 +430,15 @@ Respond with ONLY the JSON object, no markdown fences, no explanation outside th
         )
 
         # Commit worktree changes
-        await self._emit("orchestrator_info", {"message": f"Committing {phase.name.value} changes"})
-        await commit_worktree(worktree_path, f"{phase.name.value}: {issue.title}")
-        await self._emit("phase_completed", {"phase": phase.name.value})
+        await self._emit("orchestrator_info", {"message": f"Committing {phase.name} changes"})
+        await commit_worktree(worktree_path, f"{phase.name}: {issue.title}")
+        await self._emit("phase_completed", {"phase": phase.name})
 
         # Check completion state
         task = load_task(self._project_path, self._issue_id, task.id)
 
         result = {
-            "phase": phase.name.value,
+            "phase": phase.name,
             "branch": branch_name,
             "completion_state": task.completion_state.value if task.completion_state else "unknown",
             "reason": task.completion_reason or "",

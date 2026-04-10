@@ -102,8 +102,8 @@ class TestInitCreatesAgentTypes:
         result = runner.invoke(cli, ["init", "--path", str(tmp_project), "--no-input"])
         assert result.exit_code == 0
         types = list_agent_types(tmp_project)
-        names = {t.name for t in types}
-        assert names == {"spec", "test", "dev", "review", "validate", "document"}
+        roles = {t.role for t in types}
+        assert roles == {"spec", "test", "dev", "review", "validate", "document"}
 
 
 from jig.persistence import load_workflow

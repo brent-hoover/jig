@@ -31,7 +31,7 @@ from jig.bus import MessageBus
 from jig.events import EventEmitter, JigEvent
 from jig.mcp_tools import create_jig_mcp_server
 from jig.models import AgentTypeConfig, Issue, ProjectContext
-from jig.persistence import load_skills_for_agent, load_task
+from jig.persistence import load_task
 
 
 def _tool_detail(tool_name: str, tool_input: dict) -> str:
@@ -120,7 +120,7 @@ async def run_agent(
     """
     bus = MessageBus(project_path)
     task = load_task(project_path, issue_id, task_id)
-    agent_name = f"{agent_type.name}-{task_id}"
+    agent_name = f"{agent_type.role}-{task_id}"
 
     mcp_server = create_jig_mcp_server(
         bus=bus,
@@ -140,11 +140,6 @@ async def run_agent(
     if issue:
         prompt_parts.append(_build_issue_section(issue))
 
-    # Inject skills
-    skills_text = load_skills_for_agent(agent_type)
-    if skills_text:
-        prompt_parts.append(f"## Skills & Guidelines\n\n{skills_text}\n\n")
-
     prompt_parts.append(
         f"## Task\n\n{task.description}\n\n"
         f"## Acceptance Criteria\n\n{task.acceptance_criteria}\n\n"
@@ -163,7 +158,7 @@ async def run_agent(
     options = ClaudeAgentOptions(
         cwd=str(worktree_path),
         allowed_tools=agent_type.allowed_tools,
-        disallowed_tools=agent_type.denied_tools,
+        disallowed_tools=[],
         system_prompt=agent_type.system_prompt,
         mcp_servers={"jig": mcp_server},
         permission_mode="bypassPermissions",
@@ -176,7 +171,7 @@ async def run_agent(
 
     await _emit("agent_started", {
         "phase": task_id,
-        "agent": agent_type.name,
+        "agent": agent_type.role,
     })
 
     result_text = ""

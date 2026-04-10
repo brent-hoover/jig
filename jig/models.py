@@ -87,26 +87,17 @@ class Message(BaseModel):
 
 
 class AgentTypeConfig(BaseModel):
-    name: str
+    role: str
     system_prompt: str
-    skills: list[str] = []
     allowed_tools: list[str] = []
-    denied_tools: list[str] = []
     default_context: list[str] = []
 
 
-class WorkflowPhase(str, Enum):
-    SPEC = "spec"
-    TEST = "test"
-    IMPLEMENT = "implement"
-    REVIEW = "review"
-    VALIDATE = "validate"
-    DOCUMENT = "document"
-
-
 class PhaseConfig(BaseModel):
-    name: WorkflowPhase
-    agent_type: str
+    name: str
+    role: str
+    task_template: str = ""
+    acceptance_criteria: str = ""
 
 
 class WorkflowConfig(BaseModel):

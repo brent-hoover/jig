@@ -1,14 +1,26 @@
 name: default
 phases:
   - name: spec
-    agent_type: spec
+    role: spec
+    task_template: "Draft a design document for: {issue_title}"
+    acceptance_criteria: "Design doc covers all requirements"
   - name: test
-    agent_type: test
+    role: test
+    task_template: "Write tests based on the design doc for: {issue_title}"
+    acceptance_criteria: "Tests cover specified behavior and edge cases"
   - name: implement
-    agent_type: dev
+    role: dev
+    task_template: "Implement code that passes the tests for: {issue_title}"
+    acceptance_criteria: "All tests pass"
   - name: review
-    agent_type: review
+    role: review
+    task_template: "Review implementation for: {issue_title}"
+    acceptance_criteria: "No critical issues found"
   - name: validate
-    agent_type: validate
+    role: validate
+    task_template: "Validate the implementation for: {issue_title}"
+    acceptance_criteria: "All validation steps pass"
   - name: document
-    agent_type: document
+    role: document
+    task_template: "Update documentation for: {issue_title}"
+    acceptance_criteria: "Documentation reflects all changes"

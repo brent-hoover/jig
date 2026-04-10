@@ -139,25 +139,29 @@ class TestMessage:
         assert restored.id == msg.id
 
 
-from jig.models import WorkflowPhase, PhaseConfig, WorkflowConfig
-
-
-class TestWorkflowPhase:
-    def test_values(self):
-        assert WorkflowPhase.SPEC == "spec"
-        assert WorkflowPhase.TEST == "test"
-        assert WorkflowPhase.IMPLEMENT == "implement"
-        assert WorkflowPhase.REVIEW == "review"
+from jig.models import PhaseConfig, WorkflowConfig
 
 
 class TestPhaseConfig:
     def test_creation(self):
         phase = PhaseConfig(
-            name=WorkflowPhase.SPEC,
-            agent_type="spec",
+            name="spec",
+            role="spec",
         )
         assert phase.name == "spec"
-        assert phase.agent_type == "spec"
+        assert phase.role == "spec"
+        assert phase.task_template == ""
+        assert phase.acceptance_criteria == ""
+
+    def test_with_template(self):
+        phase = PhaseConfig(
+            name="spec",
+            role="spec",
+            task_template="Draft a design document for: {issue_title}",
+            acceptance_criteria="Design doc covers all requirements",
+        )
+        assert phase.task_template == "Draft a design document for: {issue_title}"
+        assert phase.acceptance_criteria == "Design doc covers all requirements"
 
 
 class TestWorkflowConfig:
@@ -165,20 +169,20 @@ class TestWorkflowConfig:
         workflow = WorkflowConfig(
             name="default",
             phases=[
-                PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
-                PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
+                PhaseConfig(name="spec", role="spec"),
+                PhaseConfig(name="test", role="test"),
             ],
         )
         assert workflow.name == "default"
         assert len(workflow.phases) == 2
         assert workflow.phases[0].name == "spec"
-        assert workflow.phases[1].agent_type == "test"
+        assert workflow.phases[1].role == "test"
 
     def test_serialization_roundtrip(self):
         workflow = WorkflowConfig(
             name="default",
             phases=[
-                PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
+                PhaseConfig(name="spec", role="spec"),
             ],
         )
         data = workflow.model_dump()
@@ -193,36 +197,33 @@ from jig.models import AgentTypeConfig
 class TestAgentTypeConfig:
     def test_defaults(self):
         config = AgentTypeConfig(
-            name="dev",
+            role="dev",
             system_prompt="You are a dev agent.",
         )
-        assert config.name == "dev"
+        assert config.role == "dev"
         assert config.system_prompt == "You are a dev agent."
         assert config.allowed_tools == []
-        assert config.denied_tools == []
         assert config.default_context == []
 
     def test_full_config(self):
         config = AgentTypeConfig(
-            name="test",
+            role="test",
             system_prompt="You are a test agent.",
             allowed_tools=["Read", "Bash", "Grep"],
-            denied_tools=["Write"],
             default_context=["issue://design", "**/*_test.py"],
         )
         assert config.allowed_tools == ["Read", "Bash", "Grep"]
-        assert config.denied_tools == ["Write"]
         assert config.default_context == ["issue://design", "**/*_test.py"]
 
     def test_serialization_roundtrip(self):
         config = AgentTypeConfig(
-            name="dev",
+            role="dev",
             system_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
         data = config.model_dump()
         restored = AgentTypeConfig.model_validate(data)
-        assert restored.name == config.name
+        assert restored.role == config.role
         assert restored.allowed_tools == config.allowed_tools
 
 

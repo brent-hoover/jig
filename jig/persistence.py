@@ -14,7 +14,6 @@ from jig.models import (
     ProjectContext,
     Task,
     WorkflowConfig,
-    WorkflowPhase,
 )
 
 
@@ -119,8 +118,8 @@ def load_messages(project_path: Path, issue_id: str) -> list[Message]:
 
 
 def save_agent_type(project_path: Path, config: AgentTypeConfig) -> None:
-    """Save an agent type config to .jig/agent_types/<name>.yaml."""
-    type_path = _jig_dir(project_path) / "agent_types" / f"{config.name}.yaml"
+    """Save an agent type config to .jig/agent_types/<role>.yaml."""
+    type_path = _jig_dir(project_path) / "agent_types" / f"{config.role}.yaml"
     type_path.write_text(
         yaml.dump(config.model_dump(), default_flow_style=False)
     )
@@ -165,20 +164,6 @@ def load_skill(name: str) -> str:
     if not skill_path.is_file():
         return ""
     return skill_path.read_text()
-
-
-def load_skills_for_agent(agent_type: AgentTypeConfig) -> str:
-    """Load and concatenate all skills for an agent type."""
-    if not agent_type.skills:
-        return ""
-    parts = []
-    for skill_name in agent_type.skills:
-        content = load_skill(skill_name)
-        if content:
-            parts.append(content.strip())
-    if not parts:
-        return ""
-    return "\n\n---\n\n".join(parts)
 
 
 def save_workflow(project_path: Path, workflow: WorkflowConfig) -> None:

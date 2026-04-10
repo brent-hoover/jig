@@ -142,18 +142,18 @@ from jig.persistence import save_agent_type, load_agent_type, list_agent_types
 class TestAgentTypePersistence:
     def test_save_and_load(self, tmp_jig_project: Path):
         config = AgentTypeConfig(
-            name="dev",
+            role="dev",
             system_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
         save_agent_type(tmp_jig_project, config)
         loaded = load_agent_type(tmp_jig_project, "dev")
-        assert loaded.name == "dev"
+        assert loaded.role == "dev"
         assert loaded.system_prompt == "You are a dev agent."
         assert loaded.allowed_tools == ["Read", "Edit"]
 
     def test_saves_to_correct_path(self, tmp_jig_project: Path):
-        config = AgentTypeConfig(name="test", system_prompt="Test agent.")
+        config = AgentTypeConfig(role="test", system_prompt="Test agent.")
         save_agent_type(tmp_jig_project, config)
         yaml_path = tmp_jig_project / ".jig" / "agent_types" / "test.yaml"
         assert yaml_path.is_file()
@@ -163,11 +163,11 @@ class TestAgentTypePersistence:
         assert types == []
 
     def test_list_multiple(self, tmp_jig_project: Path):
-        save_agent_type(tmp_jig_project, AgentTypeConfig(name="dev", system_prompt="Dev."))
-        save_agent_type(tmp_jig_project, AgentTypeConfig(name="test", system_prompt="Test."))
+        save_agent_type(tmp_jig_project, AgentTypeConfig(role="dev", system_prompt="Dev."))
+        save_agent_type(tmp_jig_project, AgentTypeConfig(role="test", system_prompt="Test."))
         types = list_agent_types(tmp_jig_project)
-        names = {t.name for t in types}
-        assert names == {"dev", "test"}
+        roles = {t.role for t in types}
+        assert roles == {"dev", "test"}
 
     def test_load_nonexistent_raises(self, tmp_jig_project: Path):
         with pytest.raises(FileNotFoundError):
@@ -181,8 +181,8 @@ class TestDefaultAgentTypes:
     def test_creates_all_types(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)
         types = list_agent_types(tmp_jig_project)
-        names = {t.name for t in types}
-        assert names == {"spec", "test", "dev", "review", "validate", "document"}
+        roles = {t.role for t in types}
+        assert roles == {"spec", "test", "dev", "review", "validate", "document"}
 
     def test_each_has_system_prompt(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)
@@ -250,7 +250,7 @@ class TestTaskPersistence:
             load_task(tmp_jig_project, "issue-1", "nope")
 
 
-from jig.models import WorkflowPhase, PhaseConfig, WorkflowConfig
+from jig.models import PhaseConfig, WorkflowConfig
 from jig.persistence import save_workflow, load_workflow, save_default_workflow
 
 
@@ -259,8 +259,8 @@ class TestWorkflowPersistence:
         workflow = WorkflowConfig(
             name="custom",
             phases=[
-                PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
-                PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
+                PhaseConfig(name="spec", role="spec"),
+                PhaseConfig(name="test", role="test"),
             ],
         )
         save_workflow(tmp_jig_project, workflow)
@@ -271,7 +271,7 @@ class TestWorkflowPersistence:
     def test_saves_to_correct_path(self, tmp_jig_project: Path):
         workflow = WorkflowConfig(
             name="custom",
-            phases=[PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec")],
+            phases=[PhaseConfig(name="spec", role="spec")],
         )
         save_workflow(tmp_jig_project, workflow)
         path = tmp_jig_project / ".jig" / "workflows" / "custom.yaml"
@@ -288,20 +288,13 @@ class TestDefaultWorkflow:
         workflow = load_workflow(tmp_jig_project, "default")
         assert workflow.name == "default"
         phase_names = [p.name for p in workflow.phases]
-        assert phase_names == [
-            WorkflowPhase.SPEC,
-            WorkflowPhase.TEST,
-            WorkflowPhase.IMPLEMENT,
-            WorkflowPhase.REVIEW,
-            WorkflowPhase.VALIDATE,
-            WorkflowPhase.DOCUMENT,
-        ]
+        assert phase_names == ["spec", "test", "implement", "review", "validate", "document"]
 
-    def test_agent_types_correct(self, tmp_jig_project: Path):
+    def test_roles_correct(self, tmp_jig_project: Path):
         save_default_workflow(tmp_jig_project)
         workflow = load_workflow(tmp_jig_project, "default")
-        agent_types = {p.name.value: p.agent_type for p in workflow.phases}
-        assert agent_types == {
+        roles = {p.name: p.role for p in workflow.phases}
+        assert roles == {
             "spec": "spec",
             "test": "test",
             "implement": "dev",

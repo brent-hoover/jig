@@ -66,3 +66,37 @@ async def test_upsert_updates_when_match_exists(tmp_path):
     assert returned_id == original_id
     fetched = await col.get(original_id)
     assert fetched["age"] == 11
+
+
+from jig.store.collection import Database
+
+
+async def test_database_collection_creates_and_caches(tmp_path):
+    db = Database(tmp_path)
+    col1 = await db.collection("agents", index_fields=["status"])
+    col2 = await db.collection("agents")
+    assert col1 is col2
+
+
+async def test_database_collection_file_location(tmp_path):
+    db = Database(tmp_path)
+    await db.collection("agents")
+    assert (tmp_path / "agents.jsonl").exists()
+
+
+async def test_database_collection_mismatched_index_fields_raises(tmp_path):
+    db = Database(tmp_path)
+    await db.collection("agents", index_fields=["status"])
+    with pytest.raises(ValueError, match="already cached"):
+        await db.collection("agents", index_fields=["type"])
+
+
+async def test_database_crash_recovery_round_trip(tmp_path):
+    db1 = Database(tmp_path)
+    col = await db1.collection("agents", index_fields=["status"])
+    doc_id = await col.insert({"name": "a", "status": "on"})
+
+    db2 = Database(tmp_path)
+    col2 = await db2.collection("agents", index_fields=["status"])
+    fetched = await col2.get(doc_id)
+    assert fetched["name"] == "a"

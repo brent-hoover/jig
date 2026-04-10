@@ -72,3 +72,40 @@ class Collection:
             await self.update(doc_id, doc)
             return doc_id
         return await self.insert(doc)
+
+
+class Database:
+    def __init__(self, base_path: Path) -> None:
+        self._base_path = base_path
+        self._collections: dict[str, tuple[Collection, tuple, type | None]] = {}
+
+    async def collection(
+        self,
+        name: str,
+        index_fields: list[str] | None = None,
+        model: type | None = None,
+    ) -> Collection:
+        key_index = tuple(index_fields or [])
+        if name in self._collections:
+            cached, cached_index, cached_model = self._collections[name]
+            if index_fields is not None and cached_index != key_index:
+                raise ValueError(
+                    f"collection {name!r} already cached with different "
+                    f"index_fields {list(cached_index)} != {list(key_index)}"
+                )
+            if model is not None and cached_model is not model:
+                raise ValueError(
+                    f"collection {name!r} already cached with a different model"
+                )
+            return cached
+
+        path = self._base_path / f"{name}.jsonl"
+        if model is None:
+            col = Collection(path, index_fields=index_fields)
+        else:
+            # Imported lazily so `collection.py` stays pydantic-free at import time
+            from jig.store.models import TypedCollection
+            col = TypedCollection(path, model=model, index_fields=index_fields)
+        await col.load()
+        self._collections[name] = (col, key_index, model)
+        return col

@@ -107,14 +107,16 @@ class JsonlStore:
             return doc["_id"]
 
     async def get(self, doc_id: str) -> dict | None:
-        return self._docs.get(doc_id)
+        if doc_id not in self._docs:
+            return None
+        return dict(self._docs[doc_id])
 
     async def find(
         self, predicate: Callable[[dict], bool] | None = None
     ) -> list[dict]:
         if predicate is None:
-            return list(self._docs.values())
-        return [d for d in self._docs.values() if predicate(d)]
+            return [dict(d) for d in self._docs.values()]
+        return [dict(d) for d in self._docs.values() if predicate(d)]
 
     async def count(
         self, predicate: Callable[[dict], bool] | None = None
@@ -151,10 +153,10 @@ class JsonlStore:
     async def find_by(self, field: str, value: Any) -> list[dict]:
         if field in self._index_fields:
             ids = self._indexes[field].get(value, set())
-            return [self._docs[i] for i in ids]
+            return [dict(self._docs[i]) for i in ids]
         if len(self._docs) > 1000:
             raise ValueError(
                 f"field {field!r} is not indexed and collection has "
                 f"{len(self._docs)} docs; declare it in index_fields"
             )
-        return [d for d in self._docs.values() if d.get(field) == value]
+        return [dict(d) for d in self._docs.values() if d.get(field) == value]

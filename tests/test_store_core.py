@@ -251,3 +251,13 @@ def test_public_api_exports():
     )
     # If all imports succeed, the test passes
     assert JsonlStore is not None
+
+
+async def test_get_returns_copy_not_live_reference(tmp_path):
+    store = JsonlStore(tmp_path / "db.jsonl")
+    await store.load()
+    doc_id = await store.insert({"name": "a", "count": 1})
+    fetched = await store.get(doc_id)
+    fetched["count"] = 999
+    fetched_again = await store.get(doc_id)
+    assert fetched_again["count"] == 1

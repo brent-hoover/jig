@@ -45,3 +45,52 @@ async def test_read_handoff_returns_most_recent(tmp_path):
     )
     handoff = await mem.read_handoff("JIG-1", "test")
     assert handoff.summary == "second"
+
+
+async def test_add_and_get_learnings_returns_models(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_learning(
+        issue_id="JIG-1", phase="test",
+        content="pytest fixtures are sticky", tags=["testing"],
+    )
+    learnings = await mem.get_learnings("JIG-1")
+    assert len(learnings) == 1
+    assert isinstance(learnings[0], Learning)
+    assert learnings[0].content == "pytest fixtures are sticky"
+
+
+async def test_get_learnings_filters_by_tag_overlap(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_learning(
+        issue_id="JIG-1", phase="test", content="a", tags=["testing"],
+    )
+    await mem.add_learning(
+        issue_id="JIG-1", phase="test", content="b", tags=["architecture"],
+    )
+    await mem.add_learning(
+        issue_id="JIG-1", phase="test", content="c", tags=["gotcha", "testing"],
+    )
+    filtered = await mem.get_learnings("JIG-1", tags=["testing"])
+    assert {l.content for l in filtered} == {"a", "c"}
+
+
+async def test_get_learnings_respects_limit_and_sort_order(tmp_path):
+    import asyncio
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    for content in ["first", "second", "third", "fourth"]:
+        await mem.add_learning(issue_id="JIG-1", phase="test", content=content)
+        await asyncio.sleep(0.01)
+    recent = await mem.get_learnings("JIG-1", limit=2)
+    assert [l.content for l in recent] == ["fourth", "third"]
+
+
+async def test_get_learnings_filters_by_issue(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_learning(issue_id="JIG-1", phase="test", content="a")
+    await mem.add_learning(issue_id="JIG-2", phase="test", content="b")
+    jig1 = await mem.get_learnings("JIG-1")
+    assert [l.content for l in jig1] == ["a"]

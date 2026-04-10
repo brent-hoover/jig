@@ -71,3 +71,34 @@ class MemoryStore:
             return None
         results.sort(key=lambda h: h.timestamp, reverse=True)
         return results[0]
+
+    async def add_learning(
+        self,
+        issue_id: str,
+        phase: str,
+        content: str,
+        tags: list[str] | None = None,
+    ) -> str:
+        learning = Learning(
+            issue_id=issue_id,
+            phase=phase,
+            content=content,
+            tags=tags or [],
+        )
+        return await self._learnings.insert(learning)
+
+    async def get_learnings(
+        self,
+        issue_id: str,
+        tags: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[Learning]:
+        results = await self._learnings.find_where(issue_id=issue_id)
+        if tags:
+            tag_set = set(tags)
+            results = [
+                l for l in results
+                if tag_set.intersection(l.tags)
+            ]
+        results.sort(key=lambda l: l.timestamp, reverse=True)
+        return results[:limit]

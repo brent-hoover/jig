@@ -11,6 +11,7 @@ from jig.events import EventEmitter, JigEvent
 from jig.models import (
     AgentInstance,
     AgentStatus,
+    AgentTypeConfig,
     CompletionState,
     Issue,
     IssueStatus,
@@ -29,6 +30,7 @@ from jig.persistence import (
     load_project_context,
     load_task,
     load_workflow,
+    save_agent_type,
     save_issue,
     save_task,
 )
@@ -55,6 +57,16 @@ class Orchestrator:
         self._phase_history: list[dict] = []
         self._last_branch: str | None = None
         self._pool = AgentPool(project_path)
+
+        # Ensure orchestrator agent type exists for LLM recovery decisions
+        try:
+            load_agent_type(project_path, "orchestrator")
+        except FileNotFoundError:
+            save_agent_type(project_path, AgentTypeConfig(
+                role="orchestrator",
+                system_prompt="You are a workflow orchestrator. You decide how to recover from phase failures.",
+                allowed_tools=[],
+            ))
 
     async def _emit(self, event_type: str, data: dict | None = None) -> None:
         if self._emitter:
@@ -279,6 +291,19 @@ class Orchestrator:
         decide between retrying the same phase, routing back to an earlier
         phase to fix the underlying issue, or giving up.
         """
+        # Get or create orchestrator agent instance
+        orch_instances = [
+            i for i in list_agent_instances(self._project_path, agent_type="orchestrator")
+            if i.status in (AgentStatus.IDLE, AgentStatus.DORMANT)
+        ]
+        if orch_instances:
+            orch_instance = orch_instances[0]
+        else:
+            orch_instance = self._pool.spawn("orchestrator")
+
+        orch_instance.status = AgentStatus.ACTIVE
+        self._pool.update(orch_instance)
+
         last = self._phase_history[-1]
         last_phase = last.get("phase", "")
         last_reason = last.get("reason", "")
@@ -302,6 +327,12 @@ class Orchestrator:
             phase_status_lines.append(f"  - {name} ({p.role}): {marker}")
         phase_status = "\n".join(phase_status_lines)
 
+        # Build memory section
+        memory_section = ""
+        if orch_instance.memory:
+            memory_lines = "\n".join(f"- {m}" for m in orch_instance.memory[-10:])  # Last 10 memories
+            memory_section = f"\n## Your Memories (lessons from previous decisions)\n\n{memory_lines}\n"
+
         prompt = f"""You are the orchestrator for a software development workflow. A phase just failed and you need to decide how to recover.
 
 ## Issue
@@ -317,7 +348,7 @@ class Orchestrator:
 
 ## What just happened
 Phase `{last_phase}` reported `{last.get("result")}`. Reason: {last_reason or "(no reason provided)"}
-
+{memory_section}
 ## Your Job
 Decide how to recover. Respond with a JSON object (and nothing else) containing:
 
@@ -373,6 +404,16 @@ Respond with ONLY the JSON object, no markdown fences, no explanation outside th
                 "action": "fail",
                 "reasoning": f"Could not parse orchestrator response: {result_text[:200]}",
             }
+
+        # Record what happened in orchestrator memory
+        memory_entry = (
+            f"Phase '{last_phase}' {last.get('result')}: "
+            f"decided to {decision.get('action', '?')} — "
+            f"{decision.get('reasoning', 'no reason')}"
+        )
+        orch_instance.memory.append(memory_entry)
+        orch_instance.status = AgentStatus.DORMANT
+        self._pool.update(orch_instance)
 
         return decision
 

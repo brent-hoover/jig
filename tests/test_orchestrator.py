@@ -1,6 +1,6 @@
 import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -352,3 +352,43 @@ class TestOrchestratorPoolIntegration:
         # At least one should be dormant (released)
         dormant = [i for i in instances if i.status == AgentStatus.DORMANT]
         assert len(dormant) >= 1
+
+
+class TestOrchestratorAgentPersistence:
+    @patch("jig.orchestrator.run_agent")
+    @patch("jig.orchestrator.query")
+    async def test_orchestrator_creates_agent_instance(self, mock_orch_query, mock_run_agent, git_project_full_workflow: Path):
+        """When the orchestrator makes a recovery decision, it should create/use a persistent instance."""
+        call_count = 0
+
+        async def fake_run_agent(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First phase fails
+                task = load_task(kwargs["project_path"], kwargs["issue_id"], kwargs["task_id"])
+                task.completion_state = CompletionState.FAILED
+                task.completion_reason = "Compile error"
+                save_task(kwargs["project_path"], kwargs["issue_id"], task)
+            return "Done"
+
+        mock_run_agent.side_effect = fake_run_agent
+
+        # Mock the orchestrator LLM query to retry the phase
+        async def fake_orch_query(*args, **kwargs):
+            mock_result = MagicMock()
+            mock_result.result = '{"action": "run_phase", "phase": "spec", "reasoning": "Retrying with fixes"}'
+            yield mock_result
+
+        mock_orch_query.side_effect = fake_orch_query
+
+        orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
+        await orchestrator.run()
+
+        # Orchestrator agent instance should exist with memory
+        orch_instances = list_agent_instances(git_project_full_workflow, agent_type="orchestrator")
+        assert len(orch_instances) >= 1
+        # Should have recorded what it decided
+        orch = orch_instances[0]
+        assert len(orch.memory) >= 1
+        assert "Retrying" in orch.memory[0] or "failed" in orch.memory[0]

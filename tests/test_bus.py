@@ -82,3 +82,29 @@ class TestMessageBus:
         assert len(messages) == 3
         assert messages[0].payload["seq"] == 0
         assert messages[2].payload["seq"] == 2
+
+    async def test_tap_receives_all_messages(self, bus: MessageBus, tmp_jig_project: Path):
+        """A tap receives both targeted and broadcast messages."""
+        tap_queue = await bus.tap("issue-1")
+
+        # Send a targeted message
+        msg1 = Message(
+            sender="dev-agent",
+            recipient="test-agent",
+            type=MessageType.STATUS,
+        )
+        await bus.publish("issue-1", msg1)
+
+        # Send a broadcast
+        msg2 = Message(
+            sender="dev-agent",
+            recipient="broadcast",
+            type=MessageType.STATUS,
+        )
+        await bus.publish("issue-1", msg2)
+
+        received = []
+        while not tap_queue.empty():
+            received.append(await tap_queue.get())
+
+        assert len(received) == 2

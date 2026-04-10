@@ -34,6 +34,14 @@ class MessageBus:
             self._subscribers[issue_id][subscriber_name] = asyncio.Queue()
         return self._subscribers[issue_id][subscriber_name]
 
+    async def tap(self, issue_id: str) -> asyncio.Queue[BusMessage]:
+        """Subscribe a tap that receives a copy of ALL messages for an issue."""
+        if not hasattr(self, "_taps"):
+            self._taps: dict[str, list[asyncio.Queue[BusMessage]]] = {}
+        queue: asyncio.Queue[BusMessage] = asyncio.Queue()
+        self._taps.setdefault(issue_id, []).append(queue)
+        return queue
+
     async def publish(self, issue_id: str, message: BusMessage) -> None:
         """Persist a message to JSONL, then route to subscribers."""
         await asyncio.to_thread(append_message, self._project_path, issue_id, message)
@@ -45,6 +53,10 @@ class MessageBus:
                 await queue.put(message)
         elif recipient in subs:
             await subs[recipient].put(message)
+
+        # Also send to all taps
+        for tap_queue in getattr(self, "_taps", {}).get(issue_id, []):
+            await tap_queue.put(message)
 
     def replay(self, issue_id: str) -> list[Message]:
         """Replay all persisted messages for an issue from JSONL."""

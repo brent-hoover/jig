@@ -194,6 +194,92 @@ class TestRunAgentWithMemory:
         assert "Your Memories" in captured_prompt
 
 
+class TestRunAgentSessionResumption:
+    @pytest.fixture
+    def agent_type(self) -> AgentTypeConfig:
+        return AgentTypeConfig(
+            role="dev",
+            system_prompt="You are a dev agent.",
+            allowed_tools=["Read", "Edit"],
+        )
+
+    @pytest.fixture
+    def setup_with_session(self, tmp_jig_project: Path):
+        from jig.persistence import save_agent_instance
+        save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
+        task = Task(id="task-1", description="Implement X", acceptance_criteria="Tests pass", agent_type="dev")
+        save_task(tmp_jig_project, "issue-1", task)
+        instance = AgentInstance(
+            id="dev-1", agent_type="dev", status=AgentStatus.DORMANT,
+            session_id="sess-previous-123",
+        )
+        save_agent_instance(tmp_jig_project, instance)
+        return tmp_jig_project, "issue-1", "task-1", instance
+
+    @patch("jig.agent.query")
+    @patch("jig.agent.create_agent_mcp_server")
+    async def test_passes_resume_session_id(self, mock_mcp, mock_query, agent_type, setup_with_session):
+        project_path, issue_id, task_id, instance = setup_with_session
+        mock_mcp.return_value = "mock-server"
+
+        async def fake_query(*args, **kwargs):
+            mock_result = MagicMock()
+            mock_result.result = "Done"
+            yield mock_result
+
+        mock_query.side_effect = fake_query
+
+        await run_agent(
+            project_path=project_path,
+            issue_id=issue_id,
+            task_id=task_id,
+            agent_type=agent_type,
+            worktree_path=project_path,
+            agent_instance=instance,
+        )
+
+        call_kwargs = mock_query.call_args.kwargs
+        options = call_kwargs["options"]
+        assert options.resume == "sess-previous-123"
+
+    @pytest.fixture
+    def setup_no_session(self, tmp_jig_project: Path):
+        from jig.persistence import save_agent_instance
+        save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
+        task = Task(id="task-1", description="Implement X", acceptance_criteria="Tests pass", agent_type="dev")
+        save_task(tmp_jig_project, "issue-1", task)
+        instance = AgentInstance(id="dev-1", agent_type="dev", status=AgentStatus.ACTIVE)
+        save_agent_instance(tmp_jig_project, instance)
+        return tmp_jig_project, "issue-1", "task-1", instance
+
+    @patch("jig.agent.query")
+    @patch("jig.agent.create_agent_mcp_server")
+    async def test_no_resume_without_session_id(self, mock_mcp, mock_query, agent_type, setup_no_session):
+        project_path, issue_id, task_id, instance = setup_no_session
+        mock_mcp.return_value = "mock-server"
+
+        async def fake_query(*args, **kwargs):
+            mock_result = MagicMock()
+            mock_result.result = "Done"
+            yield mock_result
+
+        mock_query.side_effect = fake_query
+
+        await run_agent(
+            project_path=project_path,
+            issue_id=issue_id,
+            task_id=task_id,
+            agent_type=agent_type,
+            worktree_path=project_path,
+            agent_instance=instance,
+        )
+
+        call_kwargs = mock_query.call_args.kwargs
+        options = call_kwargs["options"]
+        # resume should not be set or be None
+        assert getattr(options, "resume", None) is None
+
+
 class TestSanitizeForTui:
     def test_strips_newlines(self):
         assert _sanitize_for_tui("line1\nline2\nline3") == "line1 line2 line3"

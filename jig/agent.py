@@ -165,6 +165,8 @@ async def run_agent(
 
     prompt = "".join(prompt_parts)
 
+    resume_id = agent_instance.session_id if agent_instance else None
+
     options = ClaudeAgentOptions(
         cwd=str(worktree_path),
         allowed_tools=agent_type.allowed_tools,
@@ -173,6 +175,7 @@ async def run_agent(
         mcp_servers={"jig": mcp_server},
         permission_mode="bypassPermissions",
         max_turns=max_turns,
+        **({"resume": resume_id} if resume_id else {}),
     )
 
     async def _emit(event_type: str, data: dict) -> None:
@@ -184,6 +187,7 @@ async def run_agent(
         "agent": agent_type.role,
     })
 
+    captured_session_id = None
     result_text = ""
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
@@ -205,6 +209,8 @@ async def run_agent(
                             "phase": task_id,
                             "text": preview,
                         })
+        elif isinstance(message, SystemMessage) and getattr(message, "subtype", None) == "init":
+            captured_session_id = (message.data or {}).get("session_id")
         elif isinstance(message, ResultMessage):
             result_text = message.result or ""
             await _emit("agent_result", {
@@ -218,5 +224,8 @@ async def run_agent(
             result = getattr(message, "result", None)
             if isinstance(result, str):
                 result_text = result
+
+    if agent_instance and captured_session_id:
+        agent_instance.session_id = captured_session_id
 
     return result_text

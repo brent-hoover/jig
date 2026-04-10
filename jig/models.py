@@ -155,3 +155,22 @@ class AgentInstance(BaseModel):
     session_id: str | None = None
     current_task_id: str | None = None
     memory: list[str] = []
+
+
+class CompletionStatus(str, Enum):
+    SUCCESS = "success"
+    NEEDS_INFO = "needs_info"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class CompletionReport(BaseModel):
+    """Structured report when an agent finishes (or cannot finish) a task."""
+    agent_id: str
+    task_id: str
+    status: CompletionStatus
+    summary: str
+    reason: str = ""
+    artifacts: list[str] = []
+    needs_from: str | None = None
+    question: str | None = None

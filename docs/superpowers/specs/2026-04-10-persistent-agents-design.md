@@ -38,12 +38,12 @@ Fields in `instance.yaml`:
 
 ### Agent Pool
 
-All instances live under `.jig/agents/`. Multiple instances can share the same type (e.g. `dev-1`, `dev-2` for parallel work). For the initial implementation, one instance per type is created at `jig init`.
+All instances live under `.jig/agents/`. Multiple instances can share the same type (e.g. `dev-1`, `dev-2` for parallel work). Agents are spawned on demand — when the server needs an agent with a given role, it either picks an idle instance from the pool or spawns a new one. There is no fixed cap; instances accumulate as needed and go dormant after completing work.
 
 ### Lifecycle
 
-1. **Created** at `jig init` — one instance per agent type, status `idle`
-2. **Assigned a task** — server picks an idle instance with matching role, sets status `active`
+1. **Spawned on demand** — when the server needs an agent for a role and no idle instance is available, it creates a new one. Instance ID is auto-generated (e.g. `dev-1`, `dev-2`).
+2. **Assigned a task** — server picks an idle instance with matching role (or spawns a new one), sets status `active`
 3. **Session started** — Claude Code session begins, agent memory files loaded into context
 4. **Works** — agent operates in its worktree, uses MCP tools, communicates on the bus
 5. **Reports completion** — calls `report_completion`
@@ -100,7 +100,7 @@ Driven by Python code (the server). No orchestrator agent involved.
 
 1. Server loads workflow config
 2. For each phase:
-   a. Find an idle agent instance from the pool with the matching role
+   a. Find an idle agent instance from the pool with the matching role, or spawn a new one
    b. Create a task (from the phase's template + issue context)
    c. Assign the task to the agent instance (set instance status to `active`)
    d. Create/reuse a worktree for the agent
@@ -190,7 +190,7 @@ The server monitors conversations:
 - `agent.py` — supports session resumption (`resume=session_id`), memory file loading, agent instance state management
 - Persistence — agent instances get their own directory under `.jig/agents/`
 - Workflow config — phases reference roles (free-form strings, not enum), gains `task_template`, `acceptance_criteria`, and `exception_flows` section
-- `jig init` — creates agent instances (one per type) in addition to agent types
+- `jig init` — creates agent types but no instances (agents are spawned on demand)
 
 ### New
 - `AgentInstance` model — tracks instance ID, type, status, session_id, current task

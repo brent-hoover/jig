@@ -14,7 +14,11 @@ from jig.models import (
     CompletionStatus,
     MessageDirection,
 )
-from jig.persistence import load_task, save_task
+from jig.persistence import (
+    load_task, save_task,
+    load_agent_instance, save_agent_instance,
+    load_issue, load_workflow, list_agent_instances,
+)
 
 
 async def handle_send_message(
@@ -75,3 +79,69 @@ async def handle_request_context(
         return file_path.read_text()
     except Exception as e:
         return f"Error reading {args['path']}: {e}"
+
+
+async def handle_check_messages(
+    bus: MessageBus,
+    issue_id: str,
+    agent_id: str,
+) -> list[AgentMessage]:
+    """Check for and return any pending messages for this agent.
+
+    Drains the agent's subscription queue. Returns an empty list if no messages.
+    Subscribes the agent if not already subscribed.
+    """
+    queue = await bus.subscribe(issue_id, agent_id)
+    messages = []
+    while not queue.empty():
+        item = await queue.get()
+        if isinstance(item, AgentMessage):
+            messages.append(item)
+    return messages
+
+
+async def handle_save_memory(
+    project_path: Path,
+    agent_id: str,
+    args: dict,
+) -> str:
+    """Save a memory entry for an agent."""
+    instance = load_agent_instance(project_path, agent_id)
+    instance.memory.append(args["entry"])
+    save_agent_instance(project_path, instance)
+    return f"Memory saved for {agent_id}"
+
+
+async def handle_load_memory(
+    project_path: Path,
+    agent_id: str,
+) -> list[str]:
+    """Load all memory entries for an agent."""
+    instance = load_agent_instance(project_path, agent_id)
+    return instance.memory
+
+
+async def handle_get_workflow_status(
+    project_path: Path,
+    issue_id: str,
+    workflow_name: str = "default",
+) -> dict:
+    """Get the current workflow status for an issue."""
+    issue = load_issue(project_path, issue_id)
+    workflow = load_workflow(project_path, workflow_name)
+    agents = list_agent_instances(project_path)
+
+    return {
+        "issue_id": issue.id,
+        "issue_title": issue.title,
+        "issue_status": issue.status.value,
+        "current_phase": issue.current_phase,
+        "phases": [
+            {"name": p.name, "role": p.role}
+            for p in workflow.phases
+        ],
+        "agents": [
+            {"id": a.id, "agent_type": a.agent_type, "status": a.status.value, "current_task_id": a.current_task_id}
+            for a in agents
+        ],
+    }

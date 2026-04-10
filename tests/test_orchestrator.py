@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from jig.models import (
+    AgentStatus,
     AgentTypeConfig,
     CompletionState,
     Issue,
@@ -19,6 +20,7 @@ from jig.models import (
 from jig.orchestrator import Orchestrator, OrchestratorPaused, OrchestratorFailed
 from jig.persistence import (
     append_phase_history,
+    list_agent_instances,
     load_issue,
     load_phase_history,
     load_task,
@@ -45,7 +47,7 @@ def git_project(tmp_path: Path) -> Path:
 
     # Init .jig structure
     jig_dir = repo / ".jig"
-    for d in ("issues", "agent_types", "workflows", "worktrees"):
+    for d in ("issues", "agent_types", "workflows", "worktrees", "agents"):
         (jig_dir / d).mkdir(parents=True, exist_ok=True)
 
     config = ProjectConfig(repo_path=str(repo))
@@ -130,7 +132,7 @@ def git_project_full_workflow(tmp_path: Path) -> Path:
     subprocess.run(["git", "checkout", "-b", "main"], cwd=repo, capture_output=True)
 
     jig_dir = repo / ".jig"
-    for d in ("issues", "agent_types", "workflows", "worktrees"):
+    for d in ("issues", "agent_types", "workflows", "worktrees", "agents"):
         (jig_dir / d).mkdir(parents=True, exist_ok=True)
 
     config = ProjectConfig(repo_path=str(repo))
@@ -320,3 +322,33 @@ class TestOrchestratorEvents:
         assert "phase_started" in types
         assert "phase_completed" in types
         assert "workflow_completed" in types
+
+
+class TestOrchestratorPoolIntegration:
+    @patch("jig.orchestrator.run_agent")
+    async def test_acquires_agent_from_pool(self, mock_run_agent, git_project: Path):
+        mock_run_agent.return_value = "Done"
+
+        orchestrator = Orchestrator(git_project, "issue-1")
+        await orchestrator.run()
+
+        # run_agent should have been called with an agent_instance
+        call_kwargs = mock_run_agent.call_args.kwargs
+        assert "agent_instance" in call_kwargs
+        instance = call_kwargs["agent_instance"]
+        assert hasattr(instance, "id")
+        assert hasattr(instance, "agent_type")
+
+    @patch("jig.orchestrator.run_agent")
+    async def test_releases_agent_after_phase(self, mock_run_agent, git_project: Path):
+        mock_run_agent.return_value = "Done"
+
+        orchestrator = Orchestrator(git_project, "issue-1")
+        await orchestrator.run()
+
+        # After completion, agent should be dormant
+        instances = list_agent_instances(git_project, agent_type="spec")
+        assert len(instances) >= 1
+        # At least one should be dormant (released)
+        dormant = [i for i in instances if i.status == AgentStatus.DORMANT]
+        assert len(dormant) >= 1

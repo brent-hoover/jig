@@ -9,6 +9,8 @@ from claude_agent_sdk.types import AssistantMessage, ResultMessage
 from jig.agent import run_agent
 from jig.events import EventEmitter, JigEvent
 from jig.models import (
+    AgentInstance,
+    AgentStatus,
     CompletionState,
     Issue,
     IssueStatus,
@@ -20,6 +22,7 @@ from jig.models import (
 )
 from jig.persistence import (
     append_phase_history,
+    list_agent_instances,
     load_agent_type,
     load_issue,
     load_phase_history,
@@ -29,6 +32,7 @@ from jig.persistence import (
     save_issue,
     save_task,
 )
+from jig.pool import AgentPool
 from jig.worktree import commit_worktree, create_worktree, merge_issue, remove_worktree
 
 
@@ -50,6 +54,7 @@ class Orchestrator:
         self._emitter = emitter
         self._phase_history: list[dict] = []
         self._last_branch: str | None = None
+        self._pool = AgentPool(project_path)
 
     async def _emit(self, event_type: str, data: dict | None = None) -> None:
         if self._emitter:
@@ -416,23 +421,32 @@ Respond with ONLY the JSON object, no markdown fences, no explanation outside th
         )
         save_task(self._project_path, self._issue_id, task)
 
+        # Acquire agent from pool
+        instance = self._pool.acquire(phase.role)
+        instance.current_task_id = task.id
+        self._pool.update(instance)
+
         # Run agent
         await self._emit("orchestrator_info", {"message": f"Launching {phase.role} agent"})
-        await run_agent(
-            project_path=self._project_path,
-            issue_id=self._issue_id,
-            task_id=task.id,
-            agent_type=agent_type,
-            worktree_path=worktree_path,
-            emitter=self._emitter,
-            issue=issue,
-            project_context=self._project_context,
-        )
+        try:
+            await run_agent(
+                project_path=self._project_path,
+                issue_id=self._issue_id,
+                task_id=task.id,
+                agent_type=agent_type,
+                worktree_path=worktree_path,
+                emitter=self._emitter,
+                issue=issue,
+                project_context=self._project_context,
+                agent_instance=instance,
+            )
 
-        # Commit worktree changes
-        await self._emit("orchestrator_info", {"message": f"Committing {phase.name} changes"})
-        await commit_worktree(worktree_path, f"{phase.name}: {issue.title}")
-        await self._emit("phase_completed", {"phase": phase.name})
+            # Commit worktree changes
+            await self._emit("orchestrator_info", {"message": f"Committing {phase.name} changes"})
+            await commit_worktree(worktree_path, f"{phase.name}: {issue.title}")
+            await self._emit("phase_completed", {"phase": phase.name})
+        finally:
+            self._pool.release(instance)
 
         # Check completion state
         task = load_task(self._project_path, self._issue_id, task.id)

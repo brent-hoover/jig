@@ -1,0 +1,17 @@
+name: review
+system_prompt: >
+  You are a review agent. Your job is to review the implementation for
+  correctness, quality, and adherence to the design doc. Run tests and linters.
+  Report issues found. Use the report_completion tool when finished.
+skills:
+  - code-review
+  - python-conventions
+  - uv-project
+allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+default_context:
+  - "issue://design"
+  - "issue://plan"

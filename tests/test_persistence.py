@@ -178,21 +178,21 @@ from jig.persistence import save_default_agent_types
 
 
 class TestDefaultAgentTypes:
-    def test_creates_four_types(self, tmp_jig_project: Path):
+    def test_creates_all_types(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)
         types = list_agent_types(tmp_jig_project)
         names = {t.name for t in types}
-        assert names == {"spec", "test", "dev", "review"}
+        assert names == {"spec", "test", "dev", "review", "validate", "document"}
 
     def test_each_has_system_prompt(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)
-        for name in ("spec", "test", "dev", "review"):
+        for name in ("spec", "test", "dev", "review", "validate", "document"):
             config = load_agent_type(tmp_jig_project, name)
             assert len(config.system_prompt) > 0
 
     def test_each_has_allowed_tools(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)
-        for name in ("spec", "test", "dev", "review"):
+        for name in ("spec", "test", "dev", "review", "validate", "document"):
             config = load_agent_type(tmp_jig_project, name)
             assert len(config.allowed_tools) > 0
 
@@ -293,6 +293,8 @@ class TestDefaultWorkflow:
             WorkflowPhase.TEST,
             WorkflowPhase.IMPLEMENT,
             WorkflowPhase.REVIEW,
+            WorkflowPhase.VALIDATE,
+            WorkflowPhase.DOCUMENT,
         ]
 
     def test_agent_types_correct(self, tmp_jig_project: Path):
@@ -304,4 +306,6 @@ class TestDefaultWorkflow:
             "test": "test",
             "implement": "dev",
             "review": "review",
+            "validate": "validate",
+            "document": "document",
         }

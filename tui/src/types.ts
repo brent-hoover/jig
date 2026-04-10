@@ -15,8 +15,10 @@ export interface JigState {
   workflow: string | null
   phases: PhaseStatus[]
   currentPhase: string | null
+  currentAgent: string | null
   messages: JigEvent[]
   status: "idle" | "running" | "paused" | "completed" | "failed"
+  runStartedAt: number | null
 }
 
 export const INITIAL_STATE: JigState = {
@@ -25,6 +27,8 @@ export const INITIAL_STATE: JigState = {
   workflow: null,
   phases: [],
   currentPhase: null,
+  currentAgent: null,
   messages: [],
   status: "idle",
+  runStartedAt: null,
 }

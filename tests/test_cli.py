@@ -13,14 +13,14 @@ def runner() -> CliRunner:
 
 class TestInit:
     def test_initializes_project(self, runner: CliRunner, tmp_project: Path):
-        result = runner.invoke(cli, ["init", "--path", str(tmp_project)])
+        result = runner.invoke(cli, ["init", "--path", str(tmp_project), "--no-input"])
         assert result.exit_code == 0
         assert (tmp_project / ".jig").is_dir()
         assert "Initialized" in result.output
 
     def test_custom_branch(self, runner: CliRunner, tmp_project: Path):
         result = runner.invoke(
-            cli, ["init", "--path", str(tmp_project), "--branch", "develop"]
+            cli, ["init", "--path", str(tmp_project), "--branch", "develop", "--no-input"]
         )
         assert result.exit_code == 0
         config_text = (tmp_project / ".jig" / "config.yaml").read_text()
@@ -79,11 +79,11 @@ from jig.persistence import list_agent_types
 
 class TestInitCreatesAgentTypes:
     def test_init_creates_default_agent_types(self, runner: CliRunner, tmp_project: Path):
-        result = runner.invoke(cli, ["init", "--path", str(tmp_project)])
+        result = runner.invoke(cli, ["init", "--path", str(tmp_project), "--no-input"])
         assert result.exit_code == 0
         types = list_agent_types(tmp_project)
         names = {t.name for t in types}
-        assert names == {"spec", "test", "dev", "review"}
+        assert names == {"spec", "test", "dev", "review", "validate", "document"}
 
 
 from jig.persistence import load_workflow
@@ -91,11 +91,11 @@ from jig.persistence import load_workflow
 
 class TestInitCreatesWorkflow:
     def test_init_creates_default_workflow(self, runner: CliRunner, tmp_project: Path):
-        result = runner.invoke(cli, ["init", "--path", str(tmp_project)])
+        result = runner.invoke(cli, ["init", "--path", str(tmp_project), "--no-input"])
         assert result.exit_code == 0
         workflow = load_workflow(tmp_project, "default")
         assert workflow.name == "default"
-        assert len(workflow.phases) == 4
+        assert len(workflow.phases) == 6
 
 
 import asyncio
@@ -115,6 +115,8 @@ class TestStart:
             "start", "--path", str(tmp_jig_project),
             "--issue-id", "feat-auth",
             "--title", "Add authentication",
+            "--ws-port", "0",
+            "--no-input",
         ])
         assert result.exit_code == 0
         assert "Starting" in result.output or "starting" in result.output
@@ -140,6 +142,8 @@ class TestStart:
         result = runner.invoke(cli, [
             "start", "--path", str(tmp_jig_project),
             "--issue-id", "feat-auth",
+            "--ws-port", "0",
+            "--no-input",
         ])
         assert result.exit_code == 0
         MockOrchestrator.assert_called_once()
@@ -172,7 +176,7 @@ class TestValidate:
         subprocess.run(["git", "checkout", "-b", "main"], cwd=repo, capture_output=True)
 
         # Initialize jig
-        result = CliRunner().invoke(cli, ["init", "--path", str(repo)])
+        result = CliRunner().invoke(cli, ["init", "--path", str(repo), "--no-input"])
         assert result.exit_code == 0
 
         # Commit .jig

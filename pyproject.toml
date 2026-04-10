@@ -13,6 +13,9 @@ dependencies = [
 [project.scripts]
 jig = "jig.cli:cli"
 
+[tool.setuptools.packages.find]
+include = ["jig*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

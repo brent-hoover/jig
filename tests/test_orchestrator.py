@@ -134,7 +134,7 @@ def git_project_full_workflow(tmp_path: Path) -> Path:
     config = ProjectConfig(repo_path=str(repo))
     (jig_dir / "config.yaml").write_text(yaml.dump(config.model_dump(), default_flow_style=False))
 
-    for name in ("spec", "test", "dev", "review"):
+    for name in ("spec", "test", "dev", "review", "validate", "document"):
         save_agent_type(repo, AgentTypeConfig(
             name=name, system_prompt=f"{name} agent.", allowed_tools=["Read"],
         ))
@@ -146,6 +146,8 @@ def git_project_full_workflow(tmp_path: Path) -> Path:
             PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
             PhaseConfig(name=WorkflowPhase.IMPLEMENT, agent_type="dev"),
             PhaseConfig(name=WorkflowPhase.REVIEW, agent_type="review"),
+            PhaseConfig(name=WorkflowPhase.VALIDATE, agent_type="validate"),
+            PhaseConfig(name=WorkflowPhase.DOCUMENT, agent_type="document"),
         ],
     ))
 
@@ -165,12 +167,12 @@ class TestOrchestratorMultiPhase:
         orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
         await orchestrator.run()
 
-        assert mock_run_agent.call_count == 4
+        assert mock_run_agent.call_count == 6
         agent_types = [
             call.kwargs["agent_type"].name
             for call in mock_run_agent.call_args_list
         ]
-        assert agent_types == ["spec", "test", "dev", "review"]
+        assert agent_types == ["spec", "test", "dev", "review", "validate", "document"]
 
     @patch("jig.orchestrator.run_agent")
     async def test_issue_completed_after_all_phases(self, mock_run_agent, git_project_full_workflow: Path):
@@ -181,7 +183,7 @@ class TestOrchestratorMultiPhase:
 
         issue = load_issue(git_project_full_workflow, "issue-1")
         assert issue.status == IssueStatus.COMPLETED
-        assert issue.current_phase == "review"
+        assert issue.current_phase == "document"
 
 
 class TestOrchestratorErrorHandling:
@@ -258,13 +260,13 @@ class TestOrchestratorResume:
         orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
         await orchestrator.run()
 
-        # Should only run 3 remaining phases (test, implement, review)
-        assert mock_run_agent.call_count == 3
+        # Should only run 5 remaining phases (test, implement, review, validate, document)
+        assert mock_run_agent.call_count == 5
         agent_types = [
             call.kwargs["agent_type"].name
             for call in mock_run_agent.call_args_list
         ]
-        assert agent_types == ["test", "dev", "review"]
+        assert agent_types == ["test", "dev", "review", "validate", "document"]
 
     @patch("jig.orchestrator.run_agent")
     async def test_resumes_incomplete_phase(self, mock_run_agent, git_project_full_workflow: Path):
@@ -280,8 +282,8 @@ class TestOrchestratorResume:
         orchestrator = Orchestrator(git_project_full_workflow, "issue-1")
         await orchestrator.run()
 
-        # Should run all 4 phases (spec re-run + test + implement + review)
-        assert mock_run_agent.call_count == 4
+        # Should run all 6 phases (spec re-run + test + implement + review + validate + document)
+        assert mock_run_agent.call_count == 6
 
 
 from jig.events import EventEmitter, JigEvent

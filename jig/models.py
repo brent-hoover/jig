@@ -35,9 +35,32 @@ class ProjectConfig(BaseModel):
     default_branch: str = "main"
 
 
+class MergeStrategy(str, Enum):
+    DIRECT = "direct"
+    SQUASH = "squash"
+    PR = "pr"
+    FEATURE_BRANCH = "feature_branch"
+
+
+class ProjectContext(BaseModel):
+    name: str = ""
+    description: str = ""
+    language: str = ""
+    framework: str = ""
+    package_manager: str = ""
+    template_path: str = ""
+    setup_commands: list[str] = []
+    build_command: str = ""
+    test_command: str = ""
+    merge_strategy: MergeStrategy = MergeStrategy.SQUASH
+    docs: list[str] = []
+    notes: str = ""
+
+
 class Issue(BaseModel):
     id: str
     title: str
+    description: str = ""
     status: IssueStatus = IssueStatus.PENDING
     current_phase: str | None = None
     base_branch: str = "main"
@@ -66,6 +89,7 @@ class Message(BaseModel):
 class AgentTypeConfig(BaseModel):
     name: str
     system_prompt: str
+    skills: list[str] = []
     allowed_tools: list[str] = []
     denied_tools: list[str] = []
     default_context: list[str] = []
@@ -76,6 +100,8 @@ class WorkflowPhase(str, Enum):
     TEST = "test"
     IMPLEMENT = "implement"
     REVIEW = "review"
+    VALIDATE = "validate"
+    DOCUMENT = "document"
 
 
 class PhaseConfig(BaseModel):

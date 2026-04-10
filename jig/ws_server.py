@@ -17,6 +17,7 @@ class WebSocketServer:
         self._relay_task = None
         self._clients: set[ServerConnection] = set()
         self._queue = emitter.subscribe()
+        self._history: list[str] = []
 
     @property
     def port(self) -> int:
@@ -45,6 +46,12 @@ class WebSocketServer:
         self._emitter.unsubscribe(self._queue)
 
     async def _handle_client(self, websocket: ServerConnection) -> None:
+        # Replay event history to late-joining clients
+        for message in self._history:
+            try:
+                await websocket.send(message)
+            except websockets.ConnectionClosed:
+                return
         self._clients.add(websocket)
         try:
             async for _ in websocket:
@@ -56,6 +63,7 @@ class WebSocketServer:
         while True:
             event = await self._queue.get()
             message = event.to_json()
+            self._history.append(message)
             for client in list(self._clients):
                 try:
                     await client.send(message)

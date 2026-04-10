@@ -1,0 +1,20 @@
+name: validate
+system_prompt: >
+  You are a validation agent. Your job is to verify the application works
+  correctly by executing the validation steps defined in the design doc
+  (docs/design.md). Run each validation step, run the test suite, and run
+  linters/type checkers. If anything fails, fix it. Do not add new features.
+  Use the report_completion tool when finished.
+skills:
+  - validation
+  - python-conventions
+  - uv-project
+allowed_tools:
+  - Read
+  - Edit
+  - Write
+  - Glob
+  - Grep
+  - Bash
+default_context:
+  - "issue://design"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from jig.models import ProjectConfig, Issue, Message, AgentTypeConfig, Task, WorkflowConfig, PhaseConfig, WorkflowPhase
+from jig.models import ProjectConfig, ProjectContext, Issue, Message, AgentTypeConfig, Task, WorkflowConfig, PhaseConfig, WorkflowPhase
 
 
 def _jig_dir(project_path: Path) -> Path:
@@ -40,10 +40,27 @@ def load_project(project_path: Path) -> ProjectConfig:
     return ProjectConfig.model_validate(data)
 
 
+def save_project_context(project_path: Path, context: ProjectContext) -> None:
+    """Save project context to .jig/project_context.yaml."""
+    context_path = _jig_dir(project_path) / "project_context.yaml"
+    context_path.write_text(
+        yaml.dump(context.model_dump(mode="json"), default_flow_style=False)
+    )
+
+
+def load_project_context(project_path: Path) -> ProjectContext:
+    """Load project context from .jig/project_context.yaml."""
+    context_path = _jig_dir(project_path) / "project_context.yaml"
+    if not context_path.exists():
+        return ProjectContext()
+    data = yaml.safe_load(context_path.read_text())
+    return ProjectContext.model_validate(data or {})
+
+
 def save_issue(project_path: Path, issue: Issue) -> None:
     """Save an issue to .jig/issues/<id>/issue.yaml."""
     issue_dir = _jig_dir(project_path) / "issues" / issue.id
-    issue_dir.mkdir(exist_ok=True)
+    issue_dir.mkdir(parents=True, exist_ok=True)
     (issue_dir / "tasks").mkdir(exist_ok=True)
     (issue_dir / "issue.yaml").write_text(
         yaml.dump(issue.model_dump(mode="json"), default_flow_style=False)
@@ -117,53 +134,40 @@ def list_agent_types(project_path: Path) -> list[AgentTypeConfig]:
     return configs
 
 
+def _defaults_dir() -> Path:
+    """Return the path to the built-in defaults directory."""
+    return Path(__file__).resolve().parent / "defaults"
+
+
 def save_default_agent_types(project_path: Path) -> None:
-    """Create the default v1 agent type configs."""
-    defaults = [
-        AgentTypeConfig(
-            name="spec",
-            system_prompt=(
-                "You are a specification agent. Your job is to draft a design document "
-                "from the issue description. Analyze requirements, identify components, "
-                "and produce a clear, actionable design doc in markdown format. "
-                "Use the report_completion tool when finished."
-            ),
-            allowed_tools=["Read", "Glob", "Grep"],
-            default_context=["issue://description"],
-        ),
-        AgentTypeConfig(
-            name="test",
-            system_prompt=(
-                "You are a test agent. Your job is to write tests based on the design doc "
-                "and implementation plan. Write comprehensive tests that cover the specified "
-                "behavior and edge cases. Use the report_completion tool when finished."
-            ),
-            allowed_tools=["Read", "Write", "Glob", "Grep", "Bash"],
-            default_context=["issue://design", "issue://plan"],
-        ),
-        AgentTypeConfig(
-            name="dev",
-            system_prompt=(
-                "You are a development agent. Your job is to implement code changes based "
-                "on the design doc and implementation plan. Write clean, well-structured code "
-                "that passes the existing tests. Use the report_completion tool when finished."
-            ),
-            allowed_tools=["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-            default_context=["issue://design", "issue://plan"],
-        ),
-        AgentTypeConfig(
-            name="review",
-            system_prompt=(
-                "You are a review agent. Your job is to review the implementation for "
-                "correctness, quality, and adherence to the design doc. Run tests and linters. "
-                "Report issues found. Use the report_completion tool when finished."
-            ),
-            allowed_tools=["Read", "Glob", "Grep", "Bash"],
-            default_context=["issue://design", "issue://plan"],
-        ),
-    ]
-    for config in defaults:
+    """Copy default agent type configs from jig/defaults/agent_types/ into project."""
+    source_dir = _defaults_dir() / "agent_types"
+    for yaml_file in sorted(source_dir.glob("*.yaml")):
+        data = yaml.safe_load(yaml_file.read_text())
+        config = AgentTypeConfig.model_validate(data)
         save_agent_type(project_path, config)
+
+
+def load_skill(name: str) -> str:
+    """Load a skill markdown file by name from the built-in skills library."""
+    skill_path = _defaults_dir() / "skills" / f"{name}.md"
+    if not skill_path.is_file():
+        return ""
+    return skill_path.read_text()
+
+
+def load_skills_for_agent(agent_type: AgentTypeConfig) -> str:
+    """Load and concatenate all skills for an agent type."""
+    if not agent_type.skills:
+        return ""
+    parts = []
+    for skill_name in agent_type.skills:
+        content = load_skill(skill_name)
+        if content:
+            parts.append(content.strip())
+    if not parts:
+        return ""
+    return "\n\n---\n\n".join(parts)
 
 
 def save_workflow(project_path: Path, workflow: WorkflowConfig) -> None:
@@ -184,17 +188,12 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
 
 
 def save_default_workflow(project_path: Path) -> None:
-    """Create the default v1 linear workflow."""
-    workflow = WorkflowConfig(
-        name="default",
-        phases=[
-            PhaseConfig(name=WorkflowPhase.SPEC, agent_type="spec"),
-            PhaseConfig(name=WorkflowPhase.TEST, agent_type="test"),
-            PhaseConfig(name=WorkflowPhase.IMPLEMENT, agent_type="dev"),
-            PhaseConfig(name=WorkflowPhase.REVIEW, agent_type="review"),
-        ],
-    )
-    save_workflow(project_path, workflow)
+    """Copy default workflow config from jig/defaults/workflows/ into project."""
+    source_dir = _defaults_dir() / "workflows"
+    for yaml_file in sorted(source_dir.glob("*.yaml")):
+        data = yaml.safe_load(yaml_file.read_text())
+        workflow = WorkflowConfig.model_validate(data)
+        save_workflow(project_path, workflow)
 
 
 def save_task(project_path: Path, issue_id: str, task: Task) -> None:

@@ -23,8 +23,13 @@ Jig is an agent harness that orchestrates multiple Claude Code agents across a c
 2. Issues have a design doc (markdown) and an implementation plan (YAML)
 3. Issues track status, current workflow phase, and base branch
 
-## Agents
+## Orchestrator
+1. Is a standalone agent that coordinates all the other agents using Opus or equivalent power
+2. Handle routing issues from agent to agent
+3. Handles all git operations
 
+
+## Agents
 1. Orchestrate multiple Claude Code agents across a codebase
 2. Agent types defined in YAML config: spec, test, dev, review, plus custom types
 3. Each agent type has a system prompt, allowed/denied tool lists, and default context sources

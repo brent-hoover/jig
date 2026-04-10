@@ -1,0 +1,14 @@
+name: default
+phases:
+  - name: spec
+    agent_type: spec
+  - name: test
+    agent_type: test
+  - name: implement
+    agent_type: dev
+  - name: review
+    agent_type: review
+  - name: validate
+    agent_type: validate
+  - name: document
+    agent_type: document

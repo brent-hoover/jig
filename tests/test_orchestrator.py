@@ -19,16 +19,15 @@ from jig.models import (
 )
 from jig.orchestrator import Orchestrator, OrchestratorPaused, OrchestratorFailed
 from jig.persistence import (
-    append_phase_history,
     list_agent_instances,
     load_issue,
-    load_phase_history,
     load_task,
     save_agent_type,
     save_issue,
     save_task,
     save_workflow,
 )
+from jig.store import Database
 
 
 @pytest.fixture
@@ -259,16 +258,21 @@ class TestOrchestratorResume:
         issue.status = IssueStatus.IN_PROGRESS
         save_issue(git_project_full_workflow, issue)
 
-        append_phase_history(
-            git_project_full_workflow,
-            "issue-1",
+        db = Database(git_project_full_workflow / ".jig" / "store")
+        phase_history = await db.collection(
+            "phase_history",
+            index_fields=["issue_id"],
+            model=PhaseHistoryEntry,
+        )
+        await phase_history.insert(
             PhaseHistoryEntry(
+                issue_id="issue-1",
                 phase="spec",
                 agent_type="spec",
                 result="success",
                 branch="jig/issue-1/spec",
                 reason="Design doc written",
-            ),
+            )
         )
 
         orchestrator = Orchestrator(git_project_full_workflow, "issue-1")

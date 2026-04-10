@@ -22,11 +22,9 @@ from jig.models import (
     WorkflowConfig,
 )
 from jig.persistence import (
-    append_phase_history,
     list_agent_instances,
     load_agent_type,
     load_issue,
-    load_phase_history,
     load_project_context,
     load_task,
     load_workflow,
@@ -35,6 +33,7 @@ from jig.persistence import (
     save_task,
 )
 from jig.pool import AgentPool
+from jig.store import Database, TypedCollection
 from jig.worktree import commit_worktree, create_worktree, merge_issue, remove_worktree
 
 
@@ -57,6 +56,8 @@ class Orchestrator:
         self._phase_history: list[dict] = []
         self._last_branch: str | None = None
         self._pool = AgentPool(project_path)
+        self._db = Database(project_path / ".jig" / "store")
+        self._phase_history_store: TypedCollection[PhaseHistoryEntry] | None = None
 
         # Ensure orchestrator agent type exists for LLM recovery decisions
         try:
@@ -72,6 +73,14 @@ class Orchestrator:
         if self._emitter:
             await self._emitter.emit(JigEvent(type=event_type, data=data or {}))
 
+    async def _ensure_phase_history_loaded(self) -> None:
+        if self._phase_history_store is None:
+            self._phase_history_store = await self._db.collection(
+                "phase_history",
+                index_fields=["issue_id"],
+                model=PhaseHistoryEntry,
+            )
+
     async def run(self) -> None:
         """Execute the workflow for the issue, using LLM reasoning for routing."""
         workflow = load_workflow(self._project_path, self._workflow_name)
@@ -81,7 +90,9 @@ class Orchestrator:
         # Load persisted phase history so resumed runs see what previous
         # invocations already accomplished. Set _last_branch to the most
         # recent successful phase's branch (if any) so worktrees chain.
-        persisted = load_phase_history(self._project_path, self._issue_id)
+        await self._ensure_phase_history_loaded()
+        persisted = await self._phase_history_store.find_where(issue_id=self._issue_id)
+        persisted.sort(key=lambda e: e.timestamp)
         self._phase_history = [self._entry_to_dict(e) for e in persisted]
         self._last_branch = issue.base_branch
         for entry in persisted:
@@ -130,7 +141,8 @@ class Orchestrator:
             phase_config = self._find_phase(workflow, phase_name)
             if not phase_config:
                 await self._emit("orchestrator_info", {"message": f"Unknown phase '{phase_name}', skipping"})
-                self._record_history(PhaseHistoryEntry(
+                await self._record_history(PhaseHistoryEntry(
+                    issue_id=self._issue_id,
                     phase=phase_name,
                     agent_type="",
                     result="error",
@@ -145,7 +157,8 @@ class Orchestrator:
             extra_context = decision.get("context_for_agent", "")
 
             result = await self._execute_phase(phase_config, issue, base_branch, extra_context)
-            self._record_history(PhaseHistoryEntry(
+            await self._record_history(PhaseHistoryEntry(
+                issue_id=self._issue_id,
                 phase=result["phase"],
                 agent_type=phase_config.role,
                 result=result["result"],
@@ -277,10 +290,11 @@ class Orchestrator:
             "reason": entry.reason,
         }
 
-    def _record_history(self, entry: PhaseHistoryEntry) -> None:
+    async def _record_history(self, entry: PhaseHistoryEntry) -> None:
         """Append a phase result to in-memory history and durable storage."""
         self._phase_history.append(self._entry_to_dict(entry))
-        append_phase_history(self._project_path, self._issue_id, entry)
+        await self._ensure_phase_history_loaded()
+        await self._phase_history_store.insert(entry)
 
     async def _decide_next_phase(self, workflow: WorkflowConfig, issue: Issue) -> dict:
         """Ask the orchestrator LLM how to recover from a phase failure.

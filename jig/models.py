@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from jig.store.models import StoreModel
+
 
 class IssueStatus(str, Enum):
     PENDING = "pending"
@@ -105,8 +107,9 @@ class WorkflowConfig(BaseModel):
     phases: list[PhaseConfig]
 
 
-class PhaseHistoryEntry(BaseModel):
+class PhaseHistoryEntry(StoreModel):
     """A persisted record of a phase execution attempt."""
+    issue_id: str
     phase: str
     agent_type: str
     result: str  # "success", "needs_info", "blocked", "failed", "error"

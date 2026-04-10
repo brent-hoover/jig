@@ -33,9 +33,7 @@ from jig.models import AgentTypeConfig, Issue, ProjectContext
 from jig.persistence import load_task
 
 
-# Factory moved to mcp_server.py in Plan 6 Task 6
-def create_jig_mcp_server(*args, **kwargs):
-    raise NotImplementedError("Use create_agent_mcp_server from jig.mcp_server")
+from jig.mcp_server import create_agent_mcp_server
 
 
 def _tool_detail(tool_name: str, tool_input: dict) -> str:
@@ -126,12 +124,12 @@ async def run_agent(
     task = load_task(project_path, issue_id, task_id)
     agent_name = f"{agent_type.role}-{task_id}"
 
-    mcp_server = create_jig_mcp_server(
+    mcp_server = create_agent_mcp_server(
         bus=bus,
         project_path=project_path,
         issue_id=issue_id,
         task_id=task_id,
-        agent_name=agent_name,
+        agent_id=agent_name,
         worktree_path=worktree_path,
     )
 

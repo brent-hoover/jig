@@ -34,7 +34,7 @@ class TestRunAgent:
         save_task(tmp_jig_project, "issue-1", task)
         return tmp_jig_project, "issue-1", "task-1"
 
-    @patch("jig.agent.create_jig_mcp_server", return_value=MagicMock())
+    @patch("jig.agent.create_agent_mcp_server", return_value=MagicMock())
     @patch("jig.agent.query")
     async def test_calls_sdk_with_correct_options(
         self, mock_query, mock_mcp, agent_type, setup_issue
@@ -67,7 +67,7 @@ class TestRunAgent:
         assert options.cwd == str(project_path)
         assert "You are a dev agent." in options.system_prompt
 
-    @patch("jig.agent.create_jig_mcp_server", return_value=MagicMock())
+    @patch("jig.agent.create_agent_mcp_server", return_value=MagicMock())
     @patch("jig.agent.query")
     async def test_returns_result_text(self, mock_query, mock_mcp, agent_type, setup_issue):
         project_path, issue_id, task_id = setup_issue

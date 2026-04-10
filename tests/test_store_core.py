@@ -52,3 +52,32 @@ async def test_insert_writes_record_to_file(tmp_path):
     import json
     record = json.loads(lines[0])
     assert record == {"_op": "insert", "_id": "x", "name": "alice"}
+
+
+async def test_find_returns_all_when_no_predicate(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl")
+    await store.load()
+    await store.insert({"name": "a"})
+    await store.insert({"name": "b"})
+    docs = await store.find()
+    assert len(docs) == 2
+
+
+async def test_find_filters_by_predicate(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl")
+    await store.load()
+    await store.insert({"name": "a", "age": 10})
+    await store.insert({"name": "b", "age": 20})
+    await store.insert({"name": "c", "age": 30})
+    docs = await store.find(lambda d: d["age"] >= 20)
+    assert sorted(d["name"] for d in docs) == ["b", "c"]
+
+
+async def test_count_with_and_without_predicate(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl")
+    await store.load()
+    await store.insert({"x": 1})
+    await store.insert({"x": 2})
+    await store.insert({"x": 3})
+    assert await store.count() == 3
+    assert await store.count(lambda d: d["x"] >= 2) == 2

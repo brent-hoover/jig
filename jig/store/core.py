@@ -38,3 +38,17 @@ class JsonlStore:
 
     async def get(self, doc_id: str) -> dict | None:
         return self._docs.get(doc_id)
+
+    async def find(
+        self, predicate: Callable[[dict], bool] | None = None
+    ) -> list[dict]:
+        if predicate is None:
+            return list(self._docs.values())
+        return [d for d in self._docs.values() if predicate(d)]
+
+    async def count(
+        self, predicate: Callable[[dict], bool] | None = None
+    ) -> int:
+        if predicate is None:
+            return len(self._docs)
+        return sum(1 for d in self._docs.values() if predicate(d))

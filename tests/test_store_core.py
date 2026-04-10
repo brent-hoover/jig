@@ -190,3 +190,30 @@ async def test_load_replay_update_on_missing_doc_is_ignored(tmp_path):
     store = JsonlStore(path)
     await store.load()
     assert await store.get("x") is None
+
+
+async def test_load_raises_on_malformed_json_with_line_number(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"_op": "insert", "_id": "x"}\n'
+        '{not valid json\n'
+    )
+    store = JsonlStore(path)
+    with pytest.raises(ValueError, match="line 2"):
+        await store.load()
+
+
+async def test_load_raises_when_op_missing(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text('{"_id": "x", "name": "a"}\n')
+    store = JsonlStore(path)
+    with pytest.raises(ValueError, match="line 1"):
+        await store.load()
+
+
+async def test_load_raises_when_id_missing(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text('{"_op": "insert", "name": "a"}\n')
+    store = JsonlStore(path)
+    with pytest.raises(ValueError, match="line 1"):
+        await store.load()

@@ -28,9 +28,22 @@ class JsonlStore:
                 line = raw.rstrip("\n")
                 if not line:
                     continue
-                record = json.loads(line)
-                op = record.get("_op")
-                doc_id = record.get("_id")
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"{self._path}: malformed JSON on line {line_no}: {e}"
+                    ) from e
+                if "_op" not in record:
+                    raise ValueError(
+                        f"{self._path}: missing _op on line {line_no}"
+                    )
+                if "_id" not in record:
+                    raise ValueError(
+                        f"{self._path}: missing _id on line {line_no}"
+                    )
+                op = record["_op"]
+                doc_id = record["_id"]
                 if op == "insert":
                     doc = {k: v for k, v in record.items() if k != "_op"}
                     self._docs[doc_id] = doc
@@ -45,6 +58,10 @@ class JsonlStore:
                     current.update(changes)
                 elif op == "delete":
                     self._docs.pop(doc_id, None)
+                else:
+                    raise ValueError(
+                        f"{self._path}: unknown _op {op!r} on line {line_no}"
+                    )
         for doc in self._docs.values():
             self._index_insert(doc)
         self._loaded = True

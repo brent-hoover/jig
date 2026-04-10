@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jig.agent import run_agent
+from jig.agent import _sanitize_for_tui, run_agent
 from jig.models import (
     AgentTypeConfig,
     Issue,
@@ -88,3 +88,26 @@ class TestRunAgent:
         )
 
         assert result == "Feature implemented successfully"
+
+
+class TestSanitizeForTui:
+    def test_strips_newlines(self):
+        assert _sanitize_for_tui("line1\nline2\nline3") == "line1 line2 line3"
+
+    def test_strips_ansi_escapes(self):
+        assert _sanitize_for_tui("\x1b[31mred\x1b[0m text") == "red text"
+
+    def test_strips_control_chars(self):
+        assert _sanitize_for_tui("hello\x00\x07\x08world") == "helloworld"
+
+    def test_collapses_whitespace(self):
+        assert _sanitize_for_tui("a\t\t b  \n  c") == "a b c"
+
+    def test_truncates_with_ellipsis(self):
+        out = _sanitize_for_tui("x" * 200, limit=10)
+        assert len(out) == 10
+        assert out.endswith("…")
+
+    def test_empty_input(self):
+        assert _sanitize_for_tui("") == ""
+        assert _sanitize_for_tui("   \n\t  ") == ""

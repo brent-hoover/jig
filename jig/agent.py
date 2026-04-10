@@ -1,9 +1,31 @@
 """Agent runner -- spawns Claude Code agents via the SDK."""
 
+import re
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions
 from claude_agent_sdk.types import AssistantMessage, ResultMessage, SystemMessage
+
+# Matches ANSI CSI escape sequences (e.g. "\x1b[31m") and standalone ESC chars.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
+# Matches control characters except \t (we convert it to space anyway).
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _sanitize_for_tui(text: str, limit: int = 120) -> str:
+    """Make agent text safe for single-line rendering in the TUI.
+
+    Strips ANSI escapes, collapses whitespace (newlines, tabs) to single
+    spaces, removes other control characters, and truncates to ``limit``.
+    """
+    if not text:
+        return ""
+    text = _ANSI_RE.sub("", text)
+    text = _CTRL_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return text
 
 from jig.bus import MessageBus
 from jig.events import EventEmitter, JigEvent
@@ -19,20 +41,19 @@ def _tool_detail(tool_name: str, tool_input: dict) -> str:
         # Show just the filename or last 2 path components
         parts = path.rsplit("/", 2)
         short = "/".join(parts[-2:]) if len(parts) > 1 else path
-        return short
+        return _sanitize_for_tui(short, limit=80)
     if tool_name == "Bash":
-        cmd = tool_input.get("command", "")
-        return cmd[:80]
+        return _sanitize_for_tui(tool_input.get("command", ""), limit=80)
     if tool_name == "Grep":
-        return tool_input.get("pattern", "")[:60]
+        return _sanitize_for_tui(tool_input.get("pattern", ""), limit=60)
     if tool_name == "Glob":
-        return tool_input.get("pattern", "")[:60]
+        return _sanitize_for_tui(tool_input.get("pattern", ""), limit=60)
     if tool_name == "Agent":
-        return tool_input.get("description", "")[:60]
+        return _sanitize_for_tui(tool_input.get("description", ""), limit=60)
     # Generic: show first string value
     for v in tool_input.values():
         if isinstance(v, str) and v:
-            return v[:60]
+            return _sanitize_for_tui(v, limit=60)
     return ""
 
 
@@ -172,12 +193,13 @@ async def run_agent(
                         "detail": detail,
                     })
                 elif hasattr(block, "text") and block.text:
-                    # TextBlock — send a truncated preview
-                    preview = block.text[:120]
-                    await _emit("agent_text", {
-                        "phase": task_id,
-                        "text": preview,
-                    })
+                    # TextBlock — send a sanitized single-line preview
+                    preview = _sanitize_for_tui(block.text, limit=120)
+                    if preview:
+                        await _emit("agent_text", {
+                            "phase": task_id,
+                            "text": preview,
+                        })
         elif isinstance(message, ResultMessage):
             result_text = message.result or ""
             await _emit("agent_result", {

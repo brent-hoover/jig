@@ -4,20 +4,22 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from jig.bus import MessageBus
+from jig.store import MessageBus
 from jig.bus_monitor import BusMonitor
-from jig.models import AgentInstance, AgentMessage, AgentStatus, Issue, MessageDirection
+from jig.mcp_tools import handle_send_message
+from jig.models import AgentInstance, AgentStatus, Issue
 from jig.persistence import save_agent_instance, save_issue
 
 
 class TestBusMonitor:
     @pytest.fixture
-    def setup(self, tmp_jig_project: Path):
+    async def setup(self, tmp_jig_project: Path):
         save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
         save_agent_instance(tmp_jig_project, AgentInstance(
             id="dev-1", agent_type="dev", status=AgentStatus.DORMANT,
         ))
-        bus = MessageBus(tmp_jig_project)
+        bus = MessageBus(tmp_jig_project / ".jig" / "store" / "messages.jsonl")
+        await bus.load()
         return tmp_jig_project, bus
 
     async def test_detects_message_to_dormant_agent(self, setup):
@@ -28,14 +30,17 @@ class TestBusMonitor:
 
         await asyncio.sleep(0.1)
 
-        msg = AgentMessage(
+        await handle_send_message(
+            bus=bus,
+            issue_id="issue-1",
             sender_id="test-1",
-            recipient_id="dev-1",
-            direction=MessageDirection.REQUEST,
-            topic="question",
-            content="How should I test this?",
+            args={
+                "recipient_id": "dev-1",
+                "direction": "request",
+                "topic": "question",
+                "content": "How should I test this?",
+            },
         )
-        await bus.publish("issue-1", msg)
 
         await asyncio.sleep(0.3)
 
@@ -62,14 +67,17 @@ class TestBusMonitor:
         monitor_task = asyncio.create_task(monitor.start())
         await asyncio.sleep(0.1)
 
-        msg = AgentMessage(
+        await handle_send_message(
+            bus=bus,
+            issue_id="issue-1",
             sender_id="test-1",
-            recipient_id="dev-1",
-            direction=MessageDirection.REQUEST,
-            topic="question",
-            content="question",
+            args={
+                "recipient_id": "dev-1",
+                "direction": "request",
+                "topic": "question",
+                "content": "question",
+            },
         )
-        await bus.publish("issue-1", msg)
         await asyncio.sleep(0.3)
 
         callback.assert_not_called()
@@ -88,14 +96,17 @@ class TestBusMonitor:
         monitor_task = asyncio.create_task(monitor.start())
         await asyncio.sleep(0.1)
 
-        msg = AgentMessage(
+        await handle_send_message(
+            bus=bus,
+            issue_id="issue-1",
             sender_id="test-1",
-            recipient_id="broadcast",
-            direction=MessageDirection.REQUEST,
-            topic="status",
-            content="update",
+            args={
+                "recipient_id": "broadcast",
+                "direction": "request",
+                "topic": "status",
+                "content": "update",
+            },
         )
-        await bus.publish("issue-1", msg)
         await asyncio.sleep(0.3)
 
         callback.assert_not_called()

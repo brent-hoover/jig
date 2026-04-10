@@ -2,7 +2,6 @@ from jig.models import (
     ProjectConfig,
     IssueStatus,
     CompletionState,
-    MessageType,
 )
 
 
@@ -29,14 +28,6 @@ class TestEnums:
         assert CompletionState.NEEDS_INFO == "needs_info"
         assert CompletionState.BLOCKED == "blocked"
         assert CompletionState.FAILED == "failed"
-
-    def test_message_type_values(self):
-        assert MessageType.TASK_ASSIGNMENT == "task_assignment"
-        assert MessageType.TASK_COMPLETION == "task_completion"
-        assert MessageType.QUESTION == "question"
-        assert MessageType.ANSWER == "answer"
-        assert MessageType.CONTEXT_UPDATE == "context_update"
-        assert MessageType.STATUS == "status"
 
 
 from jig.models import Issue
@@ -91,52 +82,6 @@ class TestTask:
         )
         assert task.completion_state == CompletionState.NEEDS_INFO
         assert task.completion_reason == "Missing test coverage data"
-
-
-from datetime import datetime, timezone
-from jig.models import Message
-
-
-class TestMessage:
-    def test_defaults(self):
-        msg = Message(
-            sender="dev-agent",
-            recipient="orchestrator",
-            type=MessageType.STATUS,
-        )
-        assert msg.sender == "dev-agent"
-        assert msg.recipient == "orchestrator"
-        assert msg.type == MessageType.STATUS
-        assert msg.payload == {}
-        assert msg.correlation_id is None
-        assert msg.id  # auto-generated
-        assert msg.timestamp  # auto-generated
-
-    def test_with_payload(self):
-        msg = Message(
-            sender="orchestrator",
-            recipient="test-agent",
-            type=MessageType.TASK_ASSIGNMENT,
-            payload={"task_id": "task-1"},
-            correlation_id="corr-123",
-        )
-        assert msg.payload == {"task_id": "task-1"}
-        assert msg.correlation_id == "corr-123"
-
-    def test_serialization_roundtrip(self):
-        msg = Message(
-            sender="dev-agent",
-            recipient="orchestrator",
-            type=MessageType.TASK_COMPLETION,
-            payload={"status": "done"},
-        )
-        data = msg.model_dump(mode="json")
-        restored = Message.model_validate(data)
-        assert restored.sender == msg.sender
-        assert restored.recipient == msg.recipient
-        assert restored.type == msg.type
-        assert restored.payload == msg.payload
-        assert restored.id == msg.id
 
 
 from jig.models import PhaseConfig, WorkflowConfig

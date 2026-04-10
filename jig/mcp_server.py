@@ -5,7 +5,7 @@ from pathlib import Path
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-from jig.bus import MessageBus
+from jig.store import MessageBus
 from jig.mcp_tools import (
     handle_check_messages,
     handle_get_workflow_status,

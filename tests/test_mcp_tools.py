@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from jig.bus import MessageBus
+from jig.store import MessageBus
 from jig.models import (
     AgentInstance,
     AgentMessage,
@@ -30,13 +30,16 @@ from jig.persistence import save_issue, save_task, load_task, save_agent_instanc
 
 
 class TestHandleSendMessage:
-    @pytest.fixture
-    def bus(self, tmp_jig_project: Path) -> MessageBus:
+    async def _make_bus(self, tmp_jig_project: Path) -> MessageBus:
         save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
-        return MessageBus(tmp_jig_project)
+        bus = MessageBus(tmp_jig_project / ".jig" / "store" / "messages.jsonl")
+        await bus.load()
+        return bus
 
-    async def test_sends_structured_message(self, bus: MessageBus, tmp_jig_project: Path):
-        queue = await bus.subscribe("issue-1", "test-1")
+    async def test_sends_structured_message(self, tmp_jig_project: Path):
+        bus = await self._make_bus(tmp_jig_project)
+        # Pre-subscribe recipient so handle_check_messages sees the delivery.
+        await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="test-1")
         result = await handle_send_message(
             bus=bus,
             issue_id="issue-1",
@@ -49,7 +52,9 @@ class TestHandleSendMessage:
             },
         )
         assert "sent" in result.lower()
-        msg = await queue.get()
+        messages = await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="test-1")
+        assert len(messages) == 1
+        msg = messages[0]
         assert isinstance(msg, AgentMessage)
         assert msg.sender_id == "dev-1"
         assert msg.recipient_id == "test-1"
@@ -57,9 +62,10 @@ class TestHandleSendMessage:
         assert msg.topic == "api_design"
         assert msg.content == "What endpoints do we need?"
 
-    async def test_sends_response_with_correlation(self, bus: MessageBus, tmp_jig_project: Path):
-        queue = await bus.subscribe("issue-1", "dev-1")
-        result = await handle_send_message(
+    async def test_sends_response_with_correlation(self, tmp_jig_project: Path):
+        bus = await self._make_bus(tmp_jig_project)
+        await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="dev-1")
+        await handle_send_message(
             bus=bus,
             issue_id="issue-1",
             sender_id="test-1",
@@ -71,13 +77,16 @@ class TestHandleSendMessage:
                 "correlation_id": "msg-123",
             },
         )
-        msg = await queue.get()
+        messages = await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="dev-1")
+        assert len(messages) == 1
+        msg = messages[0]
         assert msg.direction == MessageDirection.RESPONSE
         assert msg.correlation_id == "msg-123"
 
-    async def test_broadcasts(self, bus: MessageBus, tmp_jig_project: Path):
-        q1 = await bus.subscribe("issue-1", "agent-a")
-        q2 = await bus.subscribe("issue-1", "agent-b")
+    async def test_broadcasts(self, tmp_jig_project: Path):
+        bus = await self._make_bus(tmp_jig_project)
+        await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="agent-a")
+        await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="agent-b")
         await handle_send_message(
             bus=bus,
             issue_id="issue-1",
@@ -89,10 +98,12 @@ class TestHandleSendMessage:
                 "content": "Starting work",
             },
         )
-        m1 = await q1.get()
-        m2 = await q2.get()
-        assert m1.content == "Starting work"
-        assert m2.content == "Starting work"
+        m1_list = await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="agent-a")
+        m2_list = await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="agent-b")
+        assert len(m1_list) == 1
+        assert len(m2_list) == 1
+        assert m1_list[0].content == "Starting work"
+        assert m2_list[0].content == "Starting work"
 
 
 class TestHandleReportCompletion:
@@ -178,12 +189,14 @@ class TestHandleRequestContext:
 
 
 class TestHandleCheckMessages:
-    @pytest.fixture
-    def bus(self, tmp_jig_project: Path) -> MessageBus:
+    async def _make_bus(self, tmp_jig_project: Path) -> MessageBus:
         save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
-        return MessageBus(tmp_jig_project)
+        bus = MessageBus(tmp_jig_project / ".jig" / "store" / "messages.jsonl")
+        await bus.load()
+        return bus
 
-    async def test_returns_empty_when_no_messages(self, bus: MessageBus):
+    async def test_returns_empty_when_no_messages(self, tmp_jig_project: Path):
+        bus = await self._make_bus(tmp_jig_project)
         result = await handle_check_messages(
             bus=bus,
             issue_id="issue-1",
@@ -191,16 +204,21 @@ class TestHandleCheckMessages:
         )
         assert result == []
 
-    async def test_returns_messages_for_agent(self, bus: MessageBus):
-        queue = await bus.subscribe("issue-1", "dev-1")
-        msg = AgentMessage(
+    async def test_returns_messages_for_agent(self, tmp_jig_project: Path):
+        bus = await self._make_bus(tmp_jig_project)
+        # Establish subscription before publishing.
+        await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="dev-1")
+        await handle_send_message(
+            bus=bus,
+            issue_id="issue-1",
             sender_id="test-1",
-            recipient_id="dev-1",
-            direction=MessageDirection.REQUEST,
-            topic="question",
-            content="How should I test this?",
+            args={
+                "recipient_id": "dev-1",
+                "direction": "request",
+                "topic": "question",
+                "content": "How should I test this?",
+            },
         )
-        await bus.publish("issue-1", msg)
 
         result = await handle_check_messages(
             bus=bus,
@@ -211,17 +229,21 @@ class TestHandleCheckMessages:
         assert result[0].sender_id == "test-1"
         assert result[0].content == "How should I test this?"
 
-    async def test_drains_queue(self, bus: MessageBus):
-        queue = await bus.subscribe("issue-1", "dev-1")
+    async def test_drains_queue(self, tmp_jig_project: Path):
+        bus = await self._make_bus(tmp_jig_project)
+        await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="dev-1")
         for i in range(3):
-            msg = AgentMessage(
+            await handle_send_message(
+                bus=bus,
+                issue_id="issue-1",
                 sender_id="test-1",
-                recipient_id="dev-1",
-                direction=MessageDirection.REQUEST,
-                topic="q",
-                content=f"Message {i}",
+                args={
+                    "recipient_id": "dev-1",
+                    "direction": "request",
+                    "topic": "q",
+                    "content": f"Message {i}",
+                },
             )
-            await bus.publish("issue-1", msg)
 
         result = await handle_check_messages(bus=bus, issue_id="issue-1", agent_id="dev-1")
         assert len(result) == 3

@@ -5,7 +5,7 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
-from jig.bus import MessageBus
+from jig.store import Message, MessageBus
 from jig.models import AgentMessage, AgentStatus
 from jig.persistence import load_agent_instance
 
@@ -27,24 +27,30 @@ class BusMonitor:
     async def start(self) -> None:
         """Start monitoring the bus for messages to dormant agents."""
         self._running = True
-        queue = await self._bus.tap(self._issue_id)
+        queue = await self._bus.subscribe(self._issue_id)
         while self._running:
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
 
-            if not isinstance(message, AgentMessage):
+            if not isinstance(message, Message):
                 continue
 
-            recipient_id = message.recipient_id
+            recipient_id = message.to
             if recipient_id == "broadcast":
+                continue
+
+            # Decode the AgentMessage payload that handle_send_message put in.
+            try:
+                agent_msg = AgentMessage.model_validate(message.payload)
+            except Exception:
                 continue
 
             try:
                 instance = load_agent_instance(self._project_path, recipient_id)
                 if instance.status == AgentStatus.DORMANT:
-                    await self._on_wake(recipient_id, message)
+                    await self._on_wake(recipient_id, agent_msg)
             except FileNotFoundError:
                 pass  # Not a known agent
 

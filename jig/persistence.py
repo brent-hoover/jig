@@ -6,10 +6,8 @@ import yaml
 
 from jig.models import (
     AgentInstance,
-    AgentMessage,
     AgentTypeConfig,
     Issue,
-    Message,
     PhaseConfig,
     ProjectConfig,
     ProjectContext,
@@ -97,25 +95,6 @@ def list_issues(project_path: Path) -> list[Issue]:
             data = yaml.safe_load(issue_file.read_text())
             issues.append(Issue.model_validate(data))
     return issues
-
-
-def append_message(project_path: Path, issue_id: str, message: "Message | AgentMessage") -> None:
-    """Append a message to .jig/issues/<id>/messages.jsonl."""
-    messages_path = _jig_dir(project_path) / "issues" / issue_id / "messages.jsonl"
-    with messages_path.open("a") as f:
-        f.write(message.model_dump_json() + "\n")
-
-
-def load_messages(project_path: Path, issue_id: str) -> list[Message]:
-    """Load all messages from .jig/issues/<id>/messages.jsonl."""
-    messages_path = _jig_dir(project_path) / "issues" / issue_id / "messages.jsonl"
-    if not messages_path.is_file():
-        return []
-    messages = []
-    for line in messages_path.read_text().splitlines():
-        if line.strip():
-            messages.append(Message.model_validate_json(line))
-    return messages
 
 
 def save_agent_type(project_path: Path, config: AgentTypeConfig) -> None:

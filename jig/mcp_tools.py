@@ -7,7 +7,7 @@ Server factories that wrap these with @tool decorators live in mcp_server.py.
 import json
 from pathlib import Path
 
-from jig.store import MessageBus
+from jig.store import Message, MessageBus, MessageType
 from jig.models import (
     AgentMessage,
     CompletionReport,
@@ -27,8 +27,15 @@ async def handle_send_message(
     sender_id: str,
     args: dict,
 ) -> str:
-    """Send a structured AgentMessage via the bus."""
-    msg = AgentMessage(
+    """Send a structured AgentMessage via the bus.
+
+    AgentMessage is a domain concept with its own fields (direction, content,
+    subject topic). We wrap it in a store-level Message so it can traverse
+    the topic-partitioned bus: the AgentMessage payload is serialized into
+    the store Message's ``payload`` field, and the bus ``topic`` is set to
+    the issue_id so subscribers to an issue see all messages for it.
+    """
+    agent_msg = AgentMessage(
         sender_id=sender_id,
         recipient_id=args["recipient_id"],
         direction=MessageDirection(args["direction"]),
@@ -36,7 +43,20 @@ async def handle_send_message(
         content=args["content"],
         correlation_id=args.get("correlation_id"),
     )
-    await bus.publish(issue_id, msg)
+    store_type = (
+        MessageType.QUESTION
+        if agent_msg.direction == MessageDirection.REQUEST
+        else MessageType.ANSWER
+    )
+    msg = Message(
+        sender=sender_id,
+        to=agent_msg.recipient_id,
+        type=store_type,
+        payload=agent_msg.model_dump(mode="json"),
+        correlation_id=agent_msg.correlation_id,
+        topic=issue_id,
+    )
+    await bus.publish(msg)
     return f"Message sent to {args['recipient_id']}"
 
 
@@ -88,16 +108,39 @@ async def handle_check_messages(
 ) -> list[AgentMessage]:
     """Check for and return any pending messages for this agent.
 
-    Drains the agent's subscription queue. Returns an empty list if no messages.
-    Subscribes the agent if not already subscribed.
+    Subscribes to the issue topic (if not already) and drains messages
+    addressed to this agent (or broadcast). Store-level Messages are
+    decoded back into their original AgentMessage payloads.
     """
-    queue = await bus.subscribe(issue_id, agent_id)
-    messages = []
+    queue = await _get_or_create_subscription(bus, issue_id, agent_id)
+    messages: list[AgentMessage] = []
     while not queue.empty():
         item = await queue.get()
-        if isinstance(item, AgentMessage):
-            messages.append(item)
+        if not isinstance(item, Message):
+            continue
+        if item.to not in (agent_id, "broadcast"):
+            continue
+        try:
+            messages.append(AgentMessage.model_validate(item.payload))
+        except Exception:
+            continue
     return messages
+
+
+# Per-(bus, issue, agent) subscription cache so repeated calls to
+# handle_check_messages see the same queue and don't drop messages.
+_subscription_cache: dict[tuple[int, str, str], object] = {}
+
+
+async def _get_or_create_subscription(
+    bus: MessageBus, issue_id: str, agent_id: str
+):
+    key = (id(bus), issue_id, agent_id)
+    queue = _subscription_cache.get(key)
+    if queue is None:
+        queue = await bus.subscribe(issue_id)
+        _subscription_cache[key] = queue
+    return queue
 
 
 async def handle_save_memory(

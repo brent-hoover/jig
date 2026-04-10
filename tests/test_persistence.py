@@ -1,8 +1,8 @@
 import pytest
 from pathlib import Path
 
-from jig.models import ProjectConfig, Issue, IssueStatus, Message, MessageType
-from jig.persistence import init_project, load_project, save_issue, load_issue, list_issues, append_message, load_messages
+from jig.models import ProjectConfig, Issue, IssueStatus
+from jig.persistence import init_project, load_project, save_issue, load_issue, list_issues
 
 
 class TestInitProject:
@@ -77,62 +77,6 @@ class TestIssuePersistence:
     def test_load_nonexistent_raises(self, tmp_jig_project: Path):
         with pytest.raises(FileNotFoundError):
             load_issue(tmp_jig_project, "nope")
-
-
-class TestMessagePersistence:
-    def test_append_and_load(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-
-        msg = Message(
-            sender="dev-agent",
-            recipient="orchestrator",
-            type=MessageType.STATUS,
-            payload={"info": "started"},
-        )
-        append_message(tmp_jig_project, "issue-1", msg)
-        messages = load_messages(tmp_jig_project, "issue-1")
-        assert len(messages) == 1
-        assert messages[0].sender == "dev-agent"
-        assert messages[0].payload == {"info": "started"}
-
-    def test_append_multiple(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-
-        for i in range(3):
-            msg = Message(
-                sender=f"agent-{i}",
-                recipient="orchestrator",
-                type=MessageType.STATUS,
-            )
-            append_message(tmp_jig_project, "issue-1", msg)
-        messages = load_messages(tmp_jig_project, "issue-1")
-        assert len(messages) == 3
-        assert messages[0].sender == "agent-0"
-        assert messages[2].sender == "agent-2"
-
-    def test_load_empty(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-        messages = load_messages(tmp_jig_project, "issue-1")
-        assert messages == []
-
-    def test_preserves_order(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-
-        for i in range(5):
-            msg = Message(
-                sender="agent",
-                recipient="orchestrator",
-                type=MessageType.STATUS,
-                payload={"seq": i},
-            )
-            append_message(tmp_jig_project, "issue-1", msg)
-        messages = load_messages(tmp_jig_project, "issue-1")
-        seqs = [m.payload["seq"] for m in messages]
-        assert seqs == [0, 1, 2, 3, 4]
 
 
 from jig.models import AgentTypeConfig

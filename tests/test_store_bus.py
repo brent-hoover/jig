@@ -1,5 +1,7 @@
+import asyncio
+
 import pytest
-from jig.store.bus import Message, MessageType
+from jig.store.bus import Message, MessageBus, MessageType
 
 
 def test_message_type_enum_values():
@@ -67,3 +69,51 @@ def test_message_can_be_built_from_dict_with_from_key():
     msg = Message.model_validate(raw)
     assert msg.sender == "alice"
     assert msg.type == MessageType.STATUS
+
+
+async def test_bus_publish_accepts_message_instance(tmp_path):
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    await bus.load()
+    msg = Message(
+        sender="alice", to="bob", type=MessageType.STATUS,
+        payload={}, topic="JIG-1",
+    )
+    msg_id = await bus.publish(msg)
+    assert isinstance(msg_id, str)
+    assert msg_id == msg.id
+
+
+async def test_bus_publish_accepts_dict_and_validates(tmp_path):
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    await bus.load()
+    msg_id = await bus.publish({
+        "from": "alice",
+        "to": "bob",
+        "type": "status",
+        "payload": {},
+        "topic": "JIG-1",
+    })
+    assert isinstance(msg_id, str)
+
+
+async def test_bus_single_subscriber_receives_message(tmp_path):
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    await bus.load()
+    queue = await bus.subscribe("JIG-1")
+    await bus.publish(Message(
+        sender="alice", to="bob", type=MessageType.STATUS,
+        payload={}, topic="JIG-1",
+    ))
+    received = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert received.sender == "alice"
+
+
+async def test_bus_subscriber_does_not_receive_other_topic(tmp_path):
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    await bus.load()
+    queue = await bus.subscribe("JIG-1")
+    await bus.publish(Message(
+        sender="alice", to="bob", type=MessageType.STATUS,
+        payload={}, topic="JIG-2",
+    ))
+    assert queue.empty()

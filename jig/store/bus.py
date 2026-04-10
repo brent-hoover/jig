@@ -33,3 +33,42 @@ class Message(StoreModel):
     topic: str
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class MessageBus:
+    def __init__(self, path: Path) -> None:
+        self._collection: TypedCollection[Message] = TypedCollection(
+            path, model=Message, index_fields=["topic"]
+        )
+        self._subscribers: dict[str, list[asyncio.Queue[Message]]] = {}
+        self._listeners: list[Callable[[Message], Awaitable[None]]] = []
+        self._lock = asyncio.Lock()
+
+    async def load(self) -> None:
+        await self._collection.load()
+
+    async def publish(self, message: Message | dict) -> str:
+        if isinstance(message, dict):
+            message = Message.model_validate(message)
+        msg_id = await self._collection.insert(message)
+
+        async with self._lock:
+            subs_snapshot = list(self._subscribers.get(message.topic, []))
+            listeners_snapshot = list(self._listeners)
+
+        for queue in subs_snapshot:
+            await queue.put(message)
+        for callback in listeners_snapshot:
+            try:
+                await callback(message)
+            except Exception:
+                _logger.warning(
+                    "websocket listener raised during publish", exc_info=True
+                )
+        return msg_id
+
+    async def subscribe(self, topic: str) -> asyncio.Queue[Message]:
+        async with self._lock:
+            queue: asyncio.Queue[Message] = asyncio.Queue()
+            self._subscribers.setdefault(topic, []).append(queue)
+            return queue

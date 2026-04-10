@@ -132,6 +132,39 @@ class TestOrchestratorSinglePhase:
         assert "bus" in call_kwargs
         assert call_kwargs["bus"] is orchestrator._bus
 
+    @patch("jig.orchestrator.run_agent")
+    async def test_constructs_bus_monitor_with_shared_bus(self, mock_run_agent, git_project: Path):
+        """Orchestrator builds a BusMonitor wired to its shared bus and
+        issue id so dormant-agent wake-ups can fire during a run."""
+        mock_run_agent.return_value = "Done"
+
+        recorded: dict = {}
+
+        class StubMonitor:
+            def __init__(self, project_path, bus, issue_id, on_wake):
+                recorded["project_path"] = project_path
+                recorded["bus"] = bus
+                recorded["issue_id"] = issue_id
+                recorded["on_wake"] = on_wake
+
+            async def start(self):
+                # Idle forever until cancelled so the orchestrator's
+                # finally block exercises the stop/cancel path.
+                import asyncio
+                await asyncio.Event().wait()
+
+            def stop(self):
+                pass
+
+        with patch("jig.orchestrator.BusMonitor", StubMonitor):
+            orchestrator = Orchestrator(git_project, "issue-1")
+            await orchestrator.run()
+
+        assert recorded["bus"] is orchestrator._bus
+        assert recorded["issue_id"] == "issue-1"
+        assert recorded["project_path"] == git_project
+        assert callable(recorded["on_wake"])
+
 
 @pytest.fixture
 def git_project_full_workflow(tmp_path: Path) -> Path:

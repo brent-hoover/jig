@@ -1,5 +1,6 @@
 """Orchestrator — an Opus-level reasoning agent that coordinates workflow phases."""
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -7,9 +8,11 @@ from claude_agent_sdk import query, ClaudeAgentOptions
 from claude_agent_sdk.types import AssistantMessage, ResultMessage
 
 from jig.agent import run_agent
+from jig.bus_monitor import BusMonitor
 from jig.events import EventEmitter, JigEvent
 from jig.models import (
     AgentInstance,
+    AgentMessage,
     AgentStatus,
     AgentTypeConfig,
     CompletionState,
@@ -62,6 +65,8 @@ class Orchestrator:
         # publish/subscribe fan-out actually reaches live subscribers.
         self._bus = MessageBus(project_path / ".jig" / "store" / "messages.jsonl")
         self._bus_loaded = False
+        self._bus_monitor: BusMonitor | None = None
+        self._monitor_task: asyncio.Task | None = None
 
         # Ensure orchestrator agent type exists for LLM recovery decisions
         try:
@@ -101,6 +106,34 @@ class Orchestrator:
         # recent successful phase's branch (if any) so worktrees chain.
         await self._ensure_phase_history_loaded()
         await self._ensure_bus_loaded()
+
+        # Spin up a BusMonitor so that messages directed at dormant
+        # agents on this issue trigger a wake-up callback. The monitor
+        # runs as a background task for the duration of the run and is
+        # torn down in the finally block below.
+        self._bus_monitor = BusMonitor(
+            self._project_path,
+            self._bus,
+            self._issue_id,
+            on_wake=self._handle_agent_wake,
+        )
+        self._monitor_task = asyncio.create_task(self._bus_monitor.start())
+
+        try:
+            await self._run_workflow(workflow, issue)
+        finally:
+            if self._bus_monitor is not None:
+                self._bus_monitor.stop()
+            if self._monitor_task is not None:
+                self._monitor_task.cancel()
+                try:
+                    await self._monitor_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _run_workflow(self, workflow: WorkflowConfig, issue: Issue) -> None:
+        """Core workflow loop. Extracted so :meth:`run` can wrap it in
+        monitor lifecycle management."""
         persisted = await self._phase_history_store.find_where(issue_id=self._issue_id)
         persisted.sort(key=lambda e: e.timestamp)
         self._phase_history = [self._entry_to_dict(e) for e in persisted]
@@ -208,6 +241,21 @@ class Orchestrator:
         issue.status = IssueStatus.COMPLETED
         save_issue(self._project_path, issue)
         await self._emit("workflow_completed", {"issue_id": self._issue_id})
+
+    async def _handle_agent_wake(self, agent_id: str, message: "AgentMessage") -> None:
+        """Callback for :class:`BusMonitor` when a dormant agent is sent a message.
+
+        This is intentionally minimal: it emits an observability event so
+        callers (and tests) can see that the wake signal fired. A real
+        wake-up protocol — spawning the agent, creating a task/worktree,
+        resuming its conversation — is intentionally out of scope for
+        this wiring change and is tracked as follow-up work.
+        """
+        await self._emit("agent_wake_requested", {
+            "agent_id": agent_id,
+            "issue_id": self._issue_id,
+            "topic": message.topic,
+        })
 
     def _find_phase(self, workflow: WorkflowConfig, phase_name: str) -> PhaseConfig | None:
         """Find a phase config by name."""

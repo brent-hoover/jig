@@ -26,14 +26,29 @@ class JsonlStore:
         with self._path.open("a") as f:
             f.write(json.dumps(record) + "\n")
 
+    def _index_insert(self, doc: dict) -> None:
+        for field in self._index_fields:
+            if field in doc:
+                self._indexes[field].setdefault(doc[field], set()).add(doc["_id"])
+
+    def _index_remove(self, doc: dict) -> None:
+        for field in self._index_fields:
+            if field in doc:
+                bucket = self._indexes[field].get(doc[field])
+                if bucket is not None:
+                    bucket.discard(doc["_id"])
+                    if not bucket:
+                        del self._indexes[field][doc[field]]
+
     async def insert(self, doc: dict) -> str:
         async with self._lock:
             if "_id" not in doc:
                 doc = {**doc, "_id": str(uuid.uuid4())}
             record = {"_op": "insert", **doc}
             await asyncio.to_thread(self._append_line, record)
-            self._docs[doc["_id"]] = dict(doc)
-            # index updates come in Task 5
+            stored = dict(doc)
+            self._docs[doc["_id"]] = stored
+            self._index_insert(stored)
             return doc["_id"]
 
     async def get(self, doc_id: str) -> dict | None:
@@ -52,3 +67,14 @@ class JsonlStore:
         if predicate is None:
             return len(self._docs)
         return sum(1 for d in self._docs.values() if predicate(d))
+
+    async def find_by(self, field: str, value: Any) -> list[dict]:
+        if field in self._index_fields:
+            ids = self._indexes[field].get(value, set())
+            return [self._docs[i] for i in ids]
+        if len(self._docs) > 1000:
+            raise ValueError(
+                f"field {field!r} is not indexed and collection has "
+                f"{len(self._docs)} docs; declare it in index_fields"
+            )
+        return [d for d in self._docs.values() if d.get(field) == value]

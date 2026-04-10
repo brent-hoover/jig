@@ -81,3 +81,32 @@ async def test_count_with_and_without_predicate(tmp_path):
     await store.insert({"x": 3})
     assert await store.count() == 3
     assert await store.count(lambda d: d["x"] >= 2) == 2
+
+
+async def test_find_by_uses_index(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl", index_fields=["status"])
+    await store.load()
+    await store.insert({"name": "a", "status": "on"})
+    await store.insert({"name": "b", "status": "off"})
+    await store.insert({"name": "c", "status": "on"})
+    on = await store.find_by("status", "on")
+    assert sorted(d["name"] for d in on) == ["a", "c"]
+
+
+async def test_find_by_unindexed_small_collection_falls_through(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl", index_fields=[])
+    await store.load()
+    await store.insert({"x": 1})
+    await store.insert({"x": 2})
+    results = await store.find_by("x", 1)
+    assert len(results) == 1
+    assert results[0]["x"] == 1
+
+
+async def test_find_by_unindexed_large_collection_raises(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl", index_fields=[])
+    await store.load()
+    for i in range(1001):
+        await store.insert({"x": i})
+    with pytest.raises(ValueError, match="not indexed"):
+        await store.find_by("x", 500)

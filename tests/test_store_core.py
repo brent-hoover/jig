@@ -140,3 +140,22 @@ async def test_update_reindexes_when_indexed_field_changes(tmp_path):
     off = await store.find_by("status", "off")
     assert on == []
     assert len(off) == 1 and off[0]["name"] == "a"
+
+
+async def test_delete_removes_doc_and_returns_true(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl", index_fields=["status"])
+    await store.load()
+    doc_id = await store.insert({"name": "a", "status": "on"})
+    ok = await store.delete(doc_id)
+    assert ok is True
+    assert await store.get(doc_id) is None
+    assert await store.find_by("status", "on") == []
+
+
+async def test_delete_missing_id_returns_false_and_writes_nothing(tmp_path):
+    path = tmp_path / "s.jsonl"
+    store = JsonlStore(path)
+    await store.load()
+    before = path.read_text()
+    assert await store.delete("nope") is False
+    assert path.read_text() == before

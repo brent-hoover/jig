@@ -68,6 +68,17 @@ class JsonlStore:
             return len(self._docs)
         return sum(1 for d in self._docs.values() if predicate(d))
 
+    async def delete(self, doc_id: str) -> bool:
+        async with self._lock:
+            current = self._docs.get(doc_id)
+            if current is None:
+                return False
+            record = {"_op": "delete", "_id": doc_id}
+            await asyncio.to_thread(self._append_line, record)
+            self._index_remove(current)
+            del self._docs[doc_id]
+            return True
+
     async def update(self, doc_id: str, changes: dict) -> bool:
         async with self._lock:
             current = self._docs.get(doc_id)

@@ -116,6 +116,14 @@ Driven by Python code (the server). No orchestrator agent involved.
 
 This path is free (no LLM tokens for orchestration), deterministic, and fast.
 
+## Data Access Principle
+
+**All data access goes through MCP tools.** Agents (including the orchestrator) never read or write state directly — no file I/O, no direct database calls. Every read and write goes through an MCP tool: `get_workflow_status`, `report_completion`, `send_message`, `check_messages`, `save_memory`, `load_memory`, `request_context`, etc.
+
+This makes the MCP tool layer the single abstraction boundary for storage. When the data store changes (e.g. from file-based to a proper database), only the MCP tool handlers need to change. Agent code, orchestrator code, and protocol models stay untouched.
+
+The Python server process (which runs the MCP tool handlers) is the only component that touches storage directly.
+
 ## Orchestrator Agent
 
 A special Claude Code agent that exists **only to handle exceptions**. Dormant during the happy path.

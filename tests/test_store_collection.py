@@ -100,3 +100,30 @@ async def test_database_crash_recovery_round_trip(tmp_path):
     col2 = await db2.collection("agents", index_fields=["status"])
     fetched = await col2.get(doc_id)
     assert fetched["name"] == "a"
+
+
+from jig.store.models import StoreModel, TypedCollection
+
+
+class Thing(StoreModel):
+    name: str
+
+
+async def test_database_collection_with_model_returns_typed(tmp_path):
+    db = Database(tmp_path)
+    col = await db.collection("things", model=Thing)
+    assert isinstance(col, TypedCollection)
+    doc_id = await col.insert(Thing(name="a"))
+    fetched = await col.get(doc_id)
+    assert isinstance(fetched, Thing)
+    assert fetched.name == "a"
+
+
+async def test_database_collection_mismatched_model_raises(tmp_path):
+    class Other(StoreModel):
+        name: str
+
+    db = Database(tmp_path)
+    await db.collection("things", model=Thing)
+    with pytest.raises(ValueError, match="different model"):
+        await db.collection("things", model=Other)

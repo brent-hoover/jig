@@ -25,3 +25,97 @@ def test_storemodel_roundtrip_via_alias():
     w2 = Widget.model_validate(as_dict)
     assert w2.id == "x"
     assert w2.name == "a"
+
+
+from datetime import datetime, timezone
+from jig.store.models import TypedCollection
+
+
+class Item(StoreModel):
+    name: str
+    status: str
+
+
+class ItemWithTime(StoreModel):
+    name: str
+    when: datetime
+
+
+async def test_typed_collection_insert_get_roundtrip(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item, index_fields=["status"])
+    await col.load()
+    doc_id = await col.insert(Item(name="a", status="on"))
+    fetched = await col.get(doc_id)
+    assert isinstance(fetched, Item)
+    assert fetched.name == "a"
+    assert fetched.id == doc_id
+
+
+async def test_typed_collection_find_returns_models(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item, index_fields=["status"])
+    await col.load()
+    await col.insert(Item(name="a", status="on"))
+    await col.insert(Item(name="b", status="on"))
+    results = await col.find()
+    assert all(isinstance(r, Item) for r in results)
+    assert {r.name for r in results} == {"a", "b"}
+
+
+async def test_typed_collection_find_where_returns_models(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item, index_fields=["status"])
+    await col.load()
+    await col.insert(Item(name="a", status="on"))
+    await col.insert(Item(name="b", status="off"))
+    results = await col.find_where(status="on")
+    assert len(results) == 1
+    assert results[0].name == "a"
+
+
+async def test_typed_collection_find_one_where(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item, index_fields=["status"])
+    await col.load()
+    await col.insert(Item(name="a", status="on"))
+    hit = await col.find_one_where(status="on")
+    miss = await col.find_one_where(status="nope")
+    assert hit.name == "a"
+    assert miss is None
+
+
+async def test_typed_collection_update_takes_plain_dict(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item, index_fields=["status"])
+    await col.load()
+    doc_id = await col.insert(Item(name="a", status="on"))
+    await col.update(doc_id, {"status": "off"})
+    fetched = await col.get(doc_id)
+    assert fetched.status == "off"
+
+
+async def test_typed_collection_delete(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item)
+    await col.load()
+    doc_id = await col.insert(Item(name="a", status="on"))
+    assert await col.delete(doc_id) is True
+    assert await col.get(doc_id) is None
+
+
+async def test_typed_collection_upsert_with_model(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=Item, index_fields=["name"])
+    await col.load()
+    id1 = await col.upsert({"name": "a"}, Item(name="a", status="on"))
+    id2 = await col.upsert({"name": "a"}, Item(name="a", status="off"))
+    assert id1 == id2
+    fetched = await col.get(id1)
+    assert fetched.status == "off"
+
+
+async def test_typed_collection_mode_json_handles_datetime(tmp_path):
+    col = TypedCollection(tmp_path / "items.jsonl", model=ItemWithTime)
+    await col.load()
+    now = datetime(2026, 4, 10, 12, 0, 0, tzinfo=timezone.utc)
+    doc_id = await col.insert(ItemWithTime(name="a", when=now))
+
+    # Re-open and verify round-trip
+    col2 = TypedCollection(tmp_path / "items.jsonl", model=ItemWithTime)
+    await col2.load()
+    fetched = await col2.get(doc_id)
+    assert fetched.when == now

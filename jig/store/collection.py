@@ -64,3 +64,11 @@ class Collection:
     async def find_one_where(self, **kwargs) -> dict | None:
         results = await self.find_where(**kwargs)
         return results[0] if results else None
+
+    async def upsert(self, match: dict, doc: dict) -> str:
+        existing = await self.find_one_where(**match)
+        if existing is not None:
+            doc_id = existing["_id"]
+            await self.update(doc_id, doc)
+            return doc_id
+        return await self.insert(doc)

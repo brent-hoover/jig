@@ -47,3 +47,22 @@ async def test_find_one_where_hit_and_miss(tmp_path):
     miss = await col.find_one_where(status="nope")
     assert hit["name"] == "a"
     assert miss is None
+
+
+async def test_upsert_inserts_when_no_match(tmp_path):
+    col = Collection(tmp_path / "c.jsonl", index_fields=["name"])
+    await col.load()
+    doc_id = await col.upsert({"name": "a"}, {"name": "a", "age": 10})
+    assert isinstance(doc_id, str)
+    fetched = await col.get(doc_id)
+    assert fetched == {"_id": doc_id, "name": "a", "age": 10}
+
+
+async def test_upsert_updates_when_match_exists(tmp_path):
+    col = Collection(tmp_path / "c.jsonl", index_fields=["name"])
+    await col.load()
+    original_id = await col.insert({"name": "a", "age": 10})
+    returned_id = await col.upsert({"name": "a"}, {"age": 11})
+    assert returned_id == original_id
+    fetched = await col.get(original_id)
+    assert fetched["age"] == 11

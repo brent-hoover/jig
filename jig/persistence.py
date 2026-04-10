@@ -6,6 +6,7 @@ import yaml
 
 from jig.models import (
     AgentInstance,
+    AgentMessage,
     AgentTypeConfig,
     Issue,
     Message,
@@ -99,7 +100,7 @@ def list_issues(project_path: Path) -> list[Issue]:
     return issues
 
 
-def append_message(project_path: Path, issue_id: str, message: Message) -> None:
+def append_message(project_path: Path, issue_id: str, message: "Message | AgentMessage") -> None:
     """Append a message to .jig/issues/<id>/messages.jsonl."""
     messages_path = _jig_dir(project_path) / "issues" / issue_id / "messages.jsonl"
     with messages_path.open("a") as f:

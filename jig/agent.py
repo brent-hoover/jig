@@ -29,9 +29,13 @@ def _sanitize_for_tui(text: str, limit: int = 120) -> str:
 
 from jig.bus import MessageBus
 from jig.events import EventEmitter, JigEvent
-from jig.mcp_tools import create_jig_mcp_server
 from jig.models import AgentTypeConfig, Issue, ProjectContext
 from jig.persistence import load_task
+
+
+# Factory moved to mcp_server.py in Plan 6 Task 6
+def create_jig_mcp_server(*args, **kwargs):
+    raise NotImplementedError("Use create_agent_mcp_server from jig.mcp_server")
 
 
 def _tool_detail(tool_name: str, tool_input: dict) -> str:

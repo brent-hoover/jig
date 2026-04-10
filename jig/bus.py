@@ -2,17 +2,31 @@
 
 import asyncio
 from pathlib import Path
+from typing import Union
 
-from jig.models import Message
+from pydantic import BaseModel
+
+from jig.models import AgentMessage, Message
 from jig.persistence import append_message
+
+
+# Bus accepts both legacy Message and new AgentMessage types.
+BusMessage = Union[Message, AgentMessage]
+
+
+def _get_recipient(message: BusMessage) -> str:
+    """Extract recipient from either Message or AgentMessage."""
+    if hasattr(message, "recipient_id"):
+        return message.recipient_id
+    return message.recipient
 
 
 class MessageBus:
     def __init__(self, project_path: Path) -> None:
         self._project_path = project_path
-        self._subscribers: dict[str, dict[str, asyncio.Queue[Message]]] = {}
+        self._subscribers: dict[str, dict[str, asyncio.Queue[BusMessage]]] = {}
 
-    async def subscribe(self, issue_id: str, subscriber_name: str) -> asyncio.Queue[Message]:
+    async def subscribe(self, issue_id: str, subscriber_name: str) -> asyncio.Queue[BusMessage]:
         """Subscribe to messages for a given issue and subscriber name."""
         if issue_id not in self._subscribers:
             self._subscribers[issue_id] = {}
@@ -20,16 +34,17 @@ class MessageBus:
             self._subscribers[issue_id][subscriber_name] = asyncio.Queue()
         return self._subscribers[issue_id][subscriber_name]
 
-    async def publish(self, issue_id: str, message: Message) -> None:
+    async def publish(self, issue_id: str, message: BusMessage) -> None:
         """Persist a message to JSONL, then route to subscribers."""
         await asyncio.to_thread(append_message, self._project_path, issue_id, message)
 
+        recipient = _get_recipient(message)
         subs = self._subscribers.get(issue_id, {})
-        if message.recipient == "broadcast":
+        if recipient == "broadcast":
             for queue in subs.values():
                 await queue.put(message)
-        elif message.recipient in subs:
-            await subs[message.recipient].put(message)
+        elif recipient in subs:
+            await subs[recipient].put(message)
 
     def replay(self, issue_id: str) -> list[Message]:
         """Replay all persisted messages for an issue from JSONL."""

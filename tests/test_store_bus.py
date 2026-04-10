@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 import pytest
 from jig.store.bus import Message, MessageBus, MessageType
@@ -22,7 +23,7 @@ def test_message_construction_with_attribute_names():
     assert msg.type == MessageType.QUESTION
     assert msg.topic == "JIG-1"
     assert msg.correlation_id is None
-    assert isinstance(msg.timestamp, str)
+    assert isinstance(msg.timestamp, datetime)
     assert isinstance(msg.id, str)
 
 

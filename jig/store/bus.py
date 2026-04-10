@@ -26,8 +26,8 @@ class Message(StoreModel):
     to: str
     type: MessageType
     payload: dict
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
     )
     correlation_id: str | None = None
     topic: str

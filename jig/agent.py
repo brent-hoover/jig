@@ -29,7 +29,7 @@ def _sanitize_for_tui(text: str, limit: int = 120) -> str:
 
 from jig.bus import MessageBus
 from jig.events import EventEmitter, JigEvent
-from jig.models import AgentTypeConfig, Issue, ProjectContext
+from jig.models import AgentTypeConfig, AgentInstance, Issue, ProjectContext
 from jig.persistence import load_task
 
 
@@ -110,6 +110,7 @@ async def run_agent(
     emitter: EventEmitter | None = None,
     issue: Issue | None = None,
     project_context: ProjectContext | None = None,
+    agent_instance: AgentInstance | None = None,
 ) -> str:
     """Run a single agent on a task.
 
@@ -122,14 +123,14 @@ async def run_agent(
     """
     bus = MessageBus(project_path)
     task = load_task(project_path, issue_id, task_id)
-    agent_name = f"{agent_type.role}-{task_id}"
+    agent_id = agent_instance.id if agent_instance else f"{agent_type.role}-{task_id}"
 
     mcp_server = create_agent_mcp_server(
         bus=bus,
         project_path=project_path,
         issue_id=issue_id,
         task_id=task_id,
-        agent_id=agent_name,
+        agent_id=agent_id,
         worktree_path=worktree_path,
     )
 

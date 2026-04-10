@@ -5,6 +5,8 @@ import pytest
 
 from jig.agent import _sanitize_for_tui, run_agent
 from jig.models import (
+    AgentInstance,
+    AgentStatus,
     AgentTypeConfig,
     Issue,
     Task,
@@ -90,6 +92,52 @@ class TestRunAgent:
         )
 
         assert result == "Feature implemented successfully"
+
+
+class TestRunAgentWithInstance:
+    @pytest.fixture
+    def agent_type(self) -> AgentTypeConfig:
+        return AgentTypeConfig(
+            role="dev",
+            system_prompt="You are a dev agent.",
+            allowed_tools=["Read", "Edit"],
+        )
+
+    @pytest.fixture
+    def setup_with_instance(self, tmp_jig_project: Path):
+        from jig.persistence import save_agent_instance
+        save_issue(tmp_jig_project, Issue(id="issue-1", title="Test"))
+        task = Task(id="task-1", description="Implement feature X", acceptance_criteria="Tests pass", agent_type="dev")
+        save_task(tmp_jig_project, "issue-1", task)
+        instance = AgentInstance(id="dev-1", agent_type="dev", status=AgentStatus.ACTIVE)
+        save_agent_instance(tmp_jig_project, instance)
+        return tmp_jig_project, "issue-1", "task-1", instance
+
+    @patch("jig.agent.query")
+    @patch("jig.agent.create_agent_mcp_server")
+    async def test_uses_instance_id_for_mcp(self, mock_mcp, mock_query, agent_type, setup_with_instance):
+        project_path, issue_id, task_id, instance = setup_with_instance
+        mock_mcp.return_value = "mock-server"
+
+        async def fake_query(*args, **kwargs):
+            mock_result = MagicMock()
+            mock_result.result = "Done"
+            yield mock_result
+
+        mock_query.return_value = fake_query()
+
+        await run_agent(
+            project_path=project_path,
+            issue_id=issue_id,
+            task_id=task_id,
+            agent_type=agent_type,
+            worktree_path=project_path,
+            agent_instance=instance,
+        )
+
+        mock_mcp.assert_called_once()
+        call_kwargs = mock_mcp.call_args.kwargs
+        assert call_kwargs["agent_id"] == "dev-1"
 
 
 class TestSanitizeForTui:

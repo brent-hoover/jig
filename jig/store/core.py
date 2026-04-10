@@ -68,6 +68,20 @@ class JsonlStore:
             return len(self._docs)
         return sum(1 for d in self._docs.values() if predicate(d))
 
+    async def update(self, doc_id: str, changes: dict) -> bool:
+        async with self._lock:
+            current = self._docs.get(doc_id)
+            if current is None:
+                return False
+            # Drop any attempt to overwrite _id
+            changes = {k: v for k, v in changes.items() if k != "_id"}
+            record = {"_op": "update", "_id": doc_id, **changes}
+            await asyncio.to_thread(self._append_line, record)
+            self._index_remove(current)
+            current.update(changes)
+            self._index_insert(current)
+            return True
+
     async def find_by(self, field: str, value: Any) -> list[dict]:
         if field in self._index_fields:
             ids = self._indexes[field].get(value, set())

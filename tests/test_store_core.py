@@ -110,3 +110,33 @@ async def test_find_by_unindexed_large_collection_raises(tmp_path):
         await store.insert({"x": i})
     with pytest.raises(ValueError, match="not indexed"):
         await store.find_by("x", 500)
+
+
+async def test_update_merges_fields_and_returns_true(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl")
+    await store.load()
+    doc_id = await store.insert({"name": "a", "age": 10})
+    ok = await store.update(doc_id, {"age": 11})
+    assert ok is True
+    doc = await store.get(doc_id)
+    assert doc == {"_id": doc_id, "name": "a", "age": 11}
+
+
+async def test_update_missing_id_returns_false_and_writes_nothing(tmp_path):
+    path = tmp_path / "s.jsonl"
+    store = JsonlStore(path)
+    await store.load()
+    before = path.read_text()
+    assert await store.update("nope", {"x": 1}) is False
+    assert path.read_text() == before
+
+
+async def test_update_reindexes_when_indexed_field_changes(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl", index_fields=["status"])
+    await store.load()
+    doc_id = await store.insert({"name": "a", "status": "on"})
+    await store.update(doc_id, {"status": "off"})
+    on = await store.find_by("status", "on")
+    off = await store.find_by("status", "off")
+    assert on == []
+    assert len(off) == 1 and off[0]["name"] == "a"

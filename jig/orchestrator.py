@@ -33,7 +33,7 @@ from jig.persistence import (
     save_task,
 )
 from jig.pool import AgentPool
-from jig.store import Database, TypedCollection
+from jig.store import Database, MessageBus, TypedCollection
 from jig.worktree import commit_worktree, create_worktree, merge_issue, remove_worktree
 
 
@@ -58,6 +58,10 @@ class Orchestrator:
         self._pool = AgentPool(project_path)
         self._db = Database(project_path / ".jig" / "store")
         self._phase_history_store: TypedCollection[PhaseHistoryEntry] | None = None
+        # Single shared MessageBus for the whole run so cross-agent
+        # publish/subscribe fan-out actually reaches live subscribers.
+        self._bus = MessageBus(project_path / ".jig" / "store" / "messages.jsonl")
+        self._bus_loaded = False
 
         # Ensure orchestrator agent type exists for LLM recovery decisions
         try:
@@ -81,6 +85,11 @@ class Orchestrator:
                 model=PhaseHistoryEntry,
             )
 
+    async def _ensure_bus_loaded(self) -> None:
+        if not self._bus_loaded:
+            await self._bus.load()
+            self._bus_loaded = True
+
     async def run(self) -> None:
         """Execute the workflow for the issue, using LLM reasoning for routing."""
         workflow = load_workflow(self._project_path, self._workflow_name)
@@ -91,6 +100,7 @@ class Orchestrator:
         # invocations already accomplished. Set _last_branch to the most
         # recent successful phase's branch (if any) so worktrees chain.
         await self._ensure_phase_history_loaded()
+        await self._ensure_bus_loaded()
         persisted = await self._phase_history_store.find_where(issue_id=self._issue_id)
         persisted.sort(key=lambda e: e.timestamp)
         self._phase_history = [self._entry_to_dict(e) for e in persisted]
@@ -494,6 +504,7 @@ Respond with ONLY the JSON object, no markdown fences, no explanation outside th
                 issue=issue,
                 project_context=self._project_context,
                 agent_instance=instance,
+                bus=self._bus,
             )
 
             # Commit worktree changes

@@ -116,6 +116,22 @@ class TestOrchestratorSinglePhase:
         task = load_task(git_project, "issue-1", "spec")
         assert task.agent_type == "spec"
 
+    @patch("jig.orchestrator.run_agent")
+    async def test_passes_shared_bus_to_run_agent(self, mock_run_agent, git_project: Path):
+        """Orchestrator constructs a single MessageBus and threads it
+        through to every run_agent invocation. Regression: previously
+        run_agent built its own private bus, breaking cross-agent
+        publish/subscribe fan-out."""
+        mock_run_agent.return_value = "Done"
+
+        orchestrator = Orchestrator(git_project, "issue-1")
+        await orchestrator.run()
+
+        mock_run_agent.assert_called_once()
+        call_kwargs = mock_run_agent.call_args.kwargs
+        assert "bus" in call_kwargs
+        assert call_kwargs["bus"] is orchestrator._bus
+
 
 @pytest.fixture
 def git_project_full_workflow(tmp_path: Path) -> Path:

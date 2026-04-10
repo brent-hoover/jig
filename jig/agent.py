@@ -111,6 +111,7 @@ async def run_agent(
     issue: Issue | None = None,
     project_context: ProjectContext | None = None,
     agent_instance: AgentInstance | None = None,
+    bus: MessageBus | None = None,
 ) -> str:
     """Run a single agent on a task.
 
@@ -119,10 +120,17 @@ async def run_agent(
     - A Jig MCP server with publish_message, report_completion, request_context
     - The worktree as the working directory
 
+    ``bus`` is the shared :class:`MessageBus` instance. Callers (e.g.
+    :class:`Orchestrator`) should construct one bus per project run and
+    thread it through so that cross-agent publish/subscribe actually
+    reaches live subscribers. If ``bus`` is ``None`` a fresh one is
+    created and loaded for standalone (non-orchestrated) invocations.
+
     Returns the agent's final result text.
     """
-    bus = MessageBus(project_path / ".jig" / "store" / "messages.jsonl")
-    await bus.load()
+    if bus is None:
+        bus = MessageBus(project_path / ".jig" / "store" / "messages.jsonl")
+        await bus.load()
     task = load_task(project_path, issue_id, task_id)
     agent_id = agent_instance.id if agent_instance else f"{agent_type.role}-{task_id}"
 

@@ -217,3 +217,21 @@ async def test_load_raises_when_id_missing(tmp_path):
     store = JsonlStore(path)
     with pytest.raises(ValueError, match="line 1"):
         await store.load()
+
+
+def test_public_api_exports():
+    from jig.store import (
+        JsonlStore,
+        Collection,
+        Database,
+        StoreModel,
+        TypedCollection,
+        Message,
+        MessageType,
+        MessageBus,
+        Handoff,
+        Learning,
+        MemoryStore,
+    )
+    # If all imports succeed, the test passes
+    assert JsonlStore is not None

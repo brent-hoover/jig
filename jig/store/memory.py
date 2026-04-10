@@ -102,3 +102,25 @@ class MemoryStore:
             ]
         results.sort(key=lambda l: l.timestamp, reverse=True)
         return results[:limit]
+
+    async def get_context_block(
+        self, issue_id: str, to_phase: str
+    ) -> str:
+        handoff = await self.read_handoff(issue_id, to_phase)
+        learnings = await self.get_learnings(issue_id, limit=10)
+
+        parts: list[str] = []
+        if handoff is not None:
+            parts.append(f"## Handoff from {handoff.from_phase}")
+            parts.append(handoff.summary)
+        if learnings:
+            if parts:
+                parts.append("")  # blank line
+            parts.append("## Learnings")
+            for learning in learnings:
+                tag_suffix = (
+                    f" (tags: {', '.join(learning.tags)})"
+                    if learning.tags else ""
+                )
+                parts.append(f"- {learning.content}{tag_suffix}")
+        return "\n".join(parts)

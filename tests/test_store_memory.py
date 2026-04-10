@@ -94,3 +94,53 @@ async def test_get_learnings_filters_by_issue(tmp_path):
     await mem.add_learning(issue_id="JIG-2", phase="test", content="b")
     jig1 = await mem.get_learnings("JIG-1")
     assert [l.content for l in jig1] == ["a"]
+
+
+async def test_context_block_with_handoff_and_learnings(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.write_handoff(
+        issue_id="JIG-1", from_phase="spec", to_phase="test",
+        summary="spec approved",
+    )
+    await mem.add_learning(
+        issue_id="JIG-1", phase="spec",
+        content="prefer fixtures", tags=["testing"],
+    )
+    block = await mem.get_context_block("JIG-1", "test")
+    assert "## Handoff from spec" in block
+    assert "spec approved" in block
+    assert "## Learnings" in block
+    assert "prefer fixtures" in block
+    assert "testing" in block
+
+
+async def test_context_block_handoff_only_no_learnings_section(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.write_handoff(
+        issue_id="JIG-1", from_phase="spec", to_phase="test",
+        summary="done",
+    )
+    block = await mem.get_context_block("JIG-1", "test")
+    assert "## Handoff from spec" in block
+    assert "## Learnings" not in block
+
+
+async def test_context_block_learnings_only_no_handoff_section(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_learning(
+        issue_id="JIG-1", phase="spec", content="x",
+    )
+    block = await mem.get_context_block("JIG-1", "test")
+    assert "## Handoff" not in block
+    assert "## Learnings" in block
+    assert "x" in block
+
+
+async def test_context_block_empty_returns_empty_string(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    block = await mem.get_context_block("JIG-1", "test")
+    assert block == ""

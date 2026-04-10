@@ -154,20 +154,67 @@ The orchestrator goes back to sleep. The server resumes normal workflow executio
 
 Lives in `.jig/agents/orchestrator/memory/`. It learns from exceptions over time — which solutions worked, which agents struggle with what.
 
+## Protocol Models
+
+All agent communication and lifecycle signals are defined as Pydantic models. Agents must use these structured formats — no free-form messages.
+
+### Communication Protocol
+
+```python
+class MessageDirection(str, Enum):
+    REQUEST = "request"
+    RESPONSE = "response"
+
+class AgentMessage(BaseModel):
+    """Structured message between agents."""
+    sender_id: str                     # agent instance ID
+    recipient_id: str                  # agent instance ID, or "broadcast"
+    direction: MessageDirection
+    topic: str                         # what this is about (e.g. "api_design", "test_coverage")
+    content: str                       # the actual message
+    correlation_id: str | None = None  # links request → response
+    timestamp: datetime
+```
+
+### Completion Protocol
+
+```python
+class CompletionStatus(str, Enum):
+    SUCCESS = "success"
+    NEEDS_INFO = "needs_info"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+class CompletionReport(BaseModel):
+    """Structured report when an agent finishes (or cannot finish) a task."""
+    agent_id: str
+    task_id: str
+    status: CompletionStatus
+    summary: str                       # what was accomplished (or attempted)
+    reason: str = ""                   # why it stopped (for non-success statuses)
+    artifacts: list[str] = []          # files created/modified
+    needs_from: str | None = None      # which role/agent can help (for needs_info)
+    question: str | None = None        # specific question (for needs_info)
+```
+
+### MCP Tool Schemas
+
+The `report_completion` and `send_message` MCP tools enforce these models. When an agent calls `report_completion`, it must provide fields matching `CompletionReport`. When it calls `send_message`, it must provide fields matching `AgentMessage`. The MCP tool handlers validate against the Pydantic models and reject malformed input.
+
 ## Agent Communication
 
 ### Direct Messaging
 
 Agents communicate directly via the message bus using MCP tools:
-- `send_message(recipient, type, payload)` — send a message to another agent or broadcast
-- `check_messages()` — read incoming messages for this agent
+- `send_message(recipient_id, direction, topic, content)` — sends a validated `AgentMessage`
+- `check_messages()` — returns a list of `AgentMessage` objects for this agent
 
 ### Conversation Protocol
 
 When agent A needs something from agent B:
-1. A calls `send_message(recipient: "dev-1", type: "question", payload: {...})`
+1. A calls `send_message(recipient_id: "dev-1", direction: "request", topic: "test_setup", content: "...")`
 2. The server sees the message on the bus. If B is dormant, the server resumes B's session with the message as context.
-3. B reads the message, responds via `send_message(recipient: A's ID, type: "answer", ...)`
+3. B reads the message, responds via `send_message(recipient_id: A's ID, direction: "response", topic: "test_setup", content: "...", correlation_id: ...)`
 4. The server routes the answer back to A (resumes A if dormant)
 
 ### Stall Detection

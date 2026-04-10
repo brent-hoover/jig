@@ -224,3 +224,182 @@ class TestAgentTypeConfig:
         restored = AgentTypeConfig.model_validate(data)
         assert restored.name == config.name
         assert restored.allowed_tools == config.allowed_tools
+
+
+from jig.models import MessageDirection, AgentMessage
+
+
+class TestMessageDirection:
+    def test_values(self):
+        assert MessageDirection.REQUEST == "request"
+        assert MessageDirection.RESPONSE == "response"
+
+
+class TestAgentMessage:
+    def test_creation(self):
+        msg = AgentMessage(
+            sender_id="dev-1",
+            recipient_id="test-1",
+            direction=MessageDirection.REQUEST,
+            topic="api_design",
+            content="What endpoints do we need?",
+        )
+        assert msg.sender_id == "dev-1"
+        assert msg.recipient_id == "test-1"
+        assert msg.direction == MessageDirection.REQUEST
+        assert msg.topic == "api_design"
+        assert msg.content == "What endpoints do we need?"
+        assert msg.correlation_id is None
+        assert msg.id
+        assert msg.timestamp
+
+    def test_with_correlation(self):
+        msg = AgentMessage(
+            sender_id="test-1",
+            recipient_id="dev-1",
+            direction=MessageDirection.RESPONSE,
+            topic="api_design",
+            content="We need GET /users and POST /users",
+            correlation_id="corr-123",
+        )
+        assert msg.correlation_id == "corr-123"
+        assert msg.direction == MessageDirection.RESPONSE
+
+    def test_serialization_roundtrip(self):
+        msg = AgentMessage(
+            sender_id="dev-1",
+            recipient_id="broadcast",
+            direction=MessageDirection.REQUEST,
+            topic="status_update",
+            content="Starting implementation",
+        )
+        data = msg.model_dump(mode="json")
+        restored = AgentMessage.model_validate(data)
+        assert restored.sender_id == msg.sender_id
+        assert restored.id == msg.id
+        assert restored.topic == msg.topic
+
+
+from jig.models import AgentStatus, AgentInstance
+
+
+class TestAgentStatus:
+    def test_values(self):
+        assert AgentStatus.IDLE == "idle"
+        assert AgentStatus.ACTIVE == "active"
+        assert AgentStatus.DORMANT == "dormant"
+
+
+class TestAgentInstance:
+    def test_defaults(self):
+        instance = AgentInstance(
+            id="dev-1",
+            agent_type="dev",
+        )
+        assert instance.id == "dev-1"
+        assert instance.agent_type == "dev"
+        assert instance.status == AgentStatus.IDLE
+        assert instance.session_id is None
+        assert instance.current_task_id is None
+        assert instance.memory == []
+
+    def test_active_with_task(self):
+        instance = AgentInstance(
+            id="dev-1",
+            agent_type="dev",
+            status=AgentStatus.ACTIVE,
+            session_id="session-abc",
+            current_task_id="task-1",
+        )
+        assert instance.status == AgentStatus.ACTIVE
+        assert instance.session_id == "session-abc"
+        assert instance.current_task_id == "task-1"
+
+    def test_dormant_with_memory(self):
+        instance = AgentInstance(
+            id="dev-1",
+            agent_type="dev",
+            status=AgentStatus.DORMANT,
+            session_id="session-abc",
+            memory=["Prefer pytest over unittest", "Project uses FastAPI"],
+        )
+        assert instance.status == AgentStatus.DORMANT
+        assert len(instance.memory) == 2
+
+    def test_serialization_roundtrip(self):
+        instance = AgentInstance(
+            id="test-2",
+            agent_type="test",
+            status=AgentStatus.ACTIVE,
+            session_id="sess-xyz",
+            current_task_id="task-5",
+            memory=["Use fixtures for DB setup"],
+        )
+        data = instance.model_dump(mode="json")
+        restored = AgentInstance.model_validate(data)
+        assert restored.id == "test-2"
+        assert restored.status == AgentStatus.ACTIVE
+        assert restored.memory == ["Use fixtures for DB setup"]
+
+
+from jig.models import CompletionStatus, CompletionReport
+
+
+class TestCompletionStatus:
+    def test_values(self):
+        assert CompletionStatus.SUCCESS == "success"
+        assert CompletionStatus.NEEDS_INFO == "needs_info"
+        assert CompletionStatus.BLOCKED == "blocked"
+        assert CompletionStatus.FAILED == "failed"
+
+
+class TestCompletionReport:
+    def test_success(self):
+        report = CompletionReport(
+            agent_id="dev-1",
+            task_id="task-1",
+            status=CompletionStatus.SUCCESS,
+            summary="Implemented auth module",
+        )
+        assert report.agent_id == "dev-1"
+        assert report.status == CompletionStatus.SUCCESS
+        assert report.reason == ""
+        assert report.artifacts == []
+        assert report.needs_from is None
+        assert report.question is None
+
+    def test_needs_info(self):
+        report = CompletionReport(
+            agent_id="dev-1",
+            task_id="task-1",
+            status=CompletionStatus.NEEDS_INFO,
+            summary="Cannot determine API schema",
+            reason="No API spec available",
+            needs_from="spec",
+            question="What are the required endpoints?",
+        )
+        assert report.needs_from == "spec"
+        assert report.question == "What are the required endpoints?"
+
+    def test_with_artifacts(self):
+        report = CompletionReport(
+            agent_id="dev-1",
+            task_id="task-1",
+            status=CompletionStatus.SUCCESS,
+            summary="Wrote tests",
+            artifacts=["tests/test_auth.py", "tests/test_users.py"],
+        )
+        assert len(report.artifacts) == 2
+
+    def test_serialization_roundtrip(self):
+        report = CompletionReport(
+            agent_id="test-1",
+            task_id="task-2",
+            status=CompletionStatus.FAILED,
+            summary="Tests failed",
+            reason="Import error in auth module",
+        )
+        data = report.model_dump(mode="json")
+        restored = CompletionReport.model_validate(data)
+        assert restored.status == CompletionStatus.FAILED
+        assert restored.reason == "Import error in auth module"

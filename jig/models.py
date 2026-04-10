@@ -122,3 +122,36 @@ class PhaseHistoryEntry(BaseModel):
     branch: str | None = None
     reason: str = ""
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MessageDirection(str, Enum):
+    REQUEST = "request"
+    RESPONSE = "response"
+
+
+class AgentMessage(BaseModel):
+    """Structured message between agents."""
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    sender_id: str
+    recipient_id: str
+    direction: MessageDirection
+    topic: str
+    content: str
+    correlation_id: str | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AgentStatus(str, Enum):
+    IDLE = "idle"
+    ACTIVE = "active"
+    DORMANT = "dormant"
+
+
+class AgentInstance(BaseModel):
+    """A running or dormant agent spawned from an agent type."""
+    id: str
+    agent_type: str
+    status: AgentStatus = AgentStatus.IDLE
+    session_id: str | None = None
+    current_task_id: str | None = None
+    memory: list[str] = []

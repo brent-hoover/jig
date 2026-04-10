@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/brent/Projects/personal/jig/jig/**)",
+      "Read(//Users/brent/Projects/personal/jig/tests/**)",
+      "Bash(python -c \"import sys; print\\('\\\\n'.join\\(sys.path\\)\\)\")",
+      "Bash(uv run:*)",
+      "Bash(python -c \"import jig.store; print\\('Import successful'\\)\")",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(python -c \"from setuptools import find_packages; print\\(find_packages\\(include=['jig*']\\)\\)\")",
+      "Bash(uv sync:*)",
+      "Bash(mkdir -p jig/store)",
+      "Bash(touch jig/store/__init__.py jig/store/core.py jig/store/collection.py jig/store/models.py jig/store/bus.py jig/store/memory.py)"
+    ]
+  }
+}

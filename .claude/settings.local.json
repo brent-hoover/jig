@@ -13,7 +13,8 @@
       "Bash(bunx shadcn@latest add @gridland/chat)",
       "Bash(bun add:*)",
       "Bash(.venv/bin/python -m pytest tests/ -x -q)",
-      "Bash(.venv/bin/python -m pytest tests/test_cli.py::TestValidate::test_validates_issue -x -v -s)"
+      "Bash(.venv/bin/python -m pytest tests/test_cli.py::TestValidate::test_validates_issue -x -v -s)",
+      "Bash(.venv/bin/pytest tests/ -q)"
     ]
   }
 }

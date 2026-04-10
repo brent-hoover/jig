@@ -1,0 +1,507 @@
+# jig-store: Technical Specification
+
+## Overview
+
+`jig-store` is a lightweight async-native storage and messaging library for the Jig agent harness. It provides document storage, multi-key querying, a pub/sub message bus, and agent memory — all backed by append-only JSONL files with in-memory working sets.
+
+This library underpins all state management in Jig. It has no external dependencies beyond Python's standard library.
+
+---
+
+## Design Principles
+
+- **Async-native**: all public APIs are `async`. No sync wrappers.
+- **Append-only JSONL**: writes are always appends. In-memory state is the working set; JSONL is the source of truth for crash recovery.
+- **In-memory working set**: documents are loaded into memory at startup and kept there. This is appropriate for Jig's scale (tens to low hundreds of documents per collection).
+- **Pydantic-native**: collections can be typed with a `BaseModel` subclass. Typed collections serialize/deserialize automatically and return model instances from all read methods.
+- **Single external dependency**: `pydantic` only. Core store works without it — Pydantic support is additive.
+- **File layout**: all data lives under `.jig/store/` in the project root.
+
+---
+
+## Module Structure
+
+```
+jig/store/
+  __init__.py       # re-exports: JsonlStore, Collection, Database, MessageBus, MemoryStore, StoreModel
+  core.py           # JSONL file I/O + in-memory document index (base layer)
+  collection.py     # Document CRUD + multi-key querying (built on core)
+  models.py         # StoreModel base class + typed collection support
+  bus.py            # Pub/sub message bus (built on collection)
+  memory.py         # Agent handoff state + learnings (built on collection + models)
+```
+
+---
+
+## core.py — JsonlStore
+
+The base layer. Manages a single JSONL file and an in-memory dict of documents.
+
+### Log record format
+
+Every write appends a record to the JSONL file. Records have an `_op` field:
+
+```json
+{"_op": "insert", "_id": "uuid", "field": "value", ...}
+{"_op": "update", "_id": "uuid", "field": "new_value"}
+{"_op": "delete", "_id": "uuid"}
+```
+
+On load, records are replayed in order to reconstruct in-memory state.
+
+### Indexes
+
+Index fields are declared at construction time. An index is a `dict[field_value, set[doc_id]]`. Indexes are maintained in memory only — not persisted. They are rebuilt during `load()`.
+
+### Class: `JsonlStore`
+
+```python
+class JsonlStore:
+    def __init__(self, path: Path, index_fields: list[str] = None): ...
+```
+
+**Constructor params:**
+- `path`: path to the `.jsonl` file
+- `index_fields`: list of field names to index for fast lookup
+
+**Methods:**
+
+```python
+async def load(self) -> None
+```
+Replay the JSONL log into memory. Creates the file if it does not exist. Must be called before any other method.
+
+```python
+async def insert(self, doc: dict) -> str
+```
+Assign a UUID `_id` if not present. Append `_op: insert` record. Update in-memory index. Return the `_id`.
+
+```python
+async def get(self, doc_id: str) -> dict | None
+```
+Return document by id from in-memory dict.
+
+```python
+async def find(self, predicate: Callable[[dict], bool] | None = None) -> list[dict]
+```
+Return all documents matching predicate. If predicate is None, return all documents.
+
+```python
+async def find_by(self, field: str, value: Any) -> list[dict]
+```
+Use index if `field` is indexed, else fall back to linear scan. Raise `ValueError` if field is not indexed and collection is large (>1000 docs) — this is a safeguard, not a hard limit.
+
+```python
+async def update(self, doc_id: str, changes: dict) -> bool
+```
+Merge changes into existing document. Append `_op: update` record. Update indexes. Return False if doc not found.
+
+```python
+async def delete(self, doc_id: str) -> bool
+```
+Remove from in-memory dict and indexes. Append `_op: delete` record. Return False if doc not found.
+
+```python
+async def count(self, predicate: Callable[[dict], bool] | None = None) -> int
+```
+
+**Concurrency:** All mutating methods acquire `self._lock` (an `asyncio.Lock`) before modifying in-memory state and before appending to the file. File appends use `asyncio.to_thread` to avoid blocking the event loop.
+
+---
+
+## collection.py — Collection
+
+A thin wrapper over `JsonlStore` that adds multi-predicate querying and a slightly higher-level API. This is the primary interface for general document storage.
+
+### Class: `Collection`
+
+```python
+class Collection:
+    def __init__(self, path: Path, index_fields: list[str] = None): ...
+```
+
+Wraps a `JsonlStore`. Delegates all storage to it.
+
+**Additional methods:**
+
+```python
+async def find_where(self, **kwargs) -> list[dict]
+```
+Equality filter on multiple fields. Example: `await col.find_where(status="running", type="dev")`. Tries to use an index for the first indexed field in kwargs, then filters the result set for remaining fields.
+
+```python
+async def find_one_where(self, **kwargs) -> dict | None
+```
+Same as `find_where` but returns first match or None.
+
+```python
+async def upsert(self, match: dict, doc: dict) -> str
+```
+If a document matching all fields in `match` exists, update it with `doc`. Otherwise insert `doc`. Return `_id`.
+
+### Class: `Database`
+
+Manages multiple named collections from a single base directory.
+
+```python
+class Database:
+    def __init__(self, base_path: Path): ...
+
+    async def collection(self, name: str, index_fields: list[str] = None) -> Collection: ...
+```
+
+`collection()` creates the `Collection` if it doesn't exist, calls `load()`, caches it, and returns it. Subsequent calls with the same name return the cached instance.
+
+---
+
+## models.py — Pydantic Integration
+
+Provides a `StoreModel` base class and a `TypedCollection` generic that lets callers work with Pydantic models instead of raw dicts.
+
+### Class: `StoreModel`
+
+```python
+from pydantic import BaseModel
+
+class StoreModel(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), alias="_id")
+
+    model_config = ConfigDict(populate_by_name=True)
+```
+
+All Pydantic models intended for storage should inherit from `StoreModel`. The `_id` field is handled automatically — callers do not set it.
+
+Serialization uses `model.model_dump(by_alias=True)` so `_id` round-trips correctly through the JSONL layer. Deserialization uses `Model.model_validate(doc)`.
+
+### Class: `TypedCollection[T]`
+
+```python
+class TypedCollection(Generic[T]):
+    def __init__(self, path: Path, model: type[T], index_fields: list[str] = None): ...
+    async def load(self) -> None: ...
+```
+
+Wraps a `Collection`. All methods accept and return `T` (a `StoreModel` subclass) instead of dicts.
+
+```python
+async def insert(self, doc: T) -> str
+```
+Serialize via `doc.model_dump(by_alias=True)`, delegate to `Collection.insert`. Return `_id`.
+
+```python
+async def get(self, doc_id: str) -> T | None
+```
+
+```python
+async def find(self, predicate: Callable[[T], bool] | None = None) -> list[T]
+```
+Deserialize all docs into `T` instances, then apply predicate.
+
+```python
+async def find_where(self, **kwargs) -> list[T]
+```
+Delegates to `Collection.find_where`, deserializes results.
+
+```python
+async def find_one_where(self, **kwargs) -> T | None
+```
+
+```python
+async def update(self, doc_id: str, changes: dict) -> bool
+```
+`changes` is a plain dict of field updates (not a model instance). Delegates to `Collection.update`.
+
+```python
+async def delete(self, doc_id: str) -> bool
+```
+
+```python
+async def upsert(self, match: dict, doc: T) -> str
+```
+
+### Typed collections via `Database`
+
+`Database.collection()` gains an optional `model` parameter:
+
+```python
+async def collection(
+    self,
+    name: str,
+    index_fields: list[str] = None,
+    model: type[T] | None = None,
+) -> TypedCollection[T] | Collection
+```
+
+If `model` is provided, returns a `TypedCollection[T]`. Otherwise returns an untyped `Collection` as before.
+
+### Usage example
+
+```python
+class AgentRecord(StoreModel):
+    type: str
+    status: str
+    issue_id: str
+
+db = Database(Path(".jig/store"))
+agents = await db.collection("agents", index_fields=["status", "issue_id"], model=AgentRecord)
+
+await agents.insert(AgentRecord(type="dev", status="running", issue_id="JIG-1"))
+
+running = await agents.find_where(status="running")  # list[AgentRecord]
+```
+
+### Internal use in `memory.py`
+
+`MemoryStore` should define `Handoff` and `Learning` as `StoreModel` subclasses and use `TypedCollection` internally. The public methods of `MemoryStore` return model instances, not dicts.
+
+```python
+class Handoff(StoreModel):
+    type: Literal["handoff"] = "handoff"
+    issue_id: str
+    from_phase: str
+    to_phase: str
+    summary: str
+    artifacts: list[str] = Field(default_factory=list)
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+class Learning(StoreModel):
+    type: Literal["learning"] = "learning"
+    issue_id: str
+    phase: str
+    content: str
+    tags: list[str] = Field(default_factory=list)
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+```
+
+Update `MemoryStore` method signatures accordingly:
+
+```python
+async def read_handoff(self, issue_id: str, to_phase: str) -> Handoff | None
+async def get_learnings(self, issue_id: str, tags: list[str] = None, limit: int = 10) -> list[Learning]
+```
+
+Similarly, define a `Message` model in `bus.py`:
+
+```python
+class Message(StoreModel):
+    sender: str = Field(alias="from")
+    to: str
+    type: str
+    payload: dict
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    correlation_id: str | None = None
+    topic: str
+
+    model_config = ConfigDict(populate_by_name=True)
+```
+
+`MessageBus.publish()` should accept either a `Message` instance or a plain dict (for ergonomics). `get_history()` returns `list[Message]`.
+
+---
+
+
+
+Pub/sub message bus backed by a `Collection`. Asyncio queues handle in-process delivery; the collection provides persistence and replay.
+
+### Message schema
+
+```python
+{
+    "_id": str,           # UUID, assigned on insert
+    "from": str,          # sender id (agent id or "orchestrator")
+    "to": str,            # recipient id or topic name
+    "type": str,          # message type (e.g. "task", "result", "info_request")
+    "payload": dict,      # arbitrary message body
+    "timestamp": str,     # ISO 8601
+    "correlation_id": str | None,  # links replies to requests
+    "topic": str,         # routing key (scoped to issue id in practice)
+}
+```
+
+### Class: `MessageBus`
+
+```python
+class MessageBus:
+    def __init__(self, path: Path): ...
+    async def load(self) -> None: ...
+```
+
+`load()` replays the message log but does NOT re-deliver old messages to queues. Queues only receive new messages published after startup.
+
+```python
+async def publish(self, message: dict) -> str
+```
+Validate required fields. Insert into collection. Fan out to all queues subscribed to `message["topic"]`. Return `_id`.
+
+```python
+async def subscribe(self, topic: str) -> asyncio.Queue
+```
+Create and register a new `asyncio.Queue` for the given topic. Return it. Multiple subscribers to the same topic each get their own queue (fan-out).
+
+```python
+async def unsubscribe(self, topic: str, queue: asyncio.Queue) -> None
+```
+
+```python
+async def get_history(self, topic: str, limit: int = 100) -> list[dict]
+```
+Return the last `limit` messages for a topic from the collection, ordered oldest-first.
+
+```python
+async def add_websocket_listener(self, callback: Callable[[dict], Awaitable[None]]) -> None
+```
+Register an async callback invoked on every `publish()`. Used by the TUI WebSocket bridge. Errors in the callback are logged and suppressed — they must not affect message delivery.
+
+---
+
+## memory.py — MemoryStore
+
+Structured agent memory. Two entry types:
+
+**Handoff**: written by one agent at phase completion, read by the next agent at phase start. Scoped to an issue + phase.
+
+**Learning**: observations captured during execution. Scoped to an issue, optionally tagged. Injected into future agent contexts.
+
+### Entry schemas
+
+```python
+# Handoff
+{
+    "_id": str,
+    "type": "handoff",
+    "issue_id": str,
+    "from_phase": str,
+    "to_phase": str,
+    "summary": str,          # human-readable summary for context injection
+    "artifacts": list[str],  # file paths or collection ids produced
+    "timestamp": str,
+}
+
+# Learning
+{
+    "_id": str,
+    "type": "learning",
+    "issue_id": str,
+    "phase": str,
+    "content": str,          # the learning, written in plain language
+    "tags": list[str],       # e.g. ["architecture", "testing", "gotcha"]
+    "timestamp": str,
+}
+```
+
+### Class: `MemoryStore`
+
+```python
+class MemoryStore:
+    def __init__(self, path: Path): ...
+    async def load(self) -> None: ...
+```
+
+Backed by a single `Collection` with indexes on `["type", "issue_id", "from_phase", "to_phase"]`.
+
+```python
+async def write_handoff(
+    self,
+    issue_id: str,
+    from_phase: str,
+    to_phase: str,
+    summary: str,
+    artifacts: list[str] = None,
+) -> str
+```
+
+```python
+async def read_handoff(self, issue_id: str, to_phase: str) -> dict | None
+```
+Return the most recent handoff for this issue targeting this phase.
+
+```python
+async def add_learning(
+    self,
+    issue_id: str,
+    phase: str,
+    content: str,
+    tags: list[str] = None,
+) -> str
+```
+
+```python
+async def get_learnings(
+    self,
+    issue_id: str,
+    tags: list[str] = None,
+    limit: int = 10,
+) -> list[dict]
+```
+Return learnings for the issue, optionally filtered by tags (any match), ordered most-recent-first, limited to `limit`. This is the primary method for context injection — the orchestrator calls this before spawning each agent.
+
+```python
+async def get_context_block(self, issue_id: str, to_phase: str) -> str
+```
+Convenience method. Returns a formatted string suitable for injection into an agent's system prompt. Includes the handoff summary (if present) and up to 10 recent learnings. Format:
+
+```
+## Handoff from [from_phase]
+[summary]
+
+## Learnings
+- [content] (tags: [tags])
+- ...
+```
+
+---
+
+## File Layout
+
+```
+.jig/
+  store/
+    messages.jsonl       # MessageBus backing store
+    memory.jsonl         # MemoryStore backing store
+    <name>.jsonl         # any Collection created via Database
+```
+
+---
+
+## `__init__.py` Exports
+
+```python
+from .core import JsonlStore
+from .collection import Collection, Database
+from .models import StoreModel, TypedCollection
+from .bus import MessageBus, Message
+from .memory import MemoryStore, Handoff, Learning
+```
+
+---
+
+## Tests
+
+Write tests in `tests/` using `pytest` + `pytest-asyncio`. Use `tmp_path` fixtures for all file paths — no tests should write to `.jig/`.
+
+**test_core.py**: insert, get, find, update, delete, index lookups, JSONL replay after reload.
+
+**test_collection.py**: `find_where` with multiple fields, `upsert`, `Database` caching.
+
+**test_bus.py**: publish/subscribe fan-out, WebSocket callback, history retrieval, no queue replay on reload.
+
+**test_models.py**: `TypedCollection` insert/get/find with a test model, round-trip serialization (model → JSONL → model), `Database.collection(model=...)` returning `TypedCollection`, alias handling for `_id` and `from` fields.
+
+: handoff write/read, learnings with tag filtering, `get_context_block` formatting.
+
+Each test file should include a crash recovery test: write some records, create a new instance pointing at the same file, call `load()`, verify state is restored correctly.
+
+---
+
+## Dependencies
+
+- `pydantic>=2.0` — required for `models.py`, `bus.py` (Message), and `memory.py`. The `core.py` and `collection.py` layers have no external dependencies and can be used standalone.
+
+---
+
+## Out of Scope
+
+- Embedding-based retrieval for learnings (deferred)
+- JSONL compaction (deferred — files stay small at Jig's scale)
+- Multi-process safety (Jig core is single-process asyncio)
+- Any external dependencies

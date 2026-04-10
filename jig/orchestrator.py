@@ -33,6 +33,7 @@ from jig.worktree import commit_worktree, create_worktree, merge_issue, remove_w
 
 
 MAX_TOTAL_PHASES = 20  # Safety limit to prevent infinite loops
+MAX_PHASE_RETRIES = 3  # Consecutive failures/blocks on a single phase before giving up
 
 
 class Orchestrator:
@@ -77,8 +78,13 @@ class Orchestrator:
         phases_executed = 0
 
         while phases_executed < MAX_TOTAL_PHASES:
-            # Ask the orchestrator LLM what to do next
-            decision = await self._decide_next_phase(workflow, issue)
+            # Happy path: decide mechanically from persisted state. Only
+            # consult the LLM when there's an actual judgment call — i.e.
+            # a recent failed/blocked result that's still below the retry
+            # cap and could plausibly be recovered by rerouting.
+            decision = self._next_action(workflow)
+            if decision is None:
+                decision = await self._decide_next_phase(workflow, issue)
             await self._emit("orchestrator_decision", {
                 "action": decision["action"],
                 "phase": decision.get("phase"),
@@ -170,6 +176,79 @@ class Orchestrator:
                 return phase
         return None
 
+    def _next_action(self, workflow: WorkflowConfig) -> dict | None:
+        """Deterministically compute the next action from persisted history.
+
+        Returns a decision dict for the mechanical cases:
+        - no history → run the first declared phase
+        - last result was ``needs_info`` → pause (human must resolve it)
+        - last result was ``success`` → run the next pending phase, or
+          return ``done`` when every declared phase has succeeded
+        - same phase has failed/blocked ``MAX_PHASE_RETRIES`` times in
+          a row → fail the workflow
+
+        Returns ``None`` when the next step is a genuine judgment call
+        (recent failure/block, below the retry cap) and the LLM should
+        decide whether to retry, reroute to an earlier phase, or abort.
+        """
+        history = self._phase_history
+
+        if not history:
+            first = workflow.phases[0]
+            return {
+                "action": "run_phase",
+                "phase": first.name.value,
+                "reasoning": "Starting the workflow at the first declared phase.",
+            }
+
+        last = history[-1]
+        last_result = last.get("result")
+        last_phase = last.get("phase", "")
+        last_reason = last.get("reason", "")
+
+        if last_result == "needs_info":
+            return {
+                "action": "pause",
+                "reasoning": last_reason or f"Phase '{last_phase}' needs information from the user.",
+            }
+
+        if last_result in ("failed", "blocked"):
+            # Count consecutive failures/blocks of the same phase.
+            consecutive = 0
+            for entry in reversed(history):
+                if entry.get("phase") != last_phase:
+                    break
+                if entry.get("result") in ("failed", "blocked"):
+                    consecutive += 1
+                else:
+                    break
+            if consecutive >= MAX_PHASE_RETRIES:
+                return {
+                    "action": "fail",
+                    "reasoning": (
+                        f"Phase '{last_phase}' {last_result} {consecutive} times in a row. "
+                        f"Last reason: {last_reason or 'no reason provided'}"
+                    ),
+                }
+            # Below the cap: the LLM gets to decide how to recover.
+            return None
+
+        # last_result is "success" (or an unknown mechanical state).
+        # Run the first declared phase that has no success entry yet.
+        successful = {h.get("phase") for h in history if h.get("result") == "success"}
+        for phase in workflow.phases:
+            if phase.name.value not in successful:
+                return {
+                    "action": "run_phase",
+                    "phase": phase.name.value,
+                    "reasoning": f"Advancing to next pending phase after {last_phase} succeeded.",
+                }
+
+        return {
+            "action": "done",
+            "reasoning": "Every declared phase has a successful entry in history.",
+        }
+
     @staticmethod
     def _entry_to_dict(entry: PhaseHistoryEntry) -> dict:
         """Project a PhaseHistoryEntry to the dict shape used by the LLM prompt."""
@@ -187,15 +266,20 @@ class Orchestrator:
         append_phase_history(self._project_path, self._issue_id, entry)
 
     async def _decide_next_phase(self, workflow: WorkflowConfig, issue: Issue) -> dict:
-        """Ask the orchestrator LLM to decide what phase to run next."""
-        phases_list = [
-            {"name": p.name.value, "agent_type": p.agent_type}
-            for p in workflow.phases
-        ]
+        """Ask the orchestrator LLM how to recover from a phase failure.
 
-        # Build a status view: which phases are already successful, which
-        # have failed/needed-info, which are untouched. This is what keeps
-        # resume deterministic — the LLM sees exactly what's done.
+        This method is only called when ``_next_action`` returns ``None``,
+        which means the most recent phase result was ``failed`` or ``blocked``
+        and we are still below the retry cap. The LLM's job is narrow:
+        decide between retrying the same phase, routing back to an earlier
+        phase to fix the underlying issue, or giving up.
+        """
+        last = self._phase_history[-1]
+        last_phase = last.get("phase", "")
+        last_reason = last.get("reason", "")
+
+        # Render the per-phase status so the LLM can see what's already
+        # succeeded and what's still pending.
         successful = {
             h["phase"] for h in self._phase_history if h.get("result") == "success"
         }
@@ -205,46 +289,42 @@ class Orchestrator:
             if name in successful:
                 marker = "DONE"
             else:
-                last = next(
+                entry = next(
                     (h for h in reversed(self._phase_history) if h.get("phase") == name),
                     None,
                 )
-                marker = (last.get("result") if last else "pending").upper()
+                marker = (entry.get("result") if entry else "pending").upper()
             phase_status_lines.append(f"  - {name} ({p.agent_type}): {marker}")
         phase_status = "\n".join(phase_status_lines)
 
-        prompt = f"""You are the orchestrator for a software development workflow.
+        prompt = f"""You are the orchestrator for a software development workflow. A phase just failed and you need to decide how to recover.
 
 ## Issue
 - **ID**: {issue.id}
 - **Title**: {issue.title}
-- **Description**: {issue.description or '(no description provided — proceed using the title)'}
+- **Description**: {issue.description or '(no description provided — use the title)'}
 
 ## Workflow Phases (declared order, with current status)
 {phase_status}
 
-## Phase History (full record of attempts in chronological order)
-{json.dumps(self._phase_history, indent=2) if self._phase_history else "No phases executed yet."}
+## Phase History (chronological)
+{json.dumps(self._phase_history, indent=2)}
+
+## What just happened
+Phase `{last_phase}` reported `{last.get("result")}`. Reason: {last_reason or "(no reason provided)"}
 
 ## Your Job
-Decide what to do next. You MUST respond with a valid JSON object (and nothing else) with these fields:
+Decide how to recover. Respond with a JSON object (and nothing else) containing:
 
-- `action`: one of "run_phase", "done", "fail", "pause"
+- `action`: one of "run_phase", "fail"
 - `phase`: (required if action is "run_phase") the phase name to execute next
-- `reasoning`: brief explanation of your decision
-- `context_for_agent`: (optional) extra instructions for the agent, especially for retries after failure
+- `reasoning`: brief explanation
+- `context_for_agent`: (optional) extra instructions for the agent — use this to tell the agent what needs to change
 
-## Hard rules (these are not negotiable)
-1. **Never pick a phase whose status is DONE.** Those phases are already complete; re-running them wastes work and corrupts state.
-2. **If the most recent entry in Phase History has `result: needs_info`, return action `"pause"`** with that entry's reason. `needs_info` is an agent telling you it needs input from the human user — you cannot route around it; only the user can resolve it.
-3. **Never pause on your own initiative for a missing issue description.** If the description is empty, use the title and proceed. Pausing is only valid for rule 2.
-4. **Do not return `"done"` while any phase still has status PENDING.** Every declared phase must reach DONE status before the workflow is complete. "validate" is not the end of the pipeline — check the declared list above. If you see pending phases, pick one.
-5. If a phase has the same failure 3+ times in history, return action `"fail"` with the reason.
-
-## Routing guidance (use judgment within these defaults)
-- The declared workflow order is the default forward path. On a happy initial pass, walk it in order until every phase is DONE.
-- After a `failed` or `blocked` result you may route back to an earlier phase to fix the underlying issue — include `context_for_agent` describing what needs to change.
-- Skipping a phase is only acceptable if you have a concrete, specific reason the issue does not need it. Default to running every declared phase.
+## Options
+1. **Retry the same phase** (`action: "run_phase"`, `phase: "{last_phase}"`): pick this if the failure looks transient or the agent can fix it with clearer instructions. Use `context_for_agent` to describe what should change.
+2. **Route back to an earlier phase**: pick this if the root cause is upstream (e.g. the spec is wrong, tests were malformed). Set `phase` to the earlier phase and explain in `context_for_agent` what needs to be fixed there.
+3. **Fail the workflow** (`action: "fail"`): pick this if the problem cannot be resolved automatically.
 
 Respond with ONLY the JSON object, no markdown fences, no explanation outside the JSON."""
 

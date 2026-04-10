@@ -112,7 +112,7 @@ async def handle_check_messages(
     addressed to this agent (or broadcast). Store-level Messages are
     decoded back into their original AgentMessage payloads.
     """
-    queue = await _get_or_create_subscription(bus, issue_id, agent_id)
+    queue = await bus.subscribe_agent(issue_id, agent_id)
     messages: list[AgentMessage] = []
     while not queue.empty():
         item = await queue.get()
@@ -125,22 +125,6 @@ async def handle_check_messages(
         except Exception:
             continue
     return messages
-
-
-# Per-(bus, issue, agent) subscription cache so repeated calls to
-# handle_check_messages see the same queue and don't drop messages.
-_subscription_cache: dict[tuple[int, str, str], object] = {}
-
-
-async def _get_or_create_subscription(
-    bus: MessageBus, issue_id: str, agent_id: str
-):
-    key = (id(bus), issue_id, agent_id)
-    queue = _subscription_cache.get(key)
-    if queue is None:
-        queue = await bus.subscribe(issue_id)
-        _subscription_cache[key] = queue
-    return queue
 
 
 async def handle_save_memory(

@@ -42,6 +42,9 @@ class MessageBus:
         )
         self._subscribers: dict[str, list[asyncio.Queue[Message]]] = {}
         self._listeners: list[Callable[[Message], Awaitable[None]]] = []
+        self._agent_subscriptions: dict[
+            tuple[str, str], asyncio.Queue[Message]
+        ] = {}
         self._lock = asyncio.Lock()
 
     async def load(self) -> None:
@@ -71,6 +74,26 @@ class MessageBus:
         async with self._lock:
             queue: asyncio.Queue[Message] = asyncio.Queue()
             self._subscribers.setdefault(topic, []).append(queue)
+            return queue
+
+    async def subscribe_agent(
+        self, topic: str, agent_id: str
+    ) -> asyncio.Queue[Message]:
+        """Return a stable per-agent subscription queue for a topic.
+
+        Repeated calls with the same (topic, agent_id) pair return the
+        same queue object so that messages published between calls are
+        not dropped. This replaces the former module-level cache keyed
+        on ``id(bus)`` in ``jig.mcp_tools``.
+        """
+        key = (topic, agent_id)
+        async with self._lock:
+            existing = self._agent_subscriptions.get(key)
+            if existing is not None:
+                return existing
+            queue: asyncio.Queue[Message] = asyncio.Queue()
+            self._subscribers.setdefault(topic, []).append(queue)
+            self._agent_subscriptions[key] = queue
             return queue
 
     async def unsubscribe(

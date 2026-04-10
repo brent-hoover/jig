@@ -11,6 +11,7 @@ from jig.store import Message, MessageBus, MessageType
 from jig.models import (
     AgentMessage,
     CompletionReport,
+    CompletionState,
     CompletionStatus,
     MessageDirection,
 )
@@ -80,7 +81,7 @@ async def handle_report_completion(
     )
 
     task = load_task(project_path, issue_id, task_id)
-    task.completion_state = report.status.value
+    task.completion_state = CompletionState(report.status.value)
     task.completion_reason = report.reason
     save_task(project_path, issue_id, task)
 

@@ -72,3 +72,24 @@ class MessageBus:
             queue: asyncio.Queue[Message] = asyncio.Queue()
             self._subscribers.setdefault(topic, []).append(queue)
             return queue
+
+    async def unsubscribe(
+        self, topic: str, queue: asyncio.Queue[Message]
+    ) -> None:
+        async with self._lock:
+            queues = self._subscribers.get(topic)
+            if not queues:
+                return
+            try:
+                queues.remove(queue)
+            except ValueError:
+                return
+            if not queues:
+                del self._subscribers[topic]
+
+    async def get_history(
+        self, topic: str, limit: int = 100
+    ) -> list[Message]:
+        results = await self._collection.find_where(topic=topic)
+        results.sort(key=lambda m: m.timestamp)
+        return results[-limit:]

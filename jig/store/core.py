@@ -23,6 +23,7 @@ class JsonlStore:
         self._docs.clear()
         for field in self._index_fields:
             self._indexes[field] = {}
+        live_ids: set[str] = set()
         with self._path.open("r") as f:
             for line_no, raw in enumerate(f, start=1):
                 line = raw.rstrip("\n")
@@ -47,17 +48,27 @@ class JsonlStore:
                 if op == "insert":
                     doc = {k: v for k, v in record.items() if k != "_op"}
                     self._docs[doc_id] = doc
+                    live_ids.add(doc_id)
                 elif op == "update":
-                    current = self._docs.get(doc_id)
-                    if current is None:
-                        continue
+                    if doc_id not in live_ids:
+                        raise ValueError(
+                            f"{self._path}:{line_no}: update for unknown id "
+                            f"{doc_id!r}"
+                        )
+                    current = self._docs[doc_id]
                     changes = {
                         k: v for k, v in record.items()
                         if k not in ("_op", "_id")
                     }
                     current.update(changes)
                 elif op == "delete":
+                    if doc_id not in live_ids:
+                        raise ValueError(
+                            f"{self._path}:{line_no}: delete for unknown id "
+                            f"{doc_id!r}"
+                        )
                     self._docs.pop(doc_id, None)
+                    live_ids.discard(doc_id)
                 else:
                     raise ValueError(
                         f"{self._path}: unknown _op {op!r} on line {line_no}"

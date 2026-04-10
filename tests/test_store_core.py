@@ -180,16 +180,32 @@ async def test_load_replays_insert_update_delete(tmp_path):
     assert await store2.find_by("status", "on") == []
 
 
-async def test_load_replay_update_on_missing_doc_is_ignored(tmp_path):
+async def test_load_raises_on_update_for_unknown_id(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text('{"_op": "update", "_id": "ghost", "x": 1}\n')
+    store = JsonlStore(path)
+    with pytest.raises(ValueError, match="update for unknown"):
+        await store.load()
+
+
+async def test_load_raises_on_delete_for_unknown_id(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text('{"_op": "delete", "_id": "ghost"}\n')
+    store = JsonlStore(path)
+    with pytest.raises(ValueError, match="delete for unknown"):
+        await store.load()
+
+
+async def test_load_raises_on_update_after_delete(tmp_path):
     path = tmp_path / "s.jsonl"
     path.write_text(
-        '{"_op": "insert", "_id": "x", "name": "a"}\n'
-        '{"_op": "delete", "_id": "x"}\n'
-        '{"_op": "update", "_id": "x", "name": "b"}\n'
+        '{"_op": "insert", "_id": "a", "x": 1}\n'
+        '{"_op": "delete", "_id": "a"}\n'
+        '{"_op": "update", "_id": "a", "x": 2}\n'
     )
     store = JsonlStore(path)
-    await store.load()
-    assert await store.get("x") is None
+    with pytest.raises(ValueError, match="update for unknown"):
+        await store.load()
 
 
 async def test_load_raises_on_malformed_json_with_line_number(tmp_path):

@@ -7,7 +7,7 @@ Server factories that wrap these with @tool decorators live in mcp_server.py.
 import json
 from pathlib import Path
 
-from jig.bus import MessageBus
+from jig.store import MessageBus
 from jig.models import (
     AgentMessage,
     CompletionReport,

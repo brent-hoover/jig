@@ -23,15 +23,6 @@ class CompletionState(str, Enum):
     FAILED = "failed"
 
 
-class MessageType(str, Enum):
-    TASK_ASSIGNMENT = "task_assignment"
-    TASK_COMPLETION = "task_completion"
-    QUESTION = "question"
-    ANSWER = "answer"
-    CONTEXT_UPDATE = "context_update"
-    STATUS = "status"
-
-
 class ProjectConfig(BaseModel):
     repo_path: str
     default_branch: str = "main"
@@ -76,16 +67,6 @@ class Task(BaseModel):
     input_context: list[str] = []
     completion_state: CompletionState | None = None
     completion_reason: str | None = None
-
-
-class Message(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    sender: str
-    recipient: str
-    type: MessageType
-    payload: dict = {}
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    correlation_id: str | None = None
 
 
 class AgentTypeConfig(BaseModel):

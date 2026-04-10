@@ -27,7 +27,7 @@ def _sanitize_for_tui(text: str, limit: int = 120) -> str:
         text = text[: limit - 1] + "…"
     return text
 
-from jig.bus import MessageBus
+from jig.store import MessageBus
 from jig.events import EventEmitter, JigEvent
 from jig.models import AgentTypeConfig, AgentInstance, Issue, ProjectContext
 from jig.persistence import load_task
@@ -121,7 +121,8 @@ async def run_agent(
 
     Returns the agent's final result text.
     """
-    bus = MessageBus(project_path)
+    bus = MessageBus(project_path / ".jig" / "store" / "messages.jsonl")
+    await bus.load()
     task = load_task(project_path, issue_id, task_id)
     agent_id = agent_instance.id if agent_instance else f"{agent_type.role}-{task_id}"
 

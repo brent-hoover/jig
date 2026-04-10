@@ -2,6 +2,22 @@
 
 Agent harness that orchestrates multiple Claude Code agents across a codebase.
 
+## Installation
+
+Install `jig` as a global CLI tool using [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install --from . jig
+```
+
+Or install in editable mode so code changes are picked up without reinstalling:
+
+```bash
+uv tool install --editable .
+```
+
+After installation, `jig` will be available on your `PATH`.
+
 ## Quick Start
 
 ### Initialize a project

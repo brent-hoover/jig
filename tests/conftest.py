@@ -19,4 +19,5 @@ def tmp_jig_project(tmp_project: Path) -> Path:
     (jig_dir / "agent_types").mkdir()
     (jig_dir / "workflows").mkdir()
     (jig_dir / "worktrees").mkdir()
+    (jig_dir / "agents").mkdir()
     return tmp_project

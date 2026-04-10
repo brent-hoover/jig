@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from jig.models import (
+    AgentInstance,
     AgentTypeConfig,
     Issue,
     Message,
@@ -237,3 +238,38 @@ def load_phase_history(project_path: Path, issue_id: str) -> list[PhaseHistoryEn
         if line.strip():
             entries.append(PhaseHistoryEntry.model_validate_json(line))
     return entries
+
+
+def save_agent_instance(project_path: Path, instance: AgentInstance) -> None:
+    """Save an agent instance to .jig/agents/<id>.yaml."""
+    agents_dir = _jig_dir(project_path) / "agents"
+    agents_dir.mkdir(exist_ok=True)
+    instance_path = agents_dir / f"{instance.id}.yaml"
+    instance_path.write_text(
+        yaml.dump(instance.model_dump(mode="json"), default_flow_style=False)
+    )
+
+
+def load_agent_instance(project_path: Path, instance_id: str) -> AgentInstance:
+    """Load an agent instance from .jig/agents/<id>.yaml."""
+    instance_path = _jig_dir(project_path) / "agents" / f"{instance_id}.yaml"
+    if not instance_path.is_file():
+        raise FileNotFoundError(f"Agent instance '{instance_id}' not found")
+    data = yaml.safe_load(instance_path.read_text())
+    return AgentInstance.model_validate(data)
+
+
+def list_agent_instances(
+    project_path: Path, agent_type: str | None = None
+) -> list[AgentInstance]:
+    """List agent instances, optionally filtered by type."""
+    agents_dir = _jig_dir(project_path) / "agents"
+    if not agents_dir.is_dir():
+        return []
+    instances = []
+    for yaml_file in sorted(agents_dir.glob("*.yaml")):
+        data = yaml.safe_load(yaml_file.read_text())
+        instance = AgentInstance.model_validate(data)
+        if agent_type is None or instance.agent_type == agent_type:
+            instances.append(instance)
+    return instances

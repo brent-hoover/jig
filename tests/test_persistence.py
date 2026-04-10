@@ -250,6 +250,72 @@ class TestTaskPersistence:
             load_task(tmp_jig_project, "issue-1", "nope")
 
 
+from jig.models import AgentInstance, AgentStatus
+from jig.persistence import save_agent_instance, load_agent_instance, list_agent_instances
+
+
+class TestAgentInstancePersistence:
+    def test_save_and_load(self, tmp_jig_project: Path):
+        instance = AgentInstance(id="dev-1", agent_type="dev")
+        save_agent_instance(tmp_jig_project, instance)
+        loaded = load_agent_instance(tmp_jig_project, "dev-1")
+        assert loaded.id == "dev-1"
+        assert loaded.agent_type == "dev"
+        assert loaded.status == AgentStatus.IDLE
+
+    def test_saves_to_correct_path(self, tmp_jig_project: Path):
+        instance = AgentInstance(id="dev-1", agent_type="dev")
+        save_agent_instance(tmp_jig_project, instance)
+        path = tmp_jig_project / ".jig" / "agents" / "dev-1.yaml"
+        assert path.is_file()
+
+    def test_update_status(self, tmp_jig_project: Path):
+        instance = AgentInstance(id="dev-1", agent_type="dev")
+        save_agent_instance(tmp_jig_project, instance)
+        instance.status = AgentStatus.ACTIVE
+        instance.session_id = "sess-123"
+        instance.current_task_id = "task-1"
+        save_agent_instance(tmp_jig_project, instance)
+        loaded = load_agent_instance(tmp_jig_project, "dev-1")
+        assert loaded.status == AgentStatus.ACTIVE
+        assert loaded.session_id == "sess-123"
+
+    def test_list_empty(self, tmp_jig_project: Path):
+        instances = list_agent_instances(tmp_jig_project)
+        assert instances == []
+
+    def test_list_multiple(self, tmp_jig_project: Path):
+        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-1", agent_type="dev"))
+        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-2", agent_type="dev"))
+        save_agent_instance(tmp_jig_project, AgentInstance(id="test-1", agent_type="test"))
+        instances = list_agent_instances(tmp_jig_project)
+        assert len(instances) == 3
+        ids = {i.id for i in instances}
+        assert ids == {"dev-1", "dev-2", "test-1"}
+
+    def test_list_by_type(self, tmp_jig_project: Path):
+        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-1", agent_type="dev"))
+        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-2", agent_type="dev"))
+        save_agent_instance(tmp_jig_project, AgentInstance(id="test-1", agent_type="test"))
+        dev_instances = list_agent_instances(tmp_jig_project, agent_type="dev")
+        assert len(dev_instances) == 2
+        assert all(i.agent_type == "dev" for i in dev_instances)
+
+    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
+        with pytest.raises(FileNotFoundError):
+            load_agent_instance(tmp_jig_project, "nope")
+
+    def test_with_memory(self, tmp_jig_project: Path):
+        instance = AgentInstance(
+            id="dev-1",
+            agent_type="dev",
+            memory=["Use pytest fixtures", "Project uses FastAPI"],
+        )
+        save_agent_instance(tmp_jig_project, instance)
+        loaded = load_agent_instance(tmp_jig_project, "dev-1")
+        assert loaded.memory == ["Use pytest fixtures", "Project uses FastAPI"]
+
+
 from jig.models import PhaseConfig, WorkflowConfig
 from jig.persistence import save_workflow, load_workflow, save_default_workflow
 

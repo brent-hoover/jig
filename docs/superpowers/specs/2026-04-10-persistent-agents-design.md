@@ -20,25 +20,28 @@ No model field — all agents use Claude Code with the default model. Model sele
 
 ### Agent Instance
 
-A running (or dormant) entity spawned from an agent type. Lives in `.jig/agents/<instance-id>/`.
+A running (or dormant) entity spawned from an agent type. Represented as a Pydantic model — storage backend is pluggable (file-based for now, data store later).
 
-Directory structure:
-```
-.jig/agents/<instance-id>/
-├── instance.yaml    # type reference, instance ID, status, session_id
-├── memory/          # persistent memory files (markdown)
+```python
+class AgentStatus(str, Enum):
+    IDLE = "idle"
+    ACTIVE = "active"
+    DORMANT = "dormant"
+
+class AgentInstance(BaseModel):
+    id: str                              # unique instance ID (e.g. "dev-1", "test-1")
+    agent_type: str                      # reference to the agent type role
+    status: AgentStatus = AgentStatus.IDLE
+    session_id: str | None = None        # Claude Code session ID for resumption
+    current_task_id: str | None = None   # task currently assigned
+    memory: list[str] = []               # persistent memory entries
 ```
 
-Fields in `instance.yaml`:
-- `id` — unique instance ID (e.g. `dev-1`, `test-1`)
-- `agent_type` — reference to the agent type role
-- `status` — `idle`, `active`, `dormant`
-- `session_id` — Claude Code session ID for resumption (null if no active session)
-- `current_task_id` — the task currently assigned (null if idle)
+Storage is abstracted behind save/load functions. The current implementation uses `.jig/` files; a future data store replaces the backend without changing the model.
 
 ### Agent Pool
 
-All instances live under `.jig/agents/`. Multiple instances can share the same type (e.g. `dev-1`, `dev-2` for parallel work). Agents are spawned on demand — when the server needs an agent with a given role, it either picks an idle instance from the pool or spawns a new one. There is no fixed cap; instances accumulate as needed and go dormant after completing work.
+Multiple instances can share the same type (e.g. `dev-1`, `dev-2` for parallel work). Agents are spawned on demand — when the server needs an agent with a given role, it either picks an idle instance from the pool or spawns a new one. There is no fixed cap; instances accumulate as needed and go dormant after completing work.
 
 ### Lifecycle
 

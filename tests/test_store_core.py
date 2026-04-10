@@ -159,3 +159,34 @@ async def test_delete_missing_id_returns_false_and_writes_nothing(tmp_path):
     before = path.read_text()
     assert await store.delete("nope") is False
     assert path.read_text() == before
+
+
+async def test_load_replays_insert_update_delete(tmp_path):
+    path = tmp_path / "s.jsonl"
+    store1 = JsonlStore(path, index_fields=["status"])
+    await store1.load()
+    a_id = await store1.insert({"name": "a", "status": "on"})
+    b_id = await store1.insert({"name": "b", "status": "on"})
+    await store1.update(a_id, {"status": "off"})
+    await store1.delete(b_id)
+
+    store2 = JsonlStore(path, index_fields=["status"])
+    await store2.load()
+    assert await store2.get(a_id) == {"_id": a_id, "name": "a", "status": "off"}
+    assert await store2.get(b_id) is None
+    assert await store2.find_by("status", "off") == [
+        {"_id": a_id, "name": "a", "status": "off"}
+    ]
+    assert await store2.find_by("status", "on") == []
+
+
+async def test_load_replay_update_on_missing_doc_is_ignored(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"_op": "insert", "_id": "x", "name": "a"}\n'
+        '{"_op": "delete", "_id": "x"}\n'
+        '{"_op": "update", "_id": "x", "name": "b"}\n'
+    )
+    store = JsonlStore(path)
+    await store.load()
+    assert await store.get("x") is None

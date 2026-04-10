@@ -20,6 +20,33 @@ class JsonlStore:
     async def load(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.touch(exist_ok=True)
+        self._docs.clear()
+        for field in self._index_fields:
+            self._indexes[field] = {}
+        with self._path.open("r") as f:
+            for line_no, raw in enumerate(f, start=1):
+                line = raw.rstrip("\n")
+                if not line:
+                    continue
+                record = json.loads(line)
+                op = record.get("_op")
+                doc_id = record.get("_id")
+                if op == "insert":
+                    doc = {k: v for k, v in record.items() if k != "_op"}
+                    self._docs[doc_id] = doc
+                elif op == "update":
+                    current = self._docs.get(doc_id)
+                    if current is None:
+                        continue
+                    changes = {
+                        k: v for k, v in record.items()
+                        if k not in ("_op", "_id")
+                    }
+                    current.update(changes)
+                elif op == "delete":
+                    self._docs.pop(doc_id, None)
+        for doc in self._docs.values():
+            self._index_insert(doc)
         self._loaded = True
 
     def _append_line(self, record: dict) -> None:

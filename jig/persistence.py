@@ -27,16 +27,8 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
         raise FileExistsError(f"{jig_dir} already exists")
 
     jig_dir.mkdir()
-    for subdir in ("issues", "agent_types", "workflows", "worktrees"):
+    for subdir in ("agent_types", "workflows", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
-
-    config = ProjectConfig(
-        repo_path=str(project_path),
-        default_branch=default_branch,
-    )
-    (jig_dir / "config.yaml").write_text(
-        yaml.dump(config.model_dump(), default_flow_style=False)
-    )
 
 
 def load_project(project_path: Path) -> ProjectConfig:

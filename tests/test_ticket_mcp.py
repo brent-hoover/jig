@@ -2,15 +2,18 @@ from pathlib import Path
 
 import pytest
 
+from jig.models import AgentTypeConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.tickets import TicketStore
-from jig.ticket import TicketStatus, TicketType
+from jig.ticket import Comment, TicketStatus, TicketType
 from jig.ticket_mcp import (
+    handle_comment_on_ticket,
     handle_create_ticket,
-    handle_read_ticket,
     handle_list_tickets,
     handle_read_comments,
+    handle_read_ticket,
+    handle_update_ticket,
 )
 
 
@@ -104,9 +107,77 @@ async def test_read_comments_direct_post(stores) -> None:
         tickets=tickets, comments=comments, bus=bus, sender="u",
         args={"type": "task", "title": "t"},
     )
-    from jig.ticket import Comment
     await comments.post(
         Comment(ticket_id=tid, author="dev", content="hello")
     )
     all_c = await handle_read_comments(comments=comments, ticket_id=tid)
     assert [c.content for c in all_c] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_comment_on_ticket_allowlist_enforced(stores) -> None:
+    tickets, comments, bus = stores
+    tid = await handle_create_ticket(
+        tickets=tickets, comments=comments, bus=bus, sender="u",
+        args={"type": "task", "title": "t", "assignee": "spec-writer"},
+    )
+    dev_cfg = AgentTypeConfig(
+        role="dev", phase_prompt="", can_message=["user"],
+    )
+    with pytest.raises(PermissionError):
+        await handle_comment_on_ticket(
+            tickets=tickets, comments=comments, bus=bus,
+            sender="dev", sender_cfg=dev_cfg,
+            args={"ticket_id": tid, "content": "hi"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
+    tickets, comments, bus = stores
+    tid = await handle_create_ticket(
+        tickets=tickets, comments=comments, bus=bus, sender="u",
+        args={"type": "task", "title": "t"},
+    )
+    with pytest.raises(ValueError):
+        await handle_comment_on_ticket(
+            tickets=tickets, comments=comments, bus=bus,
+            sender="dev", sender_cfg=None,
+            args={"ticket_id": tid, "content": "x", "kind": "phase_run"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_status_emits_status_change_comment(stores) -> None:
+    tickets, comments, bus = stores
+    tid = await handle_create_ticket(
+        tickets=tickets, comments=comments, bus=bus, sender="u",
+        args={"type": "feature", "title": "f"},
+    )
+    await handle_update_ticket(
+        tickets=tickets, comments=comments, bus=bus,
+        sender="orchestrator",
+        args={"ticket_id": tid, "status": "in_progress"},
+    )
+    status_changes = [
+        c for c in await comments.for_ticket(tid) if c.kind == "status_change"
+    ]
+    assert len(status_changes) == 1
+    assert "in_progress" in status_changes[0].content
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_non_status_field(stores) -> None:
+    tickets, comments, bus = stores
+    tid = await handle_create_ticket(
+        tickets=tickets, comments=comments, bus=bus, sender="u",
+        args={"type": "feature", "title": "f"},
+    )
+    await handle_update_ticket(
+        tickets=tickets, comments=comments, bus=bus,
+        sender="orchestrator",
+        args={"ticket_id": tid, "description": "more detail"},
+    )
+    loaded = await tickets.get(tid)
+    assert loaded.description == "more detail"
+    assert not any(c.kind == "status_change" for c in await comments.for_ticket(tid))

@@ -152,6 +152,63 @@ class Orchestrator:
         _logger.info("run_ticket stub: %s", ticket_id)
 
     async def _run_dispatch_loop(self) -> None:
-        """Dispatch loop. Task 5.2 fills this in."""
+        """Fan-out listener: spawn QA responders for unaddressed bus events.
+
+        Subscribes to ALL bus publishes via ``add_websocket_listener``,
+        queues them locally, then filters for ticket-topic events
+        addressed to a non-user role that does not already have a live
+        subscriber. A filtered event triggers ``_spawn_qa_responder``.
+        """
+        if self.bus is None:
+            raise RuntimeError("Orchestrator not started — call startup() first")
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def _forward(message) -> None:
+            await queue.put(message)
+
+        await self.bus.add_websocket_listener(_forward)
+
         while self._running:
-            await asyncio.sleep(0.1)
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+            target = self._resolve_target(msg)
+            if target is None:
+                continue
+            ticket_id, role = target
+            if role == "user":
+                continue
+            if (ticket_id, role) in self._live_subscribers:
+                continue
+            await self._spawn_qa_responder(ticket_id, role, msg)
+
+    def _resolve_target(self, msg) -> tuple[str, str] | None:
+        """Extract (ticket_id, role) from a ticket-topic directed message."""
+        if not msg.topic.startswith("tickets."):
+            return None
+        ticket_id = msg.topic.removeprefix("tickets.")
+        if not msg.to or msg.to == "broadcast":
+            return None
+        return (ticket_id, msg.to)
+
+    async def _spawn_qa_responder(
+        self, ticket_id: str, role: str, initial_event
+    ) -> None:
+        """Register a live subscriber for (ticket_id, role).
+
+        Task 5.4 replaces this stub with a real ``run_agent`` invocation.
+        For now we register a no-op task so the dispatch loop's
+        ``already-subscribed`` check functions.
+        """
+        async def _noop() -> None:
+            return
+
+        task = asyncio.create_task(_noop())
+        self._live_subscribers[(ticket_id, role)] = task
+
+        def _cleanup(_task: asyncio.Task) -> None:
+            self._live_subscribers.pop((ticket_id, role), None)
+
+        task.add_done_callback(_cleanup)

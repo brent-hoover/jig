@@ -1,6 +1,5 @@
 import asyncio
 
-import pytest
 
 from jig.store import Message, MessageBus, MessageType
 

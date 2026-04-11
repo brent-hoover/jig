@@ -98,10 +98,10 @@ class MemoryStore:
         if tags:
             tag_set = set(tags)
             results = [
-                l for l in results
-                if tag_set.intersection(l.tags)
+                item for item in results
+                if tag_set.intersection(item.tags)
             ]
-        results.sort(key=lambda l: l.timestamp, reverse=True)
+        results.sort(key=lambda item: item.timestamp, reverse=True)
         return results[:limit]
 
     async def get_context_block(

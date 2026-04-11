@@ -1,6 +1,7 @@
 # tests/test_store_collection.py
 import pytest
-from jig.store.collection import Collection
+from jig.store.collection import Collection, Database
+from jig.store.models import StoreModel, TypedCollection
 
 
 async def test_collection_basic_crud_delegates_to_store(tmp_path):
@@ -68,9 +69,6 @@ async def test_upsert_updates_when_match_exists(tmp_path):
     assert fetched["age"] == 11
 
 
-from jig.store.collection import Database
-
-
 async def test_database_collection_creates_and_caches(tmp_path):
     db = Database(tmp_path)
     col1 = await db.collection("agents", index_fields=["status"])
@@ -100,9 +98,6 @@ async def test_database_crash_recovery_round_trip(tmp_path):
     col2 = await db2.collection("agents", index_fields=["status"])
     fetched = await col2.get(doc_id)
     assert fetched["name"] == "a"
-
-
-from jig.store.models import StoreModel, TypedCollection
 
 
 class Thing(StoreModel):

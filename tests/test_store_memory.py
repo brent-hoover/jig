@@ -1,4 +1,3 @@
-import pytest
 from jig.store.memory import Handoff, Learning, MemoryStore
 
 
@@ -73,7 +72,7 @@ async def test_get_learnings_filters_by_tag_overlap(tmp_path):
         issue_id="JIG-1", phase="test", content="c", tags=["gotcha", "testing"],
     )
     filtered = await mem.get_learnings("JIG-1", tags=["testing"])
-    assert {l.content for l in filtered} == {"a", "c"}
+    assert {item.content for item in filtered} == {"a", "c"}
 
 
 async def test_get_learnings_respects_limit_and_sort_order(tmp_path):
@@ -84,7 +83,7 @@ async def test_get_learnings_respects_limit_and_sort_order(tmp_path):
         await mem.add_learning(issue_id="JIG-1", phase="test", content=content)
         await asyncio.sleep(0.01)
     recent = await mem.get_learnings("JIG-1", limit=2)
-    assert [l.content for l in recent] == ["fourth", "third"]
+    assert [item.content for item in recent] == ["fourth", "third"]
 
 
 async def test_get_learnings_filters_by_issue(tmp_path):
@@ -93,7 +92,7 @@ async def test_get_learnings_filters_by_issue(tmp_path):
     await mem.add_learning(issue_id="JIG-1", phase="test", content="a")
     await mem.add_learning(issue_id="JIG-2", phase="test", content="b")
     jig1 = await mem.get_learnings("JIG-1")
-    assert [l.content for l in jig1] == ["a"]
+    assert [item.content for item in jig1] == ["a"]
 
 
 async def test_context_block_with_handoff_and_learnings(tmp_path):

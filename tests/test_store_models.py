@@ -1,6 +1,6 @@
-import pytest
-from pydantic import Field
-from jig.store.models import StoreModel
+from datetime import datetime, timezone
+
+from jig.store.models import StoreModel, TypedCollection
 
 
 class Widget(StoreModel):
@@ -25,10 +25,6 @@ def test_storemodel_roundtrip_via_alias():
     w2 = Widget.model_validate(as_dict)
     assert w2.id == "x"
     assert w2.name == "a"
-
-
-from datetime import datetime, timezone
-from jig.store.models import TypedCollection
 
 
 class Item(StoreModel):

@@ -1,7 +1,6 @@
 import asyncio
 import json
 
-import pytest
 
 from jig.events import EventEmitter, JigEvent
 

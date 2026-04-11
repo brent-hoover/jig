@@ -26,10 +26,6 @@ class Orchestrator:
       - service loop: external wake-ups on the "orchestrator" topic
       - per-ticket loops: one ``_run_ticket`` task per in-flight top-level ticket
       - dispatch loop: spawns fresh agents for unaddressed bus events
-
-    Task 5.1 provides the scaffolding, service loop, startup/shutdown, and
-    in-progress resume scan. Tasks 5.2-5.4 fill in the dispatch loop,
-    per-ticket loop, and QA responder spawning.
     """
 
     def __init__(self, project_path: Path, emitter: "EventEmitter | None" = None) -> None:
@@ -242,12 +238,7 @@ class Orchestrator:
         await self.tickets.update_status(ticket_id, TicketStatus.RESOLVED)
 
     async def _ensure_worktree(self, ticket) -> Path:
-        """Ensure a worktree exists for ``ticket`` and return its path.
-
-        NOTE: This calls ``create_worktree`` with the new per-ticket
-        signature that Task 6.1 will introduce. Until Task 6.1 lands,
-        callers must monkeypatch this method (tests already do).
-        """
+        """Ensure a worktree exists for ``ticket`` and return its path."""
         from jig.worktree import create_worktree
 
         if self._project is None:
@@ -378,7 +369,7 @@ class Orchestrator:
         ):
             raise RuntimeError("Orchestrator not started — call startup() first")
 
-        # Issue 1: Reserve the slot synchronously before any await so that the
+        # Reserve the slot synchronously before any await so that the
         # dispatch loop's duplicate-spawn check sees it immediately.  Use the
         # currently-running task as a cheap placeholder; it is replaced with
         # the real run_agent task once setup succeeds.
@@ -395,7 +386,7 @@ class Orchestrator:
             role_cfg = load_agent_type(self._project_path, role)
             worktree = await self._ensure_worktree(parent or ticket)
         except Exception:
-            # Issue 3: Swallow setup failures so the dispatch loop keeps running.
+            # Swallow setup failures so the dispatch loop keeps running.
             _logger.exception(
                 "failed to spawn qa responder for %s/%s", ticket_id, role
             )
@@ -419,7 +410,7 @@ class Orchestrator:
         task = asyncio.create_task(run_agent(ctx))
         self._live_subscribers[(ticket_id, role)] = task
 
-        # Issue 2: Log any exception raised inside the run_agent task.
+        # Log any exception raised inside the run_agent task.
         def _cleanup(t: asyncio.Task) -> None:
             self._live_subscribers.pop((ticket_id, role), None)
             if t.cancelled():

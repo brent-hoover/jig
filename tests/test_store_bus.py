@@ -1,7 +1,6 @@
 import asyncio
 from datetime import datetime
 
-import pytest
 from jig.store.bus import Message, MessageBus, MessageType
 
 

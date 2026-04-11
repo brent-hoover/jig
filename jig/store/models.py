@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Callable, Generic, TypeVar
+from typing import Callable, Generic, TypeVar
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field

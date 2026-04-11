@@ -1,20 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(uv sync:*)",
-      "Bash(git commit:*)",
-      "Bash(uv run:*)",
-      "Bash(git add:*)",
-      "Bash(python -m pytest --co -q)",
-      "Bash(python:*)",
-      "Bash(git rm:*)",
-      "Skill(claude-api)",
-      "Bash(gh api:*)",
-      "Bash(bunx shadcn@latest add @gridland/chat)",
-      "Bash(bun add:*)",
-      "Bash(.venv/bin/python -m pytest tests/ -x -q)",
-      "Bash(.venv/bin/python -m pytest tests/test_cli.py::TestValidate::test_validates_issue -x -v -s)",
-      "Bash(.venv/bin/pytest tests/ -q)"
-    ]
+    "defaultMode": "bypassPermissions"
   }
 }

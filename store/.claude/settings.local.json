@@ -10,7 +10,13 @@
       "Bash(python -c \"from setuptools import find_packages; print\\(find_packages\\(include=['jig*']\\)\\)\")",
       "Bash(uv sync:*)",
       "Bash(mkdir -p jig/store)",
-      "Bash(touch jig/store/__init__.py jig/store/core.py jig/store/collection.py jig/store/models.py jig/store/bus.py jig/store/memory.py)"
+      "Bash(touch jig/store/__init__.py jig/store/core.py jig/store/collection.py jig/store/models.py jig/store/bus.py jig/store/memory.py)",
+      "Bash(git -C /Users/brent/Projects/personal/jig add tests/test_store_core.py jig/store/core.py)",
+      "Bash(git -C /Users/brent/Projects/personal/jig commit -m \"feat\\(store\\): JsonlStore insert and get\")",
+      "Bash(git -C /Users/brent/Projects/personal/jig commit -m \"feat\\(store\\): JsonlStore find and count\")",
+      "Bash(git -C /Users/brent/Projects/personal/jig commit -m \"feat\\(store\\): JsonlStore indexes and find_by with 1000-doc safeguard\")",
+      "Bash(git -C /Users/brent/Projects/personal/jig commit -m \"feat\\(store\\): JsonlStore update with reindex\")",
+      "Bash(git -C /Users/brent/Projects/personal/jig commit -m \"feat\\(store\\): JsonlStore replay on load for crash recovery\")"
     ]
   }
 }

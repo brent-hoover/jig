@@ -1,179 +1,147 @@
-"""MCP server factories for agent and orchestrator tools."""
+"""MCP server factory for agent ticket tools."""
 
-import json
 from pathlib import Path
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
+from jig import ticket_mcp
+from jig.models import AgentTypeConfig
 from jig.store import MessageBus
-from jig.mcp_tools import (
-    handle_check_messages,
-    handle_get_workflow_status,
-    handle_load_memory,
-    handle_report_completion,
-    handle_request_context,
-    handle_save_memory,
-    handle_send_message,
-)
+from jig.store.comments import CommentStore
+from jig.store.memory import MemoryStore
+from jig.store.tickets import TicketStore
 
 
 def create_agent_mcp_server(
+    *,
+    tickets: TicketStore,
+    comments: CommentStore,
+    memory: MemoryStore,
     bus: MessageBus,
-    project_path: Path,
-    issue_id: str,
-    task_id: str,
-    agent_id: str,
+    agent_role: str,
+    agent_cfg: AgentTypeConfig,
     worktree_path: Path,
 ):
-    """Create a Jig MCP server for a worker agent.
-
-    Tools: send_message, check_messages, report_completion,
-    request_context, save_memory, load_memory
-    """
+    """Create a Jig MCP server for a worker agent exposing 9 ticket-era tools."""
 
     @tool(
-        "send_message",
-        "Send a structured message to another agent",
-        {"recipient_id": str, "direction": str, "topic": str, "content": str, "correlation_id": str},
+        "create_ticket",
+        "Create a new ticket",
+        {"type": str, "title": str, "description": str, "assignee": str, "parent_id": str, "labels": list},
     )
-    async def send_message_tool(args):
-        text = await handle_send_message(bus=bus, issue_id=issue_id, sender_id=agent_id, args=args)
+    async def create_ticket(args):
+        ticket_id = await ticket_mcp.handle_create_ticket(
+            tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+        )
+        return {"content": [{"type": "text", "text": ticket_id}]}
+
+    @tool(
+        "read_ticket",
+        "Read a ticket by ID",
+        {"ticket_id": str},
+    )
+    async def read_ticket(args):
+        t = await ticket_mcp.handle_read_ticket(tickets=tickets, ticket_id=args["ticket_id"])
+        return {"content": [{"type": "text", "text": t.model_dump_json()}]}
+
+    @tool(
+        "update_ticket",
+        "Update fields on an existing ticket",
+        {"ticket_id": str, "status": str, "description": str, "assignee": str, "labels": list},
+    )
+    async def update_ticket(args):
+        updated = await ticket_mcp.handle_update_ticket(
+            tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+        )
+        return {"content": [{"type": "text", "text": updated.model_dump_json()}]}
+
+    @tool(
+        "comment_on_ticket",
+        "Post a comment or decision on a ticket",
+        {"ticket_id": str, "content": str, "kind": str},
+    )
+    async def comment_on_ticket(args):
+        cid = await ticket_mcp.handle_comment_on_ticket(
+            tickets=tickets,
+            comments=comments,
+            bus=bus,
+            sender=agent_role,
+            sender_cfg=agent_cfg,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": cid}]}
+
+    @tool(
+        "list_tickets",
+        "List tickets with optional filters",
+        {"type": str, "status": str, "assignee": str, "parent_id": str},
+    )
+    async def list_tickets(args):
+        results = await ticket_mcp.handle_list_tickets(tickets=tickets, args=args)
+        text = "\n".join(r.model_dump_json() for r in results)
         return {"content": [{"type": "text", "text": text}]}
 
     @tool(
-        "check_messages",
-        "Check for pending messages from other agents",
-        {},
+        "read_comments",
+        "Read comments on a ticket",
+        {"ticket_id": str, "kind": str},
     )
-    async def check_messages_tool(args):
-        messages = await handle_check_messages(bus=bus, issue_id=issue_id, agent_id=agent_id)
-        if not messages:
-            return {"content": [{"type": "text", "text": "No pending messages."}]}
-        lines = [f"[{m.sender_id}] ({m.topic}) {m.content}" for m in messages]
-        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+    async def read_comments(args):
+        results = await ticket_mcp.handle_read_comments(
+            comments=comments, ticket_id=args["ticket_id"], kind=args.get("kind")
+        )
+        text = "\n".join(r.model_dump_json() for r in results)
+        return {"content": [{"type": "text", "text": text}]}
 
     @tool(
-        "report_completion",
-        "Signal that your task is complete with a status, summary, and optional details",
-        {"status": str, "summary": str, "reason": str, "needs_from": str, "question": str},
+        "commit_progress",
+        "Commit current worktree progress and record it on a ticket",
+        {"ticket_id": str, "message": str},
     )
-    async def report_completion_tool(args):
-        text = await handle_report_completion(
-            project_path=project_path, issue_id=issue_id, task_id=task_id, agent_id=agent_id, args=args,
+    async def commit_progress(args):
+        result = await ticket_mcp.handle_commit_progress(
+            tickets=tickets,
+            comments=comments,
+            bus=bus,
+            sender=agent_role,
+            worktree_path=worktree_path,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": str(result)}]}
+
+    @tool(
+        "record_learning",
+        "Record a learning or lesson learned for your role",
+        {"content": str},
+    )
+    async def record_learning(args):
+        text = await ticket_mcp.handle_record_learning(
+            memory=memory, role=agent_role, args=args
         )
         return {"content": [{"type": "text", "text": text}]}
 
     @tool(
         "request_context",
-        "Read a file from the project to get additional context",
+        "Read a file from the worktree to get additional context",
         {"path": str},
     )
-    async def request_context_tool(args):
-        text = await handle_request_context(worktree_path=worktree_path, args=args)
+    async def request_context(args):
+        text = await ticket_mcp.handle_request_context(
+            worktree_path=worktree_path, args=args
+        )
         return {"content": [{"type": "text", "text": text}]}
-
-    @tool(
-        "save_memory",
-        "Save a lesson learned or important fact for future reference",
-        {"entry": str},
-    )
-    async def save_memory_tool(args):
-        text = await handle_save_memory(project_path=project_path, agent_id=agent_id, args=args)
-        return {"content": [{"type": "text", "text": text}]}
-
-    @tool(
-        "load_memory",
-        "Load your saved memories from previous sessions",
-        {},
-    )
-    async def load_memory_tool(args):
-        memories = await handle_load_memory(project_path=project_path, agent_id=agent_id)
-        if not memories:
-            return {"content": [{"type": "text", "text": "No memories saved yet."}]}
-        return {"content": [{"type": "text", "text": "\n".join(f"- {m}" for m in memories)}]}
 
     return create_sdk_mcp_server(
-        "jig",
+        name="jig",
         tools=[
-            send_message_tool,
-            check_messages_tool,
-            report_completion_tool,
-            request_context_tool,
-            save_memory_tool,
-            load_memory_tool,
-        ],
-    )
-
-
-def create_orchestrator_mcp_server(
-    bus: MessageBus,
-    project_path: Path,
-    issue_id: str,
-):
-    """Create a Jig MCP server for the orchestrator agent.
-
-    Coordination-only tools. No code tools (Read, Edit, Write, Bash).
-    """
-    orchestrator_id = "orchestrator"
-
-    @tool(
-        "get_workflow_status",
-        "Get the current workflow status including phases and agent states",
-        {},
-    )
-    async def get_workflow_status_tool(args):
-        status = await handle_get_workflow_status(project_path=project_path, issue_id=issue_id)
-        return {"content": [{"type": "text", "text": json.dumps(status, indent=2)}]}
-
-    @tool(
-        "send_message",
-        "Send a message to an agent",
-        {"recipient_id": str, "direction": str, "topic": str, "content": str},
-    )
-    async def send_message_tool(args):
-        args.setdefault("direction", "request")
-        text = await handle_send_message(bus=bus, issue_id=issue_id, sender_id=orchestrator_id, args=args)
-        return {"content": [{"type": "text", "text": text}]}
-
-    @tool(
-        "check_messages",
-        "Check for pending messages from agents",
-        {},
-    )
-    async def check_messages_tool(args):
-        messages = await handle_check_messages(bus=bus, issue_id=issue_id, agent_id=orchestrator_id)
-        if not messages:
-            return {"content": [{"type": "text", "text": "No pending messages."}]}
-        lines = [f"[{m.sender_id}] ({m.topic}) {m.content}" for m in messages]
-        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-
-    @tool(
-        "save_memory",
-        "Save a lesson learned from this exception for future reference",
-        {"entry": str},
-    )
-    async def save_memory_tool(args):
-        text = await handle_save_memory(project_path=project_path, agent_id=orchestrator_id, args=args)
-        return {"content": [{"type": "text", "text": text}]}
-
-    @tool(
-        "load_memory",
-        "Load your saved memories from previous sessions",
-        {},
-    )
-    async def load_memory_tool(args):
-        memories = await handle_load_memory(project_path=project_path, agent_id=orchestrator_id)
-        if not memories:
-            return {"content": [{"type": "text", "text": "No memories saved yet."}]}
-        return {"content": [{"type": "text", "text": "\n".join(f"- {m}" for m in memories)}]}
-
-    return create_sdk_mcp_server(
-        "jig-orchestrator",
-        tools=[
-            get_workflow_status_tool,
-            send_message_tool,
-            check_messages_tool,
-            save_memory_tool,
-            load_memory_tool,
+            create_ticket,
+            read_ticket,
+            update_ticket,
+            comment_on_ticket,
+            list_tickets,
+            read_comments,
+            commit_progress,
+            record_learning,
+            request_context,
         ],
     )

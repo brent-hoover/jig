@@ -42,23 +42,48 @@ class Orchestrator:
         self._running = False
 
     async def startup(self) -> None:
-        self._project = load_project(self._project_path)
-        store_dir = self._project_path / ".jig" / "store"
-        store_dir.mkdir(parents=True, exist_ok=True)
-        self.tickets = TicketStore(store_dir / "tickets.jsonl")
-        self.comments = CommentStore(store_dir / "comments.jsonl")
-        self.memory = MemoryStore(store_dir)
-        self.bus = MessageBus(store_dir / "messages.jsonl")
-        await asyncio.gather(
-            self.tickets.load(),
-            self.comments.load(),
-            self.memory.load(),
-            self.bus.load(),
-        )
-        self._running = True
-        self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
-        self._service_task = asyncio.create_task(self._run_service_loop())
-        await self._resume_in_progress()
+        try:
+            self._project = load_project(self._project_path)
+            store_dir = self._project_path / ".jig" / "store"
+            store_dir.mkdir(parents=True, exist_ok=True)
+            self.tickets = TicketStore(store_dir / "tickets.jsonl")
+            self.comments = CommentStore(store_dir / "comments.jsonl")
+            self.memory = MemoryStore(store_dir)
+            self.bus = MessageBus(store_dir / "messages.jsonl")
+            await asyncio.gather(
+                self.tickets.load(),
+                self.comments.load(),
+                self.memory.load(),
+                self.bus.load(),
+            )
+            self._running = True
+            await self._resume_in_progress()
+            self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
+            self._service_task = asyncio.create_task(self._run_service_loop())
+        except Exception:
+            await self._emergency_reset()
+            raise
+
+    async def _emergency_reset(self) -> None:
+        self._running = False
+        for task in (self._dispatch_task, self._service_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        for task in self._running_tickets.values():
+            task.cancel()
+        self._running_tickets.clear()
+        self._live_subscribers.clear()
+        self._dispatch_task = None
+        self._service_task = None
+        self._project = None
+        self.tickets = None
+        self.comments = None
+        self.memory = None
+        self.bus = None
 
     async def shutdown(self) -> None:
         self._running = False
@@ -74,40 +99,48 @@ class Orchestrator:
         for task in tasks_to_cancel:
             try:
                 await task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception:
+                _logger.warning("task raised during shutdown", exc_info=True)
         self._running_tickets.clear()
         self._live_subscribers.clear()
         self._dispatch_task = None
         self._service_task = None
 
     async def _resume_in_progress(self) -> None:
-        assert self.tickets is not None
+        if self.tickets is None:
+            raise RuntimeError("Orchestrator not started — call startup() first")
         in_progress = await self.tickets.find_in_progress_top_level()
         for ticket in in_progress:
             task = asyncio.create_task(self._run_ticket(ticket.id))
             self._running_tickets[ticket.id] = task
 
     async def _run_service_loop(self) -> None:
-        assert self.bus is not None
+        if self.bus is None:
+            raise RuntimeError("Orchestrator not started — call startup() first")
         queue = await self.bus.subscribe("orchestrator")
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-            payload = msg.payload or {}
-            kind = payload.get("kind")
-            if kind == "ticket_created":
-                ticket_id = payload.get("ticket_id")
-                if ticket_id:
-                    await self._handle_schedule(ticket_id)
-            elif kind == "shutdown_request":
-                self._running = False
+        try:
+            while self._running:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                payload = msg.payload or {}
+                kind = payload.get("kind")
+                if kind == "ticket_created":
+                    ticket_id = payload.get("ticket_id")
+                    if ticket_id:
+                        await self._handle_schedule(ticket_id)
+                elif kind == "shutdown_request":
+                    self._running = False
+        finally:
+            await self.bus.unsubscribe("orchestrator", queue)
 
     async def _handle_schedule(self, ticket_id: str) -> None:
         """For MVP: immediately start the ticket. Scheduling policy TBD."""
-        assert self.tickets is not None
+        if self.tickets is None:
+            raise RuntimeError("Orchestrator not started — call startup() first")
         if ticket_id in self._running_tickets:
             return
         await self.tickets.update_status(ticket_id, TicketStatus.IN_PROGRESS)

@@ -362,14 +362,29 @@ class Orchestrator:
         ):
             raise RuntimeError("Orchestrator not started — call startup() first")
 
-        ticket = await self.tickets.get(ticket_id)
-        if ticket is None:
+        # Issue 1: Reserve the slot synchronously before any await so that the
+        # dispatch loop's duplicate-spawn check sees it immediately.  Use the
+        # currently-running task as a cheap placeholder; it is replaced with
+        # the real run_agent task once setup succeeds.
+        self._live_subscribers[(ticket_id, role)] = asyncio.current_task()  # type: ignore[assignment]
+
+        try:
+            ticket = await self.tickets.get(ticket_id)
+            if ticket is None:
+                self._live_subscribers.pop((ticket_id, role), None)
+                return
+            parent = None
+            if ticket.parent_id:
+                parent = await self.tickets.get(ticket.parent_id)
+            role_cfg = load_agent_type(self._project_path, role)
+            worktree = await self._ensure_worktree(parent or ticket)
+        except Exception:
+            # Issue 3: Swallow setup failures so the dispatch loop keeps running.
+            _logger.exception(
+                "failed to spawn qa responder for %s/%s", ticket_id, role
+            )
+            self._live_subscribers.pop((ticket_id, role), None)
             return
-        parent = None
-        if ticket.parent_id:
-            parent = await self.tickets.get(ticket.parent_id)
-        role_cfg = load_agent_type(self._project_path, role)
-        worktree = await self._ensure_worktree(parent or ticket)
 
         ctx = AgentSpawnContext(
             role=role,
@@ -387,6 +402,19 @@ class Orchestrator:
         )
         task = asyncio.create_task(run_agent(ctx))
         self._live_subscribers[(ticket_id, role)] = task
-        task.add_done_callback(
-            lambda _: self._live_subscribers.pop((ticket_id, role), None)
-        )
+
+        # Issue 2: Log any exception raised inside the run_agent task.
+        def _cleanup(t: asyncio.Task) -> None:
+            self._live_subscribers.pop((ticket_id, role), None)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                _logger.warning(
+                    "qa responder for %s/%s raised",
+                    ticket_id,
+                    role,
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_cleanup)

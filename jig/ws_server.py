@@ -1,18 +1,35 @@
 """WebSocket server for broadcasting events to TUI clients."""
 
 import asyncio
+import json
+from typing import TYPE_CHECKING
 
 import websockets
 from websockets.asyncio.server import serve, ServerConnection
 
-from jig.events import EventEmitter, JigEvent
+from jig.events import EventEmitter
+from jig.ticket_mcp import (
+    handle_create_ticket,
+    handle_comment_on_ticket,
+    handle_update_ticket,
+)
+
+if TYPE_CHECKING:
+    from jig.orchestrator import Orchestrator
 
 
 class WebSocketServer:
-    def __init__(self, emitter: EventEmitter, host: str = "127.0.0.1", port: int = 9100) -> None:
+    def __init__(
+        self,
+        emitter: EventEmitter,
+        host: str = "127.0.0.1",
+        port: int = 9100,
+        orchestrator: "Orchestrator | None" = None,
+    ) -> None:
         self._emitter = emitter
         self._host = host
         self._port = port
+        self._orch = orchestrator
         self._server = None
         self._relay_task = None
         self._clients: set[ServerConnection] = set()
@@ -54,10 +71,56 @@ class WebSocketServer:
                 return
         self._clients.add(websocket)
         try:
-            async for _ in websocket:
-                pass  # We don't expect messages from clients in v1
+            async for raw in websocket:
+                await self._handle_incoming(websocket, raw)
         finally:
             self._clients.discard(websocket)
+
+    async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
+        if self._orch is None:
+            return
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.send(json.dumps({"ok": False, "error": "bad json"}))
+            return
+
+        command = payload.get("command")
+        args = payload.get("args", {})
+
+        try:
+            if command == "create_ticket":
+                tid = await handle_create_ticket(
+                    tickets=self._orch.tickets,
+                    comments=self._orch.comments,
+                    bus=self._orch.bus,
+                    sender="user",
+                    args=args,
+                )
+                await websocket.send(json.dumps({"ok": True, "ticket_id": tid}))
+            elif command == "comment_on_ticket":
+                cid = await handle_comment_on_ticket(
+                    tickets=self._orch.tickets,
+                    comments=self._orch.comments,
+                    bus=self._orch.bus,
+                    sender="user",
+                    sender_cfg=None,
+                    args=args,
+                )
+                await websocket.send(json.dumps({"ok": True, "comment_id": cid}))
+            elif command == "update_ticket":
+                updated = await handle_update_ticket(
+                    tickets=self._orch.tickets,
+                    comments=self._orch.comments,
+                    bus=self._orch.bus,
+                    sender="user",
+                    args=args,
+                )
+                await websocket.send(json.dumps({"ok": True, "status": updated.status.value}))
+            else:
+                await websocket.send(json.dumps({"ok": False, "error": f"unknown command {command}"}))
+        except Exception as exc:
+            await websocket.send(json.dumps({"ok": False, "error": str(exc)}))
 
     async def _relay_events(self) -> None:
         while True:

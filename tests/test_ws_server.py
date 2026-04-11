@@ -5,6 +5,8 @@ import pytest
 import websockets
 
 from jig.events import EventEmitter, JigEvent
+from jig.orchestrator import Orchestrator
+from jig.project import Project, save_project
 from jig.ws_server import WebSocketServer
 
 
@@ -46,3 +48,33 @@ class TestWebSocketServer:
                 msg2 = await asyncio.wait_for(ws2.recv(), timeout=2.0)
                 assert json.loads(msg1)["type"] == "workflow_started"
                 assert json.loads(msg2)["type"] == "workflow_started"
+
+
+@pytest.mark.asyncio
+async def test_tui_can_create_ticket_via_ws(tmp_path) -> None:
+    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+
+    emitter = EventEmitter()
+    server = WebSocketServer(emitter=emitter, host="127.0.0.1", port=0, orchestrator=orch)
+    await server.start()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{server.port}") as ws:
+            await ws.send(json.dumps({
+                "command": "create_ticket",
+                "args": {
+                    "type": "feature",
+                    "title": "from-tui",
+                    "description": "",
+                },
+            }))
+            reply = json.loads(await ws.recv())
+            assert reply["ok"] is True
+            assert "ticket_id" in reply
+
+        tickets = await orch.tickets.list_all()
+        assert any(t.title == "from-tui" for t in tickets)
+    finally:
+        await server.stop()
+        await orch.shutdown()

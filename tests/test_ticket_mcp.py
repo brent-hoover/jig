@@ -271,3 +271,43 @@ async def test_commit_progress_nothing_to_commit_returns_none_sha(stores, tmp_pa
     )
     assert result["sha"] is None
     assert await comments.commits_for(tid) == []
+
+
+@pytest.mark.asyncio
+async def test_record_learning_writes_to_memory_store(tmp_path: Path) -> None:
+    from jig.store.memory import MemoryStore
+    from jig.ticket_mcp import handle_record_learning
+
+    memory = MemoryStore(tmp_path)
+    await memory.load()
+    await handle_record_learning(
+        memory=memory, role="dev",
+        args={"content": "always use uv run"},
+    )
+    learnings = await memory.get_role_learnings("dev")
+    assert [learning.content for learning in learnings] == ["always use uv run"]
+
+
+@pytest.mark.asyncio
+async def test_request_context_reads_worktree_file(tmp_path: Path) -> None:
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "README.md").write_text("hello")
+    result = await handle_request_context(
+        worktree_path=work, args={"path": "README.md"},
+    )
+    assert result == "hello"
+
+
+@pytest.mark.asyncio
+async def test_request_context_missing_file(tmp_path: Path) -> None:
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+    result = await handle_request_context(
+        worktree_path=work, args={"path": "nope.txt"},
+    )
+    assert "not found" in result.lower()

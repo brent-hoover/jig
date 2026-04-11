@@ -3,6 +3,7 @@ from pathlib import Path
 from jig.models import AgentTypeConfig
 from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
+from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Comment, Ticket, TicketStatus, TicketType
 from jig.worktree import commit_worktree
@@ -233,3 +234,27 @@ async def handle_commit_progress(
         topic=f"tickets.{ticket_id}",
     ))
     return {"sha": sha, "comment_id": cid}
+
+
+async def handle_record_learning(
+    *,
+    memory: MemoryStore,
+    role: str,
+    args: dict,
+) -> str:
+    await memory.add_role_learning(role=role, content=args["content"])
+    return f"learning recorded for {role}"
+
+
+async def handle_request_context(
+    *,
+    worktree_path: Path,
+    args: dict,
+) -> str:
+    target = worktree_path / args["path"]
+    if not target.is_file():
+        return f"File not found: {args['path']}"
+    try:
+        return target.read_text()
+    except Exception as exc:
+        return f"Error reading {args['path']}: {exc}"

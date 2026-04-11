@@ -333,12 +333,16 @@ class Orchestrator:
                 msg = await asyncio.wait_for(queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
-            # Mirror to emitter for TUI consumption (before target filter so all messages reach it)
+            # Mirror to emitter for TUI consumption (before target filter so all messages reach it).
+            # Isolate emit failures so a bad subscriber cannot kill the dispatch loop.
             if self._emitter is not None:
                 from jig.events import JigEvent
                 payload = msg.payload or {}
                 kind = payload.get("kind", "event")
-                await self._emitter.emit(JigEvent(type=kind, data=payload))
+                try:
+                    await self._emitter.emit(JigEvent(type=kind, data=payload))
+                except Exception:
+                    _logger.warning("emitter.emit raised; continuing", exc_info=True)
 
             target = self._resolve_target(msg)
             if target is None:

@@ -76,13 +76,21 @@ class WebSocketServer:
         finally:
             self._clients.discard(websocket)
 
+    async def _safe_send(self, websocket: ServerConnection, message: str) -> None:
+        """Send a reply, swallowing ConnectionClosed so a dying client
+        doesn't bubble a traceback through ``_handle_client``."""
+        try:
+            await websocket.send(message)
+        except websockets.ConnectionClosed:
+            return
+
     async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
         if self._orch is None:
             return
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            await websocket.send(json.dumps({"ok": False, "error": "bad json"}))
+            await self._safe_send(websocket, json.dumps({"ok": False, "error": "bad json"}))
             return
 
         command = payload.get("command")
@@ -97,7 +105,7 @@ class WebSocketServer:
                     sender="user",
                     args=args,
                 )
-                await websocket.send(json.dumps({"ok": True, "ticket_id": tid}))
+                await self._safe_send(websocket, json.dumps({"ok": True, "ticket_id": tid}))
             elif command == "comment_on_ticket":
                 cid = await handle_comment_on_ticket(
                     tickets=self._orch.tickets,
@@ -107,7 +115,7 @@ class WebSocketServer:
                     sender_cfg=None,
                     args=args,
                 )
-                await websocket.send(json.dumps({"ok": True, "comment_id": cid}))
+                await self._safe_send(websocket, json.dumps({"ok": True, "comment_id": cid}))
             elif command == "update_ticket":
                 updated = await handle_update_ticket(
                     tickets=self._orch.tickets,
@@ -116,11 +124,15 @@ class WebSocketServer:
                     sender="user",
                     args=args,
                 )
-                await websocket.send(json.dumps({"ok": True, "status": updated.status.value}))
+                await self._safe_send(
+                    websocket, json.dumps({"ok": True, "status": updated.status.value})
+                )
             else:
-                await websocket.send(json.dumps({"ok": False, "error": f"unknown command {command}"}))
+                await self._safe_send(
+                    websocket, json.dumps({"ok": False, "error": f"unknown command {command}"})
+                )
         except Exception as exc:
-            await websocket.send(json.dumps({"ok": False, "error": str(exc)}))
+            await self._safe_send(websocket, json.dumps({"ok": False, "error": str(exc)}))
 
     async def _relay_events(self) -> None:
         while True:

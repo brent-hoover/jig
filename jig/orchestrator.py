@@ -4,12 +4,13 @@ import asyncio
 import logging
 from pathlib import Path
 
+from jig.agent import run_agent
 from jig.project import Project, load_project
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
-from jig.ticket import TicketStatus
+from jig.ticket import TicketStatus, TicketType
 
 _logger = logging.getLogger(__name__)
 
@@ -148,8 +149,130 @@ class Orchestrator:
         self._running_tickets[ticket_id] = task
 
     async def _run_ticket(self, ticket_id: str) -> None:
-        """Per-ticket loop. Task 5.3 fills this in."""
-        _logger.info("run_ticket stub: %s", ticket_id)
+        """Walk the workflow phases for a top-level ticket.
+
+        For each phase, creates a child TASK ticket, calls ``run_agent``,
+        writes a ``phase_run`` comment on the task, and advances on
+        success. Fails fast on any non-success result. Crash recovery
+        is deferred post-MVP.
+        """
+        from jig.persistence import load_agent_type, load_workflow
+        from jig.runtime import AgentSpawnContext, SpawnReason
+        from jig.ticket import Ticket
+
+        if (
+            self.tickets is None
+            or self.comments is None
+            or self.memory is None
+            or self.bus is None
+            or self._project is None
+        ):
+            raise RuntimeError("Orchestrator not started — call startup() first")
+
+        ticket = await self.tickets.get(ticket_id)
+        if ticket is None:
+            return
+
+        workflow = load_workflow(self._project_path, "default")
+        worktree = await self._ensure_worktree(ticket)
+        phase_idx = await self._current_phase_index(ticket_id, workflow)
+
+        while phase_idx < len(workflow.phases):
+            phase = workflow.phases[phase_idx]
+            role_cfg = load_agent_type(self._project_path, phase.role)
+
+            task_ticket = Ticket(
+                type=TicketType.TASK,
+                title=f"{phase.name}: {ticket.title}",
+                description=phase.task_template or ticket.description,
+                parent_id=ticket_id,
+                assignee=phase.role,
+                created_by="orchestrator",
+                status=TicketStatus.IN_PROGRESS,
+            )
+            task_id = await self.tickets.create(task_ticket)
+            loaded_task = await self.tickets.get(task_id)
+            if loaded_task is None:
+                raise RuntimeError(f"failed to create task ticket for {phase.name}")
+
+            ctx = AgentSpawnContext(
+                role=phase.role,
+                role_cfg=role_cfg,
+                spawn_reason=SpawnReason.PHASE_PRIMARY,
+                ticket=loaded_task,
+                parent=ticket,
+                worktree_path=worktree,
+                project=self._project,
+                tickets=self.tickets,
+                comments=self.comments,
+                memory=self.memory,
+                bus=self.bus,
+            )
+            result = await run_agent(ctx)
+            await self._write_phase_run_comment(task_id, phase, result)
+
+            if result.status == "success":
+                phase_idx += 1
+                continue
+
+            # Fail fast. Recovery deferred post-MVP.
+            await self.tickets.update_status(ticket_id, TicketStatus.FAILED)
+            return
+
+        await self.tickets.update_status(ticket_id, TicketStatus.RESOLVED)
+
+    async def _ensure_worktree(self, ticket) -> Path:
+        """Ensure a worktree exists for ``ticket`` and return its path.
+
+        NOTE: This calls ``create_worktree`` with the new per-ticket
+        signature that Task 6.1 will introduce. Until Task 6.1 lands,
+        callers must monkeypatch this method (tests already do).
+        """
+        from jig.worktree import create_worktree
+
+        if self._project is None:
+            raise RuntimeError("Orchestrator not started")
+        worktree_path = self._project_path / ".jig" / "worktrees" / ticket.id
+        if worktree_path.exists():
+            return worktree_path
+        return await create_worktree(
+            project_path=self._project_path,
+            ticket_id=ticket.id,
+            base_branch=self._project.default_branch,
+        )
+
+    async def _current_phase_index(self, ticket_id: str, workflow) -> int:
+        """Count successful phase_run comments on task tickets under this ticket."""
+        if self.tickets is None or self.comments is None:
+            raise RuntimeError("Orchestrator not started")
+        task_tickets = await self.tickets.find_by_parent(ticket_id)
+        completed = 0
+        for task_ticket in task_tickets:
+            runs = await self.comments.phase_runs_for(task_ticket.id)
+            if any(r.phase_result == "success" for r in runs):
+                completed += 1
+        return completed
+
+    async def _write_phase_run_comment(self, task_id: str, phase, result) -> None:
+        from jig.ticket import Comment
+
+        if self.comments is None:
+            raise RuntimeError("Orchestrator not started")
+
+        phase_result: str = result.status if result.status in {
+            "success", "failed", "blocked", "needs_info"
+        } else "failed"
+
+        await self.comments.post(
+            Comment(
+                ticket_id=task_id,
+                author="orchestrator",
+                content=f"phase {phase.name}: {result.status}",
+                kind="phase_run",
+                phase_result=phase_result,  # type: ignore[arg-type]
+                phase_branch=f"jig/{task_id}",
+            )
+        )
 
     async def _run_dispatch_loop(self) -> None:
         """Fan-out listener: spawn QA responders for unaddressed bus events.

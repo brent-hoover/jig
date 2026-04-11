@@ -16,6 +16,9 @@ jig = "jig.cli:cli"
 [tool.setuptools.packages.find]
 include = ["jig*"]
 
+[tool.setuptools.package-data]
+"jig.skills" = ["*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

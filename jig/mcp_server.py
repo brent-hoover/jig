@@ -1,5 +1,6 @@
 """MCP server factory for agent ticket tools."""
 
+import json
 from pathlib import Path
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
@@ -107,7 +108,7 @@ def create_agent_mcp_server(
             worktree_path=worktree_path,
             args=args,
         )
-        return {"content": [{"type": "text", "text": str(result)}]}
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
         "record_learning",

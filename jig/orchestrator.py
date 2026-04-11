@@ -208,8 +208,23 @@ class Orchestrator:
                 memory=self.memory,
                 bus=self.bus,
             )
-            result = await run_agent(ctx)
-            await self._write_phase_run_comment(task_id, phase, result)
+            try:
+                result = await run_agent(ctx)
+                await self._write_phase_run_comment(task_id, phase, result)
+            except Exception:
+                _logger.exception(
+                    "agent or comment-write failed for phase %s ticket %s",
+                    phase.name,
+                    ticket_id,
+                )
+                try:
+                    await self.tickets.update_status(task_id, TicketStatus.FAILED)
+                except Exception:
+                    _logger.exception(
+                        "failed to mark child task %s FAILED (best-effort)", task_id
+                    )
+                await self.tickets.update_status(ticket_id, TicketStatus.FAILED)
+                return
 
             if result.status == "success":
                 phase_idx += 1
@@ -242,16 +257,32 @@ class Orchestrator:
         )
 
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
-        """Count successful phase_run comments on task tickets under this ticket."""
+        """Return the index of the first phase that has not yet succeeded.
+
+        Walks ``workflow.phases`` in order and checks whether ANY child TASK
+        ticket whose title starts with ``"{phase.name}: "`` has a successful
+        phase_run comment.  We match on title-prefix (which the creation code
+        stamps as ``f"{phase.name}: {ticket.title}"``) rather than on
+        assignee/role so that retried task tickets for the same phase are also
+        recognised.  We stop at the first phase without a success — duplicate
+        task tickets for the same phase therefore still count as *one* phase
+        completed, not two.
+        """
         if self.tickets is None or self.comments is None:
             raise RuntimeError("Orchestrator not started")
         task_tickets = await self.tickets.find_by_parent(ticket_id)
-        completed = 0
-        for task_ticket in task_tickets:
-            runs = await self.comments.phase_runs_for(task_ticket.id)
-            if any(r.phase_result == "success" for r in runs):
-                completed += 1
-        return completed
+        for phase_idx, phase in enumerate(workflow.phases):
+            prefix = f"{phase.name}: "
+            phase_tasks = [t for t in task_tickets if t.title.startswith(prefix)]
+            phase_succeeded = False
+            for task_ticket in phase_tasks:
+                runs = await self.comments.phase_runs_for(task_ticket.id)
+                if any(r.phase_result == "success" for r in runs):
+                    phase_succeeded = True
+                    break
+            if not phase_succeeded:
+                return phase_idx
+        return len(workflow.phases)
 
     async def _write_phase_run_comment(self, task_id: str, phase, result) -> None:
         from jig.ticket import Comment

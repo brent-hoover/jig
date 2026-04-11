@@ -4,7 +4,7 @@ from jig.store.comments import CommentStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Comment, Ticket, TicketStatus, TicketType
 
-_WRITABLE_KINDS = {"comment", "decision"}
+_WRITABLE_KINDS = frozenset({"comment", "decision"})
 
 
 async def handle_create_ticket(
@@ -115,7 +115,7 @@ async def handle_comment_on_ticket(
     # The orchestrator and user pass sender_cfg=None to bypass.
     if sender_cfg is not None and ticket.assignee:
         target = ticket.assignee
-        allowed = set(sender_cfg.can_message) | {"orchestrator"}
+        allowed = set(sender_cfg.can_message) | {"orchestrator", sender_cfg.role}
         if target not in allowed:
             raise PermissionError(
                 f"role {sender_cfg.role!r} is not allowed to message "

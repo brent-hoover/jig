@@ -87,17 +87,17 @@ class TestAgentTypePersistence:
     def test_save_and_load(self, tmp_jig_project: Path):
         config = AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
         save_agent_type(tmp_jig_project, config)
         loaded = load_agent_type(tmp_jig_project, "dev")
         assert loaded.role == "dev"
-        assert loaded.system_prompt == "You are a dev agent."
+        assert loaded.phase_prompt == "You are a dev agent."
         assert loaded.allowed_tools == ["Read", "Edit"]
 
     def test_saves_to_correct_path(self, tmp_jig_project: Path):
-        config = AgentTypeConfig(role="test", system_prompt="Test agent.")
+        config = AgentTypeConfig(role="test", phase_prompt="Test agent.")
         save_agent_type(tmp_jig_project, config)
         yaml_path = tmp_jig_project / ".jig" / "agent_types" / "test.yaml"
         assert yaml_path.is_file()
@@ -107,8 +107,8 @@ class TestAgentTypePersistence:
         assert types == []
 
     def test_list_multiple(self, tmp_jig_project: Path):
-        save_agent_type(tmp_jig_project, AgentTypeConfig(role="dev", system_prompt="Dev."))
-        save_agent_type(tmp_jig_project, AgentTypeConfig(role="test", system_prompt="Test."))
+        save_agent_type(tmp_jig_project, AgentTypeConfig(role="dev", phase_prompt="Dev."))
+        save_agent_type(tmp_jig_project, AgentTypeConfig(role="test", phase_prompt="Test."))
         types = list_agent_types(tmp_jig_project)
         roles = {t.role for t in types}
         assert roles == {"dev", "test"}
@@ -128,11 +128,11 @@ class TestDefaultAgentTypes:
         roles = {t.role for t in types}
         assert roles == {"spec", "test", "dev", "review", "validate", "document"}
 
-    def test_each_has_system_prompt(self, tmp_jig_project: Path):
+    def test_each_has_phase_prompt(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)
         for name in ("spec", "test", "dev", "review", "validate", "document"):
             config = load_agent_type(tmp_jig_project, name)
-            assert len(config.system_prompt) > 0
+            assert len(config.phase_prompt) > 0
 
     def test_each_has_allowed_tools(self, tmp_jig_project: Path):
         save_default_agent_types(tmp_jig_project)

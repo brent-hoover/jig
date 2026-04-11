@@ -54,7 +54,7 @@ def git_project(tmp_path: Path) -> Path:
 
     # Add agent type
     save_agent_type(repo, AgentTypeConfig(
-        role="spec", system_prompt="Spec agent.", allowed_tools=["Read"],
+        role="spec", phase_prompt="Spec agent.", allowed_tools=["Read"],
     ))
 
     # Add single-phase workflow
@@ -188,7 +188,7 @@ def git_project_full_workflow(tmp_path: Path) -> Path:
 
     for role_name in ("spec", "test", "dev", "review", "validate", "document"):
         save_agent_type(repo, AgentTypeConfig(
-            role=role_name, system_prompt=f"{role_name} agent.", allowed_tools=["Read"],
+            role=role_name, phase_prompt=f"{role_name} agent.", allowed_tools=["Read"],
         ))
 
     save_workflow(repo, WorkflowConfig(

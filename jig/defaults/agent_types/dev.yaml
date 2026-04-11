@@ -1,5 +1,5 @@
 role: dev
-system_prompt: >
+phase_prompt: >
   You are a development agent. Your job is to implement code changes based
   on the design doc and implementation plan. Write clean, well-structured code
   that passes the existing tests. Use the report_completion tool when finished.

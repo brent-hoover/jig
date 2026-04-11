@@ -71,8 +71,10 @@ class Task(BaseModel):
 
 class AgentTypeConfig(BaseModel):
     role: str
-    system_prompt: str
+    phase_prompt: str
+    response_prompt: str = ""
     allowed_tools: list[str] = []
+    can_message: list[str] = []
     default_context: list[str] = []
 
 

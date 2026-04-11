@@ -143,17 +143,17 @@ class TestAgentTypeConfig:
     def test_defaults(self):
         config = AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
         )
         assert config.role == "dev"
-        assert config.system_prompt == "You are a dev agent."
+        assert config.phase_prompt == "You are a dev agent."
         assert config.allowed_tools == []
         assert config.default_context == []
 
     def test_full_config(self):
         config = AgentTypeConfig(
             role="test",
-            system_prompt="You are a test agent.",
+            phase_prompt="You are a test agent.",
             allowed_tools=["Read", "Bash", "Grep"],
             default_context=["issue://design", "**/*_test.py"],
         )
@@ -163,13 +163,33 @@ class TestAgentTypeConfig:
     def test_serialization_roundtrip(self):
         config = AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
         data = config.model_dump()
         restored = AgentTypeConfig.model_validate(data)
         assert restored.role == config.role
         assert restored.allowed_tools == config.allowed_tools
+
+
+def test_agent_type_new_fields() -> None:
+    cfg = AgentTypeConfig(
+        role="dev",
+        phase_prompt="You are a developer.",
+        response_prompt="You are answering a question.",
+        allowed_tools=["Read", "Edit"],
+        can_message=["spec-writer", "user"],
+    )
+    assert cfg.phase_prompt == "You are a developer."
+    assert cfg.response_prompt == "You are answering a question."
+    assert cfg.can_message == ["spec-writer", "user"]
+
+
+def test_agent_type_response_prompt_optional() -> None:
+    cfg = AgentTypeConfig(role="dev", phase_prompt="be a dev")
+    assert cfg.response_prompt == ""
+    assert cfg.can_message == []
+    assert cfg.default_context == []
 
 
 from jig.models import MessageDirection, AgentMessage

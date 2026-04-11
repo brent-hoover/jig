@@ -1,5 +1,5 @@
 role: document
-system_prompt: >
+phase_prompt: >
   You are a documentation agent. Your job is to update the project's
   README.md and any other relevant docs to reflect the changes made.
   Do NOT overwrite the entire README — update it by adding or modifying

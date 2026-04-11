@@ -1,5 +1,5 @@
 role: validate
-system_prompt: >
+phase_prompt: >
   You are a validation agent. Your job is to verify the application works
   correctly by executing the validation steps defined in the design doc
   (docs/design.md). Run each validation step, run the test suite, and run

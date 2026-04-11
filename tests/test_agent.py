@@ -19,7 +19,7 @@ class TestRunAgent:
     def agent_type(self) -> AgentTypeConfig:
         return AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
 
@@ -99,7 +99,7 @@ class TestRunAgentWithInstance:
     def agent_type(self) -> AgentTypeConfig:
         return AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
 
@@ -145,7 +145,7 @@ class TestRunAgentWithMemory:
     def agent_type(self) -> AgentTypeConfig:
         return AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
 
@@ -199,7 +199,7 @@ class TestRunAgentSessionResumption:
     def agent_type(self) -> AgentTypeConfig:
         return AgentTypeConfig(
             role="dev",
-            system_prompt="You are a dev agent.",
+            phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
 

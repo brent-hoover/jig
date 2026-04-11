@@ -11,10 +11,10 @@ class TestAgentPool:
     @pytest.fixture
     def pool(self, tmp_jig_project: Path) -> AgentPool:
         save_agent_type(tmp_jig_project, AgentTypeConfig(
-            role="dev", system_prompt="Dev agent.", allowed_tools=["Read", "Edit"],
+            role="dev", phase_prompt="Dev agent.", allowed_tools=["Read", "Edit"],
         ))
         save_agent_type(tmp_jig_project, AgentTypeConfig(
-            role="test", system_prompt="Test agent.", allowed_tools=["Read", "Bash"],
+            role="test", phase_prompt="Test agent.", allowed_tools=["Read", "Bash"],
         ))
         return AgentPool(tmp_jig_project)
 

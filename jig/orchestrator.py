@@ -74,7 +74,7 @@ class Orchestrator:
         except FileNotFoundError:
             save_agent_type(project_path, AgentTypeConfig(
                 role="orchestrator",
-                system_prompt="You are a workflow orchestrator. You decide how to recover from phase failures.",
+                phase_prompt="You are a workflow orchestrator. You decide how to recover from phase failures.",
                 allowed_tools=[],
             ))
 

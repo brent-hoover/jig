@@ -180,7 +180,7 @@ async def run_agent(
         cwd=str(worktree_path),
         allowed_tools=agent_type.allowed_tools,
         disallowed_tools=[],
-        system_prompt=agent_type.system_prompt,
+        system_prompt=agent_type.phase_prompt,
         mcp_servers={"jig": mcp_server},
         permission_mode="bypassPermissions",
         max_turns=max_turns,

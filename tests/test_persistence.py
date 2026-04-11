@@ -1,271 +1,126 @@
-import pytest
+"""Tests for jig.persistence — init_project, agent types, workflows."""
+
 from pathlib import Path
 
-from jig.models import ProjectConfig, Issue, IssueStatus
-from jig.persistence import init_project, load_project, save_issue, load_issue, list_issues
+import pytest
+
+from jig.models import AgentTypeConfig, PhaseConfig, WorkflowConfig
+from jig.persistence import (
+    init_project,
+    list_agent_types,
+    load_agent_type,
+    load_workflow,
+    save_agent_type,
+    save_default_agent_types,
+    save_default_workflow,
+    save_workflow,
+)
+
+
+@pytest.fixture
+def tmp_new_jig_project(tmp_path: Path) -> Path:
+    """A git repo with the new .jig/ layout already initialized."""
+    (tmp_path / ".git").mkdir()
+    jig_dir = tmp_path / ".jig"
+    jig_dir.mkdir()
+    for subdir in ("agent_types", "workflows", "worktrees", "store"):
+        (jig_dir / subdir).mkdir()
+    return tmp_path
 
 
 class TestInitProject:
-    def test_creates_jig_directory(self, tmp_project: Path):
+    def test_creates_jig_directory(self, tmp_project: Path) -> None:
         init_project(tmp_project)
         jig_dir = tmp_project / ".jig"
         assert jig_dir.is_dir()
-        assert (jig_dir / "config.yaml").is_file()
-        assert (jig_dir / "issues").is_dir()
         assert (jig_dir / "agent_types").is_dir()
         assert (jig_dir / "workflows").is_dir()
         assert (jig_dir / "worktrees").is_dir()
+        assert (jig_dir / "store").is_dir()
 
-    def test_writes_config(self, tmp_project: Path):
-        init_project(tmp_project, default_branch="develop")
-        config = load_project(tmp_project)
-        assert config.repo_path == str(tmp_project)
-        assert config.default_branch == "develop"
-
-    def test_default_branch(self, tmp_project: Path):
+    def test_does_not_create_legacy_dirs(self, tmp_project: Path) -> None:
         init_project(tmp_project)
-        config = load_project(tmp_project)
-        assert config.default_branch == "main"
+        jig_dir = tmp_project / ".jig"
+        assert not (jig_dir / "issues").exists()
+        assert not (jig_dir / "config.yaml").exists()
+        assert not (jig_dir / "agents").exists()
 
-    def test_raises_if_already_initialized(self, tmp_jig_project: Path):
+    def test_raises_if_already_initialized(self, tmp_new_jig_project: Path) -> None:
         with pytest.raises(FileExistsError):
-            init_project(tmp_jig_project)
+            init_project(tmp_new_jig_project)
 
-    def test_raises_if_not_git_repo(self, tmp_path: Path):
+    def test_raises_if_not_git_repo(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="not a git repository"):
             init_project(tmp_path)
 
 
-class TestIssuePersistence:
-    def test_save_and_load(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Add auth")
-        save_issue(tmp_jig_project, issue)
-        loaded = load_issue(tmp_jig_project, "issue-1")
-        assert loaded.id == "issue-1"
-        assert loaded.title == "Add auth"
-        assert loaded.status == IssueStatus.PENDING
-
-    def test_creates_issue_directory(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Add auth")
-        save_issue(tmp_jig_project, issue)
-        issue_dir = tmp_jig_project / ".jig" / "issues" / "issue-1"
-        assert issue_dir.is_dir()
-        assert (issue_dir / "issue.yaml").is_file()
-        assert (issue_dir / "tasks").is_dir()
-
-    def test_list_empty(self, tmp_jig_project: Path):
-        issues = list_issues(tmp_jig_project)
-        assert issues == []
-
-    def test_list_multiple(self, tmp_jig_project: Path):
-        save_issue(tmp_jig_project, Issue(id="a", title="First"))
-        save_issue(tmp_jig_project, Issue(id="b", title="Second"))
-        issues = list_issues(tmp_jig_project)
-        ids = {i.id for i in issues}
-        assert ids == {"a", "b"}
-
-    def test_update_existing(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Add auth")
-        save_issue(tmp_jig_project, issue)
-        issue.status = IssueStatus.IN_PROGRESS
-        issue.current_phase = "spec"
-        save_issue(tmp_jig_project, issue)
-        loaded = load_issue(tmp_jig_project, "issue-1")
-        assert loaded.status == IssueStatus.IN_PROGRESS
-        assert loaded.current_phase == "spec"
-
-    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
-        with pytest.raises(FileNotFoundError):
-            load_issue(tmp_jig_project, "nope")
-
-
-from jig.models import AgentTypeConfig
-from jig.persistence import save_agent_type, load_agent_type, list_agent_types
-
-
 class TestAgentTypePersistence:
-    def test_save_and_load(self, tmp_jig_project: Path):
+    def test_save_and_load(self, tmp_new_jig_project: Path) -> None:
         config = AgentTypeConfig(
             role="dev",
             phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
-        save_agent_type(tmp_jig_project, config)
-        loaded = load_agent_type(tmp_jig_project, "dev")
+        save_agent_type(tmp_new_jig_project, config)
+        loaded = load_agent_type(tmp_new_jig_project, "dev")
         assert loaded.role == "dev"
         assert loaded.phase_prompt == "You are a dev agent."
         assert loaded.allowed_tools == ["Read", "Edit"]
 
-    def test_saves_to_correct_path(self, tmp_jig_project: Path):
+    def test_saves_to_correct_path(self, tmp_new_jig_project: Path) -> None:
         config = AgentTypeConfig(role="test", phase_prompt="Test agent.")
-        save_agent_type(tmp_jig_project, config)
-        yaml_path = tmp_jig_project / ".jig" / "agent_types" / "test.yaml"
+        save_agent_type(tmp_new_jig_project, config)
+        yaml_path = tmp_new_jig_project / ".jig" / "agent_types" / "test.yaml"
         assert yaml_path.is_file()
 
-    def test_list_empty(self, tmp_jig_project: Path):
-        types = list_agent_types(tmp_jig_project)
+    def test_list_empty(self, tmp_new_jig_project: Path) -> None:
+        types = list_agent_types(tmp_new_jig_project)
         assert types == []
 
-    def test_list_multiple(self, tmp_jig_project: Path):
-        save_agent_type(tmp_jig_project, AgentTypeConfig(role="dev", phase_prompt="Dev."))
-        save_agent_type(tmp_jig_project, AgentTypeConfig(role="test", phase_prompt="Test."))
-        types = list_agent_types(tmp_jig_project)
+    def test_list_multiple(self, tmp_new_jig_project: Path) -> None:
+        save_agent_type(
+            tmp_new_jig_project, AgentTypeConfig(role="dev", phase_prompt="Dev.")
+        )
+        save_agent_type(
+            tmp_new_jig_project, AgentTypeConfig(role="test", phase_prompt="Test.")
+        )
+        types = list_agent_types(tmp_new_jig_project)
         roles = {t.role for t in types}
         assert roles == {"dev", "test"}
 
-    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
+    def test_load_nonexistent_raises(self, tmp_new_jig_project: Path) -> None:
         with pytest.raises(FileNotFoundError):
-            load_agent_type(tmp_jig_project, "nope")
-
-
-from jig.persistence import save_default_agent_types
+            load_agent_type(tmp_new_jig_project, "nope")
 
 
 class TestDefaultAgentTypes:
-    def test_creates_all_types(self, tmp_jig_project: Path):
-        save_default_agent_types(tmp_jig_project)
-        types = list_agent_types(tmp_jig_project)
+    def test_creates_all_types(self, tmp_new_jig_project: Path) -> None:
+        save_default_agent_types(tmp_new_jig_project)
+        types = list_agent_types(tmp_new_jig_project)
         roles = {t.role for t in types}
         assert roles == {"spec", "test", "dev", "review", "validate", "document"}
 
-    def test_each_has_phase_prompt(self, tmp_jig_project: Path):
-        save_default_agent_types(tmp_jig_project)
+    def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:
+        save_default_agent_types(tmp_new_jig_project)
         for name in ("spec", "test", "dev", "review", "validate", "document"):
-            config = load_agent_type(tmp_jig_project, name)
+            config = load_agent_type(tmp_new_jig_project, name)
             assert len(config.phase_prompt) > 0
 
-    def test_each_has_allowed_tools(self, tmp_jig_project: Path):
-        save_default_agent_types(tmp_jig_project)
+    def test_each_has_allowed_tools(self, tmp_new_jig_project: Path) -> None:
+        save_default_agent_types(tmp_new_jig_project)
         for name in ("spec", "test", "dev", "review", "validate", "document"):
-            config = load_agent_type(tmp_jig_project, name)
+            config = load_agent_type(tmp_new_jig_project, name)
             assert len(config.allowed_tools) > 0
 
-    def test_each_has_default_context(self, tmp_jig_project: Path):
-        save_default_agent_types(tmp_jig_project)
+    def test_each_has_default_context(self, tmp_new_jig_project: Path) -> None:
+        save_default_agent_types(tmp_new_jig_project)
         for name in ("spec", "test", "dev", "review"):
-            config = load_agent_type(tmp_jig_project, name)
+            config = load_agent_type(tmp_new_jig_project, name)
             assert len(config.default_context) > 0
 
 
-from jig.models import Task, CompletionState
-from jig.persistence import save_task, load_task
-
-
-class TestTaskPersistence:
-    def test_save_and_load(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-        task = Task(
-            id="task-1",
-            description="Implement feature",
-            acceptance_criteria="Tests pass",
-            agent_type="dev",
-        )
-        save_task(tmp_jig_project, "issue-1", task)
-        loaded = load_task(tmp_jig_project, "issue-1", "task-1")
-        assert loaded.id == "task-1"
-        assert loaded.description == "Implement feature"
-        assert loaded.agent_type == "dev"
-
-    def test_saves_to_correct_path(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-        task = Task(id="task-1", description="Do thing", acceptance_criteria="Done", agent_type="dev")
-        save_task(tmp_jig_project, "issue-1", task)
-        task_path = tmp_jig_project / ".jig" / "issues" / "issue-1" / "tasks" / "task-1.yaml"
-        assert task_path.is_file()
-
-    def test_update_with_completion(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-        task = Task(id="task-1", description="Do thing", acceptance_criteria="Done", agent_type="dev")
-        save_task(tmp_jig_project, "issue-1", task)
-        task.completion_state = CompletionState.SUCCESS
-        task.completion_reason = "All tests pass"
-        save_task(tmp_jig_project, "issue-1", task)
-        loaded = load_task(tmp_jig_project, "issue-1", "task-1")
-        assert loaded.completion_state == CompletionState.SUCCESS
-        assert loaded.completion_reason == "All tests pass"
-
-    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
-        issue = Issue(id="issue-1", title="Test")
-        save_issue(tmp_jig_project, issue)
-        with pytest.raises(FileNotFoundError):
-            load_task(tmp_jig_project, "issue-1", "nope")
-
-
-from jig.models import AgentInstance, AgentStatus
-from jig.persistence import save_agent_instance, load_agent_instance, list_agent_instances
-
-
-class TestAgentInstancePersistence:
-    def test_save_and_load(self, tmp_jig_project: Path):
-        instance = AgentInstance(id="dev-1", agent_type="dev")
-        save_agent_instance(tmp_jig_project, instance)
-        loaded = load_agent_instance(tmp_jig_project, "dev-1")
-        assert loaded.id == "dev-1"
-        assert loaded.agent_type == "dev"
-        assert loaded.status == AgentStatus.IDLE
-
-    def test_saves_to_correct_path(self, tmp_jig_project: Path):
-        instance = AgentInstance(id="dev-1", agent_type="dev")
-        save_agent_instance(tmp_jig_project, instance)
-        path = tmp_jig_project / ".jig" / "agents" / "dev-1.yaml"
-        assert path.is_file()
-
-    def test_update_status(self, tmp_jig_project: Path):
-        instance = AgentInstance(id="dev-1", agent_type="dev")
-        save_agent_instance(tmp_jig_project, instance)
-        instance.status = AgentStatus.ACTIVE
-        instance.session_id = "sess-123"
-        instance.current_task_id = "task-1"
-        save_agent_instance(tmp_jig_project, instance)
-        loaded = load_agent_instance(tmp_jig_project, "dev-1")
-        assert loaded.status == AgentStatus.ACTIVE
-        assert loaded.session_id == "sess-123"
-
-    def test_list_empty(self, tmp_jig_project: Path):
-        instances = list_agent_instances(tmp_jig_project)
-        assert instances == []
-
-    def test_list_multiple(self, tmp_jig_project: Path):
-        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-1", agent_type="dev"))
-        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-2", agent_type="dev"))
-        save_agent_instance(tmp_jig_project, AgentInstance(id="test-1", agent_type="test"))
-        instances = list_agent_instances(tmp_jig_project)
-        assert len(instances) == 3
-        ids = {i.id for i in instances}
-        assert ids == {"dev-1", "dev-2", "test-1"}
-
-    def test_list_by_type(self, tmp_jig_project: Path):
-        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-1", agent_type="dev"))
-        save_agent_instance(tmp_jig_project, AgentInstance(id="dev-2", agent_type="dev"))
-        save_agent_instance(tmp_jig_project, AgentInstance(id="test-1", agent_type="test"))
-        dev_instances = list_agent_instances(tmp_jig_project, agent_type="dev")
-        assert len(dev_instances) == 2
-        assert all(i.agent_type == "dev" for i in dev_instances)
-
-    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
-        with pytest.raises(FileNotFoundError):
-            load_agent_instance(tmp_jig_project, "nope")
-
-    def test_with_memory(self, tmp_jig_project: Path):
-        instance = AgentInstance(
-            id="dev-1",
-            agent_type="dev",
-            memory=["Use pytest fixtures", "Project uses FastAPI"],
-        )
-        save_agent_instance(tmp_jig_project, instance)
-        loaded = load_agent_instance(tmp_jig_project, "dev-1")
-        assert loaded.memory == ["Use pytest fixtures", "Project uses FastAPI"]
-
-
-from jig.models import PhaseConfig, WorkflowConfig
-from jig.persistence import save_workflow, load_workflow, save_default_workflow
-
-
 class TestWorkflowPersistence:
-    def test_save_and_load(self, tmp_jig_project: Path):
+    def test_save_and_load(self, tmp_new_jig_project: Path) -> None:
         workflow = WorkflowConfig(
             name="custom",
             phases=[
@@ -273,36 +128,36 @@ class TestWorkflowPersistence:
                 PhaseConfig(name="test", role="test"),
             ],
         )
-        save_workflow(tmp_jig_project, workflow)
-        loaded = load_workflow(tmp_jig_project, "custom")
+        save_workflow(tmp_new_jig_project, workflow)
+        loaded = load_workflow(tmp_new_jig_project, "custom")
         assert loaded.name == "custom"
         assert len(loaded.phases) == 2
 
-    def test_saves_to_correct_path(self, tmp_jig_project: Path):
+    def test_saves_to_correct_path(self, tmp_new_jig_project: Path) -> None:
         workflow = WorkflowConfig(
             name="custom",
             phases=[PhaseConfig(name="spec", role="spec")],
         )
-        save_workflow(tmp_jig_project, workflow)
-        path = tmp_jig_project / ".jig" / "workflows" / "custom.yaml"
+        save_workflow(tmp_new_jig_project, workflow)
+        path = tmp_new_jig_project / ".jig" / "workflows" / "custom.yaml"
         assert path.is_file()
 
-    def test_load_nonexistent_raises(self, tmp_jig_project: Path):
+    def test_load_nonexistent_raises(self, tmp_new_jig_project: Path) -> None:
         with pytest.raises(FileNotFoundError):
-            load_workflow(tmp_jig_project, "nope")
+            load_workflow(tmp_new_jig_project, "nope")
 
 
 class TestDefaultWorkflow:
-    def test_creates_default(self, tmp_jig_project: Path):
-        save_default_workflow(tmp_jig_project)
-        workflow = load_workflow(tmp_jig_project, "default")
+    def test_creates_default(self, tmp_new_jig_project: Path) -> None:
+        save_default_workflow(tmp_new_jig_project)
+        workflow = load_workflow(tmp_new_jig_project, "default")
         assert workflow.name == "default"
         phase_names = [p.name for p in workflow.phases]
         assert phase_names == ["spec", "test", "implement", "review", "validate", "document"]
 
-    def test_roles_correct(self, tmp_jig_project: Path):
-        save_default_workflow(tmp_jig_project)
-        workflow = load_workflow(tmp_jig_project, "default")
+    def test_roles_correct(self, tmp_new_jig_project: Path) -> None:
+        save_default_workflow(tmp_new_jig_project)
+        workflow = load_workflow(tmp_new_jig_project, "default")
         roles = {p.name: p.role for p in workflow.phases}
         assert roles == {
             "spec": "spec",

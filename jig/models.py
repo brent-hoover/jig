@@ -5,31 +5,11 @@ from enum import Enum
 from pydantic import BaseModel
 
 
-class ProjectConfig(BaseModel):
-    repo_path: str
-    default_branch: str = "main"
-
-
 class MergeStrategy(str, Enum):
     DIRECT = "direct"
     SQUASH = "squash"
     PR = "pr"
     FEATURE_BRANCH = "feature_branch"
-
-
-class ProjectContext(BaseModel):
-    name: str = ""
-    description: str = ""
-    language: str = ""
-    framework: str = ""
-    package_manager: str = ""
-    template_path: str = ""
-    setup_commands: list[str] = []
-    build_command: str = ""
-    test_command: str = ""
-    merge_strategy: MergeStrategy = MergeStrategy.SQUASH
-    docs: list[str] = []
-    notes: str = ""
 
 
 class AgentTypeConfig(BaseModel):

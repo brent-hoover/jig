@@ -1,14 +1,10 @@
-from enum import Enum
-
 from jig.models import AgentTypeConfig
 from jig.project import Project
+from jig.runtime import SpawnReason
 from jig.skill_loader import Skill
 from jig.ticket import Comment, Ticket
 
-
-class SpawnReason(str, Enum):
-    PHASE_PRIMARY = "phase_primary"
-    QA_RESPONDER = "qa_responder"
+__all__ = ["SpawnReason", "build_initial_prompt"]
 
 
 def _role_section(cfg: AgentTypeConfig, reason: SpawnReason) -> str:

@@ -16,6 +16,9 @@ class Project(BaseModel):
     test_command: str = ""
     build_command: str = ""
 
+    def path_or_default(self) -> Path:
+        return Path(self.path)
+
 
 def _project_file(project_path: Path) -> Path:
     return project_path / ".jig" / "project.json"

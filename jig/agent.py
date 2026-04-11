@@ -1,10 +1,22 @@
-"""Agent runner -- spawns Claude Code agents via the SDK."""
+"""Agent runner — spawns Claude Code agents via the SDK in streaming input mode."""
 
+import asyncio
+import logging
 import re
-from pathlib import Path
+from dataclasses import dataclass
 
 from claude_agent_sdk import query, ClaudeAgentOptions
-from claude_agent_sdk.types import AssistantMessage, ResultMessage, SystemMessage
+from claude_agent_sdk.types import ResultMessage
+
+from jig.environment import load_environment_md
+from jig.mcp_server import create_agent_mcp_server
+from jig.prompt_builder import build_initial_prompt
+from jig.runtime import AgentSpawnContext
+from jig.skill_loader import load_all_skills, match_skills
+from jig.store import Message
+from jig.ticket import TicketStatus
+
+_logger = logging.getLogger(__name__)
 
 # Matches ANSI CSI escape sequences (e.g. "\x1b[31m") and standalone ESC chars.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
@@ -13,11 +25,7 @@ _CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def _sanitize_for_tui(text: str, limit: int = 120) -> str:
-    """Make agent text safe for single-line rendering in the TUI.
-
-    Strips ANSI escapes, collapses whitespace (newlines, tabs) to single
-    spaces, removes other control characters, and truncates to ``limit``.
-    """
+    """Make agent text safe for single-line rendering in the TUI."""
     if not text:
         return ""
     text = _ANSI_RE.sub("", text)
@@ -27,20 +35,11 @@ def _sanitize_for_tui(text: str, limit: int = 120) -> str:
         text = text[: limit - 1] + "…"
     return text
 
-from jig.store import MessageBus
-from jig.events import EventEmitter, JigEvent
-from jig.models import AgentTypeConfig, AgentInstance, Issue, ProjectContext
-from jig.persistence import load_task
-
-
-from jig.mcp_server import create_agent_mcp_server
-
 
 def _tool_detail(tool_name: str, tool_input: dict) -> str:
     """Extract a short human-readable detail from a tool call."""
     if tool_name in ("Read", "Write", "Edit"):
         path = tool_input.get("file_path", "")
-        # Show just the filename or last 2 path components
         parts = path.rsplit("/", 2)
         short = "/".join(parts[-2:]) if len(parts) > 1 else path
         return _sanitize_for_tui(short, limit=80)
@@ -52,189 +51,143 @@ def _tool_detail(tool_name: str, tool_input: dict) -> str:
         return _sanitize_for_tui(tool_input.get("pattern", ""), limit=60)
     if tool_name == "Agent":
         return _sanitize_for_tui(tool_input.get("description", ""), limit=60)
-    # Generic: show first string value
     for v in tool_input.values():
         if isinstance(v, str) and v:
             return _sanitize_for_tui(v, limit=60)
     return ""
 
 
-def _build_project_section(ctx: ProjectContext) -> str:
-    """Build the project context section for agent prompts."""
-    if not ctx.name and not ctx.description:
-        return ""
-    lines = ["## Project Context\n"]
-    if ctx.name:
-        lines.append(f"- **Project**: {ctx.name}")
-    if ctx.description:
-        lines.append(f"- **Description**: {ctx.description}")
-    if ctx.language:
-        lines.append(f"- **Language**: {ctx.language}")
-    if ctx.framework:
-        lines.append(f"- **Framework**: {ctx.framework}")
-    if ctx.package_manager:
-        lines.append(f"- **Package manager**: {ctx.package_manager}")
-    if ctx.setup_commands:
-        lines.append(f"- **Setup commands**: `{'; '.join(ctx.setup_commands)}`")
-    if ctx.build_command:
-        lines.append(f"- **Build**: `{ctx.build_command}`")
-    if ctx.test_command:
-        lines.append(f"- **Test**: `{ctx.test_command}`")
-    if ctx.docs:
-        lines.append(f"- **Key docs**: {', '.join(ctx.docs)}")
-    if ctx.notes:
-        lines.append(f"\n{ctx.notes}")
-    lines.append(
-        f"\nIMPORTANT: Use the project's package manager ({ctx.package_manager or 'as appropriate'}) "
-        f"and setup commands when initializing or adding dependencies. "
-        f"Always create a .gitignore appropriate for {ctx.language or 'the project'} before committing."
-    )
-    return "\n".join(lines) + "\n\n"
+@dataclass
+class RunAgentResult:
+    status: str  # "success" | "failed" | "blocked" | "needs_info"
+    final_text: str
 
 
-def _build_issue_section(issue: Issue) -> str:
-    """Build the issue context section for agent prompts."""
-    lines = [f"## Issue: {issue.title}\n"]
-    if issue.description:
-        lines.append(issue.description)
-    return "\n".join(lines) + "\n\n"
+async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
+    """Run a Claude agent against a ticket in streaming input mode.
 
-
-async def run_agent(
-    project_path: Path,
-    issue_id: str,
-    task_id: str,
-    agent_type: AgentTypeConfig,
-    worktree_path: Path,
-    max_turns: int = 50,
-    emitter: EventEmitter | None = None,
-    issue: Issue | None = None,
-    project_context: ProjectContext | None = None,
-    agent_instance: AgentInstance | None = None,
-    bus: MessageBus | None = None,
-) -> str:
-    """Run a single agent on a task.
-
-    Spawns a Claude Code agent via the SDK, configured with:
-    - The agent type's system prompt and allowed tools
-    - A Jig MCP server with publish_message, report_completion, request_context
-    - The worktree as the working directory
-
-    ``bus`` is the shared :class:`MessageBus` instance. Callers (e.g.
-    :class:`Orchestrator`) should construct one bus per project run and
-    thread it through so that cross-agent publish/subscribe actually
-    reaches live subscribers. If ``bus`` is ``None`` a fresh one is
-    created and loaded for standalone (non-orchestrated) invocations.
-
-    Returns the agent's final result text.
+    Builds the initial prompt, subscribes to the ticket's bus topic, yields
+    incoming bus events addressed to this role (or broadcast) as user turns,
+    and terminates when the primary ticket reaches a terminal status
+    (resolved, blocked, needs_info).
     """
-    if bus is None:
-        bus = MessageBus(project_path / ".jig" / "store" / "messages.jsonl")
-        await bus.load()
-    task = load_task(project_path, issue_id, task_id)
-    agent_id = agent_instance.id if agent_instance else f"{agent_type.role}-{task_id}"
+    skills = match_skills(project=ctx.project, skills=load_all_skills())
+    env_md = load_environment_md(ctx.project.path_or_default())
+    memories = [
+        learning.content for learning in await ctx.memory.get_role_learnings(ctx.role)
+    ]
+    comments = (
+        await ctx.comments.for_ticket(ctx.parent.id) if ctx.parent else []
+    )
+
+    initial_prompt = build_initial_prompt(
+        role_cfg=ctx.role_cfg,
+        spawn_reason=ctx.spawn_reason,
+        ticket=ctx.ticket,
+        parent=ctx.parent,
+        comments=comments,
+        memories=memories,
+        project=ctx.project,
+        skills=skills,
+        environment_md=env_md,
+    )
 
     mcp_server = create_agent_mcp_server(
-        bus=bus,
-        project_path=project_path,
-        issue_id=issue_id,
-        task_id=task_id,
-        agent_id=agent_id,
-        worktree_path=worktree_path,
+        tickets=ctx.tickets,
+        comments=ctx.comments,
+        memory=ctx.memory,
+        bus=ctx.bus,
+        agent_role=ctx.role,
+        agent_cfg=ctx.role_cfg,
+        worktree_path=ctx.worktree_path,
     )
-
-    # Build prompt with project and issue context
-    prompt_parts = []
-
-    if project_context:
-        prompt_parts.append(_build_project_section(project_context))
-
-    if issue:
-        prompt_parts.append(_build_issue_section(issue))
-
-    # Inject agent memories if available
-    if agent_instance and agent_instance.memory:
-        memory_lines = "\n".join(f"- {m}" for m in agent_instance.memory)
-        prompt_parts.append(
-            f"## Your Memories (from previous sessions)\n\n{memory_lines}\n\n"
-        )
-
-    prompt_parts.append(
-        f"## Task\n\n{task.description}\n\n"
-        f"## Acceptance Criteria\n\n{task.acceptance_criteria}\n\n"
-        f"## Instructions\n\n"
-        f"You MUST only work within the current directory ({worktree_path}). "
-        f"Do NOT read, write, or access any files outside this directory. "
-        f"When you are done, call the "
-        f"report_completion tool with status 'success' and a brief reason. "
-        f"If you need more information, call report_completion with status "
-        f"'needs_info' and explain what you need. If you are blocked, call "
-        f"report_completion with status 'blocked' and explain the blocker."
-    )
-
-    prompt = "".join(prompt_parts)
-
-    resume_id = agent_instance.session_id if agent_instance else None
 
     options = ClaudeAgentOptions(
-        cwd=str(worktree_path),
-        allowed_tools=agent_type.allowed_tools,
+        cwd=str(ctx.worktree_path),
+        allowed_tools=ctx.role_cfg.allowed_tools,
         disallowed_tools=[],
-        system_prompt=agent_type.phase_prompt,
+        system_prompt=ctx.role_cfg.phase_prompt,
         mcp_servers={"jig": mcp_server},
         permission_mode="bypassPermissions",
-        max_turns=max_turns,
-        **({"resume": resume_id} if resume_id else {}),
     )
 
-    async def _emit(event_type: str, data: dict) -> None:
-        if emitter:
-            await emitter.emit(JigEvent(type=event_type, data=data))
+    bus_queue = await ctx.bus.subscribe_agent(
+        topic=f"tickets.{ctx.ticket.id}",
+        agent_id=f"{ctx.role}:{ctx.ticket.id}",
+    )
+    terminal_statuses = {
+        TicketStatus.RESOLVED,
+        TicketStatus.BLOCKED,
+        TicketStatus.NEEDS_INFO,
+    }
+    terminal_values = {status.value for status in terminal_statuses}
+    done = asyncio.Event()
 
-    await _emit("agent_started", {
-        "phase": task_id,
-        "agent": agent_type.role,
-    })
+    async def _prompt_stream():
+        yield initial_prompt
+        while not done.is_set():
+            try:
+                msg = await asyncio.wait_for(bus_queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                current = await ctx.tickets.get(ctx.ticket.id)
+                if current and current.status in terminal_statuses:
+                    done.set()
+                continue
+            if not _is_relevant(msg, ctx):
+                continue
+            yield _format_bus_event(msg)
+            payload = msg.payload or {}
+            if (
+                payload.get("kind") == "ticket_updated"
+                and payload.get("ticket_id") == ctx.ticket.id
+                and payload.get("status") in terminal_values
+            ):
+                done.set()
 
-    captured_session_id = None
-    result_text = ""
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if hasattr(block, "name"):
-                    # ToolUseBlock — extract a short summary from input
-                    tool_input = getattr(block, "input", {}) or {}
-                    detail = _tool_detail(block.name, tool_input)
-                    await _emit("agent_tool_use", {
-                        "phase": task_id,
-                        "tool": block.name,
-                        "detail": detail,
-                    })
-                elif hasattr(block, "text") and block.text:
-                    # TextBlock — send a sanitized single-line preview
-                    preview = _sanitize_for_tui(block.text, limit=120)
-                    if preview:
-                        await _emit("agent_text", {
-                            "phase": task_id,
-                            "text": preview,
-                        })
-        elif isinstance(message, SystemMessage) and getattr(message, "subtype", None) == "init":
-            captured_session_id = (message.data or {}).get("session_id")
-        elif isinstance(message, ResultMessage):
-            result_text = message.result or ""
-            await _emit("agent_result", {
-                "phase": task_id,
-                "num_turns": getattr(message, "num_turns", None),
-                "duration_ms": getattr(message, "duration_ms", None),
-                "cost_usd": getattr(message, "total_cost_usd", None),
-            })
-        else:
-            # Fallback for result-like messages (e.g. from mocks)
-            result = getattr(message, "result", None)
-            if isinstance(result, str):
-                result_text = result
+    final_text = ""
+    try:
+        async for message in query(prompt=_prompt_stream(), options=options):
+            if isinstance(message, ResultMessage):
+                final_text = message.result or ""
+            else:
+                # Fallback for mocked result-like messages
+                result = getattr(message, "result", None)
+                if isinstance(result, str):
+                    final_text = result
+    finally:
+        done.set()
 
-    if agent_instance and captured_session_id:
-        agent_instance.session_id = captured_session_id
+    current = await ctx.tickets.get(ctx.ticket.id)
+    status = "success"
+    if current is not None:
+        status = _status_to_result(current.status)
+    return RunAgentResult(status=status, final_text=final_text)
 
-    return result_text
+
+def _is_relevant(msg: Message, ctx: AgentSpawnContext) -> bool:
+    return msg.to in (ctx.role, "broadcast") and msg.sender != ctx.role
+
+
+def _format_bus_event(msg: Message) -> str:
+    payload = msg.payload or {}
+    kind = payload.get("kind", "event")
+    if kind == "comment_posted":
+        return (
+            f"[comment from {payload.get('author')} on ticket "
+            f"{payload.get('ticket_id')}]: {payload.get('content')}"
+        )
+    if kind == "ticket_created":
+        return f"[new ticket {payload.get('ticket_id')} assigned to you]"
+    return f"[{kind}] {payload}"
+
+
+def _status_to_result(status: TicketStatus) -> str:
+    if status == TicketStatus.RESOLVED:
+        return "success"
+    if status == TicketStatus.BLOCKED:
+        return "blocked"
+    if status == TicketStatus.NEEDS_INFO:
+        return "needs_info"
+    if status == TicketStatus.FAILED:
+        return "failed"
+    return "success"  # still in progress — treat as success for now

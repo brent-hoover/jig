@@ -72,3 +72,23 @@ async def test_reload_replays_log(tmp_path: Path) -> None:
     await store2.load()
     loaded = await store2.get(tid)
     assert loaded.status == TicketStatus.RESOLVED
+
+
+@pytest.mark.asyncio
+async def test_update_accepts_raw_datetime(tmp_path: Path) -> None:
+    """Regression test for TypedCollection.update serialization.
+
+    Previously, raw datetime values passed into update() would crash at
+    json.dumps in the underlying JsonlStore. This test confirms that
+    TicketStore.update (and by extension TypedCollection.update) now
+    serializes non-JSON-primitive values via pydantic before writing.
+    """
+    from datetime import datetime, timezone
+
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+    tid = await store.create(Ticket(type=TicketType.FEATURE, title="t", created_by="u"))
+    # Pass a raw datetime — must not raise.
+    when = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    updated = await store.update(tid, updated_at=when)
+    assert updated.updated_at == when

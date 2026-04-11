@@ -3,6 +3,7 @@ from typing import Any, Callable, Generic, TypeVar
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_core import to_jsonable_python
 
 from jig.store.collection import Collection
 
@@ -62,7 +63,8 @@ class TypedCollection(Generic[T]):
         return None if raw is None else self._to_model(raw)
 
     async def update(self, doc_id: str, changes: dict) -> bool:
-        return await self._collection.update(doc_id, changes)
+        serialized = {k: to_jsonable_python(v) for k, v in changes.items()}
+        return await self._collection.update(doc_id, serialized)
 
     async def delete(self, doc_id: str) -> bool:
         return await self._collection.delete(doc_id)

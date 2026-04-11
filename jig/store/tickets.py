@@ -25,7 +25,7 @@ class TicketStore:
         return await self._collection.get(ticket_id)
 
     async def update(self, ticket_id: str, **fields) -> Ticket:
-        fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+        fields.setdefault("updated_at", datetime.now(timezone.utc))
         await self._collection.update(ticket_id, fields)
         loaded = await self._collection.get(ticket_id)
         assert loaded is not None

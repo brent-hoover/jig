@@ -119,3 +119,24 @@ async def test_typed_collection_mode_json_handles_datetime(tmp_path):
     await col2.load()
     fetched = await col2.get(doc_id)
     assert fetched.when == now
+
+
+async def test_typed_collection_update_serializes_datetime(tmp_path):
+    """Regression test: update() must serialize non-JSON values like datetime.
+
+    Previously, raw datetime values passed into update() would crash at
+    json.dumps in the underlying JsonlStore. This test confirms that update()
+    serializes non-JSON-primitive values via pydantic_core.to_jsonable_python
+    before passing to the underlying collection.
+    """
+    col = TypedCollection(tmp_path / "items.jsonl", model=ItemWithTime)
+    await col.load()
+    doc_id = await col.insert(ItemWithTime(name="a", when=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+
+    # Pass a raw datetime to update — must not raise
+    new_when = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    await col.update(doc_id, {"when": new_when})
+
+    # Verify the value was persisted correctly
+    fetched = await col.get(doc_id)
+    assert fetched.when == new_when

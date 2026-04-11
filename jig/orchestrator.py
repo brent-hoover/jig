@@ -350,19 +350,43 @@ class Orchestrator:
     async def _spawn_qa_responder(
         self, ticket_id: str, role: str, initial_event
     ) -> None:
-        """Register a live subscriber for (ticket_id, role).
+        from jig.persistence import load_agent_type
+        from jig.runtime import AgentSpawnContext, SpawnReason
 
-        Task 5.4 replaces this stub with a real ``run_agent`` invocation.
-        For now we register a no-op task so the dispatch loop's
-        ``already-subscribed`` check functions.
-        """
-        async def _noop() -> None:
+        if (
+            self.tickets is None
+            or self.comments is None
+            or self.memory is None
+            or self.bus is None
+            or self._project is None
+        ):
+            raise RuntimeError("Orchestrator not started — call startup() first")
+
+        ticket = await self.tickets.get(ticket_id)
+        if ticket is None:
             return
+        parent = None
+        if ticket.parent_id:
+            parent = await self.tickets.get(ticket.parent_id)
+        role_cfg = load_agent_type(self._project_path, role)
+        worktree = await self._ensure_worktree(parent or ticket)
 
-        task = asyncio.create_task(_noop())
+        ctx = AgentSpawnContext(
+            role=role,
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.QA_RESPONDER,
+            ticket=ticket,
+            parent=parent,
+            worktree_path=worktree,
+            project=self._project,
+            tickets=self.tickets,
+            comments=self.comments,
+            memory=self.memory,
+            bus=self.bus,
+            initial_bus_message=initial_event.payload if initial_event else None,
+        )
+        task = asyncio.create_task(run_agent(ctx))
         self._live_subscribers[(ticket_id, role)] = task
-
-        def _cleanup(_task: asyncio.Task) -> None:
-            self._live_subscribers.pop((ticket_id, role), None)
-
-        task.add_done_callback(_cleanup)
+        task.add_done_callback(
+            lambda _: self._live_subscribers.pop((ticket_id, role), None)
+        )

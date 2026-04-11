@@ -7,6 +7,7 @@ from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.ticket import Ticket, TicketStatus, TicketType
 from jig.store.tickets import TicketStore
+from jig.store import Message, MessageType
 
 
 @pytest.mark.asyncio
@@ -213,5 +214,48 @@ async def test_dispatch_loop_skips_if_live_subscriber_present(tmp_path: Path) ->
         except asyncio.CancelledError:
             pass
         assert spawn_calls == []
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -> None:
+    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"))
+    (tmp_path / ".jig" / "agent_types").mkdir(parents=True)
+    from jig.persistence import save_agent_type
+    from jig.models import AgentTypeConfig
+    save_agent_type(tmp_path, AgentTypeConfig(role="qa", phase_prompt="be qa"))
+
+    orch = Orchestrator(project_path=tmp_path)
+    calls: list[str] = []
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+    async def fake_run_agent(ctx):
+        calls.append(ctx.role)
+        return RunAgentResult(status="success", final_text="ok")
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path
+    orch._ensure_worktree = fake_ensure  # type: ignore
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(Ticket(
+            type=TicketType.QUESTION, title="q", created_by="dev", assignee="qa",
+        ))
+        fake_msg = Message(
+            sender="dev", to="qa", type=MessageType.CONTEXT_UPDATE,
+            payload={"kind": "ticket_created", "ticket_id": tid},
+            topic=f"tickets.{tid}",
+        )
+        await orch._spawn_qa_responder(tid, "qa", fake_msg)
+        # Give it a moment
+        for _ in range(20):
+            await asyncio.sleep(0.05)
+            if calls:
+                break
+        assert calls == ["qa"]
     finally:
         await orch.shutdown()

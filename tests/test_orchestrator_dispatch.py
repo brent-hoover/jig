@@ -301,6 +301,31 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_emits_ticket_events_to_emitter(tmp_path: Path) -> None:
+    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))
+    from jig.events import EventEmitter
+    emitter = EventEmitter()
+    orch = Orchestrator(project_path=tmp_path, emitter=emitter)
+    await orch.startup()
+    try:
+        queue = emitter.subscribe()
+        await orch.tickets.create(Ticket(type=TicketType.FEATURE, title="f", created_by="user"))
+        await orch.bus.publish(Message(
+            sender="user", to="orchestrator", type=MessageType.CONTEXT_UPDATE,
+            payload={"kind": "ticket_created"},
+            topic="orchestrator",
+        ))
+        await asyncio.sleep(0.1)
+        events = []
+        while not queue.empty():
+            events.append(queue.get_nowait())
+        kinds = [e.type for e in events]
+        assert "ticket_created" in kinds
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -> None:
     save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"))
     (tmp_path / ".jig" / "agent_types").mkdir(parents=True)

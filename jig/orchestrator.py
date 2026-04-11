@@ -3,6 +3,10 @@
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jig.events import EventEmitter
 
 from jig.agent import run_agent
 from jig.project import Project, load_project
@@ -28,8 +32,9 @@ class Orchestrator:
     per-ticket loop, and QA responder spawning.
     """
 
-    def __init__(self, project_path: Path) -> None:
+    def __init__(self, project_path: Path, emitter: "EventEmitter | None" = None) -> None:
         self._project_path = project_path
+        self._emitter = emitter
         self._project: Project | None = None
         self.tickets: TicketStore | None = None
         self.comments: CommentStore | None = None
@@ -328,6 +333,13 @@ class Orchestrator:
                 msg = await asyncio.wait_for(queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
+            # Mirror to emitter for TUI consumption (before target filter so all messages reach it)
+            if self._emitter is not None:
+                from jig.events import JigEvent
+                payload = msg.payload or {}
+                kind = payload.get("kind", "event")
+                await self._emitter.emit(JigEvent(type=kind, data=payload))
+
             target = self._resolve_target(msg)
             if target is None:
                 continue

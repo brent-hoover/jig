@@ -1,8 +1,9 @@
 """Tests for jig CLI commands."""
 
+import json
 import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -22,8 +23,12 @@ def tmp_new_jig_project(tmp_path: Path) -> Path:
     (tmp_path / ".git").mkdir()
     jig_dir = tmp_path / ".jig"
     jig_dir.mkdir()
-    import json
-    project_data = {"id": tmp_path.name, "name": tmp_path.name, "path": str(tmp_path), "default_branch": "main"}
+    project_data = {
+        "id": tmp_path.name,
+        "name": tmp_path.name,
+        "path": str(tmp_path),
+        "default_branch": "main",
+    }
     (jig_dir / "project.json").write_text(json.dumps(project_data))
     (jig_dir / "agent_types").mkdir()
     (jig_dir / "workflows").mkdir()
@@ -58,7 +63,6 @@ class TestInit:
             cli, ["init", "--path", str(tmp_path), "--branch", "develop", "--no-input"]
         )
         assert result.exit_code == 0, result.output
-        import json
         data = json.loads((tmp_path / ".jig" / "project.json").read_text())
         assert data["default_branch"] == "develop"
 
@@ -126,8 +130,8 @@ class TestStart:
     @patch("jig.cli.Orchestrator")
     def test_starts_orchestrator(
         self,
-        MockOrchestrator: object,
-        MockWsServer: object,
+        MockOrchestrator: MagicMock,
+        MockWsServer: MagicMock,
         runner: CliRunner,
         tmp_new_jig_project: Path,
     ) -> None:
@@ -149,8 +153,10 @@ class TestStart:
         assert result.exit_code == 0, result.output
         MockOrchestrator.assert_called_once()
         call_kwargs = MockOrchestrator.call_args
-        assert call_kwargs.kwargs.get("project_path") == tmp_new_jig_project or \
-               call_kwargs.args[0] == tmp_new_jig_project
+        assert call_kwargs.kwargs.get("project_path") == tmp_new_jig_project
+        # finally-block guarantees shutdown + stop run even on KeyboardInterrupt
+        mock_orch.shutdown.assert_called_once()
+        mock_ws.stop.assert_called_once()
 
     def test_not_initialized(self, runner: CliRunner, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()  # git repo but no .jig/

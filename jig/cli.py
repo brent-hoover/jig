@@ -146,19 +146,17 @@ def start(path: Path, ws_port: int) -> None:
         try:
             await orchestrator.startup()
             click.echo("Orchestrator started. Press Ctrl-C to stop.")
-            # Run until cancelled
-            await asyncio.get_event_loop().create_future()
-        except KeyboardInterrupt:
-            pass
+            # Run until cancelled (Ctrl-C triggers CancelledError via asyncio.run).
+            await asyncio.get_running_loop().create_future()
         finally:
             await orchestrator.shutdown()
             await ws_server.stop()
 
     try:
         asyncio.run(run_daemon())
-        click.echo("Orchestrator stopped.")
     except KeyboardInterrupt:
-        click.echo("\nOrchestrator stopped.")
+        pass
+    click.echo("Orchestrator stopped.")
 
 
 @cli.command()
@@ -174,9 +172,11 @@ def validate(path: Path, ticket_id: str) -> None:
     if worktree_path.is_dir():
         try:
             asyncio.run(remove_worktree(path, ticket_id))
-            click.echo(f"  Removed worktree: {ticket_id}")
-        except RuntimeError:
-            click.echo(f"  Warning: could not remove worktree {ticket_id}")
+        except RuntimeError as e:
+            raise click.ClickException(
+                f"Could not remove worktree {ticket_id}: {e}"
+            )
+        click.echo(f"  Removed worktree: {ticket_id}")
 
     click.echo(f"Ticket {ticket_id} validated.")
 

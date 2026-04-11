@@ -7,8 +7,6 @@ import yaml
 from jig.models import (
     AgentTypeConfig,
     PhaseConfig,
-    ProjectConfig,
-    ProjectContext,
     WorkflowConfig,
 )
 
@@ -29,30 +27,6 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
     jig_dir.mkdir()
     for subdir in ("agent_types", "workflows", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
-
-
-def load_project(project_path: Path) -> ProjectConfig:
-    """Load project config from .jig/config.yaml."""
-    config_path = _jig_dir(project_path) / "config.yaml"
-    data = yaml.safe_load(config_path.read_text())
-    return ProjectConfig.model_validate(data)
-
-
-def save_project_context(project_path: Path, context: ProjectContext) -> None:
-    """Save project context to .jig/project_context.yaml."""
-    context_path = _jig_dir(project_path) / "project_context.yaml"
-    context_path.write_text(
-        yaml.dump(context.model_dump(mode="json"), default_flow_style=False)
-    )
-
-
-def load_project_context(project_path: Path) -> ProjectContext:
-    """Load project context from .jig/project_context.yaml."""
-    context_path = _jig_dir(project_path) / "project_context.yaml"
-    if not context_path.exists():
-        return ProjectContext()
-    data = yaml.safe_load(context_path.read_text())
-    return ProjectContext.model_validate(data or {})
 
 
 def save_agent_type(project_path: Path, config: AgentTypeConfig) -> None:
@@ -125,19 +99,14 @@ def save_default_workflow(project_path: Path) -> None:
 __all__ = [
     "AgentTypeConfig",
     "PhaseConfig",
-    "ProjectConfig",
-    "ProjectContext",
     "WorkflowConfig",
     "_jig_dir",
     "init_project",
     "list_agent_types",
     "load_agent_type",
-    "load_project",
-    "load_project_context",
     "load_workflow",
     "save_agent_type",
     "save_default_agent_types",
     "save_default_workflow",
-    "save_project_context",
     "save_workflow",
 ]

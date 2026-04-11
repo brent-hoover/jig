@@ -5,13 +5,10 @@ from pathlib import Path
 import yaml
 
 from jig.models import (
-    AgentInstance,
     AgentTypeConfig,
-    Issue,
     PhaseConfig,
     ProjectConfig,
     ProjectContext,
-    Task,
     WorkflowConfig,
 )
 
@@ -66,37 +63,6 @@ def load_project_context(project_path: Path) -> ProjectContext:
     return ProjectContext.model_validate(data or {})
 
 
-def save_issue(project_path: Path, issue: Issue) -> None:
-    """Save an issue to .jig/issues/<id>/issue.yaml."""
-    issue_dir = _jig_dir(project_path) / "issues" / issue.id
-    issue_dir.mkdir(parents=True, exist_ok=True)
-    (issue_dir / "tasks").mkdir(exist_ok=True)
-    (issue_dir / "issue.yaml").write_text(
-        yaml.dump(issue.model_dump(mode="json"), default_flow_style=False)
-    )
-
-
-def load_issue(project_path: Path, issue_id: str) -> Issue:
-    """Load an issue from .jig/issues/<id>/issue.yaml."""
-    issue_path = _jig_dir(project_path) / "issues" / issue_id / "issue.yaml"
-    if not issue_path.is_file():
-        raise FileNotFoundError(f"Issue {issue_id} not found")
-    data = yaml.safe_load(issue_path.read_text())
-    return Issue.model_validate(data)
-
-
-def list_issues(project_path: Path) -> list[Issue]:
-    """List all issues in .jig/issues/."""
-    issues_dir = _jig_dir(project_path) / "issues"
-    issues = []
-    for issue_dir in sorted(issues_dir.iterdir()):
-        issue_file = issue_dir / "issue.yaml"
-        if issue_file.is_file():
-            data = yaml.safe_load(issue_file.read_text())
-            issues.append(Issue.model_validate(data))
-    return issues
-
-
 def save_agent_type(project_path: Path, config: AgentTypeConfig) -> None:
     """Save an agent type config to .jig/agent_types/<role>.yaml."""
     type_path = _jig_dir(project_path) / "agent_types" / f"{config.role}.yaml"
@@ -138,14 +104,6 @@ def save_default_agent_types(project_path: Path) -> None:
         save_agent_type(project_path, config)
 
 
-def load_skill(name: str) -> str:
-    """Load a skill markdown file by name from the built-in skills library."""
-    skill_path = _defaults_dir() / "skills" / f"{name}.md"
-    if not skill_path.is_file():
-        return ""
-    return skill_path.read_text()
-
-
 def save_workflow(project_path: Path, workflow: WorkflowConfig) -> None:
     """Save a workflow config to .jig/workflows/<name>.yaml."""
     wf_path = _jig_dir(project_path) / "workflows" / f"{workflow.name}.yaml"
@@ -172,55 +130,22 @@ def save_default_workflow(project_path: Path) -> None:
         save_workflow(project_path, workflow)
 
 
-def save_task(project_path: Path, issue_id: str, task: Task) -> None:
-    """Save a task to .jig/issues/<issue_id>/tasks/<task_id>.yaml."""
-    tasks_dir = _jig_dir(project_path) / "issues" / issue_id / "tasks"
-    tasks_dir.mkdir(exist_ok=True)
-    task_path = tasks_dir / f"{task.id}.yaml"
-    task_path.write_text(
-        yaml.dump(task.model_dump(mode="json"), default_flow_style=False)
-    )
-
-
-def load_task(project_path: Path, issue_id: str, task_id: str) -> Task:
-    """Load a task from .jig/issues/<issue_id>/tasks/<task_id>.yaml."""
-    task_path = _jig_dir(project_path) / "issues" / issue_id / "tasks" / f"{task_id}.yaml"
-    if not task_path.is_file():
-        raise FileNotFoundError(f"Task {task_id} not found in issue {issue_id}")
-    data = yaml.safe_load(task_path.read_text())
-    return Task.model_validate(data)
-
-
-def save_agent_instance(project_path: Path, instance: AgentInstance) -> None:
-    """Save an agent instance to .jig/agents/<id>.yaml."""
-    agents_dir = _jig_dir(project_path) / "agents"
-    agents_dir.mkdir(exist_ok=True)
-    instance_path = agents_dir / f"{instance.id}.yaml"
-    instance_path.write_text(
-        yaml.dump(instance.model_dump(mode="json"), default_flow_style=False)
-    )
-
-
-def load_agent_instance(project_path: Path, instance_id: str) -> AgentInstance:
-    """Load an agent instance from .jig/agents/<id>.yaml."""
-    instance_path = _jig_dir(project_path) / "agents" / f"{instance_id}.yaml"
-    if not instance_path.is_file():
-        raise FileNotFoundError(f"Agent instance '{instance_id}' not found")
-    data = yaml.safe_load(instance_path.read_text())
-    return AgentInstance.model_validate(data)
-
-
-def list_agent_instances(
-    project_path: Path, agent_type: str | None = None
-) -> list[AgentInstance]:
-    """List agent instances, optionally filtered by type."""
-    agents_dir = _jig_dir(project_path) / "agents"
-    if not agents_dir.is_dir():
-        return []
-    instances = []
-    for yaml_file in sorted(agents_dir.glob("*.yaml")):
-        data = yaml.safe_load(yaml_file.read_text())
-        instance = AgentInstance.model_validate(data)
-        if agent_type is None or instance.agent_type == agent_type:
-            instances.append(instance)
-    return instances
+__all__ = [
+    "AgentTypeConfig",
+    "PhaseConfig",
+    "ProjectConfig",
+    "ProjectContext",
+    "WorkflowConfig",
+    "_jig_dir",
+    "init_project",
+    "list_agent_types",
+    "load_agent_type",
+    "load_project",
+    "load_project_context",
+    "load_workflow",
+    "save_agent_type",
+    "save_default_agent_types",
+    "save_default_workflow",
+    "save_project_context",
+    "save_workflow",
+]

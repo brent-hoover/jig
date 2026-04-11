@@ -11,6 +11,7 @@ Jig is an agent harness that orchestrates multiple Claude Code agents across a c
 - Agents spawned via `claude_code_sdk` as async tasks
 - TUI connects to core via WebSocket for real-time updates
 - Gridland renders in terminal and browser (future web dashboard)
+- Project runs in a Docker container and uses Bubblewrap for each Agent space
 
 ## Projects
 
@@ -26,7 +27,6 @@ Jig is an agent harness that orchestrates multiple Claude Code agents across a c
 ## Orchestrator
 1. Is a standalone agent that coordinates all the other agents using Opus or equivalent power
 2. Handle routing issues from agent to agent
-3. Handles all git operations
 
 
 ## Agents
@@ -42,12 +42,11 @@ Jig is an agent harness that orchestrates multiple Claude Code agents across a c
 1. Workflow defined as a DAG of phases (v1: linear spec -> test -> implement -> review)
 2. Each phase declares agent type, entry/exit criteria
 3. Hybrid orchestrator: deterministic phase transitions with discretion within phases
-4. Orchestrator is Python code (not a Claude agent) — handles workflow logic, agent lifecycle, git ops
-5. Orchestrator handles all git operations — agents have no git access
-6. Agents communicate via structured message passing over a file-backed message bus
-7. Message bus exposed as a local MCP server per agent session
-8. Task schema: id, description, acceptance_criteria, agent_type, input_context
-9. Completion state schema: success, needs_info, blocked, failed — each with reason
+4. Orchestrator handles all git operations — agents have no git access
+5. Agents communicate via structured message passing over a file-backed message bus
+6. Message bus exposed as a local MCP server per agent session
+7. Task schema: id, description, acceptance_criteria, agent_type, input_context
+8. Completion state schema: success, needs_info, blocked, failed — each with reason
 
 ## Message Bus
 
@@ -60,17 +59,17 @@ Jig is an agent harness that orchestrates multiple Claude Code agents across a c
 
 ## Workspace & Git
 
-1. One git worktree per active agent, created by orchestrator
+1. One git worktree per active issue
 2. Agents work in isolated worktrees — no access to each other's workspaces
-3. Sequential commits per phase form clean history
+3. Sequential commits per phase form a clean history
 4. Worktrees cleaned up on validation (not on completion)
-5. On workflow completion: merge to target branch or open PR (configurable)
+5. On workflow completion: merge to the target branch or open PR (configurable)
 
 ## Security
 
 1. Must run in Docker, with optional docker-compose for dependencies
 2. Each agent runs in a bubblewrap container for isolation from other agents
-3. Bubblewrap restricts filesystem to agent's worktree only
+3. Bubblewrap restricts the filesystem to the agent's worktree only
 4. No git access for agents — orchestrator only
 5. Tool access restricted per agent type
 
@@ -78,20 +77,12 @@ Jig is an agent harness that orchestrates multiple Claude Code agents across a c
 
 1. Gridland TUI (TypeScript/Bun) connects via WebSocket for real-time updates
 2. Displays: workflow phase, active agent, streaming output, message log, user input prompts
-3. Compiles to standalone binary via `bun build --compile`
+3. Compiles to a standalone binary via `bun build --compile`
 4. CLI commands: jig init, jig start, jig status, jig stop, jig validate
 
 ## State Persistence
 
-1. All state lives under `.jig/` in the project root (file-based, no database)
+1. The store directory in this project is the "jig-store" project. It is a file-based database, designed specifically for Jig
 2. Crash recovery: replay JSONL message log, resume from last completed phase
 3. In-memory state (queues, process handles) reconstructed from files on restart
 
-## v1 Constraints
-
-- Single issue at a time, single project
-- Linear workflow only (no parallel agents)
-- File-based persistence
-- Minimal TUI
-- Simple agent types
-- No web dashboard

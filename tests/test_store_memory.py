@@ -144,3 +144,35 @@ async def test_context_block_empty_returns_empty_string(tmp_path):
     await mem.load()
     block = await mem.get_context_block("JIG-1", "test")
     assert block == ""
+
+
+async def test_add_and_get_role_learning(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_role_learning(role="dev", content="always uv run pytest")
+    await mem.add_role_learning(role="dev", content="use pathlib not os.path")
+    await mem.add_role_learning(role="qa", content="run full suite before signoff")
+
+    dev_memories = await mem.get_role_learnings("dev")
+    assert [m.content for m in dev_memories] == [
+        "always uv run pytest",
+        "use pathlib not os.path",
+    ]
+    qa_memories = await mem.get_role_learnings("qa")
+    assert [m.content for m in qa_memories] == ["run full suite before signoff"]
+
+
+async def test_role_learnings_empty_when_none(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    assert await mem.get_role_learnings("dev") == []
+
+
+async def test_role_learnings_persist_across_reload(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_role_learning(role="dev", content="x")
+
+    mem2 = MemoryStore(tmp_path)
+    await mem2.load()
+    assert [m.content for m in await mem2.get_role_learnings("dev")] == ["x"]

@@ -1,8 +1,11 @@
+from pathlib import Path
+
 from jig.models import AgentTypeConfig
 from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.worktree import commit_worktree
 
 _WRITABLE_KINDS = frozenset({"comment", "decision"})
 
@@ -189,3 +192,44 @@ async def handle_update_ticket(
         topic=f"tickets.{ticket_id}",
     ))
     return updated
+
+
+async def handle_commit_progress(
+    *,
+    tickets: TicketStore,
+    comments: CommentStore,
+    bus: MessageBus,
+    sender: str,
+    worktree_path: Path,
+    args: dict,
+) -> dict:
+    ticket_id = args["ticket_id"]
+    message = args["message"]
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    sha = await commit_worktree(worktree_path, message)
+    if sha is None:
+        return {"sha": None, "comment_id": None}
+
+    cid = await comments.post(Comment(
+        ticket_id=ticket_id,
+        author=sender,
+        content=message,
+        kind="commit",
+        commit_sha=sha,
+    ))
+
+    await bus.publish(Message(
+        sender=sender,
+        to="broadcast",
+        type=MessageType.CONTEXT_UPDATE,
+        payload={
+            "kind": "commit_recorded",
+            "ticket_id": ticket_id,
+            "sha": sha,
+            "message": message,
+        },
+        topic=f"tickets.{ticket_id}",
+    ))
+    return {"sha": sha, "comment_id": cid}

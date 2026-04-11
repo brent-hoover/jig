@@ -215,3 +215,59 @@ async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
         args={"ticket_id": tid, "content": "question for orchestrator"},
     )
     assert cid
+
+
+@pytest.mark.asyncio
+async def test_commit_progress_creates_commit_and_comment(stores, tmp_path) -> None:
+    import subprocess
+    tickets, comments, bus = stores
+
+    work = tmp_path / "worktree"
+    work.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
+    (work / "a.txt").write_text("hello")
+
+    tid = await handle_create_ticket(
+        tickets=tickets, comments=comments, bus=bus, sender="u",
+        args={"type": "feature", "title": "f"},
+    )
+    from jig.ticket_mcp import handle_commit_progress
+    result = await handle_commit_progress(
+        tickets=tickets, comments=comments, bus=bus,
+        sender="dev",
+        worktree_path=work,
+        args={"ticket_id": tid, "message": "add a.txt"},
+    )
+    assert "sha" in result
+    assert result["sha"]
+    commit_comments = await comments.commits_for(tid)
+    assert len(commit_comments) == 1
+    assert commit_comments[0].commit_sha == result["sha"]
+    assert commit_comments[0].content == "add a.txt"
+
+
+@pytest.mark.asyncio
+async def test_commit_progress_nothing_to_commit_returns_none_sha(stores, tmp_path) -> None:
+    import subprocess
+    tickets, comments, bus = stores
+    work = tmp_path / "worktree2"
+    work.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=work, check=True)
+
+    tid = await handle_create_ticket(
+        tickets=tickets, comments=comments, bus=bus, sender="u",
+        args={"type": "feature", "title": "f"},
+    )
+    from jig.ticket_mcp import handle_commit_progress
+    result = await handle_commit_progress(
+        tickets=tickets, comments=comments, bus=bus,
+        sender="dev", worktree_path=work,
+        args={"ticket_id": tid, "message": "noop"},
+    )
+    assert result["sha"] is None
+    assert await comments.commits_for(tid) == []

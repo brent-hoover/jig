@@ -1,4 +1,5 @@
 """Unit tests for run_agent under streaming input mode."""
+import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,19 @@ from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketType
+
+
+async def _wait_for_subscription(bus, topic: str, timeout: float = 2.0) -> None:
+    """Poll the bus's internal subscriber list until the topic has at least one
+    queue registered.  Touching a private attribute is intentional here — this
+    is test-only synchronisation that needs to observe internal state before
+    publishing, to avoid a race where the publish precedes the subscribe."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        if bus._subscribers.get(topic):
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError(f"no subscriber for {topic} within {timeout}s")
 
 
 async def _make_context(tmp_path: Path) -> AgentSpawnContext:
@@ -84,8 +98,6 @@ async def test_run_agent_builds_initial_prompt(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_agent_yields_incoming_bus_events(tmp_path: Path) -> None:
-    import asyncio
-
     ctx = await _make_context(tmp_path)
     seen_turns: list[str] = []
 
@@ -97,7 +109,7 @@ async def test_run_agent_yields_incoming_bus_events(tmp_path: Path) -> None:
                 return
 
     async def publish_delayed():
-        await asyncio.sleep(0.05)
+        await _wait_for_subscription(ctx.bus, f"tickets.{ctx.ticket.id}")
         from jig.store import Message, MessageType
         await ctx.bus.publish(Message(
             sender="qa",

@@ -70,6 +70,11 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
     incoming bus events addressed to this role (or broadcast) as user turns,
     and terminates when the primary ticket reaches a terminal status
     (resolved, blocked, needs_info).
+
+    Shutdown is cooperative: the function returns only when either the SDK
+    emits a ResultMessage or a terminal status update arrives on the bus (via
+    a ticket_updated payload or by the timeout-poll noticing a terminal status
+    on the ticket record).
     """
     skills = match_skills(project=ctx.project, skills=load_all_skills())
     env_md = load_environment_md(ctx.project.path_or_default())
@@ -111,8 +116,9 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
         permission_mode="bypassPermissions",
     )
 
+    topic = f"tickets.{ctx.ticket.id}"
     bus_queue = await ctx.bus.subscribe_agent(
-        topic=f"tickets.{ctx.ticket.id}",
+        topic=topic,
         agent_id=f"{ctx.role}:{ctx.ticket.id}",
     )
     terminal_statuses = {
@@ -156,6 +162,14 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
                     final_text = result
     finally:
         done.set()
+        # Remove the queue from the topic fan-out list to prevent a slow leak
+        # in the orchestrator's per-ticket lifecycle.
+        # NOTE: _agent_subscriptions in bus.py still retains the key; cleaning
+        # that up is a known limitation to address in bus.py cleanup.
+        try:
+            await ctx.bus.unsubscribe(topic, bus_queue)
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("Failed to unsubscribe bus queue for %s: %s", topic, exc)
 
     current = await ctx.tickets.get(ctx.ticket.id)
     status = "success"

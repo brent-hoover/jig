@@ -434,16 +434,14 @@ def validate(path: Path, issue_id: str) -> None:
     except FileNotFoundError:
         raise click.ClickException(f"Issue '{issue_id}' not found.")
 
-    # Clean up worktrees for this issue
-    worktrees_dir = jig_dir / "worktrees" / issue_id
-    if worktrees_dir.is_dir():
-        for phase_dir in worktrees_dir.iterdir():
-            if phase_dir.is_dir():
-                try:
-                    asyncio.run(remove_worktree(path, issue_id, phase_dir.name))
-                    click.echo(f"  Removed worktree: {phase_dir.name}")
-                except RuntimeError:
-                    click.echo(f"  Warning: could not remove worktree {phase_dir.name}")
+    # Clean up worktree for this issue
+    worktree_path = jig_dir / "worktrees" / issue_id
+    if worktree_path.is_dir():
+        try:
+            asyncio.run(remove_worktree(path, issue_id))
+            click.echo(f"  Removed worktree: {issue_id}")
+        except RuntimeError:
+            click.echo(f"  Warning: could not remove worktree {issue_id}")
 
     click.echo(f"Issue {issue_id} validated.")
 

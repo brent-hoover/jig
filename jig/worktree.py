@@ -22,16 +22,15 @@ async def _run_git(cwd: Path, *args: str) -> str:
 
 async def create_worktree(
     project_path: Path,
-    issue_id: str,
-    phase: str,
+    ticket_id: str,
     base_branch: str,
 ) -> Path:
-    """Create a git worktree for an agent.
+    """Create a git worktree for a ticket.
 
     Returns the path to the worktree directory.
     """
-    worktree_path = project_path / ".jig" / "worktrees" / issue_id / phase
-    branch_name = f"jig/{issue_id}/{phase}"
+    worktree_path = project_path / ".jig" / "worktrees" / ticket_id
+    branch_name = f"jig/{ticket_id}"
 
     # Ensure at least one commit exists (worktrees require a valid ref)
     try:
@@ -73,14 +72,10 @@ async def commit_worktree(worktree_path: Path, message: str) -> str | None:
     return sha
 
 
-async def remove_worktree(
-    project_path: Path,
-    issue_id: str,
-    phase: str,
-) -> None:
+async def remove_worktree(project_path: Path, ticket_id: str) -> None:
     """Remove a git worktree and its branch."""
-    worktree_path = project_path / ".jig" / "worktrees" / issue_id / phase
-    branch_name = f"jig/{issue_id}/{phase}"
+    worktree_path = project_path / ".jig" / "worktrees" / ticket_id
+    branch_name = f"jig/{ticket_id}"
     await _run_git(project_path, "worktree", "remove", str(worktree_path), "--force")
     try:
         await _run_git(project_path, "branch", "-D", branch_name)
@@ -102,21 +97,20 @@ async def _run_cmd(cwd: Path, *args: str) -> str:
     return stdout.decode().strip()
 
 
-async def merge_issue(
+async def merge_ticket(
     project_path: Path,
-    issue_id: str,
-    final_phase: str,
+    ticket_id: str,
     base_branch: str,
     strategy: MergeStrategy,
 ) -> str:
-    """Merge the final phase branch into the base branch.
+    """Merge the ticket branch into the base branch.
 
     Returns a short description of what was done.
     """
-    source_branch = f"jig/{issue_id}/{final_phase}"
+    source_branch = f"jig/{ticket_id}"
 
     if strategy == MergeStrategy.FEATURE_BRANCH:
-        feature_branch = f"feature/{issue_id}"
+        feature_branch = f"feature/{ticket_id}"
         try:
             await _run_git(project_path, "branch", "-D", feature_branch)
         except RuntimeError:
@@ -125,7 +119,7 @@ async def merge_issue(
         return f"Created feature branch: {feature_branch}"
 
     if strategy == MergeStrategy.PR:
-        feature_branch = f"feature/{issue_id}"
+        feature_branch = f"feature/{ticket_id}"
         try:
             await _run_git(project_path, "branch", "-D", feature_branch)
         except RuntimeError:
@@ -138,8 +132,8 @@ async def merge_issue(
                 "gh", "pr", "create",
                 "--base", base_branch,
                 "--head", feature_branch,
-                "--title", f"jig: {issue_id}",
-                "--body", f"Automated PR for issue {issue_id}",
+                "--title", f"jig: {ticket_id}",
+                "--body", f"Automated PR for ticket {ticket_id}",
             )
             return f"Created PR: {stdout}"
         except (RuntimeError, FileNotFoundError) as e:
@@ -150,9 +144,9 @@ async def merge_issue(
 
     if strategy == MergeStrategy.SQUASH:
         await _run_git(project_path, "merge", "--squash", source_branch)
-        await _run_git(project_path, "commit", "-m", f"feat: {issue_id}")
+        await _run_git(project_path, "commit", "-m", f"feat: {ticket_id}")
         return f"Squash-merged {source_branch} into {base_branch}"
     else:
         # MergeStrategy.DIRECT
-        await _run_git(project_path, "merge", source_branch, "-m", f"Merge {issue_id}")
+        await _run_git(project_path, "merge", source_branch, "-m", f"Merge {ticket_id}")
         return f"Merged {source_branch} into {base_branch}"

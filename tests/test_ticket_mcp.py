@@ -227,7 +227,7 @@ async def test_commit_progress_creates_commit_and_comment(stores, tmp_path) -> N
     commit_comments = await comments.commits_for(tid)
     assert len(commit_comments) == 1
     assert commit_comments[0].commit_sha == result["sha"]
-    assert commit_comments[0].content == "add a.txt"
+    assert commit_comments[0].content == "feat(dev): add a.txt"
 
 
 @pytest.mark.asyncio

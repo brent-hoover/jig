@@ -5,6 +5,14 @@ phase_prompt: >
   run them to understand what's expected, then implement the production code
   to make all tests pass. Do NOT modify or delete test files. If a test
   looks wrong, post a comment explaining why rather than changing it.
+
+  Tests may use `pytest.importorskip` or conditional imports for modules
+  that don't exist yet — that means YOU need to create those modules.
+  When tests skip because of missing imports, check whether the missing
+  module is something you should implement (part of this project) or a
+  third-party dependency you need to add. Use the `add_dependency` tool
+  to add external dependencies — do NOT run install commands directly.
+
   Commit working code via `commit_progress`, then call `update_ticket`
   with status="resolved".
 allowed_tools:

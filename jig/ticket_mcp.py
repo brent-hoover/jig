@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from pathlib import Path
 
 from jig.models import AgentTypeConfig
@@ -6,7 +8,9 @@ from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Comment, Ticket, TicketStatus, TicketType
-from jig.worktree import commit_worktree
+from jig.worktree import LintError, commit_worktree
+
+_logger = logging.getLogger(__name__)
 
 _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 
@@ -371,18 +375,37 @@ async def handle_commit_progress(
     args: dict,
 ) -> dict:
     ticket_id = args["ticket_id"]
-    message = args["message"]
-    if await tickets.get(ticket_id) is None:
+    agent_message = args["message"]
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    sha = await commit_worktree(worktree_path, message)
+    # Build a conventional commit: feat(role): agent's description
+    # Fall back to ticket title if the agent just passed the ticket ID or empty text.
+    subject = agent_message.strip()
+    if not subject or subject == ticket_id:
+        subject = ticket.title
+    # Truncate subject to conventional commit length
+    if len(subject) > 72:
+        subject = subject[:69] + "..."
+    commit_message = f"feat({sender}): {subject}"
+
+    try:
+        sha = await commit_worktree(worktree_path, commit_message)
+    except LintError as exc:
+        return {
+            "success": False,
+            "error": "lint_errors",
+            "message": "Fix these lint errors before committing:",
+            "errors": exc.errors,
+        }
     if sha is None:
         return {"sha": None, "comment_id": None}
 
     cid = await comments.post(Comment(
         ticket_id=ticket_id,
         author=sender,
-        content=message,
+        content=commit_message,
         kind="commit",
         commit_sha=sha,
     ))
@@ -395,7 +418,7 @@ async def handle_commit_progress(
             "kind": "commit_recorded",
             "ticket_id": ticket_id,
             "sha": sha,
-            "message": message,
+            "message": commit_message,
         },
         topic=f"tickets.{ticket_id}",
     ))
@@ -424,3 +447,74 @@ async def handle_request_context(
         return target.read_text()
     except Exception as exc:
         return f"Error reading {args['path']}: {exc}"
+
+
+# Maps package_manager values to their add-dependency commands.
+# The package names are appended as extra args.
+_PKG_COMMANDS: dict[str, list[str]] = {
+    "uv": ["uv", "add"],
+    "pip": ["pip", "install"],
+    "poetry": ["poetry", "add"],
+    "npm": ["npm", "install"],
+    "yarn": ["yarn", "add"],
+    "pnpm": ["pnpm", "add"],
+    "bun": ["bun", "add"],
+}
+
+
+async def handle_add_dependency(
+    *,
+    worktree_path: Path,
+    package_manager: str,
+    args: dict,
+) -> dict:
+    """Install one or more packages using the project's package manager.
+
+    args:
+        packages: list[str] — package specifiers (e.g. ["requests", "pydantic>=2"])
+        dev: bool (default False) — install as dev dependency
+    """
+    packages: list[str] = args.get("packages", [])
+    if not packages:
+        raise ValueError("at least one package name is required")
+
+    base = _PKG_COMMANDS.get(package_manager)
+    if base is None:
+        raise ValueError(
+            f"unknown package_manager {package_manager!r}; "
+            f"supported: {sorted(_PKG_COMMANDS)}"
+        )
+
+    cmd = list(base)
+    dev = args.get("dev", False)
+    if dev:
+        dev_flags: dict[str, list[str]] = {
+            "uv": ["--dev"],
+            "pip": [],  # pip has no dev concept
+            "poetry": ["--group", "dev"],
+            "npm": ["--save-dev"],
+            "yarn": ["--dev"],
+            "pnpm": ["--save-dev"],
+            "bun": ["--dev"],
+        }
+        cmd.extend(dev_flags.get(package_manager, []))
+    cmd.extend(packages)
+
+    _logger.info("add_dependency: running %s in %s", cmd, worktree_path)
+    # Using create_subprocess_exec (not shell) to avoid injection —
+    # each arg is passed directly to the process.
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=str(worktree_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await proc.communicate()
+    output = stdout.decode(errors="replace").strip()
+
+    if proc.returncode != 0:
+        _logger.warning("add_dependency failed (rc=%d): %s", proc.returncode, output)
+        return {"success": False, "output": output}
+
+    _logger.info("add_dependency succeeded: %s", packages)
+    return {"success": True, "packages": packages, "output": output}

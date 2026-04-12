@@ -1,9 +1,20 @@
 """Git worktree management for agent isolation."""
 
 import asyncio
+import logging
 from pathlib import Path
 
 from jig.models import MergeStrategy
+
+_logger = logging.getLogger(__name__)
+
+
+class LintError(Exception):
+    """Raised when unfixable lint violations remain after auto-fix."""
+
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = errors
+        super().__init__(f"{len(errors)} unfixable lint errors")
 
 
 async def _run_git(cwd: Path, *args: str) -> str:
@@ -58,11 +69,61 @@ async def create_worktree(
     return worktree_path
 
 
+async def _auto_lint(worktree_path: Path) -> list[str]:
+    """Run ruff format and ruff check on the worktree.
+
+    Auto-fixes what it can (format + fixable lint violations).
+    Returns a list of remaining unfixable lint errors, empty if clean.
+    Uses create_subprocess_exec (no shell) — args are fixed strings.
+    """
+    if not (worktree_path / "pyproject.toml").exists():
+        return []
+
+    # 1. Auto-format
+    proc = await asyncio.create_subprocess_exec(
+        "ruff", "format", ".",
+        cwd=worktree_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        _logger.warning("ruff format failed (rc=%d): %s", proc.returncode, stdout.decode().strip())
+
+    # 2. Auto-fix lint violations
+    proc = await asyncio.create_subprocess_exec(
+        "ruff", "check", "--fix", ".",
+        cwd=worktree_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await proc.communicate()
+
+    # 3. Check for remaining unfixable issues
+    proc = await asyncio.create_subprocess_exec(
+        "ruff", "check", ".",
+        cwd=worktree_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode == 0:
+        return []
+
+    errors = stdout.decode().strip().splitlines()
+    _logger.warning("ruff check found %d unfixable issues", len(errors))
+    return errors
+
+
 async def commit_worktree(worktree_path: Path, message: str) -> str | None:
     """Commit all changes in a worktree.
 
     Returns the commit SHA, or None if there were no changes.
+    Raises ``LintError`` if there are unfixable lint violations.
     """
+    lint_errors = await _auto_lint(worktree_path)
+    if lint_errors:
+        raise LintError(lint_errors)
     await _run_git(worktree_path, "add", "-A")
 
     # Check if there's anything staged

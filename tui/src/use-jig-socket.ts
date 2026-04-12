@@ -40,7 +40,7 @@ export interface SocketHandle {
   moveSelection: (delta: number) => void
   moveAgentSelection: (delta: number) => void
   setViewMode: (mode: AppState["viewMode"]) => void
-  toggleViewMode: () => void
+  toggleViewMode: (reverse?: boolean) => void
   openModal: (modal: NonNullable<ModalState>) => void
   closeModal: () => void
   // Titles travel in-band with create_ticket commands; this lets the caller
@@ -306,11 +306,16 @@ export function useJigSocket(url: string): SocketHandle {
     setState((prev) => ({ ...prev, viewMode: mode }))
   }, [])
 
-  const toggleViewMode = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      viewMode: prev.viewMode === "events" ? "agents" : "events",
-    }))
+  const VIEW_CYCLE: AppState["viewMode"][] = ["events", "ticket", "kanban", "agents"]
+
+  const toggleViewMode = useCallback((reverse = false) => {
+    setState((prev) => {
+      const idx = VIEW_CYCLE.indexOf(prev.viewMode)
+      const next = reverse
+        ? (idx - 1 + VIEW_CYCLE.length) % VIEW_CYCLE.length
+        : (idx + 1) % VIEW_CYCLE.length
+      return { ...prev, viewMode: VIEW_CYCLE[next] }
+    })
   }, [])
 
   return {

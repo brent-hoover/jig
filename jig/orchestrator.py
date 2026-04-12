@@ -193,6 +193,11 @@ class Orchestrator:
         phase_idx = await self._current_phase_index(ticket_id, workflow)
         _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
 
+        # Track how many times a phase has been retried after a blocked result.
+        # Prevents infinite review→dev→review loops.
+        max_fix_cycles = 3
+        fix_counts: dict[int, int] = {}
+
         while phase_idx < len(workflow.phases):
             phase = workflow.phases[phase_idx]
             _logger.info("phase %d/%d: %s (role=%s)", phase_idx + 1, len(workflow.phases), phase.name, phase.role)
@@ -254,7 +259,36 @@ class Orchestrator:
                 ticket = await self.tickets.get(ticket_id)
                 continue  # re-run same phase_idx
 
-            # Fail fast. Recovery deferred post-MVP.
+            if result.status == "blocked":
+                fix_counts[phase_idx] = fix_counts.get(phase_idx, 0) + 1
+                if fix_counts[phase_idx] > max_fix_cycles:
+                    _logger.warning(
+                        "phase %s blocked %d times — giving up on ticket %s",
+                        phase.name, fix_counts[phase_idx], ticket_id,
+                    )
+                    await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                    await self._on_ticket_failed(ticket_id, ticket)
+                    return
+
+                # Find the most recent dev/writing phase before this one to fix issues.
+                fix_idx = self._find_fix_phase(workflow, phase_idx)
+                if fix_idx is not None:
+                    _logger.info(
+                        "phase %s blocked — routing back to %s (attempt %d/%d)",
+                        phase.name,
+                        workflow.phases[fix_idx].name,
+                        fix_counts[phase_idx],
+                        max_fix_cycles,
+                    )
+                    await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+                    await self._auto_commit_worktree(worktree, phase.name, ticket_id)
+                    phase_idx = fix_idx
+                    ticket = await self.tickets.get(ticket_id)
+                    continue
+
+                _logger.warning("phase %s blocked but no fix phase found — failing", phase.name)
+
+            # Unrecoverable: fail the ticket.
             await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
             await self._on_ticket_failed(ticket_id, ticket)
             return
@@ -455,6 +489,19 @@ class Orchestrator:
             },
             topic=f"tickets.{ticket_id}",
         ))
+
+    @staticmethod
+    def _find_fix_phase(workflow, blocked_phase_idx: int) -> int | None:
+        """Find the phase to re-run when a phase returns blocked.
+
+        Scans backward from ``blocked_phase_idx`` for a phase whose role
+        has write access (dev agent). Returns the index or None.
+        """
+        _write_roles = {"dev"}
+        for idx in range(blocked_phase_idx - 1, -1, -1):
+            if workflow.phases[idx].role in _write_roles:
+                return idx
+        return None
 
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.

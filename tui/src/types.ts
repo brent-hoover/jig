@@ -72,7 +72,7 @@ export interface Workflow {
   phases: WorkflowPhase[]
 }
 
-export type ViewMode = "events" | "agents"
+export type ViewMode = "events" | "ticket" | "kanban" | "agents"
 
 // Modal overlay state — null means no modal.
 export type ModalState =

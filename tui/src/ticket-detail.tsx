@@ -39,6 +39,13 @@ interface TicketDetailProps {
   commentIdx?: number
 }
 
+interface FullTicketViewProps {
+  ticket: Ticket
+  events: JigEvent[]
+  scrollOffset: number
+  width: number
+}
+
 function extractComments(
   events: JigEvent[],
   ticketId: string,
@@ -81,11 +88,11 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1) + "…"
 }
 
-function commentPrefix(kind: string): { label: string; color: string } {
-  if (kind === "question") return { label: "Q: ", color: "#ffcc00" }
-  if (kind === "answer") return { label: "A: ", color: "#00cc88" }
-  if (kind === "decision") return { label: "D: ", color: "#ff8800" }
-  return { label: "", color: "#aa88ff" }
+function commentColor(kind: string): string {
+  if (kind === "question") return "#ffcc00"
+  if (kind === "answer") return "#00cc88"
+  if (kind === "decision") return "#ff8800"
+  return "#aa88ff"
 }
 
 export function TicketDetail({
@@ -128,15 +135,14 @@ export function TicketDetail({
             {/* Comment list with selection highlight */}
             {comments.map((c, i) => {
               const selected = i === clampedIdx
-              const p = commentPrefix(c.kind)
               return (
                 <box key={i} flexShrink={0}>
                   <text>
                     <span style={{ fg: selected ? "#00aaff" : "#444444" }}>
                       {selected ? ">" : " "}
                     </span>
-                    <span style={{ fg: p.color, attributes: selected ? 1 : 0 }}>
-                      {p.label || `${c.author}: `}
+                    <span style={{ fg: commentColor(c.kind), attributes: selected ? 1 : 0 }}>
+                      {`${c.author}: `}
                     </span>
                     <span style={{ fg: selected ? "#ffffff" : "#888888" }}>
                       {truncate(c.content, 30)}
@@ -161,7 +167,7 @@ export function TicketDetail({
                 >
                   <box flexShrink={0}>
                     <text>
-                      <span style={{ fg: commentPrefix(selectedComment.kind).color, attributes: 1 }}>
+                      <span style={{ fg: commentColor(selectedComment.kind), attributes: 1 }}>
                         {selectedComment.author}
                       </span>
                       <span style={{ fg: "#555555" }}>{` (${selectedComment.kind})`}</span>
@@ -294,21 +300,18 @@ export function TicketDetail({
               ) : null}
             </text>
           </box>
-          {recentComments.map((c, i) => {
-            const p = commentPrefix(c.kind)
-            return (
+          {recentComments.map((c, i) => (
               <box key={`m${i}`} flexShrink={0}>
                 <text>
-                  <span style={{ fg: p.color, attributes: 1 }}>
-                    {p.label || `${c.author}: `}
+                  <span style={{ fg: commentColor(c.kind), attributes: 1 }}>
+                    {`${c.author}: `}
                   </span>
                   <span style={{ fg: "#cccccc" }}>
                     {truncate(c.content, 28)}
                   </span>
                 </text>
               </box>
-            )
-          })}
+          ))}
         </>
       ) : null}
 
@@ -324,6 +327,223 @@ export function TicketDetail({
           </box>
         </>
       ) : null}
+    </box>
+  )
+}
+
+
+// --- Full-panel ticket view (the "ticket" tab) ---
+
+function wrapText(text: string, width: number): string[] {
+  if (width <= 0) return [text]
+  const lines: string[] = []
+  for (const raw of text.split("\n")) {
+    if (raw.length === 0) {
+      lines.push("")
+      continue
+    }
+    const words = raw.split(/\s+/).filter(Boolean)
+    let cur = ""
+    for (const w of words) {
+      if (cur.length === 0) {
+        cur = w
+      } else if (cur.length + 1 + w.length <= width) {
+        cur += " " + w
+      } else {
+        lines.push(cur)
+        cur = w
+      }
+    }
+    if (cur) lines.push(cur)
+  }
+  return lines
+}
+
+interface Section {
+  kind: "header" | "field" | "blank" | "subheader" | "text" | "comment" | "commit"
+  label?: string
+  value?: string
+  color?: string
+  labelColor?: string
+}
+
+function buildSections(
+  ticket: Ticket,
+  events: JigEvent[],
+  width: number,
+): Section[] {
+  const sections: Section[] = []
+  const w = Math.max(10, width - 4) // padding
+
+  // Title
+  for (const line of wrapText(ticket.title, w)) {
+    sections.push({ kind: "header", value: line })
+  }
+  sections.push({ kind: "blank" })
+
+  // Metadata fields
+  sections.push({ kind: "field", label: "ID    ", value: ticket.id })
+  sections.push({ kind: "field", label: "Type  ", value: ticket.type })
+  const statusLabel = STATUS_LABEL[ticket.status] ?? ticket.status
+  let statusLine = statusLabel
+  if (ticket.currentPhase) {
+    statusLine += ` · ${ticket.currentPhase} (${(ticket.phaseIndex ?? 0) + 1}/${ticket.totalPhases ?? "?"})`
+  }
+  sections.push({
+    kind: "field",
+    label: "Status",
+    value: statusLine,
+    color: STATUS_COLOR[ticket.status] ?? "#888888",
+  })
+  if (ticket.assignee) {
+    sections.push({ kind: "field", label: "Agent ", value: ticket.assignee })
+  }
+  if (ticket.parentId) {
+    sections.push({ kind: "field", label: "Parent", value: ticket.parentId })
+  }
+
+  // Description
+  if (ticket.description) {
+    sections.push({ kind: "blank" })
+    sections.push({ kind: "subheader", value: "Description" })
+    for (const line of wrapText(ticket.description, w)) {
+      sections.push({ kind: "text", value: line })
+    }
+  }
+
+  // Commits
+  const commits = extractCommits(events, ticket.id)
+  if (commits.length > 0) {
+    sections.push({ kind: "blank" })
+    sections.push({ kind: "subheader", value: `Commits (${commits.length})` })
+    for (const c of commits) {
+      sections.push({ kind: "commit", label: c.sha, value: c.message })
+    }
+  }
+
+  // Comments
+  const comments = extractComments(events, ticket.id)
+  if (comments.length > 0) {
+    sections.push({ kind: "blank" })
+    sections.push({ kind: "subheader", value: `Comments (${comments.length})` })
+    for (const c of comments) {
+      sections.push({
+        kind: "comment",
+        label: `${c.author}: `,
+        labelColor: commentColor(c.kind),
+      })
+      for (const line of wrapText(c.content, w - 2)) {
+        sections.push({ kind: "text", value: "  " + line })
+      }
+      sections.push({ kind: "blank" })
+    }
+  }
+
+  if (commits.length === 0 && comments.length === 0) {
+    sections.push({ kind: "blank" })
+    sections.push({ kind: "text", value: "No activity yet", color: "#666666" })
+  }
+
+  return sections
+}
+
+function renderSection(section: Section, key: number) {
+  switch (section.kind) {
+    case "blank":
+      return <box key={key} height={1} flexShrink={0} />
+    case "header":
+      return (
+        <box key={key} flexShrink={0}>
+          <text>
+            <span style={{ attributes: 1 }}>{section.value}</span>
+          </text>
+        </box>
+      )
+    case "subheader":
+      return (
+        <box key={key} flexShrink={0}>
+          <text>
+            <span style={{ fg: "#666666", attributes: 1 }}>
+              {section.value}
+            </span>
+          </text>
+        </box>
+      )
+    case "field":
+      return (
+        <box key={key} flexShrink={0}>
+          <text>
+            <span style={{ fg: "#666666" }}>{section.label} </span>
+            <span style={{ fg: section.color ?? "#cccccc" }}>
+              {section.value}
+            </span>
+          </text>
+        </box>
+      )
+    case "text":
+      return (
+        <box key={key} flexShrink={0}>
+          <text>
+            <span style={{ fg: section.color ?? "#cccccc" }}>
+              {section.value}
+            </span>
+          </text>
+        </box>
+      )
+    case "comment":
+      return (
+        <box key={key} flexShrink={0}>
+          <text>
+            <span style={{ fg: section.labelColor ?? "#aa88ff", attributes: 1 }}>
+              {section.label}
+            </span>
+          </text>
+        </box>
+      )
+    case "commit":
+      return (
+        <box key={key} flexShrink={0}>
+          <text>
+            <span style={{ fg: "#00cc88" }}>{section.label}</span>
+            <span style={{ fg: "#888888" }}>{` ${section.value}`}</span>
+          </text>
+        </box>
+      )
+    default:
+      return null
+  }
+}
+
+export function FullTicketView({
+  ticket,
+  events,
+  scrollOffset,
+  width,
+}: FullTicketViewProps) {
+  const sections = buildSections(ticket, events, width)
+  const visible = sections.slice(scrollOffset)
+
+  return (
+    <box
+      border
+      borderStyle="rounded"
+      borderColor="#00aaff"
+      paddingX={1}
+      flexDirection="column"
+      flexGrow={1}
+      overflow="hidden"
+    >
+      {visible.map((s, i) => renderSection(s, i))}
+      <box flexGrow={1} />
+      <box flexShrink={0} height={1}>
+        <text>
+          <span style={{ fg: "#555555" }}>
+            {scrollOffset > 0
+              ? `line ${scrollOffset + 1}/${sections.length}  j/k:scroll  g:top`
+              : `${sections.length} lines  j/k:scroll`}
+          </span>
+        </text>
+      </box>
     </box>
   )
 }

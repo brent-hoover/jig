@@ -23,6 +23,7 @@ def create_agent_mcp_server(
     agent_cfg: AgentTypeConfig,
     worktree_path: Path,
     valid_roles: frozenset[str] = frozenset(),
+    package_manager: str = "",
 ):
     """Create a Jig MCP server for a worker agent exposing 9 ticket-era tools."""
 
@@ -121,7 +122,9 @@ def create_agent_mcp_server(
 
     @tool(
         "commit_progress",
-        "Commit current worktree progress and record it on a ticket",
+        "Commit current worktree progress and record it on a ticket. "
+        "The message should describe WHAT changed (e.g. 'add CRUD endpoints for todos', "
+        "'fix off-by-one in pagination logic'), not just repeat the ticket title.",
         {"ticket_id": str, "message": str},
     )
     async def commit_progress(args):
@@ -157,18 +160,36 @@ def create_agent_mcp_server(
         )
         return {"content": [{"type": "text", "text": text}]}
 
+    @tool(
+        "add_dependency",
+        "Add a package dependency to the project using the configured package manager. "
+        "Use this instead of running install commands directly.",
+        {"packages": list, "dev": bool},
+    )
+    async def add_dependency(args):
+        result = await ticket_mcp.handle_add_dependency(
+            worktree_path=worktree_path,
+            package_manager=package_manager,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    all_tools = [
+        create_ticket,
+        read_ticket,
+        update_ticket,
+        comment_on_ticket,
+        ask_question,
+        list_tickets,
+        read_comments,
+        commit_progress,
+        record_learning,
+        request_context,
+    ]
+    if package_manager:
+        all_tools.append(add_dependency)
+
     return create_sdk_mcp_server(
         name="jig",
-        tools=[
-            create_ticket,
-            read_ticket,
-            update_ticket,
-            comment_on_ticket,
-            ask_question,
-            list_tickets,
-            read_comments,
-            commit_progress,
-            record_learning,
-            request_context,
-        ],
+        tools=all_tools,
     )

@@ -27,8 +27,12 @@ export function JigStatusBar({ state, focusedPanel }: StatusBarProps) {
 
   const hints =
     state.viewMode === "agents"
-      ? `h/l:panel  j/k:${focusedPanel === "right" ? "scroll" : "select"}  pgup/dn  tab:tickets  q:quit`
-      : `n:new  h/l:panel  j/k:${focusedPanel === "right" ? "scroll" : "move"}  g:bottom  tab:agents  q:quit`
+      ? `h/l:panel  j/k:${focusedPanel === "right" ? "scroll" : "select"}  pgup/dn  tab/S-tab:view  q:quit`
+      : state.viewMode === "ticket"
+        ? `j/k:scroll  pgup/dn  g:top  tab/S-tab:view  q:quit`
+        : state.viewMode === "kanban"
+          ? `tab/S-tab:view  n:new  q:quit`
+          : `n:new  h/l:panel  j/k:${focusedPanel === "right" ? "scroll" : "move"}  g:bottom  tab/S-tab:view  q:quit`
 
   return (
     <box height={2} flexDirection="column" flexShrink={0}>
@@ -60,7 +64,13 @@ export function JigStatusBar({ state, focusedPanel }: StatusBarProps) {
       <box height={1} paddingX={1}>
         <text>
           <span style={{ fg: "#00aaff", attributes: 1 }}>
-            {state.viewMode === "agents" ? "[agents]" : "[tickets]"}
+            {state.viewMode === "agents"
+              ? "[agents]"
+              : state.viewMode === "ticket"
+                ? "[ticket]"
+                : state.viewMode === "kanban"
+                  ? "[kanban]"
+                  : "[live]"}
           </span>
           <span style={{ fg: "#666666" }}>{`  ${hints}`}</span>
         </text>

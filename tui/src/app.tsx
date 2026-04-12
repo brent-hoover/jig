@@ -1,9 +1,10 @@
 // @ts-nocheck
 import { useState, useEffect, useRef } from "react"
 import { TicketList } from "./ticket-list"
-import { TicketDetail } from "./ticket-detail"
+import { TicketDetail, FullTicketView } from "./ticket-detail"
 import { EventLog } from "./event-log"
 import { AgentPanel } from "./agent-panel"
+import { KanbanView } from "./kanban-view"
 import { JigStatusBar } from "./status-bar"
 import { NewTicketForm } from "./new-ticket-form"
 import { AnswerForm } from "./answer-form"
@@ -34,6 +35,7 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
   const [detailMode, setDetailMode] = useState(false)
   const [commentIdx, setCommentIdx] = useState(0)
   const [promptScroll, setPromptScroll] = useState(0)
+  const [ticketScroll, setTicketScroll] = useState(0)
 
   // Keep scroll anchored at bottom when new events arrive if user is already
   // at the bottom; otherwise hold position relative to the oldest visible.
@@ -61,7 +63,9 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       return
     }
     if (key.name === "tab") {
-      toggleViewMode()
+      toggleViewMode(key.shift)
+      setTicketScroll(0)
+      setPromptScroll(0)
       return
     }
     if (key.name === "h" || key.name === "left") {
@@ -82,7 +86,9 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       return
     }
     if (key.name === "k" || key.name === "up") {
-      if (state.viewMode === "agents") {
+      if (state.viewMode === "ticket") {
+        setTicketScroll((s) => Math.max(0, s - 1))
+      } else if (state.viewMode === "agents") {
         if (focusedPanel === "right") {
           setPromptScroll((s) => Math.max(0, s - 1))
         } else {
@@ -99,9 +105,11 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       return
     }
     if (key.name === "j" || key.name === "down") {
-      if (state.viewMode === "agents") {
+      if (state.viewMode === "ticket") {
+        setTicketScroll((s) => s + 1)
+      } else if (state.viewMode === "agents") {
         if (focusedPanel === "right") {
-          setPromptScroll((s) => s + 1) // clamped in component
+          setPromptScroll((s) => s + 1)
         } else {
           moveAgentSelection(1)
           setPromptScroll(0)
@@ -109,14 +117,16 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       } else if (focusedPanel === "right") {
         setScrollOffset((s) => Math.max(0, s - 1))
       } else if (detailMode) {
-        setCommentIdx((i) => i + 1) // clamped in component
+        setCommentIdx((i) => i + 1)
       } else {
         moveSelection(1)
       }
       return
     }
     if (key.name === "pageup") {
-      if (state.viewMode === "agents") {
+      if (state.viewMode === "ticket") {
+        setTicketScroll((s) => Math.max(0, s - 20))
+      } else if (state.viewMode === "agents") {
         setPromptScroll((s) => Math.max(0, s - 20))
       } else {
         setScrollOffset((s) =>
@@ -126,7 +136,9 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       return
     }
     if (key.name === "pagedown") {
-      if (state.viewMode === "agents") {
+      if (state.viewMode === "ticket") {
+        setTicketScroll((s) => s + 20)
+      } else if (state.viewMode === "agents") {
         setPromptScroll((s) => s + 20)
       } else {
         setScrollOffset((s) => Math.max(0, s - 10))
@@ -134,7 +146,9 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       return
     }
     if (key.name === "g") {
-      if (state.viewMode === "agents") {
+      if (state.viewMode === "ticket") {
+        setTicketScroll(0)
+      } else if (state.viewMode === "agents") {
         setPromptScroll(0)
       } else {
         setScrollOffset(0)
@@ -184,6 +198,24 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
             selectedTicketId={state.selectedTicketId}
             sendCommand={sendCommand}
             promptScroll={promptScroll}
+          />
+        ) : state.viewMode === "ticket" ? (
+          selectedTicket ? (
+            <FullTicketView
+              ticket={selectedTicket}
+              events={state.events}
+              scrollOffset={ticketScroll}
+              width={80}
+            />
+          ) : (
+            <box border borderStyle="rounded" borderColor="#444444" paddingX={1} flexGrow={1}>
+              <text><span style={{ fg: "#666666" }}>No ticket selected</span></text>
+            </box>
+          )
+        ) : state.viewMode === "kanban" ? (
+          <KanbanView
+            tickets={state.tickets}
+            workflow={state.workflow}
           />
         ) : (
           <>

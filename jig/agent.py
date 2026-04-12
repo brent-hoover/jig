@@ -203,6 +203,7 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
         agent_cfg=ctx.role_cfg,
         worktree_path=ctx.worktree_path,
         valid_roles=frozenset(r.role for r in all_roles),
+        package_manager=ctx.project.package_manager,
     )
 
     mcp_servers: dict = {"jig": mcp_server}

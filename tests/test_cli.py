@@ -108,7 +108,7 @@ class TestInitCreatesAgentTypes:
         assert result.exit_code == 0, result.output
         types = list_agent_types(tmp_path)
         roles = {t.role for t in types}
-        assert roles == {"spec", "test", "dev", "review", "validate", "document"}
+        assert roles == {"spec", "test", "dev", "review", "validate", "document", "pm"}
 
 
 class TestInitCreatesWorkflow:

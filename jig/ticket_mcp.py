@@ -23,45 +23,55 @@ async def handle_create_ticket(
     sender: str,
     args: dict,
 ) -> str:
+    depends_on: list[str] = args.get("depends_on", [])
+
+    # Validate that dependency ticket IDs exist
+    for dep_id in depends_on:
+        if await tickets.get(dep_id) is None:
+            raise KeyError(f"dependency ticket {dep_id} not found")
+
     ticket = Ticket(
         type=TicketType(args["type"]),
         title=args["title"],
         description=args.get("description", ""),
         assignee=args.get("assignee"),
         parent_id=args.get("parent_id"),
+        blocked_by=depends_on,
+        workflow=args.get("workflow", "default"),
         labels=args.get("labels", []),
         created_by=sender,
     )
     ticket_id = await tickets.create(ticket)
+
+    # Update the reverse side: each dependency now blocks this ticket
+    for dep_id in depends_on:
+        dep = await tickets.get(dep_id)
+        if dep is not None and ticket_id not in dep.blocks:
+            await tickets.update(dep_id, blocks=dep.blocks + [ticket_id])
+
+    payload = {
+        "kind": "ticket_created",
+        "ticket_id": ticket_id,
+        "title": ticket.title,
+        "description": ticket.description,
+        "type": ticket.type.value,
+        "assignee": ticket.assignee,
+        "parent_id": ticket.parent_id,
+        "depends_on": depends_on,
+        "workflow": ticket.workflow,
+    }
     await bus.publish(Message(
         sender=sender,
         to=ticket.assignee or "orchestrator",
         type=MessageType.CONTEXT_UPDATE,
-        payload={
-            "kind": "ticket_created",
-            "ticket_id": ticket_id,
-            "title": ticket.title,
-            "description": ticket.description,
-            "type": ticket.type.value,
-            "assignee": ticket.assignee,
-            "parent_id": ticket.parent_id,
-        },
+        payload=payload,
         topic="orchestrator",
     ))
-    # Also publish to the ticket-specific topic so subscribers see it:
     await bus.publish(Message(
         sender=sender,
         to=ticket.assignee or "broadcast",
         type=MessageType.CONTEXT_UPDATE,
-        payload={
-            "kind": "ticket_created",
-            "ticket_id": ticket_id,
-            "title": ticket.title,
-            "description": ticket.description,
-            "type": ticket.type.value,
-            "assignee": ticket.assignee,
-            "parent_id": ticket.parent_id,
-        },
+        payload=payload,
         topic=f"tickets.{ticket_id}",
     ))
     return ticket_id

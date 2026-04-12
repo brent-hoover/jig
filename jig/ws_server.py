@@ -150,6 +150,8 @@ class WebSocketServer:
                             "description": t.description,
                             "assignee": t.assignee,
                             "parent_id": t.parent_id,
+                            "blocked_by": t.blocked_by,
+                            "workflow": t.workflow,
                         }
                         for t in all_tickets
                     ],

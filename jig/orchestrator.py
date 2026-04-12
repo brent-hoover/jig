@@ -117,6 +117,7 @@ class Orchestrator:
         for ticket in in_progress:
             task = asyncio.create_task(self._run_ticket(ticket.id))
             self._running_tickets[ticket.id] = task
+            task.add_done_callback(self._ticket_task_done)
 
     async def _run_service_loop(self) -> None:
         if self.bus is None:
@@ -142,7 +143,12 @@ class Orchestrator:
             await self.bus.unsubscribe("orchestrator", queue)
 
     async def _handle_schedule(self, ticket_id: str) -> None:
-        """For MVP: immediately start the ticket. Scheduling policy TBD."""
+        """Schedule a ticket if its dependencies are satisfied.
+
+        Only top-level work tickets (feature/bug/chore) go through the
+        workflow pipeline. If the ticket has unresolved dependencies it
+        stays open — ``_unblock_dependents`` will re-check when deps resolve.
+        """
         if self.tickets is None:
             raise RuntimeError("Orchestrator not started — call startup() first")
         if ticket_id in self._running_tickets:
@@ -157,10 +163,29 @@ class Orchestrator:
         if ticket.type not in (TicketType.FEATURE, TicketType.BUG, TicketType.CHORE):
             _logger.debug("skipping non-workflow ticket %s (type=%s)", ticket_id, ticket.type.value)
             return
-        _logger.info("scheduling ticket %s", ticket_id)
+        # Check dependencies — all must be resolved before we start.
+        if ticket.blocked_by:
+            for dep_id in ticket.blocked_by:
+                dep = await self.tickets.get(dep_id)
+                if dep is None or dep.status != TicketStatus.RESOLVED:
+                    _logger.info(
+                        "ticket %s blocked by %s (status=%s), deferring",
+                        ticket_id, dep_id, dep.status.value if dep else "missing",
+                    )
+                    return
+        _logger.info("scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow)
         await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
         task = asyncio.create_task(self._run_ticket(ticket_id))
         self._running_tickets[ticket_id] = task
+        task.add_done_callback(self._ticket_task_done)
+
+    def _ticket_task_done(self, task: asyncio.Task) -> None:
+        """Log unhandled exceptions from _run_ticket tasks."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _logger.error("_run_ticket task failed: %s", exc, exc_info=exc)
 
     async def _run_ticket(self, ticket_id: str) -> None:
         """Walk the workflow phases for a ticket.
@@ -186,8 +211,18 @@ class Orchestrator:
             _logger.warning("ticket %s not found, aborting", ticket_id)
             return
 
-        _logger.info("starting ticket %s: %s", ticket_id, ticket.title)
-        workflow = load_workflow(self._project_path, "default")
+        try:
+            _logger.info("starting ticket %s: %s (workflow=%s)", ticket_id, ticket.title, ticket.workflow)
+            workflow = load_workflow(self._project_path, ticket.workflow)
+        except FileNotFoundError:
+            _logger.error(
+                "workflow %r not found for ticket %s — run 'jig sync' to install missing defaults",
+                ticket.workflow, ticket_id,
+            )
+            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+            self._running_tickets.pop(ticket_id, None)
+            return
+
         worktree = await self._ensure_worktree(ticket)
         _logger.info("worktree ready at %s", worktree)
         phase_idx = await self._current_phase_index(ticket_id, workflow)
@@ -341,8 +376,9 @@ class Orchestrator:
         except Exception:
             _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
 
-        # Pick up next open ticket
-        await self._start_next_ticket()
+        # Unblock tickets that depended on this one, then pick up ready work.
+        await self._unblock_dependents(ticket_id, ticket)
+        await self._start_ready_tickets()
 
     async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
         """Post-failure: emit event, clean up, pick up next ticket."""
@@ -360,38 +396,68 @@ class Orchestrator:
             ))
 
         self._running_tickets.pop(ticket_id, None)
-        await self._start_next_ticket()
+        await self._start_ready_tickets()
 
-    async def _start_next_ticket(self) -> None:
-        """Find and start the next open top-level ticket, if any."""
+    async def _unblock_dependents(self, completed_id: str, ticket) -> None:
+        """After a ticket resolves, check its `blocks` list and schedule any
+        tickets whose dependencies are now fully satisfied."""
         if self.tickets is None:
             return
-        all_tickets = await self.tickets.list_all()
-        for t in all_tickets:
-            if (
-                t.status == TicketStatus.OPEN
-                and t.type in (TicketType.FEATURE, TicketType.BUG, TicketType.CHORE)
-                and t.id not in self._running_tickets
-            ):
-                _logger.info("picking up next ticket: %s — %s", t.id, t.title)
+        for blocked_id in ticket.blocks:
+            blocked = await self.tickets.get(blocked_id)
+            if blocked is None or blocked.status != TicketStatus.OPEN:
+                continue
+            _logger.info(
+                "ticket %s resolved — checking if %s is now unblocked",
+                completed_id, blocked_id,
+            )
+            await self._handle_schedule(blocked_id)
+
+    async def _start_ready_tickets(self) -> None:
+        """Find ALL open tickets with satisfied dependencies and start them."""
+        if self.tickets is None:
+            return
+        ready = await self.tickets.find_ready()
+        if not ready:
+            _logger.info("no ready tickets in queue")
+            return
+        for t in ready:
+            if t.id not in self._running_tickets:
+                _logger.info("picking up ready ticket: %s — %s", t.id, t.title)
                 await self._handle_schedule(t.id)
-                return
-        _logger.info("no more open tickets in queue")
 
     async def _ensure_worktree(self, ticket) -> Path:
-        """Ensure a worktree exists for ``ticket`` and return its path."""
-        from jig.worktree import create_worktree
+        """Ensure a worktree exists for ``ticket`` and return its path.
+
+        After creation, merges dependency branches into the worktree so the
+        agent sees all prerequisite code — even if those branches haven't
+        been merged into main yet.
+        """
+        from jig.worktree import create_worktree, merge_dep_into_worktree
 
         if self._project is None:
             raise RuntimeError("Orchestrator not started")
         worktree_path = self._project_path / ".jig" / "worktrees" / ticket.id
         if worktree_path.exists():
             return worktree_path
-        return await create_worktree(
+        worktree_path = await create_worktree(
             project_path=self._project_path,
             ticket_id=ticket.id,
             base_branch=self._project.default_branch,
         )
+        # Merge dependency branches so the agent starts with their code.
+        for dep_id in ticket.blocked_by:
+            dep_branch = f"jig/{dep_id}"
+            try:
+                await merge_dep_into_worktree(worktree_path, dep_branch)
+                _logger.info("merged dep branch %s into worktree for %s", dep_branch, ticket.id)
+            except RuntimeError:
+                _logger.warning(
+                    "could not merge dep branch %s into worktree for %s — "
+                    "branch may not exist or has conflicts",
+                    dep_branch, ticket.id,
+                )
+        return worktree_path
 
     async def _wait_for_resume(self, ticket_id: str) -> None:
         """Block until the ticket transitions out of needs_info status.

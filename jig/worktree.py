@@ -156,6 +156,17 @@ async def remove_worktree(
             pass  # Branch may already be deleted
 
 
+async def merge_dep_into_worktree(worktree_path: Path, dep_branch: str) -> None:
+    """Merge a dependency branch into a worktree so the agent sees its code.
+
+    Raises RuntimeError if the branch doesn't exist or the merge conflicts.
+    """
+    # Verify the branch exists before attempting merge
+    await _run_git(worktree_path, "rev-parse", "--verify", dep_branch)
+    await _run_git(worktree_path, "merge", dep_branch, "--no-edit",
+                   "-m", f"chore: merge dependency {dep_branch}")
+
+
 async def _run_cmd(cwd: Path, *args: str) -> str:
     """Run an arbitrary command and return stdout."""
     proc = await asyncio.create_subprocess_exec(
@@ -168,6 +179,11 @@ async def _run_cmd(cwd: Path, *args: str) -> str:
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(args)} failed: {stderr.decode().strip()}")
     return stdout.decode().strip()
+
+
+# Serializes merge operations so parallel ticket completions don't race
+# on the shared main repo checkout.
+_merge_lock = asyncio.Lock()
 
 
 async def merge_ticket(
@@ -212,39 +228,58 @@ async def merge_ticket(
         except (RuntimeError, FileNotFoundError) as e:
             return f"Created feature branch: {feature_branch} (PR failed: {e})"
 
-    # Direct or squash merge — stash any dirty state in the main repo first
-    stashed = False
+    # Direct or squash merge — serialize to prevent racing on the main repo.
+    async with _merge_lock:
+        return await _do_merge(project_path, ticket_id, source_branch, base_branch, strategy)
+
+
+async def _do_merge(
+    project_path: Path,
+    ticket_id: str,
+    source_branch: str,
+    base_branch: str,
+    strategy: MergeStrategy,
+) -> str:
+    """Perform the actual merge under the lock."""
+    # Clean up any leftover dirty state from a previous failed merge
     try:
-        status = await _run_git(project_path, "status", "--porcelain")
-        if status.strip():
-            await _run_git(project_path, "stash", "push", "-m", f"jig: pre-merge {ticket_id}")
-            stashed = True
+        await _run_git(project_path, "merge", "--abort")
+    except RuntimeError:
+        pass
+    try:
+        await _run_git(project_path, "reset", "--hard", "HEAD")
     except RuntimeError:
         pass
 
     try:
         await _run_git(project_path, "checkout", base_branch)
     except RuntimeError:
-        if stashed:
-            try:
-                await _run_git(project_path, "stash", "pop")
-            except RuntimeError:
-                pass
         raise
 
     try:
         if strategy == MergeStrategy.SQUASH:
             await _run_git(project_path, "merge", "--squash", source_branch)
+            # Check if the squash produced anything to commit
+            proc = await asyncio.create_subprocess_exec(
+                "git", "diff", "--cached", "--quiet",
+                cwd=project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+            if proc.returncode == 0:
+                return f"No new changes from {source_branch} (already on {base_branch})"
             await _run_git(project_path, "commit", "-m", f"feat: {ticket_id}")
-            result = f"Squash-merged {source_branch} into {base_branch}"
+            return f"Squash-merged {source_branch} into {base_branch}"
         else:
             # MergeStrategy.DIRECT
             await _run_git(project_path, "merge", source_branch, "-m", f"Merge {ticket_id}")
-            result = f"Merged {source_branch} into {base_branch}"
-    finally:
-        if stashed:
-            try:
-                await _run_git(project_path, "stash", "pop")
-            except RuntimeError:
-                pass
-    return result
+            return f"Merged {source_branch} into {base_branch}"
+    except RuntimeError:
+        # Merge conflict — abort and leave branch intact for manual resolution
+        _logger.warning("merge conflict for %s — aborting", ticket_id)
+        try:
+            await _run_git(project_path, "merge", "--abort")
+        except RuntimeError:
+            await _run_git(project_path, "reset", "--hard", "HEAD")
+        return f"Merge conflict for {source_branch} (branch preserved for manual merge)"

@@ -272,14 +272,17 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
                 _logger.warning("emitter.emit raised; continuing", exc_info=True)
 
     final_text = ""
-    _logger.info("launching claude agent for %s in %s", ctx.role, ctx.worktree_path)
+    # Short ticket prefix for log lines: first 8 chars of UUID
+    tid = ctx.ticket.id[:8]
+    tag = f"{ctx.role}:{tid}"
+    _logger.info("launching claude agent for %s on %s in %s", ctx.role, ctx.ticket.id, ctx.worktree_path)
     try:
         async for message in query(prompt=_prompt_stream(), options=options):
             if isinstance(message, AssistantMessage):
                 for block in message.content or []:
                     if isinstance(block, ToolUseBlock):
                         detail = _tool_detail(block.name, block.input or {})
-                        _logger.info("[%s] tool: %s %s", ctx.role, block.name, detail)
+                        _logger.info("[%s] tool: %s %s", tag, block.name, detail)
                         await _emit("agent_tool", {
                             "role": ctx.role,
                             "ticket_id": ctx.ticket.id,
@@ -289,18 +292,18 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
                     elif isinstance(block, TextBlock):
                         short = _sanitize_for_tui(block.text)
                         if short:
-                            _logger.info("[%s] text: %s", ctx.role, _sanitize_for_tui(block.text, limit=2000))
+                            _logger.info("[%s] text: %s", tag, _sanitize_for_tui(block.text, limit=2000))
                             await _emit("agent_text", {
                                 "role": ctx.role,
                                 "ticket_id": ctx.ticket.id,
                                 "text": short,
                             })
             elif isinstance(message, SystemMessage):
-                _logger.debug("[%s] system: %s", ctx.role, message.subtype)
+                _logger.debug("[%s] system: %s", tag, message.subtype)
             elif isinstance(message, ResultMessage):
                 final_text = message.result or ""
                 _logger.info("[%s] completed: %s turns, %.1fs",
-                             ctx.role, message.num_turns, (message.duration_ms or 0) / 1000)
+                             tag, message.num_turns, (message.duration_ms or 0) / 1000)
             else:
                 # Fallback for mocked result-like messages
                 result = getattr(message, "result", None)

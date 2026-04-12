@@ -34,6 +34,7 @@ class Ticket(StoreModel):
     parent_id: str | None = None
     blocks: list[str] = []
     blocked_by: list[str] = []
+    workflow: str = "default"
     labels: list[str] = []
     created_by: str
     created_at: datetime = Field(

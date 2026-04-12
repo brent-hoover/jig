@@ -38,8 +38,9 @@ def create_agent_mcp_server(
 
     @tool(
         "create_ticket",
-        "Create a new ticket",
-        {"type": str, "title": str, "description": str, "assignee": str, "parent_id": str, "labels": list},
+        "Create a new ticket. Use depends_on to list ticket IDs that must be resolved before this ticket can start. "
+        "Set workflow to 'project' for tickets that need PM planning breakdown.",
+        {"type": str, "title": str, "description": str, "assignee": str, "parent_id": str, "depends_on": list, "workflow": str, "labels": list},
     )
     async def create_ticket(args):
         _check_assignee(args.get("assignee"))

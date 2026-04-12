@@ -1,0 +1,6 @@
+name: project
+phases:
+  - name: plan
+    role: pm
+    task_template: "Break down requirements into implementation tickets for: {issue_title}"
+    acceptance_criteria: "Child tickets created with clear dependencies and user approval"

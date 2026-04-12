@@ -287,6 +287,47 @@ def start(path: Path, ws_port: int, verbose: bool) -> None:
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def sync(path: Path) -> None:
+    """Sync default agent types and workflows from the installed jig version.
+
+    Copies any new defaults without overwriting existing customizations.
+    """
+    jig_dir = path / ".jig"
+    if not jig_dir.is_dir():
+        raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
+
+    from jig.persistence import _defaults_dir
+
+    added: list[str] = []
+
+    # Sync agent types
+    source_agents = _defaults_dir() / "agent_types"
+    dest_agents = jig_dir / "agent_types"
+    for src in sorted(source_agents.glob("*.yaml")):
+        dest = dest_agents / src.name
+        if not dest.exists():
+            dest.write_text(src.read_text())
+            added.append(f"agent_types/{src.name}")
+
+    # Sync workflows
+    source_wf = _defaults_dir() / "workflows"
+    dest_wf = jig_dir / "workflows"
+    for src in sorted(source_wf.glob("*.yaml")):
+        dest = dest_wf / src.name
+        if not dest.exists():
+            dest.write_text(src.read_text())
+            added.append(f"workflows/{src.name}")
+
+    if added:
+        for name in added:
+            click.echo(f"  Added {name}")
+        click.echo(f"Synced {len(added)} new defaults.")
+    else:
+        click.echo("Already up to date.")
+
+
+@cli.command()
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option("--ticket-id", required=True, help="Ticket to validate.")
 def validate(path: Path, ticket_id: str) -> None:
     """Validate a ticket and clean up its worktree."""

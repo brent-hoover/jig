@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import type { SendCommand } from "./use-jig-socket"
 import type { TicketType } from "./types"
 
-type Stage = "type" | "title" | "description" | "submitting"
+type Stage = "type" | "workflow" | "title" | "description" | "submitting"
 
 interface NewTicketFormProps {
   useKeyboard: any
@@ -18,6 +18,13 @@ const TYPE_CHOICES: { key: string; value: TicketType; label: string }[] = [
   { key: "c", value: "chore", label: "(c)hore" },
   { key: "t", value: "task", label: "(t)ask" },
   { key: "q", value: "question", label: "(q)uestion" },
+]
+
+const WORKFLOW_TYPES: Set<TicketType> = new Set(["feature", "bug", "chore"])
+
+const WORKFLOW_CHOICES: { key: string; value: string; label: string }[] = [
+  { key: "d", value: "default", label: "(d)efault — single ticket, standard pipeline" },
+  { key: "p", value: "project", label: "(p)roject — PM breaks requirements into tickets" },
 ]
 
 // Append a printable keypress to the running text buffer. Returns the new
@@ -48,6 +55,7 @@ export function NewTicketForm({
 }: NewTicketFormProps) {
   const [stage, setStage] = useState<Stage>("type")
   const [type, setType] = useState<TicketType | null>(null)
+  const [workflow, setWorkflow] = useState("default")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [errorText, setErrorText] = useState<string | null>(null)
@@ -64,6 +72,19 @@ export function NewTicketForm({
       const choice = TYPE_CHOICES.find((c) => c.key === key.name)
       if (choice) {
         setType(choice.value)
+        if (WORKFLOW_TYPES.has(choice.value)) {
+          setStage("workflow")
+        } else {
+          setStage("title")
+        }
+      }
+      return
+    }
+
+    if (stage === "workflow") {
+      const choice = WORKFLOW_CHOICES.find((c) => c.key === key.name)
+      if (choice) {
+        setWorkflow(choice.value)
         setStage("title")
       }
       return
@@ -96,6 +117,7 @@ export function NewTicketForm({
             type,
             title,
             description,
+            workflow,
           })
           if (reply.ok && reply.ticket_id && type) {
             onDone(reply.ticket_id, title, type)
@@ -145,6 +167,19 @@ export function NewTicketForm({
         )}
       </text>
 
+      {type && WORKFLOW_TYPES.has(type) ? (
+        <text>
+          <span style={{ fg: "#888888" }}>Workflow: </span>
+          {stage === "workflow" ? (
+            <span style={{ fg: "#666666" }}>
+              {WORKFLOW_CHOICES.map((c) => c.label).join("  ")}
+            </span>
+          ) : (
+            <span style={{ fg: "#00cc88", attributes: 1 }}>{workflow}</span>
+          )}
+        </text>
+      ) : null}
+
       <text>
         <span style={{ fg: "#888888" }}>Title: </span>
         <span style={{ fg: "#ffffff" }}>{title}</span>
@@ -171,11 +206,13 @@ export function NewTicketForm({
         <span style={{ fg: "#666666", attributes: 2 }}>
           {stage === "type"
             ? "Pick a type (single letter)"
-            : stage === "title"
-              ? "Type title, Enter to continue"
-              : stage === "description"
-                ? "Type description, Enter to submit"
-                : "Submitting..."}
+            : stage === "workflow"
+              ? "Pick workflow: (d)efault or (p)roject"
+              : stage === "title"
+                ? "Type title, Enter to continue"
+                : stage === "description"
+                  ? "Type description, Enter to submit"
+                  : "Submitting..."}
         </span>
       </text>
     </box>

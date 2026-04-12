@@ -51,3 +51,25 @@ class TicketStore:
 
     async def list_all(self) -> list[Ticket]:
         return await self._collection.find()
+
+    async def find_ready(self) -> list[Ticket]:
+        """Find open top-level tickets whose dependencies are all resolved."""
+        candidates: list[Ticket] = []
+        for ttype in TOP_LEVEL_TYPES:
+            candidates.extend(
+                await self._collection.find_where(type=ttype, status=TicketStatus.OPEN)
+            )
+        ready: list[Ticket] = []
+        for ticket in candidates:
+            if not ticket.blocked_by:
+                ready.append(ticket)
+                continue
+            all_resolved = True
+            for dep_id in ticket.blocked_by:
+                dep = await self.get(dep_id)
+                if dep is None or dep.status != TicketStatus.RESOLVED:
+                    all_resolved = False
+                    break
+            if all_resolved:
+                ready.append(ticket)
+        return ready

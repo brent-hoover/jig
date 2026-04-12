@@ -63,6 +63,8 @@ function bumpTicket(
     description: "",
     assignee: null,
     parentId: null,
+    dependsOn: [],
+    workflow: "default",
     lastActivity: Date.now(),
     currentPhase: null,
     phaseIndex: null,
@@ -88,6 +90,8 @@ function reduce(state: AppState, event: JigEvent): AppState {
         type: (data.type as TicketType) ?? "task",
         assignee: (data.assignee as string | null) ?? null,
         parentId: (data.parent_id as string | null) ?? null,
+        dependsOn: (data.depends_on as string[]) ?? [],
+        workflow: (data.workflow as string) ?? "default",
         status: "open",
       })
       const selectedTicketId =
@@ -209,6 +213,8 @@ export function useJigSocket(url: string): SocketHandle {
                 description: (t.description as string) ?? "",
                 assignee: (t.assignee as string | null) ?? null,
                 parentId: (t.parent_id as string | null) ?? null,
+                dependsOn: (t.blocked_by as string[]) ?? [],
+                workflow: (t.workflow as string) ?? "default",
                 lastActivity: prev.tickets[id]?.lastActivity ?? Date.now(),
                 currentPhase: prev.tickets[id]?.currentPhase ?? null,
                 phaseIndex: prev.tickets[id]?.phaseIndex ?? null,

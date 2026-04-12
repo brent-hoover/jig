@@ -38,6 +38,8 @@ export interface Ticket {
   description: string
   assignee: string | null
   parentId: string | null
+  dependsOn: string[] // ticket IDs that must resolve before this starts
+  workflow: string // workflow name ("default" or "project")
   lastActivity: number // epoch ms; bumps on any related event
   currentPhase: string | null // active workflow phase name, null when idle
   phaseIndex: number | null // 0-based index of current phase

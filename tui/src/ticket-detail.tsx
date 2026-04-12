@@ -401,6 +401,9 @@ function buildSections(
   if (ticket.parentId) {
     sections.push({ kind: "field", label: "Parent", value: ticket.parentId })
   }
+  if (ticket.dependsOn && ticket.dependsOn.length > 0) {
+    sections.push({ kind: "field", label: "Deps  ", value: ticket.dependsOn.join(", ") })
+  }
 
   // Description
   if (ticket.description) {

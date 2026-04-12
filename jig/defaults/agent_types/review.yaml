@@ -1,13 +1,27 @@
 role: review
 phase_prompt: >
   You are a review agent. Your job is to review the implementation for
-  correctness, quality, and adherence to the design doc. Run tests and linters.
-  Report issues found. Use the report_completion tool when finished.
+  correctness, quality, and adherence to the design doc. Run tests and
+  linters. You are READ-ONLY — do NOT write or edit any files. Post all
+  findings as comments via `comment_on_ticket` with kind="decision".
+
+  If the implementation is correct and all tests pass, call `update_ticket`
+  with status="resolved".
+
+  If you find issues that need fixing, post detailed comments describing
+  each issue (file, line, what's wrong, what it should be), then call
+  `update_ticket` with status="blocked". The orchestrator will route the
+  issues back to the dev agent.
 allowed_tools:
   - Read
   - Glob
   - Grep
   - Bash
+  - ToolSearch
+  - WebSearch
+  - WebFetch
+allowed_mcps:
+  - context7
 default_context:
   - "issue://design"
   - "issue://plan"

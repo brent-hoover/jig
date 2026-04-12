@@ -22,8 +22,18 @@ def create_agent_mcp_server(
     agent_role: str,
     agent_cfg: AgentTypeConfig,
     worktree_path: Path,
+    valid_roles: frozenset[str] = frozenset(),
 ):
     """Create a Jig MCP server for a worker agent exposing 9 ticket-era tools."""
+
+    # Allowed assignees: known roles + orchestrator + user
+    _allowed_assignees = valid_roles | {"orchestrator", "user"}
+
+    def _check_assignee(assignee: str | None) -> None:
+        if assignee and _allowed_assignees and assignee not in _allowed_assignees:
+            raise ValueError(
+                f"Unknown role {assignee!r}. Valid roles: {sorted(valid_roles)}"
+            )
 
     @tool(
         "create_ticket",
@@ -31,6 +41,7 @@ def create_agent_mcp_server(
         {"type": str, "title": str, "description": str, "assignee": str, "parent_id": str, "labels": list},
     )
     async def create_ticket(args):
+        _check_assignee(args.get("assignee"))
         ticket_id = await ticket_mcp.handle_create_ticket(
             tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
         )
@@ -51,6 +62,7 @@ def create_agent_mcp_server(
         {"ticket_id": str, "status": str, "description": str, "assignee": str, "labels": list},
     )
     async def update_ticket(args):
+        _check_assignee(args.get("assignee"))
         updated = await ticket_mcp.handle_update_ticket(
             tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
         )
@@ -71,6 +83,19 @@ def create_agent_mcp_server(
             args=args,
         )
         return {"content": [{"type": "text", "text": cid}]}
+
+    @tool(
+        "ask_question",
+        "Ask the operator a question. Posts question comment(s) and pauses the ticket (needs_info). "
+        "The orchestrator will resume you once the operator answers. "
+        "Use this instead of creating question tickets or manually setting needs_info.",
+        {"ticket_id": str, "question": str, "questions": list},
+    )
+    async def ask_question(args):
+        result = await ticket_mcp.handle_ask_question(
+            tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
         "list_tickets",
@@ -139,6 +164,7 @@ def create_agent_mcp_server(
             read_ticket,
             update_ticket,
             comment_on_ticket,
+            ask_question,
             list_tickets,
             read_comments,
             commit_progress,

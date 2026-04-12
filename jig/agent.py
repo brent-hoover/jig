@@ -6,10 +6,19 @@ import re
 from dataclasses import dataclass
 
 from claude_agent_sdk import query, ClaudeAgentOptions
-from claude_agent_sdk.types import ResultMessage
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 
+from jig.context_resolver import resolve_context_uris
 from jig.environment import load_environment_md
+from jig.events import EventEmitter, JigEvent
 from jig.mcp_server import create_agent_mcp_server
+from jig.persistence import list_agent_types
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext
 from jig.skill_loader import load_all_skills, match_skills
@@ -63,7 +72,110 @@ class RunAgentResult:
     final_text: str
 
 
-async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
+async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
+    """Assemble the full initial prompt an agent would receive for a ticket."""
+    skills = match_skills(project=ctx.project, skills=load_all_skills())
+    env_md = load_environment_md(ctx.project.path_or_default())
+    memories = [
+        learning.content for learning in await ctx.memory.get_role_learnings(ctx.role)
+    ]
+    comments = await ctx.comments.for_ticket(ctx.ticket.id)
+    if ctx.parent:
+        comments = await ctx.comments.for_ticket(ctx.parent.id) + comments
+
+    resolved_context = await resolve_context_uris(
+        ctx.role_cfg.default_context,
+        ticket=ctx.ticket,
+        parent=ctx.parent,
+        comments=ctx.comments,
+        worktree_path=ctx.worktree_path,
+    )
+
+    all_roles = list_agent_types(ctx.project.path_or_default())
+
+    return build_initial_prompt(
+        role_cfg=ctx.role_cfg,
+        spawn_reason=ctx.spawn_reason,
+        ticket=ctx.ticket,
+        parent=ctx.parent,
+        comments=comments,
+        memories=memories,
+        project=ctx.project,
+        skills=skills,
+        environment_md=env_md,
+        resolved_context=resolved_context,
+        all_roles=all_roles,
+        worktree_path=str(ctx.worktree_path),
+    )
+
+
+def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
+    """Resolve allowed MCP names to stdio server configs.
+
+    Searches two locations for each name:
+    1. User-level ``~/.claude/.mcp.json`` (``mcpServers`` key)
+    2. Installed plugin cache (``~/.claude/plugins/cache/*/*/.mcp.json``)
+
+    Returns a dict of ``{server_name: McpStdioServerConfig}`` suitable for
+    merging into the ``mcp_servers`` option.
+    """
+    if not allowed_mcps:
+        return {}
+
+    import json
+    from pathlib import Path
+
+    result: dict = {}
+    remaining = set(allowed_mcps)
+
+    # 1. User-level .mcp.json
+    user_mcp = Path.home() / ".claude" / ".mcp.json"
+    if user_mcp.exists():
+        try:
+            servers = json.loads(user_mcp.read_text()).get("mcpServers", {})
+            for name in list(remaining):
+                if name in servers:
+                    result[name] = servers[name]
+                    remaining.discard(name)
+        except (json.JSONDecodeError, OSError):
+            _logger.warning("Failed to parse %s", user_mcp)
+
+    if not remaining:
+        return result
+
+    # 2. Plugin cache — each plugin dir has .mcp.json with server configs
+    plugins_cache = Path.home() / ".claude" / "plugins" / "cache"
+    if plugins_cache.is_dir():
+        for marketplace_dir in plugins_cache.iterdir():
+            if not marketplace_dir.is_dir():
+                continue
+            for name in list(remaining):
+                plugin_dir = marketplace_dir / name
+                if not plugin_dir.is_dir():
+                    continue
+                # Find any version subdirectory containing .mcp.json
+                for version_dir in plugin_dir.iterdir():
+                    if not version_dir.is_dir():
+                        continue
+                    mcp_json = version_dir / ".mcp.json"
+                    if not mcp_json.exists():
+                        continue
+                    try:
+                        servers = json.loads(mcp_json.read_text())
+                        for server_name, config in servers.items():
+                            result[server_name] = config
+                        remaining.discard(name)
+                    except (json.JSONDecodeError, OSError):
+                        _logger.warning("Failed to parse %s", mcp_json)
+                    break
+
+    for name in remaining:
+        _logger.warning("MCP '%s' not found in user settings or installed plugins", name)
+
+    return result
+
+
+async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None) -> RunAgentResult:
     """Run a Claude agent against a ticket in streaming input mode.
 
     Builds the initial prompt, subscribes to the ticket's bus topic, yields
@@ -76,27 +188,12 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
     a ticket_updated payload or by the timeout-poll noticing a terminal status
     on the ticket record).
     """
-    skills = match_skills(project=ctx.project, skills=load_all_skills())
-    env_md = load_environment_md(ctx.project.path_or_default())
-    memories = [
-        learning.content for learning in await ctx.memory.get_role_learnings(ctx.role)
-    ]
-    comments = (
-        await ctx.comments.for_ticket(ctx.parent.id) if ctx.parent else []
-    )
+    initial_prompt = await build_agent_prompt(ctx)
+    _logger.info("prompt built for %s (%d chars)", ctx.role, len(initial_prompt))
+    _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
+    _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
 
-    initial_prompt = build_initial_prompt(
-        role_cfg=ctx.role_cfg,
-        spawn_reason=ctx.spawn_reason,
-        ticket=ctx.ticket,
-        parent=ctx.parent,
-        comments=comments,
-        memories=memories,
-        project=ctx.project,
-        skills=skills,
-        environment_md=env_md,
-    )
-
+    all_roles = list_agent_types(ctx.project.path_or_default())
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
         comments=ctx.comments,
@@ -105,16 +202,23 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
         agent_role=ctx.role,
         agent_cfg=ctx.role_cfg,
         worktree_path=ctx.worktree_path,
+        valid_roles=frozenset(r.role for r in all_roles),
     )
+
+    mcp_servers: dict = {"jig": mcp_server}
+    external = _resolve_external_mcps(ctx.role_cfg.allowed_mcps)
+    mcp_servers.update(external)
+    if external:
+        _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
 
     options = ClaudeAgentOptions(
         cwd=str(ctx.worktree_path),
         allowed_tools=ctx.role_cfg.allowed_tools,
-        disallowed_tools=[],
         system_prompt=ctx.role_cfg.phase_prompt,
-        mcp_servers={"jig": mcp_server},
+        mcp_servers=mcp_servers,
         permission_mode="bypassPermissions",
     )
+    _logger.info("agent config: cwd=%s tools=%s mcps=%s", ctx.worktree_path, ctx.role_cfg.allowed_tools, ctx.role_cfg.allowed_mcps or ["jig"])
 
     topic = f"tickets.{ctx.ticket.id}"
     bus_queue = await ctx.bus.subscribe_agent(
@@ -129,8 +233,16 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
     terminal_values = {status.value for status in terminal_statuses}
     done = asyncio.Event()
 
+    def _user_message(content: str) -> dict:
+        return {
+            "type": "user",
+            "session_id": "",
+            "message": {"role": "user", "content": content},
+            "parent_tool_use_id": None,
+        }
+
     async def _prompt_stream():
-        yield initial_prompt
+        yield _user_message(initial_prompt)
         while not done.is_set():
             try:
                 msg = await asyncio.wait_for(bus_queue.get(), timeout=0.5)
@@ -141,7 +253,7 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
                 continue
             if not _is_relevant(msg, ctx):
                 continue
-            yield _format_bus_event(msg)
+            yield _user_message(_format_bus_event(msg))
             payload = msg.payload or {}
             if (
                 payload.get("kind") == "ticket_updated"
@@ -150,16 +262,52 @@ async def run_agent(ctx: AgentSpawnContext) -> RunAgentResult:
             ):
                 done.set()
 
+    async def _emit(event_type: str, data: dict) -> None:
+        """Log and optionally emit an event to the TUI."""
+        if emitter is not None:
+            try:
+                await emitter.emit(JigEvent(type=event_type, data=data))
+            except Exception:
+                _logger.warning("emitter.emit raised; continuing", exc_info=True)
+
     final_text = ""
+    _logger.info("launching claude agent for %s in %s", ctx.role, ctx.worktree_path)
     try:
         async for message in query(prompt=_prompt_stream(), options=options):
-            if isinstance(message, ResultMessage):
+            if isinstance(message, AssistantMessage):
+                for block in message.content or []:
+                    if isinstance(block, ToolUseBlock):
+                        detail = _tool_detail(block.name, block.input or {})
+                        _logger.info("[%s] tool: %s %s", ctx.role, block.name, detail)
+                        await _emit("agent_tool", {
+                            "role": ctx.role,
+                            "ticket_id": ctx.ticket.id,
+                            "tool": block.name,
+                            "detail": detail,
+                        })
+                    elif isinstance(block, TextBlock):
+                        short = _sanitize_for_tui(block.text)
+                        if short:
+                            _logger.info("[%s] text: %s", ctx.role, _sanitize_for_tui(block.text, limit=2000))
+                            await _emit("agent_text", {
+                                "role": ctx.role,
+                                "ticket_id": ctx.ticket.id,
+                                "text": short,
+                            })
+            elif isinstance(message, SystemMessage):
+                _logger.debug("[%s] system: %s", ctx.role, message.subtype)
+            elif isinstance(message, ResultMessage):
                 final_text = message.result or ""
+                _logger.info("[%s] completed: %s turns, %.1fs",
+                             ctx.role, message.num_turns, (message.duration_ms or 0) / 1000)
             else:
                 # Fallback for mocked result-like messages
                 result = getattr(message, "result", None)
                 if isinstance(result, str):
                     final_text = result
+    except Exception:
+        _logger.exception("claude agent SDK query failed for %s", ctx.role)
+        raise
     finally:
         done.set()
         # Remove the queue from the topic fan-out list to prevent a slow leak

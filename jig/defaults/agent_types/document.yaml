@@ -4,12 +4,17 @@ phase_prompt: >
   README.md and any other relevant docs to reflect the changes made.
   Do NOT overwrite the entire README — update it by adding or modifying
   sections as needed. Add docstrings to public APIs if missing.
-  Use the report_completion tool when finished.
+  When finished, call `update_ticket` with status="resolved".
 allowed_tools:
   - Read
   - Edit
   - Write
   - Glob
   - Grep
+  - ToolSearch
+  - WebSearch
+  - WebFetch
+allowed_mcps:
+  - context7
 default_context:
   - "issue://design"

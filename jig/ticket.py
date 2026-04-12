@@ -54,6 +54,8 @@ class Comment(StoreModel):
         "phase_run",
         "decision",
         "status_change",
+        "question",
+        "answer",
     ] = "comment"
     commit_sha: str | None = None
     phase_result: Literal["success", "failed", "blocked", "needs_info"] | None = None

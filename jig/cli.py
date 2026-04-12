@@ -1,6 +1,7 @@
 """Jig CLI."""
 
 import asyncio
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import click
 
 from jig.events import EventEmitter
+from jig.models import MergeStrategy
 from jig.project import Project, save_project
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
@@ -42,6 +44,9 @@ def _detect_branch(path: Path) -> str:
             return "main"
 
 
+_MERGE_STRATEGIES = [s.value for s in MergeStrategy]
+
+
 def _prompt_project_context(path: Path, existing: Project) -> Project:
     """Interactively gather project fields."""
     click.echo("Project context. (Press Enter to skip/keep current value)\n")
@@ -53,6 +58,12 @@ def _prompt_project_context(path: Path, existing: Project) -> Project:
     pkg_mgr = click.prompt("Package manager", default=existing.package_manager)
     build_cmd = click.prompt("Build command", default=existing.build_command)
     test_cmd = click.prompt("Test command", default=existing.test_command)
+    merge = click.prompt(
+        f"Merge strategy ({', '.join(_MERGE_STRATEGIES)})",
+        default=existing.merge_strategy.value,
+        type=click.Choice(_MERGE_STRATEGIES, case_sensitive=False),
+        show_choices=False,
+    )
 
     return Project(
         id=existing.id,
@@ -65,14 +76,76 @@ def _prompt_project_context(path: Path, existing: Project) -> Project:
         package_manager=pkg_mgr,
         build_command=build_cmd,
         test_command=test_cmd,
+        merge_strategy=MergeStrategy(merge),
     )
+
+
+_TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
+    "python": {
+        "language": "python",
+        "framework": "",
+        "package_manager": "uv",
+        "test_command": "uv run pytest",
+        "build_command": "uv build",
+    },
+    "fastapi": {
+        "language": "python",
+        "framework": "fastapi",
+        "package_manager": "uv",
+        "test_command": "uv run pytest",
+        "build_command": "uv build",
+    },
+}
+
+
+def _available_templates() -> list[str]:
+    """Return names of bundled project templates."""
+    tpl_root = Path(__file__).resolve().parent.parent / "templates"
+    if not tpl_root.is_dir():
+        return []
+    return sorted(d.name for d in tpl_root.iterdir() if d.is_dir())
+
+
+def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
+    """Copy a project template into dest, replacing 'myproject' with project_name."""
+    tpl_root = Path(__file__).resolve().parent.parent / "templates"
+    tpl_dir = tpl_root / template_name
+    if not tpl_dir.is_dir():
+        available = _available_templates()
+        raise click.ClickException(
+            f"Unknown template {template_name!r}. Available: {', '.join(available) or 'none'}"
+        )
+
+    # Sanitize project name for use as a Python package name
+    pkg_name = project_name.replace("-", "_").replace(" ", "_").lower()
+    skip_dirs = {"__pycache__", ".ruff_cache", ".mypy_cache", ".pytest_cache", ".venv", "node_modules"}
+
+    for src_file in tpl_dir.rglob("*"):
+        if not src_file.is_file():
+            continue
+        if skip_dirs & set(src_file.relative_to(tpl_dir).parts):
+            continue
+        rel = src_file.relative_to(tpl_dir)
+        # Rename paths containing "myproject" to the actual package name
+        dest_rel = Path(str(rel).replace("myproject", pkg_name))
+        dest_file = dest / dest_rel
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        content = src_file.read_bytes()
+        # Replace placeholder in text files
+        try:
+            text = content.decode()
+            text = text.replace("myproject", pkg_name)
+            dest_file.write_text(text)
+        except UnicodeDecodeError:
+            dest_file.write_bytes(content)
 
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option("--branch", default=None, help="Default branch name (auto-detected from current branch).")
+@click.option("--template", "template_name", default=None, help="Project template (python, fastapi).")
 @click.option("--no-input", is_flag=True, help="Skip interactive prompts.")
-def init(path: Path, branch: str | None, no_input: bool) -> None:
+def init(path: Path, branch: str | None, template_name: str | None, no_input: bool) -> None:
     """Initialize .jig/ in a project."""
     if not (path / ".git").is_dir():
         if no_input:
@@ -106,43 +179,96 @@ def init(path: Path, branch: str | None, no_input: bool) -> None:
     click.echo(f"Initialized Jig in {path / '.jig'} (branch: {branch})")
 
     project_name = path.resolve().name
+
+    # Apply project template if specified (or prompt for one)
+    if template_name is None and not no_input:
+        available = _available_templates()
+        if available:
+            choice = click.prompt(
+                f"Project template ({', '.join(available)}, or blank to skip)",
+                default="",
+            )
+            if choice.strip():
+                template_name = choice.strip()
+
+    if template_name:
+        _apply_template(template_name, path, project_name)
+        click.echo(f"Applied template: {template_name}")
     project_id = project_name
+    tpl_defaults = _TEMPLATE_DEFAULTS.get(template_name or "", {})
+
+    base_project = Project(
+        id=project_id,
+        name=project_name,
+        path=str(path.resolve()),
+        default_branch=branch,
+        **tpl_defaults,
+    )
 
     if no_input:
-        save_project(path, Project(
-            id=project_id,
-            name=project_name,
-            path=str(path.resolve()),
-            default_branch=branch,
-        ))
-        return
+        save_project(path, base_project)
+    else:
+        click.echo()
+        project = _prompt_project_context(path, base_project)
+        save_project(path, project)
+        click.echo("\nProject saved to .jig/project.json")
 
-    click.echo()
-
-    project = _prompt_project_context(
-        path,
-        Project(id=project_id, name=project_name, path=str(path.resolve()), default_branch=branch),
+    # Commit everything so worktrees branch from a working state
+    subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "chore: initialize jig project"],
+        cwd=path, capture_output=True,
     )
-    save_project(path, project)
-    click.echo("\nProject saved to .jig/project.json")
+    click.echo("Initial commit created.")
 
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option("--ws-port", default=9100, type=int, help="WebSocket server port.", show_default=True)
-def start(path: Path, ws_port: int) -> None:
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose (DEBUG) logging.")
+def start(path: Path, ws_port: int, verbose: bool) -> None:
     """Start the Jig orchestrator daemon."""
+    level = logging.DEBUG if verbose else logging.INFO
+
+    console_fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    console = logging.StreamHandler()
+    console.setLevel(level)
+    console.setFormatter(console_fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(console)
+
+    # Quiet noisy third-party loggers — frame-level WS debug is never useful
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("mcp").setLevel(logging.WARNING)
+
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
         raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
 
+    from datetime import datetime
+    log_dir = jig_dir / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"jig-{datetime.now():%Y%m%d-%H%M%S}.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    root.addHandler(file_handler)
+    click.echo(f"Logging to {log_file}")
+
     async def run_daemon() -> None:
         emitter = EventEmitter()
-        ws_server = WebSocketServer(emitter, port=ws_port)
+        orchestrator = Orchestrator(project_path=path, emitter=emitter)
+        ws_server = WebSocketServer(emitter, port=ws_port, orchestrator=orchestrator)
         await ws_server.start()
         click.echo(f"WebSocket server listening on ws://127.0.0.1:{ws_server.port}")
-
-        orchestrator = Orchestrator(project_path=path, emitter=emitter)
         try:
             await orchestrator.startup()
             click.echo("Orchestrator started. Press Ctrl-C to stop.")

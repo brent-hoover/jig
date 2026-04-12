@@ -122,6 +122,7 @@ export function NewTicketForm({
       border
       borderStyle="rounded"
       borderColor="#00aaff"
+      backgroundColor="#1a1a2e"
       paddingX={2}
       paddingY={1}
       flexDirection="column"

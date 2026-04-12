@@ -41,6 +41,15 @@ async def create_worktree(
             "commit", "--allow-empty", "-m", "chore: initialize repository",
         )
 
+    # If the branch already exists (leftover from a previous run), delete it
+    # before creating the worktree so `-b` doesn't fail.
+    try:
+        await _run_git(project_path, "rev-parse", "--verify", branch_name)
+        # Branch exists — remove it
+        await _run_git(project_path, "branch", "-D", branch_name)
+    except RuntimeError:
+        pass  # Branch doesn't exist — good
+
     await _run_git(
         project_path,
         "worktree", "add", "-b", branch_name,
@@ -72,15 +81,18 @@ async def commit_worktree(worktree_path: Path, message: str) -> str | None:
     return sha
 
 
-async def remove_worktree(project_path: Path, ticket_id: str) -> None:
-    """Remove a git worktree and its branch."""
+async def remove_worktree(
+    project_path: Path, ticket_id: str, *, keep_branch: bool = False,
+) -> None:
+    """Remove a git worktree, optionally preserving its branch for merge."""
     worktree_path = project_path / ".jig" / "worktrees" / ticket_id
     branch_name = f"jig/{ticket_id}"
     await _run_git(project_path, "worktree", "remove", str(worktree_path), "--force")
-    try:
-        await _run_git(project_path, "branch", "-D", branch_name)
-    except RuntimeError:
-        pass  # Branch may already be deleted
+    if not keep_branch:
+        try:
+            await _run_git(project_path, "branch", "-D", branch_name)
+        except RuntimeError:
+            pass  # Branch may already be deleted
 
 
 async def _run_cmd(cwd: Path, *args: str) -> str:
@@ -139,14 +151,39 @@ async def merge_ticket(
         except (RuntimeError, FileNotFoundError) as e:
             return f"Created feature branch: {feature_branch} (PR failed: {e})"
 
-    # Direct or squash merge
-    await _run_git(project_path, "checkout", base_branch)
+    # Direct or squash merge — stash any dirty state in the main repo first
+    stashed = False
+    try:
+        status = await _run_git(project_path, "status", "--porcelain")
+        if status.strip():
+            await _run_git(project_path, "stash", "push", "-m", f"jig: pre-merge {ticket_id}")
+            stashed = True
+    except RuntimeError:
+        pass
 
-    if strategy == MergeStrategy.SQUASH:
-        await _run_git(project_path, "merge", "--squash", source_branch)
-        await _run_git(project_path, "commit", "-m", f"feat: {ticket_id}")
-        return f"Squash-merged {source_branch} into {base_branch}"
-    else:
-        # MergeStrategy.DIRECT
-        await _run_git(project_path, "merge", source_branch, "-m", f"Merge {ticket_id}")
-        return f"Merged {source_branch} into {base_branch}"
+    try:
+        await _run_git(project_path, "checkout", base_branch)
+    except RuntimeError:
+        if stashed:
+            try:
+                await _run_git(project_path, "stash", "pop")
+            except RuntimeError:
+                pass
+        raise
+
+    try:
+        if strategy == MergeStrategy.SQUASH:
+            await _run_git(project_path, "merge", "--squash", source_branch)
+            await _run_git(project_path, "commit", "-m", f"feat: {ticket_id}")
+            result = f"Squash-merged {source_branch} into {base_branch}"
+        else:
+            # MergeStrategy.DIRECT
+            await _run_git(project_path, "merge", source_branch, "-m", f"Merge {ticket_id}")
+            result = f"Merged {source_branch} into {base_branch}"
+    finally:
+        if stashed:
+            try:
+                await _run_git(project_path, "stash", "pop")
+            except RuntimeError:
+                pass
+    return result

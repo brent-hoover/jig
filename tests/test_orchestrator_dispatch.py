@@ -270,7 +270,7 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
-    async def slow_run_agent(ctx):
+    async def slow_run_agent(ctx, emitter=None):
         await asyncio.sleep(0.1)
         return RunAgentResult(status="success", final_text="ok")
 
@@ -338,7 +338,7 @@ async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -
 
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
-    async def fake_run_agent(ctx):
+    async def fake_run_agent(ctx, emitter=None):
         calls.append(ctx.role)
         return RunAgentResult(status="success", final_text="ok")
     monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)

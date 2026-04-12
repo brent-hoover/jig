@@ -49,7 +49,7 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
 
     run_calls: list[str] = []
 
-    async def fake_run_agent(ctx):
+    async def fake_run_agent(ctx, emitter=None):
         run_calls.append(ctx.role)
         await ctx.tickets.update_status(ctx.ticket.id, TicketStatus.RESOLVED)
         return RunAgentResult(status="success", final_text="ok")
@@ -128,7 +128,7 @@ async def test_run_agent_exception_marks_ticket_failed(
 
     from jig import orchestrator as orch_module
 
-    async def exploding_run_agent(ctx):
+    async def exploding_run_agent(ctx, emitter=None):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(orch_module, "run_agent", exploding_run_agent)
@@ -152,17 +152,10 @@ async def test_run_agent_exception_marks_ticket_failed(
             except (asyncio.TimeoutError, Exception):
                 pass
 
-        parent = await orch.tickets.get(tid)
-        assert parent is not None
-        assert parent.status == TicketStatus.FAILED, (
-            f"expected FAILED, got {parent.status}"
-        )
-
-        # Child TASK ticket should also be FAILED (best-effort)
-        children = await orch.tickets.find_by_parent(tid)
-        assert len(children) >= 1
-        assert any(c.status == TicketStatus.FAILED for c in children), (
-            f"no FAILED child among {[c.status for c in children]}"
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.FAILED, (
+            f"expected FAILED, got {ticket.status}"
         )
     finally:
         await orch.shutdown()
@@ -177,49 +170,34 @@ async def test_run_agent_exception_marks_ticket_failed(
 async def test_current_phase_index_skips_by_phase_name_not_task_count(
     tmp_path: Path,
 ) -> None:
-    """Two task tickets both titled 'a: ...' should only count as one phase done."""
+    """Duplicate phase_run comments for the same phase should count as one phase done."""
     wf = _make_project_and_workflow(tmp_path, ["a", "b", "c"])
 
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        # Create parent ticket
-        parent_id = await orch.tickets.create(
+        ticket_id = await orch.tickets.create(
             Ticket(type=TicketType.FEATURE, title="feat", created_by="user")
         )
 
-        # Create TWO task tickets both for phase "a" (simulating a retry scenario)
+        # Post TWO phase_run comments for phase "a" (simulating a retry)
         for i in range(2):
-            task_id = await orch.tickets.create(
-                Ticket(
-                    type=TicketType.TASK,
-                    title=f"a: feat (attempt {i})",
-                    parent_id=parent_id,
-                    assignee="role-a",
-                    created_by="orchestrator",
-                    status=TicketStatus.RESOLVED,
-                )
-            )
-            # Each gets a successful phase_run comment
             await orch.comments.post(
                 Comment(
-                    ticket_id=task_id,
+                    ticket_id=ticket_id,
                     author="orchestrator",
-                    content="phase a: success",
+                    content=f"phase a: success (attempt {i})",
                     kind="phase_run",
                     phase_result="success",
-                    phase_branch=f"jig/{task_id}",
                 )
             )
 
-        result = await orch._current_phase_index(parent_id, wf)
+        result = await orch._current_phase_index(ticket_id, wf)
 
-        # Phase "a" is done (both tickets succeed), but that's still only 1 phase.
-        # The old task-count code would return 2 (two task tickets), skipping "b".
+        # Phase "a" is done but that's still only 1 phase.
         # The correct answer is 1 (only phase "a" is complete; start at "b").
         assert result == 1, (
-            f"expected 1 (only phase 'a' done), got {result} — "
-            "old code counted task tickets instead of distinct phases"
+            f"expected 1 (only phase 'a' done), got {result}"
         )
     finally:
         await orch.shutdown()

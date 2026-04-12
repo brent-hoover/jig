@@ -7,11 +7,16 @@ from typing import TYPE_CHECKING
 import websockets
 from websockets.asyncio.server import serve, ServerConnection
 
+from jig.agent import build_agent_prompt
 from jig.events import EventEmitter
+from jig.persistence import list_agent_types, load_agent_type, load_workflow
 from jig.ticket_mcp import (
+    handle_answer_questions,
     handle_create_ticket,
     handle_comment_on_ticket,
+    handle_read_comments,
     handle_update_ticket,
+    handle_list_tickets,
 )
 
 if TYPE_CHECKING:
@@ -73,6 +78,8 @@ class WebSocketServer:
         try:
             async for raw in websocket:
                 await self._handle_incoming(websocket, raw)
+        except websockets.ConnectionClosed:
+            pass
         finally:
             self._clients.discard(websocket)
 
@@ -127,6 +134,115 @@ class WebSocketServer:
                 await self._safe_send(
                     websocket, json.dumps({"ok": True, "status": updated.status.value})
                 )
+            elif command == "list_tickets":
+                all_tickets = await handle_list_tickets(
+                    tickets=self._orch.tickets,
+                    args=args,
+                )
+                await self._safe_send(websocket, json.dumps({
+                    "ok": True,
+                    "tickets": [
+                        {
+                            "id": t.id,
+                            "type": t.type.value,
+                            "status": t.status.value,
+                            "title": t.title,
+                            "description": t.description,
+                            "assignee": t.assignee,
+                            "parent_id": t.parent_id,
+                        }
+                        for t in all_tickets
+                    ],
+                }))
+            elif command == "get_comments":
+                ticket_id = args.get("ticket_id")
+                if not ticket_id:
+                    await self._safe_send(
+                        websocket, json.dumps({"ok": False, "error": "ticket_id required"})
+                    )
+                    return
+                found = await handle_read_comments(
+                    comments=self._orch.comments,
+                    ticket_id=ticket_id,
+                    kind=args.get("kind"),
+                )
+                await self._safe_send(websocket, json.dumps({
+                    "ok": True,
+                    "comments": [
+                        {
+                            "id": c.id,
+                            "ticket_id": c.ticket_id,
+                            "author": c.author,
+                            "content": c.content,
+                            "kind": c.kind,
+                            "created_at": c.created_at.isoformat() if c.created_at else None,
+                            "commit_sha": c.commit_sha,
+                        }
+                        for c in found
+                    ],
+                }))
+            elif command == "answer_questions":
+                result = await handle_answer_questions(
+                    tickets=self._orch.tickets,
+                    comments=self._orch.comments,
+                    bus=self._orch.bus,
+                    sender="user",
+                    args=args,
+                )
+                await self._safe_send(websocket, json.dumps({"ok": True, **result}))
+            elif command == "list_agents":
+                agents = list_agent_types(self._orch._project_path)
+                await self._safe_send(websocket, json.dumps({
+                    "ok": True,
+                    "agents": [a.model_dump() for a in agents],
+                }))
+            elif command == "preview_prompt":
+                from jig.runtime import AgentSpawnContext, SpawnReason
+                ticket_id = args.get("ticket_id")
+                role = args.get("role")
+                if not ticket_id or not role:
+                    await self._safe_send(
+                        websocket, json.dumps({"ok": False, "error": "ticket_id and role required"})
+                    )
+                    return
+                ticket = await self._orch.tickets.get(ticket_id)
+                if ticket is None:
+                    await self._safe_send(
+                        websocket, json.dumps({"ok": False, "error": f"ticket {ticket_id} not found"})
+                    )
+                    return
+                parent = None
+                if ticket.parent_id:
+                    parent = await self._orch.tickets.get(ticket.parent_id)
+                role_cfg = load_agent_type(self._orch._project_path, role)
+                worktree_path = self._orch._project_path / ".jig" / "worktrees" / ticket_id
+                ctx = AgentSpawnContext(
+                    role=role,
+                    role_cfg=role_cfg,
+                    spawn_reason=SpawnReason.PHASE_PRIMARY,
+                    ticket=ticket,
+                    parent=parent,
+                    worktree_path=worktree_path,
+                    project=self._orch._project,
+                    tickets=self._orch.tickets,
+                    comments=self._orch.comments,
+                    memory=self._orch.memory,
+                    bus=self._orch.bus,
+                )
+                prompt = await build_agent_prompt(ctx)
+                await self._safe_send(websocket, json.dumps({
+                    "ok": True,
+                    "prompt": prompt,
+                    "system_prompt": role_cfg.phase_prompt,
+                    "char_count": len(prompt),
+                }))
+            elif command == "get_workflow":
+                name = args.get("name", "default")
+                wf = load_workflow(self._orch._project_path, name)
+                await self._safe_send(websocket, json.dumps({
+                    "ok": True,
+                    "workflow": wf.model_dump(),
+                }))
             else:
                 await self._safe_send(
                     websocket, json.dumps({"ok": False, "error": f"unknown command {command}"})

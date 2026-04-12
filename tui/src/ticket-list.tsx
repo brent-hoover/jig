@@ -24,9 +24,10 @@ const STATUS_COLOR: Record<TicketStatus, string> = {
 interface TicketListProps {
   tickets: Record<string, Ticket>
   selectedId: string | null
+  focused?: boolean
 }
 
-export function TicketList({ tickets, selectedId }: TicketListProps) {
+export function TicketList({ tickets, selectedId, focused }: TicketListProps) {
   const sorted = Object.values(tickets).sort(
     (a, b) => b.lastActivity - a.lastActivity,
   )
@@ -35,10 +36,10 @@ export function TicketList({ tickets, selectedId }: TicketListProps) {
     <box
       border
       borderStyle="rounded"
-      borderColor="#444444"
+      borderColor={focused ? "#00aaff" : "#444444"}
       paddingX={1}
       flexDirection="column"
-      flexGrow={1}
+      flexShrink={0}
     >
       <text>
         <span style={{ attributes: 1 }}>Tickets</span>
@@ -54,9 +55,6 @@ export function TicketList({ tickets, selectedId }: TicketListProps) {
       ) : (
         sorted.map((ticket) => {
           const selected = ticket.id === selectedId
-          // QUESTION tickets assigned to "user" are things the TUI user is
-          // expected to answer — flag them so they don't get lost in a busy
-          // run.
           const needsAnswer =
             ticket.type === "question" && ticket.assignee === "user"
           return (
@@ -87,6 +85,11 @@ export function TicketList({ tickets, selectedId }: TicketListProps) {
                 <span style={{ fg: "#555555", attributes: 2 }}>
                   {` · ${ticket.type}`}
                 </span>
+                {ticket.currentPhase ? (
+                  <span style={{ fg: "#00aaff" }}>
+                    {` [${ticket.currentPhase} ${(ticket.phaseIndex ?? 0) + 1}/${ticket.totalPhases ?? "?"}]`}
+                  </span>
+                ) : null}
               </text>
             </box>
           )

@@ -3,6 +3,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from jig.models import MergeStrategy
+
 
 class Project(BaseModel):
     id: str
@@ -15,6 +17,7 @@ class Project(BaseModel):
     package_manager: str = ""
     test_command: str = ""
     build_command: str = ""
+    merge_strategy: MergeStrategy = MergeStrategy.FEATURE_BRANCH
 
     def path_or_default(self) -> Path:
         return Path(self.path)

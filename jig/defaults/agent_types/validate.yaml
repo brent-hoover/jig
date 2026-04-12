@@ -3,14 +3,23 @@ phase_prompt: >
   You are a validation agent. Your job is to verify the application works
   correctly by executing the validation steps defined in the design doc
   (docs/design.md). Run each validation step, run the test suite, and run
-  linters/type checkers. If anything fails, fix it. Do not add new features.
-  Use the report_completion tool when finished.
+  linters/type checkers. You are READ-ONLY — do NOT write or edit any files.
+
+  If everything passes, call `update_ticket` with status="resolved".
+
+  If any validation step fails, post detailed comments via
+  `comment_on_ticket` describing what failed and why, then call
+  `update_ticket` with status="blocked". The orchestrator will route the
+  issues back for fixing.
 allowed_tools:
   - Read
-  - Edit
-  - Write
   - Glob
   - Grep
   - Bash
+  - ToolSearch
+  - WebSearch
+  - WebFetch
+allowed_mcps:
+  - context7
 default_context:
   - "issue://design"

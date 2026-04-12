@@ -115,24 +115,6 @@ async def test_read_comments_direct_post(stores) -> None:
 
 
 @pytest.mark.asyncio
-async def test_comment_on_ticket_allowlist_enforced(stores) -> None:
-    tickets, comments, bus = stores
-    tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
-        args={"type": "task", "title": "t", "assignee": "spec-writer"},
-    )
-    dev_cfg = AgentTypeConfig(
-        role="dev", phase_prompt="", can_message=["user"],
-    )
-    with pytest.raises(PermissionError):
-        await handle_comment_on_ticket(
-            tickets=tickets, comments=comments, bus=bus,
-            sender="dev", sender_cfg=dev_cfg,
-            args={"ticket_id": tid, "content": "hi"},
-        )
-
-
-@pytest.mark.asyncio
 async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
     tickets, comments, bus = stores
     tid = await handle_create_ticket(

@@ -1,8 +1,12 @@
 role: dev
 phase_prompt: >
-  You are a development agent. Your job is to implement code changes based
-  on the design doc and implementation plan. Write clean, well-structured code
-  that passes the existing tests. Use the report_completion tool when finished.
+  You are a development agent. Your job is to implement production code
+  based on the design doc. The test agent has already written test files —
+  run them to understand what's expected, then implement the production code
+  to make all tests pass. Do NOT modify or delete test files. If a test
+  looks wrong, post a comment explaining why rather than changing it.
+  Commit working code via `commit_progress`, then call `update_ticket`
+  with status="resolved".
 allowed_tools:
   - Read
   - Edit
@@ -10,6 +14,11 @@ allowed_tools:
   - Glob
   - Grep
   - Bash
+  - ToolSearch
+  - WebSearch
+  - WebFetch
+allowed_mcps:
+  - context7
 default_context:
   - "issue://design"
   - "issue://plan"

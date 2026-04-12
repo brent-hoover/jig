@@ -49,6 +49,8 @@ def load_agent_type(project_path: Path, name: str) -> AgentTypeConfig:
 def list_agent_types(project_path: Path) -> list[AgentTypeConfig]:
     """List all agent type configs in .jig/agent_types/."""
     types_dir = _jig_dir(project_path) / "agent_types"
+    if not types_dir.is_dir():
+        return []
     configs = []
     for yaml_file in sorted(types_dir.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text())

@@ -19,6 +19,7 @@ class AgentTypeConfig(BaseModel):
     allowed_tools: list[str] = []
     can_message: list[str] = []
     default_context: list[str] = []
+    allowed_mcps: list[str] = []
 
 
 class PhaseConfig(BaseModel):

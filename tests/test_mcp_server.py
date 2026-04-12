@@ -50,6 +50,7 @@ async def test_agent_mcp_server_registers_expected_tools(
         "read_ticket",
         "update_ticket",
         "comment_on_ticket",
+        "ask_question",
         "list_tickets",
         "read_comments",
         "commit_progress",

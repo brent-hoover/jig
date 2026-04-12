@@ -8,7 +8,7 @@ from jig.store.tickets import TicketStore
 from jig.ticket import Comment, Ticket, TicketStatus, TicketType
 from jig.worktree import commit_worktree
 
-_WRITABLE_KINDS = frozenset({"comment", "decision"})
+_WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 
 
 async def handle_create_ticket(
@@ -36,6 +36,8 @@ async def handle_create_ticket(
         payload={
             "kind": "ticket_created",
             "ticket_id": ticket_id,
+            "title": ticket.title,
+            "description": ticket.description,
             "type": ticket.type.value,
             "assignee": ticket.assignee,
             "parent_id": ticket.parent_id,
@@ -47,7 +49,15 @@ async def handle_create_ticket(
         sender=sender,
         to=ticket.assignee or "broadcast",
         type=MessageType.CONTEXT_UPDATE,
-        payload={"kind": "ticket_created", "ticket_id": ticket_id},
+        payload={
+            "kind": "ticket_created",
+            "ticket_id": ticket_id,
+            "title": ticket.title,
+            "description": ticket.description,
+            "type": ticket.type.value,
+            "assignee": ticket.assignee,
+            "parent_id": ticket.parent_id,
+        },
         topic=f"tickets.{ticket_id}",
     ))
     return ticket_id
@@ -115,16 +125,10 @@ async def handle_comment_on_ticket(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    # Allowlist check — only applies when sender_cfg is provided (agents).
-    # The orchestrator and user pass sender_cfg=None to bypass.
-    if sender_cfg is not None and ticket.assignee:
-        target = ticket.assignee
-        allowed = set(sender_cfg.can_message) | {"orchestrator", sender_cfg.role}
-        if target not in allowed:
-            raise PermissionError(
-                f"role {sender_cfg.role!r} is not allowed to message "
-                f"role {target!r} (can_message={sender_cfg.can_message})"
-            )
+    # Commenting on a ticket is always allowed — the agent is posting its own
+    # observations, not messaging the assignee.  The can_message restriction
+    # applies to create_ticket (which directs work to another role), not to
+    # comments which are read-only context.
 
     comment = Comment(
         ticket_id=ticket_id,
@@ -136,7 +140,7 @@ async def handle_comment_on_ticket(
 
     await bus.publish(Message(
         sender=sender,
-        to=ticket.assignee or "broadcast",
+        to="broadcast",
         type=MessageType.CONTEXT_UPDATE,
         payload={
             "kind": "comment_posted",
@@ -144,10 +148,161 @@ async def handle_comment_on_ticket(
             "comment_id": cid,
             "author": sender,
             "content": args["content"],
+            "comment_kind": kind,
         },
         topic=f"tickets.{ticket_id}",
     ))
     return cid
+
+
+async def handle_ask_question(
+    *,
+    tickets: TicketStore,
+    comments: CommentStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict,
+) -> dict:
+    """Post one or more questions on a ticket and set it to needs_info.
+
+    Returns {"comment_ids": [...], "status": "needs_info"}.
+    """
+    ticket_id = args["ticket_id"]
+    questions: list[str] = args.get("questions", [])
+    # Also accept a single "question" string for convenience
+    if "question" in args and isinstance(args["question"], str):
+        questions.append(args["question"])
+    if not questions:
+        raise ValueError("at least one question is required")
+
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    comment_ids: list[str] = []
+    for q in questions:
+        comment = Comment(
+            ticket_id=ticket_id,
+            author=sender,
+            content=q,
+            kind="question",
+        )
+        cid = await comments.post(comment)
+        comment_ids.append(cid)
+        await bus.publish(Message(
+            sender=sender,
+            to=ticket.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "comment_posted",
+                "ticket_id": ticket_id,
+                "comment_id": cid,
+                "author": sender,
+                "content": q,
+                "comment_kind": "question",
+            },
+            topic=f"tickets.{ticket_id}",
+        ))
+
+    # Transition to needs_info
+    before_status = ticket.status
+    updated = await tickets.update(ticket_id, status=TicketStatus.NEEDS_INFO)
+    if before_status != TicketStatus.NEEDS_INFO:
+        await comments.post(Comment(
+            ticket_id=ticket_id,
+            author=sender,
+            content=f"status {before_status.value} -> needs_info",
+            kind="status_change",
+        ))
+    await bus.publish(Message(
+        sender=sender,
+        to=updated.assignee or "broadcast",
+        type=MessageType.CONTEXT_UPDATE,
+        payload={
+            "kind": "ticket_updated",
+            "ticket_id": ticket_id,
+            "status": "needs_info",
+        },
+        topic=f"tickets.{ticket_id}",
+    ))
+
+    return {"comment_ids": comment_ids, "status": "needs_info"}
+
+
+async def handle_answer_questions(
+    *,
+    tickets: TicketStore,
+    comments: CommentStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict,
+) -> dict:
+    """Post answers to pending questions and optionally resume the ticket.
+
+    args:
+        ticket_id: str
+        answers: list[str]         — one answer per pending question, in order
+        resume: bool (default True) — set ticket back to in_progress
+    """
+    ticket_id = args["ticket_id"]
+    answers: list[str] = args.get("answers", [])
+    resume: bool = args.get("resume", True)
+
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    comment_ids: list[str] = []
+    for a in answers:
+        comment = Comment(
+            ticket_id=ticket_id,
+            author=sender,
+            content=a,
+            kind="answer",
+        )
+        cid = await comments.post(comment)
+        comment_ids.append(cid)
+        await bus.publish(Message(
+            sender=sender,
+            to=ticket.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "comment_posted",
+                "ticket_id": ticket_id,
+                "comment_id": cid,
+                "author": sender,
+                "content": a,
+                "comment_kind": "answer",
+            },
+            topic=f"tickets.{ticket_id}",
+        ))
+
+    result: dict = {"comment_ids": comment_ids}
+
+    if resume and ticket.status == TicketStatus.NEEDS_INFO:
+        updated = await tickets.update(ticket_id, status=TicketStatus.IN_PROGRESS)
+        await comments.post(Comment(
+            ticket_id=ticket_id,
+            author=sender,
+            content=f"status needs_info -> {updated.status.value}",
+            kind="status_change",
+        ))
+        await bus.publish(Message(
+            sender=sender,
+            to=updated.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "ticket_updated",
+                "ticket_id": ticket_id,
+                "status": updated.status.value,
+            },
+            topic=f"tickets.{ticket_id}",
+        ))
+        result["status"] = updated.status.value
+    else:
+        result["status"] = ticket.status.value
+
+    return result
 
 
 async def handle_update_ticket(
@@ -181,14 +336,25 @@ async def handle_update_ticket(
             kind="status_change",
         ))
 
+    # Agents set "resolved" to signal phase completion, but only the
+    # orchestrator should broadcast resolved/failed to the TUI — otherwise the
+    # UI flickers "resolved" between workflow phases.  We still publish to the
+    # bus (so the agent runner detects the terminal status), but mark it
+    # internal so the emitter relay skips it.
+    internal = (
+        sender not in ("orchestrator", "user")
+        and "status" in update_fields
+        and update_fields["status"] in (TicketStatus.RESOLVED, TicketStatus.FAILED)
+    )
     await bus.publish(Message(
         sender=sender,
-        to=updated.assignee or "broadcast",
+        to="broadcast",
         type=MessageType.CONTEXT_UPDATE,
         payload={
             "kind": "ticket_updated",
             "ticket_id": ticket_id,
             "status": updated.status.value,
+            **({"_internal": True} if internal else {}),
         },
         topic=f"tickets.{ticket_id}",
     ))

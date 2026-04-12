@@ -14,8 +14,18 @@ type Pending = {
   reject: (err: Error) => void
 }
 
+export interface CommentData {
+  id: string
+  ticket_id: string
+  author: string
+  content: string
+  kind: string
+  created_at: string | null
+  commit_sha: string | null
+}
+
 export type Reply =
-  | { ok: true; ticket_id?: string; comment_id?: string; status?: string }
+  | { ok: true; ticket_id?: string; comment_id?: string; status?: string; comments?: CommentData[]; prompt?: string; system_prompt?: string; char_count?: number }
   | { ok: false; error: string }
 
 export type SendCommand = (
@@ -28,6 +38,9 @@ export interface SocketHandle {
   sendCommand: SendCommand
   selectTicket: (id: string | null) => void
   moveSelection: (delta: number) => void
+  moveAgentSelection: (delta: number) => void
+  setViewMode: (mode: AppState["viewMode"]) => void
+  toggleViewMode: () => void
   openModal: (modal: NonNullable<ModalState>) => void
   closeModal: () => void
   // Titles travel in-band with create_ticket commands; this lets the caller
@@ -47,9 +60,13 @@ function bumpTicket(
     type: "task",
     status: "open",
     title: id, // fallback until registerTitle or future fetch fills it
+    description: "",
     assignee: null,
     parentId: null,
     lastActivity: Date.now(),
+    currentPhase: null,
+    phaseIndex: null,
+    totalPhases: null,
   }
   return {
     ...tickets,
@@ -66,6 +83,8 @@ function reduce(state: AppState, event: JigEvent): AppState {
     case "ticket_created": {
       if (!ticketId) return { ...state, events }
       const tickets = bumpTicket(state.tickets, ticketId, {
+        title: (data.title as string) ?? ticketId,
+        description: (data.description as string) ?? "",
         type: (data.type as TicketType) ?? "task",
         assignee: (data.assignee as string | null) ?? null,
         parentId: (data.parent_id as string | null) ?? null,
@@ -79,6 +98,38 @@ function reduce(state: AppState, event: JigEvent): AppState {
       if (!ticketId) return { ...state, events }
       const tickets = bumpTicket(state.tickets, ticketId, {
         status: (data.status as Ticket["status"]) ?? "open",
+      })
+      return { ...state, tickets, events }
+    }
+    case "ticket_completed": {
+      if (!ticketId) return { ...state, events }
+      const tickets = bumpTicket(state.tickets, ticketId, {
+        status: "resolved",
+      })
+      return { ...state, tickets, events }
+    }
+    case "ticket_failed": {
+      if (!ticketId) return { ...state, events }
+      const tickets = bumpTicket(state.tickets, ticketId, {
+        status: "failed",
+      })
+      return { ...state, tickets, events }
+    }
+    case "phase_started": {
+      if (!ticketId) return { ...state, events }
+      const tickets = bumpTicket(state.tickets, ticketId, {
+        currentPhase: (data.phase_name as string) ?? null,
+        phaseIndex: typeof data.phase_index === "number" ? data.phase_index : null,
+        totalPhases: typeof data.total_phases === "number" ? data.total_phases : null,
+      })
+      return { ...state, tickets, events }
+    }
+    case "phase_complete": {
+      if (!ticketId) return { ...state, events }
+      const tickets = bumpTicket(state.tickets, ticketId, {
+        currentPhase: null,
+        phaseIndex: null,
+        totalPhases: null,
       })
       return { ...state, tickets, events }
     }
@@ -110,6 +161,10 @@ export function useJigSocket(url: string): SocketHandle {
         clearTimeout(reconnectTimer.current)
         reconnectTimer.current = null
       }
+      // Hydrate state on connect
+      ws.send(JSON.stringify({ command: "list_tickets", args: {} }))
+      ws.send(JSON.stringify({ command: "list_agents", args: {} }))
+      ws.send(JSON.stringify({ command: "get_workflow", args: { name: "default" } }))
     }
 
     ws.onclose = () => {
@@ -140,8 +195,37 @@ export function useJigSocket(url: string): SocketHandle {
       if ("type" in obj && "data" in obj) {
         setState((prev) => reduce(prev, obj as JigEvent))
       } else if ("ok" in obj) {
-        const p = pending.current.shift()
-        if (p) p.resolve(obj as Reply)
+        // Intercept hydration replies (fire-and-forget on connect)
+        if ("tickets" in obj && Array.isArray(obj.tickets)) {
+          setState((prev) => {
+            const tickets = { ...prev.tickets }
+            for (const t of obj.tickets as Array<Record<string, unknown>>) {
+              const id = t.id as string
+              tickets[id] = {
+                id,
+                type: (t.type as TicketType) ?? "task",
+                status: (t.status as Ticket["status"]) ?? "open",
+                title: (t.title as string) ?? id,
+                description: (t.description as string) ?? "",
+                assignee: (t.assignee as string | null) ?? null,
+                parentId: (t.parent_id as string | null) ?? null,
+                lastActivity: prev.tickets[id]?.lastActivity ?? Date.now(),
+                currentPhase: prev.tickets[id]?.currentPhase ?? null,
+                phaseIndex: prev.tickets[id]?.phaseIndex ?? null,
+                totalPhases: prev.tickets[id]?.totalPhases ?? null,
+              }
+            }
+            const selectedTicketId = prev.selectedTicketId ?? Object.keys(tickets)[0] ?? null
+            return { ...prev, tickets, selectedTicketId }
+          })
+        } else if ("agents" in obj && Array.isArray(obj.agents)) {
+          setState((prev) => ({ ...prev, agents: obj.agents as AppState["agents"] }))
+        } else if ("workflow" in obj && obj.workflow) {
+          setState((prev) => ({ ...prev, workflow: obj.workflow as AppState["workflow"] }))
+        } else {
+          const p = pending.current.shift()
+          if (p) p.resolve(obj as Reply)
+        }
       }
     }
   }, [url])
@@ -210,11 +294,33 @@ export function useJigSocket(url: string): SocketHandle {
     setState((prev) => ({ ...prev, lastError: null }))
   }, [])
 
+  const moveAgentSelection = useCallback((delta: number) => {
+    setState((prev) => {
+      if (prev.agents.length === 0) return prev
+      const next = Math.max(0, Math.min(prev.agents.length - 1, prev.selectedAgentIdx + delta))
+      return { ...prev, selectedAgentIdx: next }
+    })
+  }, [])
+
+  const setViewMode = useCallback((mode: AppState["viewMode"]) => {
+    setState((prev) => ({ ...prev, viewMode: mode }))
+  }, [])
+
+  const toggleViewMode = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      viewMode: prev.viewMode === "events" ? "agents" : "events",
+    }))
+  }, [])
+
   return {
     state,
     sendCommand,
     selectTicket,
     moveSelection,
+    moveAgentSelection,
+    setViewMode,
+    toggleViewMode,
     openModal,
     closeModal,
     registerTitle,

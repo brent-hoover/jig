@@ -35,9 +35,13 @@ export interface Ticket {
   type: TicketType
   status: TicketStatus
   title: string
+  description: string
   assignee: string | null
   parentId: string | null
   lastActivity: number // epoch ms; bumps on any related event
+  currentPhase: string | null // active workflow phase name, null when idle
+  phaseIndex: number | null // 0-based index of current phase
+  totalPhases: number | null // total phases in workflow
 }
 
 // A jig event arrives on the wire as { type, data } — the backend's JigEvent.
@@ -47,6 +51,29 @@ export interface JigEvent {
   data: Record<string, unknown>
 }
 
+export interface AgentConfig {
+  role: string
+  phase_prompt: string
+  response_prompt: string
+  allowed_tools: string[]
+  can_message: string[]
+  default_context: string[]
+}
+
+export interface WorkflowPhase {
+  name: string
+  role: string
+  task_template: string
+  acceptance_criteria: string
+}
+
+export interface Workflow {
+  name: string
+  phases: WorkflowPhase[]
+}
+
+export type ViewMode = "events" | "agents"
+
 // Modal overlay state — null means no modal.
 export type ModalState =
   | { kind: "new_ticket" }
@@ -55,15 +82,15 @@ export type ModalState =
 
 export interface AppState {
   connected: boolean
-  // Ticket map keyed by id. Tickets only get a title when the client sees a
-  // ticket_created event *and* has been told the title — since ticket_created
-  // payloads don't include the title, the TUI uses the title from the form it
-  // submitted, falling back to the ticket_id until a smarter fetch exists.
   tickets: Record<string, Ticket>
   events: JigEvent[]
   selectedTicketId: string | null
   modal: ModalState
   lastError: string | null
+  viewMode: ViewMode
+  agents: AgentConfig[]
+  workflow: Workflow | null
+  selectedAgentIdx: number
 }
 
 export const INITIAL_STATE: AppState = {
@@ -73,4 +100,8 @@ export const INITIAL_STATE: AppState = {
   selectedTicketId: null,
   modal: null,
   lastError: null,
+  viewMode: "events",
+  agents: [],
+  workflow: null,
+  selectedAgentIdx: 0,
 }

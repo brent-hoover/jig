@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 from jig.agent import run_agent
 from jig.project import Project, load_project
-from jig.store import MessageBus
+from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
@@ -130,9 +130,11 @@ class Orchestrator:
                     continue
                 payload = msg.payload or {}
                 kind = payload.get("kind")
+                _logger.debug("service loop received: %s", kind)
                 if kind == "ticket_created":
                     ticket_id = payload.get("ticket_id")
                     if ticket_id:
+                        _logger.info("ticket_created event: %s", ticket_id)
                         await self._handle_schedule(ticket_id)
                 elif kind == "shutdown_request":
                     self._running = False
@@ -144,22 +146,31 @@ class Orchestrator:
         if self.tickets is None:
             raise RuntimeError("Orchestrator not started — call startup() first")
         if ticket_id in self._running_tickets:
+            _logger.debug("ticket %s already running, skipping", ticket_id)
             return
-        await self.tickets.update_status(ticket_id, TicketStatus.IN_PROGRESS)
+        ticket = await self.tickets.get(ticket_id)
+        if ticket is None:
+            _logger.warning("ticket %s not found, cannot schedule", ticket_id)
+            return
+        # Only top-level work tickets go through the workflow pipeline.
+        # QUESTION and TASK tickets are handled by the dispatch loop (QA responders).
+        if ticket.type not in (TicketType.FEATURE, TicketType.BUG, TicketType.CHORE):
+            _logger.debug("skipping non-workflow ticket %s (type=%s)", ticket_id, ticket.type.value)
+            return
+        _logger.info("scheduling ticket %s", ticket_id)
+        await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
         task = asyncio.create_task(self._run_ticket(ticket_id))
         self._running_tickets[ticket_id] = task
 
     async def _run_ticket(self, ticket_id: str) -> None:
-        """Walk the workflow phases for a top-level ticket.
+        """Walk the workflow phases for a ticket.
 
-        For each phase, creates a child TASK ticket, calls ``run_agent``,
-        writes a ``phase_run`` comment on the task, and advances on
-        success. Fails fast on any non-success result. Crash recovery
-        is deferred post-MVP.
+        Each phase runs an agent against the same ticket. Progress is
+        tracked via ``phase_run`` comments on the ticket itself — no
+        child tickets are created.
         """
         from jig.persistence import load_agent_type, load_workflow
         from jig.runtime import AgentSpawnContext, SpawnReason
-        from jig.ticket import Ticket
 
         if (
             self.tickets is None
@@ -172,36 +183,30 @@ class Orchestrator:
 
         ticket = await self.tickets.get(ticket_id)
         if ticket is None:
+            _logger.warning("ticket %s not found, aborting", ticket_id)
             return
 
+        _logger.info("starting ticket %s: %s", ticket_id, ticket.title)
         workflow = load_workflow(self._project_path, "default")
         worktree = await self._ensure_worktree(ticket)
+        _logger.info("worktree ready at %s", worktree)
         phase_idx = await self._current_phase_index(ticket_id, workflow)
+        _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
 
         while phase_idx < len(workflow.phases):
             phase = workflow.phases[phase_idx]
+            _logger.info("phase %d/%d: %s (role=%s)", phase_idx + 1, len(workflow.phases), phase.name, phase.role)
             role_cfg = load_agent_type(self._project_path, phase.role)
 
-            task_ticket = Ticket(
-                type=TicketType.TASK,
-                title=f"{phase.name}: {ticket.title}",
-                description=phase.task_template or ticket.description,
-                parent_id=ticket_id,
-                assignee=phase.role,
-                created_by="orchestrator",
-                status=TicketStatus.IN_PROGRESS,
-            )
-            task_id = await self.tickets.create(task_ticket)
-            loaded_task = await self.tickets.get(task_id)
-            if loaded_task is None:
-                raise RuntimeError(f"failed to create task ticket for {phase.name}")
+            # Tell the TUI which phase is running
+            await self._emit_phase_event("phase_started", ticket_id, phase, phase_idx, len(workflow.phases))
 
             ctx = AgentSpawnContext(
                 role=phase.role,
                 role_cfg=role_cfg,
                 spawn_reason=SpawnReason.PHASE_PRIMARY,
-                ticket=loaded_task,
-                parent=ticket,
+                ticket=ticket,
+                parent=None,
                 worktree_path=worktree,
                 project=self._project,
                 tickets=self.tickets,
@@ -209,33 +214,135 @@ class Orchestrator:
                 memory=self.memory,
                 bus=self.bus,
             )
+            sub_key = (ticket_id, phase.role)
+            self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
             try:
-                result = await run_agent(ctx)
-                await self._write_phase_run_comment(task_id, phase, result)
+                _logger.info("spawning agent for %s on ticket %s", phase.role, ticket_id)
+                result = await run_agent(ctx, emitter=self._emitter)
+                _logger.info("agent %s finished: %s", phase.role, result.status)
+                await self._write_phase_run_comment(ticket_id, phase, result)
             except Exception:
                 _logger.exception(
-                    "agent or comment-write failed for phase %s ticket %s",
-                    phase.name,
-                    ticket_id,
+                    "agent failed for phase %s ticket %s", phase.name, ticket_id,
                 )
-                try:
-                    await self.tickets.update_status(task_id, TicketStatus.FAILED)
-                except Exception:
-                    _logger.exception(
-                        "failed to mark child task %s FAILED (best-effort)", task_id
-                    )
-                await self.tickets.update_status(ticket_id, TicketStatus.FAILED)
+                await self._emit_phase_event("phase_complete", ticket_id, phase, phase_idx, len(workflow.phases), result="failed")
+                await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                await self._on_ticket_failed(ticket_id, ticket)
                 return
+            finally:
+                self._live_subscribers.pop(sub_key, None)
+
+            await self._emit_phase_event("phase_complete", ticket_id, phase, phase_idx, len(workflow.phases), result=result.status)
 
             if result.status == "success":
                 phase_idx += 1
+                # Immediately reset ticket to in_progress so the TUI doesn't
+                # flash "resolved" between phases. Do this BEFORE the commit
+                # safety net to minimize the status flicker window.
+                if phase_idx < len(workflow.phases):
+                    await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+                # Safety net: commit any uncommitted changes the agent left behind
+                await self._auto_commit_worktree(worktree, phase.name, ticket_id)
+                if phase_idx < len(workflow.phases):
+                    ticket = await self.tickets.get(ticket_id)
                 continue
 
+            if result.status == "needs_info":
+                _logger.info("phase %s paused — waiting for user input on %s", phase.name, ticket_id)
+                await self._wait_for_resume(ticket_id)
+                _logger.info("ticket %s resumed — re-running phase %s", ticket_id, phase.name)
+                ticket = await self.tickets.get(ticket_id)
+                continue  # re-run same phase_idx
+
             # Fail fast. Recovery deferred post-MVP.
-            await self.tickets.update_status(ticket_id, TicketStatus.FAILED)
+            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+            await self._on_ticket_failed(ticket_id, ticket)
             return
 
-        await self.tickets.update_status(ticket_id, TicketStatus.RESOLVED)
+        await self._update_ticket_status(ticket_id, TicketStatus.RESOLVED)
+        await self._on_ticket_completed(ticket_id, ticket)
+
+    async def _on_ticket_completed(self, ticket_id: str, ticket) -> None:
+        """Post-completion: merge branch, emit event, clean up, pick up next ticket."""
+        from jig.worktree import merge_ticket, remove_worktree
+
+        branch_name = f"jig/{ticket_id}"
+        _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
+
+        # Merge according to project strategy
+        merge_result = ""
+        if self._project is not None:
+            strategy = self._project.merge_strategy
+            try:
+                merge_result = await merge_ticket(
+                    self._project_path, ticket_id,
+                    self._project.default_branch, strategy,
+                )
+                _logger.info("merge complete: %s", merge_result)
+            except Exception:
+                merge_result = f"merge failed (branch {branch_name} preserved)"
+                _logger.warning("merge failed for %s", ticket_id, exc_info=True)
+
+        # Emit completion event for TUI
+        if self._emitter is not None:
+            from jig.events import JigEvent
+            await self._emitter.emit(JigEvent(
+                type="ticket_completed",
+                data={
+                    "kind": "ticket_completed",
+                    "ticket_id": ticket_id,
+                    "title": ticket.title,
+                    "branch": branch_name,
+                    "merge": merge_result,
+                },
+            ))
+
+        # Clean up running-tickets entry
+        self._running_tickets.pop(ticket_id, None)
+
+        # Remove worktree but keep branch for merge
+        try:
+            await remove_worktree(self._project_path, ticket_id, keep_branch=True)
+            _logger.info("worktree removed for %s (branch %s preserved)", ticket_id, branch_name)
+        except Exception:
+            _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
+
+        # Pick up next open ticket
+        await self._start_next_ticket()
+
+    async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
+        """Post-failure: emit event, clean up, pick up next ticket."""
+        _logger.info("ticket %s failed", ticket_id)
+
+        if self._emitter is not None:
+            from jig.events import JigEvent
+            await self._emitter.emit(JigEvent(
+                type="ticket_failed",
+                data={
+                    "kind": "ticket_failed",
+                    "ticket_id": ticket_id,
+                    "title": ticket.title,
+                },
+            ))
+
+        self._running_tickets.pop(ticket_id, None)
+        await self._start_next_ticket()
+
+    async def _start_next_ticket(self) -> None:
+        """Find and start the next open top-level ticket, if any."""
+        if self.tickets is None:
+            return
+        all_tickets = await self.tickets.list_all()
+        for t in all_tickets:
+            if (
+                t.status == TicketStatus.OPEN
+                and t.type in (TicketType.FEATURE, TicketType.BUG, TicketType.CHORE)
+                and t.id not in self._running_tickets
+            ):
+                _logger.info("picking up next ticket: %s — %s", t.id, t.title)
+                await self._handle_schedule(t.id)
+                return
+        _logger.info("no more open tickets in queue")
 
     async def _ensure_worktree(self, ticket) -> Path:
         """Ensure a worktree exists for ``ticket`` and return its path."""
@@ -252,35 +359,118 @@ class Orchestrator:
             base_branch=self._project.default_branch,
         )
 
+    async def _wait_for_resume(self, ticket_id: str) -> None:
+        """Block until the ticket transitions out of needs_info status.
+
+        Subscribes to the ticket's bus topic and waits for a ticket_updated
+        event with a non-needs_info status, or polls every few seconds as
+        a fallback (in case the status change happened before we subscribed).
+        """
+        topic = f"tickets.{ticket_id}"
+        queue = await self.bus.subscribe_agent(
+            topic=topic, agent_id=f"orchestrator:wait:{ticket_id}",
+        )
+        try:
+            while self._running:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=2.0)
+                    payload = msg.payload or {}
+                    if (
+                        payload.get("kind") == "ticket_updated"
+                        and payload.get("ticket_id") == ticket_id
+                        and payload.get("status") != TicketStatus.NEEDS_INFO.value
+                    ):
+                        return
+                except asyncio.TimeoutError:
+                    # Poll as fallback
+                    current = await self.tickets.get(ticket_id)
+                    if current and current.status != TicketStatus.NEEDS_INFO:
+                        return
+        finally:
+            try:
+                await self.bus.unsubscribe(topic, queue)
+            except Exception:
+                pass
+
+    async def _auto_commit_worktree(self, worktree: Path, phase_name: str, ticket_id: str) -> None:
+        """Commit any uncommitted changes left by an agent after a phase completes."""
+        from jig.worktree import commit_worktree
+
+        try:
+            sha = await commit_worktree(worktree, f"chore({phase_name}): auto-commit after phase")
+            if sha:
+                _logger.info("auto-committed leftover changes after %s: %s", phase_name, sha)
+                if self.comments is not None:
+                    from jig.ticket import Comment
+                    await self.comments.post(Comment(
+                        ticket_id=ticket_id,
+                        author="orchestrator",
+                        content=f"auto-committed leftover changes: {sha[:7]}",
+                        kind="commit",
+                        commit_sha=sha,
+                    ))
+        except Exception:
+            _logger.warning("auto-commit failed after %s", phase_name, exc_info=True)
+
+    async def _emit_phase_event(
+        self,
+        event_type: str,
+        ticket_id: str,
+        phase,
+        phase_idx: int,
+        total_phases: int,
+        *,
+        result: str | None = None,
+    ) -> None:
+        """Emit a phase_started or phase_complete event directly to the TUI."""
+        if self._emitter is None:
+            return
+        from jig.events import JigEvent
+        data: dict = {
+            "kind": event_type,
+            "ticket_id": ticket_id,
+            "phase_name": phase.name,
+            "phase_role": phase.role,
+            "phase_index": phase_idx,
+            "total_phases": total_phases,
+        }
+        if result is not None:
+            data["result"] = result
+        try:
+            await self._emitter.emit(JigEvent(type=event_type, data=data))
+        except Exception:
+            _logger.warning("emitter.emit raised for %s", event_type, exc_info=True)
+
+    async def _update_ticket_status(self, ticket_id: str, status: TicketStatus) -> None:
+        """Update ticket status AND publish a bus event so the TUI sees it."""
+        await self.tickets.update_status(ticket_id, status)
+        await self.bus.publish(Message(
+            sender="orchestrator",
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "ticket_updated",
+                "ticket_id": ticket_id,
+                "status": status.value,
+            },
+            topic=f"tickets.{ticket_id}",
+        ))
+
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.
 
-        Walks ``workflow.phases`` in order and checks whether ANY child TASK
-        ticket whose title starts with ``"{phase.name}: "`` has a successful
-        phase_run comment.  We match on title-prefix (which the creation code
-        stamps as ``f"{phase.name}: {ticket.title}"``) rather than on
-        assignee/role so that retried task tickets for the same phase are also
-        recognised.  We stop at the first phase without a success — duplicate
-        task tickets for the same phase therefore still count as *one* phase
-        completed, not two.
+        Reads ``phase_run`` comments on the ticket and matches by phase name.
         """
-        if self.tickets is None or self.comments is None:
+        if self.comments is None:
             raise RuntimeError("Orchestrator not started")
-        task_tickets = await self.tickets.find_by_parent(ticket_id)
+        runs = await self.comments.phase_runs_for(ticket_id)
+        succeeded = {r.content.removeprefix("phase ").split(":")[0] for r in runs if r.phase_result == "success"}
         for phase_idx, phase in enumerate(workflow.phases):
-            prefix = f"{phase.name}: "
-            phase_tasks = [t for t in task_tickets if t.title.startswith(prefix)]
-            phase_succeeded = False
-            for task_ticket in phase_tasks:
-                runs = await self.comments.phase_runs_for(task_ticket.id)
-                if any(r.phase_result == "success" for r in runs):
-                    phase_succeeded = True
-                    break
-            if not phase_succeeded:
+            if phase.name not in succeeded:
                 return phase_idx
         return len(workflow.phases)
 
-    async def _write_phase_run_comment(self, task_id: str, phase, result) -> None:
+    async def _write_phase_run_comment(self, ticket_id: str, phase, result) -> None:
         from jig.ticket import Comment
 
         if self.comments is None:
@@ -292,12 +482,12 @@ class Orchestrator:
 
         await self.comments.post(
             Comment(
-                ticket_id=task_id,
+                ticket_id=ticket_id,
                 author="orchestrator",
                 content=f"phase {phase.name}: {result.status}",
                 kind="phase_run",
                 phase_result=phase_result,  # type: ignore[arg-type]
-                phase_branch=f"jig/{task_id}",
+                phase_branch=f"jig/{ticket_id}",
             )
         )
 
@@ -325,10 +515,10 @@ class Orchestrator:
             except asyncio.TimeoutError:
                 continue
             # Mirror to emitter for TUI consumption (before target filter so all messages reach it).
-            # Isolate emit failures so a bad subscriber cannot kill the dispatch loop.
-            if self._emitter is not None:
+            # Skip _internal events (e.g. agent-side resolved that the orchestrator will override).
+            payload = msg.payload or {}
+            if self._emitter is not None and not payload.get("_internal"):
                 from jig.events import JigEvent
-                payload = msg.payload or {}
                 kind = payload.get("kind", "event")
                 try:
                     await self._emitter.emit(JigEvent(type=kind, data=payload))
@@ -340,6 +530,10 @@ class Orchestrator:
                 continue
             ticket_id, role = target
             if role == "user":
+                continue
+            # If this ticket is currently running through the workflow pipeline,
+            # the pipeline owns it — don't spawn QA responders.
+            if ticket_id in self._running_tickets:
                 continue
             if (ticket_id, role) in self._live_subscribers:
                 continue
@@ -385,8 +579,11 @@ class Orchestrator:
                 parent = await self.tickets.get(ticket.parent_id)
             role_cfg = load_agent_type(self._project_path, role)
             worktree = await self._ensure_worktree(parent or ticket)
+        except FileNotFoundError:
+            _logger.warning("unknown agent role %r — check agent used a valid role name", role)
+            self._live_subscribers.pop((ticket_id, role), None)
+            return
         except Exception:
-            # Swallow setup failures so the dispatch loop keeps running.
             _logger.exception(
                 "failed to spawn qa responder for %s/%s", ticket_id, role
             )
@@ -407,7 +604,7 @@ class Orchestrator:
             bus=self.bus,
             initial_bus_message=initial_event.payload if initial_event else None,
         )
-        task = asyncio.create_task(run_agent(ctx))
+        task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))
         self._live_subscribers[(ticket_id, role)] = task
 
         # Log any exception raised inside the run_agent task.

@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { useState, useEffect, useRef } from "react"
 import { TicketList } from "./ticket-list"
+import { TicketDetail } from "./ticket-detail"
 import { EventLog } from "./event-log"
+import { AgentPanel } from "./agent-panel"
 import { JigStatusBar } from "./status-bar"
 import { NewTicketForm } from "./new-ticket-form"
 import { AnswerForm } from "./answer-form"
@@ -18,14 +20,20 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
     state,
     sendCommand,
     moveSelection,
+    moveAgentSelection,
+    toggleViewMode,
     openModal,
     closeModal,
     registerTitle,
   } = useJigSocket(wsUrl)
 
   const [scrollOffset, setScrollOffset] = useState(0)
+  const [focusedPanel, setFocusedPanel] = useState<"left" | "right">("left")
   const prevEventCount = useRef(0)
   const [flashError, setFlashError] = useState<string | null>(null)
+  const [detailMode, setDetailMode] = useState(false)
+  const [commentIdx, setCommentIdx] = useState(0)
+  const [promptScroll, setPromptScroll] = useState(0)
 
   // Keep scroll anchored at bottom when new events arrive if user is already
   // at the bottom; otherwise hold position relative to the oldest visible.
@@ -52,27 +60,85 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       onQuit()
       return
     }
+    if (key.name === "tab") {
+      toggleViewMode()
+      return
+    }
+    if (key.name === "h" || key.name === "left") {
+      setFocusedPanel("left")
+      return
+    }
+    if (key.name === "l" || key.name === "right") {
+      setFocusedPanel("right")
+      return
+    }
+    if (key.name === "return" && focusedPanel === "left" && !detailMode && selectedTicket) {
+      setDetailMode(true)
+      setCommentIdx(0)
+      return
+    }
+    if (key.name === "escape" && detailMode) {
+      setDetailMode(false)
+      return
+    }
     if (key.name === "k" || key.name === "up") {
-      moveSelection(-1)
+      if (state.viewMode === "agents") {
+        if (focusedPanel === "right") {
+          setPromptScroll((s) => Math.max(0, s - 1))
+        } else {
+          moveAgentSelection(-1)
+          setPromptScroll(0)
+        }
+      } else if (focusedPanel === "right") {
+        setScrollOffset((s) => Math.min(s + 1, Math.max(0, state.events.length - 1)))
+      } else if (detailMode) {
+        setCommentIdx((i) => Math.max(0, i - 1))
+      } else {
+        moveSelection(-1)
+      }
       return
     }
     if (key.name === "j" || key.name === "down") {
-      moveSelection(1)
+      if (state.viewMode === "agents") {
+        if (focusedPanel === "right") {
+          setPromptScroll((s) => s + 1) // clamped in component
+        } else {
+          moveAgentSelection(1)
+          setPromptScroll(0)
+        }
+      } else if (focusedPanel === "right") {
+        setScrollOffset((s) => Math.max(0, s - 1))
+      } else if (detailMode) {
+        setCommentIdx((i) => i + 1) // clamped in component
+      } else {
+        moveSelection(1)
+      }
       return
     }
     if (key.name === "pageup") {
-      setScrollOffset((s) =>
-        Math.min(s + 10, Math.max(0, state.events.length - 1)),
-      )
+      if (state.viewMode === "agents") {
+        setPromptScroll((s) => Math.max(0, s - 20))
+      } else {
+        setScrollOffset((s) =>
+          Math.min(s + 10, Math.max(0, state.events.length - 1)),
+        )
+      }
       return
     }
     if (key.name === "pagedown") {
-      setScrollOffset((s) => Math.max(0, s - 10))
+      if (state.viewMode === "agents") {
+        setPromptScroll((s) => s + 20)
+      } else {
+        setScrollOffset((s) => Math.max(0, s - 10))
+      }
       return
     }
     if (key.name === "g") {
-      // Jump to bottom of event log.
-      setScrollOffset(0)
+      if (state.viewMode === "agents") {
+        setPromptScroll(0)
+      } else {
+        setScrollOffset(0)
+      }
       return
     }
     if (key.name === "n") {
@@ -80,14 +146,17 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       return
     }
     if (key.name === "a") {
-      // Only meaningful if the selected ticket is a user-facing question.
-      if (
-        selectedTicket &&
-        selectedTicket.type === "question" &&
-        selectedTicket.assignee === "user" &&
-        selectedTicket.status !== "resolved"
-      ) {
+      if (selectedTicket && selectedTicket.status === "needs_info") {
         openModal({ kind: "answer", ticketId: selectedTicket.id })
+      }
+      return
+    }
+    if (key.name === "r") {
+      if (selectedTicket && selectedTicket.status === "needs_info") {
+        sendCommand("update_ticket", {
+          ticket_id: selectedTicket.id,
+          status: "in_progress",
+        })
       }
       return
     }
@@ -107,18 +176,44 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
       </box>
 
       <box flexGrow={1} flexDirection="row" gap={1} paddingX={1}>
-        <box width={40} flexShrink={0}>
-          <TicketList
-            tickets={state.tickets}
-            selectedId={state.selectedTicketId}
+        {state.viewMode === "agents" ? (
+          <AgentPanel
+            agents={state.agents}
+            workflow={state.workflow}
+            selectedIdx={state.selectedAgentIdx}
+            selectedTicketId={state.selectedTicketId}
+            sendCommand={sendCommand}
+            promptScroll={promptScroll}
           />
-        </box>
-        <box flexGrow={1}>
-          <EventLog events={state.events} scrollOffset={scrollOffset} />
-        </box>
+        ) : (
+          <>
+            <box width={40} flexShrink={0} flexDirection="column">
+              <TicketList
+                tickets={state.tickets}
+                selectedId={state.selectedTicketId}
+                focused={focusedPanel === "left"}
+              />
+              {selectedTicket ? (
+                <TicketDetail
+                  ticket={selectedTicket}
+                  events={state.events}
+                  detailMode={detailMode}
+                  commentIdx={commentIdx}
+                />
+              ) : null}
+            </box>
+            <box flexGrow={1}>
+              <EventLog
+                events={state.events}
+                scrollOffset={scrollOffset}
+                focused={focusedPanel === "right"}
+              />
+            </box>
+          </>
+        )}
       </box>
 
-      <JigStatusBar state={displayState} />
+      <JigStatusBar state={displayState} focusedPanel={focusedPanel} />
 
       {state.modal?.kind === "new_ticket" ? (
         <box

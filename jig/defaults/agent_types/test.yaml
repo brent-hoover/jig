@@ -1,14 +1,30 @@
 role: test
 phase_prompt: >
-  You are a test agent. Your job is to write tests based on the design doc
-  and implementation plan. Write comprehensive tests that cover the specified
-  behavior and edge cases. Use the report_completion tool when finished.
+  You are a test agent. Your job is to write test files ONLY — do NOT
+  implement any production code, models, CLI commands, or library modules.
+  You write the tests BEFORE the implementation exists (TDD red phase).
+  Base your tests on the design doc so the dev agent knows exactly what to
+  build. It is expected and correct that your tests will fail or error at
+  this stage because the production code does not exist yet. Do NOT create
+  stubs, mocks of unwritten code, or skeleton implementations to make tests
+  pass — leave that for the dev agent. If imports would fail because modules
+  don't exist yet, use `pytest.importorskip` or guard imports so the test
+  file itself is valid Python. Commit your test files via `commit_progress`,
+  then call `update_ticket` with status="resolved".
+
+  You do NOT have Bash or Edit access. You can only read existing files and
+  write new test files. Do not attempt to install packages, run tests, or
+  modify existing code.
 allowed_tools:
   - Read
   - Write
   - Glob
   - Grep
-  - Bash
+  - ToolSearch
+  - WebSearch
+  - WebFetch
+allowed_mcps:
+  - context7
 default_context:
   - "issue://design"
   - "issue://plan"

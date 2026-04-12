@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from jig.models import AgentTypeConfig
 from jig.project import Project
 from jig.runtime import SpawnReason
@@ -61,6 +63,22 @@ def _memories_section(memories: list[str]) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _team_roles_section(current_role: str, all_roles: list["AgentTypeConfig"]) -> str:
+    """List available roles so agents know exact names for messaging/assignment."""
+    if not all_roles:
+        return ""
+    lines = ["## Team Roles\n"]
+    lines.append("These are the exact role names in this project. "
+                 "Use these names when assigning tickets or addressing messages — "
+                 "do NOT invent role names.\n")
+    for cfg in all_roles:
+        marker = " ← you" if cfg.role == current_role else ""
+        # Extract first sentence of phase_prompt as a brief description
+        brief = cfg.phase_prompt.split(".")[0].strip() if cfg.phase_prompt else cfg.role
+        lines.append(f"- **{cfg.role}**: {brief}{marker}")
+    return "\n".join(lines) + "\n\n"
+
+
 def _ticket_section(
     ticket: Ticket, parent: Ticket | None, comments: list[Comment]
 ) -> str:
@@ -90,9 +108,33 @@ def _instructions_section(ticket: Ticket, reason: SpawnReason) -> str:
         "## Instructions\n\n"
         f"Work on ticket {ticket.id}. Call `commit_progress` after each "
         "meaningful chunk of work. When the task is complete, call "
-        f'`update_ticket(ticket_id="{ticket.id}", status="resolved")`. '
-        'If blocked or in need of clarification, set status="blocked" or '
-        'status="needs_info" and explain via `comment_on_ticket`.\n'
+        f'`update_ticket(ticket_id="{ticket.id}", status="resolved")`.\n\n'
+        "### Asking questions\n\n"
+        "If you need clarification from the operator, call "
+        f'`ask_question(ticket_id="{ticket.id}", '
+        'question="<your question>")`. '
+        "For multiple questions at once, pass "
+        '`questions=["q1", "q2", ...]` instead. '
+        "This posts the question(s) and pauses the ticket automatically. "
+        "The orchestrator will resume you once the operator answers. "
+        "Do NOT create question tickets or manually set needs_info.\n"
+    )
+
+
+def _worktree_section(worktree_path: str | None) -> str:
+    if not worktree_path:
+        return ""
+    return (
+        "## Working Directory\n\n"
+        "**IMPORTANT**: You are running inside a git worktree. Your current "
+        f"working directory is `{worktree_path}`. All file operations (Read, "
+        "Edit, Write, Glob, Grep, Bash) default to this directory.\n\n"
+        "- Use **relative paths** or your CWD for all file operations.\n"
+        "- Do NOT `cd` to the main project repo or use absolute paths "
+        "outside your worktree.\n"
+        "- The worktree contains a full copy of the project source — "
+        "work with the files here, not in the original repo.\n"
+        "- Use `commit_progress` (not raw git commands) to commit your work.\n\n"
     )
 
 
@@ -107,13 +149,19 @@ def build_initial_prompt(
     project: Project,
     skills: list[Skill],
     environment_md: str,
+    resolved_context: str = "",
+    all_roles: list[AgentTypeConfig] | None = None,
+    worktree_path: str | None = None,
 ) -> str:
     parts = [
         _role_section(role_cfg, spawn_reason),
+        _worktree_section(worktree_path),
         _project_section(project),
+        _team_roles_section(role_cfg.role, all_roles or []),
         _skills_section(skills),
         _environment_section(environment_md),
         _memories_section(memories),
+        resolved_context,
         _ticket_section(ticket, parent, comments),
         _instructions_section(ticket, spawn_reason),
     ]

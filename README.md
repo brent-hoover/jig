@@ -2,42 +2,68 @@
 
 Agent harness that orchestrates multiple Claude Code agents across a codebase.
 
-## Installation
+## Prerequisites
 
-Install `jig` as a global CLI tool using [uv](https://docs.astral.sh/uv/):
+- [Docker](https://docs.docker.com/get-docker/) (agents run inside a sandboxed container)
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [Bun](https://bun.sh/) (for the TUI)
+- A Claude subscription — jig uses OAuth, not API keys
+
+## Installation
 
 ```bash
 uv tool install --from . jig
 ```
 
-Or install in editable mode so code changes are picked up without reinstalling:
+Or editable for development:
 
 ```bash
 uv tool install --editable .
 ```
 
-After installation, `jig` will be available on your `PATH`.
+## Setup
 
-## Quick Start
+### 1. Generate an auth token
 
-### Initialize a project
+Jig needs a long-lived OAuth token to authenticate Claude Code agents inside Docker.
+
+```bash
+claude setup-token
+```
+
+Export the token in your shell (e.g. in `~/.zshenv` or a secrets file):
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-...'
+```
+
+### 2. Initialize a project
 
 ```bash
 cd /path/to/your/repo
 jig init
 ```
 
-Creates a `.jig/` directory with default agent types (spec, test, dev, review), a default workflow (spec → test → implement → review), and project config.
+Creates a `.jig/` directory with default agent types (spec, test, dev, review), a default workflow, and project config.
+
+### 3. Install the TUI
+
+```bash
+cd tui && bun install
+```
+
+## Usage
 
 ### Start the orchestrator
 
 ```bash
+cd /path/to/your/repo
 jig start
 ```
 
-On first run, jig automatically builds a Docker image and launches the orchestrator inside it. Agents are sandboxed with bubblewrap for filesystem isolation. The TUI connects from the host via WebSocket.
+On first run, jig automatically builds a Docker image and launches the orchestrator inside it. Agents are sandboxed with bubblewrap for per-agent filesystem isolation.
 
-To skip Docker during local development:
+To skip Docker (no sandbox, for local development):
 
 ```bash
 jig start --no-docker
@@ -51,22 +77,15 @@ In a separate terminal:
 cd tui && bun run src/main.tsx
 ```
 
-Connects to the WebSocket server (ws://localhost:9100) and displays real-time workflow progress, agent activity, and ticket state.
-
-### Validate and clean up
-
-```bash
-jig validate --ticket-id <id>
-```
-
-Cleans up git worktrees after you've verified the output.
+Connects to `ws://localhost:9100` and displays real-time workflow progress, agent activity, and ticket state.
 
 ### Other commands
 
 ```bash
+jig build     # Build or rebuild the Docker image
 jig sync      # Sync new default agent types/workflows from installed jig version
+jig validate --ticket-id <id>  # Clean up worktrees after verifying output
 jig reset     # Reset project to clean state (destructive)
-jig build     # Build or rebuild the jig Docker image
 ```
 
 ## Architecture
@@ -82,10 +101,10 @@ Jig uses a two-layer isolation model:
 
 | Layer | Tool | Purpose |
 |-------|------|---------|
-| Outer | Docker | Isolates jig from the host. Provides the Linux environment for bubblewrap. Ensures a reproducible toolchain. |
+| Outer | Docker | Isolates jig from the host. Provides Linux for bubblewrap. Reproducible toolchain. |
 | Inner | Bubblewrap | Isolates each agent from other agents. Restricts filesystem to the agent's worktree. |
 
-When `jig start` runs on the host, it detects that it's not inside a container and re-execs itself inside Docker with the project directory volume-mounted at `/project`. Inside the container, each agent subprocess is wrapped in bubblewrap:
+When `jig start` runs on the host, it re-execs itself inside Docker with the project directory volume-mounted at `/project`. Inside the container, each agent subprocess is wrapped in bubblewrap:
 
 - **`/workspace`** (rw) — the agent's git worktree
 - **`/`** (ro) — full container filesystem for system libs and binaries
@@ -94,24 +113,21 @@ When `jig start` runs on the host, it detects that it's not inside a container a
 
 The orchestrator itself runs outside bubblewrap and handles all git operations, ticket state, and inter-agent communication.
 
-### Docker image
+### Container details
 
-The jig Docker image (`Dockerfile`) includes:
+The Docker image includes Python 3.12, Node.js 22, bubblewrap, Claude Code CLI, ruff, and gh. Build manually with `jig build` or let `jig start` auto-build on first run. Override the image name with `JIG_DOCKER_IMAGE` env var.
 
-- Python 3.12, Node.js 22, bubblewrap
-- Claude Code CLI, ruff, gh CLI
-- The jig package itself
+Volume mounts:
 
-Build manually with `jig build` or let `jig start` auto-build on first run. Override the image name with `JIG_DOCKER_IMAGE` env var.
+| Host | Container | Mode |
+|------|-----------|------|
+| Project directory | `/project` | rw |
+| `~/.claude/` | `/home/jig/.claude` | rw |
+| `~/.claude.json` | `/home/jig/.claude.json` | rw |
+| `~/.gitconfig` | `/home/jig/.gitconfig` | ro |
+| `~/.ssh/` | `/home/jig/.ssh` | ro |
 
-### Volume mounts
-
-When launching Docker, jig mounts:
-
-- Project directory → `/project` (rw)
-- `~/.claude/` → `/root/.claude` (rw, OAuth tokens)
-- `~/.gitconfig` → `/root/.gitconfig` (ro)
-- `~/.ssh/` → `/root/.ssh` (ro, for git-over-SSH)
+Auth is passed via `CLAUDE_CODE_OAUTH_TOKEN` env var (not volume-mounted — macOS Keychain tokens can't be shared with Linux containers).
 
 ## Development
 

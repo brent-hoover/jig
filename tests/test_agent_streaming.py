@@ -82,7 +82,7 @@ async def test_run_agent_builds_initial_prompt(tmp_path: Path) -> None:
 
     captured_prompt_iter = None
 
-    async def fake_query(prompt, options):
+    async def fake_query(prompt, options, **kwargs):
         nonlocal captured_prompt_iter
         captured_prompt_iter = prompt
         async for _turn in prompt:
@@ -101,7 +101,7 @@ async def test_run_agent_yields_incoming_bus_events(tmp_path: Path) -> None:
     ctx = await _make_context(tmp_path)
     seen_turns: list[str] = []
 
-    async def fake_query(prompt, options):
+    async def fake_query(prompt, options, **kwargs):
         async for turn in prompt:
             seen_turns.append(turn if isinstance(turn, str) else str(turn))
             if len(seen_turns) >= 2:

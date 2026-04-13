@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import TYPE_CHECKING
 
 import websockets
@@ -27,7 +28,7 @@ class WebSocketServer:
     def __init__(
         self,
         emitter: EventEmitter,
-        host: str = "127.0.0.1",
+        host: str = "0.0.0.0" if os.environ.get("JIG_IN_CONTAINER") else "127.0.0.1",
         port: int = 9100,
         orchestrator: "Orchestrator | None" = None,
     ) -> None:

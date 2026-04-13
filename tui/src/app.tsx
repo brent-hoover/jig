@@ -171,6 +171,11 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
           ticket_id: selectedTicket.id,
           status: "in_progress",
         })
+      } else if (selectedTicket && selectedTicket.status === "failed") {
+        sendCommand("update_ticket", {
+          ticket_id: selectedTicket.id,
+          status: "open",
+        })
       }
       return
     }

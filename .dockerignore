@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+.jig
+.ruff_cache
+.mypy_cache
+.pytest_cache
+tui/node_modules
+tui/.bun
+tui/.18*
+test-project

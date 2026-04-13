@@ -226,8 +226,33 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option("--ws-port", default=9100, type=int, help="WebSocket server port.", show_default=True)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose (DEBUG) logging.")
-def start(path: Path, ws_port: int, verbose: bool) -> None:
+@click.option("--no-docker", is_flag=True, help="Run without Docker container (no sandbox).")
+def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     """Start the Jig orchestrator daemon."""
+    from jig.container import (
+        is_in_container, docker_available, image_exists, build_image, exec_in_docker,
+    )
+
+    if not is_in_container() and not no_docker:
+        if docker_available():
+            if not image_exists():
+                click.echo("Jig Docker image not found. Building...")
+                try:
+                    build_image()
+                except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+                    raise click.ClickException(
+                        f"Failed to build Docker image: {exc}\n"
+                        "Build manually: docker build -t jig /path/to/jig"
+                    )
+            click.echo("Launching jig inside Docker container...")
+            exec_in_docker(path, ws_port, verbose)
+            # exec_in_docker replaces the process — this line is unreachable
+        else:
+            click.echo(
+                "Warning: Docker not available. Running without sandbox.",
+                err=True,
+            )
+
     level = logging.DEBUG if verbose else logging.INFO
 
     console_fmt = logging.Formatter(
@@ -409,3 +434,21 @@ def reset(path: Path) -> None:
     subprocess.run(["git", "init", "-b", branch], cwd=path, check=True)
 
     click.echo("Done. Run 'jig init' to set up the project.")
+
+
+@cli.command()
+def build() -> None:
+    """Build (or rebuild) the jig Docker image."""
+    from jig.container import docker_available, build_image
+
+    if not docker_available():
+        raise click.ClickException("Docker is not installed or not on PATH.")
+
+    click.echo("Building jig Docker image...")
+    try:
+        build_image()
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc))
+    except subprocess.CalledProcessError:
+        raise click.ClickException("Docker build failed. Check output above.")
+    click.echo("Done.")

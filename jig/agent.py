@@ -21,6 +21,7 @@ from jig.mcp_server import create_agent_mcp_server
 from jig.persistence import list_agent_types
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext
+from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
 from jig.skill_loader import load_all_skills, match_skills
 from jig.store import Message
 from jig.ticket import TicketStatus
@@ -275,9 +276,16 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
     # Short ticket prefix for log lines: first 8 chars of UUID
     tid = ctx.ticket.id[:8]
     tag = f"{ctx.role}:{tid}"
+    # Build sandboxed transport when running inside the jig container
+    transport = None
+    if sandbox_available():
+        bwrap_cfg = BwrapConfig(worktree_host_path=ctx.worktree_path)
+        transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
+        _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
+
     _logger.info("launching claude agent for %s on %s in %s", ctx.role, ctx.ticket.id, ctx.worktree_path)
     try:
-        async for message in query(prompt=_prompt_stream(), options=options):
+        async for message in query(prompt=_prompt_stream(), options=options, transport=transport):
             if isinstance(message, AssistantMessage):
                 for block in message.content or []:
                     if isinstance(block, ToolUseBlock):

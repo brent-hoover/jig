@@ -360,17 +360,27 @@ async def handle_update_ticket(
         and "status" in update_fields
         and update_fields["status"] in (TicketStatus.RESOLVED, TicketStatus.FAILED)
     )
+    update_payload = {
+        "kind": "ticket_updated",
+        "ticket_id": ticket_id,
+        "status": updated.status.value,
+        **({"_internal": True} if internal else {}),
+    }
     await bus.publish(Message(
         sender=sender,
         to="broadcast",
         type=MessageType.CONTEXT_UPDATE,
-        payload={
-            "kind": "ticket_updated",
-            "ticket_id": ticket_id,
-            "status": updated.status.value,
-            **({"_internal": True} if internal else {}),
-        },
+        payload=update_payload,
         topic=f"tickets.{ticket_id}",
+    ))
+    # Also notify the orchestrator so it can react to status changes
+    # (e.g. re-enqueue a ticket reset to "open" for retry).
+    await bus.publish(Message(
+        sender=sender,
+        to="orchestrator",
+        type=MessageType.CONTEXT_UPDATE,
+        payload=update_payload,
+        topic="orchestrator",
     ))
     return updated
 

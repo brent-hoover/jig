@@ -10,14 +10,16 @@ function countByStatus(tickets: Record<string, Ticket>) {
   let open = 0
   let active = 0
   let needsInfo = 0
+  let failed = 0
   let done = 0
   for (const t of Object.values(tickets)) {
     if (t.status === "resolved" || t.status === "closed") done++
     else if (t.status === "needs_info") needsInfo++
+    else if (t.status === "failed") failed++
     else if (t.status === "in_progress") active++
     else open++
   }
-  return { open, active, done, needsInfo }
+  return { open, active, done, needsInfo, failed }
 }
 
 export function JigStatusBar({ state, focusedPanel }: StatusBarProps) {
@@ -50,6 +52,14 @@ export function JigStatusBar({ state, focusedPanel }: StatusBarProps) {
               <span style={{ fg: "#444444" }}>{" │ "}</span>
               <span style={{ fg: "#ff00ff", attributes: 1 }}>
                 {`${counts.needsInfo} needs info`}
+              </span>
+            </>
+          ) : null}
+          {counts.failed > 0 ? (
+            <>
+              <span style={{ fg: "#444444" }}>{" │ "}</span>
+              <span style={{ fg: "#cc0000", attributes: 1 }}>
+                {`${counts.failed} failed (r:retry)`}
               </span>
             </>
           ) : null}

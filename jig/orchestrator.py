@@ -60,6 +60,7 @@ class Orchestrator:
             )
             self._running = True
             await self._resume_in_progress()
+            await self._start_ready_tickets()
             self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
             self._service_task = asyncio.create_task(self._run_service_loop())
         except Exception:
@@ -136,6 +137,14 @@ class Orchestrator:
                     ticket_id = payload.get("ticket_id")
                     if ticket_id:
                         _logger.info("ticket_created event: %s", ticket_id)
+                        await self._handle_schedule(ticket_id)
+                elif kind == "ticket_updated":
+                    ticket_id = payload.get("ticket_id")
+                    new_status = payload.get("status")
+                    # Re-enqueue tickets reset to "open" (e.g. retry after failure)
+                    if ticket_id and new_status == TicketStatus.OPEN.value:
+                        _logger.info("ticket %s reset to open — re-scheduling", ticket_id)
+                        self._running_tickets.pop(ticket_id, None)
                         await self._handle_schedule(ticket_id)
                 elif kind == "shutdown_request":
                     self._running = False

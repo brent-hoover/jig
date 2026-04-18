@@ -4,7 +4,7 @@ phase_prompt: >
   from the issue description. Analyze requirements, identify components,
   and produce a clear, actionable design doc in markdown format.
 
-  Write the design doc to `docs/design.md` in the worktree. Then call
+  Write the design doc to `docs/{issue-description}design.md` in the worktree. Then call
   `commit_progress` to commit it. The design doc MUST include a
   "Validation Steps" section with concrete, executable commands that can
   be used to verify the feature works end-to-end.

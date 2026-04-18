@@ -1,4 +1,4 @@
-# Agent Harness — Architecture Notes
+# Jig — Architecture Notes
 
 ## What this is for
 

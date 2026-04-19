@@ -168,13 +168,13 @@ async def test_update_ticket_non_status_field(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_comment_on_ticket_self_role_allowed(stores) -> None:
-    """A dev agent can comment on a dev-assigned ticket even with empty can_message."""
+    """A dev agent can comment on a dev-assigned ticket."""
     tickets, comments, bus = stores
     tid = await handle_create_ticket(
         tickets=tickets, comments=comments, bus=bus, sender="u",
         args={"type": "task", "title": "t", "assignee": "dev"},
     )
-    dev_cfg = RoleConfig(role="dev", phase_prompt="", can_message=[])
+    dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
         tickets=tickets, comments=comments, bus=bus,
         sender="dev", sender_cfg=dev_cfg,
@@ -185,13 +185,13 @@ async def test_comment_on_ticket_self_role_allowed(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
-    """Any agent with empty can_message can still reach the orchestrator."""
+    """Any agent can still reach the orchestrator."""
     tickets, comments, bus = stores
     tid = await handle_create_ticket(
         tickets=tickets, comments=comments, bus=bus, sender="u",
         args={"type": "task", "title": "t", "assignee": "orchestrator"},
     )
-    dev_cfg = RoleConfig(role="dev", phase_prompt="", can_message=[])
+    dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
         tickets=tickets, comments=comments, bus=bus,
         sender="dev", sender_cfg=dev_cfg,

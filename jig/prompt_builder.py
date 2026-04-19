@@ -1,12 +1,23 @@
 from __future__ import annotations
 
-from jig.models import RoleConfig
+from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.runtime import SpawnReason
 from jig.skill_loader import Skill
 from jig.ticket import Comment, Ticket
 
 __all__ = ["SpawnReason", "build_initial_prompt"]
+
+
+class _SafeFormatDict(dict):
+    """Dict subclass that echoes unknown keys back as ``{key}`` rather than raising.
+
+    Used so a mistyped or forward-looking placeholder in a template
+    degrades to visible-in-prompt text instead of crashing the spawn.
+    """
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
 
 
 def _role_section(cfg: RoleConfig, reason: SpawnReason) -> str:
@@ -77,6 +88,31 @@ def _team_roles_section(current_role: str, all_roles: list["RoleConfig"]) -> str
         brief = cfg.phase_prompt.split(".")[0].strip() if cfg.phase_prompt else cfg.role
         lines.append(f"- **{cfg.role}**: {brief}{marker}")
     return "\n".join(lines) + "\n\n"
+
+
+def _phase_section(phase: PhaseConfig | None, ticket: Ticket) -> str:
+    """Render the current workflow phase — task template + acceptance criteria.
+
+    `task_template` is interpolated with ticket fields. The current
+    canonical placeholders are ``{ticket_title}`` and ``{ticket_id}``;
+    legacy ``{issue_title}`` / ``{issue_id}`` are accepted during the
+    Phase 1 rename to keep existing workflow yamls working.
+    """
+    if phase is None:
+        return ""
+    parts: list[str] = [f"## Phase: {phase.name}\n"]
+    if phase.task_template:
+        context = _SafeFormatDict(
+            ticket_title=ticket.title,
+            issue_title=ticket.title,  # legacy alias
+            ticket_id=ticket.id,
+            issue_id=ticket.id,  # legacy alias
+        )
+        task = phase.task_template.format_map(context)
+        parts.append(f"### Task\n\n{task}\n")
+    if phase.acceptance_criteria:
+        parts.append(f"### Acceptance criteria\n\n{phase.acceptance_criteria}\n")
+    return "\n".join(parts) + "\n"
 
 
 def _ticket_section(
@@ -152,6 +188,7 @@ def build_initial_prompt(
     resolved_context: str = "",
     all_roles: list[RoleConfig] | None = None,
     worktree_path: str | None = None,
+    phase: PhaseConfig | None = None,
 ) -> str:
     parts = [
         _role_section(role_cfg, spawn_reason),
@@ -163,6 +200,7 @@ def build_initial_prompt(
         _memories_section(memories),
         resolved_context,
         _ticket_section(ticket, parent, comments),
+        _phase_section(phase, ticket),
         _instructions_section(ticket, spawn_reason),
     ]
     return "".join(parts)

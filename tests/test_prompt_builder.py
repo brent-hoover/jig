@@ -1,4 +1,4 @@
-from jig.models import RoleConfig
+from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.prompt_builder import SpawnReason, build_initial_prompt
 from jig.skill_loader import Skill
@@ -104,3 +104,84 @@ def test_parent_comments_included() -> None:
     )
     assert "use redis" in prompt
     assert "index by id" in prompt
+
+
+def test_phase_section_interpolates_task_template() -> None:
+    phase = PhaseConfig(
+        name="implement",
+        role="dev",
+        task_template="Implement code that passes the tests for: {ticket_title}",
+        acceptance_criteria="All tests pass",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        comments=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        phase=phase,
+    )
+    assert "## Phase: implement" in prompt
+    assert "Implement code that passes the tests for: implement X" in prompt
+    assert "All tests pass" in prompt
+
+
+def test_phase_section_accepts_legacy_issue_title_placeholder() -> None:
+    phase = PhaseConfig(
+        name="spec",
+        role="spec",
+        task_template="Draft spec for: {issue_title}",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        comments=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        phase=phase,
+    )
+    assert "Draft spec for: implement X" in prompt
+
+
+def test_phase_section_unknown_placeholder_left_intact() -> None:
+    """Unknown placeholders degrade to visible text rather than crashing."""
+    phase = PhaseConfig(
+        name="x", role="dev", task_template="work on {nonexistent}"
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        comments=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        phase=phase,
+    )
+    assert "work on {nonexistent}" in prompt
+
+
+def test_phase_section_absent_when_phase_none() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        comments=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+    )
+    assert "## Phase:" not in prompt
+    assert "### Acceptance criteria" not in prompt

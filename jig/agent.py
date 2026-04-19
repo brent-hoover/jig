@@ -107,6 +107,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         resolved_context=resolved_context,
         all_roles=all_roles,
         worktree_path=str(ctx.worktree_path),
+        phase=ctx.phase,
     )
 
 

@@ -58,7 +58,6 @@ export interface AgentConfig {
   phase_prompt: string
   response_prompt: string
   allowed_tools: string[]
-  can_message: string[]
   default_context: string[]
 }
 

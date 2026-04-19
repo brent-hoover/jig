@@ -166,9 +166,8 @@ async def handle_comment_on_ticket(
         raise KeyError(f"ticket {ticket_id} not found")
 
     # Commenting on a ticket is always allowed — the agent is posting its own
-    # observations, not messaging the assignee.  The can_message restriction
-    # applies to create_ticket (which directs work to another role), not to
-    # comments which are read-only context.
+    # observations, not messaging the assignee. Cross-role messaging policy
+    # (if any) will land with the capability-policy layer in Phase 5.
 
     comment = Comment(
         ticket_id=ticket_id,

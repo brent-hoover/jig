@@ -141,17 +141,20 @@ Core repo `jig/`:
 
 **E. Dead-code fixes from the survey**
 
-- [ ] Interpolate `PhaseConfig.task_template` in `prompt_builder.py`
+- [x] Interpolate `PhaseConfig.task_template` in `prompt_builder.py`
       when building the agent prompt (currently stored, never
       expanded)
-- [ ] Surface `PhaseConfig.acceptance_criteria` in the agent prompt
+- [x] Surface `PhaseConfig.acceptance_criteria` in the agent prompt
       (currently stored, never shown to the agent)
-- [ ] Wire `Project.merge_strategy` into the workflow's terminal
+- [x] Wire `Project.merge_strategy` into the workflow's terminal
       phase so squash vs PR vs direct merge actually does something
-      different (minimal; full merge behavior is Phase 6)
-- [ ] Drop or rename `AgentTypeConfig.can_message` — it's a stub with
+      different (minimal; full merge behavior is Phase 6) — already
+      wired via `orchestrator._on_ticket_completed` →
+      `worktree.merge_ticket(..., strategy)`
+- [x] Drop or rename `AgentTypeConfig.can_message` — it's a stub with
       no enforcement; either delete or document as Phase 5 policy
-      input
+      input. Dropped; capability policy moves to role templates per
+      doc 16 in Phase 5.
 
 **F. Load-time validation (partial)**
 

@@ -264,6 +264,7 @@ class Orchestrator:
                 comments=self.comments,
                 memory=self.memory,
                 bus=self.bus,
+                phase=phase,
             )
             sub_key = (ticket_id, phase.role)
             self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]

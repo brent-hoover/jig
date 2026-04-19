@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from jig.models import RoleConfig
+from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
@@ -29,4 +29,7 @@ class AgentSpawnContext:
     comments: CommentStore
     memory: MemoryStore
     bus: MessageBus
+    # Populated for PHASE_PRIMARY spawns — None for QA_RESPONDER and other
+    # thread-level spawns where there is no workflow phase context.
+    phase: PhaseConfig | None = None
     initial_bus_message: dict | None = None

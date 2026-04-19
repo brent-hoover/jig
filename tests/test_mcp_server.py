@@ -22,7 +22,7 @@ async def test_agent_mcp_server_registers_expected_tools(
     await memory.load()
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
-    cfg = RoleConfig(role="dev", phase_prompt="", can_message=["user"])
+    cfg = RoleConfig(role="dev", phase_prompt="")
 
     captured: dict = {}
 

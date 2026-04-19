@@ -106,15 +106,15 @@ Current: `.jig/project.json` with `Project` model.
 Target: `.jig/config.yaml` per doc 17 with `project:`, `workflows:`,
 `ownership:`, `roles:`, `escalation:` sections.
 
-- [ ] Define `Config` pydantic model with nested sections
-- [ ] Load `.jig/config.yaml` as primary; fall back to
+- [x] Define `Config` pydantic model with nested sections
+- [x] Load `.jig/config.yaml` as primary; fall back to
       `.jig/project.json` with a deprecation warning for one cycle
-- [ ] `jig init` writes config.yaml, not project.json
-- [ ] `workflows.by_type.<type>.default_by_size` and
+- [x] `jig init` writes config.yaml, not project.json
+- [x] `workflows.by_type.<type>.default_by_size` and
       `workflows.by_type.<type>.available` accepted and parsed; not
       yet *used* to drive workflow resolution (that's Phase 2)
-- [ ] `ownership:` section accepted; not yet enforced (Phase 3)
-- [ ] `roles:` section for po/sa assignments accepted; not yet used
+- [x] `ownership:` section accepted; not yet enforced (Phase 3)
+- [x] `roles:` section for po/sa assignments accepted; not yet used
       (Phase 3)
 
 **D. Directory layout per doc 17**

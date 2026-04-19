@@ -1,11 +1,11 @@
 """Tests for jig CLI commands."""
 
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from jig.cli import cli
@@ -19,17 +19,19 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def tmp_new_jig_project(tmp_path: Path) -> Path:
-    """A git repo with the NEW .jig/ layout (project.json, no issues/, no config.yaml)."""
+    """A git repo with the NEW .jig/ layout (config.yaml, no issues/, no project.json)."""
     (tmp_path / ".git").mkdir()
     jig_dir = tmp_path / ".jig"
     jig_dir.mkdir()
-    project_data = {
-        "id": tmp_path.name,
-        "name": tmp_path.name,
-        "path": str(tmp_path),
-        "default_branch": "main",
+    config_data = {
+        "project": {
+            "id": tmp_path.name,
+            "name": tmp_path.name,
+            "path": str(tmp_path),
+            "default_branch": "main",
+        }
     }
-    (jig_dir / "project.json").write_text(json.dumps(project_data))
+    (jig_dir / "config.yaml").write_text(yaml.safe_dump(config_data))
     (jig_dir / "roles").mkdir()
     (jig_dir / "workflows").mkdir()
     (jig_dir / "worktrees").mkdir()
@@ -38,7 +40,7 @@ def tmp_new_jig_project(tmp_path: Path) -> Path:
 
 
 class TestInit:
-    def test_init_creates_project_json(self, tmp_path: Path, runner: CliRunner) -> None:
+    def test_init_creates_config_yaml(self, tmp_path: Path, runner: CliRunner) -> None:
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
@@ -46,14 +48,15 @@ class TestInit:
         )
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code == 0, result.output
-        assert (tmp_path / ".jig" / "project.json").is_file()
+        assert (tmp_path / ".jig" / "config.yaml").is_file()
+        assert not (tmp_path / ".jig" / "project.json").exists()
         assert not (tmp_path / ".jig" / "issues").exists()
         assert (tmp_path / ".jig" / "worktrees").is_dir()
         assert (tmp_path / ".jig" / "roles").is_dir()
         assert (tmp_path / ".jig" / "workflows").is_dir()
         assert (tmp_path / ".jig" / "store").is_dir()
 
-    def test_init_project_json_contains_branch(self, tmp_path: Path, runner: CliRunner) -> None:
+    def test_init_config_yaml_contains_branch(self, tmp_path: Path, runner: CliRunner) -> None:
         subprocess.run(["git", "init", "-q", "-b", "develop"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
@@ -63,8 +66,8 @@ class TestInit:
             cli, ["init", "--path", str(tmp_path), "--branch", "develop", "--no-input"]
         )
         assert result.exit_code == 0, result.output
-        data = json.loads((tmp_path / ".jig" / "project.json").read_text())
-        assert data["default_branch"] == "develop"
+        data = yaml.safe_load((tmp_path / ".jig" / "config.yaml").read_text())
+        assert data["project"]["default_branch"] == "develop"
 
     def test_already_initialized(self, runner: CliRunner, tmp_new_jig_project: Path) -> None:
         result = runner.invoke(cli, ["init", "--path", str(tmp_new_jig_project)])

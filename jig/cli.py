@@ -211,7 +211,7 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
         click.echo()
         project = _prompt_project_context(path, base_project)
         save_project(path, project)
-        click.echo("\nProject saved to .jig/project.json")
+        click.echo("\nProject saved to .jig/config.yaml")
 
     # Commit everything so worktrees branch from a working state
     subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)

@@ -12,7 +12,7 @@ from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Ticket, TicketType
+from jig.ticket import Ticket, WorkType
 
 
 async def _wait_for_subscription(bus, topic: str, timeout: float = 2.0) -> None:
@@ -38,7 +38,7 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     t = Ticket(
-        type=TicketType.TASK,
+        work_type=WorkType.REFACTOR,
         title="t",
         created_by="o",
         description="do it",

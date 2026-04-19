@@ -7,7 +7,7 @@ import pytest
 from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.ticket import Comment, Ticket, TicketStatus, WorkType
 
 
 @pytest.mark.asyncio
@@ -64,7 +64,7 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(type=TicketType.FEATURE, title="f", created_by="user")
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
         )
         await orch._handle_schedule(tid)
         for _ in range(40):
@@ -141,7 +141,7 @@ async def test_run_agent_exception_marks_ticket_failed(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(type=TicketType.FEATURE, title="feat", created_by="user")
+            Ticket(work_type=WorkType.FEATURE, title="feat", created_by="user")
         )
         await orch._handle_schedule(tid)
         # Wait for the asyncio task to finish
@@ -177,7 +177,7 @@ async def test_current_phase_index_skips_by_phase_name_not_task_count(
     await orch.startup()
     try:
         ticket_id = await orch.tickets.create(
-            Ticket(type=TicketType.FEATURE, title="feat", created_by="user")
+            Ticket(work_type=WorkType.FEATURE, title="feat", created_by="user")
         )
 
         # Post TWO phase_run comments for phase "a" (simulating a retry)

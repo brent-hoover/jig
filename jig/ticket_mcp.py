@@ -7,7 +7,7 @@ from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.ticket import Comment, Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
 _logger = logging.getLogger(__name__)
@@ -30,17 +30,30 @@ async def handle_create_ticket(
         if await tickets.get(dep_id) is None:
             raise KeyError(f"dependency ticket {dep_id} not found")
 
-    ticket = Ticket(
-        type=TicketType(args["type"]),
-        title=args["title"],
-        description=args.get("description", ""),
-        assignee=args.get("assignee"),
-        parent_id=args.get("parent_id"),
-        blocked_by=depends_on,
-        workflow=args.get("workflow", "default"),
-        labels=args.get("labels", []),
-        created_by=sender,
-    )
+    # Accept either the new "work_type" or the legacy "type" kwarg.
+    # If "type" is passed, the Ticket model validator handles migration
+    # of legacy values (bug→bugfix, etc.) and sets workflow="thread" for
+    # the old task/question values.
+    ticket_kwargs: dict = {
+        "title": args["title"],
+        "description": args.get("description", ""),
+        "assignee": args.get("assignee"),
+        "parent_id": args.get("parent_id"),
+        "blocked_by": depends_on,
+        "labels": args.get("labels", []),
+        "created_by": sender,
+        "size": Size(args.get("size", "m")),
+    }
+    if "workflow" in args:
+        ticket_kwargs["workflow"] = args["workflow"]
+    if "work_type" in args:
+        ticket_kwargs["work_type"] = WorkType(args["work_type"])
+    elif "type" in args:
+        ticket_kwargs["type"] = args["type"]
+    else:
+        raise KeyError("work_type is required")
+
+    ticket = Ticket(**ticket_kwargs)
     ticket_id = await tickets.create(ticket)
 
     # Update the reverse side: each dependency now blocks this ticket
@@ -54,7 +67,11 @@ async def handle_create_ticket(
         "ticket_id": ticket_id,
         "title": ticket.title,
         "description": ticket.description,
-        "type": ticket.type.value,
+        "work_type": ticket.work_type.value,
+        # Legacy alias for subscribers not yet updated to the Phase 1
+        # schema. Remove once TUI + any other consumers land on work_type.
+        "type": ticket.work_type.value,
+        "size": ticket.size.value,
         "assignee": ticket.assignee,
         "parent_id": ticket.parent_id,
         "depends_on": depends_on,
@@ -87,7 +104,16 @@ async def handle_read_ticket(*, tickets: TicketStore, ticket_id: str) -> Ticket:
 async def handle_list_tickets(
     *, tickets: TicketStore, args: dict
 ) -> list[Ticket]:
-    ttype = TicketType(args["type"]) if "type" in args else None
+    # Accept both "work_type" and legacy "type" in filter args. Legacy
+    # values (bug, chore, task, question) are migrated through the same
+    # mapping as the model validator so old callers keep working.
+    raw_work_type = args.get("work_type", args.get("type"))
+    if raw_work_type is None:
+        wt = None
+    else:
+        from jig.ticket import _LEGACY_TYPE_MIGRATION
+        mapped = _LEGACY_TYPE_MIGRATION.get(raw_work_type, raw_work_type)
+        wt = WorkType(mapped)
     status = TicketStatus(args["status"]) if "status" in args else None
     assignee = args.get("assignee")
     parent_id = args.get("parent_id")
@@ -100,7 +126,7 @@ async def handle_list_tickets(
         pool = await tickets.list_all()
 
     def keep(t: Ticket) -> bool:
-        if ttype is not None and t.type != ttype:
+        if wt is not None and t.work_type != wt:
             return False
         if status is not None and t.status != status:
             return False

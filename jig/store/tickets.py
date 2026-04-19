@@ -2,9 +2,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from jig.store.models import TypedCollection
-from jig.ticket import Ticket, TicketStatus, TicketType
+from jig.ticket import Ticket, TicketStatus, WorkType
 
-TOP_LEVEL_TYPES = {TicketType.FEATURE, TicketType.BUG, TicketType.CHORE}
+# All shipped work_types currently participate in the workflow pipeline.
+# Phase 2 will introduce per-work_type workflow selection via config.yaml,
+# but for now every top-level ticket is eligible.
+TOP_LEVEL_WORK_TYPES = set(WorkType)
+
+# Backwards-compat alias used by older imports — remove with TicketType.
+TOP_LEVEL_TYPES = TOP_LEVEL_WORK_TYPES
 
 
 class TicketStore:
@@ -12,7 +18,7 @@ class TicketStore:
         self._collection: TypedCollection[Ticket] = TypedCollection(
             path,
             model=Ticket,
-            index_fields=["type", "status", "assignee", "parent_id"],
+            index_fields=["work_type", "status", "assignee", "parent_id"],
         )
 
     async def load(self) -> None:
@@ -36,11 +42,11 @@ class TicketStore:
 
     async def find_in_progress_top_level(self) -> list[Ticket]:
         results: list[Ticket] = []
-        for ttype in TOP_LEVEL_TYPES:
+        for wt in TOP_LEVEL_WORK_TYPES:
             found = await self._collection.find_where(
-                type=ttype, status=TicketStatus.IN_PROGRESS
+                work_type=wt, status=TicketStatus.IN_PROGRESS
             )
-            results.extend(found)
+            results.extend(t for t in found if t.workflow != "thread")
         return results
 
     async def find_by_assignee(self, assignee: str) -> list[Ticket]:
@@ -55,9 +61,12 @@ class TicketStore:
     async def find_ready(self) -> list[Ticket]:
         """Find open top-level tickets whose dependencies are all resolved."""
         candidates: list[Ticket] = []
-        for ttype in TOP_LEVEL_TYPES:
+        for wt in TOP_LEVEL_WORK_TYPES:
             candidates.extend(
-                await self._collection.find_where(type=ttype, status=TicketStatus.OPEN)
+                t for t in await self._collection.find_where(
+                    work_type=wt, status=TicketStatus.OPEN
+                )
+                if t.workflow != "thread"
             )
         ready: list[Ticket] = []
         for ticket in candidates:

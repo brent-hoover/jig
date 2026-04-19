@@ -6,7 +6,7 @@ from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Comment, TicketStatus, TicketType
+from jig.ticket import Comment, TicketStatus, WorkType
 from jig.ticket_mcp import (
     handle_comment_on_ticket,
     handle_create_ticket,
@@ -45,7 +45,7 @@ async def test_create_ticket_persists(stores) -> None:
     loaded = await tickets.get(ticket_id)
     assert loaded is not None
     assert loaded.title == "Add search"
-    assert loaded.type == TicketType.FEATURE
+    assert loaded.work_type == WorkType.FEATURE
     assert loaded.created_by == "user"
     assert loaded.status == TicketStatus.OPEN
 
@@ -64,7 +64,8 @@ async def test_create_ticket_publishes_bus_event(stores) -> None:
     msg = await queue.get()
     assert msg.topic == "orchestrator"
     assert msg.payload["kind"] == "ticket_created"
-    assert msg.payload["type"] == "bug"
+    # Legacy "bug" migrates to "bugfix" via the Ticket model validator.
+    assert msg.payload["work_type"] == "bugfix"
 
 
 @pytest.mark.asyncio

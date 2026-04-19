@@ -5,7 +5,7 @@ import pytest
 
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
-from jig.ticket import Ticket, TicketStatus, TicketType
+from jig.ticket import Ticket, TicketStatus, WorkType
 from jig.store.tickets import TicketStore
 from jig.store import Message, MessageType
 
@@ -49,7 +49,7 @@ async def test_orchestrator_resumes_in_progress_tickets(tmp_path: Path) -> None:
     await ts.load()
     tid = await ts.create(
         Ticket(
-            type=TicketType.FEATURE,
+            work_type=WorkType.FEATURE,
             title="f",
             created_by="user",
             status=TicketStatus.IN_PROGRESS,
@@ -88,11 +88,12 @@ async def test_dispatch_loop_spawns_for_unaddressed_message(tmp_path: Path) -> N
     await ts.load()
     tid = await ts.create(
         Ticket(
-            type=TicketType.QUESTION,
+            work_type=WorkType.FEATURE,
             title="q",
             created_by="dev",
             assignee="spec-writer",
             parent_id="parent-1",
+            workflow="thread",
         )
     )
 
@@ -135,10 +136,11 @@ async def test_dispatch_loop_skips_user_role(tmp_path: Path) -> None:
     await ts.load()
     tid = await ts.create(
         Ticket(
-            type=TicketType.QUESTION,
+            work_type=WorkType.FEATURE,
             title="q",
             created_by="dev",
             assignee="user",
+            workflow="thread",
         )
     )
 
@@ -178,10 +180,11 @@ async def test_dispatch_loop_skips_if_live_subscriber_present(tmp_path: Path) ->
     await ts.load()
     tid = await ts.create(
         Ticket(
-            type=TicketType.TASK,
+            work_type=WorkType.REFACTOR,
             title="t",
             created_by="o",
             assignee="dev",
+            workflow="thread",
         )
     )
 
@@ -231,7 +234,10 @@ async def test_spawn_qa_responder_setup_failure_does_not_kill_dispatch(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(type=TicketType.TASK, title="t", created_by="o", assignee="qa")
+            Ticket(
+                work_type=WorkType.REFACTOR, title="t", created_by="o",
+                assignee="qa", workflow="thread",
+            )
         )
         fake_msg = Message(
             sender="o", to="qa", type=MessageType.CONTEXT_UPDATE,
@@ -284,7 +290,10 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(type=TicketType.QUESTION, title="q", created_by="dev", assignee="qa")
+            Ticket(
+                work_type=WorkType.FEATURE, title="q", created_by="dev",
+                assignee="qa", workflow="thread",
+            )
         )
         fake_msg = Message(
             sender="dev", to="qa", type=MessageType.CONTEXT_UPDATE,
@@ -309,7 +318,7 @@ async def test_orchestrator_emits_ticket_events_to_emitter(tmp_path: Path) -> No
     await orch.startup()
     try:
         queue = emitter.subscribe()
-        await orch.tickets.create(Ticket(type=TicketType.FEATURE, title="f", created_by="user"))
+        await orch.tickets.create(Ticket(work_type=WorkType.FEATURE, title="f", created_by="user"))
         await orch.bus.publish(Message(
             sender="user", to="orchestrator", type=MessageType.CONTEXT_UPDATE,
             payload={"kind": "ticket_created"},
@@ -350,7 +359,8 @@ async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -
     await orch.startup()
     try:
         tid = await orch.tickets.create(Ticket(
-            type=TicketType.QUESTION, title="q", created_by="dev", assignee="qa",
+            work_type=WorkType.FEATURE, title="q", created_by="dev",
+            assignee="qa", workflow="thread",
         ))
         fake_msg = Message(
             sender="dev", to="qa", type=MessageType.CONTEXT_UPDATE,

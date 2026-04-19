@@ -14,7 +14,7 @@ from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
-from jig.ticket import TicketStatus, TicketType
+from jig.ticket import TicketStatus
 
 _logger = logging.getLogger(__name__)
 
@@ -167,10 +167,12 @@ class Orchestrator:
         if ticket is None:
             _logger.warning("ticket %s not found, cannot schedule", ticket_id)
             return
-        # Only top-level work tickets go through the workflow pipeline.
-        # QUESTION and TASK tickets are handled by the dispatch loop (QA responders).
-        if ticket.type not in (TicketType.FEATURE, TicketType.BUG, TicketType.CHORE):
-            _logger.debug("skipping non-workflow ticket %s (type=%s)", ticket_id, ticket.type.value)
+        # Thread-style tickets (QA threads, ad-hoc requests) are dispatched
+        # from the message bus directly — they don't enter the workflow
+        # pipeline. Phase 4 replaces this transitional marker with proper
+        # typed thread entries on a parent ticket.
+        if ticket.workflow == "thread":
+            _logger.debug("skipping thread-style ticket %s", ticket_id)
             return
         # Check dependencies — all must be resolved before we start.
         if ticket.blocked_by:

@@ -3,12 +3,12 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.ticket import Comment, Ticket, TicketStatus, WorkType
 
 
 def test_ticket_defaults() -> None:
     t = Ticket(
-        type=TicketType.FEATURE,
+        work_type=WorkType.FEATURE,
         title="add search",
         created_by="user",
     )
@@ -26,7 +26,7 @@ def test_ticket_defaults() -> None:
 def test_ticket_all_statuses_accepted() -> None:
     for status in TicketStatus:
         t = Ticket(
-            type=TicketType.TASK,
+            work_type=WorkType.REFACTOR,
             title="t",
             created_by="orchestrator",
             status=status,
@@ -34,10 +34,32 @@ def test_ticket_all_statuses_accepted() -> None:
         assert t.status == status
 
 
-def test_ticket_all_types_accepted() -> None:
-    for ttype in TicketType:
-        t = Ticket(type=ttype, title="t", created_by="u")
-        assert t.type == ttype
+def test_ticket_all_work_types_accepted() -> None:
+    for wt in WorkType:
+        t = Ticket(work_type=wt, title="t", created_by="u")
+        assert t.work_type == wt
+
+
+def test_ticket_accepts_legacy_type_kwarg() -> None:
+    """Transitional: the old `type` kwarg with pre-doc-03 values still loads."""
+    t = Ticket(type="bug", title="b", created_by="u")
+    assert t.work_type == WorkType.BUGFIX
+
+    t2 = Ticket(type="chore", title="c", created_by="u")
+    assert t2.work_type == WorkType.REFACTOR
+
+    t3 = Ticket(type="task", title="t", created_by="u")
+    assert t3.work_type == WorkType.REFACTOR
+
+    t4 = Ticket(type="question", title="q", created_by="u")
+    assert t4.work_type == WorkType.FEATURE
+
+
+def test_ticket_size_defaults_to_medium() -> None:
+    from jig.ticket import Size
+
+    t = Ticket(work_type=WorkType.FEATURE, title="t", created_by="u")
+    assert t.size == Size.M
 
 
 def test_comment_default_kind() -> None:

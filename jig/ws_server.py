@@ -145,7 +145,11 @@ class WebSocketServer:
                     "tickets": [
                         {
                             "id": t.id,
-                            "type": t.type.value,
+                            "work_type": t.work_type.value,
+                            # Legacy alias for TUI clients not yet updated
+                            # to the Phase 1 schema. Remove once Task G lands.
+                            "type": t.work_type.value,
+                            "size": t.size.value,
                             "status": t.status.value,
                             "title": t.title,
                             "description": t.description,

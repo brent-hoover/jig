@@ -2,7 +2,7 @@ from jig.models import RoleConfig
 from jig.project import Project
 from jig.prompt_builder import SpawnReason, build_initial_prompt
 from jig.skill_loader import Skill
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.ticket import Comment, Ticket, TicketStatus, WorkType
 
 
 def _project() -> Project:
@@ -19,14 +19,14 @@ def _cfg() -> RoleConfig:
 
 def _ticket() -> Ticket:
     return Ticket(
-        type=TicketType.TASK, title="implement X", created_by="orchestrator",
+        work_type=WorkType.REFACTOR, title="implement X", created_by="orchestrator",
         description="do the thing", status=TicketStatus.OPEN,
     )
 
 
 def test_injection_order() -> None:
     parent = Ticket(
-        type=TicketType.FEATURE, title="parent", created_by="user",
+        work_type=WorkType.FEATURE, title="parent", created_by="user",
         description="overall goal",
     )
     uv_skill = Skill(
@@ -86,7 +86,7 @@ def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
 
 
 def test_parent_comments_included() -> None:
-    parent = Ticket(type=TicketType.FEATURE, title="p", created_by="u", description="")
+    parent = Ticket(work_type=WorkType.FEATURE, title="p", created_by="u", description="")
     parent_comments = [
         Comment(ticket_id="parent-id", author="spec-writer", content="use redis"),
         Comment(ticket_id="parent-id", author="spec-writer", content="index by id"),

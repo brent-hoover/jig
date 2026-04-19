@@ -40,7 +40,7 @@ def create_agent_mcp_server(
         "create_ticket",
         "Create a new ticket. Use depends_on to list ticket IDs that must be resolved before this ticket can start. "
         "Set workflow to 'project' for tickets that need PM planning breakdown.",
-        {"type": str, "title": str, "description": str, "assignee": str, "parent_id": str, "depends_on": list, "workflow": str, "labels": list},
+        {"work_type": str, "size": str, "title": str, "description": str, "assignee": str, "parent_id": str, "depends_on": list, "workflow": str, "labels": list},
     )
     async def create_ticket(args):
         _check_assignee(args.get("assignee"))
@@ -102,7 +102,7 @@ def create_agent_mcp_server(
     @tool(
         "list_tickets",
         "List tickets with optional filters",
-        {"type": str, "status": str, "assignee": str, "parent_id": str},
+        {"work_type": str, "status": str, "assignee": str, "parent_id": str},
     )
     async def list_tickets(args):
         results = await ticket_mcp.handle_list_tickets(tickets=tickets, args=args)

@@ -260,7 +260,7 @@ notifies a human, or marks the phase as stuck.
 
 The service can crash. When it restarts:
 
-1. Load persisted state (SQLite — see [11](./11-state-location.md)).
+1. Load persisted state (SQLite — see [12](./12-service-shape.md) §State location).
 2. Reconcile with agent state: query container runtime for live
    sandboxes.
 3. For live sandboxes: re-establish WS connection or terminate the
@@ -304,6 +304,117 @@ V1 UX: a simple list view showing Draft work units with size, title,
 source (who created, or which deferral promoted them). Humans or the
 orchestrator can start them. No complex prioritization in v1 — teams
 work through the backlog in whatever order makes sense.
+
+## Abandonment
+
+A work unit transitions to `Abandoned` when it's explicitly closed
+without reaching `Done`. Several doc sections reference this
+transition without pinning down the trigger, the side effects, or
+the parent/child cascade. Collected here.
+
+### Triggers
+
+Four paths, each producing an `Abandoned` state with a `reason`
+field:
+
+- **Human CLI/TUI action.** `jig abandon <wu-id> --reason "..."`.
+  Authorized actor is any owner of the work unit per
+  [04](./04-ownership.md) — the assignee, the SA, the PO if the
+  work relates to a product decision they own. The TUI exposes an
+  abandon action on the WU detail view.
+- **External close** (hybrid SCM mode). Human closes the linked
+  issue on the SCM; harness force-abandons the WU per
+  [13](./13-scm-integration.md) §External close handling.
+- **Parent cascade override.** A human abandoning a parent can opt
+  to cascade the abandonment to in-flight children (see below).
+- **Failure-to-progress timeout.** Per
+  [09](./09-checkpoints.md) §Failure-to-progress, a work unit that
+  shows no progress across multiple checkpoint intervals surfaces a
+  warning. If the warning is dismissed with "abandon," that
+  terminates the WU. Never auto-abandons without human
+  confirmation.
+
+No agent can abandon a work unit. Agents that hit a dead end post an
+Escalation per [08](./08-threads.md); a human decides whether to
+abandon or reassign. This keeps terminal decisions in human hands,
+consistent with "agents can't self-certify past objective gates"
+from [00](./00-overview.md).
+
+### Side effects on live state
+
+On abandonment, the service:
+
+1. **Terminates running agent sandboxes** for this WU. Sandbox
+   shutdown follows the standard termination path
+   ([§Process and sandbox management](#) elsewhere in this doc).
+2. **Persists final thread state.** Any in-flight thread entries
+   from still-alive agents are flushed; the thread is sealed.
+3. **Writes the archive** to `.jig/archive/<WU-id>/` per
+   [17](./17-directory-layout.md). The archive records the
+   abandonment reason, the triggering actor, and the timestamp.
+4. **Purges live service state** (SQLite rows for this WU). The
+   archive is the durable record from this point.
+
+### Branch and worktree
+
+The git worktree and feature branch are **kept, not deleted**.
+Rationale: reconstituting forensic state is expensive; deleting a
+worktree is cheap to do manually later. Default preserves evidence.
+
+- **Worktree directory** stays on disk under its original path.
+  `jig cleanup --abandoned` is the opt-in command to sweep
+  abandoned worktrees; no automatic cleanup.
+- **Feature branch** stays in the local repo. If it was pushed to
+  the SCM, it stays there too — the harness does not delete remote
+  branches on abandonment. Teams that want aggressive cleanup can
+  configure a post-abandonment hook; not a default.
+- **Uncommitted changes** in the worktree are left in place.
+  Nothing is auto-committed on abandonment beyond what was already
+  committed.
+
+The archive's `manifest.yaml` records the final branch name and
+worktree path so a human investigating later has the handles.
+
+### Parent/child cascade
+
+When a parent WU abandons, its in-flight children do **not**
+auto-abandon. They transition to `blocked` with
+`parent_abandoned` as the cause. This is the same semantic as the
+external-close dependency callout in [13].
+
+The human abandoning the parent gets a prompt listing children and
+their states, with three options:
+
+- **Block children** (default). Each child transitions to
+  `blocked`; humans decide later whether to abandon individually
+  or resolve the block.
+- **Cascade abandon.** Each in-flight child is also abandoned with
+  `cascade_from_parent:<parent-id>` as the reason. Done-state
+  children are unaffected.
+- **Halt** (no abandonment). Parent stays active; human
+  reconsiders.
+
+Re-homing children to a different parent is not supported per
+[05](./05-workflow-model.md) §V1 scope. A child orphaned by a
+parent abandonment is either abandoned or completes standalone with
+its work product landing in the archive without integration.
+
+Non-parent dependencies (`depends_on` references, not parent/child)
+behave the same way — dependents transition to `blocked` with the
+abandoned WU cited as cause. Same prompt, same options.
+
+### `jig resume`
+
+External-close abandonment is the one case where resumption is a
+first-class operation (per [13] §External close handling). Other
+abandonments are terminal — the archive is the end state. If work
+needs to continue, the human creates a new WU, optionally importing
+context from the abandoned WU's archive.
+
+Making resume terminal-by-default prevents abandon-reopen thrashing
+and keeps the state machine simple. External-close resume is the
+exception because the abandonment itself was driven by an external
+action that may have been accidental.
 
 ## Deployment shapes
 

@@ -85,9 +85,9 @@ The service resolves references at spawn time. Benefits:
 ## URI scheme
 
 - `project://<path>` — curated project-level artifact. Lives in the repo
-  under `.agents/context/project/` (or similar).
+  under `.jig/context/project/` per [17](./17-directory-layout.md).
 - `role://<role>/<path>` — role-level artifact. Repo-resident under
-  `.agents/context/roles/<role>/`.
+  `.jig/context/roles/<role>/`.
 - `workunit://<artifact>` — work-unit-specific artifact. Resolved by the
   service from work-unit state: design, tests, thread, etc.
 - `decision://<id>` — a specific decision record. Separate scheme because

@@ -1,9 +1,10 @@
-# 11 — Specs and Work Types
+# 03 — Specs, Work Types, and Classification
 
-Specs as first-class, owned, living artifacts. The mechanism that makes
-asymmetric validation possible and makes work-unit decomposition
-tractable. One of the features that distinguishes this harness from
-"agents working alone on tickets."
+Specs as first-class, owned, living artifacts, and the classification
+model that keys them. This is the mechanism that makes asymmetric
+validation possible and makes work-unit decomposition tractable — one
+of the features that distinguishes this harness from "agents working
+alone on tickets."
 
 ## Relationship to the project spec
 
@@ -99,7 +100,7 @@ owner who signed off on each change.
 This is how teams that do specs well already work. The harness supports
 the practice rather than forcing a waterfall model.
 
-## Ownership — refer to 10
+## Ownership
 
 Specs are owned artifacts per [04](./04-ownership.md). Most spec
 sections are jointly owned:
@@ -186,20 +187,40 @@ Referenceable IDs on behaviors let other artifacts cite specific
 behaviors cleanly: "Decision DR-17 supersedes B2's persistence strategy
 for this work unit."
 
+## The three classification axes
+
+Every work unit classifies on three axes. Each axis answers a different
+question; collapsing any two into one loses signal.
+
+**Work type.** *What kind of work this is.* Selects spec schema (the
+shape of the artifact) and, together with size, selects workflow.
+Shipped set: feature, bugfix, refactor, spike, perf, migration, docs.
+Projects add or replace.
+
+**Size.** *Estimated effort/complexity.* Scales spec field rigor
+within the work type's schema (XS may require only `summary`; M requires
+behaviors + acceptance criteria + design). Together with work type,
+selects workflow. Shipped set: xs, s, m, l, xl.
+
+**Workflow.** *The phase sequence.* Named, versioned artifact
+(see [05](./05-workflow-model.md)). Selected from the catalog by the
+`(work_type, size)` pair, overridable at creation within that pair's
+`available` whitelist.
+
+Keying workflow on size alone (an earlier simpler design) forces every
+work type through the same phase shape per size class — exactly the
+schema-rigidity failure named above. A bugfix-M shouldn't run
+test-before-implement; a docs-M doesn't have an implement phase in the
+usual sense; a spike-S wants a time-box and exit-on-question-answered
+rather than implement/review/ship. Keying on `(work_type, size)` gives
+each combination its own phase shape.
+
 ## Work types
 
-Different kinds of work need different spec shapes. A feature spec is
-not a bugfix spec is not a spike spec. The harness uses **work types**
-to handle this:
+Different kinds of work need different spec shapes. Shipped defaults
+(tunable per project):
 
-- Work units declare a work type at creation, alongside size.
-- Each work type has an associated spec schema.
-- The schema declares which fields are required, which are optional,
-  and which are not applicable.
-
-Shipped defaults (tunable per project):
-
-- **feature** — new user-facing capability. Full schema as shown.
+- **feature** — new user-facing capability. Full schema as shown above.
 - **bugfix** — fix for a specific defect. Schema emphasizes: symptom,
   root cause, fix approach, regression test.
 - **refactor** — internal restructuring with no behavior change. Schema
@@ -269,22 +290,168 @@ changing a committed spec, not refining an in-progress one.
 This lets the schema encode team conventions about when fields
 stabilize without being rigid about it.
 
-## Size-scaled rigor and size-as-signal
+## Size scales field rigor within the schema
 
-Full schemas are heavy. Not every work unit needs the full machinery:
+Full schemas are heavy. Not every work unit needs the full machinery.
+Size doesn't change *which* schema applies (that's the work type's
+job) — size scales *how rigorous* each field must be within the schema.
 
-- XS (hotfix): spec may be minimal or omitted entirely. `summary` +
-  `acceptance_criteria` is often enough. Some workflows have no spec
-  phase at all (see [05](./05-workflow-model.md)).
-- S: `summary`, `behaviors`, `acceptance_criteria`. Design may be
-  omitted if the work is obvious.
-- M and above: full schema for the declared work type.
+A bugfix at XS may require only `summary` and `fix_approach`; a bugfix
+at L requires the full schema plus extra rigor on `regression_test`.
+The project's schema config declares the size mapping:
 
-Size-appropriate rigor is declared in project config — "for work type
-feature at size S, the required fields are X, Y, Z." The harness
-validates accordingly.
+```yaml
+work_types:
+  bugfix:
+    schema: bugfix
+    required_by_size:
+      xs: [summary, fix_approach]
+      s: [summary, symptom, fix_approach, regression_test]
+      m: [summary, symptom, root_cause, fix_approach, regression_test]
+      l: [summary, symptom, root_cause, fix_approach, regression_test,
+          impact_analysis]
+```
 
-But size is an estimate, and estimates are wrong. A medium feature that
+Each axis does exactly one job: schema shape is a work_type concern;
+field rigor is a size concern; phase sequence is a `(work_type, size)`
+concern.
+
+Some workflows have no spec phase at all (XS hotfixes often don't) —
+see §Spec-free workflows below.
+
+## Workflow resolution
+
+Work-unit creation takes `(work_type, size)` as input. The service
+resolves `(work_type, size) → workflow` via the project's
+configuration:
+
+1. Look up `workflows.by_type[<work_type>].default_by_size[<size>]`
+   in `.jig/config.yaml`. If present, that's the default workflow.
+2. Creator can override to any workflow in
+   `workflows.by_type[<work_type>].available` at creation time.
+3. If the `(work_type, size)` combination has no mapping (e.g.,
+   `docs` at size `xl` isn't shipped), creation fails with an
+   explicit error. Projects add the mapping if they want to support
+   it.
+
+Failing at creation is deliberate. Silent fall-through to some generic
+default would produce work units with phase shapes that don't match
+the work.
+
+### Config shape
+
+Per-work-type `available` and `default_by_size` maps in
+`.jig/config.yaml` (extending [17](./17-directory-layout.md)):
+
+```yaml
+workflows:
+  by_type:
+    feature:
+      default_by_size:
+        xs: hotfix
+        s: small-change
+        m: standard
+        l: large-feature
+        xl: epic
+      available:
+        - hotfix
+        - small-change
+        - standard
+        - large-feature
+        - epic
+        - security-review
+    bugfix:
+      default_by_size:
+        xs: hotfix
+        s: bugfix-small
+        m: bugfix-standard
+        l: bugfix-large
+        # xl: omitted — bugfixes rarely are XL; force explicit config
+        #     or decompose into feature-like work
+      available:
+        - hotfix
+        - bugfix-small
+        - bugfix-standard
+        - bugfix-large
+    refactor:
+      default_by_size:
+        s: refactor-small
+        m: refactor-standard
+        l: refactor-large
+      available:
+        - refactor-small
+        - refactor-standard
+        - refactor-large
+    spike:
+      default_by_size:
+        xs: spike-small
+        s: spike-standard
+      available:
+        - spike-small
+        - spike-standard
+    docs:
+      default_by_size:
+        xs: docs-small
+        s: docs-standard
+      available:
+        - docs-small
+        - docs-standard
+    # perf, migration omitted from defaults — projects define when needed
+```
+
+Per-work-type `available` is a whitelist of workflows legal for that
+work type. A creator picking "docs" cannot override to "epic" — the
+combination isn't in `available[docs]`. This prevents nonsense
+pairings at creation without requiring explicit rules-engine logic.
+
+Shipped workflow definitions (under `jig/defaults/workflows/` per
+[17](./17-directory-layout.md)) are named by shape, not by
+`(type, size)`. One workflow can serve multiple `(type, size)` cells:
+`hotfix` is the XS default for both feature and bugfix. This keeps the
+catalog small and the mapping explicit.
+
+## Immutability
+
+Both `work_type` and `workflow` are **frozen at creation**. Changing
+either mid-flight raises unanswerable questions [05] flags for workflow
+swap: what happens to completed phases, thread state, evaluator
+assignments, spec artifacts.
+
+**Size is also frozen at the classification level**, but the
+size-as-signal mechanism below provides the correction path. When
+signal fires, the options are:
+
+- **Confirm as-is** — creator/owner overrides the signal; size stays;
+  work continues.
+- **Decompose** — halt the current work unit, create a parent work
+  unit (with revised size, possibly different workflow), re-home
+  existing artifacts as appropriate.
+- **Abort and recreate** — close the current work unit as abandoned,
+  create a new one with correct classification.
+
+No mid-flight re-classification. The correction mechanisms produce a
+new work unit (via decomposition or recreation) rather than mutating
+the existing one in place.
+
+Reclassification mid-flight ("this feature is actually a spike") is
+**abort-and-recreate**. The abandoned work unit's archive preserves
+what was done; the new work unit starts with fresh classification and
+inherits context (spec fragment, thread pointer, discovered facts) via
+a creation-time import if useful.
+
+## Creation flow
+
+1. Creator selects `work_type` (dropdown / CLI flag).
+2. Creator selects `size` (dropdown / CLI flag).
+3. Harness looks up default workflow for `(work_type, size)`; offers
+   override from `available[work_type]`.
+4. Creator confirms; work unit created with the triple frozen.
+5. Spec phase (if the workflow has one) runs against the work_type's
+   schema with size-scaled required fields.
+
+## Size-as-signal
+
+Size is an estimate, and estimates are wrong. A medium feature that
 turns out to be large-in-disguise will produce a spec that groans under
 the weight of trying to fit. The harness treats **spec size as a
 real-time signal about whether the declared size is right.**
@@ -319,6 +486,31 @@ enforce estimates retroactively — it's to notice when the current
 declaration is causing friction and offer the team the off-ramp while
 correction is still cheap.
 
+### Universality across work types
+
+The signal applies across all work types, not just features. A bugfix
+showing XL characteristics at size M is a real condition — a "simple"
+bug that's actually three tangled defects, or a regression that
+uncovers an architectural problem. The same warning surfaces. The
+human decides:
+
+- Decompose into child work units (parent workflow takes over).
+- Abort and recreate at correct size.
+- Override and continue — the work is large but the team judges
+  decomposition doesn't help (e.g., investigation needs to stay in one
+  head).
+
+Decomposition is available for any work type. Some work types decompose
+unnaturally (a single spike rarely makes sense as multiple child spikes
+— usually it becomes a spike plus a follow-on feature). The "override
+and continue" path exists precisely for those cases. The warning is
+advisory, not enforced.
+
+The decomposition target workflow for non-feature types may still be
+`epic` or a work-type-specific variant — a team that frequently
+decomposes migrations would add a `migration-epic` workflow to their
+catalog.
+
 ## Threshold calibration
 
 Shipped defaults are starting points. Mature projects calibrate
@@ -337,9 +529,9 @@ sizes than an enterprise. Calibrated thresholds respect that.
 
 ## Scaling up: decomposition
 
-Scaling down (XS/S lighter rigor) was covered above. Scaling up matters
-more, because large work units are where the spec machinery becomes
-actively harmful if not addressed.
+Scaling down (XS/S lighter rigor) was covered under size-scaled rigor.
+Scaling up matters more, because large work units are where the spec
+machinery becomes actively harmful if not addressed.
 
 The spec overhead we've designed is real, and it's appropriate for
 medium work. It is *not* appropriate for work that should have been
@@ -454,7 +646,7 @@ preserved.
 ## Asymmetric validation enabled
 
 With structured specs, asymmetric validation becomes viable (see
-upcoming verification record). The validation agent's context bundle:
+[10](./10-verification.md)). The validation agent's context bundle:
 
 ```yaml
 required:
@@ -540,18 +732,37 @@ Teams staff differently, and the spec system accommodates:
 The harness reports which pattern is in use per work unit, so teams
 see the quality gradient their current staffing produces.
 
+## Load-time validation
+
+`jig start` (and `jig validate`) check the config for:
+
+- Every `workflows.by_type.<type>.available` entry exists as a workflow
+  definition.
+- Every `default_by_size` value is in `available` for the same type.
+- Every `work_types.<type>.schema` maps to a real schema definition.
+- Every size class referenced in `required_by_size` is a declared
+  size.
+
+Consistent with [17](./17-directory-layout.md) §Validation at load —
+discoveries happen at startup, not at work-unit creation runtime.
+
 ## What this does for the original problems
 
 - **Problem 3** (agents arrive undereducated): spec is part of the
   work-unit context bundle; agents arrive knowing what to build.
-- **Problem 5** (hard to scale across work sizes): work types + size
-  scaling give different-sized work different spec rigor.
+- **Problem 5** (hard to scale across work sizes): the `(work_type,
+  size)` matrix scales both axes independently. Work types + size
+  scaling give different-sized work different spec rigor. A team adds
+  a new work type by declaring its schema and a matrix row; sizing is
+  then orthogonal.
 - **Problem 6** (big-picture context): spec decision history +
   accepted/rejected proposals = authoritative record of what was
   decided and why for each work unit.
 - **Problem 7** (agents declare work done): asymmetric validation
-  tests against the spec, not against the implementation. Agents can't
-  bend the validation to fit their work.
+  tests against the spec, not against the implementation. Correct
+  workflow for the work type means correct evaluators and checks — a
+  bugfix workflow's regression-test phase can't be skipped by routing
+  through a feature workflow that doesn't have one.
 
 ## Deliberately deferred
 
@@ -568,3 +779,21 @@ see the quality gradient their current staffing produces.
 - **Spec import/export.** Integration with existing requirements
   systems (Jira epics, linear issues, etc.). Out of scope for v1;
   extensibility point exists via custom URI resolvers.
+- **Cross-axis workflows.** Workflows that cut across work types
+  (e.g., "security-audit" applicable to any work type). Shipped
+  workflows are listed per-work-type in `available`; a project can
+  duplicate a workflow reference across multiple types, but there's no
+  first-class cross-type workflow concept. Revisit if patterns emerge.
+- **Derived work types.** "Feature with security-sensitive
+  components" as a sub-type of feature with additional required spec
+  fields. Flat work type list for v0.2; hierarchy deferred.
+- **Dynamic workflow selection.** Workflow chosen based on runtime
+  state (e.g., "if work touches .auth/, use security-review
+  workflow"). Static per-creation selection for v0.2.
+- **Soft size classes.** Continuous sizing (story points, t-shirt +
+  half-sizes, ranges) rather than discrete xs/s/m/l/xl. Discrete
+  classes for v0.2; ranges can map to discrete classes for the config.
+- **Auto-reclassification on size-as-signal fire.** Currently the
+  signal surfaces a warning and the human chooses; the system doesn't
+  auto-convert the work unit. If warnings prove reliable, an "auto-
+  decompose when signal fires three times" policy could be added.

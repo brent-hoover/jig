@@ -1,4 +1,4 @@
-# 10 — Ownership and Owner Roles
+# 04 — Ownership and Owner Roles
 
 Durable artifacts (spec, architecture document, decision records, coding
 conventions, etc.) need owners. Without explicit ownership, durable
@@ -120,9 +120,9 @@ The owner resolves a Proposal by:
 
 Resolution asymmetry applies: the proposer cannot self-accept.
 
-Updating 06's entry type list: Proposal joins Question, Answer,
+Proposal is the eleventh thread entry type, joining Question, Answer,
 Objection, Resolution, Waiver, Decision, Handoff, Escalation,
-Uncertain, Note as the eleventh type.
+Uncertain, and Note. See [08 — Threads](./08-threads.md).
 
 ## Multi-owner proposals
 

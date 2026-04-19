@@ -1,4 +1,4 @@
-# 04 — Agent Identity and Templates
+# 06 — Agent Identity and Templates
 
 ## Two-layer identity
 
@@ -54,17 +54,17 @@ Three grains, all needed:
 - **Tool-parameter**: Bash yes, but not `rm -rf`, not `curl` to arbitrary
   hosts, not `git push`. This is where real safety lives.
 - **Path**: Write yes, but only within certain directories. A reviewer
-  shouldn't write to `src/`; a dev shouldn't write to `.agents/decisions/`.
+  shouldn't write to `src/`; a dev shouldn't write to `.jig/decisions/`.
 
 The YAML declares intent; the harness produces concrete hook configuration
 at spawn time. Template stays readable, enforcement is real.
 
 ## Context resolution
 
-URI-style references (`issue://design`, `project://conventions`) resolved
-by the service. Open question: what's the full scheme, and how does
-versioning work for long-running agents when project context changes
-mid-flight?
+URI-style references (`workunit://design`, `project://conventions`)
+resolved by the service. Open question: what's the full scheme, and how
+does versioning work for long-running agents when project context
+changes mid-flight?
 
 Working answer for now: the agent has what it had at spawn; context is
 snapshotted to the instance. If a project convention changes, the next
@@ -92,8 +92,8 @@ allowed_tools:
   - Grep
   - Bash
 default_context:
-  - "issue://design"
-  - "issue://plan"
+  - "workunit://design"
+  - "workunit://plan"
 ```
 
 The shape it needs to grow into isn't fully specified yet — that's partly a

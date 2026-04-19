@@ -1,4 +1,4 @@
-# 09 — Verification
+# 10 — Verification
 
 The mechanism between "agent claims ready" and "system marks done." The
 direct answer to problem 7. Work units don't advance because someone says

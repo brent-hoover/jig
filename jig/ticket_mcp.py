@@ -34,6 +34,15 @@ async def handle_create_ticket(
     # If "type" is passed, the Ticket model validator handles migration
     # of legacy values (bug→bugfix, etc.) and sets workflow="thread" for
     # the old task/question values.
+    raw_size = args.get("size", "m")
+    try:
+        size = Size(raw_size)
+    except ValueError:
+        raise ValueError(
+            f"Unknown size {raw_size!r}. "
+            f"Valid values: {[s.value for s in Size]}"
+        ) from None
+
     ticket_kwargs: dict = {
         "title": args["title"],
         "description": args.get("description", ""),
@@ -42,14 +51,34 @@ async def handle_create_ticket(
         "blocked_by": depends_on,
         "labels": args.get("labels", []),
         "created_by": sender,
-        "size": Size(args.get("size", "m")),
+        "size": size,
     }
     if "workflow" in args:
         ticket_kwargs["workflow"] = args["workflow"]
     if "work_type" in args:
-        ticket_kwargs["work_type"] = WorkType(args["work_type"])
+        raw_wt = args["work_type"]
+        try:
+            ticket_kwargs["work_type"] = WorkType(raw_wt)
+        except ValueError:
+            raise ValueError(
+                f"Unknown work_type {raw_wt!r}. "
+                f"Valid values: {[w.value for w in WorkType]}"
+            ) from None
     elif "type" in args:
-        ticket_kwargs["type"] = args["type"]
+        # Legacy alias — the model validator migrates bug→bugfix etc.
+        # Anything that doesn't map cleanly surfaces as a pydantic
+        # ValidationError from WorkType(...), which is fine for
+        # forensics but not friendly — catch and rewrite it.
+        from jig.ticket import _LEGACY_TYPE_MIGRATION
+        raw_legacy = args["type"]
+        mapped = _LEGACY_TYPE_MIGRATION.get(raw_legacy, raw_legacy)
+        if mapped not in {w.value for w in WorkType}:
+            raise ValueError(
+                f"Unknown work_type {raw_legacy!r}. "
+                f"Valid values: {[w.value for w in WorkType]} "
+                f"(legacy accepted: {sorted(_LEGACY_TYPE_MIGRATION)})"
+            )
+        ticket_kwargs["type"] = raw_legacy
     else:
         raise KeyError("work_type is required")
 

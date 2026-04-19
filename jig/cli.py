@@ -275,6 +275,23 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     if not jig_dir.is_dir():
         raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
 
+    # Advisory config validation — warn on bad workflow refs but don't
+    # abort. Phase 2 will promote these to errors once the resolver
+    # actually uses `workflows.by_type` to pick a workflow at ticket
+    # creation.
+    try:
+        from jig.config import load_config, validate_workflow_references
+        from jig.persistence import list_workflow_names
+        config = load_config(path)
+    except FileNotFoundError:
+        # Legacy project.json-only project — skip the config.yaml
+        # validation pass. `load_project` handles the deprecation warn.
+        pass
+    else:
+        known = list_workflow_names(path)
+        for msg in validate_workflow_references(config, known):
+            click.echo(f"Warning: {msg}", err=True)
+
     from datetime import datetime
     log_dir = jig_dir / "logs"
     log_dir.mkdir(exist_ok=True)

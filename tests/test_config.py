@@ -14,6 +14,7 @@ from jig.config import (
     WorkflowTypeEntry,
     load_config,
     save_config,
+    validate_workflow_references,
 )
 from jig.project import Project
 
@@ -99,3 +100,68 @@ class TestOwnershipAccepted:
         assert loaded.roles.po is not None
         assert loaded.roles.po.human == "alice@example.com"
         assert loaded.ownership.architecture == "sa"
+
+
+class TestValidateWorkflowReferences:
+    """Advisory validator — returns warnings, never raises."""
+
+    def _cfg(self, tmp_jig: Path, workflows: WorkflowsSection) -> Config:
+        return Config(
+            project=Project(id="p", name="p", path=str(tmp_jig)),
+            workflows=workflows,
+        )
+
+    def test_all_references_known(self, tmp_jig: Path) -> None:
+        cfg = self._cfg(
+            tmp_jig,
+            WorkflowsSection(
+                default_by_size={"m": "standard"},
+                available=["standard", "hotfix"],
+                by_type={
+                    "feature": WorkflowTypeEntry(
+                        default_by_size={"m": "standard"},
+                        available=["standard"],
+                    )
+                },
+            ),
+        )
+        assert validate_workflow_references(cfg, ["standard", "hotfix"]) == []
+
+    def test_unknown_default_flagged(self, tmp_jig: Path) -> None:
+        cfg = self._cfg(
+            tmp_jig,
+            WorkflowsSection(default_by_size={"m": "ghost"}),
+        )
+        msgs = validate_workflow_references(cfg, ["standard"])
+        assert len(msgs) == 1
+        assert "ghost" in msgs[0]
+        assert "default_by_size.m" in msgs[0]
+
+    def test_unknown_by_type_flagged(self, tmp_jig: Path) -> None:
+        cfg = self._cfg(
+            tmp_jig,
+            WorkflowsSection(
+                by_type={
+                    "feature": WorkflowTypeEntry(
+                        default_by_size={"l": "missing-wf"},
+                        available=["missing-wf", "also-missing"],
+                    )
+                }
+            ),
+        )
+        msgs = validate_workflow_references(cfg, ["standard"])
+        # One for default_by_size.l + two for available entries
+        assert len(msgs) == 3
+        joined = " | ".join(msgs)
+        assert "by_type.feature.default_by_size.l" in joined
+        assert "by_type.feature.available" in joined
+
+    def test_never_raises_on_missing_catalog(self, tmp_jig: Path) -> None:
+        cfg = self._cfg(
+            tmp_jig,
+            WorkflowsSection(available=["standard"]),
+        )
+        # Empty known list — everything is unknown, but we just collect
+        # messages, not raise.
+        msgs = validate_workflow_references(cfg, [])
+        assert len(msgs) == 1

@@ -161,10 +161,10 @@ Core repo `jig/`:
 Full catalog validation per doc 17 §Validation at load arrives in
 Phase 2. For Phase 1:
 
-- [ ] Parse `config.yaml`'s `workflows.by_type` section, warn (don't
+- [x] Parse `config.yaml`'s `workflows.by_type` section, warn (don't
       fail) on undefined workflow references. Phase 2 upgrades warn
       to fail.
-- [ ] Validate that ticket's `work_type` field is a known value;
+- [x] Validate that ticket's `work_type` field is a known value;
       reject unknowns at `create_ticket` MCP handler
 
 **G. TUI surfacing**

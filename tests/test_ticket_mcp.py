@@ -69,6 +69,45 @@ async def test_create_ticket_publishes_bus_event(stores) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_ticket_rejects_unknown_work_type(stores) -> None:
+    tickets, comments, bus = stores
+    with pytest.raises(ValueError, match=r"Unknown work_type 'gizmo'.*feature"):
+        await handle_create_ticket(
+            tickets=tickets,
+            comments=comments,
+            bus=bus,
+            sender="user",
+            args={"work_type": "gizmo", "title": "bad"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_rejects_unknown_legacy_type(stores) -> None:
+    tickets, comments, bus = stores
+    with pytest.raises(ValueError, match=r"Unknown work_type 'widget'"):
+        await handle_create_ticket(
+            tickets=tickets,
+            comments=comments,
+            bus=bus,
+            sender="user",
+            args={"type": "widget", "title": "bad"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_rejects_unknown_size(stores) -> None:
+    tickets, comments, bus = stores
+    with pytest.raises(ValueError, match=r"Unknown size 'huge'"):
+        await handle_create_ticket(
+            tickets=tickets,
+            comments=comments,
+            bus=bus,
+            sender="user",
+            args={"work_type": "feature", "title": "bad", "size": "huge"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_read_ticket(stores) -> None:
     tickets, comments, bus = stores
     tid = await handle_create_ticket(

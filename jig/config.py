@@ -118,6 +118,45 @@ def load_config(project_path: Path) -> Config:
     return Config.model_validate(data)
 
 
+def validate_workflow_references(
+    config: Config, known_workflows: list[str]
+) -> list[str]:
+    """Check workflow references in config against the shipped catalog.
+
+    Returns a list of human-readable warning messages for references
+    that point at a workflow name not present in `known_workflows`.
+    Empty list means the config is consistent.
+
+    Phase 1 behaviour is advisory: callers should print/warn but not
+    abort. Phase 2 upgrades these to hard errors once the full
+    resolver lands.
+    """
+    known = set(known_workflows)
+    warnings: list[str] = []
+
+    def _check(name: str, where: str) -> None:
+        if name and name not in known:
+            warnings.append(
+                f"workflows.{where} references unknown workflow "
+                f"{name!r} (known: {sorted(known)})"
+            )
+
+    # Project-wide defaults and roster.
+    for size, wf in config.workflows.default_by_size.items():
+        _check(wf, f"default_by_size.{size}")
+    for wf in config.workflows.available:
+        _check(wf, "available")
+
+    # Per-work-type overrides.
+    for work_type, entry in config.workflows.by_type.items():
+        for size, wf in entry.default_by_size.items():
+            _check(wf, f"by_type.{work_type}.default_by_size.{size}")
+        for wf in entry.available:
+            _check(wf, f"by_type.{work_type}.available")
+
+    return warnings
+
+
 __all__ = [
     "Config",
     "EscalationSection",
@@ -129,4 +168,5 @@ __all__ = [
     "WorkflowsSection",
     "load_config",
     "save_config",
+    "validate_workflow_references",
 ]

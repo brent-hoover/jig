@@ -118,6 +118,19 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
     return WorkflowConfig.model_validate(data)
 
 
+def list_workflow_names(project_path: Path) -> list[str]:
+    """Return the names of all workflows shipped into the project.
+
+    Derived from the file stems of `.jig/workflows/*.yaml`. Missing
+    directory yields an empty list rather than raising — callers (e.g.
+    validator) treat it as "no workflows defined yet".
+    """
+    wf_dir = _jig_dir(project_path) / "workflows"
+    if not wf_dir.is_dir():
+        return []
+    return sorted(p.stem for p in wf_dir.glob("*.yaml"))
+
+
 def save_default_workflow(project_path: Path) -> None:
     """Copy default workflow config from jig/defaults/workflows/ into project."""
     source_dir = _defaults_dir() / "workflows"
@@ -134,6 +147,7 @@ __all__ = [
     "_jig_dir",
     "init_project",
     "list_roles",
+    "list_workflow_names",
     "load_role",
     "load_workflow",
     "save_role",

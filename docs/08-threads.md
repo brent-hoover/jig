@@ -1,4 +1,4 @@
-# 06 — Threads and Communication
+# 08 — Threads and Communication
 
 The structured communication channel attached to each work unit. The
 substrate for problems 1 and 2: reviewer ↔ implementer comms, and
@@ -25,7 +25,7 @@ The workflow declares, per phase, which channel is used (see
 
 ## Entry types
 
-Ten types, each with distinct gating semantics.
+Eleven types, each with distinct gating semantics.
 
 **Question.** Asks for information or judgment. Has a target: specific
 actor, specific role, or "any human." Can be marked blocking (asker is

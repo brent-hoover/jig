@@ -123,4 +123,4 @@ handoffs, and gates. See [05 — Workflow model](./05-workflow-model.md).
 - Trust model: agents work autonomously within sandboxed scope; escalate when
   stuck. Sandbox via Docker + bubblewrap.
 - Policy as gate (default), occasionally guide with justification.
-- State location: service-owned. See [11](./11-state-location.md).
+- State location: service-owned. See [12](./12-service-shape.md) §State location.

@@ -1,4 +1,4 @@
-# 08 — Checkpoints
+# 09 — Checkpoints
 
 A separate channel on each work unit, recording an agent's in-progress
 state during a phase. The recovery mechanism for mid-work interruption,

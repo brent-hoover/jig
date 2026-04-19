@@ -1,4 +1,4 @@
-# 12 — Project Spec
+# 02 — Project Spec
 
 The top-of-tree artifact describing what the product is. Owned by the PO.
 The root that individual work units derive from and contribute back to.
@@ -71,7 +71,7 @@ validation and reference resolution.
 Both live in the repo, next to each other, git-versioned:
 
 ```
-.agents/spec/
+.jig/spec/
   project.md              # human format, source of intent
   project.structured.yaml # structured format, source of interpretation
 ```
@@ -294,7 +294,7 @@ product-level concept.
 
 - **Multiple product specs per repo.** Monorepos with multiple
   products would want this. V1 is one project spec per repo, matching
-  the one-service-per-repo decision from [12](./12-service-shape.md).
+  the one-service-per-repo decision from [12 — Service shape](./12-service-shape.md).
 - **Roadmap UI beyond the spec itself.** Visualization, priority
   reordering, timeline estimation. These are nice; the spec as
   Markdown + YAML is sufficient for v1.

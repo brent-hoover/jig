@@ -63,10 +63,12 @@ Decision records (closed topics):
 - [08 — Threads and communication](./08-threads.md)
 - [09 — Checkpoints](./09-checkpoints.md)
 - [10 — Verification](./10-verification.md)
-- [11 — State location](./11-state-location.md)
 - [12 — Service shape and protocol](./12-service-shape.md)
 - [13 — SCM integration](./13-scm-integration.md)
 - [14 — Service internals](./14-service-internals.md)
+- [15 — TUI and web view](./15-tui-and-web-view.md)
+- [16 — Policy and enforcement](./16-policy-and-enforcement.md)
+- [17 — Directory layout](./17-directory-layout.md)
 
 Open questions and deferred decisions:
 

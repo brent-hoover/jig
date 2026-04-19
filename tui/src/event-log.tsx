@@ -33,11 +33,14 @@ function renderEvent(event: JigEvent) {
       )
     }
     case "ticket_created": {
-      const type = d.type ? ` ${d.type}` : ""
+      // Backend emits `work_type` canonically and `type` as a legacy alias.
+      const workType = d.work_type ?? d.type
+      const tag = workType ? ` ${workType}` : ""
+      const size = d.size ? `/${d.size}` : ""
       const assignee = d.assignee ? ` → ${d.assignee}` : ""
       return (
         <text>
-          <span style={{ fg: "#00aaff" }}>{`+ ticket${type} ${shortId(d.ticket_id)}${assignee}`}</span>
+          <span style={{ fg: "#00aaff" }}>{`+ ticket${tag}${size} ${shortId(d.ticket_id)}${assignee}`}</span>
         </text>
       )
     }

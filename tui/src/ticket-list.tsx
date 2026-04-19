@@ -55,8 +55,9 @@ export function TicketList({ tickets, selectedId, focused }: TicketListProps) {
       ) : (
         sorted.map((ticket) => {
           const selected = ticket.id === selectedId
-          const needsAnswer =
-            ticket.type === "question" && ticket.assignee === "user"
+          // Questions are no longer a work_type in the Phase 1 schema — use
+          // status=needs_info as the "operator must answer" signal instead.
+          const needsAnswer = ticket.status === "needs_info"
           return (
             <box key={ticket.id}>
               <text>
@@ -72,6 +73,7 @@ export function TicketList({ tickets, selectedId, focused }: TicketListProps) {
                   {STATUS_ICON[ticket.status]}
                 </span>
                 <span>{" "}</span>
+                <span style={{ fg: "#666666" }}>{`[${ticket.size}] `}</span>
                 {needsAnswer ? (
                   <span style={{ fg: "#ff00ff", attributes: 1 }}>{"[?] "}</span>
                 ) : null}
@@ -83,7 +85,7 @@ export function TicketList({ tickets, selectedId, focused }: TicketListProps) {
                   {ticket.title}
                 </span>
                 <span style={{ fg: "#555555", attributes: 2 }}>
-                  {` · ${ticket.type}`}
+                  {` · ${ticket.workType}`}
                 </span>
                 {ticket.currentPhase ? (
                   <span style={{ fg: "#00aaff" }}>

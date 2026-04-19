@@ -169,11 +169,11 @@ Phase 2. For Phase 1:
 
 **G. TUI surfacing**
 
-- [ ] `new-ticket-form.tsx` — add dropdown for `work_type` and `size`
-- [ ] `ticket-detail.tsx` — show `work_type` and `size` fields
-- [ ] `ticket-list.tsx` / `kanban-view.tsx` — show size as a small
+- [x] `new-ticket-form.tsx` — add dropdown for `work_type` and `size`
+- [x] `ticket-detail.tsx` — show `work_type` and `size` fields
+- [x] `ticket-list.tsx` / `kanban-view.tsx` — show size as a small
       chip next to the title
-- [ ] Hydration path in `use-jig-socket.ts` — include new fields in
+- [x] Hydration path in `use-jig-socket.ts` — include new fields in
       Ticket reconstruction
 
 **H. Tests**

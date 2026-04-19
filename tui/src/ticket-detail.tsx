@@ -217,7 +217,9 @@ export function TicketDetail({
       <box flexShrink={0}>
         <text>
           <span style={{ fg: "#666666" }}>{"type  "}</span>
-          <span>{ticket.type}</span>
+          <span>{ticket.workType}</span>
+          <span style={{ fg: "#666666" }}>{"  size  "}</span>
+          <span style={{ fg: "#00cc88" }}>{ticket.size}</span>
         </text>
       </box>
       <box flexShrink={0}>
@@ -383,7 +385,8 @@ function buildSections(
 
   // Metadata fields
   sections.push({ kind: "field", label: "ID    ", value: ticket.id })
-  sections.push({ kind: "field", label: "Type  ", value: ticket.type })
+  sections.push({ kind: "field", label: "Type  ", value: ticket.workType })
+  sections.push({ kind: "field", label: "Size  ", value: ticket.size })
   const statusLabel = STATUS_LABEL[ticket.status] ?? ticket.status
   let statusLine = statusLabel
   if (ticket.currentPhase) {

@@ -84,13 +84,31 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     if ctx.parent:
         comments = await ctx.comments.for_ticket(ctx.parent.id) + comments
 
-    resolved_context = await resolve_context_uris(
+    project_path = ctx.project.path_or_default()
+    # Required context — raise MissingContextError if any URI can't
+    # resolve. Caller turns that into a ticket_failed event.
+    required_context = await resolve_context_uris(
+        ctx.role_cfg.required_context,
+        ticket=ctx.ticket,
+        parent=ctx.parent,
+        comments=ctx.comments,
+        worktree_path=ctx.worktree_path,
+        project_path=project_path,
+        strict=True,
+    )
+    optional_context = await resolve_context_uris(
         ctx.role_cfg.default_context,
         ticket=ctx.ticket,
         parent=ctx.parent,
         comments=ctx.comments,
         worktree_path=ctx.worktree_path,
+        project_path=project_path,
     )
+    # Both already wrap themselves in a "## Context" header when non-
+    # empty; concat as-is. If both are non-empty they render as two
+    # separate sections, which is fine — the reader can tell them apart
+    # by the required URIs appearing first.
+    resolved_context = required_context + optional_context
 
     all_roles = list_roles(ctx.project.path_or_default())
 
@@ -204,6 +222,7 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
         agent_role=ctx.role,
         agent_cfg=ctx.role_cfg,
         worktree_path=ctx.worktree_path,
+        project_path=ctx.project.path_or_default(),
         valid_roles=frozenset(r.role for r in all_roles),
         package_manager=ctx.project.package_manager,
     )

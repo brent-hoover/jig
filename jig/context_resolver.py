@@ -1,16 +1,51 @@
-"""Resolve default_context URIs (e.g. issue://design) into text for agent prompts."""
+"""Resolve context URIs into text blocks for agent prompts.
+
+Schemes per doc 07:
+- ``project://<path>``    — curated project-level artifact under
+                              ``.jig/context/project/<path>``.
+- ``role://<role>/<path>`` — role-level artifact under
+                              ``.jig/context/roles/<role>/<path>``.
+- ``ticket://<artifact>`` — per-ticket state: ``description``, ``design``,
+                              ``plan``, ``thread``.
+- ``decision://<id>``     — a decision record at
+                              ``.jig/decisions/<id>.md``.
+- ``repo://<path>``       — raw file in the worktree; escape hatch.
+- ``issue://<artifact>``  — deprecated alias for ``ticket://``; kept for
+                              one release while shipped defaults migrate.
+
+Unknown schemes and unresolved references log a warning and return the
+empty string; callers decide whether that's fatal (see
+``required_context`` in Phase 2 Task B).
+"""
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from jig.store.comments import CommentStore
 from jig.ticket import Ticket
 
 _logger = logging.getLogger(__name__)
 
+
+class MissingContextError(RuntimeError):
+    """Raised when a required context URI fails to resolve at spawn."""
+
+    def __init__(self, uri: str, reason: str = "not found") -> None:
+        super().__init__(f"required context URI {uri!r} did not resolve: {reason}")
+        self.uri = uri
+        self.reason = reason
+
+
 # Glob patterns to search for design/plan docs in the worktree.
 _DESIGN_GLOBS = ["docs/design/**/*.md", "docs/design*.md", "design*.md", "spec*.md"]
 _PLAN_GLOBS = ["docs/plan/**/*.md", "docs/plan*.md", "plan*.md"]
+
+# Track whether we've already warned about the issue:// alias in this
+# process so we don't spam the log for every URI in every role template.
+_issue_alias_warned = False
 
 
 async def resolve_context_uris(
@@ -20,8 +55,19 @@ async def resolve_context_uris(
     parent: Ticket | None,
     comments: CommentStore,
     worktree_path: Path,
+    project_path: Path,
+    strict: bool = False,
 ) -> str:
-    """Resolve a list of context URIs and return combined text."""
+    """Resolve a list of context URIs and return a combined text block.
+
+    Returns ``""`` when ``uris`` is empty or every URI resolves to no
+    content.
+
+    If ``strict`` is True, any URI that fails to resolve raises
+    :class:`MissingContextError` — use this for ``required_context``.
+    With ``strict=False`` (default) unresolved URIs are logged and
+    skipped, matching the optional-context semantics in doc 07.
+    """
     if not uris:
         return ""
     sections: list[str] = []
@@ -32,12 +78,42 @@ async def resolve_context_uris(
             parent=parent,
             comments=comments,
             worktree_path=worktree_path,
+            project_path=project_path,
         )
+        if text is None:
+            if strict:
+                raise MissingContextError(uri)
+            continue
         if text:
             sections.append(text)
     if not sections:
         return ""
     return "## Context\n\n" + "\n\n---\n\n".join(sections) + "\n\n"
+
+
+async def resolve_context_uri(
+    uri: str,
+    *,
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+    worktree_path: Path,
+    project_path: Path,
+) -> str | None:
+    """Resolve a single URI. Thin public wrapper for validation callers.
+
+    Returns ``None`` if the URI could not be resolved (missing file,
+    unknown scheme, etc.) so callers can distinguish "not there" from
+    "there but intentionally empty".
+    """
+    return await _resolve_one(
+        uri,
+        ticket=ticket,
+        parent=parent,
+        comments=comments,
+        worktree_path=worktree_path,
+        project_path=project_path,
+    )
 
 
 async def _resolve_one(
@@ -47,25 +123,77 @@ async def _resolve_one(
     parent: Ticket | None,
     comments: CommentStore,
     worktree_path: Path,
-) -> str:
-    if not uri.startswith("issue://"):
+    project_path: Path,
+) -> str | None:
+    """Dispatch a single URI through its scheme handler.
+
+    Returns ``None`` if the URI can't produce useful content (bad scheme,
+    missing file, empty thread, …); the caller decides whether that's a
+    warning or a hard error via ``strict`` in ``resolve_context_uris``.
+    """
+    if "://" not in uri:
+        _logger.warning("context URI missing scheme: %s", uri)
+        return None
+    scheme, _, body = uri.partition("://")
+
+    if scheme == "issue":
+        _warn_issue_alias()
+        scheme = "ticket"
+
+    handler = _HANDLERS.get(scheme)
+    if handler is None:
         _logger.warning("unknown context URI scheme: %s", uri)
-        return ""
+        return None
 
-    key = uri.removeprefix("issue://")
+    text = await handler(
+        body,
+        ticket=ticket,
+        parent=parent,
+        comments=comments,
+        worktree_path=worktree_path,
+        project_path=project_path,
+    )
+    if not text:
+        return None
+    return text
 
-    if key == "description":
-        return _resolve_description(ticket, parent)
-    if key == "design":
-        return await _resolve_design(ticket, parent, comments, worktree_path)
-    if key == "plan":
-        return await _resolve_plan(ticket, parent, comments, worktree_path)
 
-    _logger.warning("unknown context URI key: %s", key)
+def _warn_issue_alias() -> None:
+    global _issue_alias_warned
+    if not _issue_alias_warned:
+        _logger.warning(
+            "issue:// URI scheme is deprecated; use ticket:// "
+            "(see docs/07-context-bundles.md). This warning is logged once "
+            "per process."
+        )
+        _issue_alias_warned = True
+
+
+# ----- ticket:// -----------------------------------------------------------
+
+
+async def _resolve_ticket(
+    body: str,
+    *,
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+    worktree_path: Path,
+    project_path: Path,
+) -> str:
+    if body == "description":
+        return _ticket_description(ticket, parent)
+    if body == "design":
+        return await _ticket_design(ticket, parent, comments, worktree_path)
+    if body == "plan":
+        return await _ticket_plan(ticket, parent, comments, worktree_path)
+    if body == "thread":
+        return await _ticket_thread(ticket, parent, comments)
+    _logger.warning("unknown ticket:// artifact: %s", body)
     return ""
 
 
-def _resolve_description(ticket: Ticket, parent: Ticket | None) -> str:
+def _ticket_description(ticket: Ticket, parent: Ticket | None) -> str:
     """Return the ticket (or parent) description."""
     desc = ""
     if parent and parent.description:
@@ -78,7 +206,7 @@ def _resolve_description(ticket: Ticket, parent: Ticket | None) -> str:
     return desc
 
 
-async def _resolve_design(
+async def _ticket_design(
     ticket: Ticket,
     parent: Ticket | None,
     comments: CommentStore,
@@ -94,7 +222,6 @@ async def _resolve_design(
     for d in decisions:
         parts.append(f"**Decision** ({d.author}):\n{d.content}")
 
-    # Design doc files in worktree
     for pattern in _DESIGN_GLOBS:
         for path in sorted(worktree_path.glob(pattern)):
             if path.is_file():
@@ -110,7 +237,7 @@ async def _resolve_design(
     return "### Design Context\n\n" + "\n\n".join(parts)
 
 
-async def _resolve_plan(
+async def _ticket_plan(
     ticket: Ticket,
     parent: Ticket | None,
     comments: CommentStore,
@@ -126,7 +253,6 @@ async def _resolve_plan(
         if c.kind == "decision" and "plan" in c.content.lower():
             parts.append(f"**Plan** ({c.author}):\n{c.content}")
 
-    # Plan doc files in worktree
     for pattern in _PLAN_GLOBS:
         for path in sorted(worktree_path.glob(pattern)):
             if path.is_file():
@@ -140,3 +266,177 @@ async def _resolve_plan(
     if not parts:
         return ""
     return "### Implementation Plan\n\n" + "\n\n".join(parts)
+
+
+async def _ticket_thread(
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+) -> str:
+    """Concatenate thread entries for the ticket (and parent) in order.
+
+    Today the "thread" is the flat CommentStore — Phase 4 replaces entries
+    with the typed question/answer/objection set and this resolver gets
+    rewritten to match. For now: chronological markdown dump so reviewer
+    and resumption agents see what has been said.
+    """
+    entries = await comments.for_ticket(ticket.id)
+    if parent:
+        entries = await comments.for_ticket(parent.id) + entries
+    if not entries:
+        return ""
+    lines = ["### Thread"]
+    for c in entries:
+        # Use a compact header: "[kind] author — timestamp"
+        ts = c.created_at.isoformat() if c.created_at else ""
+        kind = c.kind or "comment"
+        lines.append(f"**[{kind}] {c.author} — {ts}**")
+        lines.append(c.content.rstrip())
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+# ----- project:// / role:// ------------------------------------------------
+
+
+async def _resolve_project(
+    body: str,
+    *,
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+    worktree_path: Path,
+    project_path: Path,
+) -> str:
+    base = project_path / ".jig" / "context" / "project"
+    return _read_context_file(base, body, f"project://{body}")
+
+
+async def _resolve_role(
+    body: str,
+    *,
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+    worktree_path: Path,
+    project_path: Path,
+) -> str:
+    # role://<role>/<path...> — strip the role segment, read the rest
+    # relative to that role's context directory.
+    role_name, _, rel = body.partition("/")
+    if not role_name or not rel:
+        _logger.warning(
+            "role:// URI must include both role and path (role://<role>/<path>); got role://%s",
+            body,
+        )
+        return ""
+    base = project_path / ".jig" / "context" / "roles" / role_name
+    return _read_context_file(base, rel, f"role://{body}")
+
+
+# ----- decision:// ---------------------------------------------------------
+
+
+async def _resolve_decision(
+    body: str,
+    *,
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+    worktree_path: Path,
+    project_path: Path,
+) -> str:
+    if not body:
+        _logger.warning("decision:// URI missing id")
+        return ""
+    # `decision://DR-0001` → `.jig/decisions/DR-0001.md`. Accept explicit
+    # extension if the caller already supplied one.
+    rel = body if Path(body).suffix else f"{body}.md"
+    path = project_path / ".jig" / "decisions" / rel
+    if not path.is_file():
+        _logger.warning("decision:// not found: %s (looked in %s)", body, path)
+        return ""
+    try:
+        content = path.read_text().rstrip()
+    except Exception:
+        _logger.warning("failed to read decision %s", path, exc_info=True)
+        return ""
+    return f"### Decision {body}\n\n{content}"
+
+
+# ----- repo:// -------------------------------------------------------------
+
+
+async def _resolve_repo(
+    body: str,
+    *,
+    ticket: Ticket,
+    parent: Ticket | None,
+    comments: CommentStore,
+    worktree_path: Path,
+    project_path: Path,
+) -> str:
+    if not body:
+        _logger.warning("repo:// URI missing path")
+        return ""
+    path = worktree_path / body
+    if not path.is_file():
+        _logger.warning("repo:// not found: %s (looked in %s)", body, path)
+        return ""
+    try:
+        content = path.read_text().rstrip()
+    except Exception:
+        _logger.warning("failed to read repo file %s", path, exc_info=True)
+        return ""
+    return f"### {body}\n\n{content}"
+
+
+# ----- shared helpers ------------------------------------------------------
+
+
+def _read_context_file(base: Path, rel: str, uri_for_log: str) -> str:
+    """Read ``base/rel``; if no extension, try ``.md`` first."""
+    if not rel:
+        _logger.warning("%s missing path component", uri_for_log)
+        return ""
+    candidates: list[Path] = []
+    as_given = base / rel
+    candidates.append(as_given)
+    if not as_given.suffix:
+        candidates.append(as_given.with_suffix(".md"))
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                content = candidate.read_text().rstrip()
+            except Exception:
+                _logger.warning("failed to read %s", candidate, exc_info=True)
+                return ""
+            header = candidate.stem.replace("-", " ").replace("_", " ").title()
+            return f"### {header}\n\n{content}"
+    _logger.warning(
+        "%s not found (looked in %s)",
+        uri_for_log,
+        ", ".join(str(c) for c in candidates),
+    )
+    return ""
+
+
+# ----- dispatcher ----------------------------------------------------------
+
+
+_Handler = Callable[..., Awaitable[str]]
+
+_HANDLERS: dict[str, _Handler] = {
+    "ticket": _resolve_ticket,
+    "project": _resolve_project,
+    "role": _resolve_role,
+    "decision": _resolve_decision,
+    "repo": _resolve_repo,
+}
+
+
+__all__ = [
+    "MissingContextError",
+    "resolve_context_uris",
+    "resolve_context_uri",
+]

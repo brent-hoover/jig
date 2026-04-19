@@ -23,5 +23,5 @@ allowed_tools:
 allowed_mcps:
   - context7
 default_context:
-  - "issue://design"
-  - "issue://plan"
+  - "ticket://design"
+  - "ticket://plan"

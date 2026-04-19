@@ -268,21 +268,21 @@ Current: `jig/context_resolver.py` handles `issue://description`,
 Target per doc 07: `project://`, `role://`, `ticket://`,
 `decision://`, `repo://`.
 
-- [ ] Add scheme dispatcher in `context_resolver.py` keyed on URI
+- [x] Add scheme dispatcher in `context_resolver.py` keyed on URI
       prefix; return resolver function per scheme
-- [ ] `project://<path>` → read `.jig/context/project/<path>`. If
+- [x] `project://<path>` → read `.jig/context/project/<path>`. If
       no extension, try `.md` then raw
-- [ ] `role://<role>/<path>` → read `.jig/context/roles/<role>/<path>`
-- [ ] `ticket://description` → current `issue://description` behavior
-- [ ] `ticket://design` → current `issue://design` behavior (decision
+- [x] `role://<role>/<path>` → read `.jig/context/roles/<role>/<path>`
+- [x] `ticket://description` → current `issue://description` behavior
+- [x] `ticket://design` → current `issue://design` behavior (decision
       comments + `docs/design*` etc. in worktree)
-- [ ] `ticket://plan` → current `issue://plan` behavior
-- [ ] `ticket://thread` → concatenate comments for the ticket in
+- [x] `ticket://plan` → current `issue://plan` behavior
+- [x] `ticket://thread` → concatenate comments for the ticket in
       chronological order (stub for Phase 4 thread work; reads from
       `CommentStore` today)
-- [ ] `decision://<id>` → read `.jig/decisions/<id>.md`
-- [ ] `repo://<path>` → read `<worktree>/<path>` (escape hatch)
-- [ ] Keep `issue://` as a transitional alias mapping to `ticket://`,
+- [x] `decision://<id>` → read `.jig/decisions/<id>.md`
+- [x] `repo://<path>` → read `<worktree>/<path>` (escape hatch)
+- [x] Keep `issue://` as a transitional alias mapping to `ticket://`,
       logging a deprecation warning once per process
 
 **B. Required vs optional references**
@@ -290,13 +290,13 @@ Target per doc 07: `project://`, `role://`, `ticket://`,
 Doc 07 §Required vs. optional. Today every URI is silently skipped if
 unresolved — no distinction between "critical" and "nice to have".
 
-- [ ] Extend `RoleConfig` with `required_context: list[str]` alongside
+- [x] Extend `RoleConfig` with `required_context: list[str]` alongside
       the existing `default_context` (kept as optional). Or adopt a
       structured form (`{uri: str, required: bool}`) — pick one, document
       choice in commit message
-- [ ] At spawn, fail (raise → surfaces as `ticket_failed`) if any
+- [x] At spawn, fail (raise → surfaces as `ticket_failed`) if any
       required URI fails to resolve; warn on optional failures
-- [ ] Load-time validation walks every role template and asserts
+- [x] Load-time validation walks every role template and asserts
       required URIs would resolve against the project layout (project://
       and role:// only — ticket:// / repo:// are per-spawn)
 
@@ -306,18 +306,18 @@ Doc 17 §Resolution order: project repo first, shipped default second.
 Today `load_role` / `load_workflow` only check the project repo —
 defaults are copied in at `jig init`.
 
-- [ ] Rewrite `load_role(name)` / `load_workflow(name)` to:
+- [x] Rewrite `load_role(name)` / `load_workflow(name)` to:
   1. try `<project>/.jig/<kind>/<name>.yaml`; if present, use it
   2. else try `jig/defaults/<kind>/<name>.yaml`; if present, use it
   3. else raise `FileNotFoundError` with both searched paths
-- [ ] Add `list_roles` / `list_workflows` variants that merge the two
+- [x] Add `list_roles` / `list_workflows` variants that merge the two
       layers (project overrides default, dedup by name)
-- [ ] Stop copying shipped defaults into `.jig/roles/` and
+- [x] Stop copying shipped defaults into `.jig/roles/` and
       `.jig/workflows/` at `jig init`. `save_default_roles` /
       `save_default_workflow` deprecated in the hot path; kept as a
       `jig role init <name>` scaffolding command for teams that want
       to customize one
-- [ ] Migration: existing projects already have full copies under
+- [x] Migration: existing projects already have full copies under
       `.jig/`; they continue to resolve via step 1 untouched
 
 **D. Workflow resolution from config**
@@ -325,29 +325,29 @@ defaults are copied in at `jig init`.
 Promote Phase 1's parsed-but-unused `workflows:` section to drive
 actual behavior at ticket creation.
 
-- [ ] Add `resolve_workflow(config, *, work_type, size, explicit=None)
+- [x] Add `resolve_workflow(config, *, work_type, size, explicit=None)
       -> str` in `jig/config.py`:
   - explicit override wins if provided and is in `available`
   - else `workflows.by_type.<work_type>.default_by_size.<size>`
   - else `workflows.by_type.<work_type>.available[0]` if single-item
   - else top-level `workflows.default_by_size.<size>`
   - else fall back to `"default"` (preserves current behavior)
-- [ ] Wire into `ticket_mcp.create_ticket`: if caller didn't specify
+- [x] Wire into `ticket_mcp.create_ticket`: if caller didn't specify
       `workflow`, resolve one. Persist the resolved name on the ticket
       (already persisted — no schema change)
-- [ ] Validate that resolved workflow is in `workflows.available` (if
+- [x] Validate that resolved workflow is in `workflows.available` (if
       populated); reject with explicit error otherwise
-- [ ] Phase 1 warnings upgrade to errors at load (Task F)
+- [x] Phase 1 warnings upgrade to errors at load (Task F)
 
 **E. Check catalog loader (shape only; execution is Phase 5)**
 
-- [ ] Add `jig/checks.py` with a `CheckCatalog` pydantic model
+- [x] Add `jig/checks.py` with a `CheckCatalog` pydantic model
       covering all three check types per doc 10 (scripted,
       implementation_aware_agent, black_box_agent)
-- [ ] Parse `.jig/checks.yaml` at load; empty catalog is valid
-- [ ] Validate per-check required fields (type, command or template,
+- [x] Parse `.jig/checks.yaml` at load; empty catalog is valid
+- [x] Validate per-check required fields (type, command or template,
       severity)
-- [ ] Don't execute — just assert shape and collect names for
+- [x] Don't execute — just assert shape and collect names for
       cross-reference validation in Task F
 
 **F. Load-time validation (full, fail-loud)**
@@ -355,11 +355,11 @@ actual behavior at ticket creation.
 Upgrade Phase 1F's advisory warnings to hard errors. Add the full
 set from doc 17 §Validation at load.
 
-- [ ] New `jig/catalog.py` module exposing
+- [x] New `jig/catalog.py` module exposing
       `validate_catalog(project_path) -> None` that raises
       `CatalogError` on the first failure, with a list-all mode
       `validate_catalog(..., collect=True) -> list[str]`
-- [ ] Checks performed:
+- [x] Checks performed:
   - Unknown role names referenced from workflow phases
   - Unknown workflow names in `config.yaml`'s `default_by_size`,
     `available`, `by_type.*.default_by_size`, `by_type.*.available`
@@ -368,34 +368,34 @@ set from doc 17 §Validation at load.
   - Missing required context URIs in role templates
     (`project://`, `role://` only)
   - Malformed YAML (covered by pydantic today; surface cleanly)
-- [ ] `jig start` calls `validate_catalog` before any loop starts;
+- [x] `jig start` calls `validate_catalog` before any loop starts;
       exit non-zero with readable error on failure
-- [ ] `jig validate` (no `--ticket-id`) becomes a catalog dry-run
+- [x] `jig validate` (no `--ticket-id`) becomes a catalog dry-run
       that calls the same validator and prints the collect-all list;
       current per-ticket form stays available via explicit flag
 
 **G. Documentation and default-template updates**
 
-- [ ] Migrate shipped role defaults' `default_context` entries from
+- [x] Migrate shipped role defaults' `default_context` entries from
       `issue://design` etc. to `ticket://design`. Keep one test asserting
       the `issue://` alias still works (Task A)
-- [ ] Update doc 07 / doc 17 cross-references in the shipped defaults'
+- [x] Update doc 07 / doc 17 cross-references in the shipped defaults'
       `phase_prompt` wording where it mentions "issue"/"work unit" →
       "ticket" (doc sweep done in Phase 0; this is a code/yaml sweep)
 
 **H. Tests**
 
-- [ ] Context resolver: one test per scheme, plus the deprecation
+- [x] Context resolver: one test per scheme, plus the deprecation
       alias path. Required vs optional: missing required raises;
       missing optional warns and continues
-- [ ] Catalog resolution order: project override wins, default
+- [x] Catalog resolution order: project override wins, default
       fallback loads, missing both raises with both paths named
-- [ ] Workflow resolution: cover explicit override, per-type
+- [x] Workflow resolution: cover explicit override, per-type
       default_by_size, top-level default_by_size, fallback to
       `"default"`, rejection of not-in-`available`
-- [ ] Check catalog: empty file OK, missing required field errors,
+- [x] Check catalog: empty file OK, missing required field errors,
       shape validation per type
-- [ ] `validate_catalog`: exercise each failure mode; collect-all
+- [x] `validate_catalog`: exercise each failure mode; collect-all
       returns every failure, raise-first stops at first
 
 ### Exit criteria
@@ -467,7 +467,7 @@ set from doc 17 §Validation at load.
   today; skip this check until extends/merge arrives (deferred in
   doc 17 §Deliberately deferred).
 
-## Phase 3 — Structured specs & ownership
+## Phase 3 — Structured specs and ownership
 
 *Detailed plan added after Phase 2 review.*
 

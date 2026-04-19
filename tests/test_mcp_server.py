@@ -41,6 +41,7 @@ async def test_agent_mcp_server_registers_expected_tools(
         agent_role="dev",
         agent_cfg=cfg,
         worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
     )
 
     assert result is not None

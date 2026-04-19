@@ -112,6 +112,7 @@ class WebSocketServer:
                     bus=self._orch.bus,
                     sender="user",
                     args=args,
+                    project_path=self._orch._project_path,
                 )
                 await self._safe_send(websocket, json.dumps({"ok": True, "ticket_id": tid}))
             elif command == "comment_on_ticket":

@@ -1,4 +1,21 @@
-"""File I/O for .jig/ directory structure."""
+"""File I/O for .jig/ directory structure.
+
+Catalog resolution (Phase 2 Task C) is two-layered per doc 17 §Resolution
+order:
+
+1. Project repo under ``<project>/.jig/<kind>/<name>.yaml`` — wins if
+   present.
+2. Shipped default under ``jig/defaults/<kind>/<name>.yaml`` — the
+   fallback.
+
+Neither file exists → ``FileNotFoundError`` with both paths named.
+
+Shipped defaults are *not* pre-copied into the project at ``jig init``
+anymore; they're served straight from the installed package at runtime.
+Teams that want to customize copy the file themselves (a future
+``jig role init <name>`` scaffold). ``save_default_roles`` /
+``save_default_workflow`` are kept as library helpers for that use case.
+"""
 
 from pathlib import Path
 
@@ -15,6 +32,11 @@ def _jig_dir(project_path: Path) -> Path:
     return project_path / ".jig"
 
 
+def _defaults_dir() -> Path:
+    """Return the path to the built-in defaults directory."""
+    return Path(__file__).resolve().parent / "defaults"
+
+
 def init_project(project_path: Path, default_branch: str = "main") -> None:
     """Initialize `.jig/` with the doc-17 directory layout."""
     if not (project_path / ".git").is_dir():
@@ -26,8 +48,9 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
 
     jig_dir.mkdir()
 
-    # Operational dirs consumed today (roles/workflows by the runtime;
-    # worktrees/store by git and the JSONL stores respectively).
+    # Operational dirs. roles/ and workflows/ start empty — fallbacks come
+    # from jig.defaults at runtime. The dirs exist so overrides have an
+    # obvious home.
     for subdir in ("roles", "workflows", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
 
@@ -58,42 +81,86 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
     )
 
 
+# ---- roles ----------------------------------------------------------------
+
+
 def save_role(project_path: Path, config: RoleConfig) -> None:
-    """Save an agent type config to .jig/roles/<role>.yaml."""
+    """Save a role config to .jig/roles/<role>.yaml."""
     type_path = _jig_dir(project_path) / "roles" / f"{config.role}.yaml"
+    type_path.parent.mkdir(parents=True, exist_ok=True)
     type_path.write_text(
         yaml.dump(config.model_dump(), default_flow_style=False)
     )
 
 
+def _role_path_project(project_path: Path, name: str) -> Path:
+    return _jig_dir(project_path) / "roles" / f"{name}.yaml"
+
+
+def _role_path_shipped(name: str) -> Path:
+    return _defaults_dir() / "roles" / f"{name}.yaml"
+
+
 def load_role(project_path: Path, name: str) -> RoleConfig:
-    """Load an agent type config from .jig/roles/<name>.yaml."""
-    type_path = _jig_dir(project_path) / "roles" / f"{name}.yaml"
-    if not type_path.is_file():
-        raise FileNotFoundError(f"Agent type '{name}' not found")
-    data = yaml.safe_load(type_path.read_text())
-    return RoleConfig.model_validate(data)
+    """Load a role config, preferring the project override over the shipped default."""
+    project_path_file = _role_path_project(project_path, name)
+    if project_path_file.is_file():
+        data = yaml.safe_load(project_path_file.read_text())
+        return RoleConfig.model_validate(data)
+    shipped_path = _role_path_shipped(name)
+    if shipped_path.is_file():
+        data = yaml.safe_load(shipped_path.read_text())
+        return RoleConfig.model_validate(data)
+    raise FileNotFoundError(
+        f"role {name!r} not found (looked in {project_path_file} and {shipped_path})"
+    )
 
 
 def list_roles(project_path: Path) -> list[RoleConfig]:
-    """List all agent type configs in .jig/roles/."""
-    types_dir = _jig_dir(project_path) / "roles"
-    if not types_dir.is_dir():
-        return []
-    configs = []
-    for yaml_file in sorted(types_dir.glob("*.yaml")):
-        data = yaml.safe_load(yaml_file.read_text())
-        configs.append(RoleConfig.model_validate(data))
-    return configs
+    """List all roles available to this project.
+
+    Merges the project override layer with the shipped defaults. Project
+    files win when both layers define the same role name.
+    """
+    seen: dict[str, RoleConfig] = {}
+
+    project_dir = _jig_dir(project_path) / "roles"
+    if project_dir.is_dir():
+        for yaml_file in sorted(project_dir.glob("*.yaml")):
+            data = yaml.safe_load(yaml_file.read_text())
+            config = RoleConfig.model_validate(data)
+            seen[config.role] = config
+
+    shipped_dir = _defaults_dir() / "roles"
+    if shipped_dir.is_dir():
+        for yaml_file in sorted(shipped_dir.glob("*.yaml")):
+            data = yaml.safe_load(yaml_file.read_text())
+            config = RoleConfig.model_validate(data)
+            seen.setdefault(config.role, config)
+
+    return [seen[name] for name in sorted(seen)]
 
 
-def _defaults_dir() -> Path:
-    """Return the path to the built-in defaults directory."""
-    return Path(__file__).resolve().parent / "defaults"
+def list_role_names(project_path: Path) -> list[str]:
+    """Return every role name this project can resolve (project + defaults)."""
+    names: set[str] = set()
+    project_dir = _jig_dir(project_path) / "roles"
+    if project_dir.is_dir():
+        names.update(p.stem for p in project_dir.glob("*.yaml"))
+    shipped_dir = _defaults_dir() / "roles"
+    if shipped_dir.is_dir():
+        names.update(p.stem for p in shipped_dir.glob("*.yaml"))
+    return sorted(names)
 
 
 def save_default_roles(project_path: Path) -> None:
-    """Copy default agent type configs from jig/defaults/roles/ into project."""
+    """Copy shipped role templates into the project.
+
+    No longer called by ``jig init`` (Phase 2 Task C) — runtime resolves
+    shipped defaults on demand. Kept as a library helper so a future
+    ``jig role init <name>`` command can scaffold one into the project
+    for editing.
+    """
     source_dir = _defaults_dir() / "roles"
     for yaml_file in sorted(source_dir.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text())
@@ -101,38 +168,59 @@ def save_default_roles(project_path: Path) -> None:
         save_role(project_path, config)
 
 
+# ---- workflows ------------------------------------------------------------
+
+
 def save_workflow(project_path: Path, workflow: WorkflowConfig) -> None:
     """Save a workflow config to .jig/workflows/<name>.yaml."""
     wf_path = _jig_dir(project_path) / "workflows" / f"{workflow.name}.yaml"
+    wf_path.parent.mkdir(parents=True, exist_ok=True)
     wf_path.write_text(
         yaml.dump(workflow.model_dump(mode="json"), default_flow_style=False)
     )
 
 
+def _workflow_path_project(project_path: Path, name: str) -> Path:
+    return _jig_dir(project_path) / "workflows" / f"{name}.yaml"
+
+
+def _workflow_path_shipped(name: str) -> Path:
+    return _defaults_dir() / "workflows" / f"{name}.yaml"
+
+
 def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
-    """Load a workflow config from .jig/workflows/<name>.yaml."""
-    wf_path = _jig_dir(project_path) / "workflows" / f"{name}.yaml"
-    if not wf_path.is_file():
-        raise FileNotFoundError(f"Workflow '{name}' not found")
-    data = yaml.safe_load(wf_path.read_text())
-    return WorkflowConfig.model_validate(data)
+    """Load a workflow config, preferring the project override over the shipped default."""
+    project_path_file = _workflow_path_project(project_path, name)
+    if project_path_file.is_file():
+        data = yaml.safe_load(project_path_file.read_text())
+        return WorkflowConfig.model_validate(data)
+    shipped_path = _workflow_path_shipped(name)
+    if shipped_path.is_file():
+        data = yaml.safe_load(shipped_path.read_text())
+        return WorkflowConfig.model_validate(data)
+    raise FileNotFoundError(
+        f"workflow {name!r} not found (looked in {project_path_file} and {shipped_path})"
+    )
 
 
 def list_workflow_names(project_path: Path) -> list[str]:
-    """Return the names of all workflows shipped into the project.
-
-    Derived from the file stems of `.jig/workflows/*.yaml`. Missing
-    directory yields an empty list rather than raising — callers (e.g.
-    validator) treat it as "no workflows defined yet".
-    """
-    wf_dir = _jig_dir(project_path) / "workflows"
-    if not wf_dir.is_dir():
-        return []
-    return sorted(p.stem for p in wf_dir.glob("*.yaml"))
+    """Return every workflow name resolvable by this project (project + defaults)."""
+    names: set[str] = set()
+    project_dir = _jig_dir(project_path) / "workflows"
+    if project_dir.is_dir():
+        names.update(p.stem for p in project_dir.glob("*.yaml"))
+    shipped_dir = _defaults_dir() / "workflows"
+    if shipped_dir.is_dir():
+        names.update(p.stem for p in shipped_dir.glob("*.yaml"))
+    return sorted(names)
 
 
 def save_default_workflow(project_path: Path) -> None:
-    """Copy default workflow config from jig/defaults/workflows/ into project."""
+    """Copy shipped workflow templates into the project.
+
+    No longer called by ``jig init`` — runtime resolves shipped defaults
+    on demand. Kept as a scaffolding helper; see ``save_default_roles``.
+    """
     source_dir = _defaults_dir() / "workflows"
     for yaml_file in sorted(source_dir.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text())
@@ -146,6 +234,7 @@ __all__ = [
     "WorkflowConfig",
     "_jig_dir",
     "init_project",
+    "list_role_names",
     "list_roles",
     "list_workflow_names",
     "load_role",

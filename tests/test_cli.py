@@ -215,3 +215,29 @@ class TestValidate:
         ])
         assert result.exit_code != 0
         assert "not initialized" in result.output.lower()
+
+    def test_dry_run_clean_catalog(
+        self, runner: CliRunner, git_jig_project: Path
+    ) -> None:
+        """`jig validate` with no --ticket-id runs a catalog dry-run."""
+        result = runner.invoke(cli, ["validate", "--path", str(git_jig_project)])
+        assert result.exit_code == 0, result.output
+        assert "catalog ok" in result.output.lower()
+
+    def test_dry_run_reports_broken_catalog(
+        self, runner: CliRunner, git_jig_project: Path
+    ) -> None:
+        """A workflow with an unknown role is caught at dry-run."""
+        from jig.models import PhaseConfig, WorkflowConfig
+        from jig.persistence import save_workflow
+
+        save_workflow(
+            git_jig_project,
+            WorkflowConfig(
+                name="broken",
+                phases=[PhaseConfig(name="x", role="no-such-role")],
+            ),
+        )
+        result = runner.invoke(cli, ["validate", "--path", str(git_jig_project)])
+        assert result.exit_code != 0
+        assert "no-such-role" in result.output

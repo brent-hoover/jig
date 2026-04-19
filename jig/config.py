@@ -118,6 +118,63 @@ def load_config(project_path: Path) -> Config:
     return Config.model_validate(data)
 
 
+class WorkflowResolutionError(ValueError):
+    """Raised when an explicit workflow name is disallowed by config."""
+
+
+def resolve_workflow(
+    config: Config,
+    *,
+    work_type: str,
+    size: str,
+    explicit: str | None = None,
+) -> str:
+    """Pick a workflow name for a ticket per doc 17 resolution order.
+
+    Order:
+
+    1. ``explicit`` (if supplied). Must be in
+       ``config.workflows.available`` when that list is populated,
+       otherwise a :class:`WorkflowResolutionError` is raised.
+    2. ``config.workflows.by_type.<work_type>.default_by_size.<size>``.
+    3. ``config.workflows.by_type.<work_type>.available[0]`` if the
+       per-type list is single-valued.
+    4. ``config.workflows.default_by_size.<size>``.
+    5. ``"default"`` — the historical fallback.
+
+    Steps 2–4 are filtered by ``config.workflows.available`` when set;
+    a resolved name not in ``available`` falls through to the next
+    step instead of being rejected (it's a config inconsistency that
+    Phase 2F surfaces separately).
+    """
+    available = set(config.workflows.available)
+
+    def _allowed(name: str) -> bool:
+        return not available or name in available
+
+    if explicit:
+        if not _allowed(explicit):
+            raise WorkflowResolutionError(
+                f"workflow {explicit!r} is not in workflows.available "
+                f"({sorted(available)})"
+            )
+        return explicit
+
+    by_type = config.workflows.by_type.get(work_type)
+    if by_type is not None:
+        name = by_type.default_by_size.get(size)
+        if name and _allowed(name):
+            return name
+        if len(by_type.available) == 1 and _allowed(by_type.available[0]):
+            return by_type.available[0]
+
+    name = config.workflows.default_by_size.get(size)
+    if name and _allowed(name):
+        return name
+
+    return "default"
+
+
 def validate_workflow_references(
     config: Config, known_workflows: list[str]
 ) -> list[str]:
@@ -164,9 +221,11 @@ __all__ = [
     "RoleAssignment",
     "RolesSection",
     "SpecOwnership",
+    "WorkflowResolutionError",
     "WorkflowTypeEntry",
     "WorkflowsSection",
     "load_config",
+    "resolve_workflow",
     "save_config",
     "validate_workflow_references",
 ]

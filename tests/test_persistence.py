@@ -91,20 +91,54 @@ class TestAgentTypePersistence:
         yaml_path = tmp_new_jig_project / ".jig" / "roles" / "test.yaml"
         assert yaml_path.is_file()
 
-    def test_list_empty(self, tmp_new_jig_project: Path) -> None:
-        types = list_roles(tmp_new_jig_project)
-        assert types == []
-
-    def test_list_multiple(self, tmp_new_jig_project: Path) -> None:
-        save_role(
-            tmp_new_jig_project, RoleConfig(role="dev", phase_prompt="Dev.")
-        )
-        save_role(
-            tmp_new_jig_project, RoleConfig(role="test", phase_prompt="Test.")
-        )
+    def test_list_empty_falls_back_to_shipped_defaults(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """Phase 2 Task C: project override layer empty → serve shipped defaults."""
         types = list_roles(tmp_new_jig_project)
         roles = {t.role for t in types}
-        assert roles == {"dev", "test"}
+        # The exact set of shipped defaults is asserted in TestDefaultRoles.
+        # Here we just need to know the fallback layer is in play.
+        assert roles, "list_roles should fall back to shipped defaults"
+        assert "dev" in roles
+
+    def test_list_merges_project_override_with_shipped(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        save_role(
+            tmp_new_jig_project,
+            RoleConfig(role="dev", phase_prompt="Project dev override."),
+        )
+        save_role(
+            tmp_new_jig_project,
+            RoleConfig(role="custom-role", phase_prompt="Project only."),
+        )
+        types = {t.role: t for t in list_roles(tmp_new_jig_project)}
+        # Shipped defaults show up.
+        assert "pm" in types
+        assert "spec" in types
+        # Project-only role is present.
+        assert "custom-role" in types
+        # Project override wins for shared names.
+        assert types["dev"].phase_prompt == "Project dev override."
+
+    def test_load_role_prefers_project_override(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        save_role(
+            tmp_new_jig_project,
+            RoleConfig(role="dev", phase_prompt="Custom project dev."),
+        )
+        loaded = load_role(tmp_new_jig_project, "dev")
+        assert loaded.phase_prompt == "Custom project dev."
+
+    def test_load_role_falls_back_to_shipped_default(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """Project override missing → serve shipped default transparently."""
+        loaded = load_role(tmp_new_jig_project, "dev")
+        # dev.yaml ships in jig/defaults/roles/ — should resolve.
+        assert loaded.role == "dev"
 
     def test_load_nonexistent_raises(self, tmp_new_jig_project: Path) -> None:
         with pytest.raises(FileNotFoundError):
@@ -163,6 +197,26 @@ class TestWorkflowPersistence:
     def test_load_nonexistent_raises(self, tmp_new_jig_project: Path) -> None:
         with pytest.raises(FileNotFoundError):
             load_workflow(tmp_new_jig_project, "nope")
+
+    def test_load_workflow_falls_back_to_shipped_default(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """Project override missing → serve shipped default."""
+        workflow = load_workflow(tmp_new_jig_project, "default")
+        assert workflow.name == "default"
+
+    def test_load_workflow_prefers_project_override(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        save_workflow(
+            tmp_new_jig_project,
+            WorkflowConfig(
+                name="default",
+                phases=[PhaseConfig(name="only", role="dev")],
+            ),
+        )
+        loaded = load_workflow(tmp_new_jig_project, "default")
+        assert [p.name for p in loaded.phases] == ["only"]
 
 
 class TestDefaultWorkflow:

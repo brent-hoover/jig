@@ -22,6 +22,7 @@ def create_agent_mcp_server(
     agent_role: str,
     agent_cfg: RoleConfig,
     worktree_path: Path,
+    project_path: Path,
     valid_roles: frozenset[str] = frozenset(),
     package_manager: str = "",
 ):
@@ -45,7 +46,12 @@ def create_agent_mcp_server(
     async def create_ticket(args):
         _check_assignee(args.get("assignee"))
         ticket_id = await ticket_mcp.handle_create_ticket(
-            tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+            tickets=tickets,
+            comments=comments,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            project_path=project_path,
         )
         return {"content": [{"type": "text", "text": ticket_id}]}
 

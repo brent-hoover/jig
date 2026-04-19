@@ -13,11 +13,7 @@ from jig.models import MergeStrategy
 from jig.project import Project, save_project
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
-from jig.persistence import (
-    init_project,
-    save_default_roles,
-    save_default_workflow,
-)
+from jig.persistence import init_project
 from jig.worktree import remove_worktree
 
 
@@ -169,8 +165,6 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
 
     try:
         init_project(path, default_branch=branch)
-        save_default_roles(path)
-        save_default_workflow(path)
     except FileExistsError:
         raise click.ClickException(f"Already initialized: {path / '.jig'}")
     except ValueError as e:
@@ -275,22 +269,14 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     if not jig_dir.is_dir():
         raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
 
-    # Advisory config validation — warn on bad workflow refs but don't
-    # abort. Phase 2 will promote these to errors once the resolver
-    # actually uses `workflows.by_type` to pick a workflow at ticket
-    # creation.
+    # Fail-loud catalog validation (Phase 2F). Unknown role / workflow /
+    # check references, malformed YAML, and missing required context
+    # artifacts all surface here before any loop starts.
+    from jig.catalog import CatalogError, validate_catalog
     try:
-        from jig.config import load_config, validate_workflow_references
-        from jig.persistence import list_workflow_names
-        config = load_config(path)
-    except FileNotFoundError:
-        # Legacy project.json-only project — skip the config.yaml
-        # validation pass. `load_project` handles the deprecation warn.
-        pass
-    else:
-        known = list_workflow_names(path)
-        for msg in validate_workflow_references(config, known):
-            click.echo(f"Warning: {msg}", err=True)
+        validate_catalog(path)
+    except CatalogError as exc:
+        raise click.ClickException(f"Catalog validation failed: {exc}")
 
     from datetime import datetime
     log_dir = jig_dir / "logs"
@@ -370,24 +356,50 @@ def sync(path: Path) -> None:
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--ticket-id", required=True, help="Ticket to validate.")
-def validate(path: Path, ticket_id: str) -> None:
-    """Validate a ticket and clean up its worktree."""
+@click.option(
+    "--ticket-id",
+    default=None,
+    help="Clean up a specific ticket's worktree. Without this flag, runs a catalog dry-run.",
+)
+def validate(path: Path, ticket_id: str | None) -> None:
+    """Validate the project catalog, or clean up a ticket's worktree.
+
+    Without ``--ticket-id``: walks roles, workflows, config, and the
+    check catalog. Reports every inconsistency and exits non-zero if
+    anything is wrong. Same checks ``jig start`` runs at boot, but
+    safe to run on a stopped service.
+
+    With ``--ticket-id``: the legacy per-ticket cleanup (removes the
+    worktree directory for that ticket).
+    """
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
         raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
 
-    worktree_path = jig_dir / "worktrees" / ticket_id
-    if worktree_path.is_dir():
-        try:
-            asyncio.run(remove_worktree(path, ticket_id))
-        except RuntimeError as e:
-            raise click.ClickException(
-                f"Could not remove worktree {ticket_id}: {e}"
-            )
-        click.echo(f"  Removed worktree: {ticket_id}")
+    if ticket_id is not None:
+        worktree_path = jig_dir / "worktrees" / ticket_id
+        if worktree_path.is_dir():
+            try:
+                asyncio.run(remove_worktree(path, ticket_id))
+            except RuntimeError as e:
+                raise click.ClickException(
+                    f"Could not remove worktree {ticket_id}: {e}"
+                )
+            click.echo(f"  Removed worktree: {ticket_id}")
+        click.echo(f"Ticket {ticket_id} validated.")
+        return
 
-    click.echo(f"Ticket {ticket_id} validated.")
+    # Catalog dry-run. Collect every error so the operator sees the
+    # whole picture in one pass.
+    from jig.catalog import validate_catalog
+    errors = validate_catalog(path, collect=True) or []
+    if errors:
+        for msg in errors:
+            click.echo(f"  {msg}", err=True)
+        raise click.ClickException(
+            f"Catalog validation failed ({len(errors)} error(s))."
+        )
+    click.echo("Catalog OK.")
 
 
 @cli.command()

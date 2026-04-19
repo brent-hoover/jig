@@ -22,6 +22,7 @@ async def handle_create_ticket(
     bus: MessageBus,
     sender: str,
     args: dict,
+    project_path: Path | None = None,
 ) -> str:
     depends_on: list[str] = args.get("depends_on", [])
 
@@ -83,6 +84,53 @@ async def handle_create_ticket(
         raise KeyError("work_type is required")
 
     ticket = Ticket(**ticket_kwargs)
+
+    # Phase 2D: if the caller didn't pin a workflow and the model's
+    # legacy-migration validator didn't override (e.g. type=task→thread),
+    # consult .jig/config.yaml. Explicit per-ticket overrides and legacy
+    # "thread" migration both win over config-driven resolution.
+    explicit_workflow = args.get("workflow")
+    if explicit_workflow is None and ticket.workflow == "default" and project_path is not None:
+        from jig.config import (
+            WorkflowResolutionError,
+            load_config,
+            resolve_workflow,
+        )
+        try:
+            cfg = load_config(project_path)
+        except FileNotFoundError:
+            cfg = None
+        if cfg is not None:
+            try:
+                resolved = resolve_workflow(
+                    cfg,
+                    work_type=ticket.work_type.value,
+                    size=ticket.size.value,
+                )
+            except WorkflowResolutionError:
+                # Should only fire with explicit=..., which we don't
+                # pass here. Raised defensively in case future code does.
+                raise
+            if resolved != ticket.workflow:
+                ticket = ticket.model_copy(update={"workflow": resolved})
+    elif explicit_workflow is not None and project_path is not None:
+        # Validate an explicit workflow against config.workflows.available.
+        from jig.config import WorkflowResolutionError, load_config, resolve_workflow
+        try:
+            cfg = load_config(project_path)
+        except FileNotFoundError:
+            cfg = None
+        if cfg is not None:
+            try:
+                resolve_workflow(
+                    cfg,
+                    work_type=ticket.work_type.value,
+                    size=ticket.size.value,
+                    explicit=explicit_workflow,
+                )
+            except WorkflowResolutionError as exc:
+                raise ValueError(str(exc)) from exc
+
     ticket_id = await tickets.create(ticket)
 
     # Update the reverse side: each dependency now blocks this ticket

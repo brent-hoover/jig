@@ -121,22 +121,22 @@ Target: `.jig/config.yaml` per doc 17 with `project:`, `workflows:`,
 
 Project repo `.jig/`:
 
-- [ ] Create `.jig/spec/` (empty placeholder; populated Phase 3)
-- [ ] Create `.jig/context/project/` (empty placeholder; populated
+- [x] Create `.jig/spec/` (empty placeholder; populated Phase 3)
+- [x] Create `.jig/context/project/` (empty placeholder; populated
       Phase 2)
-- [ ] Create `.jig/context/roles/` (empty placeholder)
-- [ ] Create `.jig/decisions/` (empty placeholder; populated Phase 3)
-- [ ] Create `.jig/archive/` (empty placeholder)
-- [ ] Create `.jig/checks.yaml` (empty catalog; Phase 5 populates)
-- [ ] Keep `.jig/worktrees/` (operational; not in doc 17 but needed)
-- [ ] Keep `.jig/store/` JSONL layout (SQLite migration deferred
+- [x] Create `.jig/context/roles/` (empty placeholder)
+- [x] Create `.jig/decisions/` (empty placeholder; populated Phase 3)
+- [x] Create `.jig/archive/` (empty placeholder)
+- [x] Create `.jig/checks.yaml` (empty catalog; Phase 5 populates)
+- [x] Keep `.jig/worktrees/` (operational; not in doc 17 but needed)
+- [x] Keep `.jig/store/` JSONL layout (SQLite migration deferred
       until Phase 7)
 
 Core repo `jig/`:
 
-- [ ] `jig/defaults/roles/` (renamed from `agent_types/`)
-- [ ] `jig/defaults/workflows/` (exists; keep)
-- [ ] `jig/defaults/project_templates/` (moved from root
+- [x] `jig/defaults/roles/` (renamed from `agent_types/`)
+- [x] `jig/defaults/workflows/` (exists; keep)
+- [x] `jig/defaults/project_templates/` (moved from root
       `templates/`)
 
 **E. Dead-code fixes from the survey**

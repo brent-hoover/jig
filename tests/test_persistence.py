@@ -38,6 +38,24 @@ class TestInitProject:
         assert (jig_dir / "worktrees").is_dir()
         assert (jig_dir / "store").is_dir()
 
+    def test_creates_doc17_placeholders(self, tmp_project: Path) -> None:
+        """Per doc 17 layout — populated in later phases, laid down now."""
+        init_project(tmp_project)
+        jig_dir = tmp_project / ".jig"
+        assert (jig_dir / "spec").is_dir()
+        assert (jig_dir / "context" / "project").is_dir()
+        assert (jig_dir / "context" / "roles").is_dir()
+        assert (jig_dir / "decisions").is_dir()
+        assert (jig_dir / "archive").is_dir()
+
+    def test_creates_empty_checks_catalog(self, tmp_project: Path) -> None:
+        init_project(tmp_project)
+        checks_path = tmp_project / ".jig" / "checks.yaml"
+        assert checks_path.is_file()
+        import yaml
+        data = yaml.safe_load(checks_path.read_text())
+        assert data == {"checks": {}}
+
     def test_does_not_create_legacy_dirs(self, tmp_project: Path) -> None:
         init_project(tmp_project)
         jig_dir = tmp_project / ".jig"

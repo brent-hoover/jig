@@ -48,13 +48,22 @@ class TestInit:
         )
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code == 0, result.output
-        assert (tmp_path / ".jig" / "config.yaml").is_file()
-        assert not (tmp_path / ".jig" / "project.json").exists()
-        assert not (tmp_path / ".jig" / "issues").exists()
-        assert (tmp_path / ".jig" / "worktrees").is_dir()
-        assert (tmp_path / ".jig" / "roles").is_dir()
-        assert (tmp_path / ".jig" / "workflows").is_dir()
-        assert (tmp_path / ".jig" / "store").is_dir()
+        jig = tmp_path / ".jig"
+        assert (jig / "config.yaml").is_file()
+        assert not (jig / "project.json").exists()
+        assert not (jig / "issues").exists()
+        # Operational
+        assert (jig / "worktrees").is_dir()
+        assert (jig / "roles").is_dir()
+        assert (jig / "workflows").is_dir()
+        assert (jig / "store").is_dir()
+        # Doc-17 placeholders
+        assert (jig / "spec").is_dir()
+        assert (jig / "context" / "project").is_dir()
+        assert (jig / "context" / "roles").is_dir()
+        assert (jig / "decisions").is_dir()
+        assert (jig / "archive").is_dir()
+        assert (jig / "checks.yaml").is_file()
 
     def test_init_config_yaml_contains_branch(self, tmp_path: Path, runner: CliRunner) -> None:
         subprocess.run(["git", "init", "-q", "-b", "develop"], cwd=tmp_path, check=True)

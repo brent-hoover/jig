@@ -16,7 +16,7 @@ def _jig_dir(project_path: Path) -> Path:
 
 
 def init_project(project_path: Path, default_branch: str = "main") -> None:
-    """Initialize .jig/ directory in a project."""
+    """Initialize `.jig/` with the doc-17 directory layout."""
     if not (project_path / ".git").is_dir():
         raise ValueError(f"{project_path} is not a git repository")
 
@@ -25,8 +25,37 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
         raise FileExistsError(f"{jig_dir} already exists")
 
     jig_dir.mkdir()
+
+    # Operational dirs consumed today (roles/workflows by the runtime;
+    # worktrees/store by git and the JSONL stores respectively).
     for subdir in ("roles", "workflows", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
+
+    # Doc-17 placeholders — populated in later phases but laid down now
+    # so the catalog resolver (phase 2) and spec flows (phase 3) find a
+    # consistent shape on fresh projects.
+    #   spec/              — PO-authored project spec (phase 3)
+    #   context/project/   — project-wide context artifacts (phase 2)
+    #   context/roles/     — per-role context overlays (phase 2)
+    #   decisions/         — decision records (phase 3)
+    #   archive/           — closed-ticket archives
+    for subdir in (
+        "spec",
+        "context",
+        "context/project",
+        "context/roles",
+        "decisions",
+        "archive",
+    ):
+        (jig_dir / subdir).mkdir(parents=True)
+
+    # Empty check catalog — phase 5 populates real checks.
+    checks_path = jig_dir / "checks.yaml"
+    checks_path.write_text(
+        "# Check catalog — see docs/10-verification.md.\n"
+        "# Populated in phase 5.\n"
+        "checks: {}\n"
+    )
 
 
 def save_role(project_path: Path, config: RoleConfig) -> None:

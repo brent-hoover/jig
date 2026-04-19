@@ -60,19 +60,19 @@ alignment.
 
 **A. Terminology renames in code**
 
-- [ ] `.jig/agent_types/` → `.jig/roles/` (project directory)
-- [ ] `jig/defaults/agent_types/` → `jig/defaults/roles/` (shipped
+- [x] `.jig/agent_types/` → `.jig/roles/` (project directory)
+- [x] `jig/defaults/agent_types/` → `jig/defaults/roles/` (shipped
       defaults)
-- [ ] `AgentTypeConfig` → `RoleConfig` (class), update all imports
-- [ ] `agent_type` → `role` in variable/field names where it refers to
+- [x] `AgentTypeConfig` → `RoleConfig` (class), update all imports
+      (kept `AgentTypeConfig` as a transitional alias during Phase 1)
+- [x] `agent_type` → `role` in variable/field names where it refers to
       the role template (not the runtime agent instance)
-- [ ] `issue_id` → `ticket_id` in `MemoryStore` models (`Handoff`,
+- [x] `issue_id` → `ticket_id` in `MemoryStore` models (`Handoff`,
       `Learning`) and related JSONL index keys
-- [ ] `templates/` (repo root) → `jig/defaults/project_templates/`
+- [x] `templates/` (repo root) → `jig/defaults/project_templates/`
       per doc 17
-- [ ] Grep for any `.agents/` string literals in code; replace with
-      `.jig/` (doc sweep done; code may still have them in path
-      constants)
+- [x] Grep for any `.agents/` string literals in code; replace with
+      `.jig/`
 
 **B. Ticket schema — classification axes**
 
@@ -83,21 +83,23 @@ Target: `Ticket.work_type: WorkType` with values
 `{feature, bugfix, refactor, spike, perf, migration, docs}` (doc 03),
 plus `Ticket.size: Size` with values `{xs, s, m, l, xl}`.
 
-- [ ] Add `WorkType` enum per doc 03's shipped set
-- [ ] Add `Size` enum (`xs`, `s`, `m`, `l`, `xl`)
-- [ ] Rename `Ticket.type` → `Ticket.work_type`, expand enum values
-- [ ] Add `Ticket.size` field (default: `m` until creation UI exposes
-      it)
-- [ ] Migration mapping for existing ticket data:
+- [x] Add `WorkType` enum per doc 03's shipped set
+- [x] Add `Size` enum (`xs`, `s`, `m`, `l`, `xl`)
+- [x] Rename `Ticket.type` → `Ticket.work_type`, expand enum values
+- [x] Add `Ticket.size` field (default: `m`; TUI exposes it in the
+      creation form)
+- [x] Migration mapping for existing ticket data:
   - `bug` → `bugfix`
   - `chore` → `refactor` (closest fit)
-  - `task` → `refactor` (closest fit; re-tag later)
+  - `task` → `refactor` (closest fit; re-tag later; `workflow="thread"`
+    preserved so dispatch behavior is unchanged)
   - `question` → dropped as work_type; questions live as thread
     entries per doc 08 (Phase 4). For now, migrate to `feature` and
-    flag for manual cleanup
-- [ ] Keep `TicketType` import alias for one release cycle to soften
+    flag for manual cleanup (`workflow="thread"` preserved)
+- [x] Keep `TicketType` import alias for one release cycle to soften
       the rename, then drop
-- [ ] Update `TicketStore.TOP_LEVEL_TYPES` to match new enum
+- [x] Update `TicketStore.TOP_LEVEL_TYPES` to match new enum (renamed
+      to `TOP_LEVEL_WORK_TYPES`; old name kept as alias)
 
 **C. Config file migration**
 

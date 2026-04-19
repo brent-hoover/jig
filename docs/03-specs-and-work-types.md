@@ -2,31 +2,31 @@
 
 Specs as first-class, owned, living artifacts, and the classification
 model that keys them. This is the mechanism that makes asymmetric
-validation possible and makes work-unit decomposition tractable — one
+validation possible and makes ticket decomposition tractable — one
 of the features that distinguishes this harness from "agents working
 alone on tickets."
 
 ## Relationship to the project spec
 
-Work unit specs don't exist in isolation. They derive from capabilities
+Ticket specs don't exist in isolation. They derive from capabilities
 in the project spec (see [02](./02-project-spec.md)), which is the
 product-level description of what's being built.
 
-The project spec and work unit spec operate at different scales:
+The project spec and ticket spec operate at different scales:
 
 - **Project spec**: what the product is, what each capability is at
   product level. Maintained by the PO in a human authoring format,
   with the spec agent keeping a structured version in sync.
-- **Work unit spec**: how this specific capability gets built, with
+- **Ticket spec**: how this specific capability gets built, with
   implementation-relevant detail.
 
-When a work unit is created, it's linked to a capability in the project
-spec. The work unit's context bundle includes the capability as
-context. Its spec phase *expands* the capability into work-unit-level
+When a ticket is created, it's linked to a capability in the project
+spec. The ticket's context bundle includes the capability as
+context. Its spec phase *expands* the capability into ticket-level
 detail (behaviors, acceptance criteria, design) rather than inventing
 from scratch.
 
-When the work unit closes, the capability transitions to "built" in
+When the ticket closes, the capability transitions to "built" in
 the project spec. The project spec updates (usually drafted by the
 spec agent, reviewed by the PO) to reflect what actually shipped.
 
@@ -46,7 +46,7 @@ often goes unasked.
 
 Beyond those two: structured specs diff meaningfully (behavior B3 added,
 edge case E2 removed), decompose naturally (each behavior is a
-candidate child work unit), and reference cleanly from other artifacts
+candidate child ticket), and reference cleanly from other artifacts
 (decision records reference specific behaviors by ID).
 
 ## Honest history
@@ -185,11 +185,11 @@ the artifact.
 
 Referenceable IDs on behaviors let other artifacts cite specific
 behaviors cleanly: "Decision DR-17 supersedes B2's persistence strategy
-for this work unit."
+for this ticket."
 
 ## The three classification axes
 
-Every work unit classifies on three axes. Each axis answers a different
+Every ticket classifies on three axes. Each axis answers a different
 question; collapsing any two into one loses signal.
 
 **Work type.** *What kind of work this is.* Selects spec schema (the
@@ -292,7 +292,7 @@ stabilize without being rigid about it.
 
 ## Size scales field rigor within the schema
 
-Full schemas are heavy. Not every work unit needs the full machinery.
+Full schemas are heavy. Not every ticket needs the full machinery.
 Size doesn't change *which* schema applies (that's the work type's
 job) — size scales *how rigorous* each field must be within the schema.
 
@@ -321,7 +321,7 @@ see §Spec-free workflows below.
 
 ## Workflow resolution
 
-Work-unit creation takes `(work_type, size)` as input. The service
+Ticket creation takes `(work_type, size)` as input. The service
 resolves `(work_type, size) → workflow` via the project's
 configuration:
 
@@ -335,7 +335,7 @@ configuration:
    it.
 
 Failing at creation is deliberate. Silent fall-through to some generic
-default would produce work units with phase shapes that don't match
+default would produce tickets with phase shapes that don't match
 the work.
 
 ### Config shape
@@ -423,19 +423,19 @@ signal fires, the options are:
 
 - **Confirm as-is** — creator/owner overrides the signal; size stays;
   work continues.
-- **Decompose** — halt the current work unit, create a parent work
+- **Decompose** — halt the current ticket, create a parent work
   unit (with revised size, possibly different workflow), re-home
   existing artifacts as appropriate.
-- **Abort and recreate** — close the current work unit as abandoned,
+- **Abort and recreate** — close the current ticket as abandoned,
   create a new one with correct classification.
 
 No mid-flight re-classification. The correction mechanisms produce a
-new work unit (via decomposition or recreation) rather than mutating
+new ticket (via decomposition or recreation) rather than mutating
 the existing one in place.
 
 Reclassification mid-flight ("this feature is actually a spike") is
-**abort-and-recreate**. The abandoned work unit's archive preserves
-what was done; the new work unit starts with fresh classification and
+**abort-and-recreate**. The abandoned ticket's archive preserves
+what was done; the new ticket starts with fresh classification and
 inherits context (spec fragment, thread pointer, discovered facts) via
 a creation-time import if useful.
 
@@ -445,7 +445,7 @@ a creation-time import if useful.
 2. Creator selects `size` (dropdown / CLI flag).
 3. Harness looks up default workflow for `(work_type, size)`; offers
    override from `available[work_type]`.
-4. Creator confirms; work unit created with the triple frozen.
+4. Creator confirms; ticket created with the triple frozen.
 5. Spec phase (if the workflow has one) runs against the work_type's
    schema with size-scaled required fields.
 
@@ -477,7 +477,7 @@ cheap off-ramp before implementation commits are made.
 **During implement.** If the implement phase is generating heavy
 activity — many spec refinement proposals, many deferrals, many
 checkpoint milestones without progress — that's a runtime signal the
-work was under-sized. The harness surfaces: "This work unit is showing
+work was under-sized. The harness surfaces: "This ticket is showing
 XL characteristics at size M. Consider halting to decompose."
 
 Creation-time estimates are fallible. The harness provides multiple
@@ -494,7 +494,7 @@ bug that's actually three tangled defects, or a regression that
 uncovers an architectural problem. The same warning surfaces. The
 human decides:
 
-- Decompose into child work units (parent workflow takes over).
+- Decompose into child tickets (parent workflow takes over).
 - Abort and recreate at correct size.
 - Override and continue — the work is large but the team judges
   decomposition doesn't help (e.g., investigation needs to stay in one
@@ -516,7 +516,7 @@ catalog.
 Shipped defaults are starting points. Mature projects calibrate
 thresholds from their own data:
 
-- The archive of closed work units provides a baseline distribution.
+- The archive of closed tickets provides a baseline distribution.
 - Harness can compute P50/P90 values per size class and suggest
   threshold adjustments.
 - "Warning threshold for M is set to 8 behaviors; actual M work in
@@ -530,17 +530,17 @@ sizes than an enterprise. Calibrated thresholds respect that.
 ## Scaling up: decomposition
 
 Scaling down (XS/S lighter rigor) was covered under size-scaled rigor.
-Scaling up matters more, because large work units are where the spec
+Scaling up matters more, because large tickets are where the spec
 machinery becomes actively harmful if not addressed.
 
 The spec overhead we've designed is real, and it's appropriate for
 medium work. It is *not* appropriate for work that should have been
-three medium work units. Forcing large work through medium machinery
+three medium tickets. Forcing large work through medium machinery
 produces bad outcomes — vague specs that cheat the schema, scope creep
 as implementation reveals more work, overhead without the benefits.
 
-The answer is **decomposition**: large and XL work units produce child
-work units, each with their own spec at an appropriate size.
+The answer is **decomposition**: large and XL tickets produce child
+tickets, each with their own spec at an appropriate size.
 
 Decomposition is driven by size:
 
@@ -549,21 +549,21 @@ Decomposition is driven by size:
   decomposition plan describing how the work could be broken down, even
   if the team elects to keep it as one unit.
 - **XL**: decomposition required. Spec phase doesn't produce a behavior
-  spec; it produces child work units.
+  spec; it produces child tickets.
 
 This is the primary pressure release for spec overhead. A team that
 encounters heavy specs at M size responds by decomposing into smaller
 units; a team that starts with XL work gets decomposed into Ms before
 any M-level spec work begins.
 
-## Parent work units
+## Parent tickets
 
-An XL (or L that's decomposed) work unit becomes a **parent**. Its
-shape differs from standard work units:
+An XL (or L that's decomposed) ticket becomes a **parent**. Its
+shape differs from standard tickets:
 
 - Its spec phase output is a decomposition plan, not a behavior spec.
 - It does not have an implement phase directly.
-- It waits on its child work units to complete.
+- It waits on its child tickets to complete.
 - After children complete, it has an **integration phase** for the glue
   work (cross-cutting concerns, unified UX, system-level coherence).
 - It has a **parent-level validation** phase that tests the integrated
@@ -582,9 +582,9 @@ spec carries:
 
 See [05](./05-workflow-model.md) for the parent workflow.
 
-## Child work units
+## Child tickets
 
-Child work units are otherwise standard — they have specs, phases,
+Child tickets are otherwise standard — they have specs, phases,
 workflows, checkpoints. What's different:
 
 - They reference their parent. The parent's integration criteria are
@@ -595,7 +595,7 @@ workflows, checkpoints. What's different:
   after child A completes." v1 supports simple waits; complex
   dependency graphs are deferred.
 
-A child work unit can itself be decomposed if it turns out to be L or
+A child ticket can itself be decomposed if it turns out to be L or
 XL at its own size-as-signal check. Recursion is bounded in practice
 (real projects rarely go deeper than 2–3 levels) but the system
 supports it.
@@ -610,11 +610,11 @@ overhead is real but proportionate.
 For larger work, the equivalent walkthrough involves decomposition
 first: "this is XL, its spec phase produces four children." Each child
 then runs its own medium-sized walkthrough. The parent handles
-integration after children complete. No single work unit carries the
+integration after children complete. No single ticket carries the
 XL cognitive load.
 
 Teams learning the system usually need to calibrate on this: the
-instinct is to write a single large work unit for a big feature. The
+instinct is to write a single large ticket for a big feature. The
 harness's pressure (size-as-signal warnings, decomposition requirements
 at XL) redirects that instinct toward "big features are parents of
 smaller children." This is a real cultural shift for some teams and
@@ -639,7 +639,7 @@ shape. Downstream phases refine:
   but didn't specify 'durable across session' — proposing to add").
 - **Documentation phase**: documentation references the final spec.
 
-At work-unit closure, the spec represents the actually-shipped feature,
+At ticket closure, the spec represents the actually-shipped feature,
 with the full history of decisions (accepted and rejected proposals)
 preserved.
 
@@ -650,15 +650,15 @@ With structured specs, asymmetric validation becomes viable (see
 
 ```yaml
 required:
-  - workunit://spec.behaviors
-  - workunit://spec.acceptance_criteria
-  - workunit://spec.edge_cases
-  - workunit://spec.out_of_scope
+  - ticket://spec.behaviors
+  - ticket://spec.acceptance_criteria
+  - ticket://spec.edge_cases
+  - ticket://spec.out_of_scope
   - project://testing-standards
 excluded:
   - repo://src/**
-  - workunit://spec.design
-  - workunit://spec.technical_risks
+  - ticket://spec.design
+  - ticket://spec.technical_risks
 ```
 
 The validator sees what the feature should do; not how it was built.
@@ -684,7 +684,7 @@ shipped but didn't do the right thing."
 
 Mitigations:
 
-- **Size-scaled.** Small work units have lighter spec requirements, so
+- **Size-scaled.** Small tickets have lighter spec requirements, so
   the overhead doesn't kill velocity on simple changes.
 - **Helper agents** (see [04](./04-ownership.md)). A PO with an
   agent helper gets drafting assistance — the helper can propose spec
@@ -704,7 +704,7 @@ Not every workflow has a spec phase. XS hotfixes often don't.
 Investigation spikes may have only an informal question. Emergency
 patches skip spec entirely.
 
-Workflows without a spec phase don't produce a `workunit://spec`
+Workflows without a spec phase don't produce a `ticket://spec`
 artifact. Downstream phases that would normally reference it either:
 
 - Reference a different artifact (e.g., an issue description, a bug
@@ -712,7 +712,7 @@ artifact. Downstream phases that would normally reference it either:
 - Operate without the spec reference (validation is more limited;
   review depends more on human judgment).
 
-The harness allows this. Trying to force every work unit through a
+The harness allows this. Trying to force every ticket through a
 structured spec is exactly the bureaucracy pattern that kills
 adoption.
 
@@ -729,7 +729,7 @@ Teams staff differently, and the spec system accommodates:
 - **No PO, no spec**: certain workflows (hotfix, spike) don't require
   PO involvement.
 
-The harness reports which pattern is in use per work unit, so teams
+The harness reports which pattern is in use per ticket, so teams
 see the quality gradient their current staffing produces.
 
 ## Load-time validation
@@ -744,12 +744,12 @@ see the quality gradient their current staffing produces.
   size.
 
 Consistent with [17](./17-directory-layout.md) §Validation at load —
-discoveries happen at startup, not at work-unit creation runtime.
+discoveries happen at startup, not at ticket creation runtime.
 
 ## What this does for the original problems
 
 - **Problem 3** (agents arrive undereducated): spec is part of the
-  work-unit context bundle; agents arrive knowing what to build.
+  ticket context bundle; agents arrive knowing what to build.
 - **Problem 5** (hard to scale across work sizes): the `(work_type,
   size)` matrix scales both axes independently. Work types + size
   scaling give different-sized work different spec rigor. A team adds
@@ -757,7 +757,7 @@ discoveries happen at startup, not at work-unit creation runtime.
   then orthogonal.
 - **Problem 6** (big-picture context): spec decision history +
   accepted/rejected proposals = authoritative record of what was
-  decided and why for each work unit.
+  decided and why for each ticket.
 - **Problem 7** (agents declare work done): asymmetric validation
   tests against the spec, not against the implementation. Correct
   workflow for the work type means correct evaluators and checks — a
@@ -795,5 +795,5 @@ discoveries happen at startup, not at work-unit creation runtime.
   classes for v0.2; ranges can map to discrete classes for the config.
 - **Auto-reclassification on size-as-signal fire.** Currently the
   signal surfaces a warning and the human chooses; the system doesn't
-  auto-convert the work unit. If warnings prove reliable, an "auto-
+  auto-convert the ticket. If warnings prove reliable, an "auto-
   decompose when signal fires three times" policy could be added.

@@ -1,6 +1,6 @@
 # 07 — Context Bundles
 
-The mechanism by which agents arrive at a work unit already educated. The
+The mechanism by which agents arrive at a ticket already educated. The
 intervention for problems 3, 4, and 6: no thrashing on convention
 discovery, consistent memory across agents on the same project, big-picture
 context that lets agents make smarter autonomous decisions.
@@ -22,21 +22,21 @@ into a bundle at spawn time, and how it's delivered to the agent.
 **Project scope.** Things true of the whole codebase, stable across work
 units. Architecture overview, domain glossary, coding conventions, policy
 definitions, established patterns, decision records from past work.
-Changes slowly. Shared across all agents and work units in the project.
+Changes slowly. Shared across all agents and tickets in the project.
 
-**Role scope.** Things a role needs regardless of which work unit they're
+**Role scope.** Things a role needs regardless of which ticket they're
 on. A reviewer's checklist. An implementer's guidance on what good
 implementation looks like in this project. A planner's framework for spec
 documents. Changes rarely. Shared across all agents filling that role.
 
-**Work-unit scope.** Things specific to this task. The design doc produced
+**Ticket scope.** Things specific to this task. The design doc produced
 by the spec phase. The tests produced by the test phase. Prior thread
 entries. Anything the decomposing parent passed in. Changes continuously
-during the work unit's life. Private to this work unit.
+during the ticket's life. Private to this ticket.
 
 Test for which scope something belongs to: if this changed, whose work
 would be affected? Project-wide change → project scope. All future
-reviewers → role scope. Just this task → work-unit scope.
+reviewers → role scope. Just this task → ticket scope.
 
 ## Curated, not discovered
 
@@ -53,7 +53,7 @@ harness should make curation cheap but can't fully automate it. See
 "context curation as a practice" below.
 
 Benefit: agents start from a shared, intentional foundation. A reviewer
-and an implementer working on the same work unit see the same project
+and an implementer working on the same ticket see the same project
 context. Context quality becomes a team concern, not an agent concern.
 
 ## References, not copies
@@ -65,10 +65,10 @@ looks roughly like:
 required:
   - project://architecture
   - role://reviewer-checklist
-  - workunit://design
+  - ticket://design
 optional:
   - project://domain-glossary
-  - workunit://thread
+  - ticket://thread
 ```
 
 The service resolves references at spawn time. Benefits:
@@ -88,10 +88,10 @@ The service resolves references at spawn time. Benefits:
   under `.jig/context/project/` per [17](./17-directory-layout.md).
 - `role://<role>/<path>` — role-level artifact. Repo-resident under
   `.jig/context/roles/<role>/`.
-- `workunit://<artifact>` — work-unit-specific artifact. Resolved by the
-  service from work-unit state: design, tests, thread, etc.
+- `ticket://<artifact>` — ticket-specific artifact. Resolved by the
+  service from ticket state: design, tests, thread, etc.
 - `decision://<id>` — a specific decision record. Separate scheme because
-  decisions are referenced across work units, not just within one.
+  decisions are referenced across tickets, not just within one.
 - `repo://<path>` — a raw file in the repo, uninterpreted. Escape hatch
   for "the agent needs to see this specific file" without promoting it
   to a curated artifact.
@@ -108,7 +108,7 @@ doesn't start. Better to fail loud at spawn than to let an agent proceed
 without critical context and produce garbage.
 
 Optional context that fails to resolve produces a warning and the agent
-proceeds. Useful for things that exist on some work units but not others
+proceeds. Useful for things that exist on some tickets but not others
 (a thread doesn't exist until the first entry; a design doc doesn't exist
 until the spec phase completes).
 
@@ -121,7 +121,7 @@ Context bundles compose across layers. For a specific agent spawn:
 2. **Role context** — from the role template's default bundle.
 3. **Phase context** — from the workflow phase declaration, which can add
    to or replace the role defaults.
-4. **Work-unit context** — from the specific work unit's state.
+4. **Ticket context** — from the specific ticket's state.
 
 Later layers can override earlier ones. A reviewer role defaults to
 including the architecture doc; a specific phase of a specific workflow
@@ -152,14 +152,14 @@ structure.
 surface the agent reads through normal tools — `context_read(<ref>)` or a
 read-only mount of bundle contents as files. Lazy loading; agent pays
 only when it accesses. Large artifacts (full architecture docs, extensive
-decision logs, the entire thread of a long-running work unit).
+decision logs, the entire thread of a long-running ticket).
 
 Defaults per URI scheme:
 
 - `project://` — usually system prompt (short) or read tools (long).
 - `role://` — usually system prompt.
-- `workunit://design`, `workunit://tests` — usually initial user message.
-- `workunit://thread` — initial user message for short threads, read
+- `ticket://design`, `ticket://tests` — usually initial user message.
+- `ticket://thread` — initial user message for short threads, read
   tools for long.
 - `decision://` — initial user message (relevant subset) or read tools
   (full log).
@@ -169,7 +169,7 @@ Per-reference override is allowed; the defaults are just defaults.
 
 ## Thread as context
 
-The work-unit thread is context for agents spawned into in-progress work.
+The ticket thread is context for agents spawned into in-progress work.
 A reviewer agent spawned after the implementer finishes sees the thread
 including the implementer's handoff note ("look at xyz carefully
 because abc"), all objections raised and resolved, all decisions recorded,
@@ -192,7 +192,7 @@ When an agent instance ends and a new instance starts on the same work
 unit, the new instance sees:
 
 - The full thread (all Questions, Answers, Objections, Resolutions,
-  Decisions, Handoffs, Notes from any prior actor on this work unit).
+  Decisions, Handoffs, Notes from any prior actor on this ticket).
 - Checkpoint state from the current phase (if resumption mid-phase) — see
   [09](./09-checkpoints.md).
 - The same project and role context bundles as the prior instance had.
@@ -236,7 +236,7 @@ but can't force good context to exist:
   artifacts agents actually access. Consistently unread artifacts are
   either wrong (not useful) or misplaced (wrong scope).
 - **Curation is itself a work type.** Updating project context is a
-  work unit with its own lightweight workflow. The same machinery that
+  ticket with its own lightweight workflow. The same machinery that
   handles code changes handles context changes.
 
 This is how context stays alive. Teams that don't treat curation as
@@ -253,20 +253,20 @@ thread and checkpoints:
   harness doesn't add anything here.
 - **Across instances in the same phase (mid-phase resumption)**: the
   checkpoint channel. See [09](./09-checkpoints.md).
-- **Across phases in the same work unit**: the thread, including
+- **Across phases in the same ticket**: the thread, including
   Handoff narrative summaries.
-- **Across work units**: curated project-scope context, plus decision
+- **Across tickets**: curated project-scope context, plus decision
   records referenced by `decision://` URIs.
 
 No separate memory database. Everything persistent lives in the repo,
-in work-unit state (thread + checkpoints), visible to anyone who looks.
+in ticket state (thread + checkpoints), visible to anyone who looks.
 
 ## What this does for the original problems
 
 - **Problem 3** (agents arrive undereducated): bundle declaration per
   role/phase means they arrive educated. Curated, not discovered.
 - **Problem 4** (no consistent memory): thread-as-context for
-  cross-instance continuity; curated project context for cross-work-unit
+  cross-instance continuity; curated project context for cross-ticket
   continuity. No separate memory layer.
 - **Problem 6** (no big-picture context): project scope + decision
   records. Decisions-with-rationale captured as Decision thread entries
@@ -281,6 +281,6 @@ in work-unit state (thread + checkpoints), visible to anyone who looks.
   built-in schemes and add custom resolver support when the first team
   actually needs it.
 - **Smart context selection.** "Pick the relevant subset of project
-  context for this work unit" — interesting but premature. Start with
+  context for this ticket" — interesting but premature. Start with
   explicit declaration; observe what bundles teams actually want; then
   consider automation.

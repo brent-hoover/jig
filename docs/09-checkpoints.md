@@ -1,6 +1,6 @@
 # 09 — Checkpoints
 
-A separate channel on each work unit, recording an agent's in-progress
+A separate channel on each ticket, recording an agent's in-progress
 state during a phase. The recovery mechanism for mid-work interruption,
 and the scope-discipline mechanism for agent behavior.
 
@@ -87,13 +87,13 @@ Deferred items don't just sit as notes. They have downstream consequences:
   list of items deferred during the phase. The evaluator decides whether
   any of them should have been done in-phase and either accepts or
   objects.
-- **Promoted to a new work unit.** Real work that someone should do
-  later becomes its own work unit. The evaluator (or the completing
+- **Promoted to a new ticket.** Real work that someone should do
+  later becomes its own ticket. The evaluator (or the completing
   agent in its handoff) can elect to promote.
 - **Explicitly accepted as deferred.** Recorded and acknowledged as
   genuinely out of scope; no follow-up action.
 
-The service tracks deferred items across the work unit's life and
+The service tracks deferred items across the ticket's life and
 surfaces them at phase transitions. Handoff entries include the deferred
 items list for evaluator review.
 
@@ -127,7 +127,7 @@ second implement starts fresh and builds its own checkpoint stream.
 **Cross-phase audit retention.** Historical checkpoints stay on the work
 unit for retrospective viewing. "What did the first implement attempt
 actually do before it got sent back?" is useful learning data.
-Archived-with-work-unit at closure.
+Archived-with-ticket at closure.
 
 ## Failure-to-progress detection
 
@@ -151,8 +151,8 @@ signal, not a reason to keep trying.
 
 ## Scope
 
-Checkpoints are per-work-unit with phase markers. They persist for the
-life of the work unit and archive with it at closure.
+Checkpoints are per-ticket with phase markers. They persist for the
+life of the ticket and archive with it at closure.
 
 Checkpoint operations filter by phase: resumption reads only current-
 phase checkpoints; audit views can filter by phase for retrospective
@@ -199,9 +199,9 @@ during a phase.
   runs, or compaction is a harness background task. Either works;
   choose when implementing.
 - **Deferred-item promotion UX.** The mechanism for promoting a
-  deferred item to a new work unit. Probably a thread-or-handoff-level
+  deferred item to a new ticket. Probably a thread-or-handoff-level
   decision by the evaluator, with the harness creating the new work
   unit automatically.
-- **Backlog concept.** Promoted deferred items become work units in an
+- **Backlog concept.** Promoted deferred items become tickets in an
   unassigned state. See [99](./99-open-questions.md) — the harness
-  needs to represent "exists but not scheduled" work units.
+  needs to represent "exists but not scheduled" tickets.

@@ -1,7 +1,7 @@
 # 10 — Verification
 
 The mechanism between "agent claims ready" and "system marks done." The
-direct answer to problem 7. Work units don't advance because someone says
+direct answer to problem 7. Tickets don't advance because someone says
 they should — they advance because evidence shows the definition-of-done
 is satisfied.
 
@@ -95,14 +95,14 @@ checks:
     type: black_box_agent
     template: qa-validator
     context:
-      - workunit://spec.behaviors
-      - workunit://spec.acceptance_criteria
-      - workunit://spec.edge_cases
-      - workunit://pr.preview_url
+      - ticket://spec.behaviors
+      - ticket://spec.acceptance_criteria
+      - ticket://spec.edge_cases
+      - ticket://pr.preview_url
     excluded:
       - repo://src/**
-      - workunit://spec.design
-      - workunit://thread
+      - ticket://spec.design
+      - ticket://thread
     severity: required
     timeout_s: 900
     max_tokens: 80000
@@ -236,21 +236,21 @@ Optimizations (rerun only what could be affected) are possible but
 premature. Full re-run is defensible; if it becomes a bottleneck,
 optimize later.
 
-## Definition-of-done at work unit closure
+## Definition-of-done at ticket closure
 
-A work unit is done when:
+A ticket is done when:
 
 1. It has reached a terminal phase in its workflow.
 2. The terminal phase is verified (checks pass + evaluator accepted).
 3. No unresolved blocking thread entries remain.
 4. All deferred items have a disposition: done, explicitly accepted as
-   deferred, or promoted to new work units.
-5. For parent work units: all required children are done.
+   deferred, or promoted to new tickets.
+5. For parent tickets: all required children are done.
 
 The last two prevent "I deferred that" from being a way to evaporate
 real work. Deferred items at closure force a deliberate choice: do it
 now, acknowledge it's permanently deferred (with reasoning), or
-externalize it as a new work unit.
+externalize it as a new ticket.
 
 ## Check execution environment
 
@@ -306,13 +306,13 @@ Verification produces audit records per phase completion:
 - Evaluator(s): identity, decision, reasoning.
 - Time between handoff submission and verification completion.
 
-Archived with the work unit at closure. Enables questions like "was
+Archived with the ticket at closure. Enables questions like "was
 test coverage passing when this merged?" and "who accepted this phase
 that's now causing problems?"
 
 ## Size-as-signal for checks
 
-Not every work unit needs the full check suite. A tiny hotfix
+Not every ticket needs the full check suite. A tiny hotfix
 (`size: xs`) shouldn't wait for full security review. Size-appropriate
 check selection:
 
@@ -356,7 +356,7 @@ discipline is structural.
 
 - **Agent check evaluation harness.** Test sets for calibrating agent
   check templates. Important but not v1.
-- **Cross-work-unit check sharing.** A check catalog shared across
+- **Cross-ticket check sharing.** A check catalog shared across
   projects in a team. Out of scope — one service per repo.
 - **Dynamic check selection.** Deciding at runtime which checks to
   run based on what changed. Smart but premature — full re-run is

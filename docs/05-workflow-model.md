@@ -4,7 +4,7 @@ Status: **partial.** Core shape decided; several details deferred.
 
 ## What a workflow is
 
-A named, versioned definition of how a work unit progresses from intake to
+A named, versioned definition of how a ticket progresses from intake to
 done. Structured as a directed graph:
 
 - **Nodes are phases**, each with a role, assignment, inputs, outputs,
@@ -21,7 +21,7 @@ is looping from review back to implement on failure.
 
 ## T-shirt sized defaults
 
-Work units carry a size class (xs / s / m / l / xl) set by whoever creates
+Tickets carry a size class (xs / s / m / l / xl) set by whoever creates
 the unit. Size is an estimate, not a measurement, and can be wrong — which
 is why override is first-class.
 
@@ -45,12 +45,12 @@ workflows:
     - spike             # exploratory; opt-in
 ```
 
-Work unit creation:
+Ticket creation:
 
 1. Creator sets size.
 2. Harness looks up the default workflow for that size.
 3. Creator can override to any workflow in `available` at creation time.
-4. The work unit records both the declared size and the workflow actually
+4. The ticket records both the declared size and the workflow actually
    used.
 
 Capturing size-vs-workflow-used gives a free audit signal over time:
@@ -132,7 +132,7 @@ implement). Override to halt, skip, or escalate.
 
 **Output channel.** Where the phase's output artifacts land. Applies to
 review and other feedback-producing phases:
-- `thread` — entries on the work-unit thread.
+- `thread` — entries on the ticket thread.
 - `pr_comments` — posted to the SCM as PR review comments.
 - `both` — posted to both.
 
@@ -223,7 +223,7 @@ A parent workflow has a different shape from a standard workflow:
 phases:
   - name: decompose
     role: planner
-    output: list of child work units (titles, sizes, types, deps)
+    output: list of child tickets (titles, sizes, types, deps)
     evaluator: po + sa (joint — scope and feasibility)
   - name: children
     # Not a phase in the usual sense — parent waits here until all
@@ -248,7 +248,7 @@ work at the parent level, and it's specifically the glue.
 
 ## Parent/child relationship
 
-A work unit can be:
+A ticket can be:
 
 - **Standard** — no parent, no children. The case we've been
   designing for throughout.
@@ -259,10 +259,10 @@ A work unit can be:
 Parent/child relationship is fixed at creation. Children can't be
 reassigned between parents. Parent can't add new children after the
 decompose phase completes, except through a proposal-and-accept flow
-(child work units are owned artifacts of the parent, changes go through
+(child tickets are owned artifacts of the parent, changes go through
 the owner).
 
-Children run as standard work units with the addition that their
+Children run as standard tickets with the addition that their
 context bundle includes the parent's integration criteria. When a
 child completes, the parent's state updates; when all required children
 complete, the parent's integration phase becomes eligible to start.

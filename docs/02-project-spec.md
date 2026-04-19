@@ -1,11 +1,11 @@
 # 02 — Project Spec
 
 The top-of-tree artifact describing what the product is. Owned by the PO.
-The root that individual work units derive from and contribute back to.
+The root that individual tickets derive from and contribute back to.
 
 ## Premise
 
-Work units don't materialize from nowhere. They implement capabilities
+Tickets don't materialize from nowhere. They implement capabilities
 that belong to a product. That product has shape — what it is, who it's
 for, what it does, what it deliberately doesn't do. Good teams have this
 shape in their heads or in scattered documents. The harness makes it a
@@ -14,14 +14,14 @@ first-class artifact so everything downstream can reference it.
 The project spec is where the product shape lives. It's:
 
 - The authoritative description of the product.
-- The source of capabilities that become work units.
+- The source of capabilities that become tickets.
 - The roadmap (future capabilities at varying levels of detail).
 - The commitment record (what's been built, what's been explicitly
   ruled out).
 - The onboarding document (new humans or agents read it to understand
   what this project even is).
 
-Without it, every work unit reinvents context. With it, work units
+Without it, every ticket reinvents context. With it, tickets
 inherit product-level intent and contribute to a coherent whole.
 
 ## Progressive elaboration
@@ -33,8 +33,8 @@ at different elaboration levels depending on their lifecycle position:
   for long-range roadmap items not yet committed.
 - **Shaping** — being elaborated. Usually PO work (with helper agent).
   May have in-flight Proposals.
-- **Ready** — enough detail to create a work unit from.
-- **In progress** — work unit(s) exist and are running. Capability
+- **Ready** — enough detail to create a ticket from.
+- **In progress** — ticket(s) exist and are running. Capability
   references them.
 - **Built** — work complete, shipped. Capability reflects what
   actually exists.
@@ -44,15 +44,15 @@ at different elaboration levels depending on their lifecycle position:
 
 A roadmap naturally contains many ideas at low detail. Only near-term
 capabilities need full elaboration. Fleshing out is itself work — often
-PO work with helper-agent assistance — that happens before a work unit
+PO work with helper-agent assistance — that happens before a ticket
 is created.
 
 State transitions are events the harness notices:
 
 - Idea → Shaping: usually implicit (someone adds detail).
-- Shaping → Ready: explicit (PO declares ready for work-unit creation).
-- Ready → In Progress: explicit (work unit created, linked to capability).
-- In Progress → Built: explicit (work unit closes successfully).
+- Shaping → Ready: explicit (PO declares ready for ticket creation).
+- Ready → In Progress: explicit (ticket created, linked to capability).
+- In Progress → Built: explicit (ticket closes successfully).
 
 ## Human format vs structured format
 
@@ -144,7 +144,7 @@ Identify additions, removals, state transitions, content changes, and
 reorganizations.
 
 **Preserve stable data.** Things the human format doesn't express
-(capability IDs, completion timestamps, links to completed work units)
+(capability IDs, completion timestamps, links to completed tickets)
 must survive regeneration. The structured version carries metadata the
 human format doesn't.
 
@@ -160,12 +160,12 @@ a feature, not friction.
 - Capability IDs are unique and stable.
 
 **Propose elaborations when needed.** When a capability transitions from
-Idea toward Ready (because a work unit is being requested), the spec
+Idea toward Ready (because a ticket is being requested), the spec
 agent can propose an expansion draft based on what exists, for the PO to
 review and refine.
 
 Tools: read/write on project spec artifacts; read-only on related
-context (decision records, past work units). No code access, no SCM
+context (decision records, past tickets). No code access, no SCM
 integration. Its scope is the spec itself.
 
 ## Direct edits to structured format
@@ -184,22 +184,22 @@ format for every correction, which is heavier than necessary. Allowing
 them with divergence detection preserves flexibility without losing
 coherence.
 
-## Relationship to work unit specs
+## Relationship to ticket specs
 
-Work unit specs and the project spec operate at different scales:
+Ticket specs and the project spec operate at different scales:
 
 - **Project spec**: what the product is, what each capability is at a
   product level.
-- **Work unit spec**: how this specific capability gets built, with
+- **Ticket spec**: how this specific capability gets built, with
   implementation-relevant detail.
 
-When a work unit is created, it's linked to a capability in the project
-spec. The work unit's context bundle includes the capability. Its spec
+When a ticket is created, it's linked to a capability in the project
+spec. The ticket's context bundle includes the capability. Its spec
 phase expands the capability into behaviors, acceptance criteria, design
-— the level needed to build it. The work unit spec references the
+— the level needed to build it. The ticket spec references the
 capability it derives from.
 
-When the work unit closes successfully, the capability transitions to
+When the ticket closes successfully, the capability transitions to
 Built. The project spec updates to reflect what actually shipped. The
 update is often automated (spec agent drafts it, PO reviews), but the
 PO retains authority — they can modify the final description, add
@@ -216,16 +216,16 @@ Changes to the project spec go through the Proposal mechanism (see
 - **Spec agent** — "this capability has been Idea-state for six months;
   should it move to backlog or archived?"
 - **Users (via PO)** — feedback captured and proposed.
-- **Work unit discoveries** — implementation surfaces something that
+- **Ticket discoveries** — implementation surfaces something that
   changes product shape.
 
-The last one is worth attention. Sometimes a work unit discovers that
+The last one is worth attention. Sometimes a ticket discovers that
 a capability as described can't work, or that doing it properly
-requires a different product commitment. In those cases, the work unit
+requires a different product commitment. In those cases, the ticket
 halts and escalates. A Proposal to modify the project spec is created.
-The PO accepts or rejects. If the change is accepted, the work unit
+The PO accepts or rejects. If the change is accepted, the ticket
 restarts (or is redesigned) against the new project spec. If rejected,
-the work unit closes as abandoned or returns to fit the original spec.
+the ticket closes as abandoned or returns to fit the original spec.
 
 Project-spec changes are weighty because they're commitments. The
 "halt and escalate" default is correct — project-spec evolution
@@ -262,10 +262,10 @@ project://spec/non-goals
 project://spec/state/planned
 ```
 
-Work unit specs reference the capability they derive from:
+Ticket specs reference the capability they derive from:
 
 ```yaml
-# work unit spec
+# ticket spec
 feature: todo-due-dates
 derived_from: project://spec/capabilities/due-dates
 ```
@@ -285,7 +285,7 @@ product-level concept.
   of every agent's context. Product intent is always in scope.
 - **Problem 5** (hard to scale across work sizes): capabilities in
   the project spec pre-structure the work. A large product area with
-  many capabilities naturally decomposes into multiple work units.
+  many capabilities naturally decomposes into multiple tickets.
 - **Problem 6** (no big-picture context): the project spec *is* the
   big picture. Agents and humans read it to understand what the
   product is and where it's going.
@@ -298,8 +298,8 @@ product-level concept.
 - **Roadmap UI beyond the spec itself.** Visualization, priority
   reordering, timeline estimation. These are nice; the spec as
   Markdown + YAML is sufficient for v1.
-- **Spec-driven work unit auto-creation.** When a capability transitions
-  to Ready, the harness could offer to create a work unit. Useful but
+- **Spec-driven ticket auto-creation.** When a capability transitions
+  to Ready, the harness could offer to create a ticket. Useful but
   optional; teams can do it manually in v1.
 - **Cross-project capability sharing.** A capability used across
   multiple projects. Out of scope — one project spec per repo.

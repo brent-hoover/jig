@@ -92,7 +92,7 @@ capabilities:
         - "curl http[s]?://(?!localhost|127)"
   paths:
     writable:
-      - "workunit://worktree/**"
+      - "ticket://worktree/**"
     readable:
       - "repo://**"
     denied:
@@ -115,7 +115,7 @@ constraint category:
 **Docker** — outer sandbox. Host isolation, network egress allowlist,
 resource limits. Agent cannot reach the host filesystem, cannot reach
 arbitrary network destinations, cannot exhaust host resources. Covers
-blast radius beyond this work unit.
+blast radius beyond this ticket.
 
 **bubblewrap** — inner sandbox. Filesystem scope. The working copy
 mounts as writable at a known path; the rest of `/` mounts read-only.
@@ -135,7 +135,7 @@ everything that needs semantic inspection of tool calls.
 ### Hook compilation at spawn time
 
 Pre-spawn, file-based. The service compiles the effective capability
-set (template + phase overrides + work-unit context) into two files
+set (template + phase overrides + ticket context) into two files
 materialized into the sandbox before the agent starts:
 
 - `/jig/policy/rules.json` — the compiled ruleset for this spawn.
@@ -311,7 +311,7 @@ propose loosening it; SA decides.
 ## Policy versioning
 
 Policy artifacts are files in the repo, versioned by git. In-flight
-work units keep the policy version they were spawned with — same
+tickets keep the policy version they were spawned with — same
 model as context bundles ([07](./07-context-bundles.md)). A
 mid-flight policy change does not retroactively affect running
 agents; the next spawn picks up the new version.
@@ -380,8 +380,8 @@ configuration or a conflict report, not silent overwrite.
   multiple projects. Out of scope — one project per service.
 - **Dynamic policy (runtime-computed rules).** Policy is static per
   spawn in v0.2. Rules that depend on runtime state (e.g., "can
-  write this path if the work unit is type X") are handled by
-  compiling them at spawn time with the work-unit context baked in —
+  write this path if the ticket is type X") are handled by
+  compiling them at spawn time with the ticket context baked in —
   the dynamism lives at compile, not at enforcement.
 - **Hook-based signaling.** Hooks enforce only. If richer
   signaling is ever needed (hook → service notifications beyond

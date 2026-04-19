@@ -3,12 +3,12 @@
 The vocabulary the rest of the architecture builds on. These are conceptual
 pieces, independent of implementation.
 
-## Work units
+## Tickets
 
 An atom of "a thing to be done" with identity, state, history, and the ability
-to be referenced by other parts of the system. Work units implement
+to be referenced by other parts of the system. Tickets implement
 capabilities from the project spec; they don't materialize from nowhere.
-A work unit carries:
+A ticket carries:
 
 - A size class (spike, small, medium, large, epic) that determines which
   workflow it runs through.
@@ -18,8 +18,8 @@ A work unit carries:
 - A workflow it's progressing through.
 - A reference to the project-spec capability it derives from. See
   [02](./02-project-spec.md).
-- Optionally, a parent/child relationship. L and XL work units can
-  decompose into child work units; the parent then waits on children
+- Optionally, a parent/child relationship. L and XL tickets can
+  decompose into child tickets; the parent then waits on children
   and handles integration. See [03](./03-specs-and-work-types.md) and
   [05](./05-workflow-model.md).
 
@@ -27,7 +27,7 @@ A work unit carries:
 
 The top-of-tree artifact describing the product. Owned by the PO.
 Capabilities live at varying elaboration levels (idea → shaping → ready
-→ in progress → built) and transition as work happens. Work units
+→ in progress → built) and transition as work happens. Tickets
 derive from capabilities; completions update capabilities. The project
 spec is the product-level memory the team and agents share.
 
@@ -83,7 +83,7 @@ system debuggable and replayable.
 
 The system determines when work is done, not the agent. Completion requires:
 
-- Work unit's definition-of-done criteria are satisfied.
+- Ticket's definition-of-done criteria are satisfied.
 - Objective checks pass (tests, linters, security scans, per policy).
 - A different actor (reviewer role, or human) confirms.
 
@@ -91,7 +91,7 @@ An implementing agent can claim "ready for review"; it cannot claim "done."
 
 ## Derived concepts (added from problems)
 
-**Threads.** Structured comms attached to work units. Typed entries (question,
+**Threads.** Structured comms attached to tickets. Typed entries (question,
 answer, objection, resolution, request-for-human). Any actor can post. Visible
 in observability. Handoffs and blocks reference specific thread entries. Work
 isn't done until thread entries are resolved.
@@ -100,19 +100,19 @@ isn't done until thread entries are resolved.
 discovered):
 - Project-level: architecture, conventions, domain knowledge, decisions.
 - Role-level: what each role needs to know generically.
-- Work-unit-level: what's happened on this specific task.
+- Ticket-level: what's happened on this specific task.
 
 **Decision records.** First-class artifacts capturing "why we picked X over Y."
-Referenced by work units. Survive beyond the work unit that produced them.
+Referenced by tickets. Survive beyond the ticket that produced them.
 Dogfooded in this conversation.
 
-**Definition-of-done.** Per work unit, explicit, evaluable criteria — both
+**Definition-of-done.** Per ticket, explicit, evaluable criteria — both
 human-acceptance rubric and automated checks.
 
 **Verification.** The step between "claimed ready" and "marked done," involving
 objective checks plus reviewer sign-off.
 
-**Workflow templates.** Keyed by work-unit size/type. Define the role chain,
+**Workflow templates.** Keyed by ticket size/type. Define the role chain,
 handoffs, and gates. See [05 — Workflow model](./05-workflow-model.md).
 
 ## Tensions named and resolved

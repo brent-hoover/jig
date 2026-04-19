@@ -15,7 +15,7 @@ CI mapping, merge ownership).
 
 From [08](./08-threads.md) and [05](./05-workflow-model.md):
 
-- The harness carries the collaboration layer (work units, threads,
+- The harness carries the collaboration layer (tickets, threads,
   phases, ownership).
 - The SCM carries the code layer (branches, commits, PRs, code review).
 - Both are authoritative in their domains.
@@ -28,10 +28,10 @@ They integrate at specific seams.
 
 Two common arrangements of where the ticket-of-record lives:
 
-- **Mostly-local.** Work units are a jig concept. The external SCM is
-  a code host; no issue tracker involvement at the work-unit level.
+- **Mostly-local.** Tickets are a jig concept. The external SCM is
+  a code host; no issue tracker involvement at the ticket level.
   Terminal delivery is a push + PR, or a local merge + push-main.
-- **Hybrid.** Work units mirror issues in the external SCM
+- **Hybrid.** Tickets mirror issues in the external SCM
   (GitHub/GitLab/Gitea). Humans file issues where they already do;
   jig picks them up and runs the lifecycle. Terminal delivery is
   always a PR that closes the issue on merge.
@@ -56,17 +56,17 @@ scm:
 ```
 
 - `mode: local` — mostly-local. No issue sync.
-- `mode: hybrid` — issue sync enabled. Work units link to external
+- `mode: hybrid` — issue sync enabled. Tickets link to external
   issues.
-- `cardinality: strict` (default for hybrid) — every work unit has a
+- `cardinality: strict` (default for hybrid) — every ticket has a
   linked issue; jig-first creation also creates an issue.
-- `cardinality: loose` — work units may or may not link to an issue;
+- `cardinality: loose` — tickets may or may not link to an issue;
   issue creation is on-demand.
 
 Mode is per-repo. Mixing modes in a single repo is not supported —
-mixing produces confusing lifecycle questions (why does this WU close
+mixing produces confusing lifecycle questions (why does this ticket close
 the issue and that one doesn't?) that aren't worth the flexibility.
-Loose cardinality is the escape hatch for per-WU opt-out within
+Loose cardinality is the escape hatch for per-ticket opt-out within
 hybrid.
 
 ## Scope of the integration
@@ -81,7 +81,7 @@ branches — commit hashes feed into check runs, commit messages feed
 into the audit trail.
 
 **PR creation.** The PR-creation phase opens a PR with a description
-assembled from the work unit. The PR URL is recorded on the work unit.
+assembled from the ticket. The PR URL is recorded on the ticket.
 
 **PR state reading.** Open/closed, review status, CI status,
 merged/not, who approved. State changes drive phase transitions.
@@ -138,7 +138,7 @@ these to their platform's API.
 
 The SCM is a code host only. Flow:
 
-1. Work unit created in jig (`jig new` or TUI). Size and work_type
+1. Ticket created in jig (`jig new` or TUI). Size and work_type
    declared per [03](./03-specs-and-work-types.md) §The three
    classification axes.
 2. Branch created in the repo off the configured base.
@@ -146,11 +146,11 @@ The SCM is a code host only. Flow:
    branch.
 4. Terminal-delivery phase is one of:
    - **Push + PR.** `create-pr` phase opens a PR; human-review phase
-     consumes PR comments; merge detection closes the WU.
+     consumes PR comments; merge detection closes the ticket.
    - **Local merge.** Workflow ends with a merge-to-main phase that
      the human completes locally (rebase, squash, merge). Jig
      observes the merge commit landing on `main` via the adapter and
-     closes the WU. No PR involved.
+     closes the ticket. No PR involved.
 
 The workflow declaration chooses which terminal shape applies.
 Shipped workflows offer both variants (`standard` ends with PR;
@@ -161,56 +161,56 @@ isn't one to post to.
 
 ## Hybrid mode
 
-External issues are the canonical ticket-of-record. Work units are
+External issues are the canonical ticket-of-record. Tickets are
 jig's execution view of those issues. Flow:
 
 1. **Issue exists in SCM** — filed by a human or another system.
-2. **Work unit picks it up**, one of:
+2. **Ticket picks it up**, one of:
    - **SCM-first import.** A human runs `jig import <issue-url>`, or
      jig's inbox surfaces the issue for human pickup. Size and
      work_type get set at import time (from issue labels if present,
      else prompted).
    - **Jig-first creation** (strict cardinality). `jig new` also
      creates the issue in the SCM. The issue gets populated from
-     work-unit fields.
-3. Work unit runs through phases per its workflow. Jig writes status
+     ticket fields.
+3. Ticket runs through phases per its workflow. Jig writes status
    back to the issue at phase transitions.
 4. PR creation phase opens a PR linked to the issue. Standard SCM
    linking syntax ("Closes #123") in the PR description.
 5. PR comments round-trip to the thread.
 6. PR approval → merge → SCM auto-closes the issue → jig detects
-   both events and closes the WU.
+   both events and closes the ticket.
 
-The issue and the WU are the same conceptual thing viewed from two
+The issue and the ticket are the same conceptual thing viewed from two
 systems. Jig is the execution domain; the SCM is the
 communication/visibility domain. Both are authoritative for the things
 they own.
 
 ### Cardinality
 
-- **Strict** (default). Every WU has a linked issue. Jig-first
-  creation creates the issue before the WU is live. SCM-first import
-  is the other entry path. No WU exists without an issue.
-- **Loose.** WUs may exist without an issue. A dev starting a local
+- **Strict** (default). Every ticket has a linked issue. Jig-first
+  creation creates the issue before the ticket is live. SCM-first import
+  is the other entry path. No ticket exists without an issue.
+- **Loose.** tickets may exist without an issue. A dev starting a local
   refactor doesn't have to file an issue. Issue creation from a
-  loose-mode WU is on-demand (`jig issue publish <wu-id>`) — useful
+  loose-mode ticket is on-demand (`jig issue publish <ticket-id>`) — useful
   when work started scrappy and needs visibility later.
 
 Loose mode exists for teams that want issue sync when convenient but
-don't want it forced on every WU. Strict mode is the default because
+don't want it forced on every ticket. Strict mode is the default because
 it's the clearer contract.
 
 ### Inbox
 
-Jig maintains an inbox view of SCM issues eligible to become WUs:
+Jig maintains an inbox view of SCM issues eligible to become tickets:
 
 - Issues with a configurable ready-label (e.g., `ready-for-jig`,
   `triaged`, or project-defined).
 - Issues assigned to the configured jig-bot or a team member.
-- Issues not yet linked to a WU.
+- Issues not yet linked to a ticket.
 
 The TUI surfaces this inbox. Import is one click (or `jig import` with
-the issue URL). No automatic WU creation on issue-filing — picking
+the issue URL). No automatic ticket creation on issue-filing — picking
 what's worth running is a human decision, not a label-filter.
 
 ## Write-back to the issue (hybrid)
@@ -219,7 +219,7 @@ Jig manages as much of the issue as it reasonably can, so the issue
 reflects reality without humans manually keeping it up to date.
 
 **Issue body.** Jig-first creation populates the issue body from the
-WU's spec summary + link back to the jig WU. After that, the issue
+ticket's spec summary + link back to the jig ticket. After that, the issue
 body is not rewritten on every phase — that would trigger notification
 spam. The body carries a small `<!-- jig-managed -->` section at the
 bottom with the link and a state line; the rest is human-editable
@@ -230,22 +230,22 @@ freely.
 - `jig/phase:<current-phase>` — updated on phase transitions.
 - `jig/status:<state>` — one of `active`, `blocked`, `waiting`, `done`,
   `abandoned`.
-- `jig/size:<size>` — set at WU creation, immutable.
-- `jig/type:<work_type>` — set at WU creation, immutable.
+- `jig/size:<size>` — set at ticket creation, immutable.
+- `jig/type:<work_type>` — set at ticket creation, immutable.
 
 Label prefixes (`jig/`) are namespaced to prevent collision with
 human-applied labels.
 
 **Comments.** Jig posts status comments on major lifecycle events:
 
-- WU opens (issue picked up): "Work unit WU-042 opened. Running
+- ticket opens (issue picked up): "Ticket TKT-042 opened. Running
   workflow `feature-standard`."
 - Phase transitions for phases with evaluator acceptance: "Spec phase
   accepted by @alice."
 - Blockers surface: "Blocked on unresolved Question; awaiting PO."
 - PR opens: handled by the PR-creation phase itself (the PR is the
   comment, effectively).
-- WU closes (success or abandoned): summary comment.
+- ticket closes (success or abandoned): summary comment.
 
 Comment volume is a real concern — too noisy and humans mute the
 issue. Default is conservative; `scm.writeback.comments` selects
@@ -253,11 +253,11 @@ issue. Default is conservative; `scm.writeback.comments` selects
 
 **State.** Issue close is driven by PR merge, not jig — the SCM's
 standard "PR closes issue" semantics do the work. Jig doesn't manually
-close issues on successful WU closure; the PR-merge auto-close is the
-canonical path. For abandoned WUs (which don't merge), jig does close
+close issues on successful ticket closure; the PR-merge auto-close is the
+canonical path. For abandoned tickets (which don't merge), jig does close
 the issue with an abandonment comment.
 
-**Assignments.** On WU open, jig can assign the issue to the bot
+**Assignments.** On ticket open, jig can assign the issue to the bot
 identity or a configured team member (per `scm.writeback.assignee`).
 Default: leave assignments alone.
 
@@ -275,32 +275,32 @@ structured status comments); humans own everything else.
 
 ## External close handling (hybrid)
 
-A human closes the issue manually on the SCM while the WU is
+A human closes the issue manually on the SCM while the ticket is
 in-flight. Jig treats this as **warn and force-abandon**, with
 dependency callouts.
 
 Flow when jig detects an external close (via webhook or reconciliation
 poll):
 
-1. WU transitions to `abandoned` with reason `external_close`.
+1. ticket transitions to `abandoned` with reason `external_close`.
 2. Jig posts a warning comment on the (now closed) issue:
    ```
-   Work unit WU-042 force-abandoned due to external issue close.
+   Ticket TKT-042 force-abandoned due to external issue close.
 
    Dependencies affected:
-     - WU-045 (parent; blocked pending resolution)
-     - WU-048 (depends_on WU-042; blocked)
+     - TKT-045 (parent; blocked pending resolution)
+     - TKT-048 (depends_on TKT-042; blocked)
 
-   To resume, reopen the issue and run: jig resume WU-042
+   To resume, reopen the issue and run: jig resume TKT-042
    ```
-3. Dependent WUs (children, `depends_on` references) transition to
-   `blocked` with the abandoned WU cited as cause.
-4. In-flight agent sandboxes for the WU are terminated per standard
+3. Dependent tickets (children, `depends_on` references) transition to
+   `blocked` with the abandoned ticket cited as cause.
+4. In-flight agent sandboxes for the ticket are terminated per standard
    abandonment.
 5. The archive is written per [17](./17-directory-layout.md).
 
 `jig resume` is the escape hatch if the close was accidental: reopen
-the issue, reopen the WU from its archive, dependents unblock
+the issue, reopen the ticket from its archive, dependents unblock
 automatically.
 
 The warning-and-abandon default errs on the side of making the
@@ -373,14 +373,14 @@ configure it.
 ## PR description generation
 
 The PR-creation phase produces a PR description. A reasonable default:
-the work-unit spec summary, the list of capabilities addressed, links
-back to the harness work unit, and (in hybrid mode) the "Closes #N"
+the ticket spec summary, the list of capabilities addressed, links
+back to the harness ticket, and (in hybrid mode) the "Closes #N"
 line for the linked issue.
 
 Nothing about the thread, the deferred items, the internal
 verification state — those are harness concerns, not PR concerns.
 
-The create-pr phase's agent generates this based on the work-unit
+The create-pr phase's agent generates this based on the ticket
 spec and a project-level PR template. Projects can override the
 template:
 
@@ -392,8 +392,8 @@ pr_template: |
   ## Changes
   {spec.behaviors | formatted}
 
-  ## Linked work unit
-  {work_unit.id}
+  ## Linked ticket
+  {ticket.id}
 
   {if issue}Closes #{issue.number}{endif}
 
@@ -432,7 +432,7 @@ adapter normalizes to the harness's thread/objection model.
 Three possible comment channels in hybrid mode:
 
 - **Thread** ([08](./08-threads.md)) — jig-native, the primary
-  communication channel for WU participants.
+  communication channel for ticket participants.
 - **Issue comments** — on the external issue.
 - **PR comments** — on the PR (once it exists).
 
@@ -488,7 +488,7 @@ Reasons:
 
 The terminal phase of a standard workflow is "awaiting merge" — human
 clicks merge on the SCM, adapter detects it via webhook or polling,
-work unit closes.
+ticket closes.
 
 Projects that want the harness to perform merges (e.g., automated
 merge after all approvals) can configure this; it's supported but not
@@ -500,7 +500,7 @@ opts in explicitly.
 The harness is agnostic to branching model. It creates a branch from a
 declared base (usually `main` or `develop`) and opens a PR to that
 base. Projects with complex branching (trunk-based, GitFlow, release
-branches) configure the base branch per workflow or per work-unit
+branches) configure the base branch per workflow or per ticket
 type.
 
 No built-in concept of "feature branch namespace" or "integration
@@ -508,7 +508,7 @@ branches" — those are team conventions the configuration captures.
 
 ## Identity and linking
 
-Each hybrid-mode WU carries:
+Each hybrid-mode ticket carries:
 
 - `issue_url` — full URL to the external issue.
 - `issue_id` — adapter-specific ID (GitHub number, GitLab IID).
@@ -517,11 +517,11 @@ Each hybrid-mode WU carries:
 The issue carries (via jig's write-back):
 
 - `jig/` labels as described above.
-- Comment on open with the WU ID and a link back to the jig TUI
+- Comment on open with the ticket ID and a link back to the jig TUI
   entry.
 
-Lookups work in both directions: "what WU is this issue?" and "what
-issue is this WU?"
+Lookups work in both directions: "what ticket is this issue?" and "what
+issue is this ticket?"
 
 ## Creation-time interaction with classification
 
@@ -550,7 +550,7 @@ surface as escalations to human.
 disconnect, adapter reconciles SCM state with harness state. Missed
 events detected via periodic polling even when webhooks are primary.
 
-**Graceful degradation.** If SCM is entirely unavailable, work units
+**Graceful degradation.** If SCM is entirely unavailable, tickets
 can still progress through phases that don't require SCM interaction.
 SCM-dependent phases wait; humans see the waiting state clearly.
 
@@ -594,22 +594,22 @@ service restart. Critical for long-running deployments.
 
 ## Deferred
 
-- **Mode mixing per WU.** Some repos may want hybrid for user-facing
+- **Mode mixing per ticket.** Some repos may want hybrid for user-facing
   work, local for internal refactors. Deferred — mode-per-repo is the
-  default, `cardinality: loose` is the escape hatch for opt-out WUs.
+  default, `cardinality: loose` is the escape hatch for opt-out tickets.
 - **Issue-comment mirroring into thread.** Routing rules for "which
   issue comments become thread entries" is its own design pass.
-- **Issue templates matching WU schemas.** Auto-generating a GitHub
+- **Issue templates matching ticket schemas.** Auto-generating a GitHub
   issue template per work_type so human issue authors fill in the
   structured fields jig needs. Plausible but warrants separate
   design.
-- **Multi-issue WUs.** A single WU referencing multiple issues (epic
-  tracking). Deferred — XL WUs are parents per [03], and each child
+- **Multi-issue tickets.** A single ticket referencing multiple issues (epic
+  tracking). Deferred — XL tickets are parents per [03], and each child
   can have its own issue in hybrid-strict; the parent tracks the
   collection.
 - **Cross-repo issue linking.** Issues in a tracker-only repo
   coordinating work in a code repo. Out of scope for v0.2.
-- **Bot → human handoff on abandonment.** When a WU abandons due to
+- **Bot → human handoff on abandonment.** When a ticket abandons due to
   external close, auto-notify the relevant human (assignee, reporter)
   beyond the issue comment. Plausible enhancement.
 - **PR-less local merge observation via git.** Mostly-local mode's

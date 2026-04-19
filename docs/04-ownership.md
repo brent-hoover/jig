@@ -42,7 +42,7 @@ decisions, and they benefit from different owners.
 - Accepting or rejecting proposals to change product behavior.
 
 Domain: project spec (primary artifact — see [02](./02-project-spec.md)),
-spec behaviors per work unit, acceptance criteria, out-of-scope
+spec behaviors per ticket, acceptance criteria, out-of-scope
 declarations, domain glossary, roadmap.
 
 **Systems Architect (SA).** Owns technical decisions:
@@ -229,21 +229,21 @@ leaves or gets busy, someone else takes over. Transfer:
 Audit trail preserves the history. "Who accepted this spec change?"
 resolves to the owner at that time.
 
-## Cross-work-unit visibility
+## Cross-ticket visibility
 
-POs and SAs benefit from cross-work-unit context. Unlike most roles,
-whose domain is a single work unit, owner roles' domain is the product
+POs and SAs benefit from cross-ticket context. Unlike most roles,
+whose domain is a single ticket, owner roles' domain is the product
 or architecture as a whole.
 
 The TUI/web view provides owner dashboards: open proposals targeting
-them, recent decisions they've made, work units in phases they
-influence. The service supports cross-work-unit queries scoped to the
+them, recent decisions they've made, tickets in phases they
+influence. The service supports cross-ticket queries scoped to the
 owner's purview.
 
 This also feeds back into the context bundle model: an owner's context
-bundle at spawn includes cross-work-unit state (recent decisions,
+bundle at spawn includes cross-ticket state (recent decisions,
 current in-flight proposals, product roadmap, architecture document) in
-addition to the current work unit's state.
+addition to the current ticket's state.
 
 ## Decisions as the owner's output trail
 
@@ -287,7 +287,7 @@ but should preserve the structure for when it matters.
 ## What this does for the original problems
 
 - **Problem 4** (no consistent memory): owner decision trails become
-  durable artifacts that outlive individual work units.
+  durable artifacts that outlive individual tickets.
 - **Problem 6** (no big-picture context): owners are the big picture,
   and their decision trails are what new actors read to absorb it.
 - **Problem 7** (agents self-certify): artifact changes go through

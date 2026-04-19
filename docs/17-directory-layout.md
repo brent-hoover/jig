@@ -28,7 +28,7 @@ edit this directly — it's the installed package.
 
 **Project repo** is the codebase that uses jig. Contains the project
 spec, project-specific overrides, context bundles, decisions, and the
-closed-work-unit archive under `.jig/`. This is what users see and
+closed-ticket archive under `.jig/`. This is what users see and
 edit.
 
 Both trees are addressed by this doc because the layering between
@@ -114,14 +114,14 @@ place). Code changes to realize these moves are a separate task.
     DR-0001-service-shape.md
     DR-0002-sandbox-model.md
     ...
-  archive/                  # closed work units, JSONL
-    WU-0001/
+  archive/                  # closed tickets, JSONL
+    TKT-0001/
       thread.jsonl
       checkpoints.jsonl
       handoffs.jsonl
       checks.jsonl
       manifest.yaml
-    WU-0002/
+    TKT-0002/
       ...
 ```
 
@@ -211,10 +211,10 @@ harness provides a template but doesn't pre-populate meaningfully.
 
 ## Archive format
 
-Each closed work unit archives to `.jig/archive/<WU-id>/` as a
+Each closed ticket archives to `.jig/archive/<ticket-id>/` as a
 directory of JSONL files plus a manifest:
 
-- `manifest.yaml` — work unit metadata (id, size, work type,
+- `manifest.yaml` — ticket metadata (id, size, work type,
   workflow, open timestamp, close timestamp, final status, linked
   capability, parent/child references).
 - `thread.jsonl` — every thread entry, append-order.
@@ -227,11 +227,11 @@ and is easy to diff, grep, and process with external tools. The
 manifest provides the single-read summary; the JSONL files are for
 deep dives.
 
-The service writes the archive on work-unit closure per
+The service writes the archive on ticket closure per
 [12 — Service shape](./12-service-shape.md) §State location,
 committing under its own git identity. Archives are append-only from the service's
 perspective — humans can read them but the service doesn't re-open
-closed work units.
+closed tickets.
 
 ## Project config
 
@@ -292,7 +292,7 @@ What's a file under `.jig/` vs what's in service state (SQLite per
 
 | Repo (`.jig/`) | Service (SQLite) |
 |---|---|
-| Project spec, both formats | Live work-unit state |
+| Project spec, both formats | Live ticket state |
 | Role templates, workflows | Active agent instances |
 | Check catalog | Thread entries (until closure) |
 | Context bundle artifacts | Checkpoints (until closure) |
@@ -300,8 +300,8 @@ What's a file under `.jig/` vs what's in service state (SQLite per
 | Closed-unit archives | Auth tokens, heartbeats |
 | `config.yaml` | In-flight SCM state |
 
-On work-unit closure, the service serializes the work unit's live
-state into a new `.jig/archive/<WU-id>/` directory and commits it.
+On ticket closure, the service serializes the ticket's live
+state into a new `.jig/archive/<ticket-id>/` directory and commits it.
 After that, the archive is the durable record; the service can
 purge live state.
 
@@ -336,7 +336,7 @@ naming — it's a fixture, not part of the shipped surface.
   context bundles mean agents always know where to find project-
   level knowledge. No hunting.
 - **Problem 4** (no consistent memory): decision records have a
-  declared home; closed work units archive to a declared home.
+  declared home; closed tickets archive to a declared home.
   Memory lives in predictable places.
 - **Problem 5** (hard to scale across work sizes): catalog-based
   workflows and role templates scale by adding files, not by

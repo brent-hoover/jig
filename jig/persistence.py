@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 
 from jig.models import (
-    AgentTypeConfig,
+    RoleConfig,
     PhaseConfig,
     WorkflowConfig,
 )
@@ -25,36 +25,36 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
         raise FileExistsError(f"{jig_dir} already exists")
 
     jig_dir.mkdir()
-    for subdir in ("agent_types", "workflows", "worktrees", "store"):
+    for subdir in ("roles", "workflows", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
 
 
-def save_agent_type(project_path: Path, config: AgentTypeConfig) -> None:
-    """Save an agent type config to .jig/agent_types/<role>.yaml."""
-    type_path = _jig_dir(project_path) / "agent_types" / f"{config.role}.yaml"
+def save_role(project_path: Path, config: RoleConfig) -> None:
+    """Save an agent type config to .jig/roles/<role>.yaml."""
+    type_path = _jig_dir(project_path) / "roles" / f"{config.role}.yaml"
     type_path.write_text(
         yaml.dump(config.model_dump(), default_flow_style=False)
     )
 
 
-def load_agent_type(project_path: Path, name: str) -> AgentTypeConfig:
-    """Load an agent type config from .jig/agent_types/<name>.yaml."""
-    type_path = _jig_dir(project_path) / "agent_types" / f"{name}.yaml"
+def load_role(project_path: Path, name: str) -> RoleConfig:
+    """Load an agent type config from .jig/roles/<name>.yaml."""
+    type_path = _jig_dir(project_path) / "roles" / f"{name}.yaml"
     if not type_path.is_file():
         raise FileNotFoundError(f"Agent type '{name}' not found")
     data = yaml.safe_load(type_path.read_text())
-    return AgentTypeConfig.model_validate(data)
+    return RoleConfig.model_validate(data)
 
 
-def list_agent_types(project_path: Path) -> list[AgentTypeConfig]:
-    """List all agent type configs in .jig/agent_types/."""
-    types_dir = _jig_dir(project_path) / "agent_types"
+def list_roles(project_path: Path) -> list[RoleConfig]:
+    """List all agent type configs in .jig/roles/."""
+    types_dir = _jig_dir(project_path) / "roles"
     if not types_dir.is_dir():
         return []
     configs = []
     for yaml_file in sorted(types_dir.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text())
-        configs.append(AgentTypeConfig.model_validate(data))
+        configs.append(RoleConfig.model_validate(data))
     return configs
 
 
@@ -63,13 +63,13 @@ def _defaults_dir() -> Path:
     return Path(__file__).resolve().parent / "defaults"
 
 
-def save_default_agent_types(project_path: Path) -> None:
-    """Copy default agent type configs from jig/defaults/agent_types/ into project."""
-    source_dir = _defaults_dir() / "agent_types"
+def save_default_roles(project_path: Path) -> None:
+    """Copy default agent type configs from jig/defaults/roles/ into project."""
+    source_dir = _defaults_dir() / "roles"
     for yaml_file in sorted(source_dir.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text())
-        config = AgentTypeConfig.model_validate(data)
-        save_agent_type(project_path, config)
+        config = RoleConfig.model_validate(data)
+        save_role(project_path, config)
 
 
 def save_workflow(project_path: Path, workflow: WorkflowConfig) -> None:
@@ -99,16 +99,16 @@ def save_default_workflow(project_path: Path) -> None:
 
 
 __all__ = [
-    "AgentTypeConfig",
+    "RoleConfig",
     "PhaseConfig",
     "WorkflowConfig",
     "_jig_dir",
     "init_project",
-    "list_agent_types",
-    "load_agent_type",
+    "list_roles",
+    "load_role",
     "load_workflow",
-    "save_agent_type",
-    "save_default_agent_types",
+    "save_role",
+    "save_default_roles",
     "save_default_workflow",
     "save_workflow",
 ]

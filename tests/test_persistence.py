@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from jig.models import AgentTypeConfig, PhaseConfig, WorkflowConfig
+from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 from jig.persistence import (
     init_project,
-    list_agent_types,
-    load_agent_type,
+    list_roles,
+    load_role,
     load_workflow,
-    save_agent_type,
-    save_default_agent_types,
+    save_role,
+    save_default_roles,
     save_default_workflow,
     save_workflow,
 )
@@ -23,7 +23,7 @@ def tmp_new_jig_project(tmp_path: Path) -> Path:
     (tmp_path / ".git").mkdir()
     jig_dir = tmp_path / ".jig"
     jig_dir.mkdir()
-    for subdir in ("agent_types", "workflows", "worktrees", "store"):
+    for subdir in ("roles", "workflows", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
     return tmp_path
 
@@ -33,7 +33,7 @@ class TestInitProject:
         init_project(tmp_project)
         jig_dir = tmp_project / ".jig"
         assert jig_dir.is_dir()
-        assert (jig_dir / "agent_types").is_dir()
+        assert (jig_dir / "roles").is_dir()
         assert (jig_dir / "workflows").is_dir()
         assert (jig_dir / "worktrees").is_dir()
         assert (jig_dir / "store").is_dir()
@@ -56,66 +56,66 @@ class TestInitProject:
 
 class TestAgentTypePersistence:
     def test_save_and_load(self, tmp_new_jig_project: Path) -> None:
-        config = AgentTypeConfig(
+        config = RoleConfig(
             role="dev",
             phase_prompt="You are a dev agent.",
             allowed_tools=["Read", "Edit"],
         )
-        save_agent_type(tmp_new_jig_project, config)
-        loaded = load_agent_type(tmp_new_jig_project, "dev")
+        save_role(tmp_new_jig_project, config)
+        loaded = load_role(tmp_new_jig_project, "dev")
         assert loaded.role == "dev"
         assert loaded.phase_prompt == "You are a dev agent."
         assert loaded.allowed_tools == ["Read", "Edit"]
 
     def test_saves_to_correct_path(self, tmp_new_jig_project: Path) -> None:
-        config = AgentTypeConfig(role="test", phase_prompt="Test agent.")
-        save_agent_type(tmp_new_jig_project, config)
-        yaml_path = tmp_new_jig_project / ".jig" / "agent_types" / "test.yaml"
+        config = RoleConfig(role="test", phase_prompt="Test agent.")
+        save_role(tmp_new_jig_project, config)
+        yaml_path = tmp_new_jig_project / ".jig" / "roles" / "test.yaml"
         assert yaml_path.is_file()
 
     def test_list_empty(self, tmp_new_jig_project: Path) -> None:
-        types = list_agent_types(tmp_new_jig_project)
+        types = list_roles(tmp_new_jig_project)
         assert types == []
 
     def test_list_multiple(self, tmp_new_jig_project: Path) -> None:
-        save_agent_type(
-            tmp_new_jig_project, AgentTypeConfig(role="dev", phase_prompt="Dev.")
+        save_role(
+            tmp_new_jig_project, RoleConfig(role="dev", phase_prompt="Dev.")
         )
-        save_agent_type(
-            tmp_new_jig_project, AgentTypeConfig(role="test", phase_prompt="Test.")
+        save_role(
+            tmp_new_jig_project, RoleConfig(role="test", phase_prompt="Test.")
         )
-        types = list_agent_types(tmp_new_jig_project)
+        types = list_roles(tmp_new_jig_project)
         roles = {t.role for t in types}
         assert roles == {"dev", "test"}
 
     def test_load_nonexistent_raises(self, tmp_new_jig_project: Path) -> None:
         with pytest.raises(FileNotFoundError):
-            load_agent_type(tmp_new_jig_project, "nope")
+            load_role(tmp_new_jig_project, "nope")
 
 
-class TestDefaultAgentTypes:
+class TestDefaultRoles:
     def test_creates_all_types(self, tmp_new_jig_project: Path) -> None:
-        save_default_agent_types(tmp_new_jig_project)
-        types = list_agent_types(tmp_new_jig_project)
+        save_default_roles(tmp_new_jig_project)
+        types = list_roles(tmp_new_jig_project)
         roles = {t.role for t in types}
-        assert roles == {"spec", "test", "dev", "review", "validate", "document"}
+        assert roles == {"spec", "test", "dev", "review", "validate", "document", "pm"}
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:
-        save_default_agent_types(tmp_new_jig_project)
-        for name in ("spec", "test", "dev", "review", "validate", "document"):
-            config = load_agent_type(tmp_new_jig_project, name)
+        save_default_roles(tmp_new_jig_project)
+        for name in ("spec", "test", "dev", "review", "validate", "document", "pm"):
+            config = load_role(tmp_new_jig_project, name)
             assert len(config.phase_prompt) > 0
 
     def test_each_has_allowed_tools(self, tmp_new_jig_project: Path) -> None:
-        save_default_agent_types(tmp_new_jig_project)
-        for name in ("spec", "test", "dev", "review", "validate", "document"):
-            config = load_agent_type(tmp_new_jig_project, name)
+        save_default_roles(tmp_new_jig_project)
+        for name in ("spec", "test", "dev", "review", "validate", "document", "pm"):
+            config = load_role(tmp_new_jig_project, name)
             assert len(config.allowed_tools) > 0
 
     def test_each_has_default_context(self, tmp_new_jig_project: Path) -> None:
-        save_default_agent_types(tmp_new_jig_project)
+        save_default_roles(tmp_new_jig_project)
         for name in ("spec", "test", "dev", "review"):
-            config = load_agent_type(tmp_new_jig_project, name)
+            config = load_role(tmp_new_jig_project, name)
             assert len(config.default_context) > 0
 
 

@@ -1,4 +1,4 @@
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.project import Project
 from jig.prompt_builder import SpawnReason, build_initial_prompt
 from jig.skill_loader import Skill
@@ -13,8 +13,8 @@ def _project() -> Project:
     )
 
 
-def _cfg() -> AgentTypeConfig:
-    return AgentTypeConfig(role="dev", phase_prompt="You are dev.", response_prompt="You answer.")
+def _cfg() -> RoleConfig:
+    return RoleConfig(role="dev", phase_prompt="You are dev.", response_prompt="You answer.")
 
 
 def _ticket() -> Ticket:
@@ -69,7 +69,7 @@ def test_qa_responder_uses_response_prompt() -> None:
 
 
 def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
-    cfg = AgentTypeConfig(role="dev", phase_prompt="You are dev.")
+    cfg = RoleConfig(role="dev", phase_prompt="You are dev.")
     prompt = build_initial_prompt(
         role_cfg=cfg,
         spawn_reason=SpawnReason.QA_RESPONDER,

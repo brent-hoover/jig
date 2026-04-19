@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.tickets import TicketStore
@@ -173,7 +173,7 @@ async def test_comment_on_ticket_self_role_allowed(stores) -> None:
         tickets=tickets, comments=comments, bus=bus, sender="u",
         args={"type": "task", "title": "t", "assignee": "dev"},
     )
-    dev_cfg = AgentTypeConfig(role="dev", phase_prompt="", can_message=[])
+    dev_cfg = RoleConfig(role="dev", phase_prompt="", can_message=[])
     cid = await handle_comment_on_ticket(
         tickets=tickets, comments=comments, bus=bus,
         sender="dev", sender_cfg=dev_cfg,
@@ -190,7 +190,7 @@ async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
         tickets=tickets, comments=comments, bus=bus, sender="u",
         args={"type": "task", "title": "t", "assignee": "orchestrator"},
     )
-    dev_cfg = AgentTypeConfig(role="dev", phase_prompt="", can_message=[])
+    dev_cfg = RoleConfig(role="dev", phase_prompt="", can_message=[])
     cid = await handle_comment_on_ticket(
         tickets=tickets, comments=comments, bus=bus,
         sender="dev", sender_cfg=dev_cfg,

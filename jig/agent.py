@@ -18,7 +18,7 @@ from jig.context_resolver import resolve_context_uris
 from jig.environment import load_environment_md
 from jig.events import EventEmitter, JigEvent
 from jig.mcp_server import create_agent_mcp_server
-from jig.persistence import list_agent_types
+from jig.persistence import list_roles
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
@@ -92,7 +92,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         worktree_path=ctx.worktree_path,
     )
 
-    all_roles = list_agent_types(ctx.project.path_or_default())
+    all_roles = list_roles(ctx.project.path_or_default())
 
     return build_initial_prompt(
         role_cfg=ctx.role_cfg,
@@ -194,7 +194,7 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
     _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
     _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
 
-    all_roles = list_agent_types(ctx.project.path_or_default())
+    all_roles = list_roles(ctx.project.path_or_default())
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
         comments=ctx.comments,

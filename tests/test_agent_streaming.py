@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.project import Project
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.store import MessageBus
@@ -48,7 +48,7 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     assert loaded is not None
     return AgentSpawnContext(
         role="dev",
-        role_cfg=AgentTypeConfig(role="dev", phase_prompt="be dev"),
+        role_cfg=RoleConfig(role="dev", phase_prompt="be dev"),
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=loaded,
         parent=None,

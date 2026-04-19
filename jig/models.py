@@ -12,7 +12,7 @@ class MergeStrategy(str, Enum):
     FEATURE_BRANCH = "feature_branch"
 
 
-class AgentTypeConfig(BaseModel):
+class RoleConfig(BaseModel):
     role: str
     phase_prompt: str
     response_prompt: str = ""

@@ -6,7 +6,7 @@ from pathlib import Path
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 from jig import ticket_mcp
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
@@ -20,7 +20,7 @@ def create_agent_mcp_server(
     memory: MemoryStore,
     bus: MessageBus,
     agent_role: str,
-    agent_cfg: AgentTypeConfig,
+    agent_cfg: RoleConfig,
     worktree_path: Path,
     valid_roles: frozenset[str] = frozenset(),
     package_manager: str = "",

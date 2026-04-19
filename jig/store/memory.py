@@ -7,7 +7,7 @@ from jig.store.models import StoreModel, TypedCollection
 
 
 class Handoff(StoreModel):
-    issue_id: str
+    ticket_id: str
     from_phase: str
     to_phase: str
     summary: str
@@ -18,7 +18,7 @@ class Handoff(StoreModel):
 
 
 class Learning(StoreModel):
-    issue_id: str
+    ticket_id: str
     phase: str
     content: str
     role: str = ""
@@ -33,12 +33,12 @@ class MemoryStore:
         self._handoffs: TypedCollection[Handoff] = TypedCollection(
             path / "handoffs.jsonl",
             model=Handoff,
-            index_fields=["issue_id", "to_phase"],
+            index_fields=["ticket_id", "to_phase"],
         )
         self._learnings: TypedCollection[Learning] = TypedCollection(
             path / "learnings.jsonl",
             model=Learning,
-            index_fields=["issue_id", "role"],
+            index_fields=["ticket_id", "role"],
         )
 
     async def load(self) -> None:
@@ -47,14 +47,14 @@ class MemoryStore:
 
     async def write_handoff(
         self,
-        issue_id: str,
+        ticket_id: str,
         from_phase: str,
         to_phase: str,
         summary: str,
         artifacts: list[str] | None = None,
     ) -> str:
         handoff = Handoff(
-            issue_id=issue_id,
+            ticket_id=ticket_id,
             from_phase=from_phase,
             to_phase=to_phase,
             summary=summary,
@@ -63,10 +63,10 @@ class MemoryStore:
         return await self._handoffs.insert(handoff)
 
     async def read_handoff(
-        self, issue_id: str, to_phase: str
+        self, ticket_id: str, to_phase: str
     ) -> Handoff | None:
         results = await self._handoffs.find_where(
-            issue_id=issue_id, to_phase=to_phase
+            ticket_id=ticket_id, to_phase=to_phase
         )
         if not results:
             return None
@@ -75,13 +75,13 @@ class MemoryStore:
 
     async def add_learning(
         self,
-        issue_id: str,
+        ticket_id: str,
         phase: str,
         content: str,
         tags: list[str] | None = None,
     ) -> str:
         learning = Learning(
-            issue_id=issue_id,
+            ticket_id=ticket_id,
             phase=phase,
             content=content,
             tags=tags or [],
@@ -90,11 +90,11 @@ class MemoryStore:
 
     async def get_learnings(
         self,
-        issue_id: str,
+        ticket_id: str,
         tags: list[str] | None = None,
         limit: int = 10,
     ) -> list[Learning]:
-        results = await self._learnings.find_where(issue_id=issue_id)
+        results = await self._learnings.find_where(ticket_id=ticket_id)
         if tags:
             tag_set = set(tags)
             results = [
@@ -105,10 +105,10 @@ class MemoryStore:
         return results[:limit]
 
     async def get_context_block(
-        self, issue_id: str, to_phase: str
+        self, ticket_id: str, to_phase: str
     ) -> str:
-        handoff = await self.read_handoff(issue_id, to_phase)
-        learnings = await self.get_learnings(issue_id, limit=10)
+        handoff = await self.read_handoff(ticket_id, to_phase)
+        learnings = await self.get_learnings(ticket_id, limit=10)
 
         parts: list[str] = []
         if handoff is not None:
@@ -128,7 +128,7 @@ class MemoryStore:
 
     async def add_role_learning(self, *, role: str, content: str) -> str:
         learning = Learning(
-            issue_id="",
+            ticket_id="",
             phase="",
             content=content,
             role=role,

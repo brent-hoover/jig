@@ -203,7 +203,7 @@ class Orchestrator:
         tracked via ``phase_run`` comments on the ticket itself — no
         child tickets are created.
         """
-        from jig.persistence import load_agent_type, load_workflow
+        from jig.persistence import load_role, load_workflow
         from jig.runtime import AgentSpawnContext, SpawnReason
 
         if (
@@ -245,7 +245,7 @@ class Orchestrator:
         while phase_idx < len(workflow.phases):
             phase = workflow.phases[phase_idx]
             _logger.info("phase %d/%d: %s (role=%s)", phase_idx + 1, len(workflow.phases), phase.name, phase.role)
-            role_cfg = load_agent_type(self._project_path, phase.role)
+            role_cfg = load_role(self._project_path, phase.role)
 
             # Tell the TUI which phase is running
             await self._emit_phase_event("phase_started", ticket_id, phase, phase_idx, len(workflow.phases))
@@ -673,7 +673,7 @@ class Orchestrator:
     async def _spawn_qa_responder(
         self, ticket_id: str, role: str, initial_event
     ) -> None:
-        from jig.persistence import load_agent_type
+        from jig.persistence import load_role
         from jig.runtime import AgentSpawnContext, SpawnReason
 
         if (
@@ -699,7 +699,7 @@ class Orchestrator:
             parent = None
             if ticket.parent_id:
                 parent = await self.tickets.get(ticket.parent_id)
-            role_cfg = load_agent_type(self._project_path, role)
+            role_cfg = load_role(self._project_path, role)
             worktree = await self._ensure_worktree(parent or ticket)
         except FileNotFoundError:
             _logger.warning("unknown agent role %r — check agent used a valid role name", role)

@@ -1,6 +1,6 @@
-"""Tests for jig.models — agent_type, phase, and workflow configs."""
+"""Tests for jig.models — role_cfg, phase, and workflow configs."""
 
-from jig.models import AgentTypeConfig, PhaseConfig, WorkflowConfig
+from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 
 
 class TestPhaseConfig:
@@ -49,7 +49,7 @@ class TestWorkflowConfig:
 
 class TestAgentTypeConfig:
     def test_defaults(self) -> None:
-        config = AgentTypeConfig(role="dev", phase_prompt="You are a dev agent.")
+        config = RoleConfig(role="dev", phase_prompt="You are a dev agent.")
         assert config.role == "dev"
         assert config.phase_prompt == "You are a dev agent."
         assert config.response_prompt == ""
@@ -58,7 +58,7 @@ class TestAgentTypeConfig:
         assert config.default_context == []
 
     def test_full_config(self) -> None:
-        config = AgentTypeConfig(
+        config = RoleConfig(
             role="test",
             phase_prompt="You are a test agent.",
             response_prompt="You are answering a question.",
@@ -73,7 +73,7 @@ class TestAgentTypeConfig:
         assert config.default_context == ["ticket://design", "**/*_test.py"]
 
     def test_serialization_roundtrip(self) -> None:
-        config = AgentTypeConfig(
+        config = RoleConfig(
             role="dev",
             phase_prompt="You are a dev agent.",
             response_prompt="You are answering a question.",
@@ -81,7 +81,7 @@ class TestAgentTypeConfig:
             can_message=["spec", "user"],
         )
         data = config.model_dump()
-        restored = AgentTypeConfig.model_validate(data)
+        restored = RoleConfig.model_validate(data)
         assert restored.role == config.role
         assert restored.phase_prompt == config.phase_prompt
         assert restored.response_prompt == config.response_prompt

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.project import Project
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
@@ -19,7 +19,7 @@ class SpawnReason(str, Enum):
 @dataclass
 class AgentSpawnContext:
     role: str
-    role_cfg: AgentTypeConfig
+    role_cfg: RoleConfig
     spawn_reason: SpawnReason
     ticket: Ticket
     parent: Ticket | None

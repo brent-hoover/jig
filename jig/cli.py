@@ -15,7 +15,7 @@ from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
 from jig.persistence import (
     init_project,
-    save_default_agent_types,
+    save_default_roles,
     save_default_workflow,
 )
 from jig.worktree import remove_worktree
@@ -100,7 +100,7 @@ _TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
 
 def _available_templates() -> list[str]:
     """Return names of bundled project templates."""
-    tpl_root = Path(__file__).resolve().parent.parent / "templates"
+    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
     if not tpl_root.is_dir():
         return []
     return sorted(d.name for d in tpl_root.iterdir() if d.is_dir())
@@ -108,7 +108,7 @@ def _available_templates() -> list[str]:
 
 def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
     """Copy a project template into dest, replacing 'myproject' with project_name."""
-    tpl_root = Path(__file__).resolve().parent.parent / "templates"
+    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
     tpl_dir = tpl_root / template_name
     if not tpl_dir.is_dir():
         available = _available_templates()
@@ -169,7 +169,7 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
 
     try:
         init_project(path, default_branch=branch)
-        save_default_agent_types(path)
+        save_default_roles(path)
         save_default_workflow(path)
     except FileExistsError:
         raise click.ClickException(f"Already initialized: {path / '.jig'}")
@@ -326,13 +326,13 @@ def sync(path: Path) -> None:
     added: list[str] = []
 
     # Sync agent types
-    source_agents = _defaults_dir() / "agent_types"
-    dest_agents = jig_dir / "agent_types"
+    source_agents = _defaults_dir() / "roles"
+    dest_agents = jig_dir / "roles"
     for src in sorted(source_agents.glob("*.yaml")):
         dest = dest_agents / src.name
         if not dest.exists():
             dest.write_text(src.read_text())
-            added.append(f"agent_types/{src.name}")
+            added.append(f"roles/{src.name}")
 
     # Sync workflows
     source_wf = _defaults_dir() / "workflows"

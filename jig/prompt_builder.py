@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.project import Project
 from jig.runtime import SpawnReason
 from jig.skill_loader import Skill
@@ -9,7 +9,7 @@ from jig.ticket import Comment, Ticket
 __all__ = ["SpawnReason", "build_initial_prompt"]
 
 
-def _role_section(cfg: AgentTypeConfig, reason: SpawnReason) -> str:
+def _role_section(cfg: RoleConfig, reason: SpawnReason) -> str:
     if reason == SpawnReason.QA_RESPONDER:
         if cfg.response_prompt:
             return cfg.response_prompt + "\n\n"
@@ -63,7 +63,7 @@ def _memories_section(memories: list[str]) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def _team_roles_section(current_role: str, all_roles: list["AgentTypeConfig"]) -> str:
+def _team_roles_section(current_role: str, all_roles: list["RoleConfig"]) -> str:
     """List available roles so agents know exact names for messaging/assignment."""
     if not all_roles:
         return ""
@@ -140,7 +140,7 @@ def _worktree_section(worktree_path: str | None) -> str:
 
 def build_initial_prompt(
     *,
-    role_cfg: AgentTypeConfig,
+    role_cfg: RoleConfig,
     spawn_reason: SpawnReason,
     ticket: Ticket,
     parent: Ticket | None,
@@ -150,7 +150,7 @@ def build_initial_prompt(
     skills: list[Skill],
     environment_md: str,
     resolved_context: str = "",
-    all_roles: list[AgentTypeConfig] | None = None,
+    all_roles: list[RoleConfig] | None = None,
     worktree_path: str | None = None,
 ) -> str:
     parts = [

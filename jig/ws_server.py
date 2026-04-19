@@ -10,7 +10,7 @@ from websockets.asyncio.server import serve, ServerConnection
 
 from jig.agent import build_agent_prompt
 from jig.events import EventEmitter
-from jig.persistence import list_agent_types, load_agent_type, load_workflow
+from jig.persistence import list_roles, load_role, load_workflow
 from jig.ticket_mcp import (
     handle_answer_questions,
     handle_create_ticket,
@@ -194,7 +194,7 @@ class WebSocketServer:
                 )
                 await self._safe_send(websocket, json.dumps({"ok": True, **result}))
             elif command == "list_agents":
-                agents = list_agent_types(self._orch._project_path)
+                agents = list_roles(self._orch._project_path)
                 await self._safe_send(websocket, json.dumps({
                     "ok": True,
                     "agents": [a.model_dump() for a in agents],
@@ -217,7 +217,7 @@ class WebSocketServer:
                 parent = None
                 if ticket.parent_id:
                     parent = await self._orch.tickets.get(ticket.parent_id)
-                role_cfg = load_agent_type(self._orch._project_path, role)
+                role_cfg = load_role(self._orch._project_path, role)
                 worktree_path = self._orch._project_path / ".jig" / "worktrees" / ticket_id
                 ctx = AgentSpawnContext(
                     role=role,

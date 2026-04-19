@@ -260,10 +260,10 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
         tmp_path,
         Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"),
     )
-    (tmp_path / ".jig" / "agent_types").mkdir(parents=True)
-    from jig.persistence import save_agent_type
-    from jig.models import AgentTypeConfig
-    save_agent_type(tmp_path, AgentTypeConfig(role="qa", phase_prompt="be qa"))
+    (tmp_path / ".jig" / "roles").mkdir(parents=True)
+    from jig.persistence import save_role
+    from jig.models import RoleConfig
+    save_role(tmp_path, RoleConfig(role="qa", phase_prompt="be qa"))
 
     orch = Orchestrator(project_path=tmp_path)
 
@@ -328,10 +328,10 @@ async def test_orchestrator_emits_ticket_events_to_emitter(tmp_path: Path) -> No
 @pytest.mark.asyncio
 async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -> None:
     save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"))
-    (tmp_path / ".jig" / "agent_types").mkdir(parents=True)
-    from jig.persistence import save_agent_type
-    from jig.models import AgentTypeConfig
-    save_agent_type(tmp_path, AgentTypeConfig(role="qa", phase_prompt="be qa"))
+    (tmp_path / ".jig" / "roles").mkdir(parents=True)
+    from jig.persistence import save_role
+    from jig.models import RoleConfig
+    save_role(tmp_path, RoleConfig(role="qa", phase_prompt="be qa"))
 
     orch = Orchestrator(project_path=tmp_path)
     calls: list[str] = []

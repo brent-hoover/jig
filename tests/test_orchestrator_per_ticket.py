@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from jig.models import AgentTypeConfig, PhaseConfig, WorkflowConfig
+from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.ticket import Comment, Ticket, TicketStatus, TicketType
@@ -33,13 +33,13 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
             PhaseConfig(name="qa", role="qa"),
         ],
     )
-    from jig.persistence import save_agent_type, save_workflow
+    from jig.persistence import save_role, save_workflow
     (tmp_path / ".jig" / "workflows").mkdir(parents=True)
-    (tmp_path / ".jig" / "agent_types").mkdir()
+    (tmp_path / ".jig" / "roles").mkdir()
     save_workflow(tmp_path, wf)
     for role in ("spec-writer", "dev", "qa"):
-        save_agent_type(
-            tmp_path, AgentTypeConfig(role=role, phase_prompt=f"be {role}")
+        save_role(
+            tmp_path, RoleConfig(role=role, phase_prompt=f"be {role}")
         )
 
     orch = Orchestrator(project_path=tmp_path)
@@ -101,14 +101,14 @@ def _make_project_and_workflow(
     )
     phases = [PhaseConfig(name=n, role=f"role-{n}") for n in phase_names]
     wf = WorkflowConfig(name="default", phases=phases)
-    from jig.persistence import save_agent_type, save_workflow
+    from jig.persistence import save_role, save_workflow
 
     (tmp_path / ".jig" / "workflows").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".jig" / "agent_types").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
     save_workflow(tmp_path, wf)
     for n in phase_names:
-        save_agent_type(
-            tmp_path, AgentTypeConfig(role=f"role-{n}", phase_prompt=f"be {n}")
+        save_role(
+            tmp_path, RoleConfig(role=f"role-{n}", phase_prompt=f"be {n}")
         )
     return wf
 

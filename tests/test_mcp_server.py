@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from jig import mcp_server
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
@@ -22,7 +22,7 @@ async def test_agent_mcp_server_registers_expected_tools(
     await memory.load()
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
-    cfg = AgentTypeConfig(role="dev", phase_prompt="", can_message=["user"])
+    cfg = RoleConfig(role="dev", phase_prompt="", can_message=["user"])
 
     captured: dict = {}
 

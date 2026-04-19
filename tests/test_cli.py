@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from jig.cli import cli
-from jig.persistence import list_agent_types, load_workflow
+from jig.persistence import list_roles, load_workflow
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def tmp_new_jig_project(tmp_path: Path) -> Path:
         "default_branch": "main",
     }
     (jig_dir / "project.json").write_text(json.dumps(project_data))
-    (jig_dir / "agent_types").mkdir()
+    (jig_dir / "roles").mkdir()
     (jig_dir / "workflows").mkdir()
     (jig_dir / "worktrees").mkdir()
     (jig_dir / "store").mkdir()
@@ -49,7 +49,7 @@ class TestInit:
         assert (tmp_path / ".jig" / "project.json").is_file()
         assert not (tmp_path / ".jig" / "issues").exists()
         assert (tmp_path / ".jig" / "worktrees").is_dir()
-        assert (tmp_path / ".jig" / "agent_types").is_dir()
+        assert (tmp_path / ".jig" / "roles").is_dir()
         assert (tmp_path / ".jig" / "workflows").is_dir()
         assert (tmp_path / ".jig" / "store").is_dir()
 
@@ -98,7 +98,7 @@ class TestInit:
 
 
 class TestInitCreatesAgentTypes:
-    def test_init_creates_default_agent_types(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_init_creates_default_roles(self, runner: CliRunner, tmp_path: Path) -> None:
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
@@ -106,7 +106,7 @@ class TestInitCreatesAgentTypes:
         )
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code == 0, result.output
-        types = list_agent_types(tmp_path)
+        types = list_roles(tmp_path)
         roles = {t.role for t in types}
         assert roles == {"spec", "test", "dev", "review", "validate", "document", "pm"}
 
@@ -186,11 +186,7 @@ class TestValidate:
 
         result = CliRunner().invoke(cli, ["init", "--path", str(repo), "--no-input"])
         assert result.exit_code == 0, result.output
-
-        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-m", "jig init"], cwd=repo, check=True, capture_output=True
-        )
+        # jig init creates its own commit; nothing further to stage.
         return repo
 
     def test_validate_ticket(self, runner: CliRunner, git_jig_project: Path) -> None:

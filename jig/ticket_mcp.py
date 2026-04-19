@@ -2,7 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
@@ -124,7 +124,7 @@ async def handle_comment_on_ticket(
     comments: CommentStore,
     bus: MessageBus,
     sender: str,
-    sender_cfg: AgentTypeConfig | None,
+    sender_cfg: RoleConfig | None,
     args: dict,
 ) -> str:
     kind = args.get("kind", "comment")

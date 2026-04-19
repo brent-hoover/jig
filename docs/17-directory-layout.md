@@ -79,10 +79,10 @@ Three kinds of shipped artifact:
   a starter codebase. Unrelated to role templates beyond sharing the
   word; kept alongside for discoverability and packaging simplicity.
 
-Renames from the current code: `agent_types/` → `roles/` (matches doc
-terminology), and the root-level `templates/` moves to
-`jig/defaults/project_templates/` (groups shipped artifacts in one
-place). Code changes to realize these moves are a separate task.
+Historical note: the earlier code used `agent_types/` and a root-level
+`templates/` directory. Phase 1 of `docs/implementation-plan.md`
+renamed them to `roles/` and `jig/defaults/project_templates/`
+respectively. Kept here only to help readers navigating older branches.
 
 ## Project repo: `.jig/`
 

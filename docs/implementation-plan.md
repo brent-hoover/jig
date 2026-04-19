@@ -178,15 +178,16 @@ Phase 2. For Phase 1:
 
 **H. Tests**
 
-- [ ] Unit tests for new `WorkType` / `Size` enums and validation
-- [ ] Migration test: legacy tickets with old `type` values load
-      correctly
-- [ ] Config loader test: `.jig/config.yaml` parsed correctly;
-      fallback to `.jig/project.json` works
-- [ ] Catalog structure test: `jig/defaults/roles/` loads all shipped
-      role files
-- [ ] TUI smoke test: new fields render without crashing (if
-      existing TUI test infra supports it; otherwise defer to Phase 2)
+- [x] Unit tests for new `WorkType` / `Size` enums and validation
+- [x] Migration test: legacy tickets with old `type` values load
+      correctly (model-level kwarg + on-disk JSONL round-trip)
+- [x] Config loader test: `.jig/config.yaml` parsed correctly;
+      fallback to `.jig/project.json` works (covered in Task C tests)
+- [x] Catalog structure test: `jig/defaults/roles/` loads all shipped
+      role files (covered in `TestDefaultRoles`)
+- [-] TUI smoke test: no Bun test infra exists yet; deferred to
+      Phase 2 per the plan's own hedge. `bunx tsc --noEmit` on the
+      typed surface stays green.
 
 ### Exit criteria
 

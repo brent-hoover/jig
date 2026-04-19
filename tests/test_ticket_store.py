@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from jig.store.tickets import TicketStore
-from jig.ticket import Ticket, TicketStatus, WorkType
+from jig.ticket import Size, Ticket, TicketStatus, WorkType
 
 
 @pytest.mark.asyncio
@@ -76,6 +77,63 @@ async def test_reload_replays_log(tmp_path: Path) -> None:
     await store2.load()
     loaded = await store2.get(tid)
     assert loaded.status == TicketStatus.RESOLVED
+
+
+@pytest.mark.asyncio
+async def test_work_type_and_size_round_trip(tmp_path: Path) -> None:
+    """New classification fields must survive a save/reload cycle."""
+    path = tmp_path / "tickets.jsonl"
+    store = TicketStore(path)
+    await store.load()
+    tid = await store.create(
+        Ticket(
+            work_type=WorkType.MIGRATION,
+            size=Size.XL,
+            title="cut over",
+            created_by="u",
+        )
+    )
+
+    store2 = TicketStore(path)
+    await store2.load()
+    loaded = await store2.get(tid)
+    assert loaded is not None
+    assert loaded.work_type == WorkType.MIGRATION
+    assert loaded.size == Size.XL
+
+
+@pytest.mark.asyncio
+async def test_legacy_jsonl_records_load(tmp_path: Path) -> None:
+    """Hand-written pre-doc-03 JSONL must still deserialize cleanly.
+
+    Covers the migration path for any local dev JSONL that predates the
+    `type` → `work_type` rename. The store replays each line through
+    Ticket(...), so the model's `_migrate_legacy_fields` validator is
+    what makes this work.
+    """
+    path = tmp_path / "tickets.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "_op": "insert",
+                "_id": "T-legacy",
+                "type": "bug",
+                "title": "old",
+                "status": "open",
+                "created_by": "u",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n"
+    )
+
+    store = TicketStore(path)
+    await store.load()
+    loaded = await store.get("T-legacy")
+    assert loaded is not None
+    assert loaded.work_type == WorkType.BUGFIX
+    assert loaded.size == Size.M
 
 
 @pytest.mark.asyncio

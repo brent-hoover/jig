@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from jig.ticket import Comment, Ticket, TicketStatus, WorkType
+from jig.ticket import Comment, Size, Ticket, TicketStatus, WorkType
 
 
 def test_ticket_defaults() -> None:
@@ -56,10 +56,63 @@ def test_ticket_accepts_legacy_type_kwarg() -> None:
 
 
 def test_ticket_size_defaults_to_medium() -> None:
-    from jig.ticket import Size
-
     t = Ticket(work_type=WorkType.FEATURE, title="t", created_by="u")
     assert t.size == Size.M
+
+
+def test_ticket_all_sizes_accepted() -> None:
+    for size in Size:
+        t = Ticket(
+            work_type=WorkType.FEATURE, title="t", created_by="u", size=size
+        )
+        assert t.size == size
+
+
+def test_ticket_rejects_unknown_work_type() -> None:
+    with pytest.raises(ValidationError):
+        Ticket(work_type="gossip", title="t", created_by="u")
+
+
+def test_ticket_rejects_unknown_size() -> None:
+    with pytest.raises(ValidationError):
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            size="enormous",
+        )
+
+
+def test_ticket_legacy_task_defaults_to_thread_workflow() -> None:
+    """Pre-doc-03 `task` tickets always ran the thread dispatch loop.
+
+    Migration must preserve that so in-flight data keeps behaving the
+    way it did before the rename.
+    """
+    t = Ticket(type="task", title="t", created_by="u")
+    assert t.work_type == WorkType.REFACTOR
+    assert t.workflow == "thread"
+
+
+def test_ticket_legacy_question_defaults_to_thread_workflow() -> None:
+    t = Ticket(type="question", title="q", created_by="u")
+    assert t.work_type == WorkType.FEATURE
+    assert t.workflow == "thread"
+
+
+def test_ticket_legacy_migration_respects_explicit_workflow() -> None:
+    """If the caller already set `workflow`, don't override it."""
+    t = Ticket(
+        type="task", title="t", created_by="u", workflow="custom"
+    )
+    assert t.workflow == "custom"
+
+
+def test_ticket_legacy_bug_keeps_default_workflow() -> None:
+    """`bug` wasn't a thread type; migration must not touch workflow."""
+    t = Ticket(type="bug", title="b", created_by="u")
+    assert t.work_type == WorkType.BUGFIX
+    assert t.workflow == "default"
 
 
 def test_comment_default_kind() -> None:

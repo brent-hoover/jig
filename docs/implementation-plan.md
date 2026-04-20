@@ -469,7 +469,317 @@ set from doc 17 §Validation at load.
 
 ## Phase 3 — Structured specs and ownership
 
-*Detailed plan added after Phase 2 review.*
+### Goal
+
+Turn ticket specs into first-class structured artifacts keyed by
+`work_type` (doc 03), and wire the ownership map from Phase 1C into
+actual proposal routing (doc 04). This phase lands the foundations
+that asymmetric validation (doc 10 / Phase 5) and the full thread
+model (doc 08 / Phase 4) build on.
+
+Concretely:
+
+- **Work-type schemas** (`jig/defaults/work_types/*.yaml`) declare
+  required vs optional spec fields, a `required_by_size` mapping,
+  and a section-level ownership map. Projects override under
+  `.jig/work_types/`.
+- **Ticket specs** live as structured YAML per ticket. They're
+  schema-validated at write and at load (extending Phase 2F's
+  `validate_catalog`). The `ticket://spec.<section>` URI scheme
+  resolves against them.
+- **Proposal** becomes the first typed thread entry. Carries
+  structured fields (target, section, change, rationale, owners,
+  state) alongside its prose. The remaining ten entry types stay
+  untyped comments until Phase 4.
+- **Owner resolution** reads the ownership map and each role's
+  assignment (human / human_with_helper / agent) to determine where
+  a proposal routes. Phase 3 just records the routing decision;
+  spawning helper agents is deferred to Phase 5.
+- **Self-certification guard** makes it structurally impossible for
+  the same actor to both propose and resolve a proposal without
+  being marked as self-approving in the audit.
+
+Out of scope (explicit):
+
+- Project-level spec (`.jig/spec/project.md` + `.structured.yaml`)
+  with capability tree. Doc 02 is its own sizeable chunk of work;
+  lives in a later phase once the ticket-spec plumbing has bedded
+  in.
+- Full thread typing (objection/resolution/waiver/handoff/etc.) —
+  Phase 4.
+- Helper-agent spawning for human_with_helper roles — Phase 5.
+- Asymmetric validation agent that derives tests from the spec —
+  Phase 5.
+- Capability-policy enforcement (hook compilation, bwrap path
+  locking) — Phase 5.
+- Schema DSL for custom validation rules beyond required/optional
+  and `required_by_size`.
+
+### Tasks
+
+**A. Work-type schema loader**
+
+New `jig/work_types.py` paralleling `jig/checks.py`. Parses and
+validates per-work-type schema YAML. Schema lists required and
+optional fields, a `required_by_size` map (size → list of fields
+mandatory for that size), and a `ownership` map (field → owner role
+alias such as `po`/`sa`).
+
+- [ ] Pydantic model `WorkTypeSchema` with:
+  - `work_type: str` (matches one of `WorkType` enum values —
+    projects may add new enum values in a later phase; for Phase 3,
+    schemas for unknown work_types are an error)
+  - `required: list[str]`
+  - `optional: list[str]`
+  - `required_by_size: dict[str, list[str]]`
+  - `ownership: dict[str, str]`  # field → owner role alias
+  - `section_locks: dict[str, str] = {}`  # parsed but unused; Phase
+    5 honors `locked_after_phase`
+- [ ] `load_work_type_schema(project_path, name)` with the same
+      project-override → shipped-default fallback Phase 2C wired up
+      for roles/workflows. Shipped defaults under
+      `jig/defaults/work_types/`; project overrides under
+      `.jig/work_types/`.
+- [ ] `list_work_type_schemas` for the load-time validator.
+- [ ] `jig init` drops an empty `.jig/work_types/` directory (no
+      copies — shipped defaults serve via fallback, per Phase 2C).
+
+**B. Shipped work-type schemas**
+
+Write the schemas for the seven shipped work types per doc 03 §Work
+types. Keep them deliberately small — Phase 3 verifies the plumbing
+works, not that every field a team might want is pre-listed.
+
+- [ ] `jig/defaults/work_types/feature.yaml`: `required:
+      [summary, behaviors, acceptance_criteria, out_of_scope]`,
+      `optional: [edge_cases, design, technical_risks, dependencies]`,
+      `required_by_size` xs→[summary], s→[summary,behaviors],
+      m→required, l→required + design, xl→required + design +
+      technical_risks. Ownership per doc 03 §Structured content.
+- [ ] `bugfix.yaml`: required `[summary, symptom, fix_approach,
+      regression_test]`, sized down for xs→[summary, fix_approach],
+      up for l→+ `impact_analysis`.
+- [ ] `refactor.yaml`, `spike.yaml`, `perf.yaml`, `migration.yaml`,
+      `docs.yaml` — shapes from doc 03.
+- [ ] Spike schemas may have no `behaviors` section; docs schemas
+      likewise skip design/technical_risks. Schemas express that by
+      simply not listing those fields as required/optional.
+
+**C. Ticket spec model + storage**
+
+Ticket specs are structured YAML files, one per ticket, stored at
+`.jig/specs/<ticket-id>.yaml`. Using per-file YAML (rather than a
+JSONL store) gives humans something diffable and auditable in
+review; matches how shipped checks.yaml and config.yaml work.
+
+- [ ] Pydantic `TicketSpec` model: loose envelope with
+  - `ticket_id: str`
+  - `work_type: WorkType` (snapshot — doc 03 §Immutability)
+  - `size: Size` (snapshot)
+  - `fields: dict[str, Any]` — free-form structured content keyed by
+    field name. Shape is validated against the work-type schema at
+    write time, not at model-construction time.
+  - `version: int` — bump on every write; proposals reference the
+    version they target.
+  - `created_at: datetime`, `updated_at: datetime`.
+- [ ] `load_ticket_spec(project_path, ticket_id) -> TicketSpec |
+      None`.
+- [ ] `save_ticket_spec(project_path, spec)` — writes YAML, bumps
+      `version`, touches `updated_at`, validates against the schema
+      before writing. Raises `SpecValidationError` listing missing
+      required fields or unknown fields.
+- [ ] `delete_ticket_spec(project_path, ticket_id)` — for test
+      cleanup and ticket close → archive handoff (archive itself is
+      Phase 4-ish; Phase 3 just needs to allow removal).
+
+**D. Spec URI resolution**
+
+Wire `ticket://spec.<section>` into the context resolver so agents
+can reference spec sections in their role templates.
+
+- [ ] Extend `_resolve_ticket` in `jig/context_resolver.py` to
+      handle `ticket://spec`, `ticket://spec.behaviors`, etc. Unknown
+      `.<section>` segments log a warning and return empty (same
+      semantics as `ticket://design`).
+- [ ] The resolver reads the spec via `load_ticket_spec`. If no
+      spec exists the URI returns `None` (unresolved — `strict=True`
+      callers raise `MissingContextError` per Phase 2B).
+- [ ] Format: render the requested section as
+      `### <Section Name>\n\n<YAML block>\n` so the agent sees the
+      structured content directly rather than a prose paraphrase.
+      Full spec (`ticket://spec`) renders every field.
+
+**E. Proposal thread entry type**
+
+Extend the current `Comment` model with a proposal kind and a
+structured payload. Full thread typing is Phase 4; we take the
+minimum Phase 3 needs.
+
+- [ ] Add `"proposal"` to `Comment.kind`'s Literal.
+- [ ] Add optional payload fields on `Comment`:
+  - `proposal_target: str | None` — e.g.,
+    `ticket://spec.behaviors`, or a project-level artifact path.
+  - `proposal_section: str | None` — optional sub-section.
+  - `proposal_change: str | None` — the concrete change (YAML
+    fragment or prose block).
+  - `proposal_state: Literal["pending","accepted","rejected",
+    "refining"] | None`.
+  - `proposal_parent_id: str | None` — resolver entries reference
+    the originating proposal.
+  - `proposal_owners: list[str] = []` — computed at routing time
+    (Task F); stored so later queries don't re-derive.
+- [ ] Thread ordering remains chronological for now. Phase 4
+      rethinks it.
+
+**F. Owner resolution and proposal routing**
+
+New `jig/ownership.py`. Given a proposal's target, compute the
+owner(s) and (if staffed) the concrete assignee list.
+
+- [ ] `resolve_owner(config, target: str, section: str | None) ->
+      OwnerRouting` returning:
+  - `role: str` — `"po"` / `"sa"` / other declared role
+  - `assignee: str | None` — from `config.roles.<role>.human` when
+    assignment is `human` or `human_with_helper`; `None` for `agent`
+    (no staffing decision made yet in Phase 3)
+  - `helper_template: str | None` — from the same role assignment
+  - `assignment: Literal["human","human_with_helper","agent",
+    "unstaffed"]` — `"unstaffed"` when the role has no assignment in
+    config (orphaned per doc 04).
+- [ ] Resolution order:
+  1. If target is `ticket://spec.<field>`, look up
+     `config.ownership.spec.<field>`; fall back to the whole-spec
+     owner if the field isn't listed.
+  2. For project-level artifacts (`project://architecture`, etc.),
+     look up `config.ownership.<key>` directly.
+  3. Unknown target → `CatalogError` at load / routing time.
+- [ ] Proposal creation (via MCP, Task G) records
+      `proposal_owners` from the routing result so downstream
+      queries stay cheap.
+
+**G. Self-certification guard + MCP tools**
+
+New MCP tools for agents to participate in the proposal mechanism,
+plus the structural guard.
+
+- [ ] `propose_change(target, change, rationale, section=None)` —
+      creates a `Comment(kind="proposal")` on the ticket the agent
+      is scoped to. Populates `proposal_owners` via Task F.
+- [ ] `resolve_proposal(proposal_id, verdict, reasoning)` —
+      verdict ∈ `{accept, reject, refine}`. Creates a second
+      proposal entry referencing the first. If
+      `comment.author == proposal_comment.author`, either:
+  - If `config.self_approval == "blocked"`, raise / refuse.
+  - If `config.self_approval == "warn"` (default), emit a
+    `status_change` with `"self_approval_with_justification: true"`
+    and require `reasoning` to be non-empty.
+- [ ] `list_proposals(ticket_id=None, state=None, target=None)` —
+      query helper for humans + TUI later.
+- [ ] Add `self_approval` field to `Config` (default `"warn"`);
+      surface through `.jig/config.yaml`.
+- [ ] Accepted proposals that target `ticket://spec.<field>` apply
+      the change via `save_ticket_spec`. For Phase 3 the change
+      payload is treated as opaque YAML the accepter hand-merged —
+      automated merge on accept is deferred. Record the new spec
+      `version` on the acceptance entry.
+
+**H. Load-time validation + CLI + tests**
+
+Integrate with Phase 2F's `validate_catalog` and add the usual test
+surface.
+
+- [ ] Extend `validate_catalog` to:
+  - Load each project + shipped work-type schema; surface
+    validation errors.
+  - Cross-check ownership map fields against real work-type
+    schemas (unknown field in `ownership.spec.<field>` is an
+    error).
+  - Verify `config.roles.po` / `config.roles.sa` assignments
+    reference role names that exist in the role catalog when
+    `assignment == "human_with_helper"` (the `helper_template` is
+    a role name).
+- [ ] Unit tests per task (work-type schema loader, ticket spec
+      load/save, URI resolver for `ticket://spec.*`, proposal comment
+      roundtrip, owner resolution, self-cert guard both modes).
+- [ ] End-to-end test: create ticket → write spec → propose a
+      change → second actor accepts → spec version bumps.
+
+### Exit criteria
+
+- A ticket can carry a YAML spec at `.jig/specs/<ticket-id>.yaml`
+  that validates against its work-type schema (or fails loud with
+  a readable error).
+- `ticket://spec.behaviors` (and friends) resolve through the
+  context resolver.
+- `jig propose_change` / `resolve_proposal` MCP tools are
+  registered and work end-to-end for at least the spec target.
+- A proposal's owner(s) are determined via the ownership map and
+  recorded on the proposal.
+- A second actor (distinct from the proposer) must resolve a
+  proposal, or the resolution is marked self-approving per the
+  configured `self_approval` mode.
+- `jig validate` fails loud on: unknown work-type schema, unknown
+  ownership field reference, missing required spec field at the
+  declared size.
+
+### Explicitly deferred out of Phase 3
+
+- **Project-level spec.** `.jig/spec/project.md` +
+  `project.structured.yaml` with the capability tree, state
+  transitions, and spec-agent synchronization. Needs its own
+  sizeable implementation pass; owning a later phase.
+- **Spec agent role itself.** The translation/consistency agent
+  from doc 02. Blocked on project-level spec.
+- **All non-proposal thread entry types.** Question/answer are
+  partial today; objection/resolution/waiver/handoff/escalation/
+  uncertain/note land in Phase 4.
+- **Section locks** (`locked_after_phase`). Parsed by the schema
+  loader, enforced in Phase 5.
+- **Automated merge on proposal-accept.** The acceptor provides
+  the merged YAML (or the proposed change is applied verbatim for
+  trivial fields). Richer merge semantics — text diffing, conflict
+  detection — stay out.
+- **Helper-agent spawning for human_with_helper roles.** Owner
+  resolution reports the `helper_template` name; Phase 5 actually
+  spawns the helper before the human sees the proposal.
+- **Refinement loop state machine.** Phase 3 recognizes
+  `"refining"` as a state but doesn't model multi-round
+  back-and-forth beyond chronological comments.
+- **Cross-ticket proposal routing.** Proposals against the project
+  spec (and other project-level artifacts) wait on the project
+  spec landing.
+
+### Risks and decisions
+
+- **Spec storage location.** Per-ticket YAML under `.jig/specs/`
+  vs. as a field on the Ticket JSONL record. Going with separate
+  files: humans read them during review, they diff cleanly, and
+  they're naturally archivable on ticket close. Cost: one extra
+  file per ticket and a separate load path.
+- **Schema ownership enum vs string.** Doc 04 names PO and SA as
+  the two built-in owner roles but also says projects add others.
+  We type ownership values as `str` (not an enum) so projects can
+  declare `security`, `qa`, etc. without touching code.
+  Load-time validation checks the value against `config.roles`.
+- **Proposal payload on Comment vs. new ThreadEntry.** Phase 4
+  plans a proper typed thread entry set; extending `Comment` now
+  means Phase 4 has migration work. We accept the migration cost
+  — having a half-typed Phase 3 and a full-typed Phase 4 is
+  clearer than deferring all thread structure to Phase 4.
+- **Self-approval policy.** Shipped default is `warn`, not
+  `blocked`, because solo-dev projects genuinely need the escape
+  hatch (doc 04 §Scaling down). Teams that want enforcement flip
+  the config flag.
+- **WorkType schemas as code vs. YAML.** Putting shipped schemas
+  in YAML under `jig/defaults/work_types/` (not Python code) keeps
+  them tweakable via project override with the same mechanism
+  Phase 2C uses for roles/workflows.
+- **Content of accepted change.** Without automated merge, the
+  proposal `change` field is effectively advisory: the accepter is
+  responsible for producing the new spec content. Acceptable for
+  Phase 3 because agents that propose also know how to write the
+  new YAML, and the guard keeps a human in the loop. Revisit if
+  this becomes a sharp edge.
 
 ## Phase 4 — Threads & checkpoints
 

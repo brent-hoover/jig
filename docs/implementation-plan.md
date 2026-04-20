@@ -783,7 +783,361 @@ surface.
 
 ## Phase 4 — Threads & checkpoints
 
-*Detailed plan added after Phase 3 review.*
+### Goal
+
+Replace the envelope-on-Comment approach with first-class typed thread
+entries (doc 08) and stand up the checkpoint channel (doc 09). This
+phase makes "unresolved blocking entry → phase can't advance" a real
+gate, enforces resolution asymmetry (asker/objector — not
+answerer/fixer — closes the entry), and gives agents the scope-
+discipline outlet (`checkpoint_deferred`) that doc 09 leans on.
+
+Concretely:
+
+- **Typed thread entries.** The remaining ten types from doc 08 —
+  Question, Answer, Objection, Resolution, Waiver, Decision, Handoff,
+  Escalation, Uncertain, Note — become proper payload-carrying
+  records alongside Proposal (Phase 3E). The underlying store stays
+  JSONL; the discrimination lives on the pydantic side.
+- **Gating state machine.** Each entry type has a resolved/unresolved
+  bit and an `is_blocking` predicate. The workflow/dispatch layer
+  consults both before advancing a phase.
+- **Resolution asymmetry.** `resolve_*` tools refuse to close an
+  entry unless the actor matches the entry's resolver role (asker
+  closes a Question; objector closes an Objection; waiver authority
+  is check-guarded).
+- **Checkpoint channel.** `.jig/store/checkpoints.jsonl` separate
+  from the thread store, with its own model and MCP tools
+  (`checkpoint_milestone`, `checkpoint_decision`,
+  `checkpoint_deferred`). Harness-triggered checkpoints (after
+  commit, after test, before handoff) land alongside agent-triggered
+  ones.
+- **Handoff + deferred-item review.** Handoff entries carry the
+  deferred-item list assembled from the phase's checkpoints.
+  Evaluator review happens through the existing phase-transition
+  path; accepted handoffs advance the workflow, rejected ones loop
+  back per the workflow's on-failure edge.
+
+Out of scope (explicit):
+
+- **Compaction** of checkpoints — the deferred-for-later item in
+  doc 09. Phase 4 captures every checkpoint; Phase 5-or-later lands
+  the summary-rollup agent/task once token pressure is real.
+- **Orchestrator-as-resolver-of-last-resort.** Deadlock handling
+  per doc 08 §Deadlock handling. The gating layer surfaces the
+  blocker; auto-nudging and auto-reassignment land with workflow
+  escalation in Phase 5.
+- **Deferred-item-to-ticket promotion UX.** Doc 09's promotion
+  flow. Evaluator marks a deferred item as "promote" via a Handoff
+  field; the automatic ticket-creation plumbing waits until
+  workflow-layer changes in Phase 5.
+- **PR-comment channel.** Doc 08 leaves `output_channel:
+  thread | pr_comments | both` as a workflow knob. Phase 4 wires
+  the `thread` half only; `pr_comments` is Phase 6 (SCM).
+- **Cross-workflow escalation_targets enforcement.** The workflow
+  model declares legal targets with reasons; enforcing that at
+  post-time is Phase 5 policy work.
+
+### Tasks
+
+**A. Typed thread-entry model**
+
+New `jig/thread.py`. Replaces the proposal-specific extension of
+`Comment` (Phase 3E) with a typed discriminated union of ten
+entries plus the existing Proposal.
+
+- [ ] Pydantic models per doc 08, one per type. Shared envelope
+      (`id`, `ticket_id`, `author`, `created_at`, `kind`), per-type
+      payload:
+  - `Question`: `target: str`, `question: str`,
+    `blocking: bool = False`, `resolved_by: str | None`.
+  - `Answer`: `question_id: str`, `text: str`.
+  - `Objection`: `target_artifact: str`, `text: str`,
+    `resolved_by: str | None`, `waived_by: str | None`.
+  - `Resolution`: `objection_id: str`, `text: str`.
+  - `Waiver`: `objection_id: str`, `justification: str`.
+  - `Decision`: `decision: str`, `rationale: str`.
+  - `Handoff`: `outputs: list[str]`, `summary: str`,
+    `deferred_items: list[DeferredItem]`, `phase: str`,
+    `acceptance_state: Literal["pending","accepted","rejected"]`.
+  - `Escalation`: `reason: str`, `details: str`, `target: str`.
+  - `Uncertain`: `details: str`.
+  - `Note`: `text: str`.
+  - `Proposal` — migrate from `Comment` (Phase 3E) keeping the
+    same fields.
+- [ ] Discriminator lives on `kind`; a top-level `ThreadEntry =
+      Annotated[Union[Question | ... | Note], Field(discriminator=
+      "kind")]` for the store layer.
+- [ ] `ThreadEntry.is_blocking() -> bool` per type. Default
+      unblocking; Question respects its own `blocking` bit;
+      Objection, Escalation, and un-accepted Handoff are blocking.
+- [ ] `ThreadEntry.is_resolved() -> bool` per type. Decision /
+      Note / Answer / Waiver / Resolution auto-resolved; Question
+      resolves when `resolved_by` is set; Objection resolves when
+      `resolved_by` or `waived_by` set; Handoff resolves when
+      `acceptance_state != "pending"`.
+
+**B. Thread-entry store + Comment migration**
+
+Migrate `jig/store/comments.py` to a thread-entry store. The doc-09
+checkpoint channel ships in Task G; thread entries stay on the
+existing JSONL file with a one-time record migration for the
+proposal entries Phase 3 wrote.
+
+- [ ] Rename `CommentStore` → `ThreadStore` (keep a thin
+      `CommentStore` alias for Phase 3 call sites; delete the alias
+      at the Phase 4 commit boundary).
+- [ ] `ThreadStore.post(entry: ThreadEntry)` — same append-JSONL
+      semantics; validates via the discriminated union.
+- [ ] `ThreadStore.for_ticket`, `resolve`, `find_blocking`,
+      `find_by_kind(ticket_id, kind)` — enough query surface to
+      drive the gating check without re-scanning every load.
+- [ ] `ThreadStore.has_unresolved_blocking(ticket_id) -> list[
+      ThreadEntry]` — single helper the dispatch layer calls to
+      decide whether the current phase can advance.
+- [ ] Migration: old `Comment(kind="comment"|"commit"|"phase_run"|
+      "status_change")` records keep loading as typed
+      `Note`/`Commit`/`PhaseRun`/`StatusChange` entries (fold the
+      three system-primitive kinds into a shared `SystemEvent`
+      subtype rather than promoting them to first-class thread
+      entries — they're not user-visible conversations). Bad records
+      fail loud with file+line per Phase 1 store convention.
+- [ ] `__getattr__` shim on `jig.store.comments` so existing
+      imports keep working through the commit; emit a
+      `DeprecationWarning`.
+
+**C. Question / Answer tools and gating**
+
+Agent-facing MCP tools per doc 08 §Agent tools. Replaces the
+ad-hoc `handle_ask_question` / `handle_answer_questions` flow in
+`jig/ticket_mcp.py` (which pre-dates the typed model).
+
+- [ ] `thread_ask(ticket_id, target, question, blocking=False)` —
+      creates a `Question` entry; resolves `target` against the
+      workflow phase's legal targets (reject if not in the phase's
+      `escalation_targets`/`questions_to` list when that's
+      declared; accept otherwise — Phase 5 tightens).
+- [ ] `thread_answer(question_id, text)` — creates an `Answer`;
+      does not resolve the Question. Fails loud if the question is
+      already resolved.
+- [ ] `thread_resolve_question(question_id, accepted_answer_id=
+      None, reason=None)` — the asker-only close. Refuses if
+      `sender != question.author`. Marks the Question
+      `resolved_by=sender`.
+- [ ] Retire the existing `handle_ask_question` /
+      `handle_answer_questions` in `ticket_mcp.py` (the docstrings
+      already note they're thread-entry-shaped).
+
+**D. Objection / Resolution / Waiver**
+
+- [ ] `thread_object(ticket_id, target_artifact, text)` — creates
+      an `Objection`. Always blocking.
+- [ ] `thread_resolve_objection(objection_id, text)` — posts a
+      `Resolution` entry. Does NOT mark the Objection resolved —
+      that requires the objector to confirm. Fails if the
+      Objection is already resolved or waived.
+- [ ] `thread_accept_resolution(objection_id)` — objector-only
+      close. Sets `resolved_by=sender` on the Objection. Non-
+      objector actors get a clear error.
+- [ ] `thread_waive(objection_id, justification)` — creates a
+      `Waiver` entry and flips the Objection to waived-with-
+      reason. Authorization check: doc 08 says "authorized actors
+      only"; Phase 4 reads `config.waiver_authority: list[str]`
+      (roles allowed to waive; defaults to `["po", "sa"]`). Full
+      policy enforcement lands Phase 5.
+- [ ] Both the Objection and its Waiver stay in the thread; the
+      audit trail is the point.
+
+**E. Decision / Note / Uncertain / Escalation**
+
+Lower-gating-weight entries. Uncertain has a routing side effect.
+
+- [ ] `thread_decide(ticket_id, decision, rationale)` — creates a
+      `Decision`. Auto-resolved. Also writes a standalone decision
+      record under `.jig/decisions/<ticket-id>-<seq>.md` per doc 17
+      (the per-ticket sequence is file-scoped; collisions take the
+      higher `created_at`).
+- [ ] `thread_note(ticket_id, text)` — creates a `Note`. Auto-
+      resolved.
+- [ ] `thread_escalate(ticket_id, reason, details, target="human")`
+      — creates an `Escalation`. Always blocking. Target validation
+      against the phase's `escalation_targets` is best-effort in
+      Phase 4: log a warning but don't refuse.
+- [ ] `thread_uncertain(ticket_id, details)` — creates an
+      `Uncertain`. The orchestrator subscribes and converts it to
+      a targeted Question (or escalates if it can't route). Phase
+      4 routes on a simple rule: if `details` mentions a role name
+      from the catalog, reshape as a Question targeting that role;
+      otherwise emit an Escalation targeting `human`. Smarter
+      routing is Phase 5.
+
+**F. Handoff entry + phase-completion hook**
+
+- [ ] `thread_handoff(ticket_id, outputs, summary, deferred_items=
+      [])` — creates a `Handoff` entry in `acceptance_state=
+      "pending"`. Outputs are artifact references; deferred_items
+      is the list gathered from checkpoints (Task G) for the phase
+      the handoff closes.
+- [ ] `thread_accept_handoff(handoff_id)` / `thread_reject_handoff
+      (handoff_id, reason)` — evaluator-only (Phase 4 reads the
+      phase's evaluator role from the workflow definition;
+      enforcement is "caller must have that role").
+- [ ] On accept: publish a `handoff_accepted` message on the
+      ticket topic so the orchestrator advances the workflow.
+- [ ] On reject: publish a `handoff_rejected` message; the
+      orchestrator follows the phase's on-failure edge.
+- [ ] Retire the existing `phase_result` field on `Comment`
+      (Phase 1-ish) — Handoff is the canonical phase-completion
+      record now. Legacy `phase_run` comments remain readable
+      (system-event subtype).
+
+**G. Checkpoint channel**
+
+New `jig/store/checkpoints.py` + `jig/checkpoints.py` for the
+models and MCP handlers. Separate from thread per doc 09.
+
+- [ ] Pydantic `Checkpoint` model:
+  - `id`, `ticket_id`, `phase: str`, `author`, `created_at`.
+  - `completed: list[str]` — recent concrete completions.
+  - `position: str` — current state.
+  - `plan: str` — next intended step.
+  - `ruled_out: list[RuledOut]` — `approach: str, reason: str`.
+  - `deferred: list[DeferredItem]` — `item: str, reason: str,
+    status: Literal["open","done","promoted","accepted"] =
+    "open"`.
+  - `open_questions: list[str]` — pre-thread-Question scoping.
+  - `trigger: Literal["auto_commit","auto_test","auto_pre_handoff",
+    "agent_milestone","agent_decision","agent_deferred"]`.
+- [ ] `CheckpointStore` with append-JSONL semantics mirroring
+      `ThreadStore`. Queries: `for_ticket`, `for_phase(ticket_id,
+      phase)`, `latest(ticket_id)`, `deferred_items_open(ticket_id,
+      phase)`.
+- [ ] Harness-triggered checkpoints fire from three hooks:
+  - `worktree.py` commit path (after the commit succeeds).
+  - `worktree.py` lint/test path (after run, regardless of
+    result).
+  - `thread_handoff` (write a `auto_pre_handoff` checkpoint first).
+- [ ] Agent MCP tools:
+  - `checkpoint_milestone(description, position, plan,
+    completed=[], ruled_out=[])`.
+  - `checkpoint_decision(decision_id, rationale)` — references a
+    thread `Decision`; checkpoint mirrors its context.
+  - `checkpoint_deferred(item, reason)` — single-item append;
+    becomes a `DeferredItem` on the ticket's current phase.
+- [ ] Phase-boundary pruning: when a phase completes successfully
+      (Handoff accepted), mark that phase's checkpoints
+      `historical=True`. Historical checkpoints stay on disk for
+      audit but are skipped by `latest`/`for_phase` queries by
+      default. Phase-failure retries skip the prior attempt's
+      checkpoints the same way (resumption reads only the current
+      attempt).
+
+**H. Gating + load-time validation + tests**
+
+- [ ] `orchestrator.py` dispatch consults
+      `ThreadStore.has_unresolved_blocking(ticket_id)` before
+      advancing a phase. Blocked advancement surfaces to the TUI
+      via the existing `orchestrator` topic as a
+      `phase_blocked_by_thread` event.
+- [ ] `validate_catalog` extensions:
+  - Workflow phases that declare `questions_to` or
+    `escalation_targets` reference known role names.
+  - `config.waiver_authority` references known roles.
+- [ ] Unit tests per task. Minimum surface:
+  - thread_ask/answer/resolve_question roundtrip + asker-only
+    close.
+  - Objection blocks handoff acceptance; Resolution is inert
+    until objector accepts.
+  - Waiver closes an Objection and preserves audit.
+  - Unauthorized waiver (role not in `waiver_authority`) refused.
+  - Uncertain → Question routing (role in details) and → Escalation
+    (no role match).
+  - Handoff accept/reject publishes the expected bus message.
+  - Checkpoint auto-triggers fire on commit and test events.
+  - `checkpoint_deferred` items surface on the next Handoff.
+  - Phase-boundary pruning: prior-phase checkpoints excluded by
+    default queries.
+- [ ] End-to-end test: ticket with blocking Objection on phase 1
+      → thread_handoff refused until thread_accept_resolution →
+      handoff accepted → orchestrator advances to phase 2 →
+      deferred item from phase 1 surfaces in the evaluator's view.
+
+### Exit criteria
+
+- All eleven thread entry types from doc 08 have typed models,
+  MCP tools, and resolution semantics matching the doc.
+- Resolution asymmetry is mechanically enforced: a non-asker
+  cannot close a Question; a non-objector cannot close an
+  Objection; an unauthorized role cannot Waive.
+- The orchestrator refuses to advance a phase with an open
+  blocking entry and surfaces which entry is blocking.
+- Checkpoints land for every harness-triggered event plus
+  agent-triggered milestones/deferrals.
+- A Handoff carries the phase's deferred items and the evaluator
+  sees them at accept/reject time.
+- `jig validate` fails loud on unknown roles referenced by
+  `questions_to`, `escalation_targets`, or `waiver_authority`.
+- Phase 3's proposal entries continue to roundtrip through the
+  new typed thread store (migration is read-compatible).
+
+### Explicitly deferred out of Phase 4
+
+- **Checkpoint compaction.** Doc 09 §Compaction. Token pressure
+  isn't real yet; capture everything, compact later.
+- **Deadlock auto-resolution.** Orchestrator-as-resolver-of-
+  last-resort per doc 08. Phase 4 surfaces the blocker; Phase 5
+  auto-nudges / auto-escalates on timeouts.
+- **Deferred-item → ticket promotion.** The plumbing to create a
+  new ticket from a promoted deferred item. Phase 4 records the
+  `status="promoted"` intent; ticket creation is Phase 5.
+- **PR-comment output channel.** `output_channel: pr_comments |
+  both` for review phases. Phase 6 (SCM integration).
+- **Capability-policy enforcement for thread targets.** Workflow-
+  declared `questions_to`/`escalation_targets` are validated at
+  load; enforcement at post-time waits for Phase 5's
+  capability-policy layer.
+- **Waiver authority as a capability.** Phase 4 reads a flat list
+  from config; Phase 5 ties it to the capability-policy model.
+- **Harness-capabilities meta-tool.** Doc 08 mentions
+  `harness_capabilities()` for agent introspection. Nice-to-have;
+  not blocking.
+- **Thread summarization / compaction-entry type.** Noted in doc
+  08 §Thread as context for later spawns. Tied to checkpoint
+  compaction; same deferral window.
+
+### Risks and decisions
+
+- **Discriminated union vs envelope + extras.** Phase 3E extended
+  the `Comment` envelope to ship the Proposal payload without
+  holding up the rest of Phase 3. Phase 4 pays that debt: each
+  type gets its own pydantic model so the store can enforce
+  payload shape at write time. Cost: one-shot migration of
+  existing JSONL records. Mitigated by keeping legacy system-
+  primitive kinds (`commit`, `phase_run`, `status_change`) as a
+  single `SystemEvent` subtype rather than splitting them further.
+- **Renaming `CommentStore` → `ThreadStore`.** Touches every MCP
+  handler. Doing it in Phase 4 rather than coexisting with
+  `CommentStore` forever. Alias + deprecation warning through
+  the commit; delete on the Phase 4 boundary.
+- **Resolution asymmetry author check.** Easiest check is
+  `sender == entry.author`. That works for Question (asker
+  closes) but Objection's "objector closes" is the same rule
+  since the objector *is* the author. If future work splits
+  author from resolver (e.g., a human PO inherits an agent's
+  Objection), revisit.
+- **Waiver authority via config.** A flat `waiver_authority:
+  list[str]` is enough for Phase 4. Doc 16's capability-policy
+  model supersedes this in Phase 5 — intentional stepping-stone.
+- **Checkpoint hooks coupled to worktree.py.** The auto-commit
+  and auto-test hooks live where the actions happen today.
+  When Phase 5 adds a proper check-execution layer, move the
+  hooks to the event source there. Not worth factoring the hook
+  interface out ahead of time.
+- **Uncertain routing heuristic.** Role-name-in-details is
+  embarrassingly simple. It's chosen to keep Phase 4 out of the
+  orchestrator routing rules; a better router comes with Phase
+  5 policy. If the heuristic fires too often wrongly, upgrade
+  early.
 
 ## Phase 5 — Verification & policy
 

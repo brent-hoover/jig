@@ -64,6 +64,7 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
     #   archive/           — closed-ticket archives
     for subdir in (
         "spec",
+        "specs",  # per-ticket structured specs (phase 3 task C)
         "context",
         "context/project",
         "context/roles",

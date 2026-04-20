@@ -572,7 +572,7 @@ Ticket specs are structured YAML files, one per ticket, stored at
 JSONL store) gives humans something diffable and auditable in
 review; matches how shipped checks.yaml and config.yaml work.
 
-- [ ] Pydantic `TicketSpec` model: loose envelope with
+- [x] Pydantic `TicketSpec` model: loose envelope with
   - `ticket_id: str`
   - `work_type: WorkType` (snapshot — doc 03 §Immutability)
   - `size: Size` (snapshot)
@@ -582,13 +582,13 @@ review; matches how shipped checks.yaml and config.yaml work.
   - `version: int` — bump on every write; proposals reference the
     version they target.
   - `created_at: datetime`, `updated_at: datetime`.
-- [ ] `load_ticket_spec(project_path, ticket_id) -> TicketSpec |
+- [x] `load_ticket_spec(project_path, ticket_id) -> TicketSpec |
       None`.
-- [ ] `save_ticket_spec(project_path, spec)` — writes YAML, bumps
+- [x] `save_ticket_spec(project_path, spec)` — writes YAML, bumps
       `version`, touches `updated_at`, validates against the schema
       before writing. Raises `SpecValidationError` listing missing
       required fields or unknown fields.
-- [ ] `delete_ticket_spec(project_path, ticket_id)` — for test
+- [x] `delete_ticket_spec(project_path, ticket_id)` — for test
       cleanup and ticket close → archive handoff (archive itself is
       Phase 4-ish; Phase 3 just needs to allow removal).
 
@@ -597,14 +597,14 @@ review; matches how shipped checks.yaml and config.yaml work.
 Wire `ticket://spec.<section>` into the context resolver so agents
 can reference spec sections in their role templates.
 
-- [ ] Extend `_resolve_ticket` in `jig/context_resolver.py` to
+- [x] Extend `_resolve_ticket` in `jig/context_resolver.py` to
       handle `ticket://spec`, `ticket://spec.behaviors`, etc. Unknown
       `.<section>` segments log a warning and return empty (same
       semantics as `ticket://design`).
-- [ ] The resolver reads the spec via `load_ticket_spec`. If no
+- [x] The resolver reads the spec via `load_ticket_spec`. If no
       spec exists the URI returns `None` (unresolved — `strict=True`
       callers raise `MissingContextError` per Phase 2B).
-- [ ] Format: render the requested section as
+- [x] Format: render the requested section as
       `### <Section Name>\n\n<YAML block>\n` so the agent sees the
       structured content directly rather than a prose paraphrase.
       Full spec (`ticket://spec`) renders every field.

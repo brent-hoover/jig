@@ -283,6 +283,110 @@ class TestRepoScheme:
         assert out == ""
 
 
+# ---- ticket://spec  / ticket://spec.<field>  (Phase 3 Task D) --------------
+
+
+class TestTicketSpecScheme:
+    def _write_spec(self, project_path: Path, ticket: Ticket) -> None:
+        from jig.specs import TicketSpec, save_ticket_spec
+
+        # jig_layout fixture already created .jig/, so skip init and just
+        # create the specs dir + a shipped schema via jig.defaults fallback.
+        (project_path / ".jig" / "specs").mkdir(exist_ok=True, parents=True)
+        spec = TicketSpec(
+            ticket_id=ticket.id,
+            work_type=WorkType.FEATURE,
+            size="m",
+            fields={
+                "summary": "Build the widget.",
+                "behaviors": [{"id": "B1", "when": "click", "then": "save"}],
+                "acceptance_criteria": ["B1 verified"],
+                "out_of_scope": ["collab"],
+            },
+        )
+        # Avoid init_project's git check by not re-initing.
+        save_ticket_spec(project_path, spec)
+
+    async def test_full_spec_resolves(
+        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+    ) -> None:
+        self._write_spec(jig_layout, ticket)
+        out = await _resolve(
+            ["ticket://spec"],
+            jig_layout=jig_layout,
+            ticket=ticket,
+            comments=comments,
+        )
+        assert "## Ticket Spec (feature)" in out
+        assert "Build the widget." in out
+        assert "B1" in out
+
+    async def test_single_section_resolves(
+        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+    ) -> None:
+        self._write_spec(jig_layout, ticket)
+        out = await _resolve(
+            ["ticket://spec.summary"],
+            jig_layout=jig_layout,
+            ticket=ticket,
+            comments=comments,
+        )
+        assert "### Summary" in out
+        assert "Build the widget." in out
+        # Should NOT pull in other fields.
+        assert "acceptance_criteria" not in out.lower() or "### Summary" in out
+
+    async def test_structured_field_renders_yaml(
+        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+    ) -> None:
+        self._write_spec(jig_layout, ticket)
+        out = await _resolve(
+            ["ticket://spec.behaviors"],
+            jig_layout=jig_layout,
+            ticket=ticket,
+            comments=comments,
+        )
+        assert "### Behaviors" in out
+        assert "```yaml" in out
+        assert "id: B1" in out
+
+    async def test_missing_spec_returns_empty(
+        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+    ) -> None:
+        # No spec file written.
+        out = await _resolve(
+            ["ticket://spec"],
+            jig_layout=jig_layout,
+            ticket=ticket,
+            comments=comments,
+        )
+        assert out == ""
+
+    async def test_missing_spec_is_strict_error(
+        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+    ) -> None:
+        with pytest.raises(MissingContextError):
+            await _resolve(
+                ["ticket://spec"],
+                jig_layout=jig_layout,
+                ticket=ticket,
+                comments=comments,
+                strict=True,
+            )
+
+    async def test_unknown_section_returns_empty(
+        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+    ) -> None:
+        self._write_spec(jig_layout, ticket)
+        out = await _resolve(
+            ["ticket://spec.not_a_field"],
+            jig_layout=jig_layout,
+            ticket=ticket,
+            comments=comments,
+        )
+        assert out == ""
+
+
 # ---- issue:// alias -------------------------------------------------------
 
 

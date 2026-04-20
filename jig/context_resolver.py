@@ -189,6 +189,10 @@ async def _resolve_ticket(
         return await _ticket_plan(ticket, parent, comments, worktree_path)
     if body == "thread":
         return await _ticket_thread(ticket, parent, comments)
+    # Phase 3D: ticket://spec  or  ticket://spec.<field>
+    if body == "spec" or body.startswith("spec."):
+        section = body[len("spec.") :] if body.startswith("spec.") else None
+        return _ticket_spec(ticket, project_path, section=section)
     _logger.warning("unknown ticket:// artifact: %s", body)
     return ""
 
@@ -266,6 +270,71 @@ async def _ticket_plan(
     if not parts:
         return ""
     return "### Implementation Plan\n\n" + "\n\n".join(parts)
+
+
+def _ticket_spec(
+    ticket: Ticket,
+    project_path: Path,
+    *,
+    section: str | None,
+) -> str:
+    """Render the ticket's structured spec (or a single field).
+
+    * ``ticket://spec`` → the full spec (each field as its own block).
+    * ``ticket://spec.<field>`` → just that field, or empty-with-warning
+      if the spec has no such key.
+
+    Missing spec file returns ``""`` — callers using ``strict=True``
+    (``required_context``) will raise ``MissingContextError`` upstream.
+    Per doc 03 the section is rendered as a YAML block so agents see the
+    structured content directly rather than a prose paraphrase.
+    """
+    from jig.specs import load_ticket_spec
+
+    spec = load_ticket_spec(project_path, ticket.id)
+    if spec is None:
+        _logger.warning(
+            "ticket://spec%s: no spec found for ticket %s",
+            f".{section}" if section else "",
+            ticket.id,
+        )
+        return ""
+
+    if section is None:
+        # Full spec: one block per populated field.
+        if not spec.fields:
+            return ""
+        blocks: list[str] = [f"## Ticket Spec ({spec.work_type.value})"]
+        for field_name, value in spec.fields.items():
+            blocks.append(_render_spec_field(field_name, value))
+        return "\n\n".join(blocks)
+
+    if section not in spec.fields:
+        _logger.warning(
+            "ticket://spec.%s: field not present on ticket %s",
+            section,
+            ticket.id,
+        )
+        return ""
+    return _render_spec_field(section, spec.fields[section])
+
+
+def _render_spec_field(name: str, value: object) -> str:
+    """Render a single spec field as a markdown-wrapped YAML block.
+
+    Scalars (including multi-line strings) render naked under the
+    header; structured content goes in a fenced YAML block so the
+    agent reads the shape directly.
+    """
+    import yaml as _yaml
+
+    header = f"### {name.replace('_', ' ').title()}"
+    if isinstance(value, str):
+        return f"{header}\n\n{value.rstrip()}"
+    body = _yaml.safe_dump(
+        value, default_flow_style=False, sort_keys=False
+    ).rstrip()
+    return f"{header}\n\n```yaml\n{body}\n```"
 
 
 async def _ticket_thread(

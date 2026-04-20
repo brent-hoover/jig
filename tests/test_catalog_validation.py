@@ -443,3 +443,130 @@ class TestRoleHelperTemplateReferences:
             },
         )
         validate_catalog(initialized_project)
+
+
+class TestPhaseQuestionsToReferences:
+    """Phase 4 Task H: ``PhaseConfig.questions_to`` must name known roles."""
+
+    def test_unknown_questions_to_fails(self, initialized_project: Path) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[
+                    PhaseConfig(
+                        name="p",
+                        role="dev",
+                        questions_to=["phantom-role"],
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="phantom-role"):
+            validate_catalog(initialized_project)
+
+    def test_human_target_allowed(self, initialized_project: Path) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[
+                    PhaseConfig(
+                        name="p", role="dev", questions_to=["human"]
+                    )
+                ],
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_known_role_allowed(self, initialized_project: Path) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[
+                    PhaseConfig(
+                        name="p", role="dev", questions_to=["review"]
+                    )
+                ],
+            ),
+        )
+        validate_catalog(initialized_project)
+
+
+class TestPhaseEscalationTargetReferences:
+    """Phase 4 Task H: ``PhaseConfig.escalation_targets`` must name known roles."""
+
+    def test_unknown_escalation_target_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[
+                    PhaseConfig(
+                        name="p",
+                        role="dev",
+                        escalation_targets=["ghost-role"],
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="ghost-role"):
+            validate_catalog(initialized_project)
+
+    def test_escalation_human_sentinel_allowed(
+        self, initialized_project: Path
+    ) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[
+                    PhaseConfig(
+                        name="p", role="dev", escalation_targets=["human"]
+                    )
+                ],
+            ),
+        )
+        validate_catalog(initialized_project)
+
+
+class TestWaiverAuthorityReferences:
+    """Phase 4 Task H: ``config.waiver_authority`` must name known roles."""
+
+    def test_unknown_waiver_role_fails(
+        self, initialized_project: Path
+    ) -> None:
+        _write_config(
+            initialized_project,
+            {"waiver_authority": ["po", "sa", "user", "imaginary"]},
+        )
+        with pytest.raises(CatalogError, match="imaginary"):
+            validate_catalog(initialized_project)
+
+    def test_user_sentinel_allowed(self, initialized_project: Path) -> None:
+        _write_config(
+            initialized_project,
+            {"waiver_authority": ["user"]},
+        )
+        validate_catalog(initialized_project)
+
+    def test_project_level_role_allowed(
+        self, initialized_project: Path
+    ) -> None:
+        """``po`` / ``sa`` live in ``config.roles`` rather than ``.jig/roles/``
+        but are valid waiver_authority entries."""
+        _write_config(
+            initialized_project,
+            {"waiver_authority": ["po", "sa"]},
+        )
+        validate_catalog(initialized_project)
+
+    def test_agent_role_allowed(self, initialized_project: Path) -> None:
+        _write_config(
+            initialized_project,
+            {"waiver_authority": ["dev", "review"]},
+        )
+        validate_catalog(initialized_project)

@@ -300,6 +300,25 @@ class Orchestrator:
             await self._emit_phase_event("phase_complete", ticket_id, phase, phase_idx, len(workflow.phases), result=result.status)
 
             if result.status == "success":
+                # Phase 4 Task H gate: a phase cannot advance while the
+                # ticket has unresolved blocking thread entries (pending
+                # Handoff, blocking Question, unresolved Objection,
+                # open Escalation). We publish ``phase_blocked_by_thread``
+                # on the orchestrator topic for the TUI and wait for the
+                # entries to resolve. A rejected Handoff unblocks and
+                # then cycles through the existing retry logic.
+                if self.threads is not None:
+                    blocking = await self.threads.has_unresolved_blocking(ticket_id)
+                    while blocking:
+                        await self._emit_phase_blocked_by_thread(
+                            ticket_id, phase, blocking
+                        )
+                        await self._wait_for_thread_unblock(ticket_id)
+                        blocking = await self.threads.has_unresolved_blocking(ticket_id)
+                    if await self._phase_handoff_rejected(ticket_id, phase.name):
+                        result.status = "blocked"
+
+            if result.status == "success":
                 phase_idx += 1
                 # Immediately reset ticket to in_progress so the TUI doesn't
                 # flash "resolved" between phases. Do this BEFORE the commit
@@ -516,6 +535,78 @@ class Orchestrator:
                 await self.bus.unsubscribe(topic, queue)
             except Exception:
                 pass
+
+    async def _emit_phase_blocked_by_thread(
+        self,
+        ticket_id: str,
+        phase,
+        blocking: list,
+    ) -> None:
+        """Publish a ``phase_blocked_by_thread`` event on the orchestrator
+        topic. Phase 4 Task H: the TUI renders the blocker so a human can
+        act (accept a Handoff, resolve an Objection, answer a Question).
+        """
+        await self.bus.publish(Message(
+            sender="orchestrator",
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "phase_blocked_by_thread",
+                "ticket_id": ticket_id,
+                "phase_name": phase.name,
+                "phase_role": phase.role,
+                "blocking": [
+                    {
+                        "entry_id": getattr(e, "id", None),
+                        "kind": e.kind,
+                        "author": e.author,
+                    }
+                    for e in blocking
+                ],
+            },
+            topic="orchestrator",
+        ))
+
+    async def _wait_for_thread_unblock(self, ticket_id: str) -> None:
+        """Block until the ticket's blocking thread entries drain.
+
+        Subscribes to the ticket topic for any thread/handoff resolution
+        event, then re-checks via ``has_unresolved_blocking``. Poll fallback
+        handles message-before-subscribe races.
+        """
+        topic = f"tickets.{ticket_id}"
+        queue = await self.bus.subscribe_agent(
+            topic=topic, agent_id=f"orchestrator:thread-wait:{ticket_id}",
+        )
+        try:
+            while self._running:
+                try:
+                    await asyncio.wait_for(queue.get(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+                blocking = await self.threads.has_unresolved_blocking(ticket_id)
+                if not blocking:
+                    return
+        finally:
+            try:
+                await self.bus.unsubscribe(topic, queue)
+            except Exception:
+                pass
+
+    async def _phase_handoff_rejected(self, ticket_id: str, phase_name: str) -> bool:
+        """Return True if the most recent Handoff for ``phase_name`` on
+        this ticket has ``acceptance_state == "rejected"``. A rejected
+        Handoff means the evaluator sent the phase back — the caller
+        reuses the existing ``blocked`` retry branch.
+        """
+        if self.threads is None:
+            return False
+        entries = await self.threads.for_ticket(ticket_id)
+        latest = None
+        for e in entries:
+            if e.kind == "handoff" and e.phase == phase_name:
+                latest = e
+        return latest is not None and latest.acceptance_state == "rejected"
 
     async def _auto_commit_worktree(self, worktree: Path, phase_name: str, ticket_id: str) -> None:
         """Commit any uncommitted changes left by an agent after a phase completes."""

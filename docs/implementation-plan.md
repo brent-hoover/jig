@@ -1048,16 +1048,16 @@ models and MCP handlers. Separate from thread per doc 09.
 
 **H. Gating + load-time validation + tests**
 
-- [ ] `orchestrator.py` dispatch consults
+- [x] `orchestrator.py` dispatch consults
       `ThreadStore.has_unresolved_blocking(ticket_id)` before
       advancing a phase. Blocked advancement surfaces to the TUI
       via the existing `orchestrator` topic as a
       `phase_blocked_by_thread` event.
-- [ ] `validate_catalog` extensions:
+- [x] `validate_catalog` extensions:
   - Workflow phases that declare `questions_to` or
     `escalation_targets` reference known role names.
   - `config.waiver_authority` references known roles.
-- [ ] Unit tests per task. Minimum surface:
+- [x] Unit tests per task. Minimum surface:
   - thread_ask/answer/resolve_question roundtrip + asker-only
     close.
   - Objection blocks handoff acceptance; Resolution is inert
@@ -1071,7 +1071,7 @@ models and MCP handlers. Separate from thread per doc 09.
   - `checkpoint_deferred` items surface on the next Handoff.
   - Phase-boundary pruning: prior-phase checkpoints excluded by
     default queries.
-- [ ] End-to-end test: ticket with blocking Objection on phase 1
+- [x] End-to-end test: ticket with blocking Objection on phase 1
       → thread_handoff refused until thread_accept_resolution →
       handoff accepted → orchestrator advances to phase 2 →
       deferred item from phase 1 surfaces in the evaluator's view.

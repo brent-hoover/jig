@@ -47,6 +47,14 @@ class PhaseConfig(BaseModel):
     # warn-but-allow. Full capability-policy enforcement lands
     # Phase 5 (doc 16).
     evaluator: str = ""
+    # Phase 4H: role allow-lists consulted by the thread MCP tools.
+    # ``questions_to`` restricts where ``thread_ask`` may route a
+    # blocking Question; ``escalation_targets`` restricts where
+    # ``thread_escalate`` may point. Empty means "no phase-level
+    # restriction" — thread tools fall back to their current warn-only
+    # behavior. Phase 5 flips these to hard enforcement per doc 16.
+    questions_to: list[str] = []
+    escalation_targets: list[str] = []
 
 
 class WorkflowConfig(BaseModel):

@@ -125,6 +125,28 @@ def validate_catalog(
                         f"unknown check {check_name!r} "
                         f"(known: {sorted(known_checks)})"
                     )
+            # Phase 4H: questions_to / escalation_targets role refs.
+            # "human" is a sentinel (escalate to a person, not a role)
+            # and is always allowed; everything else must be a known
+            # role.
+            for target in phase.questions_to:
+                if target == "human":
+                    continue
+                if target not in known_roles:
+                    fail(
+                        f"workflow {wf.name!r} phase {phase.name!r} "
+                        f"questions_to references unknown role {target!r} "
+                        f"(known: {sorted(known_roles)})"
+                    )
+            for target in phase.escalation_targets:
+                if target == "human":
+                    continue
+                if target not in known_roles:
+                    fail(
+                        f"workflow {wf.name!r} phase {phase.name!r} "
+                        f"escalation_targets references unknown role "
+                        f"{target!r} (known: {sorted(known_roles)})"
+                    )
 
     # Config workflow references
     if config is not None:
@@ -191,6 +213,25 @@ def validate_catalog(
                     f"config.ownership.spec.{field} references a field "
                     f"not declared in any work-type schema "
                     f"(known spec fields: {sorted(all_spec_fields)})"
+                )
+
+    # Phase 4H: config.waiver_authority must reference known roles.
+    # ``"user"`` is a sentinel (the operating human) and is always
+    # allowed; so are the project-level role names declared under
+    # ``config.roles`` (po, sa, or extras the project may add).
+    if config is not None:
+        project_level_roles = set(config.roles.model_dump().keys())
+        for role_name in config.waiver_authority:
+            if role_name == "user":
+                continue
+            if role_name in project_level_roles:
+                continue
+            if role_name not in known_roles:
+                fail(
+                    f"config.waiver_authority references unknown role "
+                    f"{role_name!r} (known project-level roles: "
+                    f"{sorted(project_level_roles)}; known agent roles: "
+                    f"{sorted(known_roles)})"
                 )
 
     # Config.roles.<role>.helper_template must name an existing role

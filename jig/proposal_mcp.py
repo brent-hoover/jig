@@ -8,10 +8,9 @@ Three tools ship with this module:
   proposal. Enforces the self-certification guard per doc 04.
 * ``list_proposals`` — query helper used by both humans and the TUI.
 
-Proposals are stored as specialized ``Comment`` records (Phase 3E)
-rather than their own collection. That avoids a forked store for
-something Phase 4 plans to re-home alongside the other typed thread
-entries.
+Phase 4: proposals live in ``ThreadStore`` as first-class
+:class:`jig.thread.Proposal` entries. The self-approval audit marker
+is a :class:`jig.thread.SystemEvent` (``event_type="status_change"``).
 """
 
 from __future__ import annotations
@@ -28,9 +27,9 @@ from jig.specs import (
     load_ticket_spec,
     save_ticket_spec,
 )
-from jig.store.comments import CommentStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Comment
+from jig.thread import Proposal, SystemEvent
 from jig.work_types import load_work_type_schema
 
 _logger = logging.getLogger(__name__)
@@ -46,7 +45,7 @@ class ProposalError(ValueError):
 async def handle_propose_change(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     sender: str,
     args: dict[str, Any],
     project_path: Path,
@@ -56,13 +55,13 @@ async def handle_propose_change(
     Required args:
       ticket_id, target (URI), change (content of the proposed change).
     Optional args:
-      section, content (prose commentary).
+      section, content (prose rationale).
     """
     ticket_id = args["ticket_id"]
     target = args["target"]
     change = args["change"]
     section = args.get("section")
-    content = args.get("content") or f"Proposed change to {target}"
+    rationale = args.get("content") or f"Proposed change to {target}"
 
     ticket = await tickets.get(ticket_id)
     if ticket is None:
@@ -78,20 +77,19 @@ async def handle_propose_change(
         schema = load_work_type_schema(project_path, ticket.work_type.value)
     routing = resolve_owner(cfg, target, work_type_schema=schema)
 
-    proposal = Comment(
+    proposal = Proposal(
         ticket_id=ticket_id,
         author=sender,
-        content=content,
-        kind="proposal",
-        proposal_target=target,
-        proposal_section=section,
-        proposal_change=change,
-        proposal_state="pending",
-        proposal_owners=[routing.role],
+        target=target,
+        section=section,
+        change=change,
+        rationale=rationale,
+        state="pending",
+        owners=[routing.role],
     )
-    cid = await comments.post(proposal)
+    pid = await threads.post(proposal)
     return {
-        "comment_id": cid,
+        "comment_id": pid,
         "routing": _routing_to_dict(routing),
         "state": "pending",
     }
@@ -103,7 +101,7 @@ async def handle_propose_change(
 async def handle_resolve_proposal(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     sender: str,
     args: dict[str, Any],
     project_path: Path,
@@ -116,7 +114,7 @@ async def handle_resolve_proposal(
       reasoning (non-empty when self-approving under "warn").
       applied_change (replacement YAML fragment for the target field
         on ticket://spec targets — defaults to the original proposal's
-        ``proposal_change`` if absent).
+        ``change`` if absent).
     """
     verdict = args["verdict"]
     if verdict not in {"accept", "reject", "refine"}:
@@ -124,11 +122,11 @@ async def handle_resolve_proposal(
             f"verdict must be accept/reject/refine, got {verdict!r}"
         )
 
-    proposal = await _find_proposal(comments, args["proposal_id"])
-    if proposal.proposal_state != "pending":
+    proposal = await _find_proposal(threads, args["proposal_id"])
+    if proposal.state != "pending":
         raise ProposalError(
             f"proposal {proposal.id} is not pending "
-            f"(state={proposal.proposal_state})"
+            f"(state={proposal.state})"
         )
 
     # --- self-cert guard (doc 04) ---
@@ -153,51 +151,47 @@ async def handle_resolve_proposal(
     }[verdict]
 
     spec_version = None
-    if verdict == "accept" and proposal.proposal_target and (
-        proposal.proposal_target == "ticket://spec"
-        or proposal.proposal_target.startswith("ticket://spec.")
+    if verdict == "accept" and proposal.target and (
+        proposal.target == "ticket://spec"
+        or proposal.target.startswith("ticket://spec.")
     ):
         spec_version = await _apply_spec_change(
-            comments=comments,
             proposal=proposal,
             applied_change=args.get("applied_change"),
             project_path=project_path,
         )
 
-    resolver = Comment(
+    resolver = Proposal(
         ticket_id=proposal.ticket_id,
         author=sender,
-        content=reasoning or f"{verdict}ed proposal {proposal.id}",
-        kind="proposal",
-        proposal_target=proposal.proposal_target,
-        proposal_section=proposal.proposal_section,
-        proposal_change=args.get("applied_change"),
-        proposal_state=new_state,  # type: ignore[arg-type]
-        proposal_parent_id=proposal.id,
-        proposal_owners=list(proposal.proposal_owners),
-        proposal_spec_version=spec_version,
+        target=proposal.target,
+        section=proposal.section,
+        change=args.get("applied_change"),
+        rationale=reasoning or f"{verdict}ed proposal {proposal.id}",
+        state=new_state,  # type: ignore[arg-type]
+        parent_id=proposal.id,
+        owners=list(proposal.owners),
+        spec_version=spec_version,
     )
-    cid = await comments.post(resolver)
+    cid = await threads.post(resolver)
 
     # Flip the original proposal to the resolved state so re-resolution
     # attempts fail loud rather than silently spawning a second audit
-    # entry. The resolver Comment remains as the decision record.
-    await comments._collection.update(
-        proposal.id, {"proposal_state": new_state}
-    )
+    # entry. The resolver entry remains as the decision record.
+    await threads.update(proposal.id, {"state": new_state})
 
     # Note self-approval with justification in the audit trail.
     if self_approving and cfg.self_approval == "warn":
-        marker = Comment(
+        marker = SystemEvent(
             ticket_id=proposal.ticket_id,
             author=sender,
-            kind="status_change",
+            event_type="status_change",
             content=(
                 "self_approval_with_justification: true "
                 f"(proposal={proposal.id}, resolver={cid})"
             ),
         )
-        await comments.post(marker)
+        await threads.post(marker)
 
     return {
         "comment_id": cid,
@@ -212,7 +206,7 @@ async def handle_resolve_proposal(
 
 async def handle_list_proposals(
     *,
-    comments: CommentStore,
+    threads: ThreadStore,
     args: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Return proposals matching the filter. No filter = all proposals.
@@ -224,24 +218,21 @@ async def handle_list_proposals(
     target = args.get("target")
 
     if ticket_id:
-        found = await comments.for_ticket(ticket_id)
+        found = await threads.find_by_kind(ticket_id, "proposal")
     else:
-        # No cheap "all" method on CommentStore; grab via the collection.
-        found = await comments._collection.find(
-            lambda c: c.kind == "proposal"
+        # No cheap "all" method on ThreadStore; grab via the collection.
+        raws = await threads._collection.find(
+            lambda r: r.get("kind") == "proposal"
         )
+        found = [threads._load(r) for r in raws]
 
-    proposals = [c for c in found if c.kind == "proposal"]
-    # Only return originating proposals (not resolver entries) unless
-    # the caller explicitly asked for a non-pending state.
+    proposals = [e for e in found if e.kind == "proposal"]
     if state:
-        proposals = [c for c in proposals if c.proposal_state == state]
+        proposals = [p for p in proposals if p.state == state]
     else:
-        proposals = [
-            c for c in proposals if c.proposal_parent_id is None
-        ]
+        proposals = [p for p in proposals if p.parent_id is None]
     if target:
-        proposals = [c for c in proposals if c.proposal_target == target]
+        proposals = [p for p in proposals if p.target == target]
 
     return [_proposal_to_dict(p) for p in proposals]
 
@@ -250,18 +241,18 @@ async def handle_list_proposals(
 
 
 async def _find_proposal(
-    comments: CommentStore, proposal_id: str
-) -> Comment:
-    found = await comments._collection.get(proposal_id)
-    if found is None or found.kind != "proposal":
+    threads: ThreadStore, proposal_id: str
+) -> Proposal:
+    entry = await threads.get(proposal_id)
+    if entry is None or entry.kind != "proposal":
         raise KeyError(f"proposal {proposal_id!r} not found")
-    return found
+    assert isinstance(entry, Proposal)  # narrow for type-checkers
+    return entry
 
 
 async def _apply_spec_change(
     *,
-    comments: CommentStore,
-    proposal: Comment,
+    proposal: Proposal,
     applied_change: str | None,
     project_path: Path,
 ) -> int:
@@ -269,9 +260,9 @@ async def _apply_spec_change(
 
     Phase 3 treats ``applied_change`` as opaque YAML — the acceptor
     provides the merged field value (or we fall back to
-    ``proposal.proposal_change``). The work-type schema still runs
-    against the composite spec at write time, so a bad payload fails
-    loud as ``SpecValidationError``.
+    ``proposal.change``). The work-type schema still runs against the
+    composite spec at write time, so a bad payload fails loud as
+    ``SpecValidationError``.
     """
     import yaml as _yaml
 
@@ -283,8 +274,8 @@ async def _apply_spec_change(
             "(create one before proposing changes)"
         )
 
-    target = proposal.proposal_target or ""
-    change_yaml = applied_change or proposal.proposal_change or ""
+    target = proposal.target or ""
+    change_yaml = applied_change or proposal.change or ""
     if not change_yaml.strip():
         raise ProposalError("accepted spec proposal has no change payload")
     parsed = _yaml.safe_load(change_yaml)
@@ -328,20 +319,20 @@ def _routing_to_dict(routing: OwnerRouting) -> dict[str, Any]:
     }
 
 
-def _proposal_to_dict(c: Comment) -> dict[str, Any]:
+def _proposal_to_dict(p: Proposal) -> dict[str, Any]:
     return {
-        "id": c.id,
-        "ticket_id": c.ticket_id,
-        "author": c.author,
-        "content": c.content,
-        "target": c.proposal_target,
-        "section": c.proposal_section,
-        "change": c.proposal_change,
-        "state": c.proposal_state,
-        "owners": list(c.proposal_owners),
-        "parent_id": c.proposal_parent_id,
-        "spec_version": c.proposal_spec_version,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "id": p.id,
+        "ticket_id": p.ticket_id,
+        "author": p.author,
+        "content": p.rationale,
+        "target": p.target,
+        "section": p.section,
+        "change": p.change,
+        "state": p.state,
+        "owners": list(p.owners),
+        "parent_id": p.parent_id,
+        "spec_version": p.spec_version,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
     }
 
 

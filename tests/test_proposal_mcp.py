@@ -22,7 +22,7 @@ from jig.proposal_mcp import (
     handle_resolve_proposal,
 )
 from jig.specs import TicketSpec, load_ticket_spec, save_ticket_spec
-from jig.store.comments import CommentStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Size, Ticket, WorkType
 
@@ -42,8 +42,8 @@ async def tickets(tmp_path: Path) -> TicketStore:
 
 
 @pytest.fixture
-async def comments(tmp_path: Path) -> CommentStore:
-    store = CommentStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+async def threads(tmp_path: Path) -> ThreadStore:
+    store = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
     await store.load()
     return store
 
@@ -99,7 +99,7 @@ class TestHappyPath:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -107,7 +107,7 @@ class TestHappyPath:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -123,7 +123,7 @@ class TestHappyPath:
         # Different actor accepts.
         accept = await handle_resolve_proposal(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="pam",
             args={
                 "proposal_id": propose["comment_id"],
@@ -144,7 +144,7 @@ class TestHappyPath:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -152,7 +152,7 @@ class TestHappyPath:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -163,7 +163,7 @@ class TestHappyPath:
         )
         reject = await handle_resolve_proposal(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="pam",
             args={
                 "proposal_id": propose["comment_id"],
@@ -181,7 +181,7 @@ class TestHappyPath:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -189,7 +189,7 @@ class TestHappyPath:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -200,7 +200,7 @@ class TestHappyPath:
         )
         refine = await handle_resolve_proposal(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="pam",
             args={
                 "proposal_id": propose["comment_id"],
@@ -220,7 +220,7 @@ class TestSelfApprovalWarn:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -228,7 +228,7 @@ class TestSelfApprovalWarn:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -241,7 +241,7 @@ class TestSelfApprovalWarn:
         with pytest.raises(ProposalError, match="reasoning"):
             await handle_resolve_proposal(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 sender="alice",
                 args={
                     "proposal_id": propose["comment_id"],
@@ -254,7 +254,7 @@ class TestSelfApprovalWarn:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -262,7 +262,7 @@ class TestSelfApprovalWarn:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -273,7 +273,7 @@ class TestSelfApprovalWarn:
         )
         accept = await handle_resolve_proposal(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "proposal_id": propose["comment_id"],
@@ -285,11 +285,12 @@ class TestSelfApprovalWarn:
         assert accept["self_approved"] is True
         assert accept["state"] == "accepted"
 
-        thread = await comments.for_ticket("t-1")
+        thread = await threads.for_ticket("t-1")
         markers = [
-            c for c in thread
-            if c.kind == "status_change"
-            and "self_approval_with_justification" in c.content
+            e for e in thread
+            if e.kind == "system_event"
+            and getattr(e, "event_type", None) == "status_change"
+            and "self_approval_with_justification" in getattr(e, "content", "")
         ]
         assert len(markers) == 1
 
@@ -299,7 +300,7 @@ class TestSelfApprovalBlocked:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -309,7 +310,7 @@ class TestSelfApprovalBlocked:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -321,7 +322,7 @@ class TestSelfApprovalBlocked:
         with pytest.raises(ProposalError, match="self-approval blocked"):
             await handle_resolve_proposal(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 sender="alice",
                 args={
                     "proposal_id": propose["comment_id"],
@@ -340,7 +341,7 @@ class TestAcceptValidation:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         """A ticket://spec change payload with a bogus field must fail at
         save time even though it routed successfully."""
@@ -352,7 +353,7 @@ class TestAcceptValidation:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -364,7 +365,7 @@ class TestAcceptValidation:
         with pytest.raises(SpecValidationError):
             await handle_resolve_proposal(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 sender="pam",
                 args={
                     "proposal_id": propose["comment_id"],
@@ -377,7 +378,7 @@ class TestAcceptValidation:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
@@ -385,7 +386,7 @@ class TestAcceptValidation:
 
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -396,7 +397,7 @@ class TestAcceptValidation:
         )
         await handle_resolve_proposal(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="pam",
             args={
                 "proposal_id": propose["comment_id"],
@@ -407,7 +408,7 @@ class TestAcceptValidation:
         with pytest.raises(ProposalError, match="not pending"):
             await handle_resolve_proposal(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 sender="pam",
                 args={
                     "proposal_id": propose["comment_id"],
@@ -425,7 +426,7 @@ class TestEndToEnd:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         """End-to-end Phase 3: ticket → spec → propose → accept → bump.
 
@@ -448,7 +449,7 @@ class TestEndToEnd:
         # 4. Alice proposes a change to spec.summary.
         propose = await handle_propose_change(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="alice",
             args={
                 "ticket_id": "t-1",
@@ -465,7 +466,7 @@ class TestEndToEnd:
         # 5. Pam (distinct actor) accepts.
         accept = await handle_resolve_proposal(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             sender="pam",
             args={
                 "proposal_id": propose["comment_id"],
@@ -489,7 +490,7 @@ class TestEndToEnd:
         with pytest.raises(ProposalError, match="not pending"):
             await handle_resolve_proposal(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 sender="pam",
                 args={
                     "proposal_id": propose["comment_id"],
@@ -501,10 +502,10 @@ class TestEndToEnd:
         # 8. Listing pending proposals returns nothing; resolver entry
         #    carries state=accepted so the accepted filter surfaces it.
         pending = await handle_list_proposals(
-            comments=comments, args={"ticket_id": "t-1", "state": "pending"},
+            threads=threads, args={"ticket_id": "t-1", "state": "pending"},
         )
         accepted = await handle_list_proposals(
-            comments=comments, args={"ticket_id": "t-1", "state": "accepted"},
+            threads=threads, args={"ticket_id": "t-1", "state": "accepted"},
         )
         assert pending == []
         assert len(accepted) >= 1
@@ -515,14 +516,14 @@ class TestListProposals:
         self,
         project: Path,
         tickets: TicketStore,
-        comments: CommentStore,
+        threads: ThreadStore,
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
         save_config(project, _cfg_with_roles(project))
 
         a = await handle_propose_change(
-            tickets=tickets, comments=comments, sender="alice",
+            tickets=tickets, threads=threads, sender="alice",
             args={
                 "ticket_id": "t-1",
                 "target": "ticket://spec.summary",
@@ -531,7 +532,7 @@ class TestListProposals:
             project_path=project,
         )
         await handle_propose_change(
-            tickets=tickets, comments=comments, sender="alice",
+            tickets=tickets, threads=threads, sender="alice",
             args={
                 "ticket_id": "t-1",
                 "target": "ticket://spec.summary",
@@ -540,19 +541,19 @@ class TestListProposals:
             project_path=project,
         )
         await handle_resolve_proposal(
-            tickets=tickets, comments=comments, sender="pam",
+            tickets=tickets, threads=threads, sender="pam",
             args={"proposal_id": a["comment_id"], "verdict": "reject"},
             project_path=project,
         )
 
         pending = await handle_list_proposals(
-            comments=comments, args={"ticket_id": "t-1", "state": "pending"},
+            threads=threads, args={"ticket_id": "t-1", "state": "pending"},
         )
         rejected = await handle_list_proposals(
-            comments=comments, args={"ticket_id": "t-1", "state": "rejected"},
+            threads=threads, args={"ticket_id": "t-1", "state": "rejected"},
         )
         all_for_ticket = await handle_list_proposals(
-            comments=comments, args={"ticket_id": "t-1"},
+            threads=threads, args={"ticket_id": "t-1"},
         )
         assert len(pending) == 1
         assert len(rejected) >= 1  # resolver entry carries state=rejected

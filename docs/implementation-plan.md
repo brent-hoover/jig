@@ -846,7 +846,7 @@ New `jig/thread.py`. Replaces the proposal-specific extension of
 `Comment` (Phase 3E) with a typed discriminated union of ten
 entries plus the existing Proposal.
 
-- [ ] Pydantic models per doc 08, one per type. Shared envelope
+- [x] Pydantic models per doc 08, one per type. Shared envelope
       (`id`, `ticket_id`, `author`, `created_at`, `kind`), per-type
       payload:
   - `Question`: `target: str`, `question: str`,
@@ -865,13 +865,13 @@ entries plus the existing Proposal.
   - `Note`: `text: str`.
   - `Proposal` — migrate from `Comment` (Phase 3E) keeping the
     same fields.
-- [ ] Discriminator lives on `kind`; a top-level `ThreadEntry =
+- [x] Discriminator lives on `kind`; a top-level `ThreadEntry =
       Annotated[Union[Question | ... | Note], Field(discriminator=
       "kind")]` for the store layer.
-- [ ] `ThreadEntry.is_blocking() -> bool` per type. Default
+- [x] `ThreadEntry.is_blocking() -> bool` per type. Default
       unblocking; Question respects its own `blocking` bit;
       Objection, Escalation, and un-accepted Handoff are blocking.
-- [ ] `ThreadEntry.is_resolved() -> bool` per type. Decision /
+- [x] `ThreadEntry.is_resolved() -> bool` per type. Decision /
       Note / Answer / Waiver / Resolution auto-resolved; Question
       resolves when `resolved_by` is set; Objection resolves when
       `resolved_by` or `waived_by` set; Handoff resolves when

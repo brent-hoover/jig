@@ -917,21 +917,27 @@ Agent-facing MCP tools per doc 08 §Agent tools. Replaces the
 ad-hoc `handle_ask_question` / `handle_answer_questions` flow in
 `jig/ticket_mcp.py` (which pre-dates the typed model).
 
-- [ ] `thread_ask(ticket_id, target, question, blocking=False)` —
-      creates a `Question` entry; resolves `target` against the
-      workflow phase's legal targets (reject if not in the phase's
-      `escalation_targets`/`questions_to` list when that's
-      declared; accept otherwise — Phase 5 tightens).
-- [ ] `thread_answer(question_id, text)` — creates an `Answer`;
-      does not resolve the Question. Fails loud if the question is
-      already resolved.
-- [ ] `thread_resolve_question(question_id, accepted_answer_id=
-      None, reason=None)` — the asker-only close. Refuses if
-      `sender != question.author`. Marks the Question
-      `resolved_by=sender`.
-- [ ] Retire the existing `handle_ask_question` /
-      `handle_answer_questions` in `ticket_mcp.py` (the docstrings
-      already note they're thread-entry-shaped).
+- [x] `thread_ask(ticket_id, target, question, blocking=False)` —
+      creates a `Question` entry and publishes a typed bus event
+      (`QUESTION`) so subscribers react in real time. Target
+      validation against the phase's `escalation_targets` /
+      `questions_to` lists is deferred to Phase 5 per the plan
+      note — no current workflow declares them.
+- [x] `thread_answer(question_id, text)` — creates an `Answer` and
+      pings the asker via an `ANSWER` bus event. Does not resolve
+      the Question; fails loud if the target is already resolved or
+      isn't a question.
+- [x] `thread_resolve_question(question_id, accepted_answer_id=
+      None, reason=None)` — asker-only close. Refuses if
+      `sender != question.author`. Optionally records
+      `accepted_answer_id` after validating it points back at the
+      question.
+- [ ] *(deferred to Task H)* Retire
+      `handle_ask_question` / `handle_answer_questions` in
+      `ticket_mcp.py`. They back the TUI's operator-pause UX
+      (`needs_info` status + WebSocket answer flow); removing them
+      requires moving that UX onto the typed-thread surface, which
+      is a Task H rewrite alongside the full CommentStore drop.
 
 **D. Objection / Resolution / Waiver**
 

@@ -234,6 +234,7 @@ class WebSocketServer:
                     project=self._orch._project,
                     tickets=self._orch.tickets,
                     comments=self._orch.comments,
+                    threads=self._orch.threads,
                     memory=self._orch.memory,
                     bus=self._orch.bus,
                 )

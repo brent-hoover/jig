@@ -5,11 +5,12 @@ from pathlib import Path
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-from jig import ticket_mcp
+from jig import thread_mcp, ticket_mcp
 from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 
 
@@ -17,6 +18,7 @@ def create_agent_mcp_server(
     *,
     tickets: TicketStore,
     comments: CommentStore,
+    threads: ThreadStore,
     memory: MemoryStore,
     bus: MessageBus,
     agent_role: str,
@@ -26,7 +28,16 @@ def create_agent_mcp_server(
     valid_roles: frozenset[str] = frozenset(),
     package_manager: str = "",
 ):
-    """Create a Jig MCP server for a worker agent exposing 9 ticket-era tools."""
+    """Create a Jig MCP server for a worker agent.
+
+    ``threads`` is the Phase 4 typed thread-entry store; it sits on
+    the same JSONL file as ``comments`` through Phase 4 (Task H
+    collapses the two). Task C exposes three agent-facing tools
+    (``thread_ask`` / ``thread_answer`` / ``thread_resolve_question``)
+    that write typed entries via this store. The legacy
+    ``ask_question`` tool stays registered for the operator-pause
+    UX used by the WebSocket + TUI flow.
+    """
 
     # Allowed assignees: known roles + orchestrator + user
     _allowed_assignees = valid_roles | {"orchestrator", "user"}
@@ -102,6 +113,61 @@ def create_agent_mcp_server(
     async def ask_question(args):
         result = await ticket_mcp.handle_ask_question(
             tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_ask",
+        "Post a targeted question on a ticket (typed doc-08 thread entry). "
+        "'target' is a role name, actor name, or 'any_human'. Set blocking=true "
+        "to gate the current phase on a reply — default non-blocking. Unlike "
+        "ask_question, this does NOT pause the ticket via status changes; "
+        "use it for in-band agent-to-agent Q&A.",
+        {"ticket_id": str, "target": str, "question": str, "blocking": bool},
+    )
+    async def thread_ask(args):
+        result = await thread_mcp.handle_thread_ask(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_answer",
+        "Post an answer to a thread question. Does NOT close the question — the "
+        "asker retains the right to resolve (doc 08 resolution asymmetry). "
+        "Fails if the question is already resolved.",
+        {"question_id": str, "text": str},
+    )
+    async def thread_answer(args):
+        result = await thread_mcp.handle_thread_answer(
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_resolve_question",
+        "Close one of your own thread questions. Only the asker can close "
+        "(refuses if sender != question.author). Optional accepted_answer_id "
+        "points at the answer that satisfied the question.",
+        {
+            "question_id": str,
+            "accepted_answer_id": str,
+            "reason": str,
+        },
+    )
+    async def thread_resolve_question(args):
+        result = await thread_mcp.handle_thread_resolve_question(
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -187,6 +253,9 @@ def create_agent_mcp_server(
         update_ticket,
         comment_on_ticket,
         ask_question,
+        thread_ask,
+        thread_answer,
+        thread_resolve_question,
         list_tickets,
         read_comments,
         commit_progress,

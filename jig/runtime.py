@@ -7,6 +7,7 @@ from jig.project import Project
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket
 
@@ -27,6 +28,7 @@ class AgentSpawnContext:
     project: Project
     tickets: TicketStore
     comments: CommentStore
+    threads: ThreadStore
     memory: MemoryStore
     bus: MessageBus
     # Populated for PHASE_PRIMARY spawns — None for QA_RESPONDER and other

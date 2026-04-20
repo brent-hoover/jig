@@ -7,6 +7,7 @@ from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 
 
@@ -18,6 +19,8 @@ async def test_agent_mcp_server_registers_expected_tools(
     await tickets.load()
     comments = CommentStore(tmp_path / "comments.jsonl")
     await comments.load()
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
     memory = MemoryStore(tmp_path)  # directory, not file
     await memory.load()
     bus = MessageBus(tmp_path / "messages.jsonl")
@@ -36,6 +39,7 @@ async def test_agent_mcp_server_registers_expected_tools(
     result = mcp_server.create_agent_mcp_server(
         tickets=tickets,
         comments=comments,
+        threads=threads,
         memory=memory,
         bus=bus,
         agent_role="dev",
@@ -52,6 +56,9 @@ async def test_agent_mcp_server_registers_expected_tools(
         "update_ticket",
         "comment_on_ticket",
         "ask_question",
+        "thread_ask",
+        "thread_answer",
+        "thread_resolve_question",
         "list_tickets",
         "read_comments",
         "commit_progress",

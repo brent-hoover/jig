@@ -11,6 +11,7 @@ from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.store import MessageBus
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, WorkType
 
@@ -33,6 +34,8 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     await tickets.load()
     comments = CommentStore(tmp_path / "comments.jsonl")
     await comments.load()
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
     memory = MemoryStore(tmp_path)
     await memory.load()
     bus = MessageBus(tmp_path / "messages.jsonl")
@@ -62,6 +65,7 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
         ),
         tickets=tickets,
         comments=comments,
+        threads=threads,
         memory=memory,
         bus=bus,
     )

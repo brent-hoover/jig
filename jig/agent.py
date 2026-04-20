@@ -217,6 +217,7 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
         comments=ctx.comments,
+        threads=ctx.threads,
         memory=ctx.memory,
         bus=ctx.bus,
         agent_role=ctx.role,

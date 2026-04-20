@@ -13,6 +13,7 @@ from jig.project import Project, load_project
 from jig.store import Message, MessageBus, MessageType
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
 
@@ -50,11 +51,15 @@ class Orchestrator:
             store_dir.mkdir(parents=True, exist_ok=True)
             self.tickets = TicketStore(store_dir / "tickets.jsonl")
             self.comments = CommentStore(store_dir / "comments.jsonl")
+            # ThreadStore shares the comments JSONL file through Phase 4
+            # (see jig/store/threads.py); Task H drops CommentStore.
+            self.threads = ThreadStore(store_dir / "comments.jsonl")
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
                 self.comments.load(),
+                self.threads.load(),
                 self.memory.load(),
                 self.bus.load(),
             )
@@ -262,6 +267,7 @@ class Orchestrator:
                 project=self._project,
                 tickets=self.tickets,
                 comments=self.comments,
+                threads=self.threads,
                 memory=self.memory,
                 bus=self.bus,
                 phase=phase,
@@ -725,6 +731,7 @@ class Orchestrator:
             project=self._project,
             tickets=self.tickets,
             comments=self.comments,
+            threads=self.threads,
             memory=self.memory,
             bus=self.bus,
             initial_bus_message=initial_event.payload if initial_event else None,

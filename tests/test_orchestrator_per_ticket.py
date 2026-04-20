@@ -7,7 +7,8 @@ import pytest
 from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
-from jig.ticket import Comment, Ticket, TicketStatus, WorkType
+from jig.thread import SystemEvent
+from jig.ticket import Ticket, TicketStatus, WorkType
 
 
 @pytest.mark.asyncio
@@ -180,14 +181,14 @@ async def test_current_phase_index_skips_by_phase_name_not_task_count(
             Ticket(work_type=WorkType.FEATURE, title="feat", created_by="user")
         )
 
-        # Post TWO phase_run comments for phase "a" (simulating a retry)
+        # Post TWO phase_run system events for phase "a" (simulating a retry)
         for i in range(2):
-            await orch.comments.post(
-                Comment(
+            await orch.threads.post(
+                SystemEvent(
                     ticket_id=ticket_id,
                     author="orchestrator",
+                    event_type="phase_run",
                     content=f"phase a: success (attempt {i})",
-                    kind="phase_run",
                     phase_result="success",
                 )
             )

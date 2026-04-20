@@ -616,13 +616,13 @@ class Orchestrator:
             sha = await commit_worktree(worktree, f"chore({phase_name}): auto-commit after phase")
             if sha:
                 _logger.info("auto-committed leftover changes after %s: %s", phase_name, sha)
-                if self.comments is not None:
-                    from jig.ticket import Comment
-                    await self.comments.post(Comment(
+                if self.threads is not None:
+                    from jig.thread import SystemEvent
+                    await self.threads.post(SystemEvent(
                         ticket_id=ticket_id,
                         author="orchestrator",
+                        event_type="commit",
                         content=f"auto-committed leftover changes: {sha[:7]}",
-                        kind="commit",
                         commit_sha=sha,
                     ))
         except Exception:
@@ -688,33 +688,45 @@ class Orchestrator:
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.
 
-        Reads ``phase_run`` comments on the ticket and matches by phase name.
+        Reads ``phase_run`` system events on the ticket and matches by
+        phase name. Legacy ``Comment(kind="phase_run")`` records are
+        migrated to ``SystemEvent(event_type="phase_run")`` by
+        ``ThreadStore``, so historical tickets stay readable.
         """
-        if self.comments is None:
+        if self.threads is None:
             raise RuntimeError("Orchestrator not started")
-        runs = await self.comments.phase_runs_for(ticket_id)
-        succeeded = {r.content.removeprefix("phase ").split(":")[0] for r in runs if r.phase_result == "success"}
+        events = await self.threads.find_by_kind(ticket_id, "system_event")
+        succeeded: set[str] = set()
+        for e in events:
+            if getattr(e, "event_type", None) != "phase_run":
+                continue
+            if getattr(e, "phase_result", None) != "success":
+                continue
+            content = getattr(e, "content", "")
+            # Recorded as ``phase <name>: <status>``.
+            name = content.removeprefix("phase ").split(":")[0]
+            succeeded.add(name)
         for phase_idx, phase in enumerate(workflow.phases):
             if phase.name not in succeeded:
                 return phase_idx
         return len(workflow.phases)
 
     async def _write_phase_run_comment(self, ticket_id: str, phase, result) -> None:
-        from jig.ticket import Comment
+        from jig.thread import SystemEvent
 
-        if self.comments is None:
+        if self.threads is None:
             raise RuntimeError("Orchestrator not started")
 
         phase_result: str = result.status if result.status in {
             "success", "failed", "blocked", "needs_info"
         } else "failed"
 
-        await self.comments.post(
-            Comment(
+        await self.threads.post(
+            SystemEvent(
                 ticket_id=ticket_id,
                 author="orchestrator",
+                event_type="phase_run",
                 content=f"phase {phase.name}: {result.status}",
-                kind="phase_run",
                 phase_result=phase_result,  # type: ignore[arg-type]
                 phase_branch=f"jig/{ticket_id}",
             )

@@ -615,8 +615,8 @@ Extend the current `Comment` model with a proposal kind and a
 structured payload. Full thread typing is Phase 4; we take the
 minimum Phase 3 needs.
 
-- [ ] Add `"proposal"` to `Comment.kind`'s Literal.
-- [ ] Add optional payload fields on `Comment`:
+- [x] Add `"proposal"` to `Comment.kind`'s Literal.
+- [x] Add optional payload fields on `Comment`:
   - `proposal_target: str | None` — e.g.,
     `ticket://spec.behaviors`, or a project-level artifact path.
   - `proposal_section: str | None` — optional sub-section.
@@ -628,7 +628,7 @@ minimum Phase 3 needs.
     the originating proposal.
   - `proposal_owners: list[str] = []` — computed at routing time
     (Task F); stored so later queries don't re-derive.
-- [ ] Thread ordering remains chronological for now. Phase 4
+- [x] Thread ordering remains chronological for now. Phase 4
       rethinks it.
 
 **F. Owner resolution and proposal routing**
@@ -636,7 +636,7 @@ minimum Phase 3 needs.
 New `jig/ownership.py`. Given a proposal's target, compute the
 owner(s) and (if staffed) the concrete assignee list.
 
-- [ ] `resolve_owner(config, target: str, section: str | None) ->
+- [x] `resolve_owner(config, target: str, section: str | None) ->
       OwnerRouting` returning:
   - `role: str` — `"po"` / `"sa"` / other declared role
   - `assignee: str | None` — from `config.roles.<role>.human` when
@@ -646,14 +646,14 @@ owner(s) and (if staffed) the concrete assignee list.
   - `assignment: Literal["human","human_with_helper","agent",
     "unstaffed"]` — `"unstaffed"` when the role has no assignment in
     config (orphaned per doc 04).
-- [ ] Resolution order:
+- [x] Resolution order:
   1. If target is `ticket://spec.<field>`, look up
      `config.ownership.spec.<field>`; fall back to the whole-spec
      owner if the field isn't listed.
   2. For project-level artifacts (`project://architecture`, etc.),
      look up `config.ownership.<key>` directly.
   3. Unknown target → `CatalogError` at load / routing time.
-- [ ] Proposal creation (via MCP, Task G) records
+- [x] Proposal creation (via MCP, Task G) records
       `proposal_owners` from the routing result so downstream
       queries stay cheap.
 

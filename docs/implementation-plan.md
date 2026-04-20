@@ -906,10 +906,12 @@ proposal entries Phase 3 wrote.
       audit trail, not conversations. Idempotent: already-new-shape
       records pass through. Bad records fail loud via pydantic's
       discriminated-union validator.
-- [ ] *(deferred to Task H)* Route remaining `CommentStore`
-      imports through `ThreadStore` and drop the legacy module.
-      Until then both stores read/write the same file and stay
-      compatible.
+- [x] Route remaining `CommentStore` imports through
+      `ThreadStore` and drop the legacy module. Landed in
+      `5f0cfd4`; both the `Comment` model and `CommentStore` class
+      are gone; the on-disk file (`.jig/store/comments.jsonl`) stays
+      under its legacy name so historical JSONL continues to load via
+      `ThreadStore._migrate_legacy`.
 
 **C. Question / Answer tools and gating**
 
@@ -932,12 +934,13 @@ ad-hoc `handle_ask_question` / `handle_answer_questions` flow in
       `sender != question.author`. Optionally records
       `accepted_answer_id` after validating it points back at the
       question.
-- [ ] *(deferred to Task H)* Retire
-      `handle_ask_question` / `handle_answer_questions` in
-      `ticket_mcp.py`. They back the TUI's operator-pause UX
-      (`needs_info` status + WebSocket answer flow); removing them
-      requires moving that UX onto the typed-thread surface, which
-      is a Task H rewrite alongside the full CommentStore drop.
+- [x] Retire `handle_ask_question` / `handle_answer_questions` in
+      `ticket_mcp.py`. The operator-pause UX now lives at its
+      surfaces: `ask_question` (MCP tool) inlines the `needs_info`
+      transition in `mcp_server.py`; `answer_questions` (WebSocket
+      command) inlines the resume flow in `ws_server.py`. Agent-to-
+      agent Q&A continues to use the typed `thread_ask` /
+      `thread_answer` / `thread_resolve_question` tools.
 
 **D. Objection / Resolution / Waiver**
 

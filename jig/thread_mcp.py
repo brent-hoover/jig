@@ -10,12 +10,12 @@ Three agent-facing tools per doc 08 §Agent tools:
 * ``thread_resolve_question`` — the asker's close. Refuses if the
   sender isn't the question's author (resolution asymmetry rule).
 
-This module is deliberately parallel to ``ticket_mcp.handle_ask_question``
-/ ``handle_answer_questions`` rather than replacing them. The legacy
-pair implements the *operator-pause* UX (status → ``needs_info`` →
-human answers → status restored) and is wired into the WebSocket
-server and the TUI. Retiring them is Task H work once doc-08 threads
-are the canonical conversation surface.
+These tools are the typed, in-band Q&A surface for agent-to-agent
+conversation. The operator-pause UX (``ask_question`` MCP tool and
+``answer_questions`` WebSocket command — flip ticket to
+``needs_info`` / restore to ``in_progress``) lives directly at its
+surfaces (``mcp_server.py`` and ``ws_server.py``) now that the doc-08
+thread types are the canonical conversation store.
 
 Target validation is intentionally loose here. The plan's Task C
 note pins enforcement to Phase 5 — workflow phases will start

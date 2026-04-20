@@ -7,11 +7,13 @@ from claude_agent_sdk import tool, create_sdk_mcp_server
 
 from jig import checkpoint_mcp, thread_mcp, ticket_mcp
 from jig.models import RoleConfig
-from jig.store import MessageBus
+from jig.store import Message, MessageBus, MessageType
 from jig.store.checkpoints import CheckpointStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.thread import Question, SystemEvent
+from jig.ticket import TicketStatus
 
 
 def create_agent_mcp_server(
@@ -109,9 +111,68 @@ def create_agent_mcp_server(
         {"ticket_id": str, "question": str, "questions": list},
     )
     async def ask_question(args):
-        result = await ticket_mcp.handle_ask_question(
-            tickets=tickets, threads=threads, bus=bus, sender=agent_role, args=args
-        )
+        # Operator-pause UX: post blocking Question entries targeted at
+        # "any_human", flip the ticket to needs_info, and let the TUI
+        # drive the answer flow via the ws_server `answer_questions`
+        # command. Typed agent-to-agent Q&A goes through thread_ask.
+        ticket_id = args["ticket_id"]
+        questions: list[str] = list(args.get("questions") or [])
+        if isinstance(args.get("question"), str):
+            questions.append(args["question"])
+        if not questions:
+            raise ValueError("at least one question is required")
+
+        ticket = await tickets.get(ticket_id)
+        if ticket is None:
+            raise KeyError(f"ticket {ticket_id} not found")
+
+        comment_ids: list[str] = []
+        for q in questions:
+            cid = await threads.post(Question(
+                ticket_id=ticket_id,
+                author=agent_role,
+                target="any_human",
+                question=q,
+                blocking=True,
+            ))
+            comment_ids.append(cid)
+            await bus.publish(Message(
+                sender=agent_role,
+                to=ticket.assignee or "broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "comment_posted",
+                    "ticket_id": ticket_id,
+                    "comment_id": cid,
+                    "author": agent_role,
+                    "content": q,
+                    "comment_kind": "question",
+                },
+                topic=f"tickets.{ticket_id}",
+            ))
+
+        before_status = ticket.status
+        updated = await tickets.update(ticket_id, status=TicketStatus.NEEDS_INFO)
+        if before_status != TicketStatus.NEEDS_INFO:
+            await threads.post(SystemEvent(
+                ticket_id=ticket_id,
+                author=agent_role,
+                event_type="status_change",
+                content=f"status {before_status.value} -> needs_info",
+            ))
+        await bus.publish(Message(
+            sender=agent_role,
+            to=updated.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "ticket_updated",
+                "ticket_id": ticket_id,
+                "status": "needs_info",
+            },
+            topic=f"tickets.{ticket_id}",
+        ))
+
+        result = {"comment_ids": comment_ids, "status": "needs_info"}
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(

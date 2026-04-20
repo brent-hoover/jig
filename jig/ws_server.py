@@ -11,8 +11,10 @@ from websockets.asyncio.server import serve, ServerConnection
 from jig.agent import build_agent_prompt
 from jig.events import EventEmitter
 from jig.persistence import list_roles, load_role, load_workflow
+from jig.store import Message, MessageType
+from jig.thread import Answer, Note, SystemEvent, ThreadEntry
+from jig.ticket import TicketStatus
 from jig.ticket_mcp import (
-    handle_answer_questions,
     handle_create_ticket,
     handle_comment_on_ticket,
     handle_read_comments,
@@ -180,13 +182,7 @@ class WebSocketServer:
                     ],
                 }))
             elif command == "answer_questions":
-                result = await handle_answer_questions(
-                    tickets=self._orch.tickets,
-                    threads=self._orch.threads,
-                    bus=self._orch.bus,
-                    sender="user",
-                    args=args,
-                )
+                result = await self._handle_answer_questions(args)
                 await self._safe_send(websocket, json.dumps({"ok": True, **result}))
             elif command == "list_agents":
                 agents = list_roles(self._orch._project_path)
@@ -247,6 +243,89 @@ class WebSocketServer:
                 )
         except Exception as exc:
             await self._safe_send(websocket, json.dumps({"ok": False, "error": str(exc)}))
+
+    async def _handle_answer_questions(self, args: dict) -> dict:
+        """Post operator answers for the ticket's open Questions and
+        resume the ticket if it was paused.
+
+        Mirrors the retired ``handle_answer_questions`` from
+        ``ticket_mcp``: answers bind in order to the ticket's oldest-
+        to-newest unresolved Questions, extras attach to the last
+        open Question (fallback to a Note if there are none), and a
+        ``resume`` flag (default True) flips ``needs_info`` back to
+        ``in_progress`` with a status_change audit entry.
+        """
+        assert self._orch is not None  # caller checks before dispatch
+        orch = self._orch
+        ticket_id = args["ticket_id"]
+        answers: list[str] = args.get("answers", [])
+        resume: bool = args.get("resume", True)
+
+        ticket = await orch.tickets.get(ticket_id)
+        if ticket is None:
+            raise KeyError(f"ticket {ticket_id} not found")
+
+        all_questions = await orch.threads.find_by_kind(ticket_id, "question")
+        open_questions = [q for q in all_questions if not q.is_resolved()]
+
+        comment_ids: list[str] = []
+        for idx, text in enumerate(answers):
+            if open_questions:
+                qid = open_questions[min(idx, len(open_questions) - 1)].id
+                entry: ThreadEntry = Answer(
+                    ticket_id=ticket_id, author="user", question_id=qid, text=text
+                )
+                kind_for_bus = "answer"
+            else:
+                entry = Note(
+                    ticket_id=ticket_id, author="user", text=text
+                )
+                kind_for_bus = "note"
+            cid = await orch.threads.post(entry)
+            comment_ids.append(cid)
+            await orch.bus.publish(Message(
+                sender="user",
+                to=ticket.assignee or "broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "comment_posted",
+                    "ticket_id": ticket_id,
+                    "comment_id": cid,
+                    "author": "user",
+                    "content": text,
+                    "comment_kind": kind_for_bus,
+                },
+                topic=f"tickets.{ticket_id}",
+            ))
+
+        result: dict = {"comment_ids": comment_ids}
+
+        if resume and ticket.status == TicketStatus.NEEDS_INFO:
+            updated = await orch.tickets.update(
+                ticket_id, status=TicketStatus.IN_PROGRESS
+            )
+            await orch.threads.post(SystemEvent(
+                ticket_id=ticket_id,
+                author="user",
+                event_type="status_change",
+                content=f"status needs_info -> {updated.status.value}",
+            ))
+            await orch.bus.publish(Message(
+                sender="user",
+                to=updated.assignee or "broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "ticket_updated",
+                    "ticket_id": ticket_id,
+                    "status": updated.status.value,
+                },
+                topic=f"tickets.{ticket_id}",
+            ))
+            result["status"] = updated.status.value
+        else:
+            result["status"] = ticket.status.value
+
+        return result
 
     async def _relay_events(self) -> None:
         while True:

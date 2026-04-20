@@ -941,22 +941,22 @@ ad-hoc `handle_ask_question` / `handle_answer_questions` flow in
 
 **D. Objection / Resolution / Waiver**
 
-- [ ] `thread_object(ticket_id, target_artifact, text)` — creates
+- [x] `thread_object(ticket_id, target_artifact, text)` — creates
       an `Objection`. Always blocking.
-- [ ] `thread_resolve_objection(objection_id, text)` — posts a
+- [x] `thread_resolve_objection(objection_id, text)` — posts a
       `Resolution` entry. Does NOT mark the Objection resolved —
       that requires the objector to confirm. Fails if the
       Objection is already resolved or waived.
-- [ ] `thread_accept_resolution(objection_id)` — objector-only
+- [x] `thread_accept_resolution(objection_id)` — objector-only
       close. Sets `resolved_by=sender` on the Objection. Non-
       objector actors get a clear error.
-- [ ] `thread_waive(objection_id, justification)` — creates a
+- [x] `thread_waive(objection_id, justification)` — creates a
       `Waiver` entry and flips the Objection to waived-with-
       reason. Authorization check: doc 08 says "authorized actors
       only"; Phase 4 reads `config.waiver_authority: list[str]`
-      (roles allowed to waive; defaults to `["po", "sa"]`). Full
-      policy enforcement lands Phase 5.
-- [ ] Both the Objection and its Waiver stay in the thread; the
+      (roles allowed to waive; default `["po", "sa", "user"]`).
+      Full policy enforcement lands Phase 5.
+- [x] Both the Objection and its Waiver stay in the thread; the
       audit trail is the point.
 
 **E. Decision / Note / Uncertain / Escalation**

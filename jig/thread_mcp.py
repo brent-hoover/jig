@@ -26,12 +26,14 @@ policy layer. For now we only reject obvious garbage (empty string).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
+from jig.config import load_config
 from jig.store import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Answer, Question
+from jig.thread import Answer, Objection, Question, Resolution, Waiver
 
 _logger = logging.getLogger(__name__)
 
@@ -251,9 +253,273 @@ async def handle_thread_resolve_question(
     }
 
 
+# ---- thread_object --------------------------------------------------------
+
+
+async def handle_thread_object(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Post an Objection against a specific artifact.
+
+    Objections are *always* blocking — ``is_blocking`` is True until
+    the objector accepts a Resolution or an authorized actor waives.
+
+    Required args: ``ticket_id``, ``target_artifact``, ``text``.
+    """
+    ticket_id = args["ticket_id"]
+    target_artifact = args["target_artifact"]
+    text = args["text"]
+
+    if not target_artifact.strip():
+        raise ValueError("target_artifact is required")
+    if not text.strip():
+        raise ValueError("text is required")
+
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    o = Objection(
+        ticket_id=ticket_id,
+        author=sender,
+        target_artifact=target_artifact,
+        text=text,
+    )
+    oid = await threads.post(o)
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_objection_posted",
+                "ticket_id": ticket_id,
+                "objection_id": oid,
+                "author": sender,
+                "target_artifact": target_artifact,
+                "text": text,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+    return {"objection_id": oid, "blocking": True}
+
+
+# ---- thread_resolve_objection ---------------------------------------------
+
+
+async def handle_thread_resolve_objection(
+    *,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Post a Resolution entry pointing at an Objection.
+
+    Does NOT close the Objection — per doc 08 the objector must
+    accept via ``thread_accept_resolution`` before the block lifts.
+    Fails loud if the Objection is already resolved or waived so
+    the caller doesn't stack resolutions on a closed entry.
+
+    Required args: ``objection_id``, ``text``.
+    """
+    objection_id = args["objection_id"]
+    text = args["text"]
+
+    if not text.strip():
+        raise ValueError("text is required")
+
+    o = await threads.get(objection_id)
+    if o is None:
+        raise KeyError(f"objection {objection_id!r} not found")
+    if not isinstance(o, Objection):
+        raise ThreadError(
+            f"entry {objection_id!r} is a {o.kind!r}, not an objection"
+        )
+    if o.is_resolved():
+        raise ThreadError(
+            f"objection {objection_id!r} is already resolved "
+            f"(resolved_by={o.resolved_by!r}, waived_by={o.waived_by!r})"
+        )
+
+    r = Resolution(
+        ticket_id=o.ticket_id,
+        author=sender,
+        objection_id=objection_id,
+        text=text,
+    )
+    rid = await threads.post(r)
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to=o.author,
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_resolution_posted",
+                "ticket_id": o.ticket_id,
+                "objection_id": objection_id,
+                "resolution_id": rid,
+                "author": sender,
+                "text": text,
+            },
+            topic=f"tickets.{o.ticket_id}",
+        )
+    )
+    return {"resolution_id": rid, "objection_id": objection_id}
+
+
+# ---- thread_accept_resolution ---------------------------------------------
+
+
+async def handle_thread_accept_resolution(
+    *,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Close an Objection — objector-only, per doc 08 §Gating semantics.
+
+    The objector is the only actor who can accept a Resolution. Non-
+    objector callers get a clear error rather than a silent no-op.
+
+    Required args: ``objection_id``.
+    """
+    objection_id = args["objection_id"]
+
+    o = await threads.get(objection_id)
+    if o is None:
+        raise KeyError(f"objection {objection_id!r} not found")
+    if not isinstance(o, Objection):
+        raise ThreadError(
+            f"entry {objection_id!r} is a {o.kind!r}, not an objection"
+        )
+    if o.is_resolved():
+        raise ThreadError(
+            f"objection {objection_id!r} is already resolved "
+            f"(resolved_by={o.resolved_by!r}, waived_by={o.waived_by!r})"
+        )
+    if sender != o.author:
+        raise ThreadError(
+            f"only the objector can accept a resolution "
+            f"(objection.author={o.author!r}, sender={sender!r})"
+        )
+
+    await threads.update(objection_id, {"resolved_by": sender})
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_objection_resolved",
+                "ticket_id": o.ticket_id,
+                "objection_id": objection_id,
+                "resolved_by": sender,
+            },
+            topic=f"tickets.{o.ticket_id}",
+        )
+    )
+    return {"objection_id": objection_id, "resolved_by": sender}
+
+
+# ---- thread_waive ---------------------------------------------------------
+
+
+async def handle_thread_waive(
+    *,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    project_path: Path,
+) -> dict[str, Any]:
+    """Override an Objection via authorized Waiver.
+
+    The Waiver and the original Objection both remain in the thread
+    — the audit trail is the point per doc 08 §Waivers. The Objection
+    flips to waived-with-reason (``waived_by=sender``), which causes
+    ``is_blocking()`` to return False.
+
+    Authorization: ``sender`` must be in ``config.waiver_authority``.
+    Phase 5's capability-policy layer (doc 16) supersedes this with
+    proper capability tokens; the flat list is a bridge until then.
+
+    Required args: ``objection_id``, ``justification``.
+    """
+    objection_id = args["objection_id"]
+    justification = args["justification"]
+
+    if not justification.strip():
+        raise ValueError("justification is required")
+
+    cfg = load_config(project_path)
+    if sender not in cfg.waiver_authority:
+        raise ThreadError(
+            f"{sender!r} is not authorized to waive objections "
+            f"(config.waiver_authority={cfg.waiver_authority!r})"
+        )
+
+    o = await threads.get(objection_id)
+    if o is None:
+        raise KeyError(f"objection {objection_id!r} not found")
+    if not isinstance(o, Objection):
+        raise ThreadError(
+            f"entry {objection_id!r} is a {o.kind!r}, not an objection"
+        )
+    if o.is_resolved():
+        raise ThreadError(
+            f"objection {objection_id!r} is already resolved "
+            f"(resolved_by={o.resolved_by!r}, waived_by={o.waived_by!r})"
+        )
+
+    w = Waiver(
+        ticket_id=o.ticket_id,
+        author=sender,
+        objection_id=objection_id,
+        justification=justification,
+    )
+    wid = await threads.post(w)
+    await threads.update(objection_id, {"waived_by": sender})
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_objection_waived",
+                "ticket_id": o.ticket_id,
+                "objection_id": objection_id,
+                "waiver_id": wid,
+                "waived_by": sender,
+                "justification": justification,
+            },
+            topic=f"tickets.{o.ticket_id}",
+        )
+    )
+    return {
+        "waiver_id": wid,
+        "objection_id": objection_id,
+        "waived_by": sender,
+    }
+
+
 __all__ = [
     "ThreadError",
+    "handle_thread_accept_resolution",
     "handle_thread_answer",
     "handle_thread_ask",
+    "handle_thread_object",
+    "handle_thread_resolve_objection",
     "handle_thread_resolve_question",
+    "handle_thread_waive",
 ]

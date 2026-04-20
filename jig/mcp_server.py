@@ -172,6 +172,73 @@ def create_agent_mcp_server(
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
+        "thread_object",
+        "Raise an objection against an artifact (file path, PR link, prior "
+        "thread entry id, etc). Objections are always blocking until you "
+        "accept a resolution (thread_accept_resolution) or an authorized "
+        "actor waives them (thread_waive).",
+        {"ticket_id": str, "target_artifact": str, "text": str},
+    )
+    async def thread_object(args):
+        result = await thread_mcp.handle_thread_object(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_resolve_objection",
+        "Post a resolution addressing an objection ('here's how I fixed it'). "
+        "Does NOT close the objection — only the objector can accept via "
+        "thread_accept_resolution. Fails if the objection is already resolved.",
+        {"objection_id": str, "text": str},
+    )
+    async def thread_resolve_objection(args):
+        result = await thread_mcp.handle_thread_resolve_objection(
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_accept_resolution",
+        "Close your own objection after reviewing a resolution. Only the "
+        "original objector can accept (refuses if sender != objection.author).",
+        {"objection_id": str},
+    )
+    async def thread_accept_resolution(args):
+        result = await thread_mcp.handle_thread_accept_resolution(
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_waive",
+        "Override an objection with explicit justification. Authorization is "
+        "enforced against config.waiver_authority — if your role isn't in the "
+        "list, this fails. The waiver and the original objection both stay "
+        "in the thread as audit trail.",
+        {"objection_id": str, "justification": str},
+    )
+    async def thread_waive(args):
+        result = await thread_mcp.handle_thread_waive(
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            project_path=project_path,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
         "list_tickets",
         "List tickets with optional filters",
         {"work_type": str, "status": str, "assignee": str, "parent_id": str},
@@ -256,6 +323,10 @@ def create_agent_mcp_server(
         thread_ask,
         thread_answer,
         thread_resolve_question,
+        thread_object,
+        thread_resolve_objection,
+        thread_accept_resolution,
+        thread_waive,
         list_tickets,
         read_comments,
         commit_progress,

@@ -101,6 +101,13 @@ class Config(BaseModel):
     #               (shipped default — solo devs need the escape hatch).
     #   "blocked" — refuse if proposer == acceptor.
     self_approval: str = "warn"
+    # Phase 4D: roles authorized to waive Objections per doc 08. Full
+    # capability-policy enforcement lands with Phase 5 (doc 16); for
+    # now, a flat role-name list is enough — the default mirrors the
+    # ownership defaults and matches "humans + senior roles override".
+    waiver_authority: list[str] = Field(
+        default_factory=lambda: ["po", "sa", "user"]
+    )
 
 
 def _config_file(project_path: Path) -> Path:

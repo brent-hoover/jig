@@ -1010,7 +1010,7 @@ Lower-gating-weight entries. Uncertain has a routing side effect.
 New `jig/store/checkpoints.py` + `jig/checkpoints.py` for the
 models and MCP handlers. Separate from thread per doc 09.
 
-- [ ] Pydantic `Checkpoint` model:
+- [x] Pydantic `Checkpoint` model:
   - `id`, `ticket_id`, `phase: str`, `author`, `created_at`.
   - `completed: list[str]` — recent concrete completions.
   - `position: str` — current state.
@@ -1022,23 +1022,23 @@ models and MCP handlers. Separate from thread per doc 09.
   - `open_questions: list[str]` — pre-thread-Question scoping.
   - `trigger: Literal["auto_commit","auto_test","auto_pre_handoff",
     "agent_milestone","agent_decision","agent_deferred"]`.
-- [ ] `CheckpointStore` with append-JSONL semantics mirroring
+- [x] `CheckpointStore` with append-JSONL semantics mirroring
       `ThreadStore`. Queries: `for_ticket`, `for_phase(ticket_id,
       phase)`, `latest(ticket_id)`, `deferred_items_open(ticket_id,
       phase)`.
-- [ ] Harness-triggered checkpoints fire from three hooks:
+- [x] Harness-triggered checkpoints fire from three hooks:
   - `worktree.py` commit path (after the commit succeeds).
   - `worktree.py` lint/test path (after run, regardless of
     result).
   - `thread_handoff` (write a `auto_pre_handoff` checkpoint first).
-- [ ] Agent MCP tools:
+- [x] Agent MCP tools:
   - `checkpoint_milestone(description, position, plan,
     completed=[], ruled_out=[])`.
   - `checkpoint_decision(decision_id, rationale)` — references a
     thread `Decision`; checkpoint mirrors its context.
   - `checkpoint_deferred(item, reason)` — single-item append;
     becomes a `DeferredItem` on the ticket's current phase.
-- [ ] Phase-boundary pruning: when a phase completes successfully
+- [x] Phase-boundary pruning: when a phase completes successfully
       (Handoff accepted), mark that phase's checkpoints
       `historical=True`. Historical checkpoints stay on disk for
       audit but are skipped by `latest`/`for_phase` queries by

@@ -27,14 +27,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from jig.checkpoint_mcp import record_auto_pre_handoff_checkpoint
 from jig.config import load_config
 from jig.store import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.models import WorkflowConfig
 from jig.persistence import load_workflow
+
+if TYPE_CHECKING:
+    from jig.store.checkpoints import CheckpointStore
 from jig.thread import (
     Answer,
     Decision,
@@ -956,14 +960,24 @@ async def handle_thread_handoff(
     bus: MessageBus,
     sender: str,
     args: dict[str, Any],
+    checkpoints: "CheckpointStore | None" = None,
 ) -> dict[str, Any]:
     """Create a Handoff entry for a phase closing.
 
-    Always blocking until accepted or rejected. ``deferred_items``
-    accepts either a list of strings (auto-wrapped as
-    ``DeferredItem(item=..., status="open")``) or a list of dicts
-    matching the DeferredItem shape — Task G will populate these from
-    checkpoints.
+    Always blocking until accepted or rejected. ``deferred_items`` are
+    merged from two sources:
+
+    * **Explicit** — values in ``args["deferred_items"]`` (str, dict,
+      or ``DeferredItem``). Useful when the caller wants to override
+      or supplement the checkpoint-derived list.
+    * **Checkpoint-derived** — when ``checkpoints`` is provided, open
+      ``DeferredItem`` entries from the phase's checkpoint history are
+      appended (Phase 4 Task G). Explicit entries come first so the
+      caller's order wins.
+
+    A pre-handoff checkpoint (``trigger="auto_pre_handoff"``) is also
+    written when ``checkpoints`` is provided, snapshotting the phase's
+    final state for replay/audit.
 
     Required args: ``ticket_id``, ``phase``, ``outputs``.
     Optional: ``summary`` (default ``""``), ``deferred_items``
@@ -997,6 +1011,30 @@ async def handle_thread_handoff(
                 f"deferred_items entry must be str, dict, or DeferredItem; "
                 f"got {type(item).__name__}"
             )
+
+    if checkpoints is not None:
+        from_checkpoints = await checkpoints.deferred_items_open(
+            ticket_id, phase
+        )
+        # Dedupe: skip items whose (item, reason) pair is already in the
+        # explicit list. Evaluator sees each issue once.
+        seen = {(d.item, d.reason) for d in deferred}
+        for cd in from_checkpoints:
+            key = (cd.item, cd.reason)
+            if key in seen:
+                continue
+            deferred.append(cd)
+            seen.add(key)
+
+        await record_auto_pre_handoff_checkpoint(
+            checkpoints=checkpoints,
+            ticket_id=ticket_id,
+            phase_name=phase,
+            author=sender,
+            outputs=list(outputs),
+            summary=summary,
+            deferred=deferred,
+        )
 
     h = Handoff(
         ticket_id=ticket_id,
@@ -1044,6 +1082,7 @@ async def _close_handoff(
     handoff_id: str,
     accepted: bool,
     rejection_reason: str | None,
+    checkpoints: "CheckpointStore | None" = None,
 ) -> dict[str, Any]:
     """Shared guard for accept/reject — evaluator check + state write."""
     h = await threads.get(handoff_id)
@@ -1107,6 +1146,13 @@ async def _close_handoff(
         bus_kind = "thread_handoff_rejected"
     await threads.update(handoff_id, changes)
 
+    if accepted and checkpoints is not None:
+        # Phase-boundary pruning per doc 09 §Phase boundaries. The
+        # just-accepted phase's checkpoints flip to historical so
+        # default queries for the next phase ignore them; the records
+        # remain on disk for audit.
+        await checkpoints.mark_phase_historical(h.ticket_id, h.phase)
+
     payload: dict[str, Any] = {
         "kind": bus_kind,
         "ticket_id": h.ticket_id,
@@ -1143,9 +1189,12 @@ async def handle_thread_accept_handoff(
     sender: str,
     args: dict[str, Any],
     project_path: Path,
+    checkpoints: "CheckpointStore | None" = None,
 ) -> dict[str, Any]:
     """Evaluator-only accept. Publishes ``thread_handoff_accepted``
     on the ticket topic so the orchestrator can advance the workflow.
+    When ``checkpoints`` is provided, the accepted phase's checkpoints
+    are marked historical (doc 09 §Phase boundaries).
 
     Required args: ``handoff_id``.
     """
@@ -1158,6 +1207,7 @@ async def handle_thread_accept_handoff(
         handoff_id=args["handoff_id"],
         accepted=True,
         rejection_reason=None,
+        checkpoints=checkpoints,
     )
 
 
@@ -1169,10 +1219,12 @@ async def handle_thread_reject_handoff(
     sender: str,
     args: dict[str, Any],
     project_path: Path,
+    checkpoints: "CheckpointStore | None" = None,
 ) -> dict[str, Any]:
     """Evaluator-only reject. Publishes ``thread_handoff_rejected``
     on the ticket topic so the orchestrator can follow the phase's
-    on-failure edge.
+    on-failure edge. Rejection does not prune checkpoints — the retry
+    attempt resumes from the same history.
 
     Required args: ``handoff_id``, ``reason``.
     """
@@ -1188,6 +1240,7 @@ async def handle_thread_reject_handoff(
         handoff_id=args["handoff_id"],
         accepted=False,
         rejection_reason=reason,
+        checkpoints=checkpoints,
     )
 
 

@@ -226,6 +226,8 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
         project_path=ctx.project.path_or_default(),
         valid_roles=frozenset(r.role for r in all_roles),
         package_manager=ctx.project.package_manager,
+        checkpoints=ctx.checkpoints,
+        phase_name=ctx.phase.name if ctx.phase else "",
     )
 
     mcp_servers: dict = {"jig": mcp_server}

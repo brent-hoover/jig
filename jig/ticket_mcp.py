@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jig.models import RoleConfig
 from jig.store import Message, MessageBus, MessageType
@@ -9,6 +12,9 @@ from jig.store.memory import MemoryStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Comment, Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
+
+if TYPE_CHECKING:
+    from jig.store.checkpoints import CheckpointStore
 
 _logger = logging.getLogger(__name__)
 
@@ -495,6 +501,8 @@ async def handle_commit_progress(
     sender: str,
     worktree_path: Path,
     args: dict,
+    checkpoints: "CheckpointStore | None" = None,
+    phase_name: str = "",
 ) -> dict:
     ticket_id = args["ticket_id"]
     agent_message = args["message"]
@@ -515,12 +523,42 @@ async def handle_commit_progress(
     try:
         sha = await commit_worktree(worktree_path, commit_message)
     except LintError as exc:
+        # Harness-triggered: lint/test hook fires regardless of outcome
+        # per doc 09. The failing lint output surfaces as open_questions
+        # on the resulting checkpoint so the next agent view sees what's
+        # red.
+        if checkpoints is not None:
+            from jig.checkpoint_mcp import record_auto_test_checkpoint
+
+            await record_auto_test_checkpoint(
+                checkpoints=checkpoints,
+                ticket_id=ticket_id,
+                phase_name=phase_name,
+                author=sender,
+                passed=False,
+                summary=f"{len(exc.errors)} unfixable lint errors",
+                open_questions=exc.errors,
+            )
         return {
             "success": False,
             "error": "lint_errors",
             "message": "Fix these lint errors before committing:",
             "errors": exc.errors,
         }
+
+    if checkpoints is not None:
+        # Lint passed (commit_worktree gets past the LintError check).
+        from jig.checkpoint_mcp import record_auto_test_checkpoint
+
+        await record_auto_test_checkpoint(
+            checkpoints=checkpoints,
+            ticket_id=ticket_id,
+            phase_name=phase_name,
+            author=sender,
+            passed=True,
+            summary="ruff clean",
+        )
+
     if sha is None:
         return {"sha": None, "comment_id": None}
 
@@ -531,6 +569,18 @@ async def handle_commit_progress(
         kind="commit",
         commit_sha=sha,
     ))
+
+    if checkpoints is not None:
+        from jig.checkpoint_mcp import record_auto_commit_checkpoint
+
+        await record_auto_commit_checkpoint(
+            checkpoints=checkpoints,
+            ticket_id=ticket_id,
+            phase_name=phase_name,
+            author=sender,
+            commit_sha=sha,
+            message=commit_message,
+        )
 
     await bus.publish(Message(
         sender=sender,

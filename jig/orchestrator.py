@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 from jig.agent import run_agent
 from jig.project import Project, load_project
 from jig.store import Message, MessageBus, MessageType
+from jig.store.checkpoints import CheckpointStore
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
@@ -35,6 +36,8 @@ class Orchestrator:
         self._project: Project | None = None
         self.tickets: TicketStore | None = None
         self.comments: CommentStore | None = None
+        self.threads: ThreadStore | None = None
+        self.checkpoints: CheckpointStore | None = None
         self.memory: MemoryStore | None = None
         self.bus: MessageBus | None = None
 
@@ -54,12 +57,15 @@ class Orchestrator:
             # ThreadStore shares the comments JSONL file through Phase 4
             # (see jig/store/threads.py); Task H drops CommentStore.
             self.threads = ThreadStore(store_dir / "comments.jsonl")
+            # CheckpointStore is a separate channel per doc 09.
+            self.checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
                 self.comments.load(),
                 self.threads.load(),
+                self.checkpoints.load(),
                 self.memory.load(),
                 self.bus.load(),
             )
@@ -270,6 +276,7 @@ class Orchestrator:
                 threads=self.threads,
                 memory=self.memory,
                 bus=self.bus,
+                checkpoints=self.checkpoints,
                 phase=phase,
             )
             sub_key = (ticket_id, phase.role)
@@ -734,6 +741,7 @@ class Orchestrator:
             threads=self.threads,
             memory=self.memory,
             bus=self.bus,
+            checkpoints=self.checkpoints,
             initial_bus_message=initial_event.payload if initial_event else None,
         )
         task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))

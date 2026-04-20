@@ -5,9 +5,10 @@ from pathlib import Path
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-from jig import thread_mcp, ticket_mcp
+from jig import checkpoint_mcp, thread_mcp, ticket_mcp
 from jig.models import RoleConfig
 from jig.store import MessageBus
+from jig.store.checkpoints import CheckpointStore
 from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
@@ -27,6 +28,8 @@ def create_agent_mcp_server(
     project_path: Path,
     valid_roles: frozenset[str] = frozenset(),
     package_manager: str = "",
+    checkpoints: CheckpointStore | None = None,
+    phase_name: str = "",
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -338,6 +341,7 @@ def create_agent_mcp_server(
             bus=bus,
             sender=agent_role,
             args=args,
+            checkpoints=checkpoints,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -356,6 +360,7 @@ def create_agent_mcp_server(
             sender=agent_role,
             args=args,
             project_path=project_path,
+            checkpoints=checkpoints,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -374,6 +379,80 @@ def create_agent_mcp_server(
             sender=agent_role,
             args=args,
             project_path=project_path,
+            checkpoints=checkpoints,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "checkpoint_milestone",
+        "Record a progress checkpoint: where you are, what's done, what's "
+        "next, and anything ruled out. Use at natural milestones (chunk "
+        "complete, approach chosen, about to context-switch) so retries "
+        "and resumptions have position notes. Not blocking.",
+        {
+            "ticket_id": str,
+            "description": str,
+            "position": str,
+            "plan": str,
+            "completed": list,
+            "ruled_out": list,
+            "open_questions": list,
+        },
+    )
+    async def checkpoint_milestone(args):
+        if checkpoints is None:
+            raise RuntimeError(
+                "checkpoint store not wired — server built without checkpoints"
+            )
+        result = await checkpoint_mcp.handle_checkpoint_milestone(
+            tickets=tickets,
+            checkpoints=checkpoints,
+            sender=agent_role,
+            phase_name=phase_name,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "checkpoint_decision",
+        "Mirror a thread Decision into the checkpoint channel so "
+        "position notes for this phase reference it. Pass the "
+        "decision_id returned by thread_decide.",
+        {"decision_id": str, "rationale": str},
+    )
+    async def checkpoint_decision(args):
+        if checkpoints is None:
+            raise RuntimeError(
+                "checkpoint store not wired — server built without checkpoints"
+            )
+        result = await checkpoint_mcp.handle_checkpoint_decision(
+            tickets=tickets,
+            threads=threads,
+            checkpoints=checkpoints,
+            sender=agent_role,
+            phase_name=phase_name,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "checkpoint_deferred",
+        "Record an item you're deliberately deferring: not doing now "
+        "but the evaluator should see it at handoff time. "
+        "Non-blocking — surfaces on the next Handoff's deferred_items.",
+        {"ticket_id": str, "item": str, "reason": str},
+    )
+    async def checkpoint_deferred(args):
+        if checkpoints is None:
+            raise RuntimeError(
+                "checkpoint store not wired — server built without checkpoints"
+            )
+        result = await checkpoint_mcp.handle_checkpoint_deferred(
+            tickets=tickets,
+            checkpoints=checkpoints,
+            sender=agent_role,
+            phase_name=phase_name,
+            args=args,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -414,6 +493,8 @@ def create_agent_mcp_server(
             sender=agent_role,
             worktree_path=worktree_path,
             args=args,
+            checkpoints=checkpoints,
+            phase_name=phase_name,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -479,6 +560,10 @@ def create_agent_mcp_server(
         record_learning,
         request_context,
     ]
+    if checkpoints is not None:
+        all_tools.extend(
+            [checkpoint_milestone, checkpoint_decision, checkpoint_deferred]
+        )
     if package_manager:
         all_tools.append(add_dependency)
 

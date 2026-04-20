@@ -1,0 +1,29 @@
+# perf — performance work. Doc 03.
+work_type: perf
+
+required:
+  - summary
+  - baseline
+  - target
+  - hypothesis
+  - measurement_plan
+
+optional:
+  - risks
+  - dependencies
+
+required_by_size:
+  xs: [summary, target, measurement_plan]
+  s: [summary, baseline, target, measurement_plan]
+  m: [summary, baseline, target, hypothesis, measurement_plan]
+  l: [summary, baseline, target, hypothesis, measurement_plan, risks]
+  xl: [summary, baseline, target, hypothesis, measurement_plan, risks]
+
+ownership:
+  summary: po
+  baseline: sa
+  target: po
+  hypothesis: sa
+  measurement_plan: sa
+  risks: sa
+  dependencies: sa

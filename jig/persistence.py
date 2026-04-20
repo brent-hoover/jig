@@ -48,10 +48,10 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
 
     jig_dir.mkdir()
 
-    # Operational dirs. roles/ and workflows/ start empty — fallbacks come
-    # from jig.defaults at runtime. The dirs exist so overrides have an
-    # obvious home.
-    for subdir in ("roles", "workflows", "worktrees", "store"):
+    # Operational dirs. roles/workflows/work_types start empty — fallbacks
+    # come from jig.defaults at runtime. The dirs exist so overrides have
+    # an obvious home.
+    for subdir in ("roles", "workflows", "work_types", "worktrees", "store"):
         (jig_dir / subdir).mkdir()
 
     # Doc-17 placeholders — populated in later phases but laid down now

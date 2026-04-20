@@ -525,7 +525,7 @@ optional fields, a `required_by_size` map (size → list of fields
 mandatory for that size), and a `ownership` map (field → owner role
 alias such as `po`/`sa`).
 
-- [ ] Pydantic model `WorkTypeSchema` with:
+- [x] Pydantic model `WorkTypeSchema` with:
   - `work_type: str` (matches one of `WorkType` enum values —
     projects may add new enum values in a later phase; for Phase 3,
     schemas for unknown work_types are an error)
@@ -535,13 +535,13 @@ alias such as `po`/`sa`).
   - `ownership: dict[str, str]`  # field → owner role alias
   - `section_locks: dict[str, str] = {}`  # parsed but unused; Phase
     5 honors `locked_after_phase`
-- [ ] `load_work_type_schema(project_path, name)` with the same
+- [x] `load_work_type_schema(project_path, name)` with the same
       project-override → shipped-default fallback Phase 2C wired up
       for roles/workflows. Shipped defaults under
       `jig/defaults/work_types/`; project overrides under
       `.jig/work_types/`.
-- [ ] `list_work_type_schemas` for the load-time validator.
-- [ ] `jig init` drops an empty `.jig/work_types/` directory (no
+- [x] `list_work_type_schemas` for the load-time validator.
+- [x] `jig init` drops an empty `.jig/work_types/` directory (no
       copies — shipped defaults serve via fallback, per Phase 2C).
 
 **B. Shipped work-type schemas**
@@ -550,18 +550,18 @@ Write the schemas for the seven shipped work types per doc 03 §Work
 types. Keep them deliberately small — Phase 3 verifies the plumbing
 works, not that every field a team might want is pre-listed.
 
-- [ ] `jig/defaults/work_types/feature.yaml`: `required:
+- [x] `jig/defaults/work_types/feature.yaml`: `required:
       [summary, behaviors, acceptance_criteria, out_of_scope]`,
       `optional: [edge_cases, design, technical_risks, dependencies]`,
       `required_by_size` xs→[summary], s→[summary,behaviors],
       m→required, l→required + design, xl→required + design +
       technical_risks. Ownership per doc 03 §Structured content.
-- [ ] `bugfix.yaml`: required `[summary, symptom, fix_approach,
+- [x] `bugfix.yaml`: required `[summary, symptom, fix_approach,
       regression_test]`, sized down for xs→[summary, fix_approach],
       up for l→+ `impact_analysis`.
-- [ ] `refactor.yaml`, `spike.yaml`, `perf.yaml`, `migration.yaml`,
+- [x] `refactor.yaml`, `spike.yaml`, `perf.yaml`, `migration.yaml`,
       `docs.yaml` — shapes from doc 03.
-- [ ] Spike schemas may have no `behaviors` section; docs schemas
+- [x] Spike schemas may have no `behaviors` section; docs schemas
       likewise skip design/technical_risks. Schemas express that by
       simply not listing those fields as required/optional.
 

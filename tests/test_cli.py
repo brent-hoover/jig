@@ -160,6 +160,7 @@ class TestStart:
 
         result = runner.invoke(cli, [
             "start", "--path", str(tmp_new_jig_project), "--ws-port", "0",
+            "--no-docker",
         ])
         # KeyboardInterrupt exits cleanly
         assert result.exit_code == 0, result.output
@@ -172,7 +173,7 @@ class TestStart:
 
     def test_not_initialized(self, runner: CliRunner, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()  # git repo but no .jig/
-        result = runner.invoke(cli, ["start", "--path", str(tmp_path)])
+        result = runner.invoke(cli, ["start", "--path", str(tmp_path), "--no-docker"])
         assert result.exit_code != 0
         assert "not initialized" in result.output.lower()
 

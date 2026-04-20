@@ -288,3 +288,158 @@ class TestCollectMode:
         joined = " | ".join(errors)
         assert "ghost1" in joined
         assert "ghost2" in joined
+
+
+# ---- Phase 3H: work-type schema + ownership + helper_template refs --------
+
+
+def _write_config(project_path: Path, extra: dict) -> None:
+    base = {
+        "project": {
+            "id": "p",
+            "name": "p",
+            "path": str(project_path),
+            "default_branch": "main",
+        }
+    }
+    base.update(extra)
+    (project_path / ".jig" / "config.yaml").write_text(
+        yaml.safe_dump(base)
+    )
+
+
+class TestWorkTypeSchemaValidation:
+    def test_bad_yaml_in_work_type_schema_fails(
+        self, initialized_project: Path
+    ) -> None:
+        """A malformed project work-type schema surfaces at load."""
+        (
+            initialized_project
+            / ".jig"
+            / "work_types"
+            / "broken.yaml"
+        ).write_text("this: is: not: valid: yaml\n: : :\n")
+        with pytest.raises(CatalogError, match="broken"):
+            validate_catalog(initialized_project)
+
+    def test_missing_required_work_type_field_fails(
+        self, initialized_project: Path
+    ) -> None:
+        """``work_type`` key is required by the WorkTypeSchema model."""
+        (
+            initialized_project
+            / ".jig"
+            / "work_types"
+            / "weird.yaml"
+        ).write_text(yaml.safe_dump({"required": ["summary"]}))
+        with pytest.raises(CatalogError, match="weird"):
+            validate_catalog(initialized_project)
+
+
+class TestOwnershipSpecFieldReferences:
+    def test_unknown_spec_field_fails(
+        self, initialized_project: Path
+    ) -> None:
+        """config.ownership.spec.<bogus> flags a field unknown to every schema."""
+        _write_config(
+            initialized_project,
+            {"ownership": {"spec": {"not_a_real_field": "po"}}},
+        )
+        with pytest.raises(CatalogError, match="not_a_real_field"):
+            validate_catalog(initialized_project)
+
+    def test_known_spec_field_passes(
+        self, initialized_project: Path
+    ) -> None:
+        """A field declared by any shipped schema is accepted."""
+        _write_config(
+            initialized_project,
+            {"ownership": {"spec": {"summary": "po"}}},
+        )
+        validate_catalog(initialized_project)
+
+    def test_empty_owner_is_ignored(
+        self, initialized_project: Path
+    ) -> None:
+        """Empty-string owner for a field isn't treated as a claim."""
+        _write_config(
+            initialized_project,
+            {"ownership": {"spec": {"not_a_real_field": ""}}},
+        )
+        validate_catalog(initialized_project)
+
+
+class TestRoleHelperTemplateReferences:
+    def test_unknown_helper_template_fails(
+        self, initialized_project: Path
+    ) -> None:
+        _write_config(
+            initialized_project,
+            {
+                "roles": {
+                    "po": {
+                        "assignment": "human_with_helper",
+                        "human": "alice",
+                        "helper_template": "ghost-role",
+                    }
+                }
+            },
+        )
+        with pytest.raises(CatalogError, match="ghost-role"):
+            validate_catalog(initialized_project)
+
+    def test_agent_assignment_helper_also_checked(
+        self, initialized_project: Path
+    ) -> None:
+        """``agent`` mode still names a role — same validation."""
+        _write_config(
+            initialized_project,
+            {
+                "roles": {
+                    "sa": {
+                        "assignment": "agent",
+                        "helper_template": "nope-role",
+                    }
+                }
+            },
+        )
+        with pytest.raises(CatalogError, match="nope-role"):
+            validate_catalog(initialized_project)
+
+    def test_human_assignment_skips_helper_check(
+        self, initialized_project: Path
+    ) -> None:
+        """``human`` mode doesn't need helper_template — blank is fine."""
+        _write_config(
+            initialized_project,
+            {
+                "roles": {
+                    "po": {
+                        "assignment": "human",
+                        "human": "alice",
+                    }
+                }
+            },
+        )
+        validate_catalog(initialized_project)
+
+    def test_known_helper_template_passes(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(role="helper-bot", phase_prompt="assist"),
+        )
+        _write_config(
+            initialized_project,
+            {
+                "roles": {
+                    "po": {
+                        "assignment": "human_with_helper",
+                        "human": "alice",
+                        "helper_template": "helper-bot",
+                    }
+                }
+            },
+        )
+        validate_catalog(initialized_project)

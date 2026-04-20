@@ -47,6 +47,11 @@ from jig.persistence import (
     load_role,
     load_workflow,
 )
+from jig.work_types import (
+    WorkTypeSchema,
+    list_work_type_names,
+    load_work_type_schema,
+)
 
 
 class CatalogError(Exception):
@@ -161,6 +166,55 @@ def validate_catalog(
                     f"role {role.role!r} required_context {uri!r}: {msg}"
                 )
 
+    # Phase 3H: work-type schemas
+    work_type_schemas, wt_yaml_errors = _load_all_work_type_schemas(
+        project_path
+    )
+    for msg in wt_yaml_errors:
+        fail(msg)
+
+    # Config.ownership.spec.* fields must reference a field the schema
+    # declares somewhere. We don't know which work_type a given
+    # ticket will use, so accept a field name that appears in any
+    # shipped or overridden schema.
+    if config is not None and work_type_schemas:
+        all_spec_fields: set[str] = set()
+        for s in work_type_schemas:
+            all_spec_fields.update(s.allowed_fields())
+        # SpecOwnership extras surface via model_dump().
+        spec_map = config.ownership.spec.model_dump()
+        for field, owner in spec_map.items():
+            if not owner:
+                continue
+            if field not in all_spec_fields:
+                fail(
+                    f"config.ownership.spec.{field} references a field "
+                    f"not declared in any work-type schema "
+                    f"(known spec fields: {sorted(all_spec_fields)})"
+                )
+
+    # Config.roles.<role>.helper_template must name an existing role
+    # whenever assignment == human_with_helper. Agent-assignment
+    # templates are role names too (the helper agent runs as a role);
+    # check both modes.
+    if config is not None:
+        roles_dump = config.roles.model_dump()
+        for role_name, staffing in roles_dump.items():
+            if not isinstance(staffing, dict):
+                continue
+            assignment = staffing.get("assignment", "")
+            helper = staffing.get("helper_template", "")
+            if (
+                assignment in {"human_with_helper", "agent"}
+                and helper
+                and helper not in known_roles
+            ):
+                fail(
+                    f"config.roles.{role_name}.helper_template "
+                    f"references unknown role {helper!r} "
+                    f"(known: {sorted(known_roles)})"
+                )
+
     if collect:
         return errors
     return None
@@ -202,6 +256,26 @@ def _load_all_workflows(
         except ValidationError as exc:
             errors.append(f"workflow {name!r} validation failed: {exc}")
     return workflows, errors
+
+
+def _load_all_work_type_schemas(
+    project_path: Path,
+) -> tuple[list[WorkTypeSchema], list[str]]:
+    """Load every work-type schema (project + shipped); gather errors."""
+    schemas: list[WorkTypeSchema] = []
+    errors: list[str] = []
+    for name in list_work_type_names(project_path):
+        try:
+            schemas.append(load_work_type_schema(project_path, name))
+        except yaml.YAMLError as exc:
+            errors.append(
+                f"work_type schema {name!r} YAML parse failed: {exc}"
+            )
+        except ValidationError as exc:
+            errors.append(
+                f"work_type schema {name!r} validation failed: {exc}"
+            )
+    return schemas, errors
 
 
 def _validate_static_uri(uri: str, project_path: Path) -> str | None:

@@ -662,10 +662,10 @@ owner(s) and (if staffed) the concrete assignee list.
 New MCP tools for agents to participate in the proposal mechanism,
 plus the structural guard.
 
-- [ ] `propose_change(target, change, rationale, section=None)` —
+- [x] `propose_change(target, change, rationale, section=None)` —
       creates a `Comment(kind="proposal")` on the ticket the agent
       is scoped to. Populates `proposal_owners` via Task F.
-- [ ] `resolve_proposal(proposal_id, verdict, reasoning)` —
+- [x] `resolve_proposal(proposal_id, verdict, reasoning)` —
       verdict ∈ `{accept, reject, refine}`. Creates a second
       proposal entry referencing the first. If
       `comment.author == proposal_comment.author`, either:
@@ -673,11 +673,11 @@ plus the structural guard.
   - If `config.self_approval == "warn"` (default), emit a
     `status_change` with `"self_approval_with_justification: true"`
     and require `reasoning` to be non-empty.
-- [ ] `list_proposals(ticket_id=None, state=None, target=None)` —
+- [x] `list_proposals(ticket_id=None, state=None, target=None)` —
       query helper for humans + TUI later.
-- [ ] Add `self_approval` field to `Config` (default `"warn"`);
+- [x] Add `self_approval` field to `Config` (default `"warn"`);
       surface through `.jig/config.yaml`.
-- [ ] Accepted proposals that target `ticket://spec.<field>` apply
+- [x] Accepted proposals that target `ticket://spec.<field>` apply
       the change via `save_ticket_spec`. For Phase 3 the change
       payload is treated as opaque YAML the accepter hand-merged —
       automated merge on accept is deferred. Record the new spec
@@ -688,7 +688,7 @@ plus the structural guard.
 Integrate with Phase 2F's `validate_catalog` and add the usual test
 surface.
 
-- [ ] Extend `validate_catalog` to:
+- [x] Extend `validate_catalog` to:
   - Load each project + shipped work-type schema; surface
     validation errors.
   - Cross-check ownership map fields against real work-type
@@ -698,10 +698,10 @@ surface.
     reference role names that exist in the role catalog when
     `assignment == "human_with_helper"` (the `helper_template` is
     a role name).
-- [ ] Unit tests per task (work-type schema loader, ticket spec
+- [x] Unit tests per task (work-type schema loader, ticket spec
       load/save, URI resolver for `ticket://spec.*`, proposal comment
       roundtrip, owner resolution, self-cert guard both modes).
-- [ ] End-to-end test: create ticket → write spec → propose a
+- [x] End-to-end test: create ticket → write spec → propose a
       change → second actor accepts → spec version bumps.
 
 ### Exit criteria

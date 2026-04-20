@@ -96,6 +96,11 @@ class Config(BaseModel):
     ownership: OwnershipSection = Field(default_factory=OwnershipSection)
     roles: RolesSection = Field(default_factory=RolesSection)
     escalation: EscalationSection = Field(default_factory=EscalationSection)
+    # Phase 3G self-certification policy per doc 04.
+    #   "warn"    — allow but record "self_approval_with_justification"
+    #               (shipped default — solo devs need the escape hatch).
+    #   "blocked" — refuse if proposer == acceptor.
+    self_approval: str = "warn"
 
 
 def _config_file(project_path: Path) -> Path:

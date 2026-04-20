@@ -239,6 +239,85 @@ def create_agent_mcp_server(
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
+        "thread_decide",
+        "Record a non-obvious Decision with rationale. Auto-resolved. "
+        "Also writes a standalone decision record under .jig/decisions/ "
+        "per doc 17 so architectural choices survive outside the thread.",
+        {"ticket_id": str, "decision": str, "rationale": str},
+    )
+    async def thread_decide(args):
+        result = await thread_mcp.handle_thread_decide(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            project_path=project_path,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_note",
+        "Post a freeform observation on a ticket. Auto-resolved; never "
+        "blocking. Use for context drops that don't fit a Question, "
+        "Objection, or Decision.",
+        {"ticket_id": str, "text": str},
+    )
+    async def thread_note(args):
+        result = await thread_mcp.handle_thread_note(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_escalate",
+        "Raise a 'beyond my scope' Escalation. Always blocking until a "
+        "resolver acts. Target defaults to 'human'; pass a role name to "
+        "route to a specific actor. Reason is a short structured code "
+        "(e.g. 'needs_human_judgment'), details is prose.",
+        {
+            "ticket_id": str,
+            "reason": str,
+            "details": str,
+            "target": str,
+        },
+    )
+    async def thread_escalate(args):
+        result = await thread_mcp.handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            valid_roles=valid_roles,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_uncertain",
+        "Signal 'I don't know who should handle this' — the orchestrator "
+        "routes. Phase 4 routing is a simple rule: if details mention a "
+        "known role name, the system reshapes this as a Question to that "
+        "role; otherwise it escalates to human. Prefer thread_ask when you "
+        "already know the target.",
+        {"ticket_id": str, "details": str},
+    )
+    async def thread_uncertain(args):
+        result = await thread_mcp.handle_thread_uncertain(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            valid_roles=valid_roles,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
         "list_tickets",
         "List tickets with optional filters",
         {"work_type": str, "status": str, "assignee": str, "parent_id": str},
@@ -327,6 +406,10 @@ def create_agent_mcp_server(
         thread_resolve_objection,
         thread_accept_resolution,
         thread_waive,
+        thread_decide,
+        thread_note,
+        thread_escalate,
+        thread_uncertain,
         list_tickets,
         read_comments,
         commit_progress,

@@ -33,7 +33,17 @@ from jig.config import load_config
 from jig.store import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Answer, Objection, Question, Resolution, Waiver
+from jig.thread import (
+    Answer,
+    Decision,
+    Escalation,
+    Note,
+    Objection,
+    Question,
+    Resolution,
+    Uncertain,
+    Waiver,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -513,13 +523,410 @@ async def handle_thread_waive(
     }
 
 
+# ---- thread_decide --------------------------------------------------------
+
+
+def _next_decision_seq(project_path: Path, ticket_id: str) -> int:
+    """Scan ``.jig/decisions/`` for the next decision-record sequence
+    for ``ticket_id``. Sequences start at 1 and are per-ticket.
+
+    Collisions across racing callers are resolved in the caller: we
+    write with the derived seq, and if two writers pick the same slot
+    the later write wins (the earlier record is overwritten).
+    doc 17 §Decision records says the sequence is advisory, not a key
+    — the canonical record is the thread `Decision` entry.
+    """
+    root = project_path / ".jig" / "decisions"
+    if not root.is_dir():
+        return 1
+    prefix = f"{ticket_id}-"
+    highest = 0
+    for entry in root.iterdir():
+        name = entry.name
+        if not name.endswith(".md") or not name.startswith(prefix):
+            continue
+        tail = name[len(prefix) : -len(".md")]
+        if tail.isdigit():
+            highest = max(highest, int(tail))
+    return highest + 1
+
+
+def _write_decision_record(
+    project_path: Path,
+    *,
+    ticket_id: str,
+    seq: int,
+    decision: str,
+    rationale: str,
+    author: str,
+    entry_id: str,
+) -> Path:
+    """Write the standalone `.jig/decisions/<ticket-id>-<seq>.md`
+    mirror per doc 17.
+    """
+    root = project_path / ".jig" / "decisions"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{ticket_id}-{seq}.md"
+    body = (
+        f"# Decision — {ticket_id}-{seq}\n\n"
+        f"- **Author:** {author}\n"
+        f"- **Ticket:** {ticket_id}\n"
+        f"- **Thread entry:** {entry_id}\n\n"
+        f"## Decision\n\n{decision}\n\n"
+        f"## Rationale\n\n{rationale}\n"
+    )
+    path.write_text(body)
+    return path
+
+
+async def handle_thread_decide(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    project_path: Path,
+) -> dict[str, Any]:
+    """Record a Decision in the thread and mirror to a decision record.
+
+    Decision entries are auto-resolved (no gating lifecycle). The
+    standalone file under ``.jig/decisions/`` is the doc-17 artifact.
+
+    Required args: ``ticket_id``, ``decision``, ``rationale``.
+    """
+    ticket_id = args["ticket_id"]
+    decision_text = args["decision"]
+    rationale = args["rationale"]
+
+    if not decision_text.strip():
+        raise ValueError("decision is required")
+    if not rationale.strip():
+        raise ValueError("rationale is required")
+
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    d = Decision(
+        ticket_id=ticket_id,
+        author=sender,
+        decision=decision_text,
+        rationale=rationale,
+    )
+    did = await threads.post(d)
+
+    seq = _next_decision_seq(project_path, ticket_id)
+    record_path = _write_decision_record(
+        project_path,
+        ticket_id=ticket_id,
+        seq=seq,
+        decision=decision_text,
+        rationale=rationale,
+        author=sender,
+        entry_id=did,
+    )
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_decision_posted",
+                "ticket_id": ticket_id,
+                "decision_id": did,
+                "author": sender,
+                "decision": decision_text,
+                "rationale": rationale,
+                "record_path": str(record_path.relative_to(project_path)),
+                "seq": seq,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+    return {
+        "decision_id": did,
+        "record_path": str(record_path.relative_to(project_path)),
+        "seq": seq,
+    }
+
+
+# ---- thread_note ----------------------------------------------------------
+
+
+async def handle_thread_note(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Post a freeform Note. Auto-resolved, never blocking.
+
+    Required args: ``ticket_id``, ``text``.
+    """
+    ticket_id = args["ticket_id"]
+    text = args["text"]
+
+    if not text.strip():
+        raise ValueError("text is required")
+
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    n = Note(ticket_id=ticket_id, author=sender, text=text)
+    nid = await threads.post(n)
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_note_posted",
+                "ticket_id": ticket_id,
+                "note_id": nid,
+                "author": sender,
+                "text": text,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+    return {"note_id": nid}
+
+
+# ---- thread_escalate ------------------------------------------------------
+
+
+async def handle_thread_escalate(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    valid_roles: frozenset[str] = frozenset(),
+    phase_escalation_targets: frozenset[str] | None = None,
+) -> dict[str, Any]:
+    """Post an Escalation. Always blocking until a resolver acts.
+
+    Target validation is best-effort in Phase 4: if
+    ``phase_escalation_targets`` is supplied and ``target`` isn't in
+    it, log a warning but don't refuse. Phase 5 flips this to a hard
+    check once workflow phases declare their targets.
+
+    Required args: ``ticket_id``, ``reason``, ``details``.
+    Optional: ``target`` (default ``"human"``).
+    """
+    ticket_id = args["ticket_id"]
+    reason = args["reason"]
+    details = args["details"]
+    target = args.get("target", "human")
+
+    if not reason.strip():
+        raise ValueError("reason is required")
+    if not details.strip():
+        raise ValueError("details is required")
+
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    if (
+        phase_escalation_targets is not None
+        and target not in phase_escalation_targets
+    ):
+        _logger.warning(
+            "escalation target %r not in phase escalation_targets %s "
+            "(ticket=%s, sender=%s); allowing in Phase 4",
+            target,
+            sorted(phase_escalation_targets),
+            ticket_id,
+            sender,
+        )
+    elif (
+        valid_roles
+        and target != "human"
+        and target not in valid_roles
+    ):
+        _logger.warning(
+            "escalation target %r is not a known role or 'human' "
+            "(ticket=%s, sender=%s); allowing in Phase 4",
+            target,
+            ticket_id,
+            sender,
+        )
+
+    e = Escalation(
+        ticket_id=ticket_id,
+        author=sender,
+        reason=reason,
+        details=details,
+        target=target,
+    )
+    eid = await threads.post(e)
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to=target,
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_escalation_posted",
+                "ticket_id": ticket_id,
+                "escalation_id": eid,
+                "author": sender,
+                "reason": reason,
+                "details": details,
+                "target": target,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+    return {
+        "escalation_id": eid,
+        "target": target,
+        "blocking": True,
+    }
+
+
+# ---- thread_uncertain -----------------------------------------------------
+
+
+def _route_uncertain(
+    details: str, valid_roles: frozenset[str]
+) -> str | None:
+    """Phase 4 routing heuristic: if ``details`` mentions a known role
+    name as a whole word, return that role. Otherwise return None and
+    the caller falls back to an Escalation.
+
+    Matching is case-insensitive and word-bounded so ``"ask the SA to
+    review"`` routes to ``sa`` without ``"saffron"`` colliding. Ties
+    are broken by first-mention order.
+    """
+    if not valid_roles:
+        return None
+    import re
+
+    lowered = details.lower()
+    best: tuple[int, str] | None = None
+    for role in valid_roles:
+        if not role:
+            continue
+        for m in re.finditer(
+            rf"\b{re.escape(role.lower())}\b", lowered
+        ):
+            idx = m.start()
+            if best is None or idx < best[0]:
+                best = (idx, role)
+            break
+    return best[1] if best else None
+
+
+async def handle_thread_uncertain(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    valid_roles: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Record an Uncertain and route it per the Phase 4 heuristic.
+
+    The Uncertain entry itself is not blocking — it's a routing
+    request. The derived Question (non-blocking by default) or
+    Escalation (blocking) carries the gating.
+
+    Required args: ``ticket_id``, ``details``.
+    """
+    ticket_id = args["ticket_id"]
+    details = args["details"]
+
+    if not details.strip():
+        raise ValueError("details is required")
+
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    u = Uncertain(ticket_id=ticket_id, author=sender, details=details)
+    uid = await threads.post(u)
+
+    routed_role = _route_uncertain(details, valid_roles)
+    if routed_role is not None:
+        q = Question(
+            ticket_id=ticket_id,
+            author=sender,
+            target=routed_role,
+            question=details,
+            blocking=False,
+        )
+        qid = await threads.post(q)
+        await bus.publish(
+            Message(
+                sender=sender,
+                to=routed_role,
+                type=MessageType.QUESTION,
+                payload={
+                    "kind": "thread_uncertain_routed_question",
+                    "ticket_id": ticket_id,
+                    "uncertain_id": uid,
+                    "question_id": qid,
+                    "target": routed_role,
+                    "details": details,
+                },
+                topic=f"tickets.{ticket_id}",
+            )
+        )
+        return {
+            "uncertain_id": uid,
+            "routed": "question",
+            "question_id": qid,
+            "target": routed_role,
+        }
+
+    esc = Escalation(
+        ticket_id=ticket_id,
+        author=sender,
+        reason="uncertain_unroutable",
+        details=details,
+        target="human",
+    )
+    eid = await threads.post(esc)
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="human",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_uncertain_escalated",
+                "ticket_id": ticket_id,
+                "uncertain_id": uid,
+                "escalation_id": eid,
+                "details": details,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+    return {
+        "uncertain_id": uid,
+        "routed": "escalation",
+        "escalation_id": eid,
+        "target": "human",
+    }
+
+
 __all__ = [
     "ThreadError",
     "handle_thread_accept_resolution",
     "handle_thread_answer",
     "handle_thread_ask",
+    "handle_thread_decide",
+    "handle_thread_escalate",
+    "handle_thread_note",
     "handle_thread_object",
     "handle_thread_resolve_objection",
     "handle_thread_resolve_question",
+    "handle_thread_uncertain",
     "handle_thread_waive",
 ]

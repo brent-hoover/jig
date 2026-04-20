@@ -31,15 +31,29 @@ from jig.project import Project
 from jig.store import MessageBus
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Answer, Objection, Question, Resolution, Waiver
+from jig.thread import (
+    Answer,
+    Decision,
+    Escalation,
+    Note,
+    Objection,
+    Question,
+    Resolution,
+    Uncertain,
+    Waiver,
+)
 from jig.thread_mcp import (
     ThreadError,
     handle_thread_accept_resolution,
     handle_thread_answer,
     handle_thread_ask,
+    handle_thread_decide,
+    handle_thread_escalate,
+    handle_thread_note,
     handle_thread_object,
     handle_thread_resolve_objection,
     handle_thread_resolve_question,
+    handle_thread_uncertain,
     handle_thread_waive,
 )
 from jig.ticket import Ticket, WorkType
@@ -944,4 +958,403 @@ class TestThreadWaive:
         msgs = await bus.get_history(f"tickets.{ticket_id}")
         assert any(
             m.payload.get("kind") == "thread_objection_waived" for m in msgs
+        )
+
+
+# ---- thread_decide --------------------------------------------------------
+
+
+class TestThreadDecide:
+    @pytest.mark.asyncio
+    async def test_creates_decision_and_record_file(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_decide(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="sa",
+            args={
+                "ticket_id": ticket_id,
+                "decision": "use JSONL, not sqlite",
+                "rationale": "append-only writes + zero-dep deploy story",
+            },
+            project_path=tmp_path,
+        )
+        did = result["decision_id"]
+        assert result["seq"] == 1
+        # Thread entry present and auto-resolved.
+        entry = await threads.get(did)
+        assert isinstance(entry, Decision)
+        assert entry.decision == "use JSONL, not sqlite"
+        assert entry.is_resolved()
+        # Decision record mirror exists with both sections.
+        record = tmp_path / ".jig" / "decisions" / f"{ticket_id}-1.md"
+        assert record.is_file()
+        body = record.read_text()
+        assert "## Decision" in body
+        assert "use JSONL, not sqlite" in body
+        assert "## Rationale" in body
+        assert "append-only writes" in body
+
+    @pytest.mark.asyncio
+    async def test_seq_increments_per_ticket(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        first = await handle_thread_decide(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="sa",
+            args={
+                "ticket_id": ticket_id,
+                "decision": "A",
+                "rationale": "because",
+            },
+            project_path=tmp_path,
+        )
+        second = await handle_thread_decide(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="sa",
+            args={
+                "ticket_id": ticket_id,
+                "decision": "B",
+                "rationale": "also because",
+            },
+            project_path=tmp_path,
+        )
+        assert first["seq"] == 1
+        assert second["seq"] == 2
+        assert (tmp_path / ".jig" / "decisions" / f"{ticket_id}-2.md").is_file()
+
+    @pytest.mark.asyncio
+    async def test_publishes_to_bus(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        await handle_thread_decide(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="sa",
+            args={
+                "ticket_id": ticket_id,
+                "decision": "x",
+                "rationale": "y",
+            },
+            project_path=tmp_path,
+        )
+        msgs = await bus.get_history(f"tickets.{ticket_id}")
+        assert any(
+            m.payload.get("kind") == "thread_decision_posted" for m in msgs
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_ticket_raises(self, tmp_path: Path) -> None:
+        tickets, threads, bus, _ = await _make_stores(tmp_path)
+        with pytest.raises(KeyError, match="ticket"):
+            await handle_thread_decide(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="sa",
+                args={
+                    "ticket_id": "missing",
+                    "decision": "x",
+                    "rationale": "y",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_empty_rationale_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        with pytest.raises(ValueError, match="rationale"):
+            await handle_thread_decide(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="sa",
+                args={
+                    "ticket_id": ticket_id,
+                    "decision": "x",
+                    "rationale": " ",
+                },
+                project_path=tmp_path,
+            )
+
+
+# ---- thread_note ----------------------------------------------------------
+
+
+class TestThreadNote:
+    @pytest.mark.asyncio
+    async def test_creates_resolved_non_blocking_note(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_note(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={"ticket_id": ticket_id, "text": "investigating flake"},
+        )
+        note = await threads.get(result["note_id"])
+        assert isinstance(note, Note)
+        assert note.text == "investigating flake"
+        assert note.is_resolved()
+        assert not note.is_blocking()
+        assert await threads.has_unresolved_blocking(ticket_id) == []
+
+    @pytest.mark.asyncio
+    async def test_empty_text_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        with pytest.raises(ValueError, match="text"):
+            await handle_thread_note(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={"ticket_id": ticket_id, "text": ""},
+            )
+
+    @pytest.mark.asyncio
+    async def test_missing_ticket_raises(self, tmp_path: Path) -> None:
+        tickets, threads, bus, _ = await _make_stores(tmp_path)
+        with pytest.raises(KeyError, match="ticket"):
+            await handle_thread_note(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={"ticket_id": "missing", "text": "x"},
+            )
+
+
+# ---- thread_escalate ------------------------------------------------------
+
+
+class TestThreadEscalate:
+    @pytest.mark.asyncio
+    async def test_creates_blocking_escalation(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "reason": "needs_human_judgment",
+                "details": "pricing policy ambiguous — legal sign-off?",
+            },
+        )
+        assert result["blocking"] is True
+        assert result["target"] == "human"
+        entry = await threads.get(result["escalation_id"])
+        assert isinstance(entry, Escalation)
+        assert entry.target == "human"
+        assert entry.is_blocking()
+        blockers = await threads.has_unresolved_blocking(ticket_id)
+        assert len(blockers) == 1
+
+    @pytest.mark.asyncio
+    async def test_custom_target_allowed(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "reason": "architecture_decision",
+                "details": "need SA input on transport choice",
+                "target": "sa",
+            },
+            valid_roles=frozenset({"dev", "sa", "reviewer"}),
+        )
+        entry = await threads.get(result["escalation_id"])
+        assert isinstance(entry, Escalation)
+        assert entry.target == "sa"
+
+    @pytest.mark.asyncio
+    async def test_unknown_target_warns_but_allows(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
+            await handle_thread_escalate(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "ticket_id": ticket_id,
+                    "reason": "x",
+                    "details": "y",
+                    "target": "unknown_role",
+                },
+                valid_roles=frozenset({"dev", "sa"}),
+            )
+        assert any(
+            "not a known role" in r.message for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_phase_escalation_targets_warn_only(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
+            result = await handle_thread_escalate(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "ticket_id": ticket_id,
+                    "reason": "x",
+                    "details": "y",
+                    "target": "po",
+                },
+                phase_escalation_targets=frozenset({"sa", "human"}),
+            )
+        # Allowed despite warning — Phase 4 is advisory.
+        entry = await threads.get(result["escalation_id"])
+        assert isinstance(entry, Escalation)
+        assert any(
+            "phase escalation_targets" in r.message for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_reason_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        with pytest.raises(ValueError, match="reason"):
+            await handle_thread_escalate(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "ticket_id": ticket_id,
+                    "reason": "",
+                    "details": "y",
+                },
+            )
+
+
+# ---- thread_uncertain -----------------------------------------------------
+
+
+class TestThreadUncertain:
+    @pytest.mark.asyncio
+    async def test_routes_to_question_when_role_mentioned(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_uncertain(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "details": "ask the SA whether we should ship this behind a flag",
+            },
+            valid_roles=frozenset({"dev", "sa", "reviewer"}),
+        )
+        assert result["routed"] == "question"
+        assert result["target"] == "sa"
+        u = await threads.get(result["uncertain_id"])
+        assert isinstance(u, Uncertain)
+        q = await threads.get(result["question_id"])
+        assert isinstance(q, Question)
+        assert q.target == "sa"
+        assert q.blocking is False
+
+    @pytest.mark.asyncio
+    async def test_escalates_when_no_role_matched(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_uncertain(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "details": "not sure who owns pricing policy",
+            },
+            valid_roles=frozenset({"dev", "sa", "reviewer"}),
+        )
+        assert result["routed"] == "escalation"
+        assert result["target"] == "human"
+        esc = await threads.get(result["escalation_id"])
+        assert isinstance(esc, Escalation)
+        assert esc.reason == "uncertain_unroutable"
+        assert esc.target == "human"
+        blockers = await threads.has_unresolved_blocking(ticket_id)
+        assert len(blockers) == 1  # the escalation is blocking
+
+    @pytest.mark.asyncio
+    async def test_word_boundary_prevents_substring_collision(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        # "sa" as substring of "saffron" must NOT route to sa.
+        result = await handle_thread_uncertain(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "details": "saffron pricing is weird",
+            },
+            valid_roles=frozenset({"sa", "dev"}),
+        )
+        assert result["routed"] == "escalation"
+
+    @pytest.mark.asyncio
+    async def test_empty_details_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        with pytest.raises(ValueError, match="details"):
+            await handle_thread_uncertain(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={"ticket_id": ticket_id, "details": "  "},
+                valid_roles=frozenset({"sa"}),
+            )
+
+    @pytest.mark.asyncio
+    async def test_publishes_routed_event(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        await handle_thread_uncertain(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "details": "ask sa about caching",
+            },
+            valid_roles=frozenset({"sa"}),
+        )
+        msgs = await bus.get_history(f"tickets.{ticket_id}")
+        assert any(
+            m.payload.get("kind") == "thread_uncertain_routed_question"
+            for m in msgs
         )

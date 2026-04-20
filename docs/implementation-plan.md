@@ -963,24 +963,24 @@ ad-hoc `handle_ask_question` / `handle_answer_questions` flow in
 
 Lower-gating-weight entries. Uncertain has a routing side effect.
 
-- [ ] `thread_decide(ticket_id, decision, rationale)` — creates a
+- [x] `thread_decide(ticket_id, decision, rationale)` — creates a
       `Decision`. Auto-resolved. Also writes a standalone decision
       record under `.jig/decisions/<ticket-id>-<seq>.md` per doc 17
       (the per-ticket sequence is file-scoped; collisions take the
       higher `created_at`).
-- [ ] `thread_note(ticket_id, text)` — creates a `Note`. Auto-
+- [x] `thread_note(ticket_id, text)` — creates a `Note`. Auto-
       resolved.
-- [ ] `thread_escalate(ticket_id, reason, details, target="human")`
+- [x] `thread_escalate(ticket_id, reason, details, target="human")`
       — creates an `Escalation`. Always blocking. Target validation
       against the phase's `escalation_targets` is best-effort in
       Phase 4: log a warning but don't refuse.
-- [ ] `thread_uncertain(ticket_id, details)` — creates an
-      `Uncertain`. The orchestrator subscribes and converts it to
-      a targeted Question (or escalates if it can't route). Phase
-      4 routes on a simple rule: if `details` mentions a role name
-      from the catalog, reshape as a Question targeting that role;
-      otherwise emit an Escalation targeting `human`. Smarter
-      routing is Phase 5.
+- [x] `thread_uncertain(ticket_id, details)` — creates an
+      `Uncertain`. Phase 4 routes inline in the handler: if
+      `details` mentions a known role name as a whole word, we
+      reshape the uncertain as a non-blocking Question targeting
+      that role; otherwise we emit a blocking Escalation targeting
+      `human`. Orchestrator-level subscription + smarter routing is
+      Phase 5.
 
 **F. Handoff entry + phase-completion hook**
 

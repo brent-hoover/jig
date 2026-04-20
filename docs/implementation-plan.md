@@ -884,27 +884,32 @@ checkpoint channel ships in Task G; thread entries stay on the
 existing JSONL file with a one-time record migration for the
 proposal entries Phase 3 wrote.
 
-- [ ] Rename `CommentStore` → `ThreadStore` (keep a thin
-      `CommentStore` alias for Phase 3 call sites; delete the alias
-      at the Phase 4 commit boundary).
-- [ ] `ThreadStore.post(entry: ThreadEntry)` — same append-JSONL
+- [x] Introduce `ThreadStore` alongside `CommentStore` on the same
+      JSONL file (`.jig/store/comments.jsonl`). Renaming the legacy
+      store would churn every Phase 3 MCP handler in one pass; we
+      defer the rename + CommentStore removal to Task H so Tasks C–G
+      can migrate handlers one channel at a time.
+- [x] `ThreadStore.post(entry: ThreadEntry)` — same append-JSONL
       semantics; validates via the discriminated union.
-- [ ] `ThreadStore.for_ticket`, `resolve`, `find_blocking`,
+- [x] `ThreadStore.for_ticket`, `update` (field-level patch for
+      close-by-asker / accept-handoff), `has_unresolved_blocking`,
       `find_by_kind(ticket_id, kind)` — enough query surface to
       drive the gating check without re-scanning every load.
-- [ ] `ThreadStore.has_unresolved_blocking(ticket_id) -> list[
+- [x] `ThreadStore.has_unresolved_blocking(ticket_id) -> list[
       ThreadEntry]` — single helper the dispatch layer calls to
       decide whether the current phase can advance.
-- [ ] Migration: old `Comment(kind="comment"|"commit"|"phase_run"|
-      "status_change")` records keep loading as typed
-      `Note`/`Commit`/`PhaseRun`/`StatusChange` entries (fold the
-      three system-primitive kinds into a shared `SystemEvent`
-      subtype rather than promoting them to first-class thread
-      entries — they're not user-visible conversations). Bad records
-      fail loud with file+line per Phase 1 store convention.
-- [ ] `__getattr__` shim on `jig.store.comments` so existing
-      imports keep working through the commit; emit a
-      `DeprecationWarning`.
+- [x] Migration on read: old `Comment(kind="comment"|"commit"|
+      "phase_run"|"status_change"|"decision"|"question"|"answer"|
+      "proposal")` records load as the new typed entries. The three
+      system-primitive kinds fold into a shared `SystemEvent` subtype
+      rather than becoming first-class thread entries — they're
+      audit trail, not conversations. Idempotent: already-new-shape
+      records pass through. Bad records fail loud via pydantic's
+      discriminated-union validator.
+- [ ] *(deferred to Task H)* Route remaining `CommentStore`
+      imports through `ThreadStore` and drop the legacy module.
+      Until then both stores read/write the same file and stay
+      compatible.
 
 **C. Question / Answer tools and gating**
 

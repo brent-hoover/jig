@@ -108,7 +108,6 @@ class WebSocketServer:
             if command == "create_ticket":
                 tid = await handle_create_ticket(
                     tickets=self._orch.tickets,
-                    comments=self._orch.comments,
                     bus=self._orch.bus,
                     sender="user",
                     args=args,
@@ -118,7 +117,7 @@ class WebSocketServer:
             elif command == "comment_on_ticket":
                 cid = await handle_comment_on_ticket(
                     tickets=self._orch.tickets,
-                    comments=self._orch.comments,
+                    threads=self._orch.threads,
                     bus=self._orch.bus,
                     sender="user",
                     sender_cfg=None,
@@ -128,7 +127,7 @@ class WebSocketServer:
             elif command == "update_ticket":
                 updated = await handle_update_ticket(
                     tickets=self._orch.tickets,
-                    comments=self._orch.comments,
+                    threads=self._orch.threads,
                     bus=self._orch.bus,
                     sender="user",
                     args=args,
@@ -170,29 +169,20 @@ class WebSocketServer:
                     )
                     return
                 found = await handle_read_comments(
-                    comments=self._orch.comments,
+                    threads=self._orch.threads,
                     ticket_id=ticket_id,
                     kind=args.get("kind"),
                 )
                 await self._safe_send(websocket, json.dumps({
                     "ok": True,
                     "comments": [
-                        {
-                            "id": c.id,
-                            "ticket_id": c.ticket_id,
-                            "author": c.author,
-                            "content": c.content,
-                            "kind": c.kind,
-                            "created_at": c.created_at.isoformat() if c.created_at else None,
-                            "commit_sha": c.commit_sha,
-                        }
-                        for c in found
+                        _thread_entry_to_wire(e) for e in found
                     ],
                 }))
             elif command == "answer_questions":
                 result = await handle_answer_questions(
                     tickets=self._orch.tickets,
-                    comments=self._orch.comments,
+                    threads=self._orch.threads,
                     bus=self._orch.bus,
                     sender="user",
                     args=args,
@@ -233,7 +223,6 @@ class WebSocketServer:
                     worktree_path=worktree_path,
                     project=self._orch._project,
                     tickets=self._orch.tickets,
-                    comments=self._orch.comments,
                     threads=self._orch.threads,
                     memory=self._orch.memory,
                     bus=self._orch.bus,
@@ -269,3 +258,49 @@ class WebSocketServer:
                     await client.send(message)
                 except websockets.ConnectionClosed:
                     self._clients.discard(client)
+
+
+def _thread_entry_to_wire(entry) -> dict:
+    """Flatten a typed ThreadEntry into the TUI's comment payload shape.
+
+    Preserves a ``content`` string (the human-visible text) and
+    ``kind`` so existing TUI code keeps working. Per-type payload
+    fields surface under their own keys where relevant (e.g.
+    ``commit_sha`` for ``system_event``, ``question_id`` for
+    ``answer``).
+    """
+    kind = entry.kind
+    content_map = {
+        "note": lambda e: e.text,
+        "question": lambda e: e.question,
+        "answer": lambda e: e.text,
+        "decision": lambda e: e.decision,
+        "resolution": lambda e: e.text,
+        "waiver": lambda e: e.justification,
+        "uncertain": lambda e: e.details,
+        "escalation": lambda e: e.details,
+        "objection": lambda e: e.text,
+        "handoff": lambda e: e.summary,
+        "proposal": lambda e: e.rationale,
+        "system_event": lambda e: e.content,
+    }
+    content = content_map.get(kind, lambda _e: "")(entry)
+    wire = {
+        "id": entry.id,
+        "ticket_id": entry.ticket_id,
+        "author": entry.author,
+        "content": content,
+        "kind": kind,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+    if kind == "system_event":
+        wire["event_type"] = entry.event_type
+        wire["commit_sha"] = entry.commit_sha
+    elif kind == "answer":
+        wire["question_id"] = entry.question_id
+    elif kind == "question":
+        wire["target"] = entry.target
+        wire["blocking"] = entry.blocking
+    return wire
+
+

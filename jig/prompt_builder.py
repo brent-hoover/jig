@@ -4,7 +4,8 @@ from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.runtime import SpawnReason
 from jig.skill_loader import Skill
-from jig.ticket import Comment, Ticket
+from jig.thread import ThreadEntry, entry_content
+from jig.ticket import Ticket
 
 __all__ = ["SpawnReason", "build_initial_prompt"]
 
@@ -116,7 +117,7 @@ def _phase_section(phase: PhaseConfig | None, ticket: Ticket) -> str:
 
 
 def _ticket_section(
-    ticket: Ticket, parent: Ticket | None, comments: list[Comment]
+    ticket: Ticket, parent: Ticket | None, entries: list[ThreadEntry]
 ) -> str:
     parts = [f"## Ticket: {ticket.title}\n"]
     if ticket.description:
@@ -125,10 +126,12 @@ def _ticket_section(
         parts.append(f"\n### Parent: {parent.title}\n")
         if parent.description:
             parts.append(parent.description)
-    if comments:
-        parts.append("\n### Relevant comments\n")
-        for c in comments:
-            parts.append(f"- [{c.author}] {c.content}")
+    if entries:
+        parts.append("\n### Relevant thread\n")
+        for e in entries:
+            body = entry_content(e)
+            if body:
+                parts.append(f"- [{e.kind}] [{e.author}] {body}")
     return "\n".join(parts) + "\n\n"
 
 
@@ -180,7 +183,7 @@ def build_initial_prompt(
     spawn_reason: SpawnReason,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: list[Comment],
+    entries: list[ThreadEntry],
     memories: list[str],
     project: Project,
     skills: list[Skill],
@@ -199,7 +202,7 @@ def build_initial_prompt(
         _environment_section(environment_md),
         _memories_section(memories),
         resolved_context,
-        _ticket_section(ticket, parent, comments),
+        _ticket_section(ticket, parent, entries),
         _phase_section(phase, ticket),
         _instructions_section(ticket, spawn_reason),
     ]

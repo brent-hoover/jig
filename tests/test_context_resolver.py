@@ -19,8 +19,9 @@ from jig.context_resolver import (
     resolve_context_uri,
     resolve_context_uris,
 )
-from jig.store.comments import CommentStore
-from jig.ticket import Comment, Ticket, WorkType
+from jig.store.threads import ThreadStore
+from jig.thread import Question, Answer
+from jig.ticket import Ticket, WorkType
 
 
 @pytest.fixture
@@ -47,8 +48,8 @@ def ticket() -> Ticket:
 
 
 @pytest.fixture
-async def comments(tmp_path: Path) -> CommentStore:
-    store = CommentStore(tmp_path / "comments.jsonl")
+async def threads(tmp_path: Path) -> ThreadStore:
+    store = ThreadStore(tmp_path / "comments.jsonl")
     await store.load()
     return store
 
@@ -58,14 +59,14 @@ async def _resolve(
     *,
     jig_layout: Path,
     ticket: Ticket,
-    comments: CommentStore,
+    threads: ThreadStore,
     strict: bool = False,
 ) -> str:
     return await resolve_context_uris(
         uris,
         ticket=ticket,
         parent=None,
-        comments=comments,
+        threads=threads,
         worktree_path=jig_layout,
         project_path=jig_layout,
         strict=strict,
@@ -77,7 +78,7 @@ async def _resolve(
 
 class TestProjectScheme:
     async def test_resolves_extant_file(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "context" / "project" / "principles.md").write_text(
             "Keep it simple."
@@ -86,12 +87,12 @@ class TestProjectScheme:
             ["project://principles.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "Keep it simple." in out
 
     async def test_md_suffix_fallback(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "context" / "project" / "principles.md").write_text(
             "Ship"
@@ -100,30 +101,30 @@ class TestProjectScheme:
             ["project://principles"],  # no extension — resolver tries .md
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "Ship" in out
 
     async def test_missing_file_returns_empty(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await _resolve(
             ["project://nope.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
     async def test_missing_file_is_strict_error(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         with pytest.raises(MissingContextError) as ei:
             await _resolve(
                 ["project://nope.md"],
                 jig_layout=jig_layout,
                 ticket=ticket,
-                comments=comments,
+                threads=threads,
                 strict=True,
             )
         assert ei.value.uri == "project://nope.md"
@@ -134,7 +135,7 @@ class TestProjectScheme:
 
 class TestRoleScheme:
     async def test_resolves(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "context" / "roles" / "dev" / "style.md").write_text(
             "4-space indent."
@@ -143,31 +144,31 @@ class TestRoleScheme:
             ["role://dev/style.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "4-space indent." in out
 
     async def test_malformed_returns_none(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         # role:// without a path component
         out = await _resolve(
             ["role://dev"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
     async def test_malformed_is_strict_error(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         with pytest.raises(MissingContextError):
             await _resolve(
                 ["role://dev"],
                 jig_layout=jig_layout,
                 ticket=ticket,
-                comments=comments,
+                threads=threads,
                 strict=True,
             )
 
@@ -177,40 +178,40 @@ class TestRoleScheme:
 
 class TestTicketScheme:
     async def test_description(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await _resolve(
             ["ticket://description"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "Build the widget." in out
 
     async def test_thread_concatenates_comments(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
-        await comments.post(
-            Comment(
+        q_id = await threads.post(
+            Question(
                 ticket_id=ticket.id,
                 author="alice",
-                content="Q: shape?",
-                kind="question",
+                target="any_human",
+                question="Q: shape?",
             )
         )
-        await comments.post(
-            Comment(
+        await threads.post(
+            Answer(
                 ticket_id=ticket.id,
                 author="bob",
-                content="A: circle",
-                kind="answer",
+                question_id=q_id,
+                text="A: circle",
             )
         )
         out = await _resolve(
             ["ticket://thread"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "alice" in out and "bob" in out
         assert "Q: shape?" in out and "A: circle" in out
@@ -218,13 +219,13 @@ class TestTicketScheme:
         assert out.index("alice") < out.index("bob")
 
     async def test_unknown_artifact_is_empty(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await _resolve(
             ["ticket://bogus"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
@@ -234,7 +235,7 @@ class TestTicketScheme:
 
 class TestDecisionScheme:
     async def test_resolves_with_and_without_extension(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "decisions" / "DR-0001.md").write_text(
             "We picked pg."
@@ -243,13 +244,13 @@ class TestDecisionScheme:
             ["decision://DR-0001"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         suffixed = await _resolve(
             ["decision://DR-0001.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "We picked pg." in bare
         assert "We picked pg." in suffixed
@@ -260,25 +261,25 @@ class TestDecisionScheme:
 
 class TestRepoScheme:
     async def test_resolves_relative_to_worktree(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / "README.md").write_text("hello readme")
         out = await _resolve(
             ["repo://README.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "hello readme" in out
 
     async def test_missing_file_returns_empty(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await _resolve(
             ["repo://nope.py"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
@@ -308,28 +309,28 @@ class TestTicketSpecScheme:
         save_ticket_spec(project_path, spec)
 
     async def test_full_spec_resolves(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         self._write_spec(jig_layout, ticket)
         out = await _resolve(
             ["ticket://spec"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "## Ticket Spec (feature)" in out
         assert "Build the widget." in out
         assert "B1" in out
 
     async def test_single_section_resolves(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         self._write_spec(jig_layout, ticket)
         out = await _resolve(
             ["ticket://spec.summary"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "### Summary" in out
         assert "Build the widget." in out
@@ -337,52 +338,52 @@ class TestTicketSpecScheme:
         assert "acceptance_criteria" not in out.lower() or "### Summary" in out
 
     async def test_structured_field_renders_yaml(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         self._write_spec(jig_layout, ticket)
         out = await _resolve(
             ["ticket://spec.behaviors"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "### Behaviors" in out
         assert "```yaml" in out
         assert "id: B1" in out
 
     async def test_missing_spec_returns_empty(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         # No spec file written.
         out = await _resolve(
             ["ticket://spec"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
     async def test_missing_spec_is_strict_error(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         with pytest.raises(MissingContextError):
             await _resolve(
                 ["ticket://spec"],
                 jig_layout=jig_layout,
                 ticket=ticket,
-                comments=comments,
+                threads=threads,
                 strict=True,
             )
 
     async def test_unknown_section_returns_empty(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         self._write_spec(jig_layout, ticket)
         out = await _resolve(
             ["ticket://spec.not_a_field"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
@@ -392,13 +393,13 @@ class TestTicketSpecScheme:
 
 class TestIssueAlias:
     async def test_issue_resolves_as_ticket(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await _resolve(
             ["issue://description"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert "Build the widget." in out
 
@@ -406,7 +407,7 @@ class TestIssueAlias:
         self,
         jig_layout: Path,
         ticket: Ticket,
-        comments: CommentStore,
+        threads: ThreadStore,
         caplog: pytest.LogCaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -421,7 +422,7 @@ class TestIssueAlias:
             ["issue://description"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         joined = " ".join(r.getMessage() for r in caplog.records)
         assert "issue://" in joined and "deprecated" in joined
@@ -432,63 +433,63 @@ class TestIssueAlias:
 
 class TestStrictMode:
     async def test_strict_raises_on_first_miss(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         with pytest.raises(MissingContextError):
             await _resolve(
                 ["project://missing.md"],
                 jig_layout=jig_layout,
                 ticket=ticket,
-                comments=comments,
+                threads=threads,
                 strict=True,
             )
 
     async def test_non_strict_skips_misses(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "context" / "project" / "ok.md").write_text("ok")
         out = await _resolve(
             ["project://missing.md", "project://ok.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         # The missing one is silently skipped, the present one is included.
         assert "ok" in out
 
     async def test_strict_ok_when_all_resolve(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "context" / "project" / "ok.md").write_text("ok")
         out = await _resolve(
             ["project://ok.md"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
             strict=True,
         )
         assert "ok" in out
 
     async def test_unknown_scheme_non_strict_skips(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await _resolve(
             ["weird://thing"],
             jig_layout=jig_layout,
             ticket=ticket,
-            comments=comments,
+            threads=threads,
         )
         assert out == ""
 
     async def test_unknown_scheme_strict_raises(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         with pytest.raises(MissingContextError):
             await _resolve(
                 ["weird://thing"],
                 jig_layout=jig_layout,
                 ticket=ticket,
-                comments=comments,
+                threads=threads,
                 strict=True,
             )
 
@@ -498,40 +499,40 @@ class TestStrictMode:
 
 class TestResolveContextUri:
     async def test_returns_none_when_missing(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await resolve_context_uri(
             "project://missing.md",
             ticket=ticket,
             parent=None,
-            comments=comments,
+            threads=threads,
             worktree_path=jig_layout,
             project_path=jig_layout,
         )
         assert out is None
 
     async def test_returns_text_when_present(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         (jig_layout / ".jig" / "context" / "project" / "p.md").write_text("hello")
         out = await resolve_context_uri(
             "project://p.md",
             ticket=ticket,
             parent=None,
-            comments=comments,
+            threads=threads,
             worktree_path=jig_layout,
             project_path=jig_layout,
         )
         assert out is not None and "hello" in out
 
     async def test_missing_scheme_returns_none(
-        self, jig_layout: Path, ticket: Ticket, comments: CommentStore
+        self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
         out = await resolve_context_uri(
             "no-scheme-here",
             ticket=ticket,
             parent=None,
-            comments=comments,
+            threads=threads,
             worktree_path=jig_layout,
             project_path=jig_layout,
         )

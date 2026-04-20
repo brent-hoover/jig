@@ -12,7 +12,6 @@ from jig.agent import run_agent
 from jig.project import Project, load_project
 from jig.store import Message, MessageBus, MessageType
 from jig.store.checkpoints import CheckpointStore
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -35,7 +34,6 @@ class Orchestrator:
         self._emitter = emitter
         self._project: Project | None = None
         self.tickets: TicketStore | None = None
-        self.comments: CommentStore | None = None
         self.threads: ThreadStore | None = None
         self.checkpoints: CheckpointStore | None = None
         self.memory: MemoryStore | None = None
@@ -53,9 +51,6 @@ class Orchestrator:
             store_dir = self._project_path / ".jig" / "store"
             store_dir.mkdir(parents=True, exist_ok=True)
             self.tickets = TicketStore(store_dir / "tickets.jsonl")
-            self.comments = CommentStore(store_dir / "comments.jsonl")
-            # ThreadStore shares the comments JSONL file through Phase 4
-            # (see jig/store/threads.py); Task H drops CommentStore.
             self.threads = ThreadStore(store_dir / "comments.jsonl")
             # CheckpointStore is a separate channel per doc 09.
             self.checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
@@ -63,7 +58,6 @@ class Orchestrator:
             self.bus = MessageBus(store_dir / "messages.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
-                self.comments.load(),
                 self.threads.load(),
                 self.checkpoints.load(),
                 self.memory.load(),
@@ -95,7 +89,7 @@ class Orchestrator:
         self._service_task = None
         self._project = None
         self.tickets = None
-        self.comments = None
+        self.threads = None
         self.memory = None
         self.bus = None
 
@@ -221,7 +215,7 @@ class Orchestrator:
 
         if (
             self.tickets is None
-            or self.comments is None
+            or self.threads is None
             or self.memory is None
             or self.bus is None
             or self._project is None
@@ -272,7 +266,6 @@ class Orchestrator:
                 worktree_path=worktree,
                 project=self._project,
                 tickets=self.tickets,
-                comments=self.comments,
                 threads=self.threads,
                 memory=self.memory,
                 bus=self.bus,
@@ -797,7 +790,7 @@ class Orchestrator:
 
         if (
             self.tickets is None
-            or self.comments is None
+            or self.threads is None
             or self.memory is None
             or self.bus is None
             or self._project is None
@@ -840,7 +833,6 @@ class Orchestrator:
             worktree_path=worktree,
             project=self._project,
             tickets=self.tickets,
-            comments=self.comments,
             threads=self.threads,
             memory=self.memory,
             bus=self.bus,

@@ -9,7 +9,6 @@ from jig.models import RoleConfig
 from jig.project import Project
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.store import MessageBus
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -32,8 +31,6 @@ async def _wait_for_subscription(bus, topic: str, timeout: float = 2.0) -> None:
 async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     tickets = TicketStore(tmp_path / "tickets.jsonl")
     await tickets.load()
-    comments = CommentStore(tmp_path / "comments.jsonl")
-    await comments.load()
     threads = ThreadStore(tmp_path / "comments.jsonl")
     await threads.load()
     memory = MemoryStore(tmp_path)
@@ -64,7 +61,6 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
             package_manager="uv",
         ),
         tickets=tickets,
-        comments=comments,
         threads=threads,
         memory=memory,
         bus=bus,

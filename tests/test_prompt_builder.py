@@ -2,7 +2,8 @@ from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.prompt_builder import SpawnReason, build_initial_prompt
 from jig.skill_loader import Skill
-from jig.ticket import Comment, Ticket, TicketStatus, WorkType
+from jig.thread import Note
+from jig.ticket import Ticket, TicketStatus, WorkType
 
 
 def _project() -> Project:
@@ -38,7 +39,7 @@ def test_injection_order() -> None:
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=parent,
-        comments=[],
+        entries=[],
         memories=["use pytest-asyncio"],
         project=_project(),
         skills=[uv_skill],
@@ -58,7 +59,7 @@ def test_qa_responder_uses_response_prompt() -> None:
         spawn_reason=SpawnReason.QA_RESPONDER,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -75,7 +76,7 @@ def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
         spawn_reason=SpawnReason.QA_RESPONDER,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -87,16 +88,16 @@ def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
 
 def test_parent_comments_included() -> None:
     parent = Ticket(work_type=WorkType.FEATURE, title="p", created_by="u", description="")
-    parent_comments = [
-        Comment(ticket_id="parent-id", author="spec-writer", content="use redis"),
-        Comment(ticket_id="parent-id", author="spec-writer", content="index by id"),
+    parent_entries = [
+        Note(ticket_id="parent-id", author="spec-writer", text="use redis"),
+        Note(ticket_id="parent-id", author="spec-writer", text="index by id"),
     ]
     prompt = build_initial_prompt(
         role_cfg=_cfg(),
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=parent,
-        comments=parent_comments,
+        entries=parent_entries,
         memories=[],
         project=_project(),
         skills=[],
@@ -118,7 +119,7 @@ def test_phase_section_interpolates_task_template() -> None:
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -141,7 +142,7 @@ def test_phase_section_accepts_legacy_issue_title_placeholder() -> None:
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -161,7 +162,7 @@ def test_phase_section_unknown_placeholder_left_intact() -> None:
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -177,7 +178,7 @@ def test_phase_section_absent_when_phase_none() -> None:
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],

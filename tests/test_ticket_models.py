@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from jig.ticket import Comment, Size, Ticket, TicketStatus, WorkType
+from jig.ticket import Size, Ticket, TicketStatus, WorkType
 
 
 def test_ticket_defaults() -> None:
@@ -115,38 +115,3 @@ def test_ticket_legacy_bug_keeps_default_workflow() -> None:
     assert t.workflow == "default"
 
 
-def test_comment_default_kind() -> None:
-    c = Comment(ticket_id="T-1", author="dev", content="hello")
-    assert c.kind == "comment"
-    assert c.commit_sha is None
-    assert c.phase_result is None
-    assert c.phase_branch is None
-
-
-def test_comment_phase_run() -> None:
-    c = Comment(
-        ticket_id="T-1",
-        author="orchestrator",
-        content="phase done",
-        kind="phase_run",
-        phase_result="success",
-        phase_branch="jig/T-1",
-    )
-    assert c.kind == "phase_run"
-    assert c.phase_result == "success"
-
-
-def test_comment_rejects_unknown_kind() -> None:
-    with pytest.raises(ValidationError):
-        Comment(ticket_id="T-1", author="dev", content="x", kind="gossip")
-
-
-def test_comment_rejects_unknown_phase_result() -> None:
-    with pytest.raises(ValidationError):
-        Comment(
-            ticket_id="T-1",
-            author="o",
-            content="x",
-            kind="phase_run",
-            phase_result="partial",
-        )

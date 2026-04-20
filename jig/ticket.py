@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field, model_validator
 
@@ -114,38 +114,3 @@ class Ticket(StoreModel):
         return data
 
 
-class Comment(StoreModel):
-    ticket_id: str
-    author: str
-    content: str
-    kind: Literal[
-        "comment",
-        "commit",
-        "phase_run",
-        "decision",
-        "status_change",
-        "question",
-        "answer",
-        "proposal",  # Phase 3E — first typed thread entry per doc 04/08.
-    ] = "comment"
-    commit_sha: str | None = None
-    phase_result: Literal["success", "failed", "blocked", "needs_info"] | None = None
-    phase_branch: str | None = None
-    # Proposal-specific payload (only set when kind="proposal" or when
-    # recording an accept/reject/refine that references one). Phase 4
-    # will replace this envelope with properly typed thread entries;
-    # for now, extending Comment keeps migrations small.
-    proposal_target: str | None = None  # e.g., "ticket://spec.behaviors"
-    proposal_section: str | None = None  # optional sub-section
-    proposal_change: str | None = None  # YAML fragment or prose change
-    proposal_state: Literal[
-        "pending", "accepted", "rejected", "refining"
-    ] | None = None
-    proposal_parent_id: str | None = None  # resolver entries reference original
-    proposal_owners: list[str] = []  # routing result cached at creation
-    # Spec versioning: when an accepted proposal applies to a ticket
-    # spec, record the new version number so the audit trail is clear.
-    proposal_spec_version: int | None = None
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )

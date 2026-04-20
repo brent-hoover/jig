@@ -9,7 +9,6 @@ from jig import checkpoint_mcp, thread_mcp, ticket_mcp
 from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.checkpoints import CheckpointStore
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -18,7 +17,6 @@ from jig.store.tickets import TicketStore
 def create_agent_mcp_server(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
     threads: ThreadStore,
     memory: MemoryStore,
     bus: MessageBus,
@@ -33,13 +31,11 @@ def create_agent_mcp_server(
 ):
     """Create a Jig MCP server for a worker agent.
 
-    ``threads`` is the Phase 4 typed thread-entry store; it sits on
-    the same JSONL file as ``comments`` through Phase 4 (Task H
-    collapses the two). Task C exposes three agent-facing tools
-    (``thread_ask`` / ``thread_answer`` / ``thread_resolve_question``)
-    that write typed entries via this store. The legacy
-    ``ask_question`` tool stays registered for the operator-pause
-    UX used by the WebSocket + TUI flow.
+    ``threads`` is the Phase 4 typed thread-entry store and is the
+    sole store used by every tool handler here. ``thread_ask`` /
+    ``thread_answer`` / ``thread_resolve_question`` write typed entries
+    directly; legacy ticket tools (``ask_question``, ``comment_on_ticket``
+    etc.) now translate to ThreadEntry types on the way in.
     """
 
     # Allowed assignees: known roles + orchestrator + user
@@ -61,7 +57,6 @@ def create_agent_mcp_server(
         _check_assignee(args.get("assignee"))
         ticket_id = await ticket_mcp.handle_create_ticket(
             tickets=tickets,
-            comments=comments,
             bus=bus,
             sender=agent_role,
             args=args,
@@ -86,7 +81,7 @@ def create_agent_mcp_server(
     async def update_ticket(args):
         _check_assignee(args.get("assignee"))
         updated = await ticket_mcp.handle_update_ticket(
-            tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+            tickets=tickets, threads=threads, bus=bus, sender=agent_role, args=args
         )
         return {"content": [{"type": "text", "text": updated.model_dump_json()}]}
 
@@ -98,7 +93,7 @@ def create_agent_mcp_server(
     async def comment_on_ticket(args):
         cid = await ticket_mcp.handle_comment_on_ticket(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             bus=bus,
             sender=agent_role,
             sender_cfg=agent_cfg,
@@ -115,7 +110,7 @@ def create_agent_mcp_server(
     )
     async def ask_question(args):
         result = await ticket_mcp.handle_ask_question(
-            tickets=tickets, comments=comments, bus=bus, sender=agent_role, args=args
+            tickets=tickets, threads=threads, bus=bus, sender=agent_role, args=args
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -473,7 +468,7 @@ def create_agent_mcp_server(
     )
     async def read_comments(args):
         results = await ticket_mcp.handle_read_comments(
-            comments=comments, ticket_id=args["ticket_id"], kind=args.get("kind")
+            threads=threads, ticket_id=args["ticket_id"], kind=args.get("kind")
         )
         text = "\n".join(r.model_dump_json() for r in results)
         return {"content": [{"type": "text", "text": text}]}
@@ -488,7 +483,7 @@ def create_agent_mcp_server(
     async def commit_progress(args):
         result = await ticket_mcp.handle_commit_progress(
             tickets=tickets,
-            comments=comments,
+            threads=threads,
             bus=bus,
             sender=agent_role,
             worktree_path=worktree_path,

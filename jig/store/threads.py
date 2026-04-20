@@ -1,20 +1,9 @@
-"""Thread-entry store (Phase 4 Task B).
+"""Thread-entry store (doc 08 canonical).
 
-``ThreadStore`` replaces ``CommentStore`` as the canonical store for
-doc-08 thread entries. It operates against the same JSONL file
-(``.jig/store/comments.jsonl``) so the Phase 3 store on-disk is
-read-compatible — migration happens **on read** in ``_migrate_legacy``.
-
-Why two stores for one file during Phase 4:
-
-* ``CommentStore`` stays in place so Phase 3 call sites
-  (proposal_mcp, ticket_mcp) keep working unchanged through the
-  phase. Task C and later gradually switch MCP handlers to
-  ``ThreadStore`` as each typed tool lands.
-* ``ThreadStore`` is what Phase 5 and beyond will use exclusively.
-  At the Phase 4 commit boundary the alias goes away and
-  ``CommentStore`` imports route through ``ThreadStore``
-  (Task H cleanup).
+``ThreadStore`` is the canonical store for doc-08 thread entries.
+It operates against ``.jig/store/comments.jsonl`` and migrates legacy
+Phase-3 Comment-shaped records on read (``_migrate_legacy``) so
+historical JSONL files remain readable.
 
 The store is intentionally thin — no index tricks for the
 ``has_unresolved_blocking`` helper because the in-memory scan is
@@ -165,12 +154,11 @@ def _migrate_legacy(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 class ThreadStore:
-    """Typed thread-entry store; read-compatible with Phase 3's
-    ``CommentStore`` on-disk layout.
+    """Typed thread-entry store.
 
     Writes use the new discriminated-union shape. Reads migrate
-    legacy records through ``_migrate_legacy`` before handing them
-    to ``parse_thread_entry``.
+    legacy Phase-3 Comment-shaped records through ``_migrate_legacy``
+    before handing them to ``parse_thread_entry``.
     """
 
     def __init__(self, path: Path) -> None:

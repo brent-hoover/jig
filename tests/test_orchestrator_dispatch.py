@@ -26,7 +26,7 @@ async def test_orchestrator_startup_loads_collections(tmp_path: Path) -> None:
     await orch.startup()
     try:
         assert orch.tickets is not None
-        assert orch.comments is not None
+        assert orch.threads is not None
         assert orch.bus is not None
         assert orch._live_subscribers == {}
     finally:

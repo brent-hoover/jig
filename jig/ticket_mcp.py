@@ -7,10 +7,18 @@ from typing import TYPE_CHECKING
 
 from jig.models import RoleConfig
 from jig.store import Message, MessageBus, MessageType
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Comment, Size, Ticket, TicketStatus, WorkType
+from jig.thread import (
+    Answer,
+    Decision,
+    Note,
+    Question,
+    SystemEvent,
+    ThreadEntry,
+)
+from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
 if TYPE_CHECKING:
@@ -24,7 +32,6 @@ _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 async def handle_create_ticket(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
     bus: MessageBus,
     sender: str,
     args: dict,
@@ -219,18 +226,26 @@ async def handle_list_tickets(
 
 
 async def handle_read_comments(
-    *, comments: CommentStore, ticket_id: str, kind: str | None = None
-) -> list[Comment]:
-    all_for = await comments.for_ticket(ticket_id)
+    *, threads: ThreadStore, ticket_id: str, kind: str | None = None
+) -> list[ThreadEntry]:
+    """Return thread entries for a ticket, oldest first.
+
+    Legacy-API name kept for call-site compatibility during Phase 4.
+    ``kind`` filters on the new ``ThreadEntry.kind`` discriminator;
+    pre-Phase-4 callers who asked for ``commit`` / ``phase_run`` /
+    ``status_change`` should now pass ``system_event`` (all three fold
+    into that kind, distinguished by ``event_type``).
+    """
+    all_for = await threads.for_ticket(ticket_id)
     if kind is None:
         return all_for
-    return [c for c in all_for if c.kind == kind]
+    return [e for e in all_for if e.kind == kind]
 
 
 async def handle_comment_on_ticket(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     sender_cfg: RoleConfig | None,
@@ -248,17 +263,43 @@ async def handle_comment_on_ticket(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    # Commenting on a ticket is always allowed — the agent is posting its own
-    # observations, not messaging the assignee. Cross-role messaging policy
-    # (if any) will land with the capability-policy layer in Phase 5.
+    content = args["content"]
+    entry: ThreadEntry
+    if kind == "comment":
+        entry = Note(ticket_id=ticket_id, author=sender, text=content)
+    elif kind == "decision":
+        entry = Decision(
+            ticket_id=ticket_id,
+            author=sender,
+            decision=content,
+            rationale="",
+        )
+    elif kind == "question":
+        entry = Question(
+            ticket_id=ticket_id,
+            author=sender,
+            target=args.get("target", "any_human"),
+            question=content,
+            blocking=bool(args.get("blocking", False)),
+        )
+    elif kind == "answer":
+        question_id = args.get("question_id") or await _latest_open_question_id(
+            threads, ticket_id
+        )
+        if not question_id:
+            raise ValueError(
+                "answer kind requires question_id (or an open Question on the ticket)"
+            )
+        entry = Answer(
+            ticket_id=ticket_id,
+            author=sender,
+            question_id=question_id,
+            text=content,
+        )
+    else:  # pragma: no cover — guarded by _WRITABLE_KINDS
+        raise ValueError(f"unhandled writable kind {kind!r}")
 
-    comment = Comment(
-        ticket_id=ticket_id,
-        author=sender,
-        content=args["content"],
-        kind=kind,
-    )
-    cid = await comments.post(comment)
+    cid = await threads.post(entry)
 
     await bus.publish(Message(
         sender=sender,
@@ -269,7 +310,7 @@ async def handle_comment_on_ticket(
             "ticket_id": ticket_id,
             "comment_id": cid,
             "author": sender,
-            "content": args["content"],
+            "content": content,
             "comment_kind": kind,
         },
         topic=f"tickets.{ticket_id}",
@@ -277,10 +318,21 @@ async def handle_comment_on_ticket(
     return cid
 
 
+async def _latest_open_question_id(
+    threads: ThreadStore, ticket_id: str
+) -> str | None:
+    """Return the id of the most recent unresolved Question on the ticket."""
+    questions = await threads.find_by_kind(ticket_id, "question")
+    open_qs = [q for q in questions if not q.is_resolved()]
+    if not open_qs:
+        return None
+    return open_qs[-1].id
+
+
 async def handle_ask_question(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     args: dict,
@@ -303,13 +355,14 @@ async def handle_ask_question(
 
     comment_ids: list[str] = []
     for q in questions:
-        comment = Comment(
+        entry = Question(
             ticket_id=ticket_id,
             author=sender,
-            content=q,
-            kind="question",
+            target="any_human",
+            question=q,
+            blocking=True,
         )
-        cid = await comments.post(comment)
+        cid = await threads.post(entry)
         comment_ids.append(cid)
         await bus.publish(Message(
             sender=sender,
@@ -330,11 +383,11 @@ async def handle_ask_question(
     before_status = ticket.status
     updated = await tickets.update(ticket_id, status=TicketStatus.NEEDS_INFO)
     if before_status != TicketStatus.NEEDS_INFO:
-        await comments.post(Comment(
+        await threads.post(SystemEvent(
             ticket_id=ticket_id,
             author=sender,
+            event_type="status_change",
             content=f"status {before_status.value} -> needs_info",
-            kind="status_change",
         ))
     await bus.publish(Message(
         sender=sender,
@@ -354,7 +407,7 @@ async def handle_ask_question(
 async def handle_answer_questions(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     args: dict,
@@ -365,6 +418,10 @@ async def handle_answer_questions(
         ticket_id: str
         answers: list[str]         — one answer per pending question, in order
         resume: bool (default True) — set ticket back to in_progress
+
+    Answers are bound in order to the ticket's oldest-to-newest unresolved
+    Questions; if there are fewer open questions than answers, the extras
+    attach to the last open Question so nothing silently drops.
     """
     ticket_id = args["ticket_id"]
     answers: list[str] = args.get("answers", [])
@@ -374,15 +431,27 @@ async def handle_answer_questions(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
+    all_questions = await threads.find_by_kind(ticket_id, "question")
+    open_questions = [q for q in all_questions if not q.is_resolved()]
+
     comment_ids: list[str] = []
-    for a in answers:
-        comment = Comment(
-            ticket_id=ticket_id,
-            author=sender,
-            content=a,
-            kind="answer",
-        )
-        cid = await comments.post(comment)
+    for idx, a in enumerate(answers):
+        if not open_questions:
+            # No Question to bind to — caller is answering a ticket that
+            # has none open. Record as a plain Note so the text isn't
+            # dropped; thread_mcp's typed tools are the forward path.
+            entry: ThreadEntry = Note(
+                ticket_id=ticket_id, author=sender, text=a
+            )
+        else:
+            qid = open_questions[min(idx, len(open_questions) - 1)].id
+            entry = Answer(
+                ticket_id=ticket_id,
+                author=sender,
+                question_id=qid,
+                text=a,
+            )
+        cid = await threads.post(entry)
         comment_ids.append(cid)
         await bus.publish(Message(
             sender=sender,
@@ -403,11 +472,11 @@ async def handle_answer_questions(
 
     if resume and ticket.status == TicketStatus.NEEDS_INFO:
         updated = await tickets.update(ticket_id, status=TicketStatus.IN_PROGRESS)
-        await comments.post(Comment(
+        await threads.post(SystemEvent(
             ticket_id=ticket_id,
             author=sender,
+            event_type="status_change",
             content=f"status needs_info -> {updated.status.value}",
-            kind="status_change",
         ))
         await bus.publish(Message(
             sender=sender,
@@ -430,7 +499,7 @@ async def handle_answer_questions(
 async def handle_update_ticket(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     args: dict,
@@ -449,13 +518,13 @@ async def handle_update_ticket(
 
     updated = await tickets.update(ticket_id, **update_fields)
 
-    # Auto-emit status_change comment on status transitions
+    # Auto-emit status_change audit record on status transitions
     if "status" in update_fields and update_fields["status"] != before.status:
-        await comments.post(Comment(
+        await threads.post(SystemEvent(
             ticket_id=ticket_id,
             author=sender,
+            event_type="status_change",
             content=f"status {before.status.value} -> {updated.status.value}",
-            kind="status_change",
         ))
 
     # Agents set "resolved" to signal phase completion, but only the
@@ -496,7 +565,7 @@ async def handle_update_ticket(
 async def handle_commit_progress(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     worktree_path: Path,
@@ -562,11 +631,11 @@ async def handle_commit_progress(
     if sha is None:
         return {"sha": None, "comment_id": None}
 
-    cid = await comments.post(Comment(
+    cid = await threads.post(SystemEvent(
         ticket_id=ticket_id,
         author=sender,
+        event_type="commit",
         content=commit_message,
-        kind="commit",
         commit_sha=sha,
     ))
 

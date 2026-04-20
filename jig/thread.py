@@ -354,6 +354,36 @@ def parse_thread_entry(raw: dict) -> ThreadEntry:
     return _ThreadEntryWrapper.model_validate({"entry": raw}).entry
 
 
+# Per-kind extractor for the human-readable text that lived in the
+# legacy Comment.content field. Used by prompt_builder, context_resolver,
+# and ws_server when rendering a thread to humans or agents.
+_ENTRY_CONTENT_MAP = {
+    "note": lambda e: e.text,
+    "question": lambda e: e.question,
+    "answer": lambda e: e.text,
+    "decision": lambda e: e.decision,
+    "resolution": lambda e: e.text,
+    "waiver": lambda e: e.justification,
+    "uncertain": lambda e: e.details,
+    "escalation": lambda e: e.details,
+    "objection": lambda e: e.text,
+    "handoff": lambda e: e.summary,
+    "proposal": lambda e: e.rationale,
+    "system_event": lambda e: e.content,
+}
+
+
+def entry_content(entry: "ThreadEntry") -> str:
+    """Extract the human-readable body of a thread entry.
+
+    Each entry kind carries its text on a different field (``text`` on
+    Note/Answer/Resolution/Objection, ``decision`` on Decision, etc.).
+    Callers use this when flattening a thread for an agent prompt or a
+    TUI wire payload.
+    """
+    return _ENTRY_CONTENT_MAP.get(entry.kind, lambda _e: "")(entry) or ""
+
+
 __all__ = [
     "Answer",
     "Decision",
@@ -369,5 +399,6 @@ __all__ = [
     "ThreadEntry",
     "Uncertain",
     "Waiver",
+    "entry_content",
     "parse_thread_entry",
 ]

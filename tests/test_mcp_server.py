@@ -6,7 +6,6 @@ from jig import mcp_server
 from jig.models import RoleConfig
 from jig.store import MessageBus
 from jig.store.checkpoints import CheckpointStore
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -49,15 +48,13 @@ _CHECKPOINT_TOOLS = {
 async def _make_common_stores(tmp_path: Path):
     tickets = TicketStore(tmp_path / "tickets.jsonl")
     await tickets.load()
-    comments = CommentStore(tmp_path / "comments.jsonl")
-    await comments.load()
     threads = ThreadStore(tmp_path / "comments.jsonl")
     await threads.load()
     memory = MemoryStore(tmp_path)
     await memory.load()
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
-    return tickets, comments, threads, memory, bus
+    return tickets, threads, memory, bus
 
 
 def _patch_create_server(monkeypatch, captured: dict):
@@ -73,7 +70,7 @@ def _patch_create_server(monkeypatch, captured: dict):
 async def test_agent_mcp_server_registers_expected_tools(
     tmp_path: Path, monkeypatch
 ) -> None:
-    tickets, comments, threads, memory, bus = await _make_common_stores(tmp_path)
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
     cfg = RoleConfig(role="dev", phase_prompt="")
 
     captured: dict = {}
@@ -81,7 +78,6 @@ async def test_agent_mcp_server_registers_expected_tools(
 
     result = mcp_server.create_agent_mcp_server(
         tickets=tickets,
-        comments=comments,
         threads=threads,
         memory=memory,
         bus=bus,
@@ -103,7 +99,7 @@ async def test_agent_mcp_server_registers_expected_tools(
 async def test_checkpoint_tools_registered_when_store_provided(
     tmp_path: Path, monkeypatch
 ) -> None:
-    tickets, comments, threads, memory, bus = await _make_common_stores(tmp_path)
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
     checkpoints = CheckpointStore(tmp_path / "checkpoints.jsonl")
     await checkpoints.load()
     cfg = RoleConfig(role="dev", phase_prompt="")
@@ -113,7 +109,6 @@ async def test_checkpoint_tools_registered_when_store_provided(
 
     mcp_server.create_agent_mcp_server(
         tickets=tickets,
-        comments=comments,
         threads=threads,
         memory=memory,
         bus=bus,

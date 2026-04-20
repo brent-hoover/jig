@@ -80,9 +80,9 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     memories = [
         learning.content for learning in await ctx.memory.get_role_learnings(ctx.role)
     ]
-    comments = await ctx.comments.for_ticket(ctx.ticket.id)
+    entries = await ctx.threads.for_ticket(ctx.ticket.id)
     if ctx.parent:
-        comments = await ctx.comments.for_ticket(ctx.parent.id) + comments
+        entries = await ctx.threads.for_ticket(ctx.parent.id) + entries
 
     project_path = ctx.project.path_or_default()
     # Required context — raise MissingContextError if any URI can't
@@ -91,7 +91,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         ctx.role_cfg.required_context,
         ticket=ctx.ticket,
         parent=ctx.parent,
-        comments=ctx.comments,
+        threads=ctx.threads,
         worktree_path=ctx.worktree_path,
         project_path=project_path,
         strict=True,
@@ -100,7 +100,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         ctx.role_cfg.default_context,
         ticket=ctx.ticket,
         parent=ctx.parent,
-        comments=ctx.comments,
+        threads=ctx.threads,
         worktree_path=ctx.worktree_path,
         project_path=project_path,
     )
@@ -117,7 +117,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         spawn_reason=ctx.spawn_reason,
         ticket=ctx.ticket,
         parent=ctx.parent,
-        comments=comments,
+        entries=entries,
         memories=memories,
         project=ctx.project,
         skills=skills,
@@ -216,7 +216,6 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
     all_roles = list_roles(ctx.project.path_or_default())
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
-        comments=ctx.comments,
         threads=ctx.threads,
         memory=ctx.memory,
         bus=ctx.bus,

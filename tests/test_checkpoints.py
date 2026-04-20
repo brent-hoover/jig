@@ -476,12 +476,11 @@ class TestCommitProgressHooks:
     async def test_commit_records_test_and_commit(
         self, tmp_path: Path
     ) -> None:
-        from jig.store.comments import CommentStore
         from jig.ticket_mcp import handle_commit_progress
 
-        tickets, _, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
-        comments = CommentStore(tmp_path / "comments_ticket.jsonl")
-        await comments.load()
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
+            tmp_path
+        )
 
         async def fake_commit(worktree: Path, message: str) -> str:
             return "aabbccdd1122"
@@ -489,7 +488,7 @@ class TestCommitProgressHooks:
         with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
             result = await handle_commit_progress(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 bus=bus,
                 sender="dev",
                 worktree_path=tmp_path,
@@ -508,13 +507,12 @@ class TestCommitProgressHooks:
     async def test_commit_lint_error_still_records_test_checkpoint(
         self, tmp_path: Path
     ) -> None:
-        from jig.store.comments import CommentStore
         from jig.ticket_mcp import handle_commit_progress
         from jig.worktree import LintError
 
-        tickets, _, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
-        comments = CommentStore(tmp_path / "comments_ticket.jsonl")
-        await comments.load()
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
+            tmp_path
+        )
 
         async def lint_boom(worktree: Path, message: str) -> str:
             raise LintError(["E501 too long", "F401 unused"])
@@ -522,7 +520,7 @@ class TestCommitProgressHooks:
         with patch("jig.ticket_mcp.commit_worktree", side_effect=lint_boom):
             result = await handle_commit_progress(
                 tickets=tickets,
-                comments=comments,
+                threads=threads,
                 bus=bus,
                 sender="dev",
                 worktree_path=tmp_path,

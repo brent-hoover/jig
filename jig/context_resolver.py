@@ -24,7 +24,8 @@ import logging
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from jig.store.comments import CommentStore
+from jig.store.threads import ThreadStore
+from jig.thread import entry_content
 from jig.ticket import Ticket
 
 _logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ async def resolve_context_uris(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
     strict: bool = False,
@@ -76,7 +77,7 @@ async def resolve_context_uris(
             uri,
             ticket=ticket,
             parent=parent,
-            comments=comments,
+            threads=threads,
             worktree_path=worktree_path,
             project_path=project_path,
         )
@@ -96,7 +97,7 @@ async def resolve_context_uri(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str | None:
@@ -110,7 +111,7 @@ async def resolve_context_uri(
         uri,
         ticket=ticket,
         parent=parent,
-        comments=comments,
+        threads=threads,
         worktree_path=worktree_path,
         project_path=project_path,
     )
@@ -121,7 +122,7 @@ async def _resolve_one(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str | None:
@@ -149,7 +150,7 @@ async def _resolve_one(
         body,
         ticket=ticket,
         parent=parent,
-        comments=comments,
+        threads=threads,
         worktree_path=worktree_path,
         project_path=project_path,
     )
@@ -177,18 +178,18 @@ async def _resolve_ticket(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str:
     if body == "description":
         return _ticket_description(ticket, parent)
     if body == "design":
-        return await _ticket_design(ticket, parent, comments, worktree_path)
+        return await _ticket_design(ticket, parent, threads, worktree_path)
     if body == "plan":
-        return await _ticket_plan(ticket, parent, comments, worktree_path)
+        return await _ticket_plan(ticket, parent, threads, worktree_path)
     if body == "thread":
-        return await _ticket_thread(ticket, parent, comments)
+        return await _ticket_thread(ticket, parent, threads)
     # Phase 3D: ticket://spec  or  ticket://spec.<field>
     if body == "spec" or body.startswith("spec."):
         section = body[len("spec.") :] if body.startswith("spec.") else None
@@ -213,18 +214,22 @@ def _ticket_description(ticket: Ticket, parent: Ticket | None) -> str:
 async def _ticket_design(
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
 ) -> str:
-    """Gather design artifacts: decision comments + design doc files."""
+    """Gather design artifacts: decision entries + design doc files."""
     parts: list[str] = []
 
-    all_comments = await comments.for_ticket(ticket.id)
+    entries = await threads.for_ticket(ticket.id)
     if parent:
-        all_comments.extend(await comments.for_ticket(parent.id))
-    decisions = [c for c in all_comments if c.kind == "decision"]
-    for d in decisions:
-        parts.append(f"**Decision** ({d.author}):\n{d.content}")
+        entries = entries + await threads.for_ticket(parent.id)
+    for d in entries:
+        if d.kind != "decision":
+            continue
+        body = d.decision
+        if d.rationale:
+            body = f"{body}\n\n{d.rationale}"
+        parts.append(f"**Decision** ({d.author}):\n{body}")
 
     for pattern in _DESIGN_GLOBS:
         for path in sorted(worktree_path.glob(pattern)):
@@ -244,18 +249,23 @@ async def _ticket_design(
 async def _ticket_plan(
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
 ) -> str:
-    """Gather plan artifacts: plan-related comments + plan doc files."""
+    """Gather plan artifacts: plan-related decisions + plan doc files."""
     parts: list[str] = []
 
-    all_comments = await comments.for_ticket(ticket.id)
+    entries = await threads.for_ticket(ticket.id)
     if parent:
-        all_comments.extend(await comments.for_ticket(parent.id))
-    for c in all_comments:
-        if c.kind == "decision" and "plan" in c.content.lower():
-            parts.append(f"**Plan** ({c.author}):\n{c.content}")
+        entries = entries + await threads.for_ticket(parent.id)
+    for e in entries:
+        if e.kind != "decision":
+            continue
+        if "plan" in e.decision.lower():
+            body = e.decision
+            if e.rationale:
+                body = f"{body}\n\n{e.rationale}"
+            parts.append(f"**Plan** ({e.author}):\n{body}")
 
     for pattern in _PLAN_GLOBS:
         for path in sorted(worktree_path.glob(pattern)):
@@ -340,27 +350,25 @@ def _render_spec_field(name: str, value: object) -> str:
 async def _ticket_thread(
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
 ) -> str:
-    """Concatenate thread entries for the ticket (and parent) in order.
+    """Concatenate typed thread entries for the ticket (and parent) in order.
 
-    Today the "thread" is the flat CommentStore — Phase 4 replaces entries
-    with the typed question/answer/objection set and this resolver gets
-    rewritten to match. For now: chronological markdown dump so reviewer
-    and resumption agents see what has been said.
+    Chronological markdown dump so reviewer and resumption agents see
+    what has been said. Each entry's body comes from its kind-specific
+    field via ``entry_content`` (``text`` on Note, ``question`` on
+    Question, etc.).
     """
-    entries = await comments.for_ticket(ticket.id)
+    entries = await threads.for_ticket(ticket.id)
     if parent:
-        entries = await comments.for_ticket(parent.id) + entries
+        entries = await threads.for_ticket(parent.id) + entries
     if not entries:
         return ""
     lines = ["### Thread"]
-    for c in entries:
-        # Use a compact header: "[kind] author — timestamp"
-        ts = c.created_at.isoformat() if c.created_at else ""
-        kind = c.kind or "comment"
-        lines.append(f"**[{kind}] {c.author} — {ts}**")
-        lines.append(c.content.rstrip())
+    for e in entries:
+        ts = e.created_at.isoformat() if e.created_at else ""
+        lines.append(f"**[{e.kind}] {e.author} — {ts}**")
+        lines.append(entry_content(e).rstrip())
         lines.append("")
     return "\n".join(lines).rstrip()
 
@@ -373,7 +381,7 @@ async def _resolve_project(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str:
@@ -386,7 +394,7 @@ async def _resolve_role(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str:
@@ -411,7 +419,7 @@ async def _resolve_decision(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str:
@@ -441,7 +449,7 @@ async def _resolve_repo(
     *,
     ticket: Ticket,
     parent: Ticket | None,
-    comments: CommentStore,
+    threads: ThreadStore,
     worktree_path: Path,
     project_path: Path,
 ) -> str:

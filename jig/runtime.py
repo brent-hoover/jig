@@ -6,7 +6,6 @@ from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.store import MessageBus
 from jig.store.checkpoints import CheckpointStore
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -28,7 +27,6 @@ class AgentSpawnContext:
     worktree_path: Path
     project: Project
     tickets: TicketStore
-    comments: CommentStore
     threads: ThreadStore
     memory: MemoryStore
     bus: MessageBus

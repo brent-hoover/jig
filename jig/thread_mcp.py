@@ -33,10 +33,14 @@ from jig.config import load_config
 from jig.store import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.models import WorkflowConfig
+from jig.persistence import load_workflow
 from jig.thread import (
     Answer,
     Decision,
+    DeferredItem,
     Escalation,
+    Handoff,
     Note,
     Objection,
     Question,
@@ -916,15 +920,289 @@ async def handle_thread_uncertain(
     }
 
 
+# ---- thread_handoff -------------------------------------------------------
+
+
+def _resolve_phase_evaluator(
+    workflow: WorkflowConfig, phase_name: str
+) -> str | None:
+    """Return the role authorized to accept/reject the Handoff for
+    ``phase_name``.
+
+    Order:
+
+    1. The phase's explicit ``evaluator`` field (Phase 4F addition).
+    2. The next phase's ``role`` — the natural reviewer in a
+       sequential workflow.
+    3. ``None`` — the caller falls back to warn-but-allow, matching
+       the escalation target-validation posture. Phase 5 tightens this.
+    """
+    for idx, phase in enumerate(workflow.phases):
+        if phase.name != phase_name:
+            continue
+        if phase.evaluator:
+            return phase.evaluator
+        next_idx = idx + 1
+        if next_idx < len(workflow.phases):
+            return workflow.phases[next_idx].role
+        return None
+    return None
+
+
+async def handle_thread_handoff(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Create a Handoff entry for a phase closing.
+
+    Always blocking until accepted or rejected. ``deferred_items``
+    accepts either a list of strings (auto-wrapped as
+    ``DeferredItem(item=..., status="open")``) or a list of dicts
+    matching the DeferredItem shape — Task G will populate these from
+    checkpoints.
+
+    Required args: ``ticket_id``, ``phase``, ``outputs``.
+    Optional: ``summary`` (default ``""``), ``deferred_items``
+    (default ``[]``).
+    """
+    ticket_id = args["ticket_id"]
+    phase = args["phase"]
+    outputs = args.get("outputs", [])
+    summary = args.get("summary", "")
+    raw_deferred = args.get("deferred_items", [])
+
+    if not phase.strip():
+        raise ValueError("phase is required")
+    if not isinstance(outputs, list):
+        raise ValueError("outputs must be a list")
+
+    if await tickets.get(ticket_id) is None:
+        raise KeyError(f"ticket {ticket_id} not found")
+
+    deferred: list[DeferredItem] = []
+    for item in raw_deferred:
+        if isinstance(item, DeferredItem):
+            deferred.append(item)
+        elif isinstance(item, str):
+            if item.strip():
+                deferred.append(DeferredItem(item=item))
+        elif isinstance(item, dict):
+            deferred.append(DeferredItem.model_validate(item))
+        else:
+            raise ValueError(
+                f"deferred_items entry must be str, dict, or DeferredItem; "
+                f"got {type(item).__name__}"
+            )
+
+    h = Handoff(
+        ticket_id=ticket_id,
+        author=sender,
+        phase=phase,
+        outputs=list(outputs),
+        summary=summary,
+        deferred_items=deferred,
+    )
+    hid = await threads.post(h)
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_handoff_posted",
+                "ticket_id": ticket_id,
+                "handoff_id": hid,
+                "author": sender,
+                "phase": phase,
+                "outputs": list(outputs),
+                "summary": summary,
+                "deferred_items": [d.model_dump() for d in deferred],
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+    return {
+        "handoff_id": hid,
+        "phase": phase,
+        "acceptance_state": "pending",
+        "blocking": True,
+    }
+
+
+async def _close_handoff(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    project_path: Path,
+    handoff_id: str,
+    accepted: bool,
+    rejection_reason: str | None,
+) -> dict[str, Any]:
+    """Shared guard for accept/reject — evaluator check + state write."""
+    h = await threads.get(handoff_id)
+    if h is None:
+        raise KeyError(f"handoff {handoff_id!r} not found")
+    if not isinstance(h, Handoff):
+        raise ThreadError(
+            f"entry {handoff_id!r} is a {h.kind!r}, not a handoff"
+        )
+    if h.is_resolved():
+        raise ThreadError(
+            f"handoff {handoff_id!r} is already "
+            f"{h.acceptance_state!r}"
+        )
+
+    ticket = await tickets.get(h.ticket_id)
+    if ticket is None:
+        raise KeyError(f"ticket {h.ticket_id} not found")
+
+    evaluator: str | None = None
+    try:
+        workflow = load_workflow(project_path, ticket.workflow)
+        evaluator = _resolve_phase_evaluator(workflow, h.phase)
+    except FileNotFoundError:
+        _logger.warning(
+            "workflow %r for ticket %s not found; evaluator check "
+            "skipped on handoff %s",
+            ticket.workflow,
+            h.ticket_id,
+            handoff_id,
+        )
+
+    if evaluator is None:
+        _logger.warning(
+            "no evaluator resolved for phase %r in workflow %r; "
+            "allowing %s by %r (handoff %s) in Phase 4",
+            h.phase,
+            ticket.workflow,
+            "accept" if accepted else "reject",
+            sender,
+            handoff_id,
+        )
+    elif sender != evaluator:
+        raise ThreadError(
+            f"only the phase evaluator ({evaluator!r}) can "
+            f"{'accept' if accepted else 'reject'} this handoff "
+            f"(sender={sender!r}, phase={h.phase!r})"
+        )
+
+    if accepted:
+        changes: dict[str, Any] = {
+            "acceptance_state": "accepted",
+            "accepted_by": sender,
+        }
+        bus_kind = "thread_handoff_accepted"
+    else:
+        changes = {
+            "acceptance_state": "rejected",
+            "rejection_reason": rejection_reason or "",
+        }
+        bus_kind = "thread_handoff_rejected"
+    await threads.update(handoff_id, changes)
+
+    payload: dict[str, Any] = {
+        "kind": bus_kind,
+        "ticket_id": h.ticket_id,
+        "handoff_id": handoff_id,
+        "phase": h.phase,
+    }
+    if accepted:
+        payload["accepted_by"] = sender
+    else:
+        payload["rejection_reason"] = rejection_reason or ""
+        payload["rejected_by"] = sender
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload=payload,
+            topic=f"tickets.{h.ticket_id}",
+        )
+    )
+    return {
+        "handoff_id": handoff_id,
+        "phase": h.phase,
+        "acceptance_state": changes["acceptance_state"],
+    }
+
+
+async def handle_thread_accept_handoff(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    project_path: Path,
+) -> dict[str, Any]:
+    """Evaluator-only accept. Publishes ``thread_handoff_accepted``
+    on the ticket topic so the orchestrator can advance the workflow.
+
+    Required args: ``handoff_id``.
+    """
+    return await _close_handoff(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender=sender,
+        project_path=project_path,
+        handoff_id=args["handoff_id"],
+        accepted=True,
+        rejection_reason=None,
+    )
+
+
+async def handle_thread_reject_handoff(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    project_path: Path,
+) -> dict[str, Any]:
+    """Evaluator-only reject. Publishes ``thread_handoff_rejected``
+    on the ticket topic so the orchestrator can follow the phase's
+    on-failure edge.
+
+    Required args: ``handoff_id``, ``reason``.
+    """
+    reason = args.get("reason", "")
+    if not reason.strip():
+        raise ValueError("reason is required")
+    return await _close_handoff(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender=sender,
+        project_path=project_path,
+        handoff_id=args["handoff_id"],
+        accepted=False,
+        rejection_reason=reason,
+    )
+
+
 __all__ = [
     "ThreadError",
+    "handle_thread_accept_handoff",
     "handle_thread_accept_resolution",
     "handle_thread_answer",
     "handle_thread_ask",
     "handle_thread_decide",
     "handle_thread_escalate",
+    "handle_thread_handoff",
     "handle_thread_note",
     "handle_thread_object",
+    "handle_thread_reject_handoff",
     "handle_thread_resolve_objection",
     "handle_thread_resolve_question",
     "handle_thread_uncertain",

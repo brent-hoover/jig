@@ -41,6 +41,12 @@ class PhaseConfig(BaseModel):
     # at load (Phase 2F) against the project's check catalog; executed
     # in Phase 5. Empty for now in shipped defaults.
     automated_checks: list[str] = []
+    # Phase 4F: role that accepts/rejects the Handoff entry closing
+    # this phase. Empty means "no explicit evaluator" — the handoff
+    # handlers then fall back to the next phase's role, then to
+    # warn-but-allow. Full capability-policy enforcement lands
+    # Phase 5 (doc 16).
+    evaluator: str = ""
 
 
 class WorkflowConfig(BaseModel):

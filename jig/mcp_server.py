@@ -318,6 +318,66 @@ def create_agent_mcp_server(
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
+        "thread_handoff",
+        "Close the current phase by posting a Handoff entry. Always "
+        "blocking until the phase evaluator accepts or rejects. outputs "
+        "is a list of artifact refs; deferred_items carries checkpoint-"
+        "captured work to review at handoff time.",
+        {
+            "ticket_id": str,
+            "phase": str,
+            "outputs": list,
+            "summary": str,
+            "deferred_items": list,
+        },
+    )
+    async def thread_handoff(args):
+        result = await thread_mcp.handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_accept_handoff",
+        "Evaluator-only accept. Advances the workflow by publishing "
+        "thread_handoff_accepted on the ticket topic. Fails if the "
+        "sender isn't the phase's evaluator.",
+        {"handoff_id": str},
+    )
+    async def thread_accept_handoff(args):
+        result = await thread_mcp.handle_thread_accept_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            project_path=project_path,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
+        "thread_reject_handoff",
+        "Evaluator-only reject. Publishes thread_handoff_rejected so the "
+        "orchestrator follows the phase's on-failure edge. Reason is "
+        "required and surfaces in the thread + on the bus payload.",
+        {"handoff_id": str, "reason": str},
+    )
+    async def thread_reject_handoff(args):
+        result = await thread_mcp.handle_thread_reject_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=args,
+            project_path=project_path,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
         "list_tickets",
         "List tickets with optional filters",
         {"work_type": str, "status": str, "assignee": str, "parent_id": str},
@@ -410,6 +470,9 @@ def create_agent_mcp_server(
         thread_note,
         thread_escalate,
         thread_uncertain,
+        thread_handoff,
+        thread_accept_handoff,
+        thread_reject_handoff,
         list_tickets,
         read_comments,
         commit_progress,

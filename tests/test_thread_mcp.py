@@ -27,6 +27,8 @@ from pathlib import Path
 import pytest
 
 from jig.config import Config, save_config
+from jig.models import PhaseConfig, WorkflowConfig
+from jig.persistence import save_workflow
 from jig.project import Project
 from jig.store import MessageBus
 from jig.store.threads import ThreadStore
@@ -35,6 +37,7 @@ from jig.thread import (
     Answer,
     Decision,
     Escalation,
+    Handoff,
     Note,
     Objection,
     Question,
@@ -44,13 +47,16 @@ from jig.thread import (
 )
 from jig.thread_mcp import (
     ThreadError,
+    handle_thread_accept_handoff,
     handle_thread_accept_resolution,
     handle_thread_answer,
     handle_thread_ask,
     handle_thread_decide,
     handle_thread_escalate,
+    handle_thread_handoff,
     handle_thread_note,
     handle_thread_object,
+    handle_thread_reject_handoff,
     handle_thread_resolve_objection,
     handle_thread_resolve_question,
     handle_thread_uncertain,
@@ -1358,3 +1364,515 @@ class TestThreadUncertain:
             m.payload.get("kind") == "thread_uncertain_routed_question"
             for m in msgs
         )
+
+
+# ---- Task F helpers -------------------------------------------------------
+
+
+def _write_workflow(
+    tmp_path: Path, *, name: str = "default", phases: list[PhaseConfig]
+) -> None:
+    """Persist a workflow under `.jig/workflows/<name>.yaml` so the
+    handoff handlers can resolve the evaluator for a phase.
+    """
+    save_workflow(tmp_path, WorkflowConfig(name=name, phases=phases))
+
+
+# ---- thread_handoff -------------------------------------------------------
+
+
+class TestThreadHandoff:
+    @pytest.mark.asyncio
+    async def test_creates_blocking_pending_handoff(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": ["src/foo.py", "src/bar.py"],
+                "summary": "added CRUD endpoints",
+            },
+        )
+        assert result["acceptance_state"] == "pending"
+        assert result["blocking"] is True
+        entry = await threads.get(result["handoff_id"])
+        assert isinstance(entry, Handoff)
+        assert entry.phase == "implement"
+        assert entry.outputs == ["src/foo.py", "src/bar.py"]
+        assert entry.is_blocking()
+        assert not entry.is_resolved()
+        blockers = await threads.has_unresolved_blocking(ticket_id)
+        assert len(blockers) == 1
+
+    @pytest.mark.asyncio
+    async def test_deferred_items_coerce_strings(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+                "deferred_items": ["migrate legacy logs", "drop v1 API"],
+            },
+        )
+        entry = await threads.get(result["handoff_id"])
+        assert isinstance(entry, Handoff)
+        assert [d.item for d in entry.deferred_items] == [
+            "migrate legacy logs",
+            "drop v1 API",
+        ]
+        assert all(d.status == "open" for d in entry.deferred_items)
+
+    @pytest.mark.asyncio
+    async def test_deferred_items_accept_dict(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+                "deferred_items": [
+                    {"item": "refactor auth", "reason": "out of scope"},
+                ],
+            },
+        )
+        entry = await threads.get(result["handoff_id"])
+        assert isinstance(entry, Handoff)
+        assert entry.deferred_items[0].item == "refactor auth"
+        assert entry.deferred_items[0].reason == "out of scope"
+
+    @pytest.mark.asyncio
+    async def test_publishes_to_bus(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": ["x"],
+            },
+        )
+        msgs = await bus.get_history(f"tickets.{ticket_id}")
+        assert any(
+            m.payload.get("kind") == "thread_handoff_posted" for m in msgs
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_ticket_raises(self, tmp_path: Path) -> None:
+        tickets, threads, bus, _ = await _make_stores(tmp_path)
+        with pytest.raises(KeyError, match="ticket"):
+            await handle_thread_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "ticket_id": "missing",
+                    "phase": "implement",
+                    "outputs": [],
+                },
+            )
+
+    @pytest.mark.asyncio
+    async def test_empty_phase_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        with pytest.raises(ValueError, match="phase"):
+            await handle_thread_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "ticket_id": ticket_id,
+                    "phase": "",
+                    "outputs": [],
+                },
+            )
+
+
+# ---- thread_accept_handoff / thread_reject_handoff ------------------------
+
+
+class TestThreadCloseHandoff:
+    @pytest.mark.asyncio
+    async def test_evaluator_accepts(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(name="implement", role="dev"),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        # Next-phase role ("reviewer") is the implicit evaluator.
+        result = await handle_thread_accept_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="reviewer",
+            args={"handoff_id": handoff["handoff_id"]},
+            project_path=tmp_path,
+        )
+        assert result["acceptance_state"] == "accepted"
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.acceptance_state == "accepted"
+        assert h.accepted_by == "reviewer"
+        assert h.is_resolved()
+        assert await threads.has_unresolved_blocking(ticket_id) == []
+        msgs = await bus.get_history(f"tickets.{ticket_id}")
+        assert any(
+            m.payload.get("kind") == "thread_handoff_accepted" for m in msgs
+        )
+
+    @pytest.mark.asyncio
+    async def test_explicit_evaluator_field_wins_over_next_phase(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(
+                    name="implement",
+                    role="dev",
+                    evaluator="sa",  # explicit wins
+                ),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        # reviewer is the next phase's role but SA is the explicit
+        # evaluator — reviewer must be refused.
+        with pytest.raises(ThreadError, match="phase evaluator"):
+            await handle_thread_accept_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="reviewer",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        await handle_thread_accept_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="sa",
+            args={"handoff_id": handoff["handoff_id"]},
+            project_path=tmp_path,
+        )
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.accepted_by == "sa"
+
+    @pytest.mark.asyncio
+    async def test_non_evaluator_refused(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(name="implement", role="dev"),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        with pytest.raises(ThreadError, match="phase evaluator"):
+            await handle_thread_accept_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",  # author can't self-accept
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.acceptance_state == "pending"
+
+    @pytest.mark.asyncio
+    async def test_missing_workflow_warns_but_allows(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        tickets = TicketStore(tmp_path / "tickets.jsonl")
+        await tickets.load()
+        threads = ThreadStore(tmp_path / "comments.jsonl")
+        await threads.load()
+        bus = MessageBus(tmp_path / "messages.jsonl")
+        await bus.load()
+        # Ticket references a workflow that doesn't exist (neither on-disk
+        # nor in shipped defaults) — handler warns and allows any sender.
+        ticket_id = await tickets.create(
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="orchestrator",
+                workflow="nonexistent_workflow_4f",
+            )
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
+            await handle_thread_accept_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="whoever",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        assert any(
+            "workflow" in r.message and "not found" in r.message
+            for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_terminal_phase_has_no_evaluator_warns(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[PhaseConfig(name="implement", role="dev")],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
+            await handle_thread_accept_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        assert any(
+            "no evaluator resolved" in r.message for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_reject_publishes_with_reason(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(name="implement", role="dev"),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        result = await handle_thread_reject_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="reviewer",
+            args={
+                "handoff_id": handoff["handoff_id"],
+                "reason": "missing tests",
+            },
+            project_path=tmp_path,
+        )
+        assert result["acceptance_state"] == "rejected"
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.rejection_reason == "missing tests"
+        assert h.is_resolved()
+        msgs = await bus.get_history(f"tickets.{ticket_id}")
+        reject_msgs = [
+            m
+            for m in msgs
+            if m.payload.get("kind") == "thread_handoff_rejected"
+        ]
+        assert len(reject_msgs) == 1
+        assert reject_msgs[0].payload["rejection_reason"] == "missing tests"
+        assert reject_msgs[0].payload["rejected_by"] == "reviewer"
+
+    @pytest.mark.asyncio
+    async def test_reject_empty_reason_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(name="implement", role="dev"),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        with pytest.raises(ValueError, match="reason"):
+            await handle_thread_reject_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="reviewer",
+                args={
+                    "handoff_id": handoff["handoff_id"],
+                    "reason": " ",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_double_close_refused(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(name="implement", role="dev"),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        await handle_thread_accept_handoff(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="reviewer",
+            args={"handoff_id": handoff["handoff_id"]},
+            project_path=tmp_path,
+        )
+        with pytest.raises(ThreadError, match="already"):
+            await handle_thread_accept_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="reviewer",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        with pytest.raises(ThreadError, match="already"):
+            await handle_thread_reject_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="reviewer",
+                args={
+                    "handoff_id": handoff["handoff_id"],
+                    "reason": "too late",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_handoff_target(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[PhaseConfig(name="implement", role="dev")],
+        )
+        nid = await threads.post(
+            Note(ticket_id=ticket_id, author="x", text="hi")
+        )
+        with pytest.raises(ThreadError, match="not a handoff"):
+            await handle_thread_accept_handoff(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="whoever",
+                args={"handoff_id": nid},
+                project_path=tmp_path,
+            )

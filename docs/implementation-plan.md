@@ -984,19 +984,22 @@ Lower-gating-weight entries. Uncertain has a routing side effect.
 
 **F. Handoff entry + phase-completion hook**
 
-- [ ] `thread_handoff(ticket_id, outputs, summary, deferred_items=
+- [x] `thread_handoff(ticket_id, outputs, summary, deferred_items=
       [])` — creates a `Handoff` entry in `acceptance_state=
       "pending"`. Outputs are artifact references; deferred_items
       is the list gathered from checkpoints (Task G) for the phase
       the handoff closes.
-- [ ] `thread_accept_handoff(handoff_id)` / `thread_reject_handoff
-      (handoff_id, reason)` — evaluator-only (Phase 4 reads the
-      phase's evaluator role from the workflow definition;
-      enforcement is "caller must have that role").
-- [ ] On accept: publish a `handoff_accepted` message on the
-      ticket topic so the orchestrator advances the workflow.
-- [ ] On reject: publish a `handoff_rejected` message; the
-      orchestrator follows the phase's on-failure edge.
+- [x] `thread_accept_handoff(handoff_id)` / `thread_reject_handoff
+      (handoff_id, reason)` — evaluator-only. Evaluator resolves
+      via explicit `PhaseConfig.evaluator` → next phase's role →
+      warn-but-allow when neither is available (capability-policy
+      enforcement lands Phase 5).
+- [x] On accept: publish a `thread_handoff_accepted` message on
+      `tickets.<id>` (+ `orchestrator`) so the orchestrator
+      advances the workflow.
+- [x] On reject: publish a `thread_handoff_rejected` message
+      with the rejection reason; orchestrator follows the phase's
+      on-failure edge.
 - [ ] Retire the existing `phase_result` field on `Comment`
       (Phase 1-ish) — Handoff is the canonical phase-completion
       record now. Legacy `phase_run` comments remain readable

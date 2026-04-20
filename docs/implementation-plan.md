@@ -1003,10 +1003,14 @@ Lower-gating-weight entries. Uncertain has a routing side effect.
 - [x] On reject: publish a `thread_handoff_rejected` message
       with the rejection reason; orchestrator follows the phase's
       on-failure edge.
-- [ ] Retire the existing `phase_result` field on `Comment`
+- [x] Retire the existing `phase_result` field on `Comment`
       (Phase 1-ish) — Handoff is the canonical phase-completion
-      record now. Legacy `phase_run` comments remain readable
-      (system-event subtype).
+      record now. The `Comment` class was deleted outright in
+      `5f0cfd4`, so its `phase_result` field went with it. The
+      field survives on `SystemEvent(event_type="phase_run")` only
+      as part of the legacy-read migration surface (``ThreadStore
+      ._migrate_legacy``), which is the audit-trail read path, not
+      a write path.
 
 **G. Checkpoint channel**
 

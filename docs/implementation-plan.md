@@ -1413,17 +1413,59 @@ Design notes:
 
 **E. Waivers on required check failures**
 
-- [ ] `thread_waive_check(check_name, ticket_id, phase,
+- [x] `thread_waive_check(check_name, ticket_id, phase,
       justification)` MCP tool — creates a Waiver entry
       scoped to a specific check failure, flips the
       corresponding check_failure SystemEvent to
       `waived=true`. Authorization goes through Task H's
       capability layer.
+      *Implemented: tool accepts either `check_failure_id`
+      (target a specific SystemEvent) or `(ticket_id,
+      check_name)` (resolve to the latest unwaived failure
+      for that name). Extended `Waiver` with optional
+      `check_failure_id`; a `model_post_init` guard enforces
+      exactly-one-of (`objection_id` XOR `check_failure_id`)
+      so the entry unambiguously identifies its target.
+      Handler posts the Waiver, flips the target SystemEvent's
+      `waived=True` via `threads.update`, and publishes
+      `thread_check_failure_waived` on `tickets.{id}`.
+      Authorization mirrors `thread_waive` — `sender` must be
+      in `config.waiver_authority` (Task H will swap this for
+      capability tokens).*
 - [ ] Evaluator view shows active waivers alongside check
       results.
-- [ ] Waivers on check failures searchable via the existing
+      *Deferred to Task O — evaluator spawn prompt composition
+      lives with the orchestrator wiring. The data is already
+      readable: agents pull the thread via `read_comments` and
+      filter for `kind=waiver` + `check_failure_id` non-null.*
+- [x] Waivers on check failures searchable via the existing
       thread store; audit query for "how often did we waive X"
       is a readable loop, not an index.
+      *No new code — `ThreadStore.for_ticket` returns every
+      entry; filter by `isinstance(e, Waiver) and
+      e.check_failure_id` for check waivers, then cross-reference
+      `check_name` via the linked SystemEvent. Matches the
+      Phase 4 pattern for objection waivers.*
+
+Design notes:
+
+- `Waiver` gained a `check_failure_id` field rather than
+  introducing a new thread type. The `model_post_init`
+  validator enforces the XOR so every waiver has exactly one
+  target (objection OR check_failure). Keeps the discriminated
+  union small and the audit surface flat.
+- `_latest_check_failure_for_name` walks the thread
+  newest-first and skips already-waived entries. Waiving the
+  same check name twice (after a re-run failed again) targets
+  the *new* failure rather than re-flipping the original — the
+  old waiver stays valid for its moment, the new one documents
+  the new justification.
+- The gate reads `SystemEvent.waived` directly, so Task D's
+  gate is already waiver-aware. This task just provides the
+  authoritative, audited path to flip that flag.
+- The tool exposes both id-based and name-based targeting to
+  match real operator ergonomics: PO acting in the loop knows
+  the check name + ticket; a scripted retry knows the event id.
 
 **F. Capability policy — declaration + compilation**
 

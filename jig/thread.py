@@ -160,17 +160,35 @@ class Resolution(_ThreadEntryBase):
 
 
 class Waiver(_ThreadEntryBase):
-    """Explicitly overrides an Objection with justification.
+    """Explicitly overrides an Objection or a check_failure SystemEvent.
 
-    Authorization is enforced at post-time (Task D reads
-    ``config.waiver_authority``). The Waiver itself and the original
-    Objection both stay in the thread — the audit trail is the point
-    (doc 08 §Waivers leave an audit trail).
+    Authorization is enforced at post-time: today against
+    ``config.waiver_authority``; Phase 5 Task H flips this to the
+    capability layer. The Waiver itself and its target both stay in
+    the thread — the audit trail is the point (doc 08 §Waivers leave
+    an audit trail).
+
+    Exactly one of ``objection_id`` / ``check_failure_id`` must be
+    set. The historical form waived Objections only; Phase 5 Task E
+    added the check-failure form so required-check failures can be
+    overridden with the same justified-and-audited flow.
     """
 
     kind: Literal["waiver"] = "waiver"
-    objection_id: str
+    objection_id: str | None = None
+    check_failure_id: str | None = None
     justification: str
+
+    def model_post_init(self, __context: object) -> None:  # type: ignore[override]
+        set_fields = [
+            f for f in ("objection_id", "check_failure_id")
+            if getattr(self, f) is not None
+        ]
+        if len(set_fields) != 1:
+            raise ValueError(
+                "Waiver requires exactly one of objection_id / "
+                f"check_failure_id (got: {set_fields or 'none'})"
+            )
 
 
 # ---- Decision / Note / Uncertain / Escalation -----------------------------

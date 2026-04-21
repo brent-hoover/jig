@@ -42,6 +42,7 @@ from jig.thread import (
     Objection,
     Question,
     Resolution,
+    SystemEvent,
     Uncertain,
     Waiver,
 )
@@ -61,6 +62,7 @@ from jig.thread_mcp import (
     handle_thread_resolve_question,
     handle_thread_uncertain,
     handle_thread_waive,
+    handle_thread_waive_check,
 )
 from jig.ticket import Ticket, WorkType
 
@@ -2136,3 +2138,333 @@ class TestPhase5EvaluatorRouting:
                 args={"handoff_id": handoff["handoff_id"]},
                 project_path=tmp_path,
             )
+
+
+# ---- thread_waive_check (Phase 5 Task E) ----------------------------------
+
+
+async def _seed_check_failure(
+    threads: ThreadStore,
+    *,
+    ticket_id: str,
+    check_name: str = "unit",
+    severity: str = "required",
+    verdict: str = "fail",
+) -> str:
+    """Post a ``check_failure`` SystemEvent and return its id.
+
+    Mirrors the shape the gate (``jig.check_gate.evaluate_handoff_gate``)
+    writes when a required check fails.
+    """
+    return await threads.post(
+        SystemEvent(
+            ticket_id=ticket_id,
+            author="harness",
+            event_type="check_failure",
+            content=f"Required check {check_name!r} did not pass",
+            check_name=check_name,
+            check_severity=severity,  # type: ignore[arg-type]
+            check_verdict=verdict,  # type: ignore[arg-type]
+        )
+    )
+
+
+class TestThreadWaiveCheck:
+    @pytest.mark.asyncio
+    async def test_waive_by_check_failure_id(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)  # default authority = ["po", "sa", "user"]
+        fid = await _seed_check_failure(threads, ticket_id=ticket_id)
+        result = await handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="po",
+            args={
+                "check_failure_id": fid,
+                "justification": "flaky on CI, tracked in follow-up",
+            },
+            project_path=tmp_path,
+        )
+        waiver = await threads.get(result["waiver_id"])
+        assert isinstance(waiver, Waiver)
+        assert waiver.check_failure_id == fid
+        assert waiver.objection_id is None
+        assert waiver.author == "po"
+        assert (
+            waiver.justification == "flaky on CI, tracked in follow-up"
+        )
+        ev = await threads.get(fid)
+        assert isinstance(ev, SystemEvent)
+        assert ev.waived is True
+        assert result["check_name"] == "unit"
+        assert result["waived_by"] == "po"
+        assert result["check_failure_id"] == fid
+
+    @pytest.mark.asyncio
+    async def test_waive_by_ticket_and_check_name(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        old = await _seed_check_failure(
+            threads, ticket_id=ticket_id, check_name="unit"
+        )
+        new = await _seed_check_failure(
+            threads, ticket_id=ticket_id, check_name="unit"
+        )
+        assert old != new
+        result = await handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="po",
+            args={
+                "ticket_id": ticket_id,
+                "check_name": "unit",
+                "justification": "will fix next sprint",
+            },
+            project_path=tmp_path,
+        )
+        assert result["check_failure_id"] == new
+        ev_new = await threads.get(new)
+        ev_old = await threads.get(old)
+        assert isinstance(ev_new, SystemEvent)
+        assert isinstance(ev_old, SystemEvent)
+        assert ev_new.waived is True
+        assert ev_old.waived is False
+
+    @pytest.mark.asyncio
+    async def test_unauthorized_sender_refused(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path, waiver_authority=["po", "sa"])
+        fid = await _seed_check_failure(threads, ticket_id=ticket_id)
+        with pytest.raises(ThreadError, match="not authorized"):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "check_failure_id": fid,
+                    "justification": "I promise it's fine",
+                },
+                project_path=tmp_path,
+            )
+        ev = await threads.get(fid)
+        assert isinstance(ev, SystemEvent)
+        assert ev.waived is False
+
+    @pytest.mark.asyncio
+    async def test_empty_justification_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        fid = await _seed_check_failure(threads, ticket_id=ticket_id)
+        with pytest.raises(ValueError, match="justification"):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="po",
+                args={
+                    "check_failure_id": fid,
+                    "justification": "   ",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_already_waived_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        fid = await _seed_check_failure(threads, ticket_id=ticket_id)
+        await handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="po",
+            args={
+                "check_failure_id": fid,
+                "justification": "first waive",
+            },
+            project_path=tmp_path,
+        )
+        with pytest.raises(ThreadError, match="already waived"):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="po",
+                args={
+                    "check_failure_id": fid,
+                    "justification": "second waive",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_non_check_failure_entry_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        note_id = await threads.post(
+            Note(ticket_id=ticket_id, author="dev", text="hi")
+        )
+        with pytest.raises(ThreadError, match="not a check_failure"):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="po",
+                args={
+                    "check_failure_id": note_id,
+                    "justification": "wrong target",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_name_lookup_with_no_match_raises(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        with pytest.raises(
+            ThreadError, match="no unwaived check_failure"
+        ):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="po",
+                args={
+                    "ticket_id": ticket_id,
+                    "check_name": "unit",
+                    "justification": "nothing to waive yet",
+                },
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_missing_args_rejected(self, tmp_path: Path) -> None:
+        tickets, threads, bus, _ = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        with pytest.raises(
+            ValueError, match="check_failure_id or"
+        ):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="po",
+                args={"justification": "no target"},
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_publishes_to_bus(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+        fid = await _seed_check_failure(threads, ticket_id=ticket_id)
+        await handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="po",
+            args={
+                "check_failure_id": fid,
+                "justification": "known flake",
+            },
+            project_path=tmp_path,
+        )
+        msgs = await bus.get_history(f"tickets.{ticket_id}")
+        match = [
+            m for m in msgs
+            if m.payload.get("kind") == "thread_check_failure_waived"
+        ]
+        assert len(match) == 1
+        payload = match[0].payload
+        assert payload["check_failure_id"] == fid
+        assert payload["check_name"] == "unit"
+        assert payload["waived_by"] == "po"
+        assert payload["ticket_id"] == ticket_id
+
+    @pytest.mark.asyncio
+    async def test_gate_respects_waived_flag(self, tmp_path: Path) -> None:
+        """Integration: once a check_failure is waived, the handoff
+        gate sees it as non-blocking on the next run."""
+        from datetime import datetime, timedelta, timezone
+
+        from jig.check_gate import evaluate_handoff_gate
+        from jig.check_results import CheckResult
+        from jig.checks import CheckCatalog, CheckSeverity, ScriptedCheck
+        from jig.store.check_results import CheckResultsStore
+
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_config(tmp_path)
+
+        results = CheckResultsStore(tmp_path / "check_results.jsonl")
+        await results.load()
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await results.post(
+            CheckResult(
+                ticket_id=ticket_id,
+                phase="dev",
+                check_name="unit",
+                check_type="scripted",
+                verdict="fail",
+                severity=CheckSeverity.REQUIRED,
+                started_at=base,
+                finished_at=base + timedelta(seconds=1),
+                output="",
+            )
+        )
+        catalog = CheckCatalog.model_validate(
+            {
+                "unit": ScriptedCheck(
+                    type="scripted",
+                    command="true",
+                    severity=CheckSeverity.REQUIRED,
+                ).model_dump()
+            }
+        )
+
+        v1 = await evaluate_handoff_gate(
+            catalog=catalog,
+            results=results,
+            threads=threads,
+            ticket_id=ticket_id,
+            phase="dev",
+            required_check_names=["unit"],
+        )
+        assert v1.passing is False
+        assert len(v1.posted_events) == 1
+        fid = v1.posted_events[0]
+
+        await handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="po",
+            args={
+                "check_failure_id": fid,
+                "justification": "will fix in follow-up",
+            },
+            project_path=tmp_path,
+        )
+
+        v2 = await evaluate_handoff_gate(
+            catalog=catalog,
+            results=results,
+            threads=threads,
+            ticket_id=ticket_id,
+            phase="dev",
+            required_check_names=["unit"],
+        )
+        assert v2.passing is True
+        assert v2.posted_events == []

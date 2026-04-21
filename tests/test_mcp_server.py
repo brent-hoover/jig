@@ -24,6 +24,7 @@ _BASE_TOOLS = {
     "thread_resolve_objection",
     "thread_accept_resolution",
     "thread_waive",
+    "thread_waive_check",
     "thread_decide",
     "thread_note",
     "thread_escalate",

@@ -54,6 +54,7 @@ from jig.thread import (
     Objection,
     Question,
     Resolution,
+    SystemEvent,
     Uncertain,
     Waiver,
 )
@@ -532,6 +533,146 @@ async def handle_thread_waive(
     return {
         "waiver_id": wid,
         "objection_id": objection_id,
+        "waived_by": sender,
+    }
+
+
+# ---- thread_waive_check ---------------------------------------------------
+
+
+async def _latest_check_failure_for_name(
+    *,
+    threads: ThreadStore,
+    ticket_id: str,
+    check_name: str,
+) -> SystemEvent | None:
+    """Return the most recent unwaived ``check_failure`` SystemEvent
+    for ``ticket_id`` matching ``check_name``, or ``None``.
+
+    We walk the thread newest-first and pick the first match. Already-
+    waived entries are skipped so waiving a name twice (after a re-run)
+    targets the new failure rather than re-flipping the old one.
+    """
+    entries = await threads.for_ticket(ticket_id)
+    for entry in reversed(entries):
+        if not isinstance(entry, SystemEvent):
+            continue
+        if entry.event_type != "check_failure":
+            continue
+        if entry.check_name != check_name:
+            continue
+        if entry.waived:
+            continue
+        return entry
+    return None
+
+
+async def handle_thread_waive_check(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    sender: str,
+    args: dict[str, Any],
+    project_path: Path,
+) -> dict[str, Any]:
+    """Waive a required check_failure with justification.
+
+    Scoped to a specific ``check_failure`` SystemEvent — either by the
+    entry id (``check_failure_id``) or by (``ticket_id``, ``check_name``)
+    which resolves to the most recent unwaived failure for that name.
+
+    Posts a ``Waiver`` entry with ``check_failure_id`` and flips the
+    target SystemEvent's ``waived`` flag to True so the check gate
+    (``jig.check_gate.evaluate_handoff_gate``) stops treating the
+    failure as blocking.
+
+    Authorization mirrors ``handle_thread_waive``: ``sender`` must be
+    in ``config.waiver_authority``. Phase 5 Task H swaps this for the
+    capability-policy layer; until then the flat list is the gate.
+
+    Required args: ``justification`` plus one of
+    (``check_failure_id``) or (``ticket_id``, ``check_name``).
+    """
+    justification = args["justification"]
+    if not justification.strip():
+        raise ValueError("justification is required")
+
+    cfg = load_config(project_path)
+    if sender not in cfg.waiver_authority:
+        raise ThreadError(
+            f"{sender!r} is not authorized to waive check failures "
+            f"(config.waiver_authority={cfg.waiver_authority!r})"
+        )
+
+    check_failure_id = args.get("check_failure_id")
+    ticket_id = args.get("ticket_id")
+    check_name = args.get("check_name")
+
+    if check_failure_id:
+        ev = await threads.get(check_failure_id)
+        if ev is None:
+            raise KeyError(
+                f"check_failure {check_failure_id!r} not found"
+            )
+        if not isinstance(ev, SystemEvent) or ev.event_type != "check_failure":
+            raise ThreadError(
+                f"entry {check_failure_id!r} is not a check_failure event"
+            )
+    elif ticket_id and check_name:
+        if await tickets.get(ticket_id) is None:
+            raise KeyError(f"ticket {ticket_id} not found")
+        ev = await _latest_check_failure_for_name(
+            threads=threads,
+            ticket_id=ticket_id,
+            check_name=check_name,
+        )
+        if ev is None:
+            raise ThreadError(
+                f"no unwaived check_failure for check {check_name!r} "
+                f"on ticket {ticket_id!r}"
+            )
+        check_failure_id = ev.id
+    else:
+        raise ValueError(
+            "supply either check_failure_id or (ticket_id, check_name)"
+        )
+
+    if ev.waived:
+        raise ThreadError(
+            f"check_failure {check_failure_id!r} is already waived"
+        )
+
+    w = Waiver(
+        ticket_id=ev.ticket_id,
+        author=sender,
+        check_failure_id=check_failure_id,
+        justification=justification,
+    )
+    wid = await threads.post(w)
+    await threads.update(check_failure_id, {"waived": True})
+
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_check_failure_waived",
+                "ticket_id": ev.ticket_id,
+                "check_failure_id": check_failure_id,
+                "check_name": ev.check_name,
+                "waiver_id": wid,
+                "waived_by": sender,
+                "justification": justification,
+            },
+            topic=f"tickets.{ev.ticket_id}",
+        )
+    )
+    return {
+        "waiver_id": wid,
+        "check_failure_id": check_failure_id,
+        "check_name": ev.check_name,
         "waived_by": sender,
     }
 
@@ -1310,4 +1451,5 @@ __all__ = [
     "handle_thread_resolve_question",
     "handle_thread_uncertain",
     "handle_thread_waive",
+    "handle_thread_waive_check",
 ]

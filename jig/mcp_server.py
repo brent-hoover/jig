@@ -298,6 +298,47 @@ def create_agent_mcp_server(
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
+        "thread_waive_check",
+        "Waive a failing required check with justification. Pass either "
+        "check_failure_id (targets a specific check_failure SystemEvent) "
+        "or ticket_id+check_name (resolves to the most recent unwaived "
+        "failure for that check). Same authorization as thread_waive "
+        "(config.waiver_authority). The waiver and the underlying "
+        "check_failure event both remain in the thread; the gate stops "
+        "treating the failure as blocking.",
+        {
+            "justification": str,
+            "check_failure_id": str,
+            "ticket_id": str,
+            "check_name": str,
+        },
+    )
+    async def thread_waive_check(args):
+        # Only forward the keys the caller actually set — the tool
+        # schema lists all four for discoverability, but the handler's
+        # branch logic requires either check_failure_id OR both
+        # ticket_id and check_name.
+        forwarded = {
+            k: v for k, v in args.items()
+            if k in {
+                "justification",
+                "check_failure_id",
+                "ticket_id",
+                "check_name",
+            }
+            and v
+        }
+        result = await thread_mcp.handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender=agent_role,
+            args=forwarded,
+            project_path=project_path,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
         "thread_decide",
         "Record a non-obvious Decision with rationale. Auto-resolved. "
         "Also writes a standalone decision record under .jig/decisions/ "
@@ -603,6 +644,7 @@ def create_agent_mcp_server(
         thread_resolve_objection,
         thread_accept_resolution,
         thread_waive,
+        thread_waive_check,
         thread_decide,
         thread_note,
         thread_escalate,

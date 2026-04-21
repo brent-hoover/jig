@@ -238,7 +238,7 @@ async def _ticket_design(
                     content = path.read_text()
                     rel = path.relative_to(worktree_path)
                     parts.append(f"### {rel}\n\n{content.rstrip()}")
-                except Exception:
+                except (OSError, UnicodeDecodeError):
                     _logger.warning("failed to read %s", path, exc_info=True)
 
     if not parts:
@@ -274,7 +274,7 @@ async def _ticket_plan(
                     content = path.read_text()
                     rel = path.relative_to(worktree_path)
                     parts.append(f"### {rel}\n\n{content.rstrip()}")
-                except Exception:
+                except (OSError, UnicodeDecodeError):
                     _logger.warning("failed to read %s", path, exc_info=True)
 
     if not parts:
@@ -435,7 +435,7 @@ async def _resolve_decision(
         return ""
     try:
         content = path.read_text().rstrip()
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         _logger.warning("failed to read decision %s", path, exc_info=True)
         return ""
     return f"### Decision {body}\n\n{content}"
@@ -462,7 +462,7 @@ async def _resolve_repo(
         return ""
     try:
         content = path.read_text().rstrip()
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         _logger.warning("failed to read repo file %s", path, exc_info=True)
         return ""
     return f"### {body}\n\n{content}"
@@ -485,7 +485,7 @@ def _read_context_file(base: Path, rel: str, uri_for_log: str) -> str:
         if candidate.is_file():
             try:
                 content = candidate.read_text().rstrip()
-            except Exception:
+            except (OSError, UnicodeDecodeError):
                 _logger.warning("failed to read %s", candidate, exc_info=True)
                 return ""
             header = candidate.stem.replace("-", " ").replace("_", " ").title()

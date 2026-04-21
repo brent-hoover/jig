@@ -90,10 +90,14 @@ class MultiEvaluator(BaseModel):
     non-recursive in practice."""
 
     type: Literal["multi"]
+    # Require at least two nested evaluators — a one-element ``multi``
+    # is indistinguishable from the underlying spec and usually means
+    # the config was over-specified by mistake. Fail loud at load time
+    # rather than silently degrading to single-evaluator semantics.
     evaluators: list[
         "PreviousPhaseRoleEvaluator | SpecificRoleEvaluator "
         "| AutomatedOnlyEvaluator | SpecificHumanEvaluator"
-    ]
+    ] = Field(min_length=2)
 
 
 EvaluatorSpec = Annotated[

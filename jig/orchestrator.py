@@ -104,8 +104,16 @@ class Orchestrator:
                 task.cancel()
                 try:
                     await task
-                except (asyncio.CancelledError, Exception):
+                except asyncio.CancelledError:
+                    # Expected — we just cancelled the task.
                     pass
+                except Exception:
+                    # Log real errors so they're not silently swallowed
+                    # during cleanup. We still continue the reset.
+                    _logger.warning(
+                        "task raised during emergency reset",
+                        exc_info=True,
+                    )
         for task in self._running_tickets.values():
             task.cancel()
         self._running_tickets.clear()

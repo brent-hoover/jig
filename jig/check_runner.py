@@ -229,11 +229,27 @@ class ScriptedRunner:
                 proc.communicate(), timeout=check.timeout_s
             )
         except asyncio.TimeoutError:
+            # SIGKILL and reap. Bounded wait so a pathological child
+            # that stays stuck in D-state doesn't hang this coroutine
+            # forever — we'd rather record "timeout" with empty output
+            # than leave a zombie attached to the orchestrator.
             proc.kill()
             try:
-                stdout, _ = await proc.communicate()
-            except Exception:
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=5.0
+                )
+            except (asyncio.TimeoutError, Exception):
                 stdout = b""
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=1.0)
+                except (asyncio.TimeoutError, Exception):
+                    _logger.warning(
+                        "check %r on ticket %s leaked a child pid=%s "
+                        "after SIGKILL",
+                        check_name,
+                        ticket_id,
+                        proc.pid,
+                    )
             verdict = "timeout"
             output = _trim_output(stdout) if stdout else ""
         else:

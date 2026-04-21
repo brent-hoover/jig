@@ -16,10 +16,15 @@ import pytest
 
 from jig.check_gate import CheckFailureEntry, GateVerdict
 from jig.checks import CheckCatalog, CheckSeverity, ScriptedCheck
-from jig.handoff_gate import bounce_handoff, run_handoff_gate
+from jig.handoff_gate import (
+    accept_handoff_automated,
+    bounce_handoff,
+    run_handoff_gate,
+)
 from jig.models import PhaseConfig, WorkflowConfig
 from jig.store import MessageBus
 from jig.store.check_results import CheckResultsStore
+from jig.store.checkpoints import CheckpointStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note, SystemEvent
@@ -474,4 +479,107 @@ class TestBounceHandoff:
                 threads=threads,
                 bus=bus,
                 verdict=passing,
+            )
+
+
+# ---- accept_handoff_automated ---------------------------------------------
+
+
+class TestAcceptHandoffAutomated:
+    async def test_flips_handoff_to_accepted(self, tmp_path: Path) -> None:
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        tid, hid = await _seed_pending_handoff(tickets, threads)
+
+        await accept_handoff_automated(
+            handoff_id=hid, threads=threads, bus=bus
+        )
+
+        h = await threads.get(hid)
+        assert isinstance(h, Handoff)
+        assert h.acceptance_state == "accepted"
+        assert h.accepted_by == "harness"
+        # Bus event has ticket topic, auto=True flag.
+        msgs = await bus.get_history(f"tickets.{tid}")
+        match = [
+            m for m in msgs
+            if m.payload.get("kind") == "thread_handoff_accepted"
+        ]
+        assert len(match) == 1
+        payload = match[0].payload
+        assert payload["handoff_id"] == hid
+        assert payload["auto"] is True
+        assert payload["accepted_by"] == "harness"
+
+    async def test_prunes_checkpoints_when_provided(
+        self, tmp_path: Path
+    ) -> None:
+        """Parity with ``_close_handoff``'s accept branch — accepted
+        phase's checkpoints move to historical so next-phase queries
+        don't see them."""
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        tid, hid = await _seed_pending_handoff(tickets, threads)
+        checkpoints = CheckpointStore(tmp_path / "checkpoints.jsonl")
+        await checkpoints.load()
+
+        from jig.checkpoints import Checkpoint
+        cp_id = await checkpoints.post(
+            Checkpoint(
+                ticket_id=tid,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="ready",
+            )
+        )
+
+        await accept_handoff_automated(
+            handoff_id=hid,
+            threads=threads,
+            bus=bus,
+            checkpoints=checkpoints,
+        )
+
+        cp = await checkpoints.get(cp_id)
+        assert cp is not None
+        assert cp.historical is True
+
+    async def test_missing_handoff_raises(self, tmp_path: Path) -> None:
+        _tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        with pytest.raises(KeyError, match="handoff"):
+            await accept_handoff_automated(
+                handoff_id="nope", threads=threads, bus=bus
+            )
+
+    async def test_already_resolved_raises(self, tmp_path: Path) -> None:
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        _tid, hid = await _seed_pending_handoff(tickets, threads)
+        await threads.update(
+            hid,
+            {"acceptance_state": "accepted", "accepted_by": "reviewer"},
+        )
+        with pytest.raises(ThreadError, match="already"):
+            await accept_handoff_automated(
+                handoff_id=hid, threads=threads, bus=bus
+            )
+
+    async def test_non_handoff_entry_raises(self, tmp_path: Path) -> None:
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        tid = await tickets.create(
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="orchestrator",
+            )
+        )
+        nid = await threads.post(
+            Note(ticket_id=tid, author="dev", text="hi")
+        )
+        with pytest.raises(ThreadError, match="not a handoff"):
+            await accept_handoff_automated(
+                handoff_id=nid, threads=threads, bus=bus
             )

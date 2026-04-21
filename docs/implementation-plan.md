@@ -1649,12 +1649,19 @@ spawn.
             parallel control flow. Orchestrator startup
             now loads a `CheckResultsStore` at
             `.jig/store/check_results.jsonl`.
-      - [ ] **O2a** — on gate-pass, resolve evaluator via
-            `resolve_evaluator`. `automated_only` →
-            auto-accept via an internal path (bypassing
-            `_close_handoff`'s "automated_only manual
-            accept not permitted" guard). Tested via
-            orchestrator fixtures.
+      - [x] **O2a** — on gate-pass,
+            `_run_handoff_gate_if_pending` resolves the
+            phase evaluator via `resolve_evaluator`. When
+            the spec reduces to `kind="automated"`,
+            `accept_handoff_automated` (sibling primitive
+            to `bounce_handoff` in `jig/handoff_gate.py`)
+            flips the handoff to `accepted` with
+            `accepted_by="harness"`, bypassing the
+            evaluator-identity and "automated_only manual
+            accept not permitted" guards that protect
+            `_close_handoff` from named-agent short-
+            circuits. Checkpoint pruning runs when a store
+            is wired. Bus event carries `auto=True`.
       - [ ] **O2b** — on gate-pass with a non-automated
             evaluator, spawn the evaluator agent via
             `run_agent` using a new

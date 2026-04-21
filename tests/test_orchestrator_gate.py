@@ -15,7 +15,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from jig.models import PhaseConfig, WorkflowConfig
+from jig.models import (
+    AutomatedOnlyEvaluator,
+    PhaseConfig,
+    SpecificRoleEvaluator,
+    WorkflowConfig,
+)
 from jig.orchestrator import Orchestrator
 from jig.persistence import save_workflow
 from jig.project import Project, save_project
@@ -61,9 +66,16 @@ def _project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _phase(name: str = "implement", checks: list[str] | None = None):
+def _phase(
+    name: str = "implement",
+    checks: list[str] | None = None,
+    evaluator=None,
+):
     return PhaseConfig(
-        name=name, role="dev", automated_checks=list(checks or [])
+        name=name,
+        role="dev",
+        automated_checks=list(checks or []),
+        evaluator=evaluator,
     )
 
 
@@ -254,6 +266,90 @@ class TestCatalogLookup:
                 _phase(checks=["unit"]),
                 _workflow([_phase(checks=["unit"])]),
                 tmp_path,
+            )
+            assert orch.threads is not None
+            h = await orch.threads.get(hid)
+            assert isinstance(h, Handoff)
+            assert h.acceptance_state == "rejected"
+        finally:
+            await orch.shutdown()
+
+
+class TestAutomatedOnlyAutoAccepts:
+    @pytest.mark.asyncio
+    async def test_gate_pass_auto_accepts_automated_only_phase(
+        self, tmp_path: Path
+    ) -> None:
+        """Phase evaluator=automated_only + gate pass → harness accepts."""
+        project_path = _project(tmp_path)
+        _write_check_catalog(project_path, "true")
+        orch = Orchestrator(project_path=project_path)
+        await orch.startup()
+        try:
+            tid, hid = await _seed_pending_handoff(orch)
+            phase = _phase(checks=["unit"], evaluator=AutomatedOnlyEvaluator(type="automated_only"))
+            await orch._run_handoff_gate_if_pending(
+                tid, phase, _workflow([phase]), tmp_path,
+            )
+            assert orch.threads is not None
+            h = await orch.threads.get(hid)
+            assert isinstance(h, Handoff)
+            assert h.acceptance_state == "accepted"
+            assert h.accepted_by == "harness"
+            # Bus event carries auto=True marker.
+            assert orch.bus is not None
+            msgs = await orch.bus.get_history(f"tickets.{tid}")
+            accepted = [
+                m for m in msgs
+                if m.payload.get("kind") == "thread_handoff_accepted"
+            ]
+            assert len(accepted) == 1
+            assert accepted[0].payload["auto"] is True
+        finally:
+            await orch.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_gate_pass_leaves_pending_for_role_evaluator(
+        self, tmp_path: Path
+    ) -> None:
+        """Phase with specific_role evaluator → handoff stays pending
+        (O2b will spawn the evaluator)."""
+        project_path = _project(tmp_path)
+        _write_check_catalog(project_path, "true")
+        orch = Orchestrator(project_path=project_path)
+        await orch.startup()
+        try:
+            tid, hid = await _seed_pending_handoff(orch)
+            phase = _phase(
+                checks=["unit"],
+                evaluator=SpecificRoleEvaluator(type="specific_role", role="reviewer"),
+            )
+            await orch._run_handoff_gate_if_pending(
+                tid, phase, _workflow([phase]), tmp_path,
+            )
+            assert orch.threads is not None
+            h = await orch.threads.get(hid)
+            assert isinstance(h, Handoff)
+            assert h.acceptance_state == "pending"
+        finally:
+            await orch.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_gate_fail_does_not_auto_accept(
+        self, tmp_path: Path
+    ) -> None:
+        """automated_only + gate fail must still bounce, not accept."""
+        project_path = _project(tmp_path)
+        _write_check_catalog(project_path, "false")
+        orch = Orchestrator(project_path=project_path)
+        await orch.startup()
+        try:
+            tid, hid = await _seed_pending_handoff(orch)
+            phase = _phase(
+                checks=["unit"], evaluator=AutomatedOnlyEvaluator(type="automated_only"),
+            )
+            await orch._run_handoff_gate_if_pending(
+                tid, phase, _workflow([phase]), tmp_path,
             )
             assert orch.threads is not None
             h = await orch.threads.get(hid)

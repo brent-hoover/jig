@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 from jig.agent import run_agent
 from jig.project import Project, load_project
+from jig.thread import Handoff
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.checkpoints import CheckpointStore
@@ -611,18 +612,30 @@ class Orchestrator:
 
         If the agent posted a ``Handoff`` whose ``acceptance_state`` is
         still ``pending``, load the project's check catalog and call
-        ``run_handoff_gate``. On gate-fail, ``bounce_handoff`` flips the
-        handoff to ``rejected`` so the caller's ``_phase_handoff_rejected``
-        check reroutes to the fix phase via the existing blocked retry
-        path. Gate-pass leaves the handoff pending — evaluator resolution
-        is Task O2.
+        ``run_handoff_gate``. Outcomes:
+
+        * Gate fail → ``bounce_handoff`` flips the handoff to
+          ``rejected`` so the caller's ``_phase_handoff_rejected``
+          check reroutes to the fix phase via the existing blocked
+          retry path.
+        * Gate pass AND phase evaluator resolves to
+          ``automated_only`` → ``accept_handoff_automated`` flips the
+          handoff to ``accepted`` (harness identity). Task O2a.
+        * Gate pass AND phase evaluator is role/human/multi → leave
+          the handoff pending for evaluator spawn (Task O2b) or a
+          human accept.
 
         No pending handoff → no-op. The phase either doesn't use the
         handoff primitive or the agent returned success without posting
         one; either way there's nothing to gate.
         """
         from jig.checks import load_check_catalog
-        from jig.handoff_gate import bounce_handoff, run_handoff_gate
+        from jig.evaluator_resolver import resolve_evaluator
+        from jig.handoff_gate import (
+            accept_handoff_automated,
+            bounce_handoff,
+            run_handoff_gate,
+        )
 
         if (
             self.threads is None
@@ -668,6 +681,37 @@ class Orchestrator:
                 bus=self.bus,
                 verdict=verdict,
             )
+            return
+
+        # Gate passed. If the phase's evaluator spec resolves to
+        # ``automated_only``, harness-accept the handoff. Otherwise
+        # leave it pending for the evaluator agent (Task O2b) or a
+        # human accept.
+        if phase.evaluator is None:
+            return
+        history = [
+            e for e in entries if isinstance(e, Handoff)
+        ]
+        resolved = resolve_evaluator(
+            spec=phase.evaluator,
+            workflow=workflow,
+            phase_name=phase.name,
+            handoff_history=history,
+        )
+        if resolved is None or resolved.kind != "automated":
+            return
+
+        _logger.info(
+            "handoff %s auto-accepted (phase %r automated_only, gate passed)",
+            pending_hid,
+            phase.name,
+        )
+        await accept_handoff_automated(
+            handoff_id=pending_hid,
+            threads=self.threads,
+            bus=self.bus,
+            checkpoints=self.checkpoints,
+        )
 
     async def _phase_handoff_rejected(self, ticket_id: str, phase_name: str) -> bool:
         """Return True if the most recent Handoff for ``phase_name`` on

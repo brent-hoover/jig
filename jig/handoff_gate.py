@@ -32,6 +32,7 @@ from jig.checks import CheckCatalog
 from jig.models import WorkflowConfig
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
+from jig.store.checkpoints import CheckpointStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff
@@ -39,10 +40,11 @@ from jig.thread_mcp import ThreadError
 
 _logger = logging.getLogger(__name__)
 
-# The "sender" field on the bounce bus message. Matches the check
-# runner's author convention so log readers can tell the bounce came
-# from automated gating, not a named evaluator.
-_BOUNCE_AUTHOR = "harness"
+# The "sender" field on bounce / auto-accept bus messages. Matches the
+# check runner's author convention so log readers can tell the action
+# came from automated gating, not a named evaluator.
+_HARNESS_AUTHOR = "harness"
+_BOUNCE_AUTHOR = _HARNESS_AUTHOR  # retained for back-compat readers
 
 
 async def run_handoff_gate(
@@ -236,4 +238,79 @@ async def bounce_handoff(
     return reason
 
 
-__all__ = ["bounce_handoff", "run_handoff_gate"]
+async def accept_handoff_automated(
+    *,
+    handoff_id: str,
+    threads: ThreadStore,
+    bus: MessageBus,
+    checkpoints: CheckpointStore | None = None,
+) -> None:
+    """Accept a pending handoff because its phase uses
+    ``evaluator=automated_only`` and the check gate passed.
+
+    Flips the Handoff's ``acceptance_state`` to ``accepted`` with
+    ``accepted_by="harness"``, bypassing ``_close_handoff``'s
+    ``automated_only manual accept not permitted`` guard. That guard
+    exists so a named agent can't side-step the gate by posting an
+    accept directly; the orchestrator's gate-driven accept path is
+    the only legitimate way in.
+
+    When ``checkpoints`` is provided, the accepted phase's checkpoints
+    are marked historical (doc 09 §Phase boundaries), matching the
+    human-evaluator accept in ``_close_handoff``.
+
+    Publishes ``thread_handoff_accepted`` with ``auto=True`` on the
+    ticket topic so the orchestrator and TUI can react.
+
+    Raises ``ThreadError`` if the entry isn't a pending Handoff, or
+    ``KeyError`` if the handoff doesn't exist.
+    """
+    handoff = await threads.get(handoff_id)
+    if handoff is None:
+        raise KeyError(f"handoff {handoff_id!r} not found")
+    if not isinstance(handoff, Handoff):
+        raise ThreadError(
+            f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff"
+        )
+    if handoff.is_resolved():
+        raise ThreadError(
+            f"handoff {handoff_id!r} is already "
+            f"{handoff.acceptance_state!r}; cannot auto-accept"
+        )
+
+    await threads.update(
+        handoff_id,
+        {
+            "acceptance_state": "accepted",
+            "accepted_by": _HARNESS_AUTHOR,
+        },
+    )
+
+    if checkpoints is not None:
+        await checkpoints.mark_phase_historical(
+            handoff.ticket_id, handoff.phase
+        )
+
+    await bus.publish(
+        Message(
+            sender=_HARNESS_AUTHOR,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_handoff_accepted",
+                "ticket_id": handoff.ticket_id,
+                "handoff_id": handoff_id,
+                "phase": handoff.phase,
+                "accepted_by": _HARNESS_AUTHOR,
+                "auto": True,
+            },
+            topic=f"tickets.{handoff.ticket_id}",
+        )
+    )
+
+
+__all__ = [
+    "accept_handoff_automated",
+    "bounce_handoff",
+    "run_handoff_gate",
+]

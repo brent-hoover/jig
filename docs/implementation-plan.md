@@ -1162,7 +1162,463 @@ models and MCP handlers. Separate from thread per doc 09.
 
 ## Phase 5 — Verification & policy
 
-*Detailed plan added after Phase 4 review.*
+### Goal
+
+Turn "agent claims done" into "system assigns done." The check
+catalog (Phase 2E) gets an execution layer; handoffs feed check
+results into evaluator decisions; evaluator identity is structurally
+different from the completing actor. Capability policy (doc 16)
+compiles per-spawn into Claude Code hooks and denies disallowed
+tool calls at the hook boundary rather than relying on agent
+discipline. The Phase-4 carry-overs that were parsed-but-not-enforced
+(`questions_to` / `escalation_targets` at post-time, waiver
+authority as capability, section locks, deferred-item promotion)
+also land here, along with the orchestrator's deadlock auto-
+resolution.
+
+Concretely:
+
+- **Check execution.** The `CheckCatalog` from Phase 2E executes —
+  scripted checks run a command and capture output+verdict; agent
+  checks spawn a scoped agent against a template with check-
+  specific context. Severity (required/warning/info) gates phase
+  advancement. Re-run on rejected handoff is all-or-nothing (doc
+  10 §Re-run policy).
+- **Asymmetric validation.** Black-box agent checks enforce
+  information asymmetry via context-bundle `excluded` paths +
+  hook-level path denies. The check agent literally cannot read
+  `repo://src/**` or `ticket://thread` for a `qa-validation`
+  check.
+- **Evaluator routing.** Phase `evaluator:` assignment resolves
+  to an actor. Hard rule: evaluator identity ≠ completing actor
+  (structural self-certification guard). Evaluator sees pre-
+  computed check results with the handoff; check failures never
+  reach evaluators (harness loops back first).
+- **Capability policy.** Role templates declare
+  `capabilities:` (tools / tool_params / paths). Per-spawn the
+  harness compiles template + phase-override + ticket context
+  into `rules.json` and `.claude/settings.json`, bind-mounts
+  both into the sandbox, and ships small hook scripts
+  (`check-bash`, `check-path`, `check-write`) that read
+  `rules.json` and enforce. Denials are already in the tool log
+  stream; no new signaling path.
+- **Human-side hooks.** `jig init` installs pre-commit /
+  pre-push / commit-msg hooks that invoke the same check
+  commands so a dev's local experience matches the harness.
+- **Carry-over cleanup.** Phase 4's flat `waiver_authority` list
+  becomes a capability. `thread_ask` / `thread_escalate` gate on
+  the phase's `questions_to` / `escalation_targets` at post
+  time, not just at catalog-load. Section locks
+  (`locked_after_phase`) enforce at proposal-accept. Deferred
+  items promoted at handoff produce real child tickets.
+  Orchestrator nudges stuck tickets and escalates if the blocker
+  outlives its timeout.
+
+Out of scope (explicit):
+
+- **Agent-check evaluation harness** (test set for calibrating
+  check-agent prompts). Worth building once we have more than
+  a handful of agent checks; not v1.
+- **Policy testing framework.** Unit-testable policy
+  declarations ("does this rule do what I think?"). Same
+  reason.
+- **Policy bypass analytics.** Dashboards over waiver patterns,
+  deny frequency, etc. Observability layer — after operational
+  data exists.
+- **Dynamic (runtime-computed) rules.** Everything compiles at
+  spawn. Rules that depend on ticket state bake that state in
+  at compile time.
+- **Runtime capability elevation.** The escalation path is
+  sufficient; a first-class "agent requests temporary capability
+  X" protocol is a v2+ concern.
+- **Check result caching / partial re-runs.** Full re-run on
+  rejected handoff is defensible and simple.
+- **Cross-project policy sharing.** One project per service; out
+  of scope.
+- **Thread summarization / compaction-entry type.** Still tied
+  to checkpoint compaction (doc 09). Separate later phase.
+
+### Tasks
+
+**A. Check execution — scripted**
+
+Execution layer for `ScriptedCheck`. The `CheckCatalog` loader
+(Phase 2E) already parses the YAML and validates shape; this
+task runs them.
+
+- [ ] `jig/check_runner.py` — `ScriptedRunner` runs a check's
+      `command` in the ticket's worktree (or the check's
+      declared `working_dir`), captures stdout/stderr and exit
+      code, enforces `timeout_s`. Runs in the agent's sandbox
+      image so environment matches.
+- [ ] `CheckResult` pydantic model: `check_name`, `check_type`,
+      `verdict: pass|fail|timeout|error`, `severity`,
+      `output`, `started_at`, `finished_at`, `commit_sha`.
+- [ ] `jig/store/check_results.py` — JSONL-backed store at
+      `.jig/store/check_results.jsonl`, append-only, queryable
+      by ticket + phase.
+- [ ] Severity semantics: `required` fail blocks phase advance,
+      `warning` posts a Note to the thread, `info` records a
+      CheckResult only. Implemented in the gating layer (Task
+      D), but severity lookup lives here.
+- [ ] Re-run-all on rejected handoff. Runner exposes
+      `run_for_phase(ticket, phase)` that re-executes every
+      declared check; caller decides when.
+
+**B. Check execution — agent**
+
+Implementation-aware and black-box agent checks. Reuses the
+existing agent-spawn plumbing (`jig/agent.py`) but with check-
+specific role templates and tight context.
+
+- [ ] `AgentCheckRunner` — spawns a short-lived agent per
+      check. Template and context list come from the check's
+      YAML (`template:`, `context:`, `excluded:`). Prompt
+      includes the rubric; agent returns a structured verdict
+      (pass/fail + reasoning) via a scoped MCP tool.
+- [ ] `check_verdict` MCP tool — a tiny surface the check
+      agent calls to record its verdict. Store in
+      `check_results`. One call per check run; second call is
+      an error.
+- [ ] Black-box asymmetry enforcement: the check's `excluded`
+      paths compile into the same per-spawn `rules.json` that
+      Task F uses for role capabilities — reuse the same hook
+      boundary rather than trusting context-bundle resolution
+      alone.
+- [ ] Nondeterminism policy: trust-the-latest (doc 10). No
+      auto-rerun for flakes in Phase 5.
+- [ ] Timeouts hard-kill the agent; `verdict=timeout` is a
+      fail.
+
+**C. Evaluator routing + asymmetry**
+
+- [ ] Extend `PhaseConfig` schema: `evaluator:` accepts the
+      five assignment types from doc 10
+      (`previous_phase_role`, `specific_role`,
+      `automated_only`, `specific_human`, `multi`).
+      Load-time validation rejects unknown types and checks
+      role references.
+- [ ] `evaluator_resolver.py` — turns a phase's evaluator
+      declaration into a concrete actor identity (role name or
+      specific user). `previous_phase_role` queries the
+      ticket's Handoff history.
+- [ ] Hard rule: resolved evaluator identity ≠ completing
+      actor. If they'd match, the orchestrator escalates (posts
+      Escalation, halts phase) rather than silently self-
+      approving. Reassignment is a follow-up human action.
+- [ ] Evaluator spawn prompt: handoff entry + check results
+      (from Task A/B) + any check-failure audit entries + any
+      active waivers. Check results are passed as structured
+      data (handoff rubric section), not free text.
+- [ ] `automated_only` phases skip evaluator spawn entirely
+      when all required checks pass.
+
+**D. Check failure vs evaluator rejection — gating**
+
+- [ ] New SystemEvent subtype: `event_type="check_failure"`
+      carrying check name + severity + excerpt. Written by the
+      runner; readable by agents via `read_comments`.
+- [ ] Orchestrator hooks into the handoff path:
+      `thread_handoff` → run checks → if any required fail,
+      post check_failure events, bounce handoff back to the
+      completing actor, do NOT spawn evaluator.
+- [ ] Evaluator spawn only runs when no required checks are
+      failing (or all failures have accepted Waivers).
+- [ ] Handoff rejection (from evaluator) still produces an
+      Objection on the thread per Phase 4; Phase 5 just feeds
+      check results into the evaluator's view.
+
+**E. Waivers on required check failures**
+
+- [ ] `thread_waive_check(check_name, ticket_id, phase,
+      justification)` MCP tool — creates a Waiver entry
+      scoped to a specific check failure, flips the
+      corresponding check_failure SystemEvent to
+      `waived=true`. Authorization goes through Task H's
+      capability layer.
+- [ ] Evaluator view shows active waivers alongside check
+      results.
+- [ ] Waivers on check failures searchable via the existing
+      thread store; audit query for "how often did we waive X"
+      is a readable loop, not an index.
+
+**F. Capability policy — declaration + compilation**
+
+- [ ] Role template schema extension:
+      `capabilities: {tools: {allowed: [...]}, tool_params:
+      {...}, paths: {writable, readable, denied}}`. Lands on
+      `RoleConfig` (jig/models.py).
+- [ ] Phase-level override schema in workflow YAML:
+      `phases[].capability_overrides: {...}`. Merge rules:
+      scalars replaced, list fields unioned for permits,
+      union-of-denies for denies.
+- [ ] `jig/capability_compiler.py` — `compile(role_template,
+      phase_override, ticket_ctx) -> CompiledRules` with a
+      versioned `schema_version` field. Pure; no I/O.
+- [ ] Pre-spawn materialization: write `rules.json` and
+      `.claude/settings.json` into the sandbox's
+      `/jig/policy/` and `.claude/` directories before the
+      agent starts.
+- [ ] `jig validate` extensions: unknown tool names in
+      `allowed`, malformed regexes in `deny_patterns`,
+      unreachable / shadowed patterns, path globs that escape
+      the sandbox root.
+
+**G. Capability policy — enforcement (hooks)**
+
+- [ ] Ship hook scripts at `jig/bin/`: `check-bash`,
+      `check-path`, `check-write`. Python 3 (container has
+      it), read `/jig/policy/rules.json`, inspect the tool
+      call on stdin, exit 0 (allow) or 2 (deny) with stderr
+      explaining why.
+- [ ] Bind-mount `jig/bin/` into the sandbox at `/jig/bin/`
+      read-only. Update `container.py` (Docker layer) and
+      `sandbox.py` (bwrap layer) accordingly.
+- [ ] `.claude/settings.json` registers each hook under the
+      appropriate matcher (`Bash`, `Write`, `Edit`).
+- [ ] Denial UX: hook stderr is human-readable
+      (`blocked by policy: … matches deny-pattern "rm -rf"`).
+      Claude Code presents this as a tool failure; the agent
+      adapts, posts a Question, or escalates.
+- [ ] Tests: spawn an agent under a template that denies
+      `rm -rf`; issue the bash call; verify the tool fails
+      and the denial appears in the agent's tool stream.
+
+**H. Waiver authority as capability**
+
+Retires the flat `config.waiver_authority: list[str]` from
+Phase 4.
+
+- [ ] Role templates carry
+      `capabilities.waivers: {can_waive: [check_severity|
+      objection_kind|…]}`. Phase overrides as usual.
+- [ ] `thread_mcp.handle_thread_waive` and the new
+      `thread_waive_check` consult the compiled rules from
+      Task F instead of reading `config.waiver_authority`.
+- [ ] Unauthorized-waiver error message names the capability
+      the actor lacks, not just the role list.
+- [ ] Migration: `config.yaml` `waiver_authority` continues
+      to load for a cycle but emits a deprecation warning
+      pointing at the new capability key.
+
+**I. Human-side git hooks**
+
+- [ ] `jig hooks install` / `jig hooks uninstall` /
+      `jig hooks status` CLI. Operates on `.git/hooks/` in
+      the project.
+- [ ] `jig init` invokes `jig hooks install` by default;
+      opt-out via flag.
+- [ ] Installed hooks: `pre-commit` (required content
+      checks), `pre-push` (tests if configured),
+      `commit-msg` (conventional-commit format if
+      configured).
+- [ ] Idempotent: existing hooks backed up to
+      `.git/hooks/*.jig-backup` before overwrite. Existing
+      jig-managed hooks replaced silently.
+
+**J. Carry-over — deferred-item → ticket promotion**
+
+- [ ] Evaluator-facing MCP tool: `checkpoint_promote_deferred
+      (deferred_item_id, [title, work_type, assignee,
+      labels])`. Creates a child ticket, sets
+      `parent_id=<current ticket>`, records
+      `promoted_ticket_id` on the DeferredItem.
+- [ ] Called during handoff acceptance. Accepted-handoff path
+      walks the phase's deferred items and lets the evaluator
+      promote any.
+- [ ] Promoted items surface in the evaluator prompt
+      alongside handoff artifacts (Task C).
+- [ ] Tests: handoff with one promoted item produces a new
+      ticket with the right parent; already-promoted items
+      don't double-create.
+
+**K. Carry-over — thread-target enforcement**
+
+- [ ] `thread_ask`: if the phase declares `questions_to` and
+      the tool's `target` isn't in that list (plus
+      `any_human`), refuse the post with a readable error.
+- [ ] `thread_escalate`: same rule against
+      `escalation_targets`.
+- [ ] Validation stays at catalog-load (unknown roles fail
+      `jig validate`) — enforcement at post-time is purely
+      additive.
+- [ ] Phases without `questions_to` / `escalation_targets`
+      declared keep today's permissive behavior.
+
+**L. Carry-over — deadlock auto-resolution**
+
+Doc 08's orchestrator-as-resolver-of-last-resort.
+
+- [ ] Orchestrator tracks per-blocking-entry age: open
+      blocking thread entry older than T1 triggers a nudge
+      (posts a Note tagging the target actor). Open past
+      T2 triggers an Escalation (posts to any_human, flips
+      ticket to `needs_info`).
+- [ ] Thresholds: project-wide defaults in `config.yaml`
+      (`deadlock.nudge_after_s`, `deadlock.escalate_after_s`).
+      Starting values T1 = 4h, T2 = 24h. Per-phase overrides
+      optional.
+- [ ] The nudge + escalation actions are idempotent —
+      re-firing the check doesn't spam duplicates.
+- [ ] Tests: freezegun an open blocking question past T1,
+      verify a Note lands; past T2, verify an Escalation +
+      status transition.
+
+**M. Carry-over — section-lock enforcement**
+
+Spec section locks (`locked_after_phase`) parsed in Phase 3F
+but not enforced.
+
+- [ ] Spec-write path (`proposal_mcp.handle_resolve_proposal`
+      accept branch): if the accepted proposal targets a
+      section with `locked_after_phase=<phase>` and that
+      phase has a successful Handoff on the ticket, refuse
+      with a readable error.
+- [ ] `jig validate --ticket-id`: surface section-lock
+      status as part of the ticket's pre-flight report.
+- [ ] Tests: proposal against `spec.behaviors` after the
+      `spec` phase handoff fails loud; same proposal before
+      handoff accepts cleanly.
+
+**N. Carry-over — helper-agent spawning**
+
+`human_with_helper` owner resolution already returns
+`OwnerRouting.helper_template` (Phase 3). Phase 5 wires the
+spawn.
+
+- [ ] Proposal-routing hook: when an owner resolves to
+      `human_with_helper` and the proposal targets that
+      owner, spawn the declared `helper_template` first with
+      the proposal + context, capture its draft response as a
+      Note on the thread, surface it to the human in the
+      evaluator prompt.
+- [ ] Helper agent is a short-lived check-agent-style spawn
+      (same machinery as Task B), not a persistent role.
+- [ ] The human's acceptance is what resolves the proposal;
+      the helper's draft is context only.
+
+**O. Orchestrator wiring**
+
+- [ ] Handoff path through the orchestrator:
+      `thread_handoff` → run required checks (Task A+B) →
+      gate on results (Task D) → on pass, resolve evaluator
+      (Task C) and spawn → evaluator accepts/rejects per
+      Phase 4.
+- [ ] Per-spawn: capability compilation (Task F) materializes
+      `rules.json` + `.claude/settings.json` before the
+      agent starts.
+- [ ] Deadlock sweep: the orchestrator's existing tick loop
+      grows a deadlock-check pass (Task L). No new scheduler.
+- [ ] CheckResult bus events: the runner publishes
+      `check_completed` messages so the TUI can show
+      progress.
+
+**P. Tests + end-to-end**
+
+- [ ] Unit tests per task (runners, compiler, resolver, etc.).
+- [ ] Integration: ticket reaches implement handoff → required
+      check fails → agent fixes → handoff → checks pass →
+      evaluator accepts → advance.
+- [ ] Integration: evaluator=completing-actor conflict
+      → orchestrator escalates, phase doesn't advance.
+- [ ] Integration: black-box QA check cannot read `src/**`
+      (hook denies; verify via tool-log assertions).
+- [ ] Integration: dev agent under default template refused
+      at hook level when attempting `rm -rf`, `git push
+      --force`, write to `.jig/spec/**`.
+- [ ] Integration: deferred item with `status="promoted"`
+      becomes a child ticket on handoff accept.
+- [ ] Integration: blocking question open for > T2 triggers
+      escalation + `needs_info`.
+
+### Exit criteria
+
+- Required check failure blocks phase advance until fixed or
+  waived by a capability-authorized actor.
+- Evaluator identity is structurally different from the
+  completing actor. Same-actor attempts escalate.
+- Capability denials at the hook boundary (bash, path,
+  write) fire and are visible in the tool log stream.
+- `jig validate` rejects unknown tool names, bad regexes,
+  or escape-the-sandbox path globs in role capabilities.
+- Phase-level `questions_to` / `escalation_targets` enforce
+  at post-time.
+- `waiver_authority` reads from capability policy; flat list
+  in `config.yaml` still loads with a deprecation warning.
+- `jig init` installs git hooks running the same checks as
+  the harness.
+- Deferred-item promotion at handoff creates a child
+  ticket.
+- Stuck blocking entries nudge at T1 and escalate at T2.
+- Section locks reject post-lock proposal accepts.
+- Helper-agent drafts land on the thread for
+  `human_with_helper` resolutions.
+
+### Explicitly deferred out of Phase 5
+
+- **Agent-check evaluation harness.** Test set for
+  calibrating check-agent prompts.
+- **Policy testing framework.** Unit-testable rule
+  declarations.
+- **Policy bypass analytics.** Waiver/deny dashboards.
+- **Runtime capability elevation.** Escalation path is
+  sufficient; first-class elevation protocol is v2+.
+- **Check result caching / partial re-runs.** Full re-run on
+  rejected handoff is the v1 answer.
+- **Dynamic (runtime-computed) rules.** Everything compiles
+  at spawn.
+- **Cross-project policy sharing.** One project per service.
+- **Thread summarization / compaction-entry type.** Tied to
+  checkpoint compaction (still deferred).
+- **Helper-agent UI / interactive editing.** Phase 5 lands
+  the spawn + draft; TUI-side editing is Phase 7.
+
+### Risks and decisions
+
+- **CheckResult store shape.** Separate
+  `.jig/store/check_results.jsonl` vs. attached to Handoff.
+  Separate file: keeps Handoff immutable, makes re-run
+  history auditable, matches the thread/checkpoint split
+  pattern. Cost: one extra store — modest.
+- **Check failure as SystemEvent vs new thread type.** Reuse
+  `SystemEvent(event_type="check_failure")`. Check failures
+  are objective; resolution asymmetry doesn't apply (anyone
+  who can fix the check fixes it). New top-level thread
+  type would be ceremony without payoff.
+- **Hook script language.** Python. Container already has
+  it; scripts are small enough that shell would work but
+  Python stays readable and testable.
+- **`rules.json` schema versioning.** Include
+  `"schema_version": 1` in every compiled file. Hook scripts
+  bail with a readable error on unknown versions. Cheap
+  insurance against future shape drift.
+- **Capability merge rules.** Template → phase override:
+  scalars replaced; `allowed` / `readable` / `writable`
+  lists union; `denied` / `deny_patterns` union (strictest
+  wins). Documented in the compiler's docstring; tested.
+- **Section lock enforcement point.** At proposal *accept*,
+  not at proposal *post*. Proposals are conversation
+  surface; locking what can land, not what can be
+  suggested, matches the doc 04 ownership model.
+- **Deadlock thresholds.** T1 = 4h, T2 = 24h by default,
+  tunable via config. Start permissive; tighten once real
+  usage shows where blockers sit.
+- **Self-certification guard timing.** Check happens at
+  evaluator-resolution time, before spawn, so the conflict
+  surfaces before work is wasted. Alternative (check at
+  accept) would catch it later but waste the evaluator's
+  run.
+- **Agent check nondeterminism.** Start with trust-the-
+  latest. Add re-run-on-failure as a follow-up if flakes
+  become real pain (doc 10 §Nondeterminism).
+- **Waiver authority migration.** One release cycle of
+  double-support (capability + flat list) with a
+  deprecation warning. Keeps in-flight projects working
+  through the boundary.
+- **Hook bind-mount path (`/jig/bin/`).** Chosen to match
+  doc 16's worked example. Container and bwrap both mount
+  it read-only at that fixed location; agents never see
+  the host path.
 
 ## Phase 6 — SCM integration
 

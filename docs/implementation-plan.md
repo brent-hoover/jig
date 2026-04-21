@@ -1274,24 +1274,32 @@ Implementation-aware and black-box agent checks. Reuses the
 existing agent-spawn plumbing (`jig/agent.py`) but with check-
 specific role templates and tight context.
 
-- [ ] `AgentCheckRunner` — spawns a short-lived agent per
-      check. Template and context list come from the check's
-      YAML (`template:`, `context:`, `excluded:`). Prompt
-      includes the rubric; agent returns a structured verdict
-      (pass/fail + reasoning) via a scoped MCP tool.
-- [ ] `check_verdict` MCP tool — a tiny surface the check
-      agent calls to record its verdict. Store in
-      `check_results`. One call per check run; second call is
-      an error.
-- [ ] Black-box asymmetry enforcement: the check's `excluded`
-      paths compile into the same per-spawn `rules.json` that
-      Task F uses for role capabilities — reuse the same hook
-      boundary rather than trusting context-bundle resolution
-      alone.
-- [ ] Nondeterminism policy: trust-the-latest (doc 10). No
-      auto-rerun for flakes in Phase 5.
-- [ ] Timeouts hard-kill the agent; `verdict=timeout` is a
-      fail.
+- [x] `AgentCheckRunner` — spawns a short-lived agent per
+      check via `claude_agent_sdk.query`. Template and context
+      list come from the check's YAML (`template:`, `context:`,
+      `excluded:`). Prompt includes the rubric + resolved
+      context bundle; agent returns a structured verdict via
+      `check_verdict`. Implementation-aware checks get Read /
+      Grep / Glob in `allowed_tools`; black-box checks get only
+      `mcp__jig_check__check_verdict`.
+- [x] `check_verdict` MCP tool (`jig/check_mcp.py`) — scoped
+      per-run via `create_check_mcp_server(captured)` factory
+      that binds the handler to a mutable dict the runner owns.
+      First call captures verdict + reasoning; a second call
+      raises `RuntimeError`; invalid verdict (≠ pass/fail)
+      raises `ValueError`.
+- [x] Black-box asymmetry (partial): `excluded` globs filter
+      `repo://` URIs out of the resolved context bundle before
+      prompt build. Hook-boundary enforcement (shared
+      `rules.json`) still depends on Task F/G — this task
+      gates at the context-resolution layer; Task F adds the
+      defense-in-depth hook layer.
+- [x] Nondeterminism policy: trust-the-latest (doc 10) — the
+      runner is idempotent per call; callers decide re-run
+      semantics. No auto-rerun for flakes in Phase 5.
+- [x] Timeouts hard-kill the agent via `asyncio.wait_for`
+      around the `query` loop; `verdict=timeout` is a fail
+      (severity still applied).
 
 **C. Evaluator routing + asymmetry**
 

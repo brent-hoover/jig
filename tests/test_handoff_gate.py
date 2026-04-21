@@ -528,6 +528,107 @@ class TestBounceHandoff:
                 verdict=passing,
             )
 
+    # ---- I8: mode + posted_events parity guards ---------------------------
+    #
+    # Bouncing a handoff is a destructive state transition that cites a
+    # gate verdict as its audit trail. These guards prevent two classes
+    # of caller bug: forwarding a read-only ``pre-spawn`` verdict (which
+    # never posts events), and passing a failing verdict that skipped
+    # event posting (which would bounce without linkable evidence).
+
+    async def test_pre_spawn_mode_refused(self, tmp_path: Path) -> None:
+        """A pre-spawn verdict is read-only — it never posts
+        check_failure events, so bouncing against it produces a
+        rejection that cites events that don't exist."""
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        _tid, hid = await _seed_pending_handoff(tickets, threads)
+        pre_spawn = GateVerdict(
+            passing=False,
+            failing=[
+                CheckFailureEntry(
+                    check_name="unit",
+                    verdict="fail",
+                    severity=CheckSeverity.REQUIRED,
+                    event_id="evt-unit",
+                ),
+            ],
+            missing=[],
+            posted_events=[],  # pre-spawn never posts
+            mode="pre-spawn",
+        )
+        with pytest.raises(ThreadError, match="handoff-mode"):
+            await bounce_handoff(
+                handoff_id=hid,
+                threads=threads,
+                bus=bus,
+                verdict=pre_spawn,
+            )
+
+    async def test_posted_events_parity_required_when_failing(
+        self, tmp_path: Path
+    ) -> None:
+        """Every failing check must have produced a posted event — the
+        bounce reason links to them. Forgetting to post one would leave
+        a dangling evt-id in the rejection reason."""
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        _tid, hid = await _seed_pending_handoff(tickets, threads)
+        lopsided = GateVerdict(
+            passing=False,
+            failing=[
+                CheckFailureEntry(
+                    check_name="unit",
+                    verdict="fail",
+                    severity=CheckSeverity.REQUIRED,
+                    event_id="evt-unit",
+                ),
+                CheckFailureEntry(
+                    check_name="lint",
+                    verdict="fail",
+                    severity=CheckSeverity.REQUIRED,
+                    event_id="evt-lint",
+                ),
+            ],
+            missing=[],
+            posted_events=["evt-unit"],  # lint failure wasn't posted
+            mode="handoff",
+        )
+        with pytest.raises(
+            ThreadError, match="posted check_failure event"
+        ):
+            await bounce_handoff(
+                handoff_id=hid,
+                threads=threads,
+                bus=bus,
+                verdict=lopsided,
+            )
+
+    async def test_missing_only_verdict_allowed(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression guard for the parity check: a verdict with
+        ``failing=[]`` but ``missing=[...]`` is a legitimate bounce.
+        Missing checks didn't run so they have no events to post; the
+        parity rule only applies when something actually failed."""
+        tickets, threads, _results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        _tid, hid = await _seed_pending_handoff(tickets, threads)
+        missing_only = GateVerdict(
+            passing=False,
+            failing=[],
+            missing=["typecheck"],
+            posted_events=[],
+            mode="handoff",
+        )
+        reason = await bounce_handoff(
+            handoff_id=hid, threads=threads, bus=bus, verdict=missing_only
+        )
+        assert "typecheck" in reason
+        h = await threads.get(hid)
+        assert isinstance(h, Handoff)
+        assert h.acceptance_state == "rejected"
+
 
 # ---- accept_handoff_automated ---------------------------------------------
 

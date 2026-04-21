@@ -218,3 +218,146 @@ async def test_current_phase_index_skips_by_phase_name_not_task_count(
         )
     finally:
         await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C3: merge conflict routes to MERGE_CONFLICT, not RESOLVED
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_merge_conflict_routes_to_merge_conflict_status(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When the final merge raises ``MergeConflictError``, the ticket
+    is set to MERGE_CONFLICT (not RESOLVED, not FAILED) and the branch
+    + worktree are preserved for manual resolution."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+    from jig.worktree import MergeConflictError
+
+    async def fake_run_agent(ctx, emitter=None):
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    async def conflicting_merge(project_path, ticket_id, base, strategy):
+        raise MergeConflictError(ticket_id, f"jig/{ticket_id}")
+
+    remove_calls: list[str] = []
+
+    async def fake_remove(*args, **kwargs):
+        remove_calls.append("called")
+
+    monkeypatch.setattr("jig.worktree.merge_ticket", conflicting_merge)
+    monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch._handle_schedule(tid)
+        running_task = orch._running_tickets.get(tid)
+        if running_task is not None:
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(running_task), timeout=2.0
+                )
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.MERGE_CONFLICT, (
+            f"expected MERGE_CONFLICT, got {ticket.status}"
+        )
+        # Worktree is preserved on conflict so a human can resolve it.
+        assert remove_calls == [], (
+            f"expected worktree preserved, got remove_calls={remove_calls}"
+        )
+    finally:
+        await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C4: dep branch merge failure fails the ticket + emits dep_merge_failed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dep_merge_failure_fails_ticket_and_emits_event(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When ``_ensure_worktree`` raises ``DependencyMergeError`` because
+    a ``blocked_by`` branch can't merge cleanly, the ticket goes to
+    FAILED and a ``dep_merge_failed`` SystemEvent is posted on the
+    thread. The agent never runs — we'd be running against an
+    inconsistent tree."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.orchestrator import DependencyMergeError
+
+    run_calls: list[str] = []
+
+    async def fake_run_agent(ctx, emitter=None):
+        run_calls.append(ctx.role)
+        from jig.agent import RunAgentResult
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def failing_ensure(ticket):
+        raise DependencyMergeError(
+            ticket_id=ticket.id,
+            dep_id="dep-123",
+            dep_branch="jig/dep-123",
+        )
+
+    orch._ensure_worktree = failing_ensure  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch._handle_schedule(tid)
+        running_task = orch._running_tickets.get(tid)
+        if running_task is not None:
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(running_task), timeout=2.0
+                )
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.FAILED
+        assert run_calls == [], (
+            f"agent must not run after dep-merge failure, got {run_calls}"
+        )
+
+        entries = await orch.threads.for_ticket(tid)
+        dep_events = [
+            e for e in entries
+            if isinstance(e, SystemEvent)
+            and e.event_type == "dep_merge_failed"
+        ]
+        assert len(dep_events) == 1
+        assert "dep-123" in dep_events[0].content
+        assert "jig/dep-123" in dep_events[0].content
+    finally:
+        await orch.shutdown()

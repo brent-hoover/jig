@@ -424,3 +424,97 @@ class TestRoundtrip:
         back = parse_thread_entry(raw)
         assert isinstance(back, SystemEvent)
         assert back.phase_result == "failed"
+
+
+# ---- I5: state-consistency invariants -------------------------------------
+#
+# `model_post_init` on Handoff and Objection is a safety net for direct
+# store writes and hand-constructed records. The MCP write-path already
+# coordinates these fields; these tests pin the invariant so a future
+# caller can't set one field without the other.
+
+
+class TestHandoffInvariants:
+    def test_pending_rejects_accepted_by(self) -> None:
+        with pytest.raises(ValidationError):
+            Handoff(
+                ticket_id="t-1",
+                author="alice",
+                phase="implement",
+                acceptance_state="pending",
+                accepted_by="pam",
+            )
+
+    def test_pending_rejects_rejection_reason(self) -> None:
+        with pytest.raises(ValidationError):
+            Handoff(
+                ticket_id="t-1",
+                author="alice",
+                phase="implement",
+                acceptance_state="pending",
+                rejection_reason="nope",
+            )
+
+    def test_accepted_requires_accepted_by(self) -> None:
+        with pytest.raises(ValidationError):
+            Handoff(
+                ticket_id="t-1",
+                author="alice",
+                phase="implement",
+                acceptance_state="accepted",
+            )
+
+    def test_accepted_rejects_rejection_reason(self) -> None:
+        """A handoff marked accepted must not also carry a rejection
+        reason — the audit trail becomes ambiguous about what actually
+        happened."""
+        with pytest.raises(ValidationError):
+            Handoff(
+                ticket_id="t-1",
+                author="alice",
+                phase="implement",
+                acceptance_state="accepted",
+                accepted_by="pam",
+                rejection_reason="but actually...",
+            )
+
+    def test_rejected_requires_rejection_reason(self) -> None:
+        with pytest.raises(ValidationError):
+            Handoff(
+                ticket_id="t-1",
+                author="alice",
+                phase="implement",
+                acceptance_state="rejected",
+            )
+
+    def test_rejected_allows_accepted_by_as_rejector(self) -> None:
+        """``accepted_by`` doubles as the evaluator identity; when the
+        evaluator rejects, it's fine to record who — as long as
+        ``rejection_reason`` is also present."""
+        h = Handoff(
+            ticket_id="t-1",
+            author="alice",
+            phase="implement",
+            acceptance_state="rejected",
+            accepted_by="pam",  # rejector's identity
+            rejection_reason="tests fail",
+        )
+        assert h.acceptance_state == "rejected"
+        assert h.is_resolved()
+
+
+class TestObjectionInvariants:
+    def test_both_close_paths_rejected(self) -> None:
+        """An objection closes via resolution OR waiver — never both.
+        Simultaneous assignment usually means a handler wrote to the
+        wrong field and the audit trail no longer reflects how it
+        closed."""
+        with pytest.raises(ValidationError):
+            Objection(
+                ticket_id="t-1",
+                author="alice",
+                target_artifact="main.py",
+                text="nope",
+                resolved_by="alice",
+                waived_by="sam",
+            )

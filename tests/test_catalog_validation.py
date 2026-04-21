@@ -692,6 +692,54 @@ class TestCapabilityDeclarationValidation:
         )
         validate_catalog(initialized_project)
 
+    def test_unknown_uri_scheme_rejected(self, initialized_project: Path) -> None:
+        """``s3://`` or other non-jig schemes have no meaning in the
+        sandbox and would silently match nothing — treat as a typo."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="bad-scheme",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["s3://bucket/**"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="unsupported URI scheme"):
+            validate_catalog(initialized_project)
+
+    def test_empty_uri_scheme_rejected(self, initialized_project: Path) -> None:
+        """``://foo`` with no scheme is malformed — reject rather than
+        letting it slip past as a weirdly-shaped literal path."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="empty-scheme",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["://worktree/**"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="empty URI scheme"):
+            validate_catalog(initialized_project)
+
+    def test_empty_uri_body_rejected(self, initialized_project: Path) -> None:
+        """``ticket://`` with nothing after the scheme is a typo — the
+        body must select something."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="empty-body",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["ticket://"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="empty path after"):
+            validate_catalog(initialized_project)
+
     def test_phase_capability_overrides_validated(
         self, initialized_project: Path
     ) -> None:

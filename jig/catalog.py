@@ -428,6 +428,20 @@ def _validate_capabilities(
     return errors
 
 
+# Schemes accepted in capability path globs. Must stay in sync with the
+# context resolver's known set (``_validate_static_uri`` above and
+# ``jig/context_resolver.py``). Sorted tuple so error messages list the
+# expectations deterministically.
+_ALLOWED_PATH_SCHEMES: tuple[str, ...] = (
+    "decision",
+    "issue",
+    "project",
+    "repo",
+    "role",
+    "ticket",
+)
+
+
 def _validate_path_glob(pattern: str) -> str | None:
     """Return ``None`` if the glob is structurally sound, else a
     reason. ``..`` anywhere is a sandbox escape and always rejected."""
@@ -440,9 +454,21 @@ def _validate_path_glob(pattern: str) -> str | None:
     for segment in pattern.split("/"):
         if segment == "..":
             return "contains '..' segment (escapes sandbox root)"
-    # Must carry a scheme (ticket://, repo://, project://, role://,
-    # decision://, issue://) or be an absolute sandbox path.
+    # Must carry a supported scheme (ticket://, repo://, project://,
+    # role://, decision://, issue://) or be an absolute sandbox path.
+    # Typos like "tiket://..." or empty schemes / bodies would silently
+    # skip at hook evaluation time, so fail loud here instead.
     if "://" in pattern:
+        scheme, _, body = pattern.partition("://")
+        if not scheme:
+            return "empty URI scheme (expected e.g. ticket://, repo://)"
+        if scheme not in _ALLOWED_PATH_SCHEMES:
+            return (
+                f"unsupported URI scheme {scheme!r} "
+                f"(expected one of: {', '.join(_ALLOWED_PATH_SCHEMES)})"
+            )
+        if not body:
+            return f"empty path after {scheme}://"
         return None
     if pattern.startswith("/"):
         return None

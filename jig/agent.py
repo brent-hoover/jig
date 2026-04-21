@@ -178,10 +178,12 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> None:
             rules_path,
             settings_path,
         )
-    except Exception:
-        # Task G will tighten this to fail-loud once hooks are the
-        # primary enforcement. For now we warn + continue so an
-        # unrelated I/O glitch doesn't break orchestration.
+    except OSError:
+        # Narrow: only swallow filesystem errors (disk full, perms,
+        # broken mount). Bugs in compile/materialize should propagate
+        # so the spawn fails loud rather than silently skipping
+        # enforcement. Task G will tighten this further once hooks
+        # are the primary enforcement layer.
         _logger.exception(
             "capability materialisation failed for %s on %s",
             ctx.role,

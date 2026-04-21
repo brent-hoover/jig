@@ -76,8 +76,8 @@ class BashToolParams(BaseModel):
 
     ``deny_patterns`` are Python regex strings matched against the
     ``command`` arg of a Bash invocation. A match denies the call.
-    Patterns are unioned across base + override; the compiler does not
-    re-order or dedupe — that's the hook's job at evaluation time.
+    Patterns are merged across base + override, with duplicates removed
+    while preserving first-seen order.
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -97,10 +97,12 @@ def compile(
     declarations they've already loaded. The merge rules live in
     ``jig.capabilities.merge_declarations``.
 
-    Missing declarations compile to the empty rules, not a skip —
-    downstream materialisation always writes ``rules.json`` so a hook
-    that fires on an unconstrained spawn doesn't crash on
-    file-not-found."""
+    Missing declarations compile to the empty rules, not a skip. When
+    ``materialize()`` is invoked with those empty rules it still writes
+    a ``rules.json`` so a hook that fires on an unconstrained spawn
+    doesn't crash on file-not-found. Callers that skip materialisation
+    entirely (e.g. agents with no declared capabilities) bypass that
+    contract — see ``agent._materialize_capability_policy``."""
 
     merged = merge_declarations(role_capabilities, phase_override)
 

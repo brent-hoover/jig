@@ -2,8 +2,10 @@
 jig.capability_compiler (compile + materialize).
 
 These are Phase 5 Task F — the schema + the pure compile step + the
-file-writer. Task G adds the enforcement hooks; Task O wires the
-materialize call into the orchestrator's spawn path.
+file-writer. Task G adds the enforcement hooks that actually read the
+emitted rules.json. Runtime wiring (agent.py calling materialize before
+spawning a Claude Code process) is covered by
+tests/test_agent_streaming.py::TestMaterializeCapabilityPolicy.
 """
 
 from __future__ import annotations

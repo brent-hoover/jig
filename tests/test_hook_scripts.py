@@ -4,21 +4,24 @@
 Each script (``check-bash``, ``check-write``, ``check-path``) is
 invoked exactly how Claude Code invokes it in the sandbox: as an
 executable with the hook payload on stdin and the rules file at a
-configurable path. The tests override the rules-file location by
-pointing the script at a tmp path via a small wrapper — we cannot
-write to ``/jig/policy/`` on a dev machine, and coupling tests to a
-root-owned fixed path would make this suite unrunnable locally.
+configurable path. We cannot write to ``/jig/policy/`` on a dev
+machine, and coupling tests to a root-owned fixed path would make
+this suite unrunnable locally — so the tests redirect the rules
+lookup to a tmp file instead.
 
-The wrapper mechanism: each hook script calls
+Redirection mechanism: each hook script calls
 ``_hooklib.load_rules()`` with no argument, which reads
-``DEFAULT_RULES_PATH`` (``/jig/policy/rules.json``). We patch that
-default via the ``JIG_POLICY_RULES`` env var by editing the script's
-behaviour in ``_hooklib`` — actually it's simpler to just wrap-invoke
-the script with a monkeypatched module. Since the scripts are
-standalone Python files, we invoke them via ``subprocess`` and set
-``JIG_POLICY_RULES`` — the script's ``load_rules`` call honours it
-via an env-var override. See the ``_patch_rules_path`` fixture.
-"""
+``DEFAULT_RULES_PATH`` (``/jig/policy/rules.json``). The production
+script takes no env-var override — it trusts its compiled-in
+constant. To point it at a tmp file without touching the production
+source, :func:`_run_hook` spawns a subprocess that executes a small
+Python shim: the shim imports ``_hooklib``, reassigns
+``_hooklib.DEFAULT_RULES_PATH`` to the test path, then uses
+``runpy.run_path`` to execute the hook script under
+``__name__ == '__main__'``. Because the hook script imports the
+same ``_hooklib`` module, it sees the overridden default. This
+keeps the script itself in lockstep with how Claude Code invokes
+it in production (no test-only conditionals)."""
 
 from __future__ import annotations
 

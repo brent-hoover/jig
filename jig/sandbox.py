@@ -29,6 +29,17 @@ def sandbox_available() -> bool:
     return bool(os.environ.get("JIG_IN_CONTAINER"))
 
 
+def _normalise_mount_path(path: str) -> tuple[str, ...]:
+    """Split a sandbox-absolute mount path into its non-empty segments.
+
+    Used to compare mount destinations for overlap (:meth:`BwrapConfig.
+    _reject_reserved`). Trailing/leading slashes and empty segments are
+    stripped so ``/jig/bin`` and ``/jig/bin/`` compare equal, while
+    ``/jig/bin`` and ``/jig/binned`` stay distinct."""
+
+    return tuple(part for part in path.split("/") if part)
+
+
 @dataclass
 class BwrapConfig:
     """Bubblewrap mount configuration for an agent sandbox."""
@@ -71,6 +82,53 @@ class BwrapConfig:
     # ``SANDBOX_HOOK_BIN`` — if either constant moves, update both.
     policy_mount: str = "/jig/policy"
     hook_bin_mount: str = "/jig/bin"
+
+    def __post_init__(self) -> None:
+        """Reject extra mounts that would collide with the reserved
+        capability-policy mount points.
+
+        Ordering alone is not enough: bwrap honours later ``--bind``
+        entries, so an ``extra_rw_binds`` pair targeting ``/jig/bin``
+        would overwrite the earlier read-only mount, and a
+        ``hide_paths`` entry targeting ``/jig/policy`` would tmpfs-
+        overlay the rules. Reject both at config time rather than
+        hoping the argument order prevents it. We also reject nested
+        paths (``/jig/bin/foo``) and ancestors (``/jig``, ``/``) — any
+        overlap can shadow or expose the enforcement artefacts."""
+
+        reserved = {self.hook_bin_mount, self.policy_mount}
+        for src, dst in self.extra_ro_binds:
+            self._reject_reserved(dst, reserved, "extra_ro_binds", src)
+        for src, dst in self.extra_rw_binds:
+            self._reject_reserved(dst, reserved, "extra_rw_binds", src)
+        for dst in self.hide_paths:
+            self._reject_reserved(dst, reserved, "hide_paths", None)
+
+    @staticmethod
+    def _reject_reserved(
+        dst: str,
+        reserved: set[str],
+        field_name: str,
+        src: str | None,
+    ) -> None:
+        """Raise ``ValueError`` if ``dst`` overlaps any reserved mount.
+
+        ``dst`` overlaps a reserved mount point when it equals it, is
+        a descendant of it, or is an ancestor of it. Uses path-segment
+        comparison so ``/jig/binned`` is not treated as being under
+        ``/jig/bin``."""
+
+        dst_parts = _normalise_mount_path(dst)
+        for mount in reserved:
+            mount_parts = _normalise_mount_path(mount)
+            n = min(len(dst_parts), len(mount_parts))
+            if dst_parts[:n] == mount_parts[:n]:
+                location = f"(src={src!r})" if src is not None else ""
+                raise ValueError(
+                    f"{field_name} entry targets reserved mount {mount!r}: "
+                    f"{dst!r} overlaps the capability-policy mount point "
+                    f"{location}".rstrip()
+                )
 
     def to_args(self) -> list[str]:
         """Build the bwrap argument list."""
@@ -115,9 +173,11 @@ class BwrapConfig:
         # Capability policy artefacts (Phase 5 Task G). Bind-mount
         # read-only: the hook scripts only read these; nothing in the
         # agent's sandbox should be able to rewrite its own ruleset or
-        # the enforcement binaries. Ordering matters — these come
-        # before ``extra_ro_binds`` so callers can't accidentally
-        # shadow ``/jig/bin`` or ``/jig/policy`` with an extra mount.
+        # the enforcement binaries. These come before ``extra_ro_binds``
+        # so the reserved mounts appear first in the audit log;
+        # ``__post_init__`` already rejects extra mounts that overlap
+        # these destinations, so argument ordering is defence in depth
+        # rather than the primary guarantee.
         if self.hook_bin_host_path is not None:
             args.extend(
                 [

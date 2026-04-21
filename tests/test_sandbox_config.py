@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from jig.sandbox import BwrapConfig
 
 
@@ -109,3 +111,75 @@ class TestCapabilityMounts:
         assert (str(policy_dir), "/jig/policy") in ro_binds
         dsts = [dst for _src, dst in ro_binds]
         assert "/jig/bin" not in dsts
+
+
+class TestReservedMountProtection:
+    """Extra mounts must not target (or overlap) ``/jig/bin`` or
+    ``/jig/policy``. Argument ordering alone can't enforce this —
+    bwrap honours later binds, so a later ``--bind`` pointing at
+    ``/jig/bin`` would overwrite the read-only enforcement mount.
+    :meth:`BwrapConfig.__post_init__` rejects this at config time."""
+
+    @pytest.mark.parametrize(
+        "dst",
+        [
+            "/jig/bin",
+            "/jig/bin/",
+            "/jig/bin/check-bash",
+            "/jig/policy",
+            "/jig/policy/rules.json",
+            # Ancestor — ``/jig`` shadows both reserved mounts.
+            "/jig",
+            # Root shadows everything.
+            "/",
+        ],
+    )
+    def test_extra_ro_bind_overlap_rejected(self, tmp_path: Path, dst: str) -> None:
+        with pytest.raises(ValueError, match="reserved mount"):
+            BwrapConfig(
+                worktree_host_path=tmp_path,
+                extra_ro_binds=[(str(tmp_path), dst)],
+            )
+
+    def test_extra_rw_bind_overlap_rejected(self, tmp_path: Path) -> None:
+        # Writable overlap is the dangerous case — it would let the
+        # agent re-home the enforcement binaries onto a writable
+        # directory.
+        with pytest.raises(ValueError, match="extra_rw_binds"):
+            BwrapConfig(
+                worktree_host_path=tmp_path,
+                extra_rw_binds=[(str(tmp_path), "/jig/bin")],
+            )
+
+    def test_hide_paths_overlap_rejected(self, tmp_path: Path) -> None:
+        # A ``hide_paths`` entry overlays tmpfs — would empty out the
+        # policy/hook directory from the agent's view.
+        with pytest.raises(ValueError, match="hide_paths"):
+            BwrapConfig(
+                worktree_host_path=tmp_path,
+                hide_paths=["/jig/policy"],
+            )
+
+    def test_sibling_destination_allowed(self, tmp_path: Path) -> None:
+        """``/jig/binned`` shares a parent with ``/jig/bin`` but is a
+        sibling, not an ancestor/descendant — segment-aware comparison
+        lets it through."""
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            extra_ro_binds=[(str(tmp_path), "/jig/binned")],
+        )
+        # Also double-check the arg builder still emits it.
+        args = cfg.to_args()
+        assert (str(tmp_path), "/jig/binned") in _pair_positions(args, "--ro-bind")
+
+    def test_unrelated_destination_allowed(self, tmp_path: Path) -> None:
+        """Mounts into unrelated subtrees stay unaffected by the guard."""
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            extra_ro_binds=[(str(tmp_path), "/opt/data")],
+            extra_rw_binds=[(str(tmp_path), "/var/cache/jig")],
+            hide_paths=["/root/.ssh"],
+        )
+        args = cfg.to_args()
+        assert (str(tmp_path), "/opt/data") in _pair_positions(args, "--ro-bind")
+        assert (str(tmp_path), "/var/cache/jig") in _pair_positions(args, "--bind")

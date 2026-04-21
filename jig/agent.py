@@ -155,15 +155,25 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> Path | None:
 
     Returns the policy directory that was written (suitable for
     bind-mounting at ``/jig/policy/``), or ``None`` when the spawn has
-    no declared capabilities / materialisation failed. Callers use
-    the return value to decide whether to pass the directory into
-    :class:`BwrapConfig` — a ``None`` result means no hook scripts
-    were registered, so the sandbox doesn't need the policy mount.
+    no declared capabilities / materialisation failed / we're running
+    without the bwrap sandbox. Callers use the return value to decide
+    whether to pass the directory into :class:`BwrapConfig` — a
+    ``None`` result means no hook scripts were registered, so the
+    sandbox doesn't need the policy mount.
 
     No-op when neither the role nor the phase declares capabilities —
     we don't want to silently clobber a hand-maintained
     ``.claude/settings.json`` in the worktree, and writing an empty
     ``rules.json`` with no hooks registered gains nothing at enforcement.
+
+    No-op when ``sandbox_available()`` is false (e.g. ``jig start
+    --no-docker``): the hook registrations in ``.claude/settings.json``
+    point at ``/jig/bin/check-*``, which only exists inside the
+    container. Emitting them on the host would hand Claude Code
+    ENOENT on every matching tool call, breaking the agent's ability
+    to run at all. Capability enforcement and no-docker execution are
+    mutually exclusive by design — if you need policy in a local dev
+    run, use Docker.
 
     Location:
 
@@ -181,6 +191,16 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> Path | None:
     role_caps = ctx.role_cfg.capabilities
     phase_caps = ctx.phase.capability_overrides if ctx.phase else None
     if role_caps is None and phase_caps is None:
+        return None
+    if not sandbox_available():
+        # See docstring. A DEBUG log is enough — no-docker is an
+        # opt-in mode and every spawn would log, which isn't useful.
+        _logger.debug(
+            "skipping capability materialisation for %s on %s: "
+            "no sandbox available (hook paths are container-absolute)",
+            ctx.role,
+            ctx.ticket.id,
+        )
         return None
 
     try:

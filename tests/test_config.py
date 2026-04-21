@@ -49,6 +49,49 @@ class TestConfigModel:
             load_config(tmp_jig)
 
 
+class TestLiteralValidation:
+    """`assignment` and `self_approval` reject typos at load time."""
+
+    def test_invalid_assignment_rejected(self, tmp_jig: Path) -> None:
+        yaml_text = f"""
+project: {{id: p, name: p, path: "{tmp_jig}"}}
+roles:
+  po:
+    assignment: humna   # typo
+    human: alice@example.com
+"""
+        (tmp_jig / ".jig" / "config.yaml").write_text(yaml_text)
+        with pytest.raises(ValueError):
+            load_config(tmp_jig)
+
+    def test_invalid_self_approval_rejected(self, tmp_jig: Path) -> None:
+        yaml_text = f"""
+project: {{id: p, name: p, path: "{tmp_jig}"}}
+self_approval: strict   # unsupported value
+"""
+        (tmp_jig / ".jig" / "config.yaml").write_text(yaml_text)
+        with pytest.raises(ValueError):
+            load_config(tmp_jig)
+
+    def test_valid_assignment_loads(self, tmp_jig: Path) -> None:
+        yaml_text = f"""
+project: {{id: p, name: p, path: "{tmp_jig}"}}
+roles:
+  po:
+    assignment: human
+  sa:
+    assignment: agent
+self_approval: blocked
+"""
+        (tmp_jig / ".jig" / "config.yaml").write_text(yaml_text)
+        cfg = load_config(tmp_jig)
+        assert cfg.roles.po is not None
+        assert cfg.roles.po.assignment == "human"
+        assert cfg.roles.sa is not None
+        assert cfg.roles.sa.assignment == "agent"
+        assert cfg.self_approval == "blocked"
+
+
 class TestWorkflowsByType:
     """Phase 1C only parses — phase 2 consumes."""
 

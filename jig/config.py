@@ -21,11 +21,16 @@ accepted but not yet enforced (Phase 3).
 """
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from jig.project import Project
+
+# Public so tests/docs can reference the canonical vocabularies.
+RoleAssignmentKind = Literal["", "human", "human_with_helper", "agent"]
+SelfApprovalPolicy = Literal["warn", "blocked"]
 
 
 class WorkflowTypeEntry(BaseModel):
@@ -68,9 +73,14 @@ class OwnershipSection(BaseModel):
 
 
 class RoleAssignment(BaseModel):
-    """How a project-level role (PO/SA) is staffed."""
+    """How a project-level role (PO/SA) is staffed.
 
-    assignment: str = ""  # "human", "human_with_helper", "agent"
+    ``assignment`` is a ``Literal`` — typos fail loud at
+    ``Config.model_validate``/``load_config`` time rather than
+    silently misbehaving later. Empty string means "unset".
+    """
+
+    assignment: RoleAssignmentKind = ""
     human: str = ""
     helper_template: str = ""
 
@@ -100,7 +110,7 @@ class Config(BaseModel):
     #   "warn"    — allow but record "self_approval_with_justification"
     #               (shipped default — solo devs need the escape hatch).
     #   "blocked" — refuse if proposer == acceptor.
-    self_approval: str = "warn"
+    self_approval: SelfApprovalPolicy = "warn"
     # Phase 4D: roles authorized to waive Objections per doc 08. Full
     # capability-policy enforcement lands with Phase 5 (doc 16); for
     # now, a flat role-name list is enough — the default mirrors the

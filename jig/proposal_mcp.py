@@ -220,11 +220,7 @@ async def handle_list_proposals(
     if ticket_id:
         found = await threads.find_by_kind(ticket_id, "proposal")
     else:
-        # No cheap "all" method on ThreadStore; grab via the collection.
-        raws = await threads._collection.find(
-            lambda r: r.get("kind") == "proposal"
-        )
-        found = [threads._load(r) for r in raws]
+        found = await threads.all_by_kind("proposal")
 
     proposals = [e for e in found if e.kind == "proposal"]
     if state:

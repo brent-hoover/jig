@@ -83,19 +83,6 @@ def _excerpt(output: str) -> str:
     return "...[trimmed]...\n" + output[-_EXCERPT_TAIL_BYTES:]
 
 
-def _is_failing(result: CheckResult) -> bool:
-    """A result fails the gate when it's required + non-pass.
-
-    ``warning`` severity never gates by definition — the result is
-    recorded for evaluator visibility but doesn't block. ``pass``
-    obviously clears the gate. ``timeout`` / ``error`` / ``fail`` all
-    count as non-pass and block when severity is required.
-    """
-    if result.severity != CheckSeverity.REQUIRED:
-        return False
-    return result.verdict != "pass"
-
-
 def _build_failure_content(result: CheckResult) -> str:
     """Human-readable body for the ``check_failure`` SystemEvent."""
     header = (

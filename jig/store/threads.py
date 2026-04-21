@@ -220,6 +220,17 @@ class ThreadStore:
         entries = await self.for_ticket(ticket_id)
         return [e for e in entries if e.kind == kind]
 
+    async def all_by_kind(self, kind: str) -> list[ThreadEntry]:
+        """All entries of the given ``kind`` across every ticket.
+
+        Intended for cross-ticket queries (e.g. "list every proposal
+        in the project") so callers don't need to reach into
+        ``_collection`` / ``_load`` private APIs. Ordering matches the
+        underlying JSONL insertion order; sort downstream if needed.
+        """
+        raws = await self._collection.find(lambda r: r.get("kind") == kind)
+        return [self._load(r) for r in raws]
+
     async def has_unresolved_blocking(
         self, ticket_id: str
     ) -> list[ThreadEntry]:

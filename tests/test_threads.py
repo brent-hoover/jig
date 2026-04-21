@@ -548,3 +548,34 @@ class TestGatingHelpers:
         notes = await store.find_by_kind("T1", "note")
         assert len(notes) == 1
         assert isinstance(notes[0], Note)
+
+    async def test_all_by_kind_crosses_tickets(
+        self, tmp_path: Path
+    ) -> None:
+        """`all_by_kind` returns matching entries across every ticket."""
+        store = ThreadStore(tmp_path / "comments.jsonl")
+        await store.load()
+        await store.post(Note(ticket_id="T1", author="a", text="n1"))
+        await store.post(Note(ticket_id="T2", author="a", text="n2"))
+        await store.post(
+            Question(
+                ticket_id="T1",
+                author="a",
+                target="b",
+                question="?",
+            )
+        )
+
+        notes = await store.all_by_kind("note")
+        assert {n.ticket_id for n in notes} == {"T1", "T2"}
+        assert all(isinstance(n, Note) for n in notes)
+
+        questions = await store.all_by_kind("question")
+        assert len(questions) == 1
+        assert questions[0].ticket_id == "T1"
+
+    async def test_all_by_kind_empty(self, tmp_path: Path) -> None:
+        """No matching entries yields an empty list, not an error."""
+        store = ThreadStore(tmp_path / "comments.jsonl")
+        await store.load()
+        assert await store.all_by_kind("proposal") == []

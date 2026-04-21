@@ -1,11 +1,20 @@
 """Unit tests for run_agent under streaming input mode."""
+
 import asyncio
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from jig.models import RoleConfig
+from jig.capabilities import (
+    BashToolParams,
+    CapabilityDeclaration,
+    CapabilityPaths,
+    CapabilityToolParams,
+    CapabilityTools,
+)
+from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.store import MessageBus
@@ -73,6 +82,7 @@ def _fake_result_message():
         num_turns = 1
         duration_ms = 1
         total_cost_usd = 0.0
+
     return _M()
 
 
@@ -90,6 +100,7 @@ async def test_run_agent_builds_initial_prompt(tmp_path: Path) -> None:
             return
 
     from jig import agent as agent_module
+
     with patch.object(agent_module, "query", fake_query):
         await agent_module.run_agent(ctx)
 
@@ -111,31 +122,37 @@ async def test_run_agent_yields_incoming_bus_events(tmp_path: Path) -> None:
     async def publish_delayed():
         await _wait_for_subscription(ctx.bus, f"tickets.{ctx.ticket.id}")
         from jig.store import Message, MessageType
-        await ctx.bus.publish(Message(
-            sender="qa",
-            to="dev",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "comment_posted",
-                "author": "qa",
-                "ticket_id": ctx.ticket.id,
-                "content": "did you handle edge X?",
-            },
-            topic=f"tickets.{ctx.ticket.id}",
-        ))
-        await ctx.bus.publish(Message(
-            sender="dev",
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "ticket_updated",
-                "ticket_id": ctx.ticket.id,
-                "status": "resolved",
-            },
-            topic=f"tickets.{ctx.ticket.id}",
-        ))
+
+        await ctx.bus.publish(
+            Message(
+                sender="qa",
+                to="dev",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "comment_posted",
+                    "author": "qa",
+                    "ticket_id": ctx.ticket.id,
+                    "content": "did you handle edge X?",
+                },
+                topic=f"tickets.{ctx.ticket.id}",
+            )
+        )
+        await ctx.bus.publish(
+            Message(
+                sender="dev",
+                to="broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "ticket_updated",
+                    "ticket_id": ctx.ticket.id,
+                    "status": "resolved",
+                },
+                topic=f"tickets.{ctx.ticket.id}",
+            )
+        )
 
     from jig import agent as agent_module
+
     with patch.object(agent_module, "query", fake_query):
         await asyncio.gather(
             agent_module.run_agent(ctx),
@@ -144,3 +161,220 @@ async def test_run_agent_yields_incoming_bus_events(tmp_path: Path) -> None:
 
     assert len(seen_turns) == 2
     assert "did you handle edge X" in seen_turns[1]
+
+
+# ---- Phase 5 Task F: capability policy materialisation --------------------
+
+
+class TestMaterializeCapabilityPolicy:
+    """``_materialize_capability_policy`` is invoked pre-spawn so the
+    hook scripts (Task G) and Claude Code (for settings.json) find
+    their inputs already on disk before the agent starts."""
+
+    def test_noop_when_no_declarations(self, tmp_path: Path) -> None:
+        """A spawn with neither role.capabilities nor
+        phase.capability_overrides shouldn't touch the filesystem —
+        materialising an empty settings.json would clobber any
+        hand-maintained one in the worktree."""
+        from jig import agent as agent_module
+
+        ctx = AgentSpawnContext(
+            role="dev",
+            role_cfg=RoleConfig(role="dev", phase_prompt="x"),
+            spawn_reason=SpawnReason.PHASE_PRIMARY,
+            ticket=Ticket(
+                work_type=WorkType.REFACTOR,
+                title="t",
+                created_by="o",
+                description="d",
+            ),
+            parent=None,
+            worktree_path=tmp_path / "worktree",
+            project=Project(
+                id="p",
+                name="p",
+                path=str(tmp_path),
+                language="python",
+                package_manager="uv",
+            ),
+            tickets=None,  # type: ignore[arg-type]
+            threads=None,  # type: ignore[arg-type]
+            memory=None,  # type: ignore[arg-type]
+            bus=None,  # type: ignore[arg-type]
+        )
+        agent_module._materialize_capability_policy(ctx)
+
+        # No policy files materialised.
+        assert not (tmp_path / "worktree" / ".claude").exists()
+        assert not (tmp_path / ".jig" / "runtime").exists()
+
+    def test_role_capabilities_materialised(self, tmp_path: Path) -> None:
+        """A role that declares capabilities gets both rules.json and
+        .claude/settings.json written pre-spawn."""
+        from jig import agent as agent_module
+
+        role_cfg = RoleConfig(
+            role="dev",
+            phase_prompt="x",
+            capabilities=CapabilityDeclaration(
+                tools=CapabilityTools(allowed=["Read", "Write"]),
+                tool_params=CapabilityToolParams(
+                    Bash=BashToolParams(deny_patterns=["^rm -rf"])
+                ),
+                paths=CapabilityPaths(
+                    writable=["ticket://worktree/**"],
+                    denied=[".jig/spec/**"],
+                ),
+            ),
+        )
+        ticket = Ticket(
+            work_type=WorkType.REFACTOR,
+            title="t",
+            created_by="o",
+            description="d",
+        )
+        ctx = AgentSpawnContext(
+            role="dev",
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.PHASE_PRIMARY,
+            ticket=ticket,
+            parent=None,
+            worktree_path=tmp_path / "worktree",
+            project=Project(
+                id="p",
+                name="p",
+                path=str(tmp_path),
+                language="python",
+                package_manager="uv",
+            ),
+            tickets=None,  # type: ignore[arg-type]
+            threads=None,  # type: ignore[arg-type]
+            memory=None,  # type: ignore[arg-type]
+            bus=None,  # type: ignore[arg-type]
+        )
+
+        agent_module._materialize_capability_policy(ctx)
+
+        rules_path = tmp_path / ".jig" / "runtime" / ticket.id / "policy" / "rules.json"
+        settings_path = tmp_path / "worktree" / ".claude" / "settings.json"
+
+        assert rules_path.exists()
+        assert settings_path.exists()
+
+        rules = json.loads(rules_path.read_text())
+        assert rules["tools"]["allowed"] == ["Read", "Write"]
+        assert rules["bash"]["deny_patterns"] == ["^rm -rf"]
+        assert rules["paths"]["writable"] == ["ticket://worktree/**"]
+        assert rules["paths"]["denied"] == [".jig/spec/**"]
+
+        settings = json.loads(settings_path.read_text())
+        # All three hooks register: bash (deny_patterns), write (writable +
+        # denied), read (denied).
+        commands = sorted(
+            m["hooks"][0]["command"] for m in settings["hooks"]["PreToolUse"]
+        )
+        assert any(c.endswith("/check-bash") for c in commands)
+        assert any(c.endswith("/check-write") for c in commands)
+        assert any(c.endswith("/check-path") for c in commands)
+
+    def test_phase_overrides_merged_into_rules(self, tmp_path: Path) -> None:
+        """A phase's ``capability_overrides`` union with the role's
+        base declaration at materialisation time — demonstrates the
+        merge rule documented on ``merge_declarations``."""
+        from jig import agent as agent_module
+
+        role_cfg = RoleConfig(
+            role="dev",
+            phase_prompt="x",
+            capabilities=CapabilityDeclaration(
+                tools=CapabilityTools(allowed=["Read"]),
+            ),
+        )
+        phase = PhaseConfig(
+            name="tight-phase",
+            role="dev",
+            capability_overrides=CapabilityDeclaration(
+                tools=CapabilityTools(allowed=["Write"]),
+                paths=CapabilityPaths(denied=[".jig/spec/**"]),
+            ),
+        )
+        ticket = Ticket(
+            work_type=WorkType.REFACTOR,
+            title="t",
+            created_by="o",
+            description="d",
+        )
+        ctx = AgentSpawnContext(
+            role="dev",
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.PHASE_PRIMARY,
+            ticket=ticket,
+            parent=None,
+            worktree_path=tmp_path / "worktree",
+            project=Project(
+                id="p",
+                name="p",
+                path=str(tmp_path),
+                language="python",
+                package_manager="uv",
+            ),
+            tickets=None,  # type: ignore[arg-type]
+            threads=None,  # type: ignore[arg-type]
+            memory=None,  # type: ignore[arg-type]
+            bus=None,  # type: ignore[arg-type]
+            phase=phase,
+        )
+
+        agent_module._materialize_capability_policy(ctx)
+
+        rules_path = tmp_path / ".jig" / "runtime" / ticket.id / "policy" / "rules.json"
+        rules = json.loads(rules_path.read_text())
+        assert rules["tools"]["allowed"] == ["Read", "Write"]
+        assert rules["paths"]["denied"] == [".jig/spec/**"]
+
+    def test_io_failure_is_non_fatal(self, tmp_path: Path, caplog) -> None:
+        """Task F's error-handling contract: a materialisation glitch
+        should log + continue, not break the spawn. Task G will tighten
+        this once hooks are the primary enforcement layer."""
+        from jig import agent as agent_module
+
+        role_cfg = RoleConfig(
+            role="dev",
+            phase_prompt="x",
+            capabilities=CapabilityDeclaration(
+                tools=CapabilityTools(allowed=["Read"]),
+            ),
+        )
+        ticket = Ticket(
+            work_type=WorkType.REFACTOR,
+            title="t",
+            created_by="o",
+            description="d",
+        )
+        ctx = AgentSpawnContext(
+            role="dev",
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.PHASE_PRIMARY,
+            ticket=ticket,
+            parent=None,
+            worktree_path=tmp_path / "worktree",
+            project=Project(
+                id="p",
+                name="p",
+                path=str(tmp_path),
+                language="python",
+                package_manager="uv",
+            ),
+            tickets=None,  # type: ignore[arg-type]
+            threads=None,  # type: ignore[arg-type]
+            memory=None,  # type: ignore[arg-type]
+            bus=None,  # type: ignore[arg-type]
+        )
+        # Force materialize to blow up.
+        with patch.object(
+            agent_module,
+            "materialize_capabilities",
+            side_effect=OSError("disk full"),
+        ):
+            # Must not raise.
+            agent_module._materialize_capability_policy(ctx)

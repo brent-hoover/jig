@@ -31,11 +31,13 @@ Passing ``collect=True`` returns a list of every failure — useful for
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
 
+from jig.capabilities import CapabilityDeclaration, is_known_tool
 from jig.checks import CheckCatalog, load_check_catalog
 from jig.config import Config, load_config
 from jig.models import RoleConfig, WorkflowConfig
@@ -184,14 +186,25 @@ def validate_catalog(
         for uri in role.required_context:
             msg = _validate_static_uri(uri, project_path)
             if msg is not None:
+                fail(f"role {role.role!r} required_context {uri!r}: {msg}")
+
+    # Phase 5 Task F: capability-policy schema checks for both the
+    # role's base ``capabilities`` and each phase's
+    # ``capability_overrides``. The merge itself happens at spawn time
+    # — we only check each declaration can compile on its own.
+    for role in roles:
+        for msg in _validate_capabilities(role.capabilities):
+            fail(f"role {role.role!r} capabilities: {msg}")
+    for wf in workflows:
+        for phase in wf.phases:
+            for msg in _validate_capabilities(phase.capability_overrides):
                 fail(
-                    f"role {role.role!r} required_context {uri!r}: {msg}"
+                    f"workflow {wf.name!r} phase {phase.name!r} "
+                    f"capability_overrides: {msg}"
                 )
 
     # Phase 3H: work-type schemas
-    work_type_schemas, wt_yaml_errors = _load_all_work_type_schemas(
-        project_path
-    )
+    work_type_schemas, wt_yaml_errors = _load_all_work_type_schemas(project_path)
     for msg in wt_yaml_errors:
         fail(msg)
 
@@ -309,13 +322,9 @@ def _load_all_work_type_schemas(
         try:
             schemas.append(load_work_type_schema(project_path, name))
         except yaml.YAMLError as exc:
-            errors.append(
-                f"work_type schema {name!r} YAML parse failed: {exc}"
-            )
+            errors.append(f"work_type schema {name!r} YAML parse failed: {exc}")
         except ValidationError as exc:
-            errors.append(
-                f"work_type schema {name!r} validation failed: {exc}"
-            )
+            errors.append(f"work_type schema {name!r} validation failed: {exc}")
     return schemas, errors
 
 
@@ -361,6 +370,88 @@ def _check_context_file_exists(base: Path, rel: str) -> str | None:
     if not as_given.suffix and as_given.with_suffix(".md").is_file():
         return None
     return f"not found under {base}"
+
+
+def _validate_capabilities(
+    decl: CapabilityDeclaration | None,
+) -> list[str]:
+    """Return a list of error messages for a single capability
+    declaration; ``[]`` if it's clean.
+
+    Checks (per implementation-plan Phase 5 F, doc 16 §Capability policy):
+
+    * ``tools.allowed`` — every entry is a known Claude Code builtin
+      or matches the ``mcp__<server>__<tool>`` pattern.
+    * ``tool_params.Bash.deny_patterns`` — every entry compiles as a
+      Python regex. Invalid patterns would silently skip at hook time,
+      so we fail loud at load.
+    * ``paths.*`` — no ``..`` segments (would escape the sandbox
+      root); must carry an explicit URI scheme or be an absolute path.
+      Sandbox-absolute paths (``/workspace/**``) are legal —
+      enforcement happens relative to the mount, not to host layout.
+    """
+
+    errors: list[str] = []
+    if decl is None:
+        return errors
+
+    # tools.allowed
+    if decl.tools is not None:
+        for tool in decl.tools.allowed:
+            if not is_known_tool(tool):
+                errors.append(
+                    f"tools.allowed: unknown tool {tool!r} "
+                    f"(not a Claude Code builtin, doesn't match "
+                    f"mcp__<server>__<tool>)"
+                )
+
+    # tool_params.Bash.deny_patterns
+    if decl.tool_params is not None and decl.tool_params.Bash is not None:
+        for pattern in decl.tool_params.Bash.deny_patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                errors.append(
+                    f"tool_params.Bash.deny_patterns: {pattern!r} is "
+                    f"not a valid regex: {exc}"
+                )
+
+    # paths.*
+    if decl.paths is not None:
+        for category in ("writable", "readable", "denied"):
+            patterns = getattr(decl.paths, category)
+            for pat in patterns:
+                msg = _validate_path_glob(pat)
+                if msg is not None:
+                    errors.append(f"paths.{category}: {pat!r}: {msg}")
+
+    return errors
+
+
+def _validate_path_glob(pattern: str) -> str | None:
+    """Return ``None`` if the glob is structurally sound, else a
+    reason. ``..`` anywhere is a sandbox escape and always rejected."""
+
+    if not pattern:
+        return "empty pattern"
+    # `..` in any path segment is a sandbox-root escape attempt. Block
+    # regardless of scheme — even a `ticket://worktree/../..` rooted
+    # string would translate to an unsafe absolute path at resolution.
+    for segment in pattern.split("/"):
+        if segment == "..":
+            return "contains '..' segment (escapes sandbox root)"
+    # Must carry a scheme (ticket://, repo://, project://, role://,
+    # decision://, issue://) or be an absolute sandbox path.
+    if "://" in pattern:
+        return None
+    if pattern.startswith("/"):
+        return None
+    # Relative paths with no scheme are ambiguous — reject loudly so the
+    # operator picks the right root explicitly.
+    return (
+        "relative pattern with no URI scheme and no leading '/' "
+        "(ambiguous — use ticket://, repo://, or an absolute path)"
+    )
 
 
 # Exposed so tests can exercise the loader helpers directly.

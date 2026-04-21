@@ -671,6 +671,7 @@ class Orchestrator:
             workflow=workflow,
             worktree_path=worktree_path,
             project_path=self._project_path,
+            bus=self.bus,
         )
         if not verdict.passing:
             _logger.info(

@@ -57,6 +57,7 @@ async def run_handoff_gate(
     workflow: WorkflowConfig,
     worktree_path: Path,
     project_path: Path,
+    bus: MessageBus | None = None,
 ) -> GateVerdict:
     """Run the handoff's phase checks and score them through the gate.
 
@@ -105,6 +106,7 @@ async def run_handoff_gate(
             catalog=catalog,
             results=results,
             worktree_path=worktree_path,
+            bus=bus,
         )
         await scripted.run_for_phase(
             ticket_id=handoff.ticket_id,
@@ -118,6 +120,7 @@ async def run_handoff_gate(
             worktree_path=worktree_path,
             project_path=project_path,
             threads=threads,
+            bus=bus,
         )
         await agent.run_for_phase(
             ticket=ticket,

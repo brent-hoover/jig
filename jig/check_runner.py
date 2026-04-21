@@ -44,6 +44,7 @@ from jig.checks import (
     ScriptedCheck,
 )
 from jig.context_resolver import resolve_context_uris
+from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.threads import ThreadStore
 from jig.ticket import Ticket
@@ -56,6 +57,48 @@ _logger = logging.getLogger(__name__)
 # downstream cares about; the leading bytes stay too so an evaluator
 # sees context.
 _MAX_OUTPUT_BYTES = 64 * 1024
+
+
+async def _publish_check_completed(
+    bus: MessageBus | None,
+    *,
+    result: "CheckResult",
+    sender: str,
+) -> None:
+    """Emit a ``check_completed`` bus message for a persisted result.
+
+    Phase 5 Task O3. No-op when ``bus`` is None — the runners are
+    still directly callable without a bus (tests and one-shot
+    operator invocations). Failures publishing are logged, not
+    raised — the result is already on disk, so a missing notification
+    shouldn't roll back the check.
+    """
+    if bus is None:
+        return
+    try:
+        await bus.publish(
+            Message(
+                sender=sender,
+                to="broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "check_completed",
+                    "ticket_id": result.ticket_id,
+                    "phase": result.phase,
+                    "check_name": result.check_name,
+                    "verdict": result.verdict,
+                    "severity": result.severity.value,
+                    "event_id": result.id,
+                },
+                topic=f"tickets.{result.ticket_id}",
+            )
+        )
+    except Exception:
+        _logger.warning(
+            "failed to publish check_completed for %s",
+            result.check_name,
+            exc_info=True,
+        )
 
 
 async def _git_head(cwd: Path) -> str:
@@ -111,11 +154,13 @@ class ScriptedRunner:
         results: CheckResultsStore,
         worktree_path: Path,
         author: str = "harness",
+        bus: MessageBus | None = None,
     ) -> None:
         self._catalog = catalog
         self._results = results
         self._worktree = worktree_path
         self._author = author
+        self._bus = bus
 
     async def run_check(
         self,
@@ -174,6 +219,9 @@ class ScriptedRunner:
                 commit_sha=commit_sha,
             )
             await self._results.post(result)
+            await _publish_check_completed(
+                self._bus, result=result, sender=self._author
+            )
             return result
 
         try:
@@ -207,6 +255,9 @@ class ScriptedRunner:
             commit_sha=commit_sha,
         )
         await self._results.post(result)
+        await _publish_check_completed(
+            self._bus, result=result, sender=self._author
+        )
         return result
 
     async def run_for_phase(
@@ -361,6 +412,7 @@ class AgentCheckRunner:
         project_path: Path,
         threads: ThreadStore,
         author: str = "check-agent",
+        bus: MessageBus | None = None,
     ) -> None:
         self._catalog = catalog
         self._results = results
@@ -368,6 +420,7 @@ class AgentCheckRunner:
         self._project_path = project_path
         self._threads = threads
         self._author = author
+        self._bus = bus
 
     async def run_check(
         self,
@@ -481,6 +534,9 @@ class AgentCheckRunner:
             commit_sha=commit_sha,
         )
         await self._results.post(result)
+        await _publish_check_completed(
+            self._bus, result=result, sender=self._author
+        )
         return result
 
     async def run_for_phase(

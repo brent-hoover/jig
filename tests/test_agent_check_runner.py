@@ -28,6 +28,7 @@ from jig.checks import (
     ImplementationAwareAgentCheck,
     ScriptedCheck,
 )
+from jig.store import MessageBus
 from jig.store.check_results import CheckResultsStore
 from jig.store.threads import ThreadStore
 from jig.ticket import Ticket, WorkType
@@ -455,6 +456,103 @@ class TestImplementationAwareAllowsFilesystem:
         assert "Read" not in tools
         assert "Grep" not in tools
         assert "Glob" not in tools
+
+
+async def _make_bus(tmp_path: Path) -> MessageBus:
+    bus = MessageBus(tmp_path / "bus.jsonl")
+    await bus.load()
+    return bus
+
+
+class TestCheckCompletedBusEvents:
+    """Phase 5 Task O3 — AgentCheckRunner publishes ``check_completed``
+    after each persisted result, same shape as the scripted runner."""
+
+    async def test_publishes_on_pass(self, tmp_path: Path) -> None:
+        cat = _catalog(
+            qa=BlackBoxAgentCheck(
+                type="black_box_agent", template="rubric"
+            )
+        )
+        results = await _make_store(tmp_path)
+        threads = await _make_threads(tmp_path)
+        bus = await _make_bus(tmp_path)
+        ticket = _ticket()
+        runner = AgentCheckRunner(
+            catalog=cat,
+            results=results,
+            worktree_path=_worktree(tmp_path),
+            project_path=tmp_path,
+            threads=threads,
+            bus=bus,
+        )
+        with _fake_sdk(calls=[("pass", "looks good")]):
+            result = await runner.run_check(
+                ticket=ticket, phase="review", check_name="qa"
+            )
+        history = await bus.get_history(f"tickets.{ticket.id}")
+        events = [
+            m for m in history
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert len(events) == 1
+        evt = events[0]
+        assert evt.payload["check_name"] == "qa"
+        assert evt.payload["verdict"] == "pass"
+        assert evt.payload["event_id"] == result.id
+        # Sender matches the runner's author — distinguishes agent
+        # checks from scripted ones in the event stream.
+        assert evt.sender == "check-agent"
+
+    async def test_publishes_on_missing_verdict(
+        self, tmp_path: Path
+    ) -> None:
+        """No ``check_verdict`` call → verdict=error + bus event."""
+        cat = _catalog(
+            qa=BlackBoxAgentCheck(
+                type="black_box_agent", template="rubric"
+            )
+        )
+        results = await _make_store(tmp_path)
+        threads = await _make_threads(tmp_path)
+        bus = await _make_bus(tmp_path)
+        ticket = _ticket()
+        runner = AgentCheckRunner(
+            catalog=cat, results=results,
+            worktree_path=_worktree(tmp_path),
+            project_path=tmp_path, threads=threads, bus=bus,
+        )
+        with _fake_sdk(calls=[]):
+            await runner.run_check(
+                ticket=ticket, phase="review", check_name="qa"
+            )
+        history = await bus.get_history(f"tickets.{ticket.id}")
+        events = [
+            m for m in history
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert len(events) == 1
+        assert events[0].payload["verdict"] == "error"
+
+    async def test_no_bus_no_event(self, tmp_path: Path) -> None:
+        """Back-compat: existing tests don't wire a bus."""
+        cat = _catalog(
+            qa=BlackBoxAgentCheck(
+                type="black_box_agent", template="rubric"
+            )
+        )
+        results = await _make_store(tmp_path)
+        threads = await _make_threads(tmp_path)
+        runner = AgentCheckRunner(
+            catalog=cat, results=results,
+            worktree_path=_worktree(tmp_path),
+            project_path=tmp_path, threads=threads,
+        )
+        with _fake_sdk(calls=[("pass", "ok")]):
+            result = await runner.run_check(
+                ticket=_ticket(), phase="review", check_name="qa"
+            )
+        assert result.verdict == "pass"
 
 
 class TestSeverityInherited:

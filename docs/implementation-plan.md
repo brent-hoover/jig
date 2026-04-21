@@ -1688,11 +1688,19 @@ spawn.
 - [ ] CheckResult bus events: the runner publishes
       `check_completed` messages so the TUI can show
       progress.
-      - [ ] **O3** — `check_completed` bus events emitted by
+      - [x] **O3** — `check_completed` bus events emitted by
             ScriptedRunner + AgentCheckRunner after each
-            result lands. Payload includes
-            `{ticket_id, phase, check_name, verdict,
-            event_id?}`. TUI renders the running tally.
+            result lands. Payload:
+            `{kind: "check_completed", ticket_id, phase,
+            check_name, verdict, severity, event_id}`.
+            Topic `tickets.{ticket_id}`, sender matches the
+            runner's author (`harness` for scripted,
+            `check-agent` for agent). Both runners accept
+            an optional `bus: MessageBus | None = None`;
+            `run_handoff_gate` plumbs the orchestrator's
+            bus down so gate-driven runs emit events, and
+            standalone tests/operator invocations still
+            work without one.
 
 **P. Tests + end-to-end**
 

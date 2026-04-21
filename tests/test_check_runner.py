@@ -19,6 +19,7 @@ from jig.checks import (
     CheckSeverity,
     ScriptedCheck,
 )
+from jig.store import MessageBus
 from jig.store.check_results import CheckResultsStore
 
 
@@ -269,6 +270,132 @@ class TestRunForPhase:
             await runner.run_for_phase(
                 ticket_id="t1", phase="dev", check_names=["missing"]
             )
+
+
+async def _bus(tmp_path: Path) -> MessageBus:
+    bus = MessageBus(tmp_path / "bus.jsonl")
+    await bus.load()
+    return bus
+
+
+class TestCheckCompletedBusEvents:
+    """Phase 5 Task O3 — ScriptedRunner publishes ``check_completed``
+    on the ticket topic after each result lands."""
+
+    async def test_publishes_event_on_pass(self, tmp_path: Path) -> None:
+        cat = _catalog(ok=ScriptedCheck(type="scripted", command="true"))
+        store = await _store(tmp_path)
+        bus = await _bus(tmp_path)
+        runner = ScriptedRunner(
+            catalog=cat,
+            results=store,
+            worktree_path=_worktree(tmp_path),
+            bus=bus,
+        )
+        result = await runner.run_check(
+            ticket_id="t1", phase="dev", check_name="ok"
+        )
+        history = await bus.get_history("tickets.t1")
+        events = [
+            m for m in history
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert len(events) == 1
+        evt = events[0]
+        assert evt.payload["ticket_id"] == "t1"
+        assert evt.payload["phase"] == "dev"
+        assert evt.payload["check_name"] == "ok"
+        assert evt.payload["verdict"] == "pass"
+        assert evt.payload["severity"] == "required"
+        assert evt.payload["event_id"] == result.id
+        assert evt.topic == "tickets.t1"
+
+    async def test_publishes_event_on_fail(self, tmp_path: Path) -> None:
+        cat = _catalog(
+            bad=ScriptedCheck(type="scripted", command="false")
+        )
+        store = await _store(tmp_path)
+        bus = await _bus(tmp_path)
+        runner = ScriptedRunner(
+            catalog=cat, results=store,
+            worktree_path=_worktree(tmp_path), bus=bus,
+        )
+        await runner.run_check(
+            ticket_id="t1", phase="dev", check_name="bad"
+        )
+        history = await bus.get_history("tickets.t1")
+        events = [
+            m for m in history
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert len(events) == 1
+        assert events[0].payload["verdict"] == "fail"
+
+    async def test_no_bus_no_event(self, tmp_path: Path) -> None:
+        """Back-compat: runner without a bus still posts results."""
+        cat = _catalog(ok=ScriptedCheck(type="scripted", command="true"))
+        store = await _store(tmp_path)
+        runner = ScriptedRunner(
+            catalog=cat, results=store, worktree_path=_worktree(tmp_path),
+        )
+        result = await runner.run_check(
+            ticket_id="t1", phase="dev", check_name="ok"
+        )
+        assert result.verdict == "pass"
+
+    async def test_publishes_event_on_spawn_error(
+        self, tmp_path: Path
+    ) -> None:
+        """``working_dir`` pointing at a nonexistent path → spawn
+        OSError → verdict=error result + bus event."""
+        cat = _catalog(
+            broken=ScriptedCheck(
+                type="scripted",
+                command="true",
+                working_dir="nope/nope",
+            )
+        )
+        store = await _store(tmp_path)
+        bus = await _bus(tmp_path)
+        runner = ScriptedRunner(
+            catalog=cat, results=store,
+            worktree_path=_worktree(tmp_path), bus=bus,
+        )
+        result = await runner.run_check(
+            ticket_id="t1", phase="dev", check_name="broken"
+        )
+        assert result.verdict == "error"
+        history = await bus.get_history("tickets.t1")
+        events = [
+            m for m in history
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert len(events) == 1
+        assert events[0].payload["verdict"] == "error"
+
+    async def test_run_for_phase_publishes_per_check(
+        self, tmp_path: Path
+    ) -> None:
+        cat = _catalog(
+            unit=ScriptedCheck(type="scripted", command="true"),
+            lint=ScriptedCheck(type="scripted", command="false"),
+        )
+        store = await _store(tmp_path)
+        bus = await _bus(tmp_path)
+        runner = ScriptedRunner(
+            catalog=cat, results=store,
+            worktree_path=_worktree(tmp_path), bus=bus,
+        )
+        await runner.run_for_phase(
+            ticket_id="t1", phase="dev", check_names=["unit", "lint"],
+        )
+        history = await bus.get_history("tickets.t1")
+        events = [
+            m for m in history
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert {e.payload["check_name"] for e in events} == {"unit", "lint"}
+        assert {e.payload["verdict"] for e in events} == {"pass", "fail"}
 
 
 class TestSeverityHelper:

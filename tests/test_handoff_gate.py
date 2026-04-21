@@ -338,6 +338,53 @@ class TestErrors:
             )
 
 
+class TestRunHandoffGateBusEvents:
+    """Phase 5 Task O3 — when a ``bus`` is passed to
+    ``run_handoff_gate``, the internal ScriptedRunner/AgentCheckRunner
+    publish ``check_completed`` per result."""
+
+    async def test_pass_publishes_check_completed(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, results = await _stores(tmp_path)
+        bus = await _bus(tmp_path)
+        tid, hid = await _seed_pending_handoff(tickets, threads)
+        catalog = CheckCatalog.model_validate(
+            {"unit": ScriptedCheck(type="scripted", command="true")}
+        )
+        workflow = _wf(
+            phases=[
+                PhaseConfig(
+                    name="implement",
+                    role="dev",
+                    automated_checks=["unit"],
+                )
+            ]
+        )
+
+        verdict = await run_handoff_gate(
+            handoff_id=hid,
+            tickets=tickets,
+            threads=threads,
+            results=results,
+            catalog=catalog,
+            workflow=workflow,
+            worktree_path=_worktree(tmp_path),
+            project_path=tmp_path,
+            bus=bus,
+        )
+
+        assert verdict.passing is True
+        msgs = await bus.get_history(f"tickets.{tid}")
+        events = [
+            m for m in msgs
+            if m.payload.get("kind") == "check_completed"
+        ]
+        assert len(events) == 1
+        assert events[0].payload["check_name"] == "unit"
+        assert events[0].payload["verdict"] == "pass"
+
+
 # ---- bounce_handoff -------------------------------------------------------
 
 

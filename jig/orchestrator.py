@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 from jig.agent import run_agent
 from jig.project import Project, load_project
 from jig.store import Message, MessageBus, MessageType
+from jig.store.check_results import CheckResultsStore
 from jig.store.checkpoints import CheckpointStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
@@ -38,6 +39,7 @@ class Orchestrator:
         self.checkpoints: CheckpointStore | None = None
         self.memory: MemoryStore | None = None
         self.bus: MessageBus | None = None
+        self.check_results: CheckResultsStore | None = None
 
         self._running_tickets: dict[str, asyncio.Task] = {}
         self._live_subscribers: dict[tuple[str, str], asyncio.Task] = {}
@@ -56,12 +58,16 @@ class Orchestrator:
             self.checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
+            self.check_results = CheckResultsStore(
+                store_dir / "check_results.jsonl"
+            )
             await asyncio.gather(
                 self.tickets.load(),
                 self.threads.load(),
                 self.checkpoints.load(),
                 self.memory.load(),
                 self.bus.load(),
+                self.check_results.load(),
             )
             self._running = True
             await self._resume_in_progress()
@@ -92,6 +98,7 @@ class Orchestrator:
         self.threads = None
         self.memory = None
         self.bus = None
+        self.check_results = None
 
     async def shutdown(self) -> None:
         self._running = False
@@ -293,6 +300,17 @@ class Orchestrator:
             await self._emit_phase_event("phase_complete", ticket_id, phase, phase_idx, len(workflow.phases), result=result.status)
 
             if result.status == "success":
+                # Phase 5 Task O1c: if the agent posted a pending
+                # Handoff for this phase, run the automated check
+                # gate. On fail we bounce it (flip to rejected) so
+                # the ``_phase_handoff_rejected`` check below reroutes
+                # to the fix phase via the existing blocked retry
+                # path. Gate-pass leaves the handoff pending for
+                # evaluator resolution (O2a/O2b).
+                await self._run_handoff_gate_if_pending(
+                    ticket_id, phase, workflow, worktree
+                )
+
                 # Phase 4 Task H gate: a phase cannot advance while the
                 # ticket has unresolved blocking thread entries (pending
                 # Handoff, blocking Question, unresolved Objection,
@@ -585,6 +603,71 @@ class Orchestrator:
                 await self.bus.unsubscribe(topic, queue)
             except Exception:
                 pass
+
+    async def _run_handoff_gate_if_pending(
+        self, ticket_id: str, phase, workflow, worktree_path: Path
+    ) -> None:
+        """Run the automated check gate on this phase's pending handoff.
+
+        If the agent posted a ``Handoff`` whose ``acceptance_state`` is
+        still ``pending``, load the project's check catalog and call
+        ``run_handoff_gate``. On gate-fail, ``bounce_handoff`` flips the
+        handoff to ``rejected`` so the caller's ``_phase_handoff_rejected``
+        check reroutes to the fix phase via the existing blocked retry
+        path. Gate-pass leaves the handoff pending — evaluator resolution
+        is Task O2.
+
+        No pending handoff → no-op. The phase either doesn't use the
+        handoff primitive or the agent returned success without posting
+        one; either way there's nothing to gate.
+        """
+        from jig.checks import load_check_catalog
+        from jig.handoff_gate import bounce_handoff, run_handoff_gate
+
+        if (
+            self.threads is None
+            or self.bus is None
+            or self.check_results is None
+            or self.tickets is None
+        ):
+            return
+
+        entries = await self.threads.for_ticket(ticket_id)
+        pending_hid: str | None = None
+        for e in entries:
+            if (
+                e.kind == "handoff"
+                and getattr(e, "phase", None) == phase.name
+                and getattr(e, "acceptance_state", None) == "pending"
+            ):
+                pending_hid = e.id
+        if pending_hid is None:
+            return
+
+        catalog = load_check_catalog(self._project_path)
+        verdict = await run_handoff_gate(
+            handoff_id=pending_hid,
+            tickets=self.tickets,
+            threads=self.threads,
+            results=self.check_results,
+            catalog=catalog,
+            workflow=workflow,
+            worktree_path=worktree_path,
+            project_path=self._project_path,
+        )
+        if not verdict.passing:
+            _logger.info(
+                "handoff %s bounced by check gate: %d failing, %d missing",
+                pending_hid,
+                len(verdict.failing),
+                len(verdict.missing),
+            )
+            await bounce_handoff(
+                handoff_id=pending_hid,
+                threads=self.threads,
+                bus=self.bus,
+                verdict=verdict,
+            )
 
     async def _phase_handoff_rejected(self, ticket_id: str, phase_name: str) -> bool:
         """Return True if the most recent Handoff for ``phase_name`` on

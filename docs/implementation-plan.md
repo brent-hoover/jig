@@ -1629,6 +1629,37 @@ spawn.
       gate on results (Task D) → on pass, resolve evaluator
       (Task C) and spawn → evaluator accepts/rejects per
       Phase 4.
+      - [x] **O1a** — `run_handoff_gate` primitive in
+            `jig/handoff_gate.py` glues ScriptedRunner +
+            AgentCheckRunner + `evaluate_handoff_gate`
+            against a pending Handoff. Tested in
+            `tests/test_handoff_gate.py`.
+      - [x] **O1b** — `bounce_handoff` flips a pending
+            Handoff to `rejected` with a check-failure
+            reason and publishes `thread_handoff_rejected`
+            with `bounce=True` on the ticket topic.
+            Bypasses the evaluator-identity guard —
+            automated gate is not an evaluator.
+      - [x] **O1c** — `_run_handoff_gate_if_pending` on the
+            orchestrator runs the gate on any pending
+            handoff for the completing phase in
+            `_run_ticket`, bouncing on fail. The existing
+            `_phase_handoff_rejected` + blocked-retry path
+            picks up the rejection naturally — no
+            parallel control flow. Orchestrator startup
+            now loads a `CheckResultsStore` at
+            `.jig/store/check_results.jsonl`.
+      - [ ] **O2a** — on gate-pass, resolve evaluator via
+            `resolve_evaluator`. `automated_only` →
+            auto-accept via an internal path (bypassing
+            `_close_handoff`'s "automated_only manual
+            accept not permitted" guard). Tested via
+            orchestrator fixtures.
+      - [ ] **O2b** — on gate-pass with a non-automated
+            evaluator, spawn the evaluator agent via
+            `run_agent` using a new
+            `SpawnReason.EVALUATOR`. Pattern mirrors
+            `_spawn_qa_responder`.
 - [ ] Per-spawn: capability compilation (Task F) materializes
       `rules.json` + `.claude/settings.json` before the
       agent starts.
@@ -1637,6 +1668,11 @@ spawn.
 - [ ] CheckResult bus events: the runner publishes
       `check_completed` messages so the TUI can show
       progress.
+      - [ ] **O3** — `check_completed` bus events emitted by
+            ScriptedRunner + AgentCheckRunner after each
+            result lands. Payload includes
+            `{ticket_id, phase, check_name, verdict,
+            event_id?}`. TUI renders the running tally.
 
 **P. Tests + end-to-end**
 

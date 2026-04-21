@@ -1246,24 +1246,27 @@ Execution layer for `ScriptedCheck`. The `CheckCatalog` loader
 (Phase 2E) already parses the YAML and validates shape; this
 task runs them.
 
-- [ ] `jig/check_runner.py` — `ScriptedRunner` runs a check's
+- [x] `jig/check_runner.py` — `ScriptedRunner` runs a check's
       `command` in the ticket's worktree (or the check's
-      declared `working_dir`), captures stdout/stderr and exit
-      code, enforces `timeout_s`. Runs in the agent's sandbox
-      image so environment matches.
-- [ ] `CheckResult` pydantic model: `check_name`, `check_type`,
+      declared `working_dir`), captures combined stdout/stderr
+      and exit code, enforces `timeout_s` via `asyncio.wait_for`.
+      Sandbox-image execution deferred: runner exposes the same
+      API that a bwrap-wrapped variant can replace later.
+- [x] `CheckResult` pydantic model: `check_name`, `check_type`,
       `verdict: pass|fail|timeout|error`, `severity`,
       `output`, `started_at`, `finished_at`, `commit_sha`.
-- [ ] `jig/store/check_results.py` — JSONL-backed store at
-      `.jig/store/check_results.jsonl`, append-only, queryable
-      by ticket + phase.
-- [ ] Severity semantics: `required` fail blocks phase advance,
-      `warning` posts a Note to the thread, `info` records a
-      CheckResult only. Implemented in the gating layer (Task
-      D), but severity lookup lives here.
-- [ ] Re-run-all on rejected handoff. Runner exposes
-      `run_for_phase(ticket, phase)` that re-executes every
-      declared check; caller decides when.
+- [x] `jig/store/check_results.py` — JSONL-backed store at
+      `.jig/store/check_results.jsonl`, append-only, indexed on
+      `ticket_id` / `phase` / `check_name`. Surfaces
+      `for_ticket`, `for_phase`, `latest_for_check`, and
+      `latest_batch` (one record per check, most recent).
+- [x] Severity lookup via `check_runner.severity_for(catalog,
+      name)`. Actual gating (required→block, warning→Note,
+      info→record-only) lands in Task D.
+- [x] Re-run-all via `ScriptedRunner.run_for_phase(ticket_id,
+      phase, check_names)` — executes every declared scripted
+      check unconditionally; non-scripted entries skipped for
+      Task B to pick up.
 
 **B. Check execution — agent**
 

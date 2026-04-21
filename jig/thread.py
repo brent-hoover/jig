@@ -301,16 +301,41 @@ class SystemEvent(_ThreadEntryBase):
     Folded into one type per the Phase 4 plan. Not user-authored in
     the normal sense; the harness writes these in response to
     worktree operations.
+
+    Phase 5 Task D adds ``check_failure`` to the event-type union.
+    Posted by the check gate when a required check doesn't pass — one
+    entry per failing check per handoff attempt. Agents read these via
+    ``read_comments`` and the evaluator prompt surfaces them alongside
+    the handoff artifact. Task E will flip ``waived=True`` on these
+    entries when an authorized waiver is filed.
     """
 
     kind: Literal["system_event"] = "system_event"
-    event_type: Literal["commit", "phase_run", "status_change"]
+    event_type: Literal[
+        "commit", "phase_run", "status_change", "check_failure"
+    ]
     content: str = ""
     commit_sha: str | None = None
     phase_result: Literal[
         "success", "failed", "blocked", "needs_info"
     ] | None = None
     phase_branch: str | None = None
+    # ---- check_failure-only fields (Task D) -----------------------------
+    # Populated only when ``event_type == "check_failure"``. Left as
+    # None/empty for other subtypes so the discriminated-union shape
+    # stays flat (adding a nested payload per event_type would churn
+    # every existing reader for little gain).
+    check_name: str | None = None
+    check_severity: Literal["required", "warning"] | None = None
+    check_verdict: Literal["pass", "fail", "timeout", "error"] | None = None
+    # Tail of the failing check's output, quoted into the evaluator's
+    # view. Full output stays in the CheckResult record; the excerpt
+    # exists so the thread entry can stand alone in a read_comments
+    # dump without joining to the results store.
+    excerpt: str = ""
+    # Flipped True by ``thread_waive_check`` (Task E). The gate reads
+    # this to decide whether a failing check still blocks.
+    waived: bool = False
 
 
 # ---- discriminated union --------------------------------------------------

@@ -1359,18 +1359,57 @@ specific role templates and tight context.
 
 **D. Check failure vs evaluator rejection — gating**
 
-- [ ] New SystemEvent subtype: `event_type="check_failure"`
+- [x] New SystemEvent subtype: `event_type="check_failure"`
       carrying check name + severity + excerpt. Written by the
       runner; readable by agents via `read_comments`.
-- [ ] Orchestrator hooks into the handoff path:
+      *Implemented: extended `SystemEvent.event_type` with
+      `"check_failure"` and added optional fields `check_name`,
+      `check_severity`, `check_verdict`, `excerpt`, and `waived`
+      (Task E flips the last). The shape stays flat — no nested
+      payload per event_type — so existing readers don't change.*
+- [x] Orchestrator hooks into the handoff path:
       `thread_handoff` → run checks → if any required fail,
       post check_failure events, bounce handoff back to the
       completing actor, do NOT spawn evaluator.
-- [ ] Evaluator spawn only runs when no required checks are
+      *`jig/check_gate.py` provides the gate primitive:
+      `evaluate_handoff_gate(...) -> GateVerdict` posts one
+      check_failure SystemEvent per failing required check and
+      returns a verdict the caller acts on. The actual orchestrator
+      rewire (calling the gate on `thread_handoff_posted` and
+      bouncing on fail) lands with Task O — Task D ships the
+      primitive + the read-only `check_gate_status` the pre-spawn
+      precondition will use.*
+- [x] Evaluator spawn only runs when no required checks are
       failing (or all failures have accepted Waivers).
-- [ ] Handoff rejection (from evaluator) still produces an
+      *`check_gate_status` is the read-only variant the evaluator-
+      spawn precondition will call (same logic, no events posted).
+      Waiver clearing is wired via `SystemEvent.waived=True` —
+      already respected by the gate; Task E wires the `thread_waive_check`
+      tool that sets the flag.*
+- [x] Handoff rejection (from evaluator) still produces an
       Objection on the thread per Phase 4; Phase 5 just feeds
       check results into the evaluator's view.
+      *No code change — Phase 4 already produces rejection
+      Objections. The evaluator-prompt surfacing of check results
+      lands with the handoff-spawn path in Task O.*
+
+Design notes:
+
+- Severity is re-scored from the catalog on every gate run so a
+  check flipped from `required` to `warning` mid-flight stops
+  blocking immediately. The record's stored severity remains
+  accurate for the moment it fired (audit), but gating uses the
+  current declaration (correctness).
+- Missing results for a declared required check count as a fail
+  — treating "never ran" as "passed" would be an obvious escape
+  hatch. The gate emits no event in this case (no output to
+  quote); the bounce is the signal.
+- `warning` severity never gates — results land in the store for
+  evaluator visibility but the gate ignores them. `info` (future
+  flavor) will follow the same pattern.
+- Dedup is deliberately *not* cross-attempt. A re-run that fails
+  again emits a fresh check_failure entry so the audit trail shows
+  every attempt, not just the first.
 
 **E. Waivers on required check failures**
 

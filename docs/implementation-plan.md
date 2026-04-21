@@ -1469,22 +1469,22 @@ Design notes:
 
 **F. Capability policy — declaration + compilation**
 
-- [ ] Role template schema extension:
+- [x] Role template schema extension:
       `capabilities: {tools: {allowed: [...]}, tool_params:
       {...}, paths: {writable, readable, denied}}`. Lands on
       `RoleConfig` (jig/models.py).
-- [ ] Phase-level override schema in workflow YAML:
+- [x] Phase-level override schema in workflow YAML:
       `phases[].capability_overrides: {...}`. Merge rules:
       scalars replaced, list fields unioned for permits,
       union-of-denies for denies.
-- [ ] `jig/capability_compiler.py` — `compile(role_template,
+- [x] `jig/capability_compiler.py` — `compile(role_template,
       phase_override, ticket_ctx) -> CompiledRules` with a
       versioned `schema_version` field. Pure; no I/O.
-- [ ] Pre-spawn materialization: write `rules.json` and
+- [x] Pre-spawn materialization: write `rules.json` and
       `.claude/settings.json` into the sandbox's
       `/jig/policy/` and `.claude/` directories before the
       agent starts.
-- [ ] `jig validate` extensions: unknown tool names in
+- [x] `jig validate` extensions: unknown tool names in
       `allowed`, malformed regexes in `deny_patterns`,
       unreachable / shadowed patterns, path globs that escape
       the sandbox root.

@@ -5,6 +5,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, Field
 
+from jig.capabilities import CapabilityDeclaration
+
 
 class MergeStrategy(str, Enum):
     DIRECT = "direct"
@@ -31,6 +33,12 @@ class RoleConfig(BaseModel):
     default_context: list[str] = []
     required_context: list[str] = []
     allowed_mcps: list[str] = []
+    # Phase 5 Task F (doc 16 §Capability policy). Tool + path + tool-param
+    # constraints for agents running this role. ``None`` means "no
+    # capability policy declared" — the compiler emits empty rules and
+    # hook enforcement is effectively permissive. Phase overrides on
+    # ``PhaseConfig.capability_overrides`` layer on top.
+    capabilities: CapabilityDeclaration | None = None
 
 
 # ---- Evaluator assignment (doc 10, Phase 5 Task C) --------------------------
@@ -136,6 +144,13 @@ class PhaseConfig(BaseModel):
     # behavior. Phase 5 flips these to hard enforcement per doc 16.
     questions_to: list[str] = []
     escalation_targets: list[str] = []
+    # Phase 5 Task F (doc 16 §Capability policy). Phase-level overrides
+    # that union with the role template's base ``capabilities`` at
+    # compile time. Merge rule: list fields union; denies stack. Phases
+    # that need to narrow tool access add ``denied:`` entries rather
+    # than removing allows, since the compiler doesn't support
+    # removal-by-omission.
+    capability_overrides: CapabilityDeclaration | None = None
 
 
 class WorkflowConfig(BaseModel):

@@ -14,6 +14,8 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
 )
 
+from jig.capability_compiler import compile as compile_capabilities
+from jig.capability_compiler import materialize as materialize_capabilities
 from jig.context_resolver import resolve_context_uris
 from jig.environment import load_environment_md
 from jig.events import EventEmitter, JigEvent
@@ -129,6 +131,66 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     )
 
 
+def _materialize_capability_policy(ctx: AgentSpawnContext) -> None:
+    """Compile + write capability artefacts for a spawn.
+
+    No-op when neither the role nor the phase declares capabilities —
+    we don't want to silently clobber a hand-maintained
+    ``.claude/settings.json`` in the worktree, and writing an empty
+    ``rules.json`` with no hooks registered gains nothing at enforcement.
+
+    Location:
+
+    * ``rules.json`` → ``<project>/.jig/runtime/<ticket_id>/policy/``
+      (outside the worktree so the git tree the agent sees stays clean;
+      the sandbox bind-mounts this to ``/jig/policy/rules.json``).
+    * ``.claude/settings.json`` → written inside the worktree because
+      Claude Code discovers settings relative to its cwd.
+
+    Failures are logged and non-fatal — hook policy is belt-and-braces
+    on top of bwrap, so a materialisation glitch shouldn't block a
+    spawn that already has Docker + bwrap isolation. Task G will make
+    this fail-loud once the hooks are production-required.
+    """
+    role_caps = ctx.role_cfg.capabilities
+    phase_caps = ctx.phase.capability_overrides if ctx.phase else None
+    if role_caps is None and phase_caps is None:
+        return
+
+    try:
+        rules = compile_capabilities(role_caps, phase_caps)
+        policy_dir = (
+            ctx.project.path_or_default()
+            / ".jig"
+            / "runtime"
+            / ctx.ticket.id
+            / "policy"
+        )
+        rules_path, settings_path = materialize_capabilities(
+            rules,
+            worktree_path=ctx.worktree_path,
+            policy_dir=policy_dir,
+        )
+        _logger.info(
+            "capability policy materialised for %s on %s: rules=%s settings=%s",
+            ctx.role,
+            ctx.ticket.id,
+            rules_path,
+            settings_path,
+        )
+    except OSError:
+        # Narrow: only swallow filesystem errors (disk full, perms,
+        # broken mount). Bugs in compile/materialize should propagate
+        # so the spawn fails loud rather than silently skipping
+        # enforcement. Task G will tighten this further once hooks
+        # are the primary enforcement layer.
+        _logger.exception(
+            "capability materialisation failed for %s on %s",
+            ctx.role,
+            ctx.ticket.id,
+        )
+
+
 def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
     """Resolve allowed MCP names to stdio server configs.
 
@@ -190,12 +252,16 @@ def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
                     break
 
     for name in remaining:
-        _logger.warning("MCP '%s' not found in user settings or installed plugins", name)
+        _logger.warning(
+            "MCP '%s' not found in user settings or installed plugins", name
+        )
 
     return result
 
 
-async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None) -> RunAgentResult:
+async def run_agent(
+    ctx: AgentSpawnContext, emitter: EventEmitter | None = None
+) -> RunAgentResult:
     """Run a Claude agent against a ticket in streaming input mode.
 
     Builds the initial prompt, subscribes to the ticket's bus topic, yields
@@ -235,6 +301,14 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
     if external:
         _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
 
+    # Phase 5 Task F: compile capability policy (role base + phase
+    # override) and materialize the two enforcement artefacts before
+    # Claude Code starts. Only writes files when a declaration actually
+    # exists — a spawn with no declared policy gets no .claude/settings
+    # overwrite and no rules.json clutter. Task G's hook scripts read
+    # rules.json at tool-eval time.
+    _materialize_capability_policy(ctx)
+
     options = ClaudeAgentOptions(
         cwd=str(ctx.worktree_path),
         allowed_tools=ctx.role_cfg.allowed_tools,
@@ -242,7 +316,12 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
         mcp_servers=mcp_servers,
         permission_mode="bypassPermissions",
     )
-    _logger.info("agent config: cwd=%s tools=%s mcps=%s", ctx.worktree_path, ctx.role_cfg.allowed_tools, ctx.role_cfg.allowed_mcps or ["jig"])
+    _logger.info(
+        "agent config: cwd=%s tools=%s mcps=%s",
+        ctx.worktree_path,
+        ctx.role_cfg.allowed_tools,
+        ctx.role_cfg.allowed_mcps or ["jig"],
+    )
 
     topic = f"tickets.{ctx.ticket.id}"
     bus_queue = await ctx.bus.subscribe_agent(
@@ -305,35 +384,56 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
         transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
         _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
 
-    _logger.info("launching claude agent for %s on %s in %s", ctx.role, ctx.ticket.id, ctx.worktree_path)
+    _logger.info(
+        "launching claude agent for %s on %s in %s",
+        ctx.role,
+        ctx.ticket.id,
+        ctx.worktree_path,
+    )
     try:
-        async for message in query(prompt=_prompt_stream(), options=options, transport=transport):
+        async for message in query(
+            prompt=_prompt_stream(), options=options, transport=transport
+        ):
             if isinstance(message, AssistantMessage):
                 for block in message.content or []:
                     if isinstance(block, ToolUseBlock):
                         detail = _tool_detail(block.name, block.input or {})
                         _logger.info("[%s] tool: %s %s", tag, block.name, detail)
-                        await _emit("agent_tool", {
-                            "role": ctx.role,
-                            "ticket_id": ctx.ticket.id,
-                            "tool": block.name,
-                            "detail": detail,
-                        })
+                        await _emit(
+                            "agent_tool",
+                            {
+                                "role": ctx.role,
+                                "ticket_id": ctx.ticket.id,
+                                "tool": block.name,
+                                "detail": detail,
+                            },
+                        )
                     elif isinstance(block, TextBlock):
                         short = _sanitize_for_tui(block.text)
                         if short:
-                            _logger.info("[%s] text: %s", tag, _sanitize_for_tui(block.text, limit=2000))
-                            await _emit("agent_text", {
-                                "role": ctx.role,
-                                "ticket_id": ctx.ticket.id,
-                                "text": short,
-                            })
+                            _logger.info(
+                                "[%s] text: %s",
+                                tag,
+                                _sanitize_for_tui(block.text, limit=2000),
+                            )
+                            await _emit(
+                                "agent_text",
+                                {
+                                    "role": ctx.role,
+                                    "ticket_id": ctx.ticket.id,
+                                    "text": short,
+                                },
+                            )
             elif isinstance(message, SystemMessage):
                 _logger.debug("[%s] system: %s", tag, message.subtype)
             elif isinstance(message, ResultMessage):
                 final_text = message.result or ""
-                _logger.info("[%s] completed: %s turns, %.1fs",
-                             tag, message.num_turns, (message.duration_ms or 0) / 1000)
+                _logger.info(
+                    "[%s] completed: %s turns, %.1fs",
+                    tag,
+                    message.num_turns,
+                    (message.duration_ms or 0) / 1000,
+                )
             else:
                 # Fallback for mocked result-like messages
                 result = getattr(message, "result", None)

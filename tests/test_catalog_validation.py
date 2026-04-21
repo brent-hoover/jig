@@ -11,6 +11,13 @@ from pathlib import Path
 import pytest
 import yaml
 
+from jig.capabilities import (
+    BashToolParams,
+    CapabilityDeclaration,
+    CapabilityPaths,
+    CapabilityToolParams,
+    CapabilityTools,
+)
 from jig.catalog import CatalogError, validate_catalog
 from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
 from jig.persistence import init_project, save_role, save_workflow
@@ -110,22 +117,14 @@ class TestCheckReferences:
     def test_known_check_passes(self, initialized_project: Path) -> None:
         (initialized_project / ".jig" / "checks.yaml").write_text(
             yaml.safe_dump(
-                {
-                    "checks": {
-                        "lint": {"type": "scripted", "command": "ruff check ."}
-                    }
-                }
+                {"checks": {"lint": {"type": "scripted", "command": "ruff check ."}}}
             )
         )
         save_workflow(
             initialized_project,
             WorkflowConfig(
                 name="w",
-                phases=[
-                    PhaseConfig(
-                        name="p", role="dev", automated_checks=["lint"]
-                    )
-                ],
+                phases=[PhaseConfig(name="p", role="dev", automated_checks=["lint"])],
             ),
         )
         validate_catalog(initialized_project)
@@ -179,15 +178,9 @@ class TestRequiredContextURIs:
         with pytest.raises(CatalogError, match="missing.md"):
             validate_catalog(initialized_project)
 
-    def test_present_project_uri_passes(
-        self, initialized_project: Path
-    ) -> None:
+    def test_present_project_uri_passes(self, initialized_project: Path) -> None:
         (
-            initialized_project
-            / ".jig"
-            / "context"
-            / "project"
-            / "principles.md"
+            initialized_project / ".jig" / "context" / "project" / "principles.md"
         ).write_text("k")
         save_role(
             initialized_project,
@@ -303,9 +296,7 @@ def _write_config(project_path: Path, extra: dict) -> None:
         }
     }
     base.update(extra)
-    (project_path / ".jig" / "config.yaml").write_text(
-        yaml.safe_dump(base)
-    )
+    (project_path / ".jig" / "config.yaml").write_text(yaml.safe_dump(base))
 
 
 class TestWorkTypeSchemaValidation:
@@ -313,12 +304,9 @@ class TestWorkTypeSchemaValidation:
         self, initialized_project: Path
     ) -> None:
         """A malformed project work-type schema surfaces at load."""
-        (
-            initialized_project
-            / ".jig"
-            / "work_types"
-            / "broken.yaml"
-        ).write_text("this: is: not: valid: yaml\n: : :\n")
+        (initialized_project / ".jig" / "work_types" / "broken.yaml").write_text(
+            "this: is: not: valid: yaml\n: : :\n"
+        )
         with pytest.raises(CatalogError, match="broken"):
             validate_catalog(initialized_project)
 
@@ -326,20 +314,15 @@ class TestWorkTypeSchemaValidation:
         self, initialized_project: Path
     ) -> None:
         """``work_type`` key is required by the WorkTypeSchema model."""
-        (
-            initialized_project
-            / ".jig"
-            / "work_types"
-            / "weird.yaml"
-        ).write_text(yaml.safe_dump({"required": ["summary"]}))
+        (initialized_project / ".jig" / "work_types" / "weird.yaml").write_text(
+            yaml.safe_dump({"required": ["summary"]})
+        )
         with pytest.raises(CatalogError, match="weird"):
             validate_catalog(initialized_project)
 
 
 class TestOwnershipSpecFieldReferences:
-    def test_unknown_spec_field_fails(
-        self, initialized_project: Path
-    ) -> None:
+    def test_unknown_spec_field_fails(self, initialized_project: Path) -> None:
         """config.ownership.spec.<bogus> flags a field unknown to every schema."""
         _write_config(
             initialized_project,
@@ -348,9 +331,7 @@ class TestOwnershipSpecFieldReferences:
         with pytest.raises(CatalogError, match="not_a_real_field"):
             validate_catalog(initialized_project)
 
-    def test_known_spec_field_passes(
-        self, initialized_project: Path
-    ) -> None:
+    def test_known_spec_field_passes(self, initialized_project: Path) -> None:
         """A field declared by any shipped schema is accepted."""
         _write_config(
             initialized_project,
@@ -358,9 +339,7 @@ class TestOwnershipSpecFieldReferences:
         )
         validate_catalog(initialized_project)
 
-    def test_empty_owner_is_ignored(
-        self, initialized_project: Path
-    ) -> None:
+    def test_empty_owner_is_ignored(self, initialized_project: Path) -> None:
         """Empty-string owner for a field isn't treated as a claim."""
         _write_config(
             initialized_project,
@@ -370,9 +349,7 @@ class TestOwnershipSpecFieldReferences:
 
 
 class TestRoleHelperTemplateReferences:
-    def test_unknown_helper_template_fails(
-        self, initialized_project: Path
-    ) -> None:
+    def test_unknown_helper_template_fails(self, initialized_project: Path) -> None:
         _write_config(
             initialized_project,
             {
@@ -423,9 +400,7 @@ class TestRoleHelperTemplateReferences:
         )
         validate_catalog(initialized_project)
 
-    def test_known_helper_template_passes(
-        self, initialized_project: Path
-    ) -> None:
+    def test_known_helper_template_passes(self, initialized_project: Path) -> None:
         save_role(
             initialized_project,
             RoleConfig(role="helper-bot", phase_prompt="assist"),
@@ -470,11 +445,7 @@ class TestPhaseQuestionsToReferences:
             initialized_project,
             WorkflowConfig(
                 name="w",
-                phases=[
-                    PhaseConfig(
-                        name="p", role="dev", questions_to=["human"]
-                    )
-                ],
+                phases=[PhaseConfig(name="p", role="dev", questions_to=["human"])],
             ),
         )
         validate_catalog(initialized_project)
@@ -484,11 +455,7 @@ class TestPhaseQuestionsToReferences:
             initialized_project,
             WorkflowConfig(
                 name="w",
-                phases=[
-                    PhaseConfig(
-                        name="p", role="dev", questions_to=["review"]
-                    )
-                ],
+                phases=[PhaseConfig(name="p", role="dev", questions_to=["review"])],
             ),
         )
         validate_catalog(initialized_project)
@@ -497,9 +464,7 @@ class TestPhaseQuestionsToReferences:
 class TestPhaseEscalationTargetReferences:
     """Phase 4 Task H: ``PhaseConfig.escalation_targets`` must name known roles."""
 
-    def test_unknown_escalation_target_fails(
-        self, initialized_project: Path
-    ) -> None:
+    def test_unknown_escalation_target_fails(self, initialized_project: Path) -> None:
         save_workflow(
             initialized_project,
             WorkflowConfig(
@@ -516,17 +481,13 @@ class TestPhaseEscalationTargetReferences:
         with pytest.raises(CatalogError, match="ghost-role"):
             validate_catalog(initialized_project)
 
-    def test_escalation_human_sentinel_allowed(
-        self, initialized_project: Path
-    ) -> None:
+    def test_escalation_human_sentinel_allowed(self, initialized_project: Path) -> None:
         save_workflow(
             initialized_project,
             WorkflowConfig(
                 name="w",
                 phases=[
-                    PhaseConfig(
-                        name="p", role="dev", escalation_targets=["human"]
-                    )
+                    PhaseConfig(name="p", role="dev", escalation_targets=["human"])
                 ],
             ),
         )
@@ -536,9 +497,7 @@ class TestPhaseEscalationTargetReferences:
 class TestWaiverAuthorityReferences:
     """Phase 4 Task H: ``config.waiver_authority`` must name known roles."""
 
-    def test_unknown_waiver_role_fails(
-        self, initialized_project: Path
-    ) -> None:
+    def test_unknown_waiver_role_fails(self, initialized_project: Path) -> None:
         _write_config(
             initialized_project,
             {"waiver_authority": ["po", "sa", "user", "imaginary"]},
@@ -553,9 +512,7 @@ class TestWaiverAuthorityReferences:
         )
         validate_catalog(initialized_project)
 
-    def test_project_level_role_allowed(
-        self, initialized_project: Path
-    ) -> None:
+    def test_project_level_role_allowed(self, initialized_project: Path) -> None:
         """``po`` / ``sa`` live in ``config.roles`` rather than ``.jig/roles/``
         but are valid waiver_authority entries."""
         _write_config(
@@ -570,3 +527,269 @@ class TestWaiverAuthorityReferences:
             {"waiver_authority": ["dev", "review"]},
         )
         validate_catalog(initialized_project)
+
+
+class TestCapabilityDeclarationValidation:
+    """Phase 5 Task F (doc 16 §Capability policy): ``jig validate``
+    sanity-checks role ``capabilities`` and phase ``capability_overrides``.
+
+    The idea is to fail loud at load time on anything that would silently
+    skip at hook-evaluation time — unknown tool names, bad regexes,
+    sandbox-escaping globs.
+    """
+
+    def test_clean_role_capability_declaration_passes(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="narrow",
+                phase_prompt="do one thing",
+                capabilities=CapabilityDeclaration(
+                    tools=CapabilityTools(allowed=["Read", "Write"]),
+                    tool_params=CapabilityToolParams(
+                        Bash=BashToolParams(deny_patterns=["^rm -rf"])
+                    ),
+                    paths=CapabilityPaths(
+                        writable=["ticket://worktree/**"],
+                        readable=["repo://**"],
+                        denied=["/etc/**"],
+                    ),
+                ),
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_unknown_tool_in_allowed_fails(self, initialized_project: Path) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="typo",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    tools=CapabilityTools(allowed=["Reed"]),  # typo
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="Reed"):
+            validate_catalog(initialized_project)
+
+    def test_mcp_pattern_accepted(self, initialized_project: Path) -> None:
+        """``mcp__<server>__<tool>`` follows the Claude Code MCP tool
+        naming convention — must validate without a membership check."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="mcp-user",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    tools=CapabilityTools(allowed=["mcp__ticket__create"]),
+                ),
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_mcp_pattern_malformed_rejected(self, initialized_project: Path) -> None:
+        """``mcp__`` with fewer than three segments is probably a typo
+        (e.g. ``mcp__foo``) — reject loud."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="mcp-bad",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    tools=CapabilityTools(allowed=["mcp__foo"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="mcp__foo"):
+            validate_catalog(initialized_project)
+
+    def test_invalid_bash_regex_fails(self, initialized_project: Path) -> None:
+        """An unbalanced regex silently falls through a hook at eval
+        time and produces no denial. Catch it at load instead."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="regex-typo",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    tool_params=CapabilityToolParams(
+                        Bash=BashToolParams(deny_patterns=["rm [unclosed"])
+                    ),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="not a valid regex"):
+            validate_catalog(initialized_project)
+
+    def test_path_with_dotdot_segment_rejected(self, initialized_project: Path) -> None:
+        """``..`` anywhere in a path glob is a sandbox-root escape
+        attempt — always rejected regardless of scheme."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="escape-attempt",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(writable=["ticket://worktree/../../etc/**"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="escapes sandbox root"):
+            validate_catalog(initialized_project)
+
+    def test_relative_path_without_scheme_rejected(
+        self, initialized_project: Path
+    ) -> None:
+        """``src/**`` without a URI scheme is ambiguous — which root?
+        Force the operator to pick explicitly."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="ambiguous-root",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["src/**"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="ambiguous"):
+            validate_catalog(initialized_project)
+
+    def test_absolute_sandbox_path_accepted(self, initialized_project: Path) -> None:
+        """Sandbox-absolute globs like ``/workspace/**`` resolve
+        relative to the bwrap mount and are legitimate."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="sandbox-abs",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(writable=["/workspace/**"]),
+                ),
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_uri_scheme_path_accepted(self, initialized_project: Path) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="uri-root",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(
+                        readable=[
+                            "ticket://worktree/**",
+                            "repo://**",
+                            "project://brief/**",
+                        ]
+                    ),
+                ),
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_unknown_uri_scheme_rejected(self, initialized_project: Path) -> None:
+        """``s3://`` or other non-jig schemes have no meaning in the
+        sandbox and would silently match nothing — treat as a typo."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="bad-scheme",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["s3://bucket/**"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="unsupported URI scheme"):
+            validate_catalog(initialized_project)
+
+    def test_empty_uri_scheme_rejected(self, initialized_project: Path) -> None:
+        """``://foo`` with no scheme is malformed — reject rather than
+        letting it slip past as a weirdly-shaped literal path."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="empty-scheme",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["://worktree/**"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="empty URI scheme"):
+            validate_catalog(initialized_project)
+
+    def test_empty_uri_body_rejected(self, initialized_project: Path) -> None:
+        """``ticket://`` with nothing after the scheme is a typo — the
+        body must select something."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="empty-body",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    paths=CapabilityPaths(readable=["ticket://"]),
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="empty path after"):
+            validate_catalog(initialized_project)
+
+    def test_phase_capability_overrides_validated(
+        self, initialized_project: Path
+    ) -> None:
+        """Overrides get the same schema treatment as base decls —
+        otherwise a phase could silently admit an unknown tool."""
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[
+                    PhaseConfig(
+                        name="bad-override",
+                        role="dev",
+                        capability_overrides=CapabilityDeclaration(
+                            tools=CapabilityTools(allowed=["NotARealTool"]),
+                        ),
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="NotARealTool"):
+            validate_catalog(initialized_project)
+
+    def test_missing_capabilities_declaration_passes(
+        self, initialized_project: Path
+    ) -> None:
+        """A role without ``capabilities`` (the common case today)
+        must pass — capability policy is opt-in per doc 16."""
+        save_role(
+            initialized_project,
+            RoleConfig(role="no-caps", phase_prompt="x"),
+        )
+        validate_catalog(initialized_project)
+
+    def test_collect_mode_reports_multiple_capability_errors(
+        self, initialized_project: Path
+    ) -> None:
+        """``collect=True`` shouldn't short-circuit — all bad
+        declarations should surface in one pass."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="multi-bad",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    tools=CapabilityTools(allowed=["Unknown1"]),
+                    paths=CapabilityPaths(readable=["relative/bad"]),
+                ),
+            ),
+        )
+        errors = validate_catalog(initialized_project, collect=True) or []
+        assert any("Unknown1" in e for e in errors)
+        assert any("ambiguous" in e for e in errors)

@@ -207,6 +207,27 @@ async def bounce_handoff(
         raise ThreadError(
             "refusing to bounce a handoff on a passing gate verdict"
         )
+    # Defense-in-depth: bouncing requires a verdict from the
+    # write-side gate run (mode="handoff") — the read-only
+    # ``check_gate_status`` call emits mode="pre-spawn" and never posts
+    # events, so a caller that forwarded that verdict here would bounce
+    # without an audit trail.
+    if verdict.mode != "handoff":
+        raise ThreadError(
+            f"bounce requires a handoff-mode verdict, got "
+            f"mode={verdict.mode!r}"
+        )
+    # Every failing check must have produced an event — the bounce
+    # reason links to them and the next fix iteration cites them from
+    # the thread. Missing checks are allowed to have no event (they
+    # didn't run, so there's nothing to post), so we only require
+    # parity when ``failing`` is non-empty.
+    if verdict.failing and len(verdict.posted_events) != len(verdict.failing):
+        raise ThreadError(
+            f"bounce requires one posted check_failure event per "
+            f"failing check — got {len(verdict.posted_events)} events "
+            f"for {len(verdict.failing)} failures"
+        )
 
     reason = _compose_bounce_reason(verdict)
     await threads.update(

@@ -146,6 +146,18 @@ class Objection(_ThreadEntryBase):
     def is_resolved(self) -> bool:
         return self.resolved_by is not None or self.waived_by is not None
 
+    def model_post_init(self, __context: object) -> None:  # type: ignore[override]
+        # An Objection closes via exactly one path — resolution or
+        # waiver — never both. Simultaneously setting both usually
+        # means a handler bug writing to the wrong field, and the
+        # audit trail becomes ambiguous about how the objection was
+        # actually closed.
+        if self.resolved_by is not None and self.waived_by is not None:
+            raise ValueError(
+                "Objection cannot be both resolved_by and waived_by — "
+                "these close paths are mutually exclusive"
+            )
+
 
 class Resolution(_ThreadEntryBase):
     """Addresses an Objection with "here's how I fixed it."
@@ -272,6 +284,37 @@ class Handoff(_ThreadEntryBase):
 
     def is_resolved(self) -> bool:
         return self.acceptance_state != "pending"
+
+    def model_post_init(self, __context: object) -> None:  # type: ignore[override]
+        # Keep the resolution fields consistent with acceptance_state
+        # at the type level. The MCP handlers already coordinate these
+        # on the write path; the invariant here is a safety net for
+        # hand-constructed records, direct store.update() paths, and
+        # any future caller that flips one field without the other.
+        state = self.acceptance_state
+        if state == "pending":
+            if self.accepted_by is not None or self.rejection_reason is not None:
+                raise ValueError(
+                    "Handoff(acceptance_state='pending') must have "
+                    "accepted_by=None and rejection_reason=None"
+                )
+        elif state == "accepted":
+            if self.accepted_by is None:
+                raise ValueError(
+                    "Handoff(acceptance_state='accepted') requires "
+                    "accepted_by"
+                )
+            if self.rejection_reason is not None:
+                raise ValueError(
+                    "Handoff(acceptance_state='accepted') must not "
+                    "carry rejection_reason"
+                )
+        elif state == "rejected":
+            if self.rejection_reason is None:
+                raise ValueError(
+                    "Handoff(acceptance_state='rejected') requires "
+                    "rejection_reason"
+                )
 
 
 # ---- Proposal (migrated from Phase 3E Comment) ----------------------------

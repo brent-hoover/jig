@@ -1,9 +1,26 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from jig.store.models import StoreModel, TypedCollection
+
+
+def _migrate_issue_id(data: Any) -> Any:
+    """Accept pre-rename records that used ``issue_id`` as the FK.
+
+    JSONL stores are append-only, so historic entries written before
+    the issue→ticket rename still carry ``issue_id``. Silently aliasing
+    it to ``ticket_id`` at construction time lets old files load
+    without a migration pass. Drop this shim in a later release once
+    all stores have been rewritten.
+    """
+    if not isinstance(data, dict):
+        return data
+    if "ticket_id" not in data and "issue_id" in data:
+        data["ticket_id"] = data.pop("issue_id")
+    return data
 
 
 class Handoff(StoreModel):
@@ -16,6 +33,10 @@ class Handoff(StoreModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
+    _migrate_issue_id = model_validator(mode="before")(
+        _migrate_issue_id
+    )
+
 
 class Learning(StoreModel):
     ticket_id: str
@@ -25,6 +46,10 @@ class Learning(StoreModel):
     tags: list[str] = Field(default_factory=list)
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+    _migrate_issue_id = model_validator(mode="before")(
+        _migrate_issue_id
     )
 
 

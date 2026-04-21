@@ -222,11 +222,20 @@ async def handle_list_proposals(
     else:
         found = await threads.all_by_kind("proposal")
 
-    proposals = [e for e in found if e.kind == "proposal"]
+    # Always restrict to original proposals (``parent_id is None``).
+    # Resolver entries are synthetic Proposals posted by
+    # ``handle_resolve_proposal`` that carry ``parent_id=<original.id>``
+    # — they exist to record the accept/reject audit trail, not as
+    # proposals in their own right. Mixing them into the listing
+    # caused I7: a state-filter query like ``state='accepted'`` would
+    # return resolver entries, not the original accepted proposals the
+    # caller wanted.
+    proposals = [
+        e for e in found
+        if e.kind == "proposal" and e.parent_id is None
+    ]
     if state:
         proposals = [p for p in proposals if p.state == state]
-    else:
-        proposals = [p for p in proposals if p.parent_id is None]
     if target:
         proposals = [p for p in proposals if p.target == target]
 

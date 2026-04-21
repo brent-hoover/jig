@@ -118,6 +118,7 @@ class Orchestrator:
         self.memory = None
         self.bus = None
         self.check_results = None
+        self.checkpoints = None
 
     async def shutdown(self) -> None:
         self._running = False
@@ -326,7 +327,6 @@ class Orchestrator:
                 _logger.info("spawning agent for %s on ticket %s", phase.role, ticket_id)
                 result = await run_agent(ctx, emitter=self._emitter)
                 _logger.info("agent %s finished: %s", phase.role, result.status)
-                await self._write_phase_run_comment(ticket_id, phase, result)
             except Exception:
                 _logger.exception(
                     "agent failed for phase %s ticket %s", phase.name, ticket_id,
@@ -369,6 +369,14 @@ class Orchestrator:
                         blocking = await self.threads.has_unresolved_blocking(ticket_id)
                     if await self._phase_handoff_rejected(ticket_id, phase.name):
                         result.status = "blocked"
+
+            # Record the phase_run AFTER gate + thread-blocking may
+            # demote ``result.status`` so the audit record reflects the
+            # final outcome (e.g. a post-gate bounce records "blocked",
+            # not the agent's self-reported "success"). The earlier
+            # `raise` paths above skip this intentionally — a crashed
+            # phase is recorded via ``_on_ticket_failed``, not here.
+            await self._write_phase_run_comment(ticket_id, phase, result)
 
             if result.status == "success":
                 phase_idx += 1

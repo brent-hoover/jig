@@ -31,13 +31,19 @@ def _handoff(
     author: str,
     accepted_by: str | None = None,
     state: str = "accepted",
+    rejection_reason: str | None = None,
 ) -> Handoff:
+    # I5: Handoff now enforces state/close-field consistency, so
+    # rejected handoffs must carry a rejection_reason.
+    if state == "rejected" and rejection_reason is None:
+        rejection_reason = "rejected in test"
     return Handoff(
         ticket_id=ticket_id,
         author=author,
         phase=phase,
         acceptance_state=state,  # type: ignore[arg-type]
         accepted_by=accepted_by,
+        rejection_reason=rejection_reason,
     )
 
 

@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""PreToolUse hook for read-family tools (Phase 5 Task G, doc 16).
+
+Registered as the ``Read|Glob|Grep`` matcher by
+``jig.capability_compiler._build_claude_settings`` — fires before each
+file-reading tool call. Gates the target path against the spawn's
+compiled path rules:
+
+1. **Deny wins.** If the target matches any pattern in
+   ``paths.denied``, refuse the call.
+2. **Allowlist when populated.** If ``paths.readable`` is non-empty
+   and no pattern in it matches, refuse. Empty ``paths.readable`` with
+   non-empty ``paths.denied`` means "readable everywhere bwrap lets
+   through, except what's explicitly denied".
+3. Otherwise allow.
+
+Path fields per tool:
+
+* ``Read.file_path`` — the file being read.
+* ``Glob.path`` — the directory the glob walks (defaults to cwd when
+  absent, which is ``/workspace``).
+* ``Grep.path`` — file or directory to search (defaults to cwd).
+
+Glob/Grep ``pattern`` fields are search expressions, not filesystem
+locations, and are *not* matched against path rules — doing so would
+block legitimate searches that happen to contain denied substrings.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _hooklib  # noqa: E402
+
+# Tools this hook gates plus the field each one uses for the target
+# path. When the field is absent (Glob/Grep with no ``path``) we fall
+# back to the sandbox cwd (``/workspace``), which is the only place
+# the tool could plausibly search.
+_TARGET_FIELDS: dict[str, str] = {
+    "Read": "file_path",
+    "Glob": "path",
+    "Grep": "path",
+}
+_DEFAULT_CWD = "/workspace"
+
+
+def _extract_target(tool_name: str, tool_input: dict) -> str:
+    field = _TARGET_FIELDS.get(tool_name, "file_path")
+    value = tool_input.get(field)
+    if isinstance(value, str) and value:
+        return value
+    # Glob and Grep treat missing ``path`` as "search cwd" — this is
+    # the documented Claude Code behaviour. Gate that against the
+    # rules using cwd so an agent can't sidestep the rules by
+    # omitting the field.
+    if tool_name in ("Glob", "Grep"):
+        return _DEFAULT_CWD
+    raise _hooklib.HookError(
+        f"{tool_name} call had no usable path in tool_input"
+    )
+
+
+def main() -> None:
+    try:
+        payload = _hooklib.read_payload()
+        rules = _hooklib.load_rules()
+    except _hooklib.HookError as exc:
+        _hooklib.deny_exit(f"blocked by policy: {exc}")
+
+    if payload.tool_name not in _TARGET_FIELDS:
+        _hooklib.allow_exit()
+
+    try:
+        raw_target = _extract_target(payload.tool_name, payload.tool_input)
+        target = _hooklib.normalize_path(raw_target)
+    except _hooklib.HookError as exc:
+        _hooklib.deny_exit(f"blocked by policy: {exc}")
+
+    paths_rules = rules.get("paths") or {}
+    denied = paths_rules.get("denied") or []
+    readable = paths_rules.get("readable") or []
+
+    if not isinstance(denied, list) or not isinstance(readable, list):
+        _hooklib.deny_exit(
+            "blocked by policy: rules.json paths.{denied,readable} "
+            "must be lists"
+        )
+
+    hit = _hooklib.denies_path(target, denied)
+    if hit is not None:
+        _hooklib.deny_exit(
+            f"blocked by policy: read of {target!r} matches denied path "
+            f"{hit!r}"
+        )
+
+    if readable and not _any_permit_matches(target, readable):
+        _hooklib.deny_exit(
+            f"blocked by policy: read of {target!r} is not in the "
+            f"role's readable paths (allowlist: {readable})"
+        )
+
+    _hooklib.allow_exit()
+
+
+def _any_permit_matches(target: str, readable: list[str]) -> bool:
+    """Mirror of :func:`_hooklib.writable_permits_path` for the
+    readable list. Kept as a thin local wrapper so the intent is
+    explicit in the script flow — this hook checks reads, not writes."""
+
+    for pat in readable:
+        resolved = _hooklib.resolve_uri_glob(pat)
+        if resolved is None:
+            continue
+        if _hooklib.match_glob(resolved, target):
+            return True
+    return False
+
+
+if __name__ == "__main__":
+    main()

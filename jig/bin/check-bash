@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""PreToolUse hook for the Bash tool (Phase 5 Task G, doc 16).
+
+Claude Code invokes this script before every Bash tool call. The
+service has already compiled the role's ``tool_params.Bash.deny_patterns``
+into ``/jig/policy/rules.json``. We read the patterns, match each
+against the ``command`` field of the tool input, and exit:
+
+* ``0`` — no pattern matched; let the command run.
+* ``2`` — a pattern matched, or we couldn't evaluate safely; deny the
+  call. Claude Code surfaces the stderr message to the agent as the
+  tool-failure reason.
+
+The hook is wired in ``jig.capability_compiler._build_claude_settings``
+and only registered when the spawn has at least one deny pattern — so
+if this script runs at all, ``rules.json`` has non-empty
+``bash.deny_patterns``.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+# The hook scripts live alongside ``_hooklib.py`` inside ``/jig/bin/``
+# in the sandbox. Prepending that directory lets them share code
+# without requiring the ``jig`` package to be importable inside the
+# agent sandbox.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _hooklib  # noqa: E402  (sys.path tweak above must run first)
+
+
+def main() -> None:
+    try:
+        payload = _hooklib.read_payload()
+        rules = _hooklib.load_rules()
+    except _hooklib.HookError as exc:
+        _hooklib.deny_exit(f"blocked by policy: {exc}")
+
+    # Defensive: this hook should only fire on Bash events, but Claude
+    # Code's matcher regex could widen in future. Allow anything
+    # non-Bash through — check-path/check-write gate those.
+    if payload.tool_name != "Bash":
+        _hooklib.allow_exit()
+
+    command = payload.tool_input.get("command")
+    if not isinstance(command, str):
+        _hooklib.deny_exit(
+            "blocked by policy: Bash hook received non-string 'command' input"
+        )
+
+    deny_patterns = (rules.get("bash") or {}).get("deny_patterns") or []
+    if not isinstance(deny_patterns, list):
+        _hooklib.deny_exit(
+            "blocked by policy: rules.json bash.deny_patterns is not a list"
+        )
+
+    for pattern in deny_patterns:
+        if not isinstance(pattern, str):
+            # Malformed rule entry; skip rather than crash. The
+            # capability compiler validates list contents, so this
+            # path is only reached if rules.json was hand-edited.
+            continue
+        try:
+            if re.search(pattern, command):
+                _hooklib.deny_exit(
+                    f"blocked by policy: Bash command matches deny-pattern "
+                    f"{pattern!r}"
+                )
+        except re.error as exc:
+            # Catalog validation rejects invalid regexes at load time,
+            # but if one slips through we fail closed.
+            _hooklib.deny_exit(
+                f"blocked by policy: Bash deny-pattern {pattern!r} is not "
+                f"a valid regex ({exc}); refusing to evaluate"
+            )
+
+    _hooklib.allow_exit()
+
+
+if __name__ == "__main__":
+    main()

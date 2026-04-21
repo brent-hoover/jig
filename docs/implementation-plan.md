@@ -1491,23 +1491,32 @@ Design notes:
 
 **G. Capability policy — enforcement (hooks)**
 
-- [ ] Ship hook scripts at `jig/bin/`: `check-bash`,
+- [x] Ship hook scripts at `jig/bin/`: `check-bash`,
       `check-path`, `check-write`. Python 3 (container has
       it), read `/jig/policy/rules.json`, inspect the tool
       call on stdin, exit 0 (allow) or 2 (deny) with stderr
       explaining why.
-- [ ] Bind-mount `jig/bin/` into the sandbox at `/jig/bin/`
+- [x] Bind-mount `jig/bin/` into the sandbox at `/jig/bin/`
       read-only. Update `container.py` (Docker layer) and
-      `sandbox.py` (bwrap layer) accordingly.
-- [ ] `.claude/settings.json` registers each hook under the
-      appropriate matcher (`Bash`, `Write`, `Edit`).
-- [ ] Denial UX: hook stderr is human-readable
+      `sandbox.py` (bwrap layer) accordingly. (`sandbox.py`
+      done via `BwrapConfig.policy_dir_host_path` /
+      `hook_bin_host_path`; Docker image already ships
+      `jig/bin/` as part of the installed package.)
+- [x] `.claude/settings.json` registers each hook under the
+      appropriate matcher (`Bash`, `Write`, `Edit`). Handled
+      by `capability_compiler.materialize()` emitting a
+      `PreToolUse` entry per populated rule section.
+- [x] Denial UX: hook stderr is human-readable
       (`blocked by policy: … matches deny-pattern "rm -rf"`).
       Claude Code presents this as a tool failure; the agent
       adapts, posts a Question, or escalates.
-- [ ] Tests: spawn an agent under a template that denies
-      `rm -rf`; issue the bash call; verify the tool fails
-      and the denial appears in the agent's tool stream.
+- [x] Tests: subprocess-level coverage in
+      `tests/test_hook_scripts.py` invokes each script with
+      representative payloads and a controlled rules file;
+      bind-mount shape is locked in by
+      `tests/test_sandbox_config.py`. A true end-to-end
+      Claude Code spawn under bwrap is Linux-only and will
+      land with the container smoke test.
 
 **H. Waiver authority as capability**
 

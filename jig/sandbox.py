@@ -29,12 +29,41 @@ def sandbox_available() -> bool:
     return bool(os.environ.get("JIG_IN_CONTAINER"))
 
 
+def _normalise_mount_path(path: str) -> tuple[str, ...]:
+    """Split a sandbox-absolute mount path into its non-empty segments.
+
+    Used to compare mount destinations for overlap (:meth:`BwrapConfig.
+    _reject_reserved`). Trailing/leading slashes and empty segments are
+    stripped so ``/jig/bin`` and ``/jig/bin/`` compare equal, while
+    ``/jig/bin`` and ``/jig/binned`` stay distinct."""
+
+    return tuple(part for part in path.split("/") if part)
+
+
 @dataclass
 class BwrapConfig:
     """Bubblewrap mount configuration for an agent sandbox."""
 
     worktree_host_path: Path
     """Host path to the agent's git worktree (mounted rw at /workspace)."""
+
+    policy_dir_host_path: Path | None = None
+    """Host directory containing ``rules.json`` for this spawn.
+
+    When set, the directory is bind-mounted read-only at ``/jig/policy/``
+    inside the sandbox. The capability enforcement hook scripts
+    (``check-bash``, ``check-write``, ``check-path``) read
+    ``/jig/policy/rules.json`` on every tool call. Leave ``None`` for
+    spawns with no declared capabilities — in that case
+    ``.claude/settings.json`` registers no hooks, so the policy path
+    is never dereferenced."""
+
+    hook_bin_host_path: Path | None = None
+    """Host directory containing the capability enforcement hook
+    scripts. Bind-mounted read-only at ``/jig/bin/`` when set. Paired
+    with ``policy_dir_host_path``: the hooks registered in
+    ``.claude/settings.json`` point at ``/jig/bin/check-*``, so the
+    two mounts must be applied together for policy to fire."""
 
     extra_ro_binds: list[tuple[str, str]] = field(default_factory=list)
     """Additional read-only bind mounts ``(host_path, sandbox_path)``."""
@@ -48,20 +77,82 @@ class BwrapConfig:
     workspace: str = "/workspace"
     """Mount point inside the sandbox where the worktree appears."""
 
+    # Sandbox-absolute mount points for the capability-policy artefacts.
+    # These match ``jig.capability_compiler.SANDBOX_RULES_PATH`` and
+    # ``SANDBOX_HOOK_BIN`` — if either constant moves, update both.
+    policy_mount: str = "/jig/policy"
+    hook_bin_mount: str = "/jig/bin"
+
+    def __post_init__(self) -> None:
+        """Reject extra mounts that would collide with the reserved
+        capability-policy mount points.
+
+        Ordering alone is not enough: bwrap honours later ``--bind``
+        entries, so an ``extra_rw_binds`` pair targeting ``/jig/bin``
+        would overwrite the earlier read-only mount, and a
+        ``hide_paths`` entry targeting ``/jig/policy`` would tmpfs-
+        overlay the rules. Reject both at config time rather than
+        hoping the argument order prevents it. We also reject nested
+        paths (``/jig/bin/foo``) and ancestors (``/jig``, ``/``) — any
+        overlap can shadow or expose the enforcement artefacts."""
+
+        reserved = {self.hook_bin_mount, self.policy_mount}
+        for src, dst in self.extra_ro_binds:
+            self._reject_reserved(dst, reserved, "extra_ro_binds", src)
+        for src, dst in self.extra_rw_binds:
+            self._reject_reserved(dst, reserved, "extra_rw_binds", src)
+        for dst in self.hide_paths:
+            self._reject_reserved(dst, reserved, "hide_paths", None)
+
+    @staticmethod
+    def _reject_reserved(
+        dst: str,
+        reserved: set[str],
+        field_name: str,
+        src: str | None,
+    ) -> None:
+        """Raise ``ValueError`` if ``dst`` overlaps any reserved mount.
+
+        ``dst`` overlaps a reserved mount point when it equals it, is
+        a descendant of it, or is an ancestor of it. Uses path-segment
+        comparison so ``/jig/binned`` is not treated as being under
+        ``/jig/bin``."""
+
+        dst_parts = _normalise_mount_path(dst)
+        for mount in reserved:
+            mount_parts = _normalise_mount_path(mount)
+            n = min(len(dst_parts), len(mount_parts))
+            if dst_parts[:n] == mount_parts[:n]:
+                location = f"(src={src!r})" if src is not None else ""
+                raise ValueError(
+                    f"{field_name} entry targets reserved mount {mount!r}: "
+                    f"{dst!r} overlaps the capability-policy mount point "
+                    f"{location}".rstrip()
+                )
+
     def to_args(self) -> list[str]:
         """Build the bwrap argument list."""
         args: list[str] = [
             # Full container filesystem, read-only
-            "--ro-bind", "/", "/",
+            "--ro-bind",
+            "/",
+            "/",
             # Agent's worktree, read-write
-            "--bind", str(self.worktree_host_path), self.workspace,
+            "--bind",
+            str(self.worktree_host_path),
+            self.workspace,
             # /proc and /dev are separate mount points — --ro-bind / /
             # doesn't capture them.  Bind-mount from the parent instead of
             # mounting fresh (--proc /proc requires privileges Docker blocks).
-            "--ro-bind", "/proc", "/proc",
-            "--dev-bind", "/dev", "/dev",
+            "--ro-bind",
+            "/proc",
+            "/proc",
+            "--dev-bind",
+            "/dev",
+            "/dev",
             # Isolated temp
-            "--tmpfs", "/tmp",
+            "--tmpfs",
+            "/tmp",
         ]
 
         # Docker volume mounts are separate mount points that
@@ -79,6 +170,31 @@ class BwrapConfig:
         for path in self.hide_paths:
             args.extend(["--tmpfs", path])
 
+        # Capability policy artefacts (Phase 5 Task G). Bind-mount
+        # read-only: the hook scripts only read these; nothing in the
+        # agent's sandbox should be able to rewrite its own ruleset or
+        # the enforcement binaries. These come before ``extra_ro_binds``
+        # so the reserved mounts appear first in the audit log;
+        # ``__post_init__`` already rejects extra mounts that overlap
+        # these destinations, so argument ordering is defence in depth
+        # rather than the primary guarantee.
+        if self.hook_bin_host_path is not None:
+            args.extend(
+                [
+                    "--ro-bind",
+                    str(self.hook_bin_host_path),
+                    self.hook_bin_mount,
+                ]
+            )
+        if self.policy_dir_host_path is not None:
+            args.extend(
+                [
+                    "--ro-bind",
+                    str(self.policy_dir_host_path),
+                    self.policy_mount,
+                ]
+            )
+
         # Extra mounts
         for src, dst in self.extra_ro_binds:
             args.extend(["--ro-bind", src, dst])
@@ -86,12 +202,17 @@ class BwrapConfig:
             args.extend(["--bind", src, dst])
 
         # Working directory, env, and namespace isolation
-        args.extend([
-            "--chdir", self.workspace,
-            "--setenv", "PWD", self.workspace,
-            "--unshare-pid",
-            "--die-with-parent",
-        ])
+        args.extend(
+            [
+                "--chdir",
+                self.workspace,
+                "--setenv",
+                "PWD",
+                self.workspace,
+                "--unshare-pid",
+                "--die-with-parent",
+            ]
+        )
         return args
 
 

@@ -18,6 +18,10 @@ include = ["jig*"]
 
 [tool.setuptools.package-data]
 "jig.skills" = ["*.md"]
+# Capability enforcement hook scripts (Phase 5 Task G). Shipped as
+# executable no-extension scripts so Claude Code can invoke them as
+# ``/jig/bin/check-bash`` etc. after bwrap bind-mounts the directory.
+"jig.bin" = ["check-bash", "check-write", "check-path", "_hooklib.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

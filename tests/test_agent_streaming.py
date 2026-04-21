@@ -171,6 +171,19 @@ class TestMaterializeCapabilityPolicy:
     hook scripts (Task G) and Claude Code (for settings.json) find
     their inputs already on disk before the agent starts."""
 
+    @pytest.fixture(autouse=True)
+    def _fake_sandbox(self, monkeypatch) -> None:
+        """Make ``sandbox_available()`` return True for these tests.
+
+        Materialisation is gated on the sandbox being present — the
+        hook paths baked into ``.claude/settings.json`` are container-
+        absolute (``/jig/bin/check-*``), so emitting them on the host
+        would give Claude Code ENOENT on every guarded tool call.
+        These tests exercise the success path, so we force the gate
+        open; :class:`TestMaterializeWithoutSandbox` covers the
+        short-circuit."""
+        monkeypatch.setenv("JIG_IN_CONTAINER", "1")
+
     def test_noop_when_no_declarations(self, tmp_path: Path) -> None:
         """A spawn with neither role.capabilities nor
         phase.capability_overrides shouldn't touch the filesystem —
@@ -378,3 +391,66 @@ class TestMaterializeCapabilityPolicy:
         ):
             # Must not raise.
             agent_module._materialize_capability_policy(ctx)
+
+
+class TestMaterializeWithoutSandbox:
+    """The sandbox-gate short-circuit from PR #4 review.
+
+    When ``jig start --no-docker`` is in play, ``sandbox_available()``
+    returns False and materialisation is skipped — the hook paths
+    baked into ``.claude/settings.json`` are container-absolute
+    (``/jig/bin/check-*``), so writing them on the host would hand
+    Claude Code ENOENT on every guarded tool call."""
+
+    def test_skipped_when_sandbox_unavailable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Even a role with declared capabilities gets a no-op when no
+        sandbox is present."""
+        from jig import agent as agent_module
+
+        monkeypatch.delenv("JIG_IN_CONTAINER", raising=False)
+
+        role_cfg = RoleConfig(
+            role="dev",
+            phase_prompt="x",
+            capabilities=CapabilityDeclaration(
+                tools=CapabilityTools(allowed=["Read"]),
+                paths=CapabilityPaths(writable=["ticket://worktree/**"]),
+            ),
+        )
+        ctx = AgentSpawnContext(
+            role="dev",
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.PHASE_PRIMARY,
+            ticket=Ticket(
+                work_type=WorkType.REFACTOR,
+                title="t",
+                created_by="o",
+                description="d",
+            ),
+            parent=None,
+            worktree_path=tmp_path / "worktree",
+            project=Project(
+                id="p",
+                name="p",
+                path=str(tmp_path),
+                language="python",
+                package_manager="uv",
+            ),
+            tickets=None,  # type: ignore[arg-type]
+            threads=None,  # type: ignore[arg-type]
+            memory=None,  # type: ignore[arg-type]
+            bus=None,  # type: ignore[arg-type]
+        )
+
+        result = agent_module._materialize_capability_policy(ctx)
+
+        # Returns None so the caller knows not to wire the policy
+        # mount into BwrapConfig (there's no sandbox to mount it into
+        # anyway).
+        assert result is None
+        # Nothing on disk — no settings.json to break Claude Code's
+        # tool dispatch on the host.
+        assert not (tmp_path / "worktree" / ".claude").exists()
+        assert not (tmp_path / ".jig" / "runtime").exists()

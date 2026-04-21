@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""PreToolUse hook for Write-family tools (Phase 5 Task G, doc 16).
+
+Registered as the ``Write|Edit|MultiEdit|NotebookEdit`` matcher by
+``jig.capability_compiler._build_claude_settings`` — fires before each
+file-mutating tool call. Gates the ``file_path`` (or
+``notebook_path``) against the spawn's compiled path rules:
+
+1. **Deny wins.** If the target matches any pattern in
+   ``paths.denied``, refuse the call.
+2. **Allowlist when populated.** If ``paths.writable`` is non-empty
+   and no pattern in it matches, refuse. Empty ``paths.writable`` with
+   non-empty ``paths.denied`` means "everything bwrap lets through is
+   writable except what's denied" — the Docker+bwrap layer already
+   bounds the overall filesystem scope.
+3. Otherwise allow.
+
+Paths are normalised to sandbox-absolute form before matching — a
+relative ``src/foo.py`` resolves against the agent's cwd
+(``/workspace``). URI-scheme globs in the rules are rewritten to their
+sandbox equivalents (e.g. ``ticket://worktree/foo/**`` →
+``/workspace/foo/**``); patterns the hook cannot resolve into a
+concrete sandbox path are skipped (see ``_hooklib.resolve_uri_glob``).
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _hooklib  # noqa: E402
+
+# Tools this hook gates plus the field each one uses for the target
+# file. Stays in sync with the ``Write|Edit|MultiEdit|NotebookEdit``
+# matcher emitted by the compiler — add a new entry here if the
+# compiler widens the matcher.
+_TARGET_FIELDS: dict[str, tuple[str, ...]] = {
+    "Write": ("file_path",),
+    "Edit": ("file_path",),
+    "MultiEdit": ("file_path",),
+    # Notebook tools use a distinct field for the notebook itself. We
+    # check ``notebook_path`` first and fall back to ``file_path`` for
+    # forward compat with tool-input schema changes.
+    "NotebookEdit": ("notebook_path", "file_path"),
+}
+
+
+def _extract_target(tool_name: str, tool_input: dict) -> str | None:
+    for field in _TARGET_FIELDS.get(tool_name, ("file_path",)):
+        value = tool_input.get(field)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def main() -> None:
+    try:
+        payload = _hooklib.read_payload()
+        rules = _hooklib.load_rules()
+    except _hooklib.HookError as exc:
+        _hooklib.deny_exit(f"blocked by policy: {exc}")
+
+    if payload.tool_name not in _TARGET_FIELDS:
+        # Non-write tool somehow routed here; let it through — the
+        # read-hook or bash-hook will gate it if applicable.
+        _hooklib.allow_exit()
+
+    raw_target = _extract_target(payload.tool_name, payload.tool_input)
+    if raw_target is None:
+        _hooklib.deny_exit(
+            f"blocked by policy: {payload.tool_name} call had no usable "
+            f"target path in tool_input"
+        )
+
+    try:
+        target = _hooklib.normalize_path(raw_target)
+    except _hooklib.HookError as exc:
+        _hooklib.deny_exit(f"blocked by policy: {exc}")
+
+    paths_rules = rules.get("paths") or {}
+    denied = paths_rules.get("denied") or []
+    writable = paths_rules.get("writable") or []
+
+    if not isinstance(denied, list) or not isinstance(writable, list):
+        _hooklib.deny_exit(
+            "blocked by policy: rules.json paths.{denied,writable} "
+            "must be lists"
+        )
+
+    # Step 1: deny wins.
+    hit = _hooklib.denies_path(target, denied)
+    if hit is not None:
+        _hooklib.deny_exit(
+            f"blocked by policy: write to {target!r} matches denied path "
+            f"{hit!r}"
+        )
+
+    # Step 2: if a writable allowlist is declared, require a match.
+    if writable and not _hooklib.writable_permits_path(target, writable):
+        _hooklib.deny_exit(
+            f"blocked by policy: write to {target!r} is not in the "
+            f"role's writable paths (allowlist: {writable})"
+        )
+
+    _hooklib.allow_exit()
+
+
+if __name__ == "__main__":
+    main()

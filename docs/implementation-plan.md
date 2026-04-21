@@ -1662,11 +1662,24 @@ spawn.
             `_close_handoff` from named-agent short-
             circuits. Checkpoint pruning runs when a store
             is wired. Bus event carries `auto=True`.
-      - [ ] **O2b** — on gate-pass with a non-automated
-            evaluator, spawn the evaluator agent via
-            `run_agent` using a new
-            `SpawnReason.EVALUATOR`. Pattern mirrors
-            `_spawn_qa_responder`.
+      - [x] **O2b** — on gate-pass with a role-kind
+            evaluator (or `multi` spec whose members include
+            role actors), `_spawn_evaluator` fires off a
+            background `run_agent` with
+            `SpawnReason.EVALUATOR`. Mirrors
+            `_spawn_qa_responder`: reserves the
+            `_live_subscribers[(ticket, role)]` slot, loads
+            the role config, builds an
+            `AgentSpawnContext` with an
+            `initial_bus_message` flagging the spawn kind
+            and the target handoff id, then creates the
+            task and attaches a cleanup callback. `multi`
+            walks members and spawns only role entries;
+            human evaluators leave the handoff pending for
+            TUI-driven resolution. The per-ticket loop's
+            existing `has_unresolved_blocking` wait does
+            the actual blocking on the handoff, so the
+            spawn stays fire-and-forget.
 - [ ] Per-spawn: capability compilation (Task F) materializes
       `rules.json` + `.claude/settings.json` before the
       agent starts.

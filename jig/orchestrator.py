@@ -621,9 +621,13 @@ class Orchestrator:
         * Gate pass AND phase evaluator resolves to
           ``automated_only`` → ``accept_handoff_automated`` flips the
           handoff to ``accepted`` (harness identity). Task O2a.
-        * Gate pass AND phase evaluator is role/human/multi → leave
-          the handoff pending for evaluator spawn (Task O2b) or a
-          human accept.
+        * Gate pass AND phase evaluator is role-kind (or multi with
+          role members) → spawn the evaluator agent(s) via
+          ``_spawn_evaluator`` so they can accept/reject the pending
+          handoff. Task O2b.
+        * Gate pass AND phase evaluator is ``specific_human`` (or a
+          multi whose members are all human) → leave the handoff
+          pending for a human accept. No spawn.
 
         No pending handoff → no-op. The phase either doesn't use the
         handoff primitive or the agent returned success without posting
@@ -698,20 +702,48 @@ class Orchestrator:
             phase_name=phase.name,
             handoff_history=history,
         )
-        if resolved is None or resolved.kind != "automated":
+        if resolved is None:
             return
 
-        _logger.info(
-            "handoff %s auto-accepted (phase %r automated_only, gate passed)",
-            pending_hid,
-            phase.name,
-        )
-        await accept_handoff_automated(
-            handoff_id=pending_hid,
-            threads=self.threads,
-            bus=self.bus,
-            checkpoints=self.checkpoints,
-        )
+        if resolved.kind == "automated":
+            _logger.info(
+                "handoff %s auto-accepted (phase %r automated_only, gate passed)",
+                pending_hid,
+                phase.name,
+            )
+            await accept_handoff_automated(
+                handoff_id=pending_hid,
+                threads=self.threads,
+                bus=self.bus,
+                checkpoints=self.checkpoints,
+            )
+            return
+
+        # O2b — spawn evaluator agent(s) for role-kind evaluators.
+        # ``multi`` is walked so role members spawn and human members
+        # are skipped; the handoff stays pending until each role
+        # member acts (and any humans accept via the UI).
+        role_actors: list[str] = []
+        if resolved.kind == "role":
+            role_actors = list(resolved.actors)
+        elif resolved.kind == "multi":
+            for member in resolved.members:
+                if member.kind == "role":
+                    role_actors.extend(member.actors)
+
+        if not role_actors:
+            # ``human``-only or empty multi → leave pending; a human
+            # evaluator resolves the handoff via the TUI.
+            return
+
+        for role in role_actors:
+            _logger.info(
+                "spawning evaluator %r for handoff %s (phase %r)",
+                role,
+                pending_hid,
+                phase.name,
+            )
+            await self._spawn_evaluator(ticket_id, role, pending_hid)
 
     async def _phase_handoff_rejected(self, ticket_id: str, phase_name: str) -> bool:
         """Return True if the most recent Handoff for ``phase_name`` on
@@ -978,6 +1010,107 @@ class Orchestrator:
             if exc is not None:
                 _logger.warning(
                     "qa responder for %s/%s raised",
+                    ticket_id,
+                    role,
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_cleanup)
+
+    async def _spawn_evaluator(
+        self, ticket_id: str, role: str, handoff_id: str
+    ) -> None:
+        """Spawn an evaluator agent to review a pending handoff.
+
+        Called by ``_run_handoff_gate_if_pending`` on gate-pass when
+        the phase's evaluator spec resolves to a role-kind identity
+        (``specific_role`` / ``previous_phase_role``) — including role
+        members of a ``multi`` spec. The evaluator's job is to inspect
+        the handoff's outputs and accept or reject it via the
+        ``thread_accept_handoff`` / ``thread_reject_handoff`` MCP
+        tools.
+
+        Runs as a background task; the caller returns immediately and
+        the per-ticket loop's ``has_unresolved_blocking`` wait does the
+        actual blocking until the evaluator resolves the handoff.
+
+        No-op if an agent for ``(ticket_id, role)`` is already
+        subscribed — two phases with the same evaluator role on the
+        same ticket share the subscriber slot.
+        """
+        from jig.persistence import load_role
+        from jig.runtime import AgentSpawnContext, SpawnReason
+
+        if (
+            self.tickets is None
+            or self.threads is None
+            or self.memory is None
+            or self.bus is None
+            or self._project is None
+        ):
+            return
+
+        if (ticket_id, role) in self._live_subscribers:
+            return
+
+        self._live_subscribers[(ticket_id, role)] = asyncio.current_task()  # type: ignore[assignment]
+
+        try:
+            ticket = await self.tickets.get(ticket_id)
+            if ticket is None:
+                self._live_subscribers.pop((ticket_id, role), None)
+                return
+            parent = None
+            if ticket.parent_id:
+                parent = await self.tickets.get(ticket.parent_id)
+            role_cfg = load_role(self._project_path, role)
+            worktree = await self._ensure_worktree(parent or ticket)
+        except FileNotFoundError:
+            _logger.warning(
+                "unknown evaluator role %r for ticket %s — check "
+                "phase.evaluator config",
+                role,
+                ticket_id,
+            )
+            self._live_subscribers.pop((ticket_id, role), None)
+            return
+        except Exception:
+            _logger.exception(
+                "failed to spawn evaluator for %s/%s", ticket_id, role
+            )
+            self._live_subscribers.pop((ticket_id, role), None)
+            return
+
+        ctx = AgentSpawnContext(
+            role=role,
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.EVALUATOR,
+            ticket=ticket,
+            parent=parent,
+            worktree_path=worktree,
+            project=self._project,
+            tickets=self.tickets,
+            threads=self.threads,
+            memory=self.memory,
+            bus=self.bus,
+            checkpoints=self.checkpoints,
+            initial_bus_message={
+                "kind": "thread_handoff_evaluator_spawn",
+                "ticket_id": ticket_id,
+                "handoff_id": handoff_id,
+            },
+        )
+        task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))
+        self._live_subscribers[(ticket_id, role)] = task
+
+        def _cleanup(t: asyncio.Task) -> None:
+            self._live_subscribers.pop((ticket_id, role), None)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                _logger.warning(
+                    "evaluator for %s/%s raised",
                     ticket_id,
                     role,
                     exc_info=exc,

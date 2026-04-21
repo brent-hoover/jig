@@ -15,6 +15,12 @@ from jig.ticket import Ticket
 class SpawnReason(str, Enum):
     PHASE_PRIMARY = "phase_primary"
     QA_RESPONDER = "qa_responder"
+    # Phase 5 Task O2b — evaluator agent spawned on gate-pass for a
+    # role-kind phase evaluator. The agent reviews the pending handoff
+    # and accepts/rejects it via thread_mcp tools. Distinct from
+    # PHASE_PRIMARY so prompt_builder can key off the reason to compose
+    # an evaluator-specific prompt (not the phase's normal work prompt).
+    EVALUATOR = "evaluator"
 
 
 @dataclass

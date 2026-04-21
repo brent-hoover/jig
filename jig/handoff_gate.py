@@ -30,6 +30,7 @@ from jig.check_gate import GateVerdict, evaluate_handoff_gate
 from jig.check_runner import AgentCheckRunner, ScriptedRunner
 from jig.checks import CheckCatalog
 from jig.models import WorkflowConfig
+from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -37,6 +38,11 @@ from jig.thread import Handoff
 from jig.thread_mcp import ThreadError
 
 _logger = logging.getLogger(__name__)
+
+# The "sender" field on the bounce bus message. Matches the check
+# runner's author convention so log readers can tell the bounce came
+# from automated gating, not a named evaluator.
+_BOUNCE_AUTHOR = "harness"
 
 
 async def run_handoff_gate(
@@ -127,4 +133,107 @@ async def run_handoff_gate(
     )
 
 
-__all__ = ["run_handoff_gate"]
+def _compose_bounce_reason(verdict: GateVerdict) -> str:
+    """Build the ``rejection_reason`` body for a bounced handoff.
+
+    Summarizes the gate verdict so an agent reading the thread sees
+    what blocked it without having to load every CheckResult.
+    """
+    lines: list[str] = ["Handoff bounced: required check gate failed."]
+    if verdict.failing:
+        lines.append("")
+        lines.append("Failing required checks:")
+        for entry in verdict.failing:
+            lines.append(
+                f"  - {entry.check_name} ({entry.verdict}) "
+                f"[event {entry.event_id}]"
+            )
+    if verdict.missing:
+        lines.append("")
+        lines.append(
+            "Required checks with no result (treated as fail):"
+        )
+        for name in verdict.missing:
+            lines.append(f"  - {name}")
+    lines.append("")
+    lines.append(
+        "See the thread's check_failure events for full output. "
+        "Fix the underlying issues and post a new handoff."
+    )
+    return "\n".join(lines)
+
+
+async def bounce_handoff(
+    *,
+    handoff_id: str,
+    threads: ThreadStore,
+    bus: MessageBus,
+    verdict: GateVerdict,
+) -> str:
+    """Reject a pending handoff because the check gate blocked it.
+
+    Flips the Handoff's ``acceptance_state`` to ``rejected`` directly
+    (bypassing ``handle_thread_reject_handoff``'s evaluator-identity
+    guard — the gate is not an evaluator, it's the runner's verdict).
+    Publishes ``thread_handoff_rejected`` on the ticket topic so the
+    orchestrator's per-ticket loop sees the rejection and reroutes to
+    the fix phase, same as a human evaluator's reject would.
+
+    Rejection doesn't prune checkpoints (matches the evaluator-reject
+    behavior in ``_close_handoff``) — the retry resumes from the same
+    history.
+
+    Returns the rejection reason string as posted. Raises
+    ``ThreadError`` if the entry isn't a pending Handoff.
+    """
+    handoff = await threads.get(handoff_id)
+    if handoff is None:
+        raise KeyError(f"handoff {handoff_id!r} not found")
+    if not isinstance(handoff, Handoff):
+        raise ThreadError(
+            f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff"
+        )
+    if handoff.is_resolved():
+        raise ThreadError(
+            f"handoff {handoff_id!r} is already "
+            f"{handoff.acceptance_state!r}; cannot bounce"
+        )
+    if verdict.passing:
+        raise ThreadError(
+            "refusing to bounce a handoff on a passing gate verdict"
+        )
+
+    reason = _compose_bounce_reason(verdict)
+    await threads.update(
+        handoff_id,
+        {
+            "acceptance_state": "rejected",
+            "rejection_reason": reason,
+        },
+    )
+
+    await bus.publish(
+        Message(
+            sender=_BOUNCE_AUTHOR,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "thread_handoff_rejected",
+                "ticket_id": handoff.ticket_id,
+                "handoff_id": handoff_id,
+                "phase": handoff.phase,
+                "rejection_reason": reason,
+                "rejected_by": _BOUNCE_AUTHOR,
+                "bounce": True,
+                "failing_checks": [
+                    f.check_name for f in verdict.failing
+                ],
+                "missing_checks": list(verdict.missing),
+            },
+            topic=f"tickets.{handoff.ticket_id}",
+        )
+    )
+    return reason
+
+
+__all__ = ["bounce_handoff", "run_handoff_gate"]

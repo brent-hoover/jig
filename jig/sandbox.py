@@ -36,6 +36,24 @@ class BwrapConfig:
     worktree_host_path: Path
     """Host path to the agent's git worktree (mounted rw at /workspace)."""
 
+    policy_dir_host_path: Path | None = None
+    """Host directory containing ``rules.json`` for this spawn.
+
+    When set, the directory is bind-mounted read-only at ``/jig/policy/``
+    inside the sandbox. The capability enforcement hook scripts
+    (``check-bash``, ``check-write``, ``check-path``) read
+    ``/jig/policy/rules.json`` on every tool call. Leave ``None`` for
+    spawns with no declared capabilities — in that case
+    ``.claude/settings.json`` registers no hooks, so the policy path
+    is never dereferenced."""
+
+    hook_bin_host_path: Path | None = None
+    """Host directory containing the capability enforcement hook
+    scripts. Bind-mounted read-only at ``/jig/bin/`` when set. Paired
+    with ``policy_dir_host_path``: the hooks registered in
+    ``.claude/settings.json`` point at ``/jig/bin/check-*``, so the
+    two mounts must be applied together for policy to fire."""
+
     extra_ro_binds: list[tuple[str, str]] = field(default_factory=list)
     """Additional read-only bind mounts ``(host_path, sandbox_path)``."""
 
@@ -48,20 +66,35 @@ class BwrapConfig:
     workspace: str = "/workspace"
     """Mount point inside the sandbox where the worktree appears."""
 
+    # Sandbox-absolute mount points for the capability-policy artefacts.
+    # These match ``jig.capability_compiler.SANDBOX_RULES_PATH`` and
+    # ``SANDBOX_HOOK_BIN`` — if either constant moves, update both.
+    policy_mount: str = "/jig/policy"
+    hook_bin_mount: str = "/jig/bin"
+
     def to_args(self) -> list[str]:
         """Build the bwrap argument list."""
         args: list[str] = [
             # Full container filesystem, read-only
-            "--ro-bind", "/", "/",
+            "--ro-bind",
+            "/",
+            "/",
             # Agent's worktree, read-write
-            "--bind", str(self.worktree_host_path), self.workspace,
+            "--bind",
+            str(self.worktree_host_path),
+            self.workspace,
             # /proc and /dev are separate mount points — --ro-bind / /
             # doesn't capture them.  Bind-mount from the parent instead of
             # mounting fresh (--proc /proc requires privileges Docker blocks).
-            "--ro-bind", "/proc", "/proc",
-            "--dev-bind", "/dev", "/dev",
+            "--ro-bind",
+            "/proc",
+            "/proc",
+            "--dev-bind",
+            "/dev",
+            "/dev",
             # Isolated temp
-            "--tmpfs", "/tmp",
+            "--tmpfs",
+            "/tmp",
         ]
 
         # Docker volume mounts are separate mount points that
@@ -79,6 +112,29 @@ class BwrapConfig:
         for path in self.hide_paths:
             args.extend(["--tmpfs", path])
 
+        # Capability policy artefacts (Phase 5 Task G). Bind-mount
+        # read-only: the hook scripts only read these; nothing in the
+        # agent's sandbox should be able to rewrite its own ruleset or
+        # the enforcement binaries. Ordering matters — these come
+        # before ``extra_ro_binds`` so callers can't accidentally
+        # shadow ``/jig/bin`` or ``/jig/policy`` with an extra mount.
+        if self.hook_bin_host_path is not None:
+            args.extend(
+                [
+                    "--ro-bind",
+                    str(self.hook_bin_host_path),
+                    self.hook_bin_mount,
+                ]
+            )
+        if self.policy_dir_host_path is not None:
+            args.extend(
+                [
+                    "--ro-bind",
+                    str(self.policy_dir_host_path),
+                    self.policy_mount,
+                ]
+            )
+
         # Extra mounts
         for src, dst in self.extra_ro_binds:
             args.extend(["--ro-bind", src, dst])
@@ -86,12 +142,17 @@ class BwrapConfig:
             args.extend(["--bind", src, dst])
 
         # Working directory, env, and namespace isolation
-        args.extend([
-            "--chdir", self.workspace,
-            "--setenv", "PWD", self.workspace,
-            "--unshare-pid",
-            "--die-with-parent",
-        ])
+        args.extend(
+            [
+                "--chdir",
+                self.workspace,
+                "--setenv",
+                "PWD",
+                self.workspace,
+                "--unshare-pid",
+                "--die-with-parent",
+            ]
+        )
         return args
 
 

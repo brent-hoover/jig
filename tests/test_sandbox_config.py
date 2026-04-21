@@ -1,0 +1,111 @@
+"""Tests for ``jig.sandbox.BwrapConfig`` argument construction.
+
+The bwrap argument list is the enforcement surface for agent
+filesystem isolation. These tests assert the capability-policy
+bind-mounts (Phase 5 Task G) appear with the right source and
+destination paths, read-only, and are only present when the caller
+declares them — a spawn with no capability policy should not see
+``/jig/policy`` or ``/jig/bin`` mounted at all.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from jig.sandbox import BwrapConfig
+
+
+def _pair_positions(args: list[str], flag: str) -> list[tuple[str, str]]:
+    """Extract (src, dst) pairs following every ``flag`` occurrence."""
+    pairs: list[tuple[str, str]] = []
+    for i, arg in enumerate(args):
+        if arg == flag and i + 2 < len(args):
+            pairs.append((args[i + 1], args[i + 2]))
+    return pairs
+
+
+class TestCapabilityMounts:
+    def test_no_policy_no_extra_mounts(self, tmp_path: Path) -> None:
+        """Spawn without capability declarations: no ``/jig/*`` mounts.
+
+        The compiler doesn't write rules or hook registrations for
+        such spawns — mounting empty policy artefacts would be
+        enforcement theatre."""
+        cfg = BwrapConfig(worktree_host_path=tmp_path)
+        args = cfg.to_args()
+        ro_binds = _pair_positions(args, "--ro-bind")
+        destinations = [dst for _src, dst in ro_binds]
+        assert "/jig/policy" not in destinations
+        assert "/jig/bin" not in destinations
+
+    def test_policy_and_hook_bin_mounted_readonly(self, tmp_path: Path) -> None:
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        hook_bin = tmp_path / "bin"
+        hook_bin.mkdir()
+
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            policy_dir_host_path=policy_dir,
+            hook_bin_host_path=hook_bin,
+        )
+        args = cfg.to_args()
+
+        ro_binds = _pair_positions(args, "--ro-bind")
+        # Both mounts must be read-only — an agent that could rewrite
+        # its own rules or hook scripts would have a sandbox escape.
+        assert (str(policy_dir), "/jig/policy") in ro_binds
+        assert (str(hook_bin), "/jig/bin") in ro_binds
+
+        # Neither appears as --bind (rw) anywhere.
+        rw_binds = _pair_positions(args, "--bind")
+        rw_dsts = [dst for _src, dst in rw_binds]
+        assert "/jig/policy" not in rw_dsts
+        assert "/jig/bin" not in rw_dsts
+
+    def test_hook_bin_mount_precedes_extras(self, tmp_path: Path) -> None:
+        """Hook/policy mounts come before ``extra_ro_binds`` so callers
+        can't accidentally shadow ``/jig/*`` by re-binding it."""
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        hook_bin = tmp_path / "bin"
+        hook_bin.mkdir()
+        extra_src = tmp_path / "extra"
+        extra_src.mkdir()
+
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            policy_dir_host_path=policy_dir,
+            hook_bin_host_path=hook_bin,
+            extra_ro_binds=[(str(extra_src), "/extra")],
+        )
+        args = cfg.to_args()
+
+        def _first_index_of_dst(dst: str) -> int:
+            for i, arg in enumerate(args):
+                if arg == "--ro-bind" and i + 2 < len(args) and args[i + 2] == dst:
+                    return i
+            raise AssertionError(f"{dst!r} not found among --ro-bind args")
+
+        # hook_bin/policy registered before the caller's extra binds.
+        assert _first_index_of_dst("/jig/bin") < _first_index_of_dst("/extra")
+        assert _first_index_of_dst("/jig/policy") < _first_index_of_dst("/extra")
+
+    def test_policy_without_hook_bin_still_mounts(self, tmp_path: Path) -> None:
+        """The two paths are independent — setting one without the
+        other is a misconfiguration but ``BwrapConfig`` doesn't enforce
+        pairing. That's the caller's job (``agent.py`` sets both or
+        neither). We only check the argument builder honours each
+        field individually."""
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            policy_dir_host_path=policy_dir,
+        )
+        args = cfg.to_args()
+        ro_binds = _pair_positions(args, "--ro-bind")
+        assert (str(policy_dir), "/jig/policy") in ro_binds
+        dsts = [dst for _src, dst in ro_binds]
+        assert "/jig/bin" not in dsts

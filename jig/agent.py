@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions
 from claude_agent_sdk.types import (
@@ -131,8 +132,33 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     )
 
 
-def _materialize_capability_policy(ctx: AgentSpawnContext) -> None:
+def _hook_bin_dir() -> Path:
+    """Return the host directory containing the capability-enforcement
+    hook scripts (``check-bash``, ``check-write``, ``check-path``).
+
+    The ``jig.bin`` subpackage exists solely to host these files; its
+    ``hook_bin_dir()`` resolves to the on-disk location regardless of
+    whether jig is running from a source checkout, an editable
+    install, or a wheel in site-packages. ``sandbox.py`` bind-mounts
+    the returned path read-only at ``/jig/bin/`` inside the agent
+    sandbox."""
+
+    # Local import: keeps the module-load cost off paths that never
+    # touch sandbox spawning (e.g. CLI commands that only read stores).
+    from jig.bin import hook_bin_dir
+
+    return hook_bin_dir()
+
+
+def _materialize_capability_policy(ctx: AgentSpawnContext) -> Path | None:
     """Compile + write capability artefacts for a spawn.
+
+    Returns the policy directory that was written (suitable for
+    bind-mounting at ``/jig/policy/``), or ``None`` when the spawn has
+    no declared capabilities / materialisation failed. Callers use
+    the return value to decide whether to pass the directory into
+    :class:`BwrapConfig` — a ``None`` result means no hook scripts
+    were registered, so the sandbox doesn't need the policy mount.
 
     No-op when neither the role nor the phase declares capabilities —
     we don't want to silently clobber a hand-maintained
@@ -155,7 +181,7 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> None:
     role_caps = ctx.role_cfg.capabilities
     phase_caps = ctx.phase.capability_overrides if ctx.phase else None
     if role_caps is None and phase_caps is None:
-        return
+        return None
 
     try:
         rules = compile_capabilities(role_caps, phase_caps)
@@ -178,6 +204,7 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> None:
             rules_path,
             settings_path,
         )
+        return policy_dir
     except OSError:
         # Narrow: only swallow filesystem errors (disk full, perms,
         # broken mount). Bugs in compile/materialize should propagate
@@ -189,6 +216,7 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> None:
             ctx.role,
             ctx.ticket.id,
         )
+        return None
 
 
 def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
@@ -307,7 +335,7 @@ async def run_agent(
     # exists — a spawn with no declared policy gets no .claude/settings
     # overwrite and no rules.json clutter. Task G's hook scripts read
     # rules.json at tool-eval time.
-    _materialize_capability_policy(ctx)
+    policy_dir = _materialize_capability_policy(ctx)
 
     options = ClaudeAgentOptions(
         cwd=str(ctx.worktree_path),
@@ -380,7 +408,17 @@ async def run_agent(
     # Build sandboxed transport when running inside the jig container
     transport = None
     if sandbox_available():
-        bwrap_cfg = BwrapConfig(worktree_host_path=ctx.worktree_path)
+        # Only mount the policy + hook-bin dirs when we actually wrote
+        # a rules.json for this spawn. Without declared capabilities
+        # the settings.json registers no hooks, so the sandbox doesn't
+        # need either mount — keeping bwrap's mount list minimal
+        # reduces attack surface.
+        hook_bin = _hook_bin_dir() if policy_dir is not None else None
+        bwrap_cfg = BwrapConfig(
+            worktree_host_path=ctx.worktree_path,
+            policy_dir_host_path=policy_dir,
+            hook_bin_host_path=hook_bin,
+        )
         transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
         _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
 

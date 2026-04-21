@@ -31,6 +31,11 @@ from typing import TYPE_CHECKING, Any
 
 from jig.checkpoint_mcp import record_auto_pre_handoff_checkpoint
 from jig.config import load_config
+from jig.evaluator_resolver import (
+    ResolvedEvaluator,
+    natural_next_role,
+    resolve_evaluator,
+)
 from jig.store import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -927,28 +932,48 @@ async def handle_thread_uncertain(
 # ---- thread_handoff -------------------------------------------------------
 
 
-def _resolve_phase_evaluator(
-    workflow: WorkflowConfig, phase_name: str
-) -> str | None:
-    """Return the role authorized to accept/reject the Handoff for
-    ``phase_name``.
+async def _resolve_phase_evaluator(
+    *,
+    workflow: WorkflowConfig,
+    phase_name: str,
+    threads: ThreadStore,
+    ticket_id: str,
+) -> ResolvedEvaluator | None:
+    """Return the evaluator(s) authorized to accept/reject the Handoff
+    for ``phase_name``.
 
-    Order:
+    Resolution order:
 
-    1. The phase's explicit ``evaluator`` field (Phase 4F addition).
-    2. The next phase's ``role`` — the natural reviewer in a
-       sequential workflow.
-    3. ``None`` — the caller falls back to warn-but-allow, matching
-       the escalation target-validation posture. Phase 5 tightens this.
+    1. The phase's explicit ``evaluator:`` field, resolved via
+       ``jig.evaluator_resolver.resolve_evaluator``. The five spec
+       types from doc 10 §Evaluators are supported.
+    2. The next phase's ``role`` — the natural-sequence default,
+       wrapped as a ``kind='role'`` ``ResolvedEvaluator``.
+    3. ``None`` — no evaluator can be determined (terminal phase,
+       unresolvable ``previous_phase_role``). Caller warns and
+       allows; Phase 5 Task D tightens this for required-checks
+       phases.
     """
     for idx, phase in enumerate(workflow.phases):
         if phase.name != phase_name:
             continue
-        if phase.evaluator:
-            return phase.evaluator
-        next_idx = idx + 1
-        if next_idx < len(workflow.phases):
-            return workflow.phases[next_idx].role
+        if phase.evaluator is not None:
+            history = [
+                e
+                for e in await threads.for_ticket(ticket_id)
+                if isinstance(e, Handoff)
+            ]
+            resolved = resolve_evaluator(
+                spec=phase.evaluator,
+                workflow=workflow,
+                phase_name=phase_name,
+                handoff_history=history,
+            )
+            if resolved is not None:
+                return resolved
+        nxt = natural_next_role(workflow, phase_name)
+        if nxt is not None:
+            return ResolvedEvaluator(kind="role", actors=[nxt])
         return None
     return None
 
@@ -1102,10 +1127,15 @@ async def _close_handoff(
     if ticket is None:
         raise KeyError(f"ticket {h.ticket_id} not found")
 
-    evaluator: str | None = None
+    resolved: ResolvedEvaluator | None = None
     try:
         workflow = load_workflow(project_path, ticket.workflow)
-        evaluator = _resolve_phase_evaluator(workflow, h.phase)
+        resolved = await _resolve_phase_evaluator(
+            workflow=workflow,
+            phase_name=h.phase,
+            threads=threads,
+            ticket_id=h.ticket_id,
+        )
     except FileNotFoundError:
         _logger.warning(
             "workflow %r for ticket %s not found; evaluator check "
@@ -1115,21 +1145,41 @@ async def _close_handoff(
             handoff_id,
         )
 
-    if evaluator is None:
+    if resolved is None:
         _logger.warning(
             "no evaluator resolved for phase %r in workflow %r; "
-            "allowing %s by %r (handoff %s) in Phase 4",
+            "allowing %s by %r (handoff %s)",
             h.phase,
             ticket.workflow,
             "accept" if accepted else "reject",
             sender,
             handoff_id,
         )
-    elif sender != evaluator:
+    elif resolved.kind == "automated":
+        # ``automated_only`` phases accept via the orchestrator's
+        # check-gating path (Task D); a manual accept/reject from a
+        # named sender is disallowed so agents can't side-step the
+        # automated gate by poking this tool.
         raise ThreadError(
-            f"only the phase evaluator ({evaluator!r}) can "
+            f"phase {h.phase!r} has evaluator=automated_only; "
+            f"manual {'accept' if accepted else 'reject'} by "
+            f"{sender!r} not permitted (check results gate)"
+        )
+    elif sender not in resolved.actors:
+        raise ThreadError(
+            f"only the phase evaluator ({resolved.actors!r}) can "
             f"{'accept' if accepted else 'reject'} this handoff "
             f"(sender={sender!r}, phase={h.phase!r})"
+        )
+    # Structural identity guard per doc 10 §Evaluators: the actor who
+    # authored the Handoff cannot also evaluate it. Catches the case
+    # where ``specific_role`` names the completing phase's role, or
+    # ``previous_phase_role`` happens to resolve to the same identity.
+    if resolved is not None and sender == h.author:
+        raise ThreadError(
+            f"evaluator cannot be the completing actor "
+            f"(sender={sender!r}, handoff_author={h.author!r}, "
+            f"phase={h.phase!r})"
         )
 
     if accepted:

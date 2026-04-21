@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 
 from jig.config import Config, save_config
-from jig.models import PhaseConfig, WorkflowConfig
+from jig.models import PhaseConfig, SpecificRoleEvaluator, WorkflowConfig
 from jig.persistence import save_workflow
 from jig.project import Project
 from jig.store import MessageBus
@@ -1566,7 +1566,9 @@ class TestThreadCloseHandoff:
                 PhaseConfig(
                     name="implement",
                     role="dev",
-                    evaluator="sa",  # explicit wins
+                    evaluator=SpecificRoleEvaluator(
+                        type="specific_role", role="sa"
+                    ),  # explicit wins
                 ),
                 PhaseConfig(name="review", role="reviewer"),
             ],
@@ -1874,5 +1876,263 @@ class TestThreadCloseHandoff:
                 bus=bus,
                 sender="whoever",
                 args={"handoff_id": nid},
+                project_path=tmp_path,
+            )
+
+
+# ---- Phase 5 Task C: evaluator routing + identity guard -------------------
+
+
+class TestPhase5EvaluatorRouting:
+    """New-shape ``evaluator`` specs (doc 10) and the structural
+    ``evaluator ≠ completing actor`` guard."""
+
+    @pytest.mark.asyncio
+    async def test_specific_human_accepts(self, tmp_path: Path) -> None:
+        from jig.models import SpecificHumanEvaluator
+
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(
+                    name="implement",
+                    role="dev",
+                    evaluator=SpecificHumanEvaluator(
+                        type="specific_human", user="alice"
+                    ),
+                ),
+                PhaseConfig(name="review", role="reviewer"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        # "reviewer" is the natural-sequence next role, but the
+        # explicit spec names alice — reviewer must be refused.
+        with pytest.raises(ThreadError, match="phase evaluator"):
+            await handle_thread_accept_handoff(
+                tickets=tickets, threads=threads, bus=bus,
+                sender="reviewer",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        await handle_thread_accept_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="alice",
+            args={"handoff_id": handoff["handoff_id"]},
+            project_path=tmp_path,
+        )
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.accepted_by == "alice"
+
+    @pytest.mark.asyncio
+    async def test_automated_only_rejects_manual(
+        self, tmp_path: Path
+    ) -> None:
+        from jig.models import AutomatedOnlyEvaluator
+
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(
+                    name="run-tests",
+                    role="ci",
+                    evaluator=AutomatedOnlyEvaluator(
+                        type="automated_only"
+                    ),
+                ),
+                PhaseConfig(name="done", role="po"),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="ci",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "run-tests",
+                "outputs": [],
+            },
+        )
+        with pytest.raises(ThreadError, match="automated_only"):
+            await handle_thread_accept_handoff(
+                tickets=tickets, threads=threads, bus=bus,
+                sender="po",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_identity_guard_blocks_self_accept(
+        self, tmp_path: Path
+    ) -> None:
+        """Even when ``specific_role`` names the completing phase's
+        own role, the handoff author can't self-certify."""
+        from jig.models import SpecificRoleEvaluator
+
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(
+                    name="implement",
+                    role="dev",
+                    evaluator=SpecificRoleEvaluator(
+                        type="specific_role", role="dev"
+                    ),
+                ),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        # Sender matches the evaluator role AND the handoff author —
+        # identity guard refuses.
+        with pytest.raises(
+            ThreadError, match="cannot be the completing actor"
+        ):
+            await handle_thread_accept_handoff(
+                tickets=tickets, threads=threads, bus=bus,
+                sender="dev",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_multi_any_member_accepts(self, tmp_path: Path) -> None:
+        """With a ``multi`` spec, any listed actor can accept (the
+        shared guard matches sender against the merged actor list;
+        enforcement of all-must-accept semantics lands in Task D)."""
+        from jig.models import (
+            MultiEvaluator,
+            SpecificHumanEvaluator,
+            SpecificRoleEvaluator,
+        )
+
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(
+                    name="implement",
+                    role="dev",
+                    evaluator=MultiEvaluator(
+                        type="multi",
+                        evaluators=[
+                            SpecificRoleEvaluator(
+                                type="specific_role", role="reviewer"
+                            ),
+                            SpecificHumanEvaluator(
+                                type="specific_human", user="alice"
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+        )
+        handoff = await handle_thread_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        # A third-party sender is refused.
+        with pytest.raises(ThreadError, match="phase evaluator"):
+            await handle_thread_accept_handoff(
+                tickets=tickets, threads=threads, bus=bus,
+                sender="stranger",
+                args={"handoff_id": handoff["handoff_id"]},
+                project_path=tmp_path,
+            )
+        # Either listed actor is accepted (Task D will tighten to
+        # all-must-accept).
+        await handle_thread_accept_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="reviewer",
+            args={"handoff_id": handoff["handoff_id"]},
+            project_path=tmp_path,
+        )
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.accepted_by == "reviewer"
+
+    @pytest.mark.asyncio
+    async def test_previous_phase_role_resolves(
+        self, tmp_path: Path
+    ) -> None:
+        """``previous_phase_role`` resolves to the concrete actor
+        who accepted the earlier phase's handoff."""
+        from jig.models import PreviousPhaseRoleEvaluator
+
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        _write_workflow(
+            tmp_path,
+            phases=[
+                PhaseConfig(name="spec", role="po"),
+                PhaseConfig(
+                    name="implement",
+                    role="dev",
+                    evaluator=PreviousPhaseRoleEvaluator(
+                        type="previous_phase_role", role="po"
+                    ),
+                ),
+            ],
+        )
+        # Seed an accepted prior-phase Handoff in the store so the
+        # resolver has something to find.
+        first = await handle_thread_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="po",
+            args={"ticket_id": ticket_id, "phase": "spec", "outputs": []},
+        )
+        # No explicit evaluator on "spec", so next phase's role (dev)
+        # would normally accept — but that breaks the identity guard
+        # when used later. Use a bespoke reviewer for this seed.
+        await handle_thread_accept_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="dev",  # natural-sequence next role
+            args={"handoff_id": first["handoff_id"]},
+            project_path=tmp_path,
+        )
+        # Now implement phase closes.
+        handoff = await handle_thread_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "phase": "implement",
+                "outputs": [],
+            },
+        )
+        # The previous po-phase handoff was accepted by "dev". So
+        # previous_phase_role(po) resolves to "dev" — but "dev" is
+        # also the implement-phase handoff author, so the identity
+        # guard refuses. This is the intended safety: the structural
+        # rule overrides a would-be self-certification even when
+        # the spec resolves to the completing actor.
+        with pytest.raises(
+            ThreadError, match="cannot be the completing actor"
+        ):
+            await handle_thread_accept_handoff(
+                tickets=tickets, threads=threads, bus=bus,
+                sender="dev",
+                args={"handoff_id": handoff["handoff_id"]},
                 project_path=tmp_path,
             )

@@ -1303,26 +1303,59 @@ specific role templates and tight context.
 
 **C. Evaluator routing + asymmetry**
 
-- [ ] Extend `PhaseConfig` schema: `evaluator:` accepts the
+- [x] Extend `PhaseConfig` schema: `evaluator:` accepts the
       five assignment types from doc 10
       (`previous_phase_role`, `specific_role`,
       `automated_only`, `specific_human`, `multi`).
       Load-time validation rejects unknown types and checks
       role references.
-- [ ] `evaluator_resolver.py` — turns a phase's evaluator
+      *Implemented: discriminated union
+      `EvaluatorSpec = Annotated[Union[...], Field(discriminator="type")]`
+      in `jig/models.py` with five variants. `PhaseConfig.evaluator`
+      is `EvaluatorSpec | None` (was bare `str`). `multi` does not
+      nest `multi` — keeps the resolver non-recursive. Pydantic v2
+      discriminator does type-rejection at load; deeper reference
+      checks (role exists in catalog) land with config-validate in a
+      later slice.*
+- [x] `evaluator_resolver.py` — turns a phase's evaluator
       declaration into a concrete actor identity (role name or
       specific user). `previous_phase_role` queries the
       ticket's Handoff history.
-- [ ] Hard rule: resolved evaluator identity ≠ completing
+      *Implemented: pure function `resolve_evaluator(spec, workflow,
+      phase_name, handoff_history) -> ResolvedEvaluator | None`.
+      `ResolvedEvaluator` has `kind ∈ {role, human, automated, multi}`,
+      `actors: list[str]`, and `members: list[ResolvedEvaluator]` for
+      multi (preserved so the harness can display per-member state).
+      Unresolvable `previous_phase_role` returns `None` so the caller
+      warns-and-falls-back rather than deadlocking. No store access —
+      caller supplies pre-filtered handoff history.*
+- [x] Hard rule: resolved evaluator identity ≠ completing
       actor. If they'd match, the orchestrator escalates (posts
       Escalation, halts phase) rather than silently self-
       approving. Reassignment is a follow-up human action.
+      *Implemented in `_close_handoff` guard in `jig/thread_mcp.py`:
+      `sender == h.author` raises `ThreadError("evaluator cannot be
+      the completing actor")` regardless of resolver output. Blocks
+      self-accept even when the resolved actor list legitimately
+      contains the sender (e.g., `specific_role("dev")` with a
+      dev-authored handoff). Escalation-on-conflict (auto-post
+      Escalation + halt) lands with orchestrator wiring in Task O.*
 - [ ] Evaluator spawn prompt: handoff entry + check results
       (from Task A/B) + any check-failure audit entries + any
       active waivers. Check results are passed as structured
       data (handoff rubric section), not free text.
-- [ ] `automated_only` phases skip evaluator spawn entirely
+      *Deferred to Task D — that task lands `check_failure`
+      SystemEvent plumbing and the orchestrator path that composes
+      the prompt. Resolver exposes enough for the spawner to decide
+      who to spawn; prompt composition is the next piece.*
+- [x] `automated_only` phases skip evaluator spawn entirely
       when all required checks pass.
+      *Implemented: handoff-close guard raises
+      `ThreadError("evaluator=automated_only; manual accept/reject
+      not permitted")` when `resolved.kind == "automated"`. The
+      auto-accept-on-all-checks-pass path (which bypasses this guard
+      by not routing through `thread_accept_handoff`) lands with
+      Task D's check gating.*
 
 **D. Check failure vs evaluator rejection — gating**
 

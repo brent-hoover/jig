@@ -124,6 +124,18 @@ async def test_blocking_objection_resolves_then_advances_with_deferred_item(
 
     orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
 
+    # C3: `_on_ticket_completed` now runs merge before flipping to
+    # RESOLVED; with a fake worktree there's no real git repo, so stub
+    # out the merge + cleanup so the completion path reaches RESOLVED.
+    async def fake_merge(*args, **kwargs):
+        return "stub-merge"
+
+    async def fake_remove(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
+    monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+
     await orch.startup()
     try:
         tid = await orch.tickets.create(

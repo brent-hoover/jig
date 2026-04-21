@@ -22,6 +22,24 @@ from jig.ticket import TicketStatus
 _logger = logging.getLogger(__name__)
 
 
+class DependencyMergeError(RuntimeError):
+    """Raised when a dependency branch can't be merged into a ticket's
+    worktree. The orchestrator converts this into a typed ticket
+    failure rather than running the agent against an inconsistent
+    tree.
+    """
+
+    def __init__(self, *, ticket_id: str, dep_id: str, dep_branch: str) -> None:
+        self.ticket_id = ticket_id
+        self.dep_id = dep_id
+        self.dep_branch = dep_branch
+        super().__init__(
+            f"could not merge dependency branch {dep_branch!r} "
+            f"(from ticket {dep_id!r}) into worktree for ticket "
+            f"{ticket_id!r}"
+        )
+
+
 class Orchestrator:
     """Singleton orchestrator per project process.
 
@@ -247,7 +265,29 @@ class Orchestrator:
             self._running_tickets.pop(ticket_id, None)
             return
 
-        worktree = await self._ensure_worktree(ticket)
+        try:
+            worktree = await self._ensure_worktree(ticket)
+        except DependencyMergeError as exc:
+            _logger.error(
+                "dep merge failed for ticket %s: %s — failing ticket",
+                ticket_id, exc,
+            )
+            if self.threads is not None:
+                from jig.thread import SystemEvent
+                await self.threads.post(SystemEvent(
+                    ticket_id=ticket_id,
+                    author="harness",
+                    event_type="dep_merge_failed",
+                    content=(
+                        f"Dependency branch {exc.dep_branch!r} "
+                        f"(from ticket {exc.dep_id!r}) could not be "
+                        f"merged into the worktree. Resolve manually "
+                        f"and retry."
+                    ),
+                ))
+            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+            await self._on_ticket_failed(ticket_id, ticket)
+            return
         _logger.info("worktree ready at %s", worktree)
         phase_idx = await self._current_phase_index(ticket_id, workflow)
         _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
@@ -384,18 +424,31 @@ class Orchestrator:
             await self._on_ticket_failed(ticket_id, ticket)
             return
 
-        await self._update_ticket_status(ticket_id, TicketStatus.RESOLVED)
         await self._on_ticket_completed(ticket_id, ticket)
 
     async def _on_ticket_completed(self, ticket_id: str, ticket) -> None:
-        """Post-completion: merge branch, emit event, clean up, pick up next ticket."""
-        from jig.worktree import merge_ticket, remove_worktree
+        """Post-completion: merge branch, set final status, emit event,
+        clean up, pick up next ticket.
+
+        Status transitions are keyed off the merge outcome:
+
+        * clean merge → ``RESOLVED`` + ``ticket_completed``
+        * typed merge conflict → ``MERGE_CONFLICT`` +
+          ``ticket_merge_conflict``; branch and worktree are preserved
+          for a human to resolve.
+        * other merge errors → ``FAILED`` + ``ticket_failed``.
+        """
+        from jig.worktree import (
+            MergeConflictError,
+            merge_ticket,
+            remove_worktree,
+        )
 
         branch_name = f"jig/{ticket_id}"
-        _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
 
-        # Merge according to project strategy
         merge_result = ""
+        merge_conflict = False
+        merge_failed = False
         if self._project is not None:
             strategy = self._project.merge_strategy
             try:
@@ -404,11 +457,50 @@ class Orchestrator:
                     self._project.default_branch, strategy,
                 )
                 _logger.info("merge complete: %s", merge_result)
+            except MergeConflictError as exc:
+                merge_conflict = True
+                merge_result = str(exc)
+                _logger.warning(
+                    "merge conflict for %s — routing to MERGE_CONFLICT; "
+                    "branch %s preserved",
+                    ticket_id,
+                    branch_name,
+                )
             except Exception:
+                merge_failed = True
                 merge_result = f"merge failed (branch {branch_name} preserved)"
                 _logger.warning("merge failed for %s", ticket_id, exc_info=True)
 
-        # Emit completion event for TUI
+        if merge_conflict:
+            await self._update_ticket_status(
+                ticket_id, TicketStatus.MERGE_CONFLICT
+            )
+            if self._emitter is not None:
+                from jig.events import JigEvent
+                await self._emitter.emit(JigEvent(
+                    type="ticket_merge_conflict",
+                    data={
+                        "kind": "ticket_merge_conflict",
+                        "ticket_id": ticket_id,
+                        "title": ticket.title,
+                        "branch": branch_name,
+                        "merge": merge_result,
+                    },
+                ))
+            # Preserve worktree + branch so a human can resolve the
+            # conflict manually — intentionally skipping remove_worktree.
+            self._running_tickets.pop(ticket_id, None)
+            await self._start_ready_tickets()
+            return
+
+        if merge_failed:
+            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+            await self._on_ticket_failed(ticket_id, ticket)
+            return
+
+        await self._update_ticket_status(ticket_id, TicketStatus.RESOLVED)
+        _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
+
         if self._emitter is not None:
             from jig.events import JigEvent
             await self._emitter.emit(JigEvent(
@@ -422,17 +514,14 @@ class Orchestrator:
                 },
             ))
 
-        # Clean up running-tickets entry
         self._running_tickets.pop(ticket_id, None)
 
-        # Remove worktree but keep branch for merge
         try:
             await remove_worktree(self._project_path, ticket_id, keep_branch=True)
             _logger.info("worktree removed for %s (branch %s preserved)", ticket_id, branch_name)
         except Exception:
             _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
 
-        # Unblock tickets that depended on this one, then pick up ready work.
         await self._unblock_dependents(ticket_id, ticket)
         await self._start_ready_tickets()
 
@@ -501,18 +590,29 @@ class Orchestrator:
             ticket_id=ticket.id,
             base_branch=self._project.default_branch,
         )
-        # Merge dependency branches so the agent starts with their code.
+        # Merge dependency branches so the agent starts with their
+        # code. A failure here means the worktree is missing its
+        # prereqs — running the agent on an inconsistent tree would
+        # produce a plausible-looking but wrong output. Surface the
+        # error to the caller, who fails the ticket with a typed
+        # ``dep_merge_failed`` SystemEvent.
         for dep_id in ticket.blocked_by:
             dep_branch = f"jig/{dep_id}"
             try:
                 await merge_dep_into_worktree(worktree_path, dep_branch)
                 _logger.info("merged dep branch %s into worktree for %s", dep_branch, ticket.id)
-            except RuntimeError:
-                _logger.warning(
-                    "could not merge dep branch %s into worktree for %s — "
-                    "branch may not exist or has conflicts",
+            except RuntimeError as exc:
+                _logger.error(
+                    "dep branch %s could not be merged into worktree for "
+                    "%s — failing ticket (branch may not exist or has "
+                    "conflicts)",
                     dep_branch, ticket.id,
                 )
+                raise DependencyMergeError(
+                    ticket_id=ticket.id,
+                    dep_id=dep_id,
+                    dep_branch=dep_branch,
+                ) from exc
         return worktree_path
 
     async def _wait_for_resume(self, ticket_id: str) -> None:

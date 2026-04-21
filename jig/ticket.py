@@ -61,6 +61,12 @@ class TicketStatus(str, Enum):
     BLOCKED = "blocked"
     NEEDS_INFO = "needs_info"
     FAILED = "failed"
+    # All phases completed successfully, but the branch couldn't
+    # auto-merge into the default branch — the worktree/branch are
+    # preserved and the ticket sits in this state until a human
+    # resolves the conflict. Distinct from RESOLVED (merged cleanly)
+    # and FAILED (a phase itself failed).
+    MERGE_CONFLICT = "merge_conflict"
     RESOLVED = "resolved"
     CLOSED = "closed"
 

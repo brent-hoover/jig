@@ -330,7 +330,11 @@ class SystemEvent(_ThreadEntryBase):
 
     kind: Literal["system_event"] = "system_event"
     event_type: Literal[
-        "commit", "phase_run", "status_change", "check_failure"
+        "commit",
+        "phase_run",
+        "status_change",
+        "check_failure",
+        "dep_merge_failed",
     ]
     content: str = ""
     commit_sha: str | None = None

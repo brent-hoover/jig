@@ -62,6 +62,22 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
 
     orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
 
+    # C3: `_on_ticket_completed` runs merge before marking RESOLVED; with
+    # a fake worktree there's no real git repo, so stub out the merge.
+    async def fake_merge(*args, **kwargs):
+        return "stub-merge"
+
+    monkeypatch.setattr(
+        "jig.worktree.merge_ticket", fake_merge
+    )
+
+    async def fake_remove(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "jig.worktree.remove_worktree", fake_remove
+    )
+
     await orch.startup()
     try:
         tid = await orch.tickets.create(

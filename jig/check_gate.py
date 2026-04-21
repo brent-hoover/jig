@@ -114,39 +114,42 @@ async def _post_failure_event(
     return await threads.post(ev)
 
 
-async def _active_waived_checks(
-    *, threads: ThreadStore, ticket_id: str, phase: str
-) -> set[str]:
-    """Return the set of check names with at least one active waiver.
+async def _latest_failure_waived_for_result(
+    *,
+    threads: ThreadStore,
+    ticket_id: str,
+    check_name: str,
+    result: CheckResult,
+) -> bool:
+    """Does the existing waiver authorize *this specific* failing run?
 
-    Task E will flip ``waived=True`` on the check_failure SystemEvent
-    when ``thread_waive_check`` fires. Until then this set is always
-    empty, which is the correct default — no check passes the gate
-    just because someone filed a free-text note.
+    A waiver authorizes one concrete failure, not a check name for the
+    lifetime of the ticket. We honor the waiver iff the most recent
+    ``check_failure`` SystemEvent for ``check_name`` is marked
+    ``waived=True`` *and* represents the same failing run as
+    ``result`` (matched on ``commit_sha``). A re-run that produces a
+    new failure on a different commit is treated as unwaived — the
+    authorizer must waive it explicitly if they want the gate to clear.
+
+    Conservative default: when either side is missing ``commit_sha``
+    (legacy records, scripted checks that didn't capture it), we
+    refuse to extend the waiver. Better to re-post and re-authorize
+    than silently swallow a fresh failure.
     """
-    active: set[str] = set()
-    for entry in await threads.for_ticket(ticket_id):
+    if not result.commit_sha:
+        return False
+    entries = await threads.for_ticket(ticket_id)
+    for entry in reversed(entries):
         if not isinstance(entry, SystemEvent):
             continue
         if entry.event_type != "check_failure":
             continue
-        if entry.check_name is None:
+        if entry.check_name != check_name:
             continue
-        # Per-phase scoping: a waiver on an earlier phase's check
-        # shouldn't silently clear a re-run failure in a later phase.
-        if _event_phase(entry) not in (None, phase):
-            continue
-        if entry.waived:
-            active.add(entry.check_name)
-    return active
-
-
-def _event_phase(entry: SystemEvent) -> str | None:
-    """SystemEvent has no phase field today; keep the hook for when
-    Task E scopes waivers per-phase. Returns ``None`` meaning
-    'applies to the whole ticket' so current behavior is unchanged.
-    """
-    return None
+        if not entry.waived:
+            return False  # Newest is an unwaived failure — waiver expired.
+        return entry.commit_sha == result.commit_sha
+    return False
 
 
 async def evaluate_handoff_gate(
@@ -182,10 +185,6 @@ async def evaluate_handoff_gate(
     for r in await results.latest_batch(ticket_id, phase):
         latest_by_name[r.check_name] = r
 
-    waived = await _active_waived_checks(
-        threads=threads, ticket_id=ticket_id, phase=phase
-    )
-
     failing: list[CheckFailureEntry] = []
     missing: list[str] = []
     posted: list[str] = []
@@ -208,7 +207,14 @@ async def evaluate_handoff_gate(
         is_fail = result.verdict != "pass"
         if not is_fail:
             continue
-        if name in waived:
+        # Waiver correlates against the specific failing run, not the
+        # check name. A re-run on a new commit needs its own waiver.
+        if await _latest_failure_waived_for_result(
+            threads=threads,
+            ticket_id=ticket_id,
+            check_name=name,
+            result=result,
+        ):
             continue
 
         event_id = ""

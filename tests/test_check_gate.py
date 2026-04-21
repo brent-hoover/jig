@@ -295,10 +295,15 @@ class TestWaiver:
     async def test_waived_check_failure_clears_gate(
         self, tmp_path: Path
     ) -> None:
+        """Waivers are scoped to a specific failing run (commit_sha).
+        Both the result and the existing waived event must agree on
+        commit_sha for the waiver to carry."""
         results, threads = await _stores(tmp_path)
-        await results.post(_result(check_name="unit", verdict="fail"))
-        # Simulate the state Task E will produce: a prior run posted
-        # the check_failure event and a waiver has flipped waived=True.
+        sha = "deadbeef" * 5
+        result = _result(
+            check_name="unit", verdict="fail"
+        ).model_copy(update={"commit_sha": sha})
+        await results.post(result)
         await threads.post(
             SystemEvent(
                 ticket_id="tkt-1",
@@ -309,6 +314,7 @@ class TestWaiver:
                 check_severity="required",
                 check_verdict="fail",
                 waived=True,
+                commit_sha=sha,
             )
         )
         verdict = await evaluate_handoff_gate(
@@ -329,6 +335,45 @@ class TestWaiver:
         ]
         assert len(failure_events) == 1
         assert failure_events[0].waived is True
+
+    async def test_waiver_does_not_carry_to_new_commit(
+        self, tmp_path: Path
+    ) -> None:
+        """A fresh failure on a different commit needs its own waiver —
+        the previous waiver is scoped to the specific run it authorized."""
+        results, threads = await _stores(tmp_path)
+        old_sha = "cafebabe" * 5
+        new_sha = "f00df00d" * 5
+        # New failing run on a different commit.
+        result = _result(
+            check_name="unit", verdict="fail"
+        ).model_copy(update={"commit_sha": new_sha})
+        await results.post(result)
+        # Previous (waived) run — different commit.
+        await threads.post(
+            SystemEvent(
+                ticket_id="tkt-1",
+                author="harness",
+                event_type="check_failure",
+                content="Required check 'unit' did not pass",
+                check_name="unit",
+                check_severity="required",
+                check_verdict="fail",
+                waived=True,
+                commit_sha=old_sha,
+            )
+        )
+        verdict = await evaluate_handoff_gate(
+            catalog=_catalog(required=["unit"]),
+            results=results,
+            threads=threads,
+            ticket_id="tkt-1",
+            phase="dev",
+            required_check_names=["unit"],
+        )
+        # Re-run is unwaived — gate fails and posts a new event.
+        assert verdict.passing is False
+        assert len(verdict.posted_events) == 1
 
 
 class TestUnknownCheck:

@@ -1268,35 +1268,35 @@ async def _close_handoff(
     if ticket is None:
         raise KeyError(f"ticket {h.ticket_id} not found")
 
-    resolved: ResolvedEvaluator | None = None
+    # The evaluator guard is load-bearing (doc 10 §Evaluators): if we
+    # can't resolve an evaluator, we can't verify the caller has
+    # authority to close this handoff. Fail loud in both branches
+    # rather than allow permissively — a missing workflow is config
+    # corruption, not an excuse to let any agent flip a handoff.
     try:
         workflow = load_workflow(project_path, ticket.workflow)
-        resolved = await _resolve_phase_evaluator(
-            workflow=workflow,
-            phase_name=h.phase,
-            threads=threads,
-            ticket_id=h.ticket_id,
-        )
-    except FileNotFoundError:
-        _logger.warning(
-            "workflow %r for ticket %s not found; evaluator check "
-            "skipped on handoff %s",
-            ticket.workflow,
-            h.ticket_id,
-            handoff_id,
-        )
+    except FileNotFoundError as exc:
+        raise ThreadError(
+            f"cannot determine evaluator for handoff {handoff_id!r}: "
+            f"workflow {ticket.workflow!r} not found for ticket "
+            f"{h.ticket_id!r}; handoff cannot be "
+            f"{'accepted' if accepted else 'rejected'}"
+        ) from exc
+
+    resolved: ResolvedEvaluator | None = await _resolve_phase_evaluator(
+        workflow=workflow,
+        phase_name=h.phase,
+        threads=threads,
+        ticket_id=h.ticket_id,
+    )
 
     if resolved is None:
-        _logger.warning(
-            "no evaluator resolved for phase %r in workflow %r; "
-            "allowing %s by %r (handoff %s)",
-            h.phase,
-            ticket.workflow,
-            "accept" if accepted else "reject",
-            sender,
-            handoff_id,
+        raise ThreadError(
+            f"cannot determine evaluator for phase {h.phase!r} in "
+            f"workflow {ticket.workflow!r}; handoff {handoff_id!r} "
+            f"cannot be {'accepted' if accepted else 'rejected'}"
         )
-    elif resolved.kind == "automated":
+    if resolved.kind == "automated":
         # ``automated_only`` phases accept via the orchestrator's
         # check-gating path (Task D); a manual accept/reject from a
         # named sender is disallowed so agents can't side-step the
@@ -1316,7 +1316,7 @@ async def _close_handoff(
     # authored the Handoff cannot also evaluate it. Catches the case
     # where ``specific_role`` names the completing phase's role, or
     # ``previous_phase_role`` happens to resolve to the same identity.
-    if resolved is not None and sender == h.author:
+    if sender == h.author:
         raise ThreadError(
             f"evaluator cannot be the completing actor "
             f"(sender={sender!r}, handoff_author={h.author!r}, "

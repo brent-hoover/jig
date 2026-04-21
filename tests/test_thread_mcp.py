@@ -1644,17 +1644,20 @@ class TestThreadCloseHandoff:
         assert h.acceptance_state == "pending"
 
     @pytest.mark.asyncio
-    async def test_missing_workflow_warns_but_allows(
-        self, tmp_path: Path, caplog
+    async def test_missing_workflow_raises(
+        self, tmp_path: Path
     ) -> None:
+        """C1: silently allowing accept/reject when the workflow is
+        missing bypasses the doc-10 evaluator-identity guard entirely —
+        the handler now fails loud instead."""
         tickets = TicketStore(tmp_path / "tickets.jsonl")
         await tickets.load()
         threads = ThreadStore(tmp_path / "comments.jsonl")
         await threads.load()
         bus = MessageBus(tmp_path / "messages.jsonl")
         await bus.load()
-        # Ticket references a workflow that doesn't exist (neither on-disk
-        # nor in shipped defaults) — handler warns and allows any sender.
+        # Ticket references a workflow that doesn't exist on-disk or in
+        # shipped defaults — evaluator identity is undecidable.
         ticket_id = await tickets.create(
             Ticket(
                 work_type=WorkType.FEATURE,
@@ -1674,9 +1677,7 @@ class TestThreadCloseHandoff:
                 "outputs": [],
             },
         )
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
+        with pytest.raises(ThreadError, match="workflow"):
             await handle_thread_accept_handoff(
                 tickets=tickets,
                 threads=threads,
@@ -1685,15 +1686,18 @@ class TestThreadCloseHandoff:
                 args={"handoff_id": handoff["handoff_id"]},
                 project_path=tmp_path,
             )
-        assert any(
-            "workflow" in r.message and "not found" in r.message
-            for r in caplog.records
-        )
+        # Handoff must remain pending — no state mutation on the raise.
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.acceptance_state == "pending"
 
     @pytest.mark.asyncio
-    async def test_terminal_phase_has_no_evaluator_warns(
-        self, tmp_path: Path, caplog
+    async def test_terminal_phase_has_no_evaluator_raises(
+        self, tmp_path: Path
     ) -> None:
+        """C1: a terminal phase (no next phase, no explicit evaluator
+        config) has no one to accept the handoff. The handler refuses
+        rather than silently letting the first caller win."""
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
         _write_workflow(
             tmp_path,
@@ -1710,9 +1714,9 @@ class TestThreadCloseHandoff:
                 "outputs": [],
             },
         )
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
+        with pytest.raises(
+            ThreadError, match="cannot determine evaluator"
+        ):
             await handle_thread_accept_handoff(
                 tickets=tickets,
                 threads=threads,
@@ -1721,9 +1725,9 @@ class TestThreadCloseHandoff:
                 args={"handoff_id": handoff["handoff_id"]},
                 project_path=tmp_path,
             )
-        assert any(
-            "no evaluator resolved" in r.message for r in caplog.records
-        )
+        h = await threads.get(handoff["handoff_id"])
+        assert isinstance(h, Handoff)
+        assert h.acceptance_state == "pending"
 
     @pytest.mark.asyncio
     async def test_reject_publishes_with_reason(
@@ -2411,6 +2415,7 @@ class TestThreadWaiveCheck:
         results = CheckResultsStore(tmp_path / "check_results.jsonl")
         await results.load()
         base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        sha = "deadbeef" * 5
         await results.post(
             CheckResult(
                 ticket_id=ticket_id,
@@ -2422,6 +2427,7 @@ class TestThreadWaiveCheck:
                 started_at=base,
                 finished_at=base + timedelta(seconds=1),
                 output="",
+                commit_sha=sha,
             )
         )
         catalog = CheckCatalog.model_validate(

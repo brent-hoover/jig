@@ -19,14 +19,14 @@ It's not a reduced TUI; it's a different surface for a different audience.
 ## Scope and non-goals
 
 **TUI does:**
-- Display project, team, and work-unit state in real time.
+- Display project, team, and ticket state in real time.
 - Handle common actions (claim, accept, reject, post thread entries,
   spawn agents).
 - Let devs chat with Claude for meta-questions and for delegated actions.
 - Integrate with the dev's editor for writing.
 
 **TUI does not:**
-- Replace an editor. Specs, work-unit descriptions, long-form content
+- Replace an editor. Specs, ticket descriptions, long-form content
   open in `$EDITOR`.
 - Replace the SCM. PR diffs, code review, merges happen on GitHub/GitLab.
 - Try to be usable for agents. Agents talk to the service.
@@ -53,7 +53,7 @@ implementing, adapt to gridland's conventions.
 Four top-level views, rotated via tab navigation:
 
 1. **Dashboard** — what you need to do and what's happening near you.
-2. **Ticket** — work-unit-centric drill-in, split-pane (list + detail).
+2. **Ticket** — ticket-centric drill-in, split-pane (list + detail).
 3. **Kanban** — workflow-centric flow, status categories across all
    workflows.
 4. **Chat** — conversational interface to Claude and to specific role
@@ -78,14 +78,14 @@ Sections, from most to least urgent:
 - Escalations routed to you.
 
 **Your active work.**
-- Work units you're currently on (as implementer, reviewer, whatever).
+- Tickets you're currently on (as implementer, reviewer, whatever).
 - Agent instances you spawned that are running.
 - Threads you've posted in recently.
 
 **Team activity (things you might want to know).**
 - Recent merges.
 - Recent accepted proposals (especially on artifacts you own).
-- Work units moving through phases.
+- Tickets moving through phases.
 - Workflow completions.
 
 **Team status summary.**
@@ -96,7 +96,7 @@ Sections, from most to least urgent:
 Everything on the dashboard is role-adapted. A PO sees pending proposals
 prominently; a dev sees claims. Both see their active work and team
 activity. The data is derivable from the dev's identity (who they are,
-which roles they fill, which work units they're engaged with).
+which roles they fill, which tickets they're engaged with).
 
 Realtime updates arrive as new items appearing and counters incrementing
 on the tab label. No notifications, no popups.
@@ -215,8 +215,8 @@ drilling into ticket view.
 Conversational interface. Two modes:
 
 **Generic Claude.** Ask meta-questions, request summaries, have Claude
-take actions on your behalf. "Summarize what's happening on WU-55."
-"What specs reference the auth system?" "Create a work unit for
+take actions on your behalf. "Summarize what's happening on TKT-55."
+"What specs reference the auth system?" "Create a ticket for
 adding pagination, size M, work type feature."
 
 **Role-specific agent interaction.** Direct your conversation at a
@@ -235,9 +235,9 @@ threshold, older entries roll into summaries while preserving recent
 context. Same mechanism, smaller scope.
 
 **Actions from chat.**
-When you ask Claude to do something actionable ("create a work unit
+When you ask Claude to do something actionable ("create a ticket
 for X"), the chat mode confirms the action with a small structured
-summary before executing. "I'll create a work unit titled X, size M,
+summary before executing. "I'll create a ticket titled X, size M,
 work type feature. Proceed?" Accept/reject. Executed actions are
 logged in the chat history and trigger whatever the normal action
 path would (spawning agents, updating state, notifying subscribers).
@@ -248,7 +248,7 @@ the dev's behalf uses the dev's authority; the audit trail records
 the dev as the actor with "via chat" metadata.
 
 **Cross-referencing.**
-Chat can reference work units, specs, decisions, etc. "Look at WU-55"
+Chat can reference tickets, specs, decisions, etc. "Look at TKT-55"
 resolves the reference and pulls relevant context into Claude's
 context window. When Claude produces output that should become a
 thread entry, a proposal, or a checkpoint, chat offers to post it
@@ -272,7 +272,7 @@ top/bottom, / for search within the view.
 - Tab / Shift+Tab — cycle views.
 
 **Command mode.** Typing `:` opens a command input. Harness commands
-(`claim WU-55`, `spawn-agent reviewer WU-55`, `refresh`) execute from
+(`claim TKT-55`, `spawn-agent reviewer TKT-55`, `refresh`) execute from
 here. Tab-completion on command names and arguments.
 
 **Editor integration.** `$EDITOR` is used for substantial writing. TUI
@@ -401,12 +401,12 @@ A few common workflows and how they feel:
 5. Next proposal.
 
 **Dev asks Claude to set things up for a new feature.**
-1. Chat view. Dev: "Create a work unit for adding labels to todos,
+1. Chat view. Dev: "Create a ticket for adding labels to todos,
    size M, work type feature. Link to the labels capability in the
    project spec."
 2. Claude confirms the action with structured summary.
 3. Dev accepts.
-4. Work unit created; appears in ticket list and Kanban.
+4. Ticket created; appears in ticket list and Kanban.
 5. Dev continues chat or switches to ticket view.
 
 ## What's deliberately not in v1

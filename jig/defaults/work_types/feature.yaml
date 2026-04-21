@@ -1,0 +1,35 @@
+# feature — new user-facing capability. Doc 03 §Work types.
+work_type: feature
+
+required:
+  - summary
+  - behaviors
+  - acceptance_criteria
+  - out_of_scope
+
+optional:
+  - edge_cases
+  - design
+  - technical_risks
+  - dependencies
+
+required_by_size:
+  xs: [summary]
+  s: [summary, behaviors]
+  m: [summary, behaviors, acceptance_criteria, out_of_scope]
+  l: [summary, behaviors, acceptance_criteria, out_of_scope, design]
+  xl: [summary, behaviors, acceptance_criteria, out_of_scope, design, technical_risks]
+
+ownership:
+  summary: po
+  behaviors: po
+  acceptance_criteria: po
+  out_of_scope: po
+  edge_cases: po
+  design: sa
+  technical_risks: sa
+  dependencies: sa
+
+section_locks:
+  behaviors: {locked_after_phase: spec}
+  acceptance_criteria: {locked_after_phase: spec}

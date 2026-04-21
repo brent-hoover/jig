@@ -65,4 +65,4 @@ allowed_tools:
 allowed_mcps:
   - context7
 default_context:
-  - "issue://description"
+  - "ticket://description"

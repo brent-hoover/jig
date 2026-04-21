@@ -18,7 +18,7 @@ from jig.context_resolver import resolve_context_uris
 from jig.environment import load_environment_md
 from jig.events import EventEmitter, JigEvent
 from jig.mcp_server import create_agent_mcp_server
-from jig.persistence import list_agent_types
+from jig.persistence import list_roles
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
@@ -80,26 +80,44 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     memories = [
         learning.content for learning in await ctx.memory.get_role_learnings(ctx.role)
     ]
-    comments = await ctx.comments.for_ticket(ctx.ticket.id)
+    entries = await ctx.threads.for_ticket(ctx.ticket.id)
     if ctx.parent:
-        comments = await ctx.comments.for_ticket(ctx.parent.id) + comments
+        entries = await ctx.threads.for_ticket(ctx.parent.id) + entries
 
-    resolved_context = await resolve_context_uris(
+    project_path = ctx.project.path_or_default()
+    # Required context — raise MissingContextError if any URI can't
+    # resolve. Caller turns that into a ticket_failed event.
+    required_context = await resolve_context_uris(
+        ctx.role_cfg.required_context,
+        ticket=ctx.ticket,
+        parent=ctx.parent,
+        threads=ctx.threads,
+        worktree_path=ctx.worktree_path,
+        project_path=project_path,
+        strict=True,
+    )
+    optional_context = await resolve_context_uris(
         ctx.role_cfg.default_context,
         ticket=ctx.ticket,
         parent=ctx.parent,
-        comments=ctx.comments,
+        threads=ctx.threads,
         worktree_path=ctx.worktree_path,
+        project_path=project_path,
     )
+    # Both already wrap themselves in a "## Context" header when non-
+    # empty; concat as-is. If both are non-empty they render as two
+    # separate sections, which is fine — the reader can tell them apart
+    # by the required URIs appearing first.
+    resolved_context = required_context + optional_context
 
-    all_roles = list_agent_types(ctx.project.path_or_default())
+    all_roles = list_roles(ctx.project.path_or_default())
 
     return build_initial_prompt(
         role_cfg=ctx.role_cfg,
         spawn_reason=ctx.spawn_reason,
         ticket=ctx.ticket,
         parent=ctx.parent,
-        comments=comments,
+        entries=entries,
         memories=memories,
         project=ctx.project,
         skills=skills,
@@ -107,6 +125,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         resolved_context=resolved_context,
         all_roles=all_roles,
         worktree_path=str(ctx.worktree_path),
+        phase=ctx.phase,
     )
 
 
@@ -194,17 +213,20 @@ async def run_agent(ctx: AgentSpawnContext, emitter: EventEmitter | None = None)
     _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
     _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
 
-    all_roles = list_agent_types(ctx.project.path_or_default())
+    all_roles = list_roles(ctx.project.path_or_default())
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
-        comments=ctx.comments,
+        threads=ctx.threads,
         memory=ctx.memory,
         bus=ctx.bus,
         agent_role=ctx.role,
         agent_cfg=ctx.role_cfg,
         worktree_path=ctx.worktree_path,
+        project_path=ctx.project.path_or_default(),
         valid_roles=frozenset(r.role for r in all_roles),
         package_manager=ctx.project.package_manager,
+        checkpoints=ctx.checkpoints,
+        phase_name=ctx.phase.name if ctx.phase else "",
     )
 
     mcp_servers: dict = {"jig": mcp_server}

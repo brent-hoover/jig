@@ -262,8 +262,8 @@ export function App({ useKeyboard, wsUrl, onQuit }: AppProps) {
           <NewTicketForm
             useKeyboard={useKeyboard}
             sendCommand={sendCommand}
-            onDone={(ticketId, title, type) => {
-              registerTitle(ticketId, title, type)
+            onDone={(ticketId, title, workType, size) => {
+              registerTitle(ticketId, title, workType, size)
               closeModal()
               setFlashError(null)
             }}

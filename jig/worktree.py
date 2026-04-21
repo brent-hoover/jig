@@ -17,6 +17,23 @@ class LintError(Exception):
         super().__init__(f"{len(errors)} unfixable lint errors")
 
 
+class MergeConflictError(RuntimeError):
+    """Raised by ``merge_ticket`` when the merge aborts with conflicts.
+
+    Distinct from a generic ``RuntimeError`` so the orchestrator can
+    surface a dedicated ``merge_conflict`` ticket status instead of
+    silently treating the ticket as resolved.
+    """
+
+    def __init__(self, ticket_id: str, source_branch: str) -> None:
+        self.ticket_id = ticket_id
+        self.source_branch = source_branch
+        super().__init__(
+            f"Merge conflict for {source_branch} "
+            f"(branch preserved for manual merge)"
+        )
+
+
 async def _run_git(cwd: Path, *args: str) -> str:
     """Run a git command and return stdout."""
     proc = await asyncio.create_subprocess_exec(
@@ -275,11 +292,13 @@ async def _do_merge(
             # MergeStrategy.DIRECT
             await _run_git(project_path, "merge", source_branch, "-m", f"Merge {ticket_id}")
             return f"Merged {source_branch} into {base_branch}"
-    except RuntimeError:
-        # Merge conflict — abort and leave branch intact for manual resolution
+    except RuntimeError as exc:
+        # Merge conflict — abort and leave branch intact for manual
+        # resolution, then raise a typed error so the orchestrator
+        # can route to MERGE_CONFLICT instead of RESOLVED.
         _logger.warning("merge conflict for %s — aborting", ticket_id)
         try:
             await _run_git(project_path, "merge", "--abort")
         except RuntimeError:
             await _run_git(project_path, "reset", "--hard", "HEAD")
-        return f"Merge conflict for {source_branch} (branch preserved for manual merge)"
+        raise MergeConflictError(ticket_id, source_branch) from exc

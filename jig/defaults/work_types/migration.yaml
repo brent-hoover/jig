@@ -1,0 +1,31 @@
+# migration — structural migration (schema change, library swap). Doc 03.
+work_type: migration
+
+required:
+  - summary
+  - current_state
+  - target_state
+  - rollout_plan
+  - rollback_plan
+
+optional:
+  - risks
+  - dependencies
+  - verification
+
+required_by_size:
+  xs: [summary, target_state, rollout_plan]
+  s: [summary, current_state, target_state, rollout_plan]
+  m: [summary, current_state, target_state, rollout_plan, rollback_plan]
+  l: [summary, current_state, target_state, rollout_plan, rollback_plan, risks]
+  xl: [summary, current_state, target_state, rollout_plan, rollback_plan, risks, verification]
+
+ownership:
+  summary: sa
+  current_state: sa
+  target_state: sa
+  rollout_plan: sa
+  rollback_plan: sa
+  risks: sa
+  dependencies: sa
+  verification: sa

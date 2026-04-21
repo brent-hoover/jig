@@ -13,11 +13,7 @@ from jig.models import MergeStrategy
 from jig.project import Project, save_project
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
-from jig.persistence import (
-    init_project,
-    save_default_agent_types,
-    save_default_workflow,
-)
+from jig.persistence import init_project
 from jig.worktree import remove_worktree
 
 
@@ -100,7 +96,7 @@ _TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
 
 def _available_templates() -> list[str]:
     """Return names of bundled project templates."""
-    tpl_root = Path(__file__).resolve().parent.parent / "templates"
+    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
     if not tpl_root.is_dir():
         return []
     return sorted(d.name for d in tpl_root.iterdir() if d.is_dir())
@@ -108,7 +104,7 @@ def _available_templates() -> list[str]:
 
 def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
     """Copy a project template into dest, replacing 'myproject' with project_name."""
-    tpl_root = Path(__file__).resolve().parent.parent / "templates"
+    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
     tpl_dir = tpl_root / template_name
     if not tpl_dir.is_dir():
         available = _available_templates()
@@ -169,8 +165,6 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
 
     try:
         init_project(path, default_branch=branch)
-        save_default_agent_types(path)
-        save_default_workflow(path)
     except FileExistsError:
         raise click.ClickException(f"Already initialized: {path / '.jig'}")
     except ValueError as e:
@@ -211,7 +205,7 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
         click.echo()
         project = _prompt_project_context(path, base_project)
         save_project(path, project)
-        click.echo("\nProject saved to .jig/project.json")
+        click.echo("\nProject saved to .jig/config.yaml")
 
     # Commit everything so worktrees branch from a working state
     subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)
@@ -275,6 +269,15 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     if not jig_dir.is_dir():
         raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
 
+    # Fail-loud catalog validation (Phase 2F). Unknown role / workflow /
+    # check references, malformed YAML, and missing required context
+    # artifacts all surface here before any loop starts.
+    from jig.catalog import CatalogError, validate_catalog
+    try:
+        validate_catalog(path)
+    except CatalogError as exc:
+        raise click.ClickException(f"Catalog validation failed: {exc}")
+
     from datetime import datetime
     log_dir = jig_dir / "logs"
     log_dir.mkdir(exist_ok=True)
@@ -326,13 +329,13 @@ def sync(path: Path) -> None:
     added: list[str] = []
 
     # Sync agent types
-    source_agents = _defaults_dir() / "agent_types"
-    dest_agents = jig_dir / "agent_types"
+    source_agents = _defaults_dir() / "roles"
+    dest_agents = jig_dir / "roles"
     for src in sorted(source_agents.glob("*.yaml")):
         dest = dest_agents / src.name
         if not dest.exists():
             dest.write_text(src.read_text())
-            added.append(f"agent_types/{src.name}")
+            added.append(f"roles/{src.name}")
 
     # Sync workflows
     source_wf = _defaults_dir() / "workflows"
@@ -353,24 +356,50 @@ def sync(path: Path) -> None:
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--ticket-id", required=True, help="Ticket to validate.")
-def validate(path: Path, ticket_id: str) -> None:
-    """Validate a ticket and clean up its worktree."""
+@click.option(
+    "--ticket-id",
+    default=None,
+    help="Clean up a specific ticket's worktree. Without this flag, runs a catalog dry-run.",
+)
+def validate(path: Path, ticket_id: str | None) -> None:
+    """Validate the project catalog, or clean up a ticket's worktree.
+
+    Without ``--ticket-id``: walks roles, workflows, config, and the
+    check catalog. Reports every inconsistency and exits non-zero if
+    anything is wrong. Same checks ``jig start`` runs at boot, but
+    safe to run on a stopped service.
+
+    With ``--ticket-id``: the legacy per-ticket cleanup (removes the
+    worktree directory for that ticket).
+    """
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
         raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
 
-    worktree_path = jig_dir / "worktrees" / ticket_id
-    if worktree_path.is_dir():
-        try:
-            asyncio.run(remove_worktree(path, ticket_id))
-        except RuntimeError as e:
-            raise click.ClickException(
-                f"Could not remove worktree {ticket_id}: {e}"
-            )
-        click.echo(f"  Removed worktree: {ticket_id}")
+    if ticket_id is not None:
+        worktree_path = jig_dir / "worktrees" / ticket_id
+        if worktree_path.is_dir():
+            try:
+                asyncio.run(remove_worktree(path, ticket_id))
+            except RuntimeError as e:
+                raise click.ClickException(
+                    f"Could not remove worktree {ticket_id}: {e}"
+                )
+            click.echo(f"  Removed worktree: {ticket_id}")
+        click.echo(f"Ticket {ticket_id} validated.")
+        return
 
-    click.echo(f"Ticket {ticket_id} validated.")
+    # Catalog dry-run. Collect every error so the operator sees the
+    # whole picture in one pass.
+    from jig.catalog import validate_catalog
+    errors = validate_catalog(path, collect=True) or []
+    if errors:
+        for msg in errors:
+            click.echo(f"  {msg}", err=True)
+        raise click.ClickException(
+            f"Catalog validation failed ({len(errors)} error(s))."
+        )
+    click.echo("Catalog OK.")
 
 
 @cli.command()

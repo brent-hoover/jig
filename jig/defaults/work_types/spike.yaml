@@ -1,0 +1,30 @@
+# spike — exploratory work, unclear scope. Doc 03.
+# Explicitly has no behaviors section (time-box + exit criteria drive it).
+work_type: spike
+
+required:
+  - summary
+  - question
+  - methods
+  - time_box
+  - exit_criteria
+
+optional:
+  - prior_art
+  - dependencies
+
+required_by_size:
+  xs: [summary, question, time_box]
+  s: [summary, question, methods, time_box, exit_criteria]
+  m: [summary, question, methods, time_box, exit_criteria]
+  l: [summary, question, methods, time_box, exit_criteria, prior_art]
+  xl: [summary, question, methods, time_box, exit_criteria, prior_art]
+
+ownership:
+  summary: po
+  question: po
+  methods: sa
+  time_box: po
+  exit_criteria: po
+  prior_art: sa
+  dependencies: sa

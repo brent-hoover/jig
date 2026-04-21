@@ -1,26 +1,61 @@
 // @ts-nocheck
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import type { SendCommand } from "./use-jig-socket"
-import type { TicketType } from "./types"
+import type { Size, WorkType } from "./types"
 
-type Stage = "type" | "workflow" | "title" | "description" | "submitting"
+type Stage =
+  | "workType"
+  | "size"
+  | "workflow"
+  | "title"
+  | "description"
+  | "submitting"
 
 interface NewTicketFormProps {
   useKeyboard: any
   sendCommand: SendCommand
-  onDone: (ticketId: string, title: string, type: TicketType) => void
+  onDone: (
+    ticketId: string,
+    title: string,
+    workType: WorkType,
+    size: Size,
+  ) => void
   onCancel: (message?: string) => void
 }
 
-const TYPE_CHOICES: { key: string; value: TicketType; label: string }[] = [
+// Phase 1 work-type catalog — matches jig.ticket.WorkType. Keys are the
+// first letter of each value except `refactor` (r) and `migration` (m)
+// which collide and get disambiguated below.
+const WORK_TYPE_CHOICES: {
+  key: string
+  value: WorkType
+  label: string
+}[] = [
   { key: "f", value: "feature", label: "(f)eature" },
-  { key: "b", value: "bug", label: "(b)ug" },
-  { key: "c", value: "chore", label: "(c)hore" },
-  { key: "t", value: "task", label: "(t)ask" },
-  { key: "q", value: "question", label: "(q)uestion" },
+  { key: "b", value: "bugfix", label: "(b)ugfix" },
+  { key: "r", value: "refactor", label: "(r)efactor" },
+  { key: "s", value: "spike", label: "(s)pike" },
+  { key: "p", value: "perf", label: "(p)erf" },
+  { key: "m", value: "migration", label: "(m)igration" },
+  { key: "d", value: "docs", label: "(d)ocs" },
 ]
 
-const WORKFLOW_TYPES: Set<TicketType> = new Set(["feature", "bug", "chore"])
+// Size choices — number keys so they don't collide with work-type letters.
+const SIZE_CHOICES: { key: string; value: Size; label: string }[] = [
+  { key: "1", value: "xs", label: "(1) xs" },
+  { key: "2", value: "s", label: "(2) s" },
+  { key: "3", value: "m", label: "(3) m" },
+  { key: "4", value: "l", label: "(4) l" },
+  { key: "5", value: "xl", label: "(5) xl" },
+]
+
+// Types that still have the "default vs project pipeline" prompt. Phase 2
+// replaces this with workflows.by_type resolution from config.yaml.
+const WORKFLOW_TYPES: Set<WorkType> = new Set([
+  "feature",
+  "bugfix",
+  "refactor",
+])
 
 const WORKFLOW_CHOICES: { key: string; value: string; label: string }[] = [
   { key: "d", value: "default", label: "(d)efault — single ticket, standard pipeline" },
@@ -53,8 +88,9 @@ export function NewTicketForm({
   onDone,
   onCancel,
 }: NewTicketFormProps) {
-  const [stage, setStage] = useState<Stage>("type")
-  const [type, setType] = useState<TicketType | null>(null)
+  const [stage, setStage] = useState<Stage>("workType")
+  const [workType, setWorkType] = useState<WorkType | null>(null)
+  const [size, setSize] = useState<Size>("m")
   const [workflow, setWorkflow] = useState("default")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -68,11 +104,20 @@ export function NewTicketForm({
       return
     }
 
-    if (stage === "type") {
-      const choice = TYPE_CHOICES.find((c) => c.key === key.name)
+    if (stage === "workType") {
+      const choice = WORK_TYPE_CHOICES.find((c) => c.key === key.name)
       if (choice) {
-        setType(choice.value)
-        if (WORKFLOW_TYPES.has(choice.value)) {
+        setWorkType(choice.value)
+        setStage("size")
+      }
+      return
+    }
+
+    if (stage === "size") {
+      const choice = SIZE_CHOICES.find((c) => c.key === key.name)
+      if (choice) {
+        setSize(choice.value)
+        if (workType && WORKFLOW_TYPES.has(workType)) {
           setStage("workflow")
         } else {
           setStage("title")
@@ -114,13 +159,14 @@ export function NewTicketForm({
         setStage("submitting")
         try {
           const reply = await sendCommand("create_ticket", {
-            type,
+            work_type: workType,
+            size,
             title,
             description,
             workflow,
           })
-          if (reply.ok && reply.ticket_id && type) {
-            onDone(reply.ticket_id, title, type)
+          if (reply.ok && reply.ticket_id && workType) {
+            onDone(reply.ticket_id, title, workType, size)
           } else {
             onCancel(reply.ok ? "no ticket_id in reply" : reply.error)
           }
@@ -148,7 +194,7 @@ export function NewTicketForm({
       paddingX={2}
       paddingY={1}
       flexDirection="column"
-      width={70}
+      width={72}
     >
       <text>
         <span style={{ fg: "#00aaff", attributes: 1 }}>New Ticket</span>
@@ -158,22 +204,37 @@ export function NewTicketForm({
 
       <text>
         <span style={{ fg: "#888888" }}>Type: </span>
-        {type ? (
-          <span style={{ fg: "#ffcc00", attributes: 1 }}>{type}</span>
+        {workType ? (
+          <span style={{ fg: "#ffcc00", attributes: 1 }}>{workType}</span>
         ) : (
           <span style={{ fg: "#666666" }}>
-            {TYPE_CHOICES.map((c) => c.label).join("  ")}
+            {WORK_TYPE_CHOICES.map((c) => c.label).join("  ")}
           </span>
         )}
       </text>
 
-      {type && WORKFLOW_TYPES.has(type) ? (
+      <text>
+        <span style={{ fg: "#888888" }}>Size: </span>
+        {stage === "size" ? (
+          <span style={{ fg: "#666666" }}>
+            {SIZE_CHOICES.map((c) => c.label).join("  ")}
+          </span>
+        ) : stage === "workType" ? (
+          <span style={{ fg: "#444444" }}>—</span>
+        ) : (
+          <span style={{ fg: "#00cc88", attributes: 1 }}>{size}</span>
+        )}
+      </text>
+
+      {workType && WORKFLOW_TYPES.has(workType) ? (
         <text>
           <span style={{ fg: "#888888" }}>Workflow: </span>
           {stage === "workflow" ? (
             <span style={{ fg: "#666666" }}>
               {WORKFLOW_CHOICES.map((c) => c.label).join("  ")}
             </span>
+          ) : stage === "workType" || stage === "size" ? (
+            <span style={{ fg: "#444444" }}>—</span>
           ) : (
             <span style={{ fg: "#00cc88", attributes: 1 }}>{workflow}</span>
           )}
@@ -204,15 +265,17 @@ export function NewTicketForm({
       ) : null}
       <text>
         <span style={{ fg: "#666666", attributes: 2 }}>
-          {stage === "type"
-            ? "Pick a type (single letter)"
-            : stage === "workflow"
-              ? "Pick workflow: (d)efault or (p)roject"
-              : stage === "title"
-                ? "Type title, Enter to continue"
-                : stage === "description"
-                  ? "Type description, Enter to submit"
-                  : "Submitting..."}
+          {stage === "workType"
+            ? "Pick a work type (single letter)"
+            : stage === "size"
+              ? "Pick a size (1–5)"
+              : stage === "workflow"
+                ? "Pick workflow: (d)efault or (p)roject"
+                : stage === "title"
+                  ? "Type title, Enter to continue"
+                  : stage === "description"
+                    ? "Type description, Enter to submit"
+                    : "Submitting..."}
         </span>
       </text>
     </box>

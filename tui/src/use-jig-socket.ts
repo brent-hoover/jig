@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useRef, useCallback } from "react"
-import type { AppState, JigEvent, ModalState, Ticket, TicketType } from "./types"
+import type { AppState, JigEvent, ModalState, Size, Ticket, WorkType } from "./types"
 import { INITIAL_STATE } from "./types"
 
 const RECONNECT_INTERVAL = 2000
@@ -45,7 +45,12 @@ export interface SocketHandle {
   closeModal: () => void
   // Titles travel in-band with create_ticket commands; this lets the caller
   // inject them into the ticket map once the server acks the ticket_id.
-  registerTitle: (ticketId: string, title: string, type: TicketType) => void
+  registerTitle: (
+    ticketId: string,
+    title: string,
+    workType: WorkType,
+    size: Size,
+  ) => void
   clearError: () => void
 }
 
@@ -57,7 +62,8 @@ function bumpTicket(
   const existing = tickets[id]
   const base: Ticket = existing ?? {
     id,
-    type: "task",
+    workType: "feature",
+    size: "m",
     status: "open",
     title: id, // fallback until registerTitle or future fetch fills it
     description: "",
@@ -84,10 +90,14 @@ function reduce(state: AppState, event: JigEvent): AppState {
   switch (event.type) {
     case "ticket_created": {
       if (!ticketId) return { ...state, events }
+      // Backend emits `work_type` canonically but still sends `type` as a
+      // legacy alias; accept whichever lands first.
+      const wt = (data.work_type ?? data.type) as WorkType | undefined
       const tickets = bumpTicket(state.tickets, ticketId, {
         title: (data.title as string) ?? ticketId,
         description: (data.description as string) ?? "",
-        type: (data.type as TicketType) ?? "task",
+        workType: wt ?? "feature",
+        size: ((data.size as Size) ?? "m"),
         assignee: (data.assignee as string | null) ?? null,
         parentId: (data.parent_id as string | null) ?? null,
         dependsOn: (data.depends_on as string[]) ?? [],
@@ -205,9 +215,11 @@ export function useJigSocket(url: string): SocketHandle {
             const tickets = { ...prev.tickets }
             for (const t of obj.tickets as Array<Record<string, unknown>>) {
               const id = t.id as string
+              const wt = (t.work_type ?? t.type) as WorkType | undefined
               tickets[id] = {
                 id,
-                type: (t.type as TicketType) ?? "task",
+                workType: wt ?? "feature",
+                size: ((t.size as Size) ?? "m"),
                 status: (t.status as Ticket["status"]) ?? "open",
                 title: (t.title as string) ?? id,
                 description: (t.description as string) ?? "",
@@ -286,10 +298,10 @@ export function useJigSocket(url: string): SocketHandle {
   }, [])
 
   const registerTitle = useCallback(
-    (ticketId: string, title: string, type: TicketType) => {
+    (ticketId: string, title: string, workType: WorkType, size: Size) => {
       setState((prev) => ({
         ...prev,
-        tickets: bumpTicket(prev.tickets, ticketId, { title, type }),
+        tickets: bumpTicket(prev.tickets, ticketId, { title, workType, size }),
         selectedTicketId: prev.selectedTicketId ?? ticketId,
       }))
     },

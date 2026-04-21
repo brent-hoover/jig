@@ -1,0 +1,26 @@
+# docs — documentation-only work. Minimal schema per doc 03.
+# No behaviors / design / technical_risks.
+work_type: docs
+
+required:
+  - summary
+  - scope
+  - target_audience
+  - deliverables
+
+optional:
+  - dependencies
+
+required_by_size:
+  xs: [summary, deliverables]
+  s: [summary, scope, deliverables]
+  m: [summary, scope, target_audience, deliverables]
+  l: [summary, scope, target_audience, deliverables]
+  xl: [summary, scope, target_audience, deliverables]
+
+ownership:
+  summary: po
+  scope: po
+  target_audience: po
+  deliverables: po
+  dependencies: sa

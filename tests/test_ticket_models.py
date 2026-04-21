@@ -3,12 +3,12 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.ticket import Size, Ticket, TicketStatus, WorkType
 
 
 def test_ticket_defaults() -> None:
     t = Ticket(
-        type=TicketType.FEATURE,
+        work_type=WorkType.FEATURE,
         title="add search",
         created_by="user",
     )
@@ -26,7 +26,7 @@ def test_ticket_defaults() -> None:
 def test_ticket_all_statuses_accepted() -> None:
     for status in TicketStatus:
         t = Ticket(
-            type=TicketType.TASK,
+            work_type=WorkType.REFACTOR,
             title="t",
             created_by="orchestrator",
             status=status,
@@ -34,44 +34,84 @@ def test_ticket_all_statuses_accepted() -> None:
         assert t.status == status
 
 
-def test_ticket_all_types_accepted() -> None:
-    for ttype in TicketType:
-        t = Ticket(type=ttype, title="t", created_by="u")
-        assert t.type == ttype
+def test_ticket_all_work_types_accepted() -> None:
+    for wt in WorkType:
+        t = Ticket(work_type=wt, title="t", created_by="u")
+        assert t.work_type == wt
 
 
-def test_comment_default_kind() -> None:
-    c = Comment(ticket_id="T-1", author="dev", content="hello")
-    assert c.kind == "comment"
-    assert c.commit_sha is None
-    assert c.phase_result is None
-    assert c.phase_branch is None
+def test_ticket_accepts_legacy_type_kwarg() -> None:
+    """Transitional: the old `type` kwarg with pre-doc-03 values still loads."""
+    t = Ticket(type="bug", title="b", created_by="u")
+    assert t.work_type == WorkType.BUGFIX
+
+    t2 = Ticket(type="chore", title="c", created_by="u")
+    assert t2.work_type == WorkType.REFACTOR
+
+    t3 = Ticket(type="task", title="t", created_by="u")
+    assert t3.work_type == WorkType.REFACTOR
+
+    t4 = Ticket(type="question", title="q", created_by="u")
+    assert t4.work_type == WorkType.FEATURE
 
 
-def test_comment_phase_run() -> None:
-    c = Comment(
-        ticket_id="T-1",
-        author="orchestrator",
-        content="phase done",
-        kind="phase_run",
-        phase_result="success",
-        phase_branch="jig/T-1",
-    )
-    assert c.kind == "phase_run"
-    assert c.phase_result == "success"
+def test_ticket_size_defaults_to_medium() -> None:
+    t = Ticket(work_type=WorkType.FEATURE, title="t", created_by="u")
+    assert t.size == Size.M
 
 
-def test_comment_rejects_unknown_kind() -> None:
-    with pytest.raises(ValidationError):
-        Comment(ticket_id="T-1", author="dev", content="x", kind="gossip")
-
-
-def test_comment_rejects_unknown_phase_result() -> None:
-    with pytest.raises(ValidationError):
-        Comment(
-            ticket_id="T-1",
-            author="o",
-            content="x",
-            kind="phase_run",
-            phase_result="partial",
+def test_ticket_all_sizes_accepted() -> None:
+    for size in Size:
+        t = Ticket(
+            work_type=WorkType.FEATURE, title="t", created_by="u", size=size
         )
+        assert t.size == size
+
+
+def test_ticket_rejects_unknown_work_type() -> None:
+    with pytest.raises(ValidationError):
+        Ticket(work_type="gossip", title="t", created_by="u")
+
+
+def test_ticket_rejects_unknown_size() -> None:
+    with pytest.raises(ValidationError):
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            size="enormous",
+        )
+
+
+def test_ticket_legacy_task_defaults_to_thread_workflow() -> None:
+    """Pre-doc-03 `task` tickets always ran the thread dispatch loop.
+
+    Migration must preserve that so in-flight data keeps behaving the
+    way it did before the rename.
+    """
+    t = Ticket(type="task", title="t", created_by="u")
+    assert t.work_type == WorkType.REFACTOR
+    assert t.workflow == "thread"
+
+
+def test_ticket_legacy_question_defaults_to_thread_workflow() -> None:
+    t = Ticket(type="question", title="q", created_by="u")
+    assert t.work_type == WorkType.FEATURE
+    assert t.workflow == "thread"
+
+
+def test_ticket_legacy_migration_respects_explicit_workflow() -> None:
+    """If the caller already set `workflow`, don't override it."""
+    t = Ticket(
+        type="task", title="t", created_by="u", workflow="custom"
+    )
+    assert t.workflow == "custom"
+
+
+def test_ticket_legacy_bug_keeps_default_workflow() -> None:
+    """`bug` wasn't a thread type; migration must not touch workflow."""
+    t = Ticket(type="bug", title="b", created_by="u")
+    assert t.work_type == WorkType.BUGFIX
+    assert t.workflow == "default"
+
+

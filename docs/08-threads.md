@@ -1,12 +1,12 @@
 # 08 — Threads and Communication
 
-The structured communication channel attached to each work unit. The
+The structured communication channel attached to each ticket. The
 substrate for problems 1 and 2: reviewer ↔ implementer comms, and
 mid-flight human intervention.
 
 ## What a thread is
 
-A first-class, visible, gated conversation attached to a work unit. Any
+A first-class, visible, gated conversation attached to a ticket. Any
 actor — agent or human — can post. Any actor on the team can read. Entries
 are typed objects with state and lifecycle, not chat messages.
 
@@ -37,7 +37,7 @@ auto-resolve the question.
 
 **Objection.** A reviewer or evaluator says "this is wrong." References
 the specific artifact (file, line, prior entry, decision). Blocks
-work-unit completion. Resolves via a Resolution accepted by the objector,
+ticket completion. Resolves via a Resolution accepted by the objector,
 or a Waiver.
 
 **Resolution.** Addresses an Objection with "here's how I fixed it."
@@ -65,7 +65,7 @@ by the completing actor. Contains:
 The evaluator accepts (triggering workflow advancement) or rejects
 (looping back per the phase's on-failure transition). Evaluator reviews
 deferred items and may object to any that should have been done in-phase,
-or elect to promote them to new work units.
+or elect to promote them to new tickets.
 
 Mid-phase interruption is handled by checkpoints, not by partial
 handoffs — see [09](./09-checkpoints.md). Handoffs are for completed
@@ -106,7 +106,7 @@ refinement (back-and-forth until accepted, rejected, or abandoned).
 
 What makes threads more than logs:
 
-**Unresolved blocking entries prevent work-unit completion.** Open
+**Unresolved blocking entries prevent ticket completion.** Open
 objections, unanswered blocking questions, unaddressed escalations. The
 workflow can't advance past a gate with unresolved blockers on the current
 phase.
@@ -162,18 +162,18 @@ and the orchestrator routes.
 ## Visibility and propagation
 
 The service's WebSocket event channel publishes thread updates in real
-time. Any client subscribed to a work unit gets entries as they arrive.
+time. Any client subscribed to a ticket gets entries as they arrive.
 A dev watching the TUI sees the implementer's question the moment it's
 posted. The reviewer's objection appears in the implementer agent's next
 tool-result stream.
 
 This makes "anyone can see status at any time" real, and it makes the
 dev's TUI essentially a multi-thread client showing active threads across
-work units they follow.
+tickets they follow.
 
 ## Who can post, who can see
 
-Any actor attached to a work unit can post. Any actor on the team can
+Any actor attached to a ticket can post. Any actor on the team can
 read. No private channels. If it's about the work, it's visible.
 
 ## Agent tools
@@ -213,8 +213,8 @@ tool descriptions; not a hard technical constraint.
 
 ## Thread as context for later spawns
 
-Prior thread entries on a work unit are part of the work-unit context
-bundle. An agent spawned into an in-progress work unit receives existing
+Prior thread entries on a ticket are part of the ticket context
+bundle. An agent spawned into an in-progress ticket receives existing
 thread state at spawn. A second attempt at a failed phase picks up where
 the first left off. A reviewer sees what the implementer struggled with.
 

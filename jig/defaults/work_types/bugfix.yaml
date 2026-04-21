@@ -1,0 +1,29 @@
+# bugfix — fix for a specific defect. Doc 03 §Work types.
+work_type: bugfix
+
+required:
+  - summary
+  - symptom
+  - fix_approach
+  - regression_test
+
+optional:
+  - root_cause
+  - impact_analysis
+  - dependencies
+
+required_by_size:
+  xs: [summary, fix_approach]
+  s: [summary, symptom, fix_approach, regression_test]
+  m: [summary, symptom, root_cause, fix_approach, regression_test]
+  l: [summary, symptom, root_cause, fix_approach, regression_test, impact_analysis]
+  xl: [summary, symptom, root_cause, fix_approach, regression_test, impact_analysis]
+
+ownership:
+  summary: po
+  symptom: po
+  fix_approach: sa
+  regression_test: sa
+  root_cause: sa
+  impact_analysis: sa
+  dependencies: sa

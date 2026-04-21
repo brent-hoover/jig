@@ -6,8 +6,8 @@
 defaults. "The dev role." "The reviewer role." What a human references when
 they say "spawn a dev agent."
 
-**Instance identity.** Ephemeral, per-spawn, tied to a specific work unit.
-"The dev-agent-instance-4f2a that worked on work-unit-123, spawned by
+**Instance identity.** Ephemeral, per-spawn, tied to a specific ticket.
+"The dev-agent-instance-4f2a that worked on ticket-123, spawned by
 dev@team at T." What shows up in audit logs and threads.
 
 Why the split:
@@ -28,7 +28,7 @@ The current YAML has `role`, `system_prompt`, `allowed_tools`,
 - **Prompt composition**: fragments this role contributes + fragments it
   expects to inherit. A dev agent's actual system prompt is roughly
   `[base instructions] + [role-specific dev] + [project conventions] +
-  [work-unit context]`. Inlining loses reuse and project injection.
+  [ticket context]`. Inlining loses reuse and project injection.
 - **Capabilities**: tools, tool-parameter constraints, path constraints —
   expressed as *intent*. The harness translates intent to concrete Claude
   Code hook configuration at spawn time.
@@ -61,7 +61,7 @@ at spawn time. Template stays readable, enforcement is real.
 
 ## Context resolution
 
-URI-style references (`workunit://design`, `project://conventions`)
+URI-style references (`ticket://design`, `project://conventions`)
 resolved by the service. Open question: what's the full scheme, and how
 does versioning work for long-running agents when project context
 changes mid-flight?
@@ -92,8 +92,8 @@ allowed_tools:
   - Grep
   - Bash
 default_context:
-  - "workunit://design"
-  - "workunit://plan"
+  - "ticket://design"
+  - "ticket://plan"
 ```
 
 The shape it needs to grow into isn't fully specified yet — that's partly a

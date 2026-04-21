@@ -5,7 +5,7 @@ What the service is, where it keeps state, how clients talk to it.
 ## Decisions
 
 - **Live operational state lives in the service; durable artifacts
-  live in the repo.** Closed work units archive back to the repo on
+  live in the repo.** Closed tickets archive back to the repo on
   completion.
 - **SQLite for live state, JSONL for archives.**
 - **Same binary, different config** for solo vs team deployments.
@@ -38,10 +38,10 @@ a single service. Reasons:
 
 Live operational state lives in the service, not the repo. The repo
 holds durable artifacts (workflow templates, policy, context bundles,
-decision records, archived closed work units). The service owns live
-state (active work units, agent heartbeats, thread comms, scheduling).
+decision records, archived closed tickets). The service owns live
+state (active tickets, agent heartbeats, thread comms, scheduling).
 
-Closed work units archive back to the repo on completion, giving a
+Closed tickets archive back to the repo on completion, giving a
 hybrid shape: service-owned while live, repo-owned once closed.
 
 ### Why not repo-local live state
@@ -66,10 +66,10 @@ Single file, still inspectable, transactions, concurrent readers,
 indexes.
 
 **JSONL as archive/export format.** Append-only audit logs and the
-work-unit-close archive path per
+ticket-close archive path per
 [17](./17-directory-layout.md).
 
-**Archival path.** When a work unit closes, its full record (thread,
+**Archival path.** When a ticket closes, its full record (thread,
 decisions, artifacts, audit trail) serializes to JSONL in the repo
 under a known path. The service performs this commit under its own
 git identity.
@@ -82,14 +82,14 @@ git identity.
 - Role/agent template definitions (YAML).
 - Policy definitions.
 - Project-level context bundles.
-- Archived closed work units (JSONL).
+- Archived closed tickets (JSONL).
 - Decision records (standalone artifacts).
 
 **In the service:**
 
-- Live work units and their state.
+- Live tickets and their state.
 - Active agent instances, heartbeats, logs.
-- Thread entries (until work unit closes).
+- Thread entries (until ticket closes).
 - Scheduler/queue state.
 - Short-lived auth tokens.
 
@@ -110,9 +110,9 @@ changes. Polling is wasteful and laggy. WebSockets from the start.
 ### Logical channels on one socket
 
 - **Command channel** — RPC-style: client asks service to do something
-  (spawn agent, create work unit, post thread entry, resolve entry).
+  (spawn agent, create ticket, post thread entry, resolve entry).
 - **Event channel** — pub/sub: service pushes updates to subscribers
-  (new thread entry, work-unit state change, agent heartbeat, completion
+  (new thread entry, ticket state change, agent heartbeat, completion
   events).
 
 Same socket, logically separated.
@@ -144,7 +144,7 @@ a non-issue rather than a bug.
 ## Service internal layering
 
 1. **API surface** — WS endpoints for clients. Thin, stateless, auth-checked.
-2. **Domain core** — work units, threads, workflows, policy evaluation,
+2. **Domain core** — tickets, threads, workflows, policy evaluation,
    scheduling. Pure logic, no I/O.
 3. **Persistence** — SQLite for live state, repo-writer for archival.
 4. **Agent lifecycle** — spawning sandboxed Claude Code processes, tracking
@@ -157,7 +157,7 @@ Two-layer identity (see [06](./06-agent-identity.md)):
 
 - **Human identity** — real auth in team mode. Static token OK for solo.
 - **Agent instance identity** — service-issued scoped token at spawn time,
-  tied to (work-unit, role, parent-dev). Ephemeral.
+  tied to (ticket, role, parent-dev). Ephemeral.
 
 Auth abstraction designed in from the start so adding OIDC/SSO later is
 additive rather than invasive.

@@ -2,11 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.store import MessageBus
-from jig.store.comments import CommentStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Comment, TicketStatus, TicketType
+from jig.thread import Note
+from jig.ticket import TicketStatus, WorkType
 from jig.ticket_mcp import (
     handle_comment_on_ticket,
     handle_create_ticket,
@@ -20,20 +21,19 @@ from jig.ticket_mcp import (
 @pytest.fixture
 async def stores(tmp_path: Path):
     tickets = TicketStore(tmp_path / "tickets.jsonl")
-    comments = CommentStore(tmp_path / "comments.jsonl")
+    threads = ThreadStore(tmp_path / "comments.jsonl")
     bus = MessageBus(tmp_path / "messages.jsonl")
     await tickets.load()
-    await comments.load()
+    await threads.load()
     await bus.load()
-    return tickets, comments, bus
+    return tickets, threads, bus
 
 
 @pytest.mark.asyncio
 async def test_create_ticket_persists(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     ticket_id = await handle_create_ticket(
         tickets=tickets,
-        comments=comments,
         bus=bus,
         sender="user",
         args={
@@ -45,18 +45,17 @@ async def test_create_ticket_persists(stores) -> None:
     loaded = await tickets.get(ticket_id)
     assert loaded is not None
     assert loaded.title == "Add search"
-    assert loaded.type == TicketType.FEATURE
+    assert loaded.work_type == WorkType.FEATURE
     assert loaded.created_by == "user"
     assert loaded.status == TicketStatus.OPEN
 
 
 @pytest.mark.asyncio
 async def test_create_ticket_publishes_bus_event(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     queue = await bus.subscribe("orchestrator")
     await handle_create_ticket(
         tickets=tickets,
-        comments=comments,
         bus=bus,
         sender="user",
         args={"type": "bug", "title": "crash"},
@@ -64,14 +63,51 @@ async def test_create_ticket_publishes_bus_event(stores) -> None:
     msg = await queue.get()
     assert msg.topic == "orchestrator"
     assert msg.payload["kind"] == "ticket_created"
-    assert msg.payload["type"] == "bug"
+    # Legacy "bug" migrates to "bugfix" via the Ticket model validator.
+    assert msg.payload["work_type"] == "bugfix"
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_rejects_unknown_work_type(stores) -> None:
+    tickets, threads, bus = stores
+    with pytest.raises(ValueError, match=r"Unknown work_type 'gizmo'.*feature"):
+        await handle_create_ticket(
+            tickets=tickets,
+            bus=bus,
+            sender="user",
+            args={"work_type": "gizmo", "title": "bad"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_rejects_unknown_legacy_type(stores) -> None:
+    tickets, threads, bus = stores
+    with pytest.raises(ValueError, match=r"Unknown work_type 'widget'"):
+        await handle_create_ticket(
+            tickets=tickets,
+            bus=bus,
+            sender="user",
+            args={"type": "widget", "title": "bad"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_rejects_unknown_size(stores) -> None:
+    tickets, threads, bus = stores
+    with pytest.raises(ValueError, match=r"Unknown size 'huge'"):
+        await handle_create_ticket(
+            tickets=tickets,
+            bus=bus,
+            sender="user",
+            args={"work_type": "feature", "title": "bad", "size": "huge"},
+        )
 
 
 @pytest.mark.asyncio
 async def test_read_ticket(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="user",
+        tickets=tickets, bus=bus, sender="user",
         args={"type": "feature", "title": "f"},
     )
     loaded = await handle_read_ticket(tickets=tickets, ticket_id=tid)
@@ -87,13 +123,13 @@ async def test_read_ticket_missing_raises(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_list_tickets_filtered(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "feature", "title": "f1"},
     )
     await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "bug", "title": "b1"},
     )
     features = await handle_list_tickets(tickets=tickets, args={"type": "feature"})
@@ -102,28 +138,28 @@ async def test_list_tickets_filtered(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_read_comments_direct_post(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "task", "title": "t"},
     )
-    await comments.post(
-        Comment(ticket_id=tid, author="dev", content="hello")
-    )
-    all_c = await handle_read_comments(comments=comments, ticket_id=tid)
-    assert [c.content for c in all_c] == ["hello"]
+    await threads.post(Note(ticket_id=tid, author="dev", text="hello"))
+    entries = await handle_read_comments(threads=threads, ticket_id=tid)
+    # filter to note kind (there may also be SystemEvents)
+    notes = [e for e in entries if e.kind == "note"]
+    assert [n.text for n in notes] == ["hello"]
 
 
 @pytest.mark.asyncio
 async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "task", "title": "t"},
     )
     with pytest.raises(ValueError):
         await handle_comment_on_ticket(
-            tickets=tickets, comments=comments, bus=bus,
+            tickets=tickets, threads=threads, bus=bus,
             sender="dev", sender_cfg=None,
             args={"ticket_id": tid, "content": "x", "kind": "phase_run"},
         )
@@ -131,18 +167,20 @@ async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_update_ticket_status_emits_status_change_comment(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "feature", "title": "f"},
     )
     await handle_update_ticket(
-        tickets=tickets, comments=comments, bus=bus,
+        tickets=tickets, threads=threads, bus=bus,
         sender="orchestrator",
         args={"ticket_id": tid, "status": "in_progress"},
     )
+    entries = await threads.for_ticket(tid)
     status_changes = [
-        c for c in await comments.for_ticket(tid) if c.kind == "status_change"
+        e for e in entries
+        if e.kind == "system_event" and e.event_type == "status_change"
     ]
     assert len(status_changes) == 1
     assert "in_progress" in status_changes[0].content
@@ -150,32 +188,36 @@ async def test_update_ticket_status_emits_status_change_comment(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_update_ticket_non_status_field(stores) -> None:
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "feature", "title": "f"},
     )
     await handle_update_ticket(
-        tickets=tickets, comments=comments, bus=bus,
+        tickets=tickets, threads=threads, bus=bus,
         sender="orchestrator",
         args={"ticket_id": tid, "description": "more detail"},
     )
     loaded = await tickets.get(tid)
     assert loaded.description == "more detail"
-    assert not any(c.kind == "status_change" for c in await comments.for_ticket(tid))
+    entries = await threads.for_ticket(tid)
+    assert not any(
+        e.kind == "system_event" and e.event_type == "status_change"
+        for e in entries
+    )
 
 
 @pytest.mark.asyncio
 async def test_comment_on_ticket_self_role_allowed(stores) -> None:
-    """A dev agent can comment on a dev-assigned ticket even with empty can_message."""
-    tickets, comments, bus = stores
+    """A dev agent can comment on a dev-assigned ticket."""
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "task", "title": "t", "assignee": "dev"},
     )
-    dev_cfg = AgentTypeConfig(role="dev", phase_prompt="", can_message=[])
+    dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
-        tickets=tickets, comments=comments, bus=bus,
+        tickets=tickets, threads=threads, bus=bus,
         sender="dev", sender_cfg=dev_cfg,
         args={"ticket_id": tid, "content": "progress"},
     )
@@ -184,15 +226,15 @@ async def test_comment_on_ticket_self_role_allowed(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
-    """Any agent with empty can_message can still reach the orchestrator."""
-    tickets, comments, bus = stores
+    """Any agent can still reach the orchestrator."""
+    tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "task", "title": "t", "assignee": "orchestrator"},
     )
-    dev_cfg = AgentTypeConfig(role="dev", phase_prompt="", can_message=[])
+    dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
-        tickets=tickets, comments=comments, bus=bus,
+        tickets=tickets, threads=threads, bus=bus,
         sender="dev", sender_cfg=dev_cfg,
         args={"ticket_id": tid, "content": "question for orchestrator"},
     )
@@ -200,9 +242,9 @@ async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
 
 
 @pytest.mark.asyncio
-async def test_commit_progress_creates_commit_and_comment(stores, tmp_path) -> None:
+async def test_commit_progress_creates_commit_and_system_event(stores, tmp_path) -> None:
     import subprocess
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
 
     work = tmp_path / "worktree"
     work.mkdir()
@@ -212,28 +254,32 @@ async def test_commit_progress_creates_commit_and_comment(stores, tmp_path) -> N
     (work / "a.txt").write_text("hello")
 
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "feature", "title": "f"},
     )
     from jig.ticket_mcp import handle_commit_progress
     result = await handle_commit_progress(
-        tickets=tickets, comments=comments, bus=bus,
+        tickets=tickets, threads=threads, bus=bus,
         sender="dev",
         worktree_path=work,
         args={"ticket_id": tid, "message": "add a.txt"},
     )
     assert "sha" in result
     assert result["sha"]
-    commit_comments = await comments.commits_for(tid)
-    assert len(commit_comments) == 1
-    assert commit_comments[0].commit_sha == result["sha"]
-    assert commit_comments[0].content == "feat(dev): add a.txt"
+    entries = await threads.for_ticket(tid)
+    commits = [
+        e for e in entries
+        if e.kind == "system_event" and e.event_type == "commit"
+    ]
+    assert len(commits) == 1
+    assert commits[0].commit_sha == result["sha"]
+    assert commits[0].content == "feat(dev): add a.txt"
 
 
 @pytest.mark.asyncio
 async def test_commit_progress_nothing_to_commit_returns_none_sha(stores, tmp_path) -> None:
     import subprocess
-    tickets, comments, bus = stores
+    tickets, threads, bus = stores
     work = tmp_path / "worktree2"
     work.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
@@ -242,17 +288,22 @@ async def test_commit_progress_nothing_to_commit_returns_none_sha(stores, tmp_pa
     subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=work, check=True)
 
     tid = await handle_create_ticket(
-        tickets=tickets, comments=comments, bus=bus, sender="u",
+        tickets=tickets, bus=bus, sender="u",
         args={"type": "feature", "title": "f"},
     )
     from jig.ticket_mcp import handle_commit_progress
     result = await handle_commit_progress(
-        tickets=tickets, comments=comments, bus=bus,
+        tickets=tickets, threads=threads, bus=bus,
         sender="dev", worktree_path=work,
         args={"ticket_id": tid, "message": "noop"},
     )
     assert result["sha"] is None
-    assert await comments.commits_for(tid) == []
+    entries = await threads.for_ticket(tid)
+    commits = [
+        e for e in entries
+        if e.kind == "system_event" and e.event_type == "commit"
+    ]
+    assert commits == []
 
 
 @pytest.mark.asyncio

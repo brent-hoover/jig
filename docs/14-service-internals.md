@@ -15,14 +15,14 @@ When the orchestrator decides to start an agent instance, it:
 1. Resolves the role template and any phase-level overrides.
 2. Resolves the context bundle, snapshotting URI references to specific
    versions.
-3. Mints an instance-scoped auth token tied to (work-unit, role,
+3. Mints an instance-scoped auth token tied to (ticket, role,
    parent-dev).
 4. Allocates a sandbox container (Docker + bubblewrap).
 5. Mounts the working-copy filesystem with scope appropriate to the
    role's allowed paths.
 6. Starts the Claude Code process inside the sandbox with the prepared
    context and token.
-7. Records the spawn event in the work unit's audit trail.
+7. Records the spawn event in the ticket's audit trail.
 
 Spawn is the most mechanically involved operation in the service. It
 touches policy (context bundle resolution), identity (token), isolation
@@ -109,7 +109,7 @@ When an instance terminates, the service:
 - Flushes remaining log output.
 - Marks the instance's state terminal.
 - Notifies subscribers (TUI, web, etc.).
-- Updates the work unit state (phase pending-evaluator, or failed, or
+- Updates the ticket state (phase pending-evaluator, or failed, or
   ready-for-resumption).
 
 Cleanup is idempotent. Running cleanup twice on the same instance is
@@ -140,8 +140,8 @@ single dev from flooding the queue.
 
 Phases have priorities derived from:
 
-- Work-unit priority (if set explicitly).
-- Work-unit size — smaller work tends to prioritize higher (short
+- Ticket priority (if set explicitly).
+- Ticket size — smaller work tends to prioritize higher (short
   feedback loops matter).
 - Age — older eligible phases climb priority over time (prevents
   starvation).
@@ -218,7 +218,7 @@ The sandbox can reach only these endpoints:
 The sandbox cannot reach:
 
 - SCM APIs directly. SCM access goes through the service.
-- Other work units' state.
+- Other tickets' state.
 - Project-level configuration beyond what's in the context bundle.
 - Other agents' threads or state.
 
@@ -227,7 +227,7 @@ The sandbox cannot reach:
 Instance-scoped tokens, minted at spawn. Token carries:
 
 - Instance ID.
-- Work unit reference.
+- Ticket reference.
 - Role and phase.
 - Expiry (bounded to phase resource limits).
 
@@ -248,8 +248,8 @@ entries. Timeout values:
   automated-only evaluation is blocked that long, something's wrong).
 - **Extended for human-dependent phases:** 72 hours for phases waiting
   on specific humans (sick leave, travel, etc.).
-- **Override per work unit:** for urgent work, timeouts can be reduced;
-  for large work, extended. Configured at work unit creation or
+- **Override per ticket:** for urgent work, timeouts can be reduced;
+  for large work, extended. Configured at ticket creation or
   adjusted mid-flight.
 
 When a timeout fires, the orchestrator escalates per the workflow's
@@ -285,9 +285,9 @@ same as any other mid-phase interruption, which we've already
 designed for. Simpler than live-session reconnection and reuses
 existing mechanisms.
 
-## Backlog and unassigned work units
+## Backlog and unassigned tickets
 
-Work units exist in states beyond "actively running phases." A unit
+Tickets exist in states beyond "actively running phases." A unit
 can be:
 
 - **Draft** — created but not yet started. Spec phase hasn't begun.
@@ -297,17 +297,17 @@ can be:
 - **Done** — completed successfully, archived.
 - **Abandoned** — explicitly closed without completion, with reason.
 
-Draft work units form an implicit backlog. Work units promoted from
+Draft tickets form an implicit backlog. Tickets promoted from
 deferred items (see [09](./09-checkpoints.md)) enter in Draft state.
 
-V1 UX: a simple list view showing Draft work units with size, title,
+V1 UX: a simple list view showing Draft tickets with size, title,
 source (who created, or which deferral promoted them). Humans or the
 orchestrator can start them. No complex prioritization in v1 — teams
 work through the backlog in whatever order makes sense.
 
 ## Abandonment
 
-A work unit transitions to `Abandoned` when it's explicitly closed
+A ticket transitions to `Abandoned` when it's explicitly closed
 without reaching `Done`. Several doc sections reference this
 transition without pinning down the trigger, the side effects, or
 the parent/child cascade. Collected here.
@@ -317,24 +317,24 @@ the parent/child cascade. Collected here.
 Four paths, each producing an `Abandoned` state with a `reason`
 field:
 
-- **Human CLI/TUI action.** `jig abandon <wu-id> --reason "..."`.
-  Authorized actor is any owner of the work unit per
+- **Human CLI/TUI action.** `jig abandon <ticket-id> --reason "..."`.
+  Authorized actor is any owner of the ticket per
   [04](./04-ownership.md) — the assignee, the SA, the PO if the
   work relates to a product decision they own. The TUI exposes an
-  abandon action on the WU detail view.
+  abandon action on the ticket detail view.
 - **External close** (hybrid SCM mode). Human closes the linked
-  issue on the SCM; harness force-abandons the WU per
+  issue on the SCM; harness force-abandons the ticket per
   [13](./13-scm-integration.md) §External close handling.
 - **Parent cascade override.** A human abandoning a parent can opt
   to cascade the abandonment to in-flight children (see below).
 - **Failure-to-progress timeout.** Per
-  [09](./09-checkpoints.md) §Failure-to-progress, a work unit that
+  [09](./09-checkpoints.md) §Failure-to-progress, a ticket that
   shows no progress across multiple checkpoint intervals surfaces a
   warning. If the warning is dismissed with "abandon," that
-  terminates the WU. Never auto-abandons without human
+  terminates the ticket. Never auto-abandons without human
   confirmation.
 
-No agent can abandon a work unit. Agents that hit a dead end post an
+No agent can abandon a ticket. Agents that hit a dead end post an
 Escalation per [08](./08-threads.md); a human decides whether to
 abandon or reassign. This keeps terminal decisions in human hands,
 consistent with "agents can't self-certify past objective gates"
@@ -344,15 +344,15 @@ from [00](./00-overview.md).
 
 On abandonment, the service:
 
-1. **Terminates running agent sandboxes** for this WU. Sandbox
+1. **Terminates running agent sandboxes** for this ticket. Sandbox
    shutdown follows the standard termination path
    ([§Process and sandbox management](#) elsewhere in this doc).
 2. **Persists final thread state.** Any in-flight thread entries
    from still-alive agents are flushed; the thread is sealed.
-3. **Writes the archive** to `.jig/archive/<WU-id>/` per
+3. **Writes the archive** to `.jig/archive/<ticket-id>/` per
    [17](./17-directory-layout.md). The archive records the
    abandonment reason, the triggering actor, and the timestamp.
-4. **Purges live service state** (SQLite rows for this WU). The
+4. **Purges live service state** (SQLite rows for this ticket). The
    archive is the durable record from this point.
 
 ### Branch and worktree
@@ -377,7 +377,7 @@ worktree path so a human investigating later has the handles.
 
 ### Parent/child cascade
 
-When a parent WU abandons, its in-flight children do **not**
+When a parent ticket abandons, its in-flight children do **not**
 auto-abandon. They transition to `blocked` with
 `parent_abandoned` as the cause. This is the same semantic as the
 external-close dependency callout in [13].
@@ -401,15 +401,15 @@ its work product landing in the archive without integration.
 
 Non-parent dependencies (`depends_on` references, not parent/child)
 behave the same way — dependents transition to `blocked` with the
-abandoned WU cited as cause. Same prompt, same options.
+abandoned ticket cited as cause. Same prompt, same options.
 
 ### `jig resume`
 
 External-close abandonment is the one case where resumption is a
 first-class operation (per [13] §External close handling). Other
 abandonments are terminal — the archive is the end state. If work
-needs to continue, the human creates a new WU, optionally importing
-context from the abandoned WU's archive.
+needs to continue, the human creates a new ticket, optionally importing
+context from the abandoned ticket's archive.
 
 Making resume terminal-by-default prevents abandon-reopen thrashing
 and keeps the state machine simple. External-close resume is the
@@ -436,7 +436,7 @@ SQLite is sufficient for most cases — solo use, small team use. Single
 file, transactional, inspectable.
 
 Postgres is an option for:
-- Larger teams with many concurrent work units.
+- Larger teams with many concurrent tickets.
 - Deployments that want backup/replication features.
 - Teams with existing Postgres operational expertise.
 
@@ -491,7 +491,7 @@ Team deployment is shared infrastructure:
 - Worker pool for sandboxes (same-host v1, separate hosts later).
 - OIDC or static token auth.
 - Reverse proxy for ingress.
-- Per-dev identity and per-work-unit permissions.
+- Per-dev identity and per-ticket permissions.
 
 Same service code. Configuration differs. A team deployment is
 functionally a solo deployment scaled up with real auth.
@@ -505,7 +505,7 @@ Three kinds of logging:
   infrastructure.
 - **Agent logs.** Per-instance files. Raw agent output (tool calls,
   responses). Kept for audit.
-- **Audit logs.** Append-only JSONL in the repo archive. Work unit
+- **Audit logs.** Append-only JSONL in the repo archive. Ticket
   lifecycle events, decisions, approvals, merges. What persists
   beyond service lifetime.
 

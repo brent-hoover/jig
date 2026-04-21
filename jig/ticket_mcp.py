@@ -1,14 +1,28 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.store import Message, MessageBus, MessageType
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.thread import (
+    Answer,
+    Decision,
+    Note,
+    Question,
+    SystemEvent,
+    ThreadEntry,
+)
+from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
+
+if TYPE_CHECKING:
+    from jig.store.checkpoints import CheckpointStore
 
 _logger = logging.getLogger(__name__)
 
@@ -18,10 +32,10 @@ _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 async def handle_create_ticket(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
     bus: MessageBus,
     sender: str,
     args: dict,
+    project_path: Path | None = None,
 ) -> str:
     depends_on: list[str] = args.get("depends_on", [])
 
@@ -30,17 +44,106 @@ async def handle_create_ticket(
         if await tickets.get(dep_id) is None:
             raise KeyError(f"dependency ticket {dep_id} not found")
 
-    ticket = Ticket(
-        type=TicketType(args["type"]),
-        title=args["title"],
-        description=args.get("description", ""),
-        assignee=args.get("assignee"),
-        parent_id=args.get("parent_id"),
-        blocked_by=depends_on,
-        workflow=args.get("workflow", "default"),
-        labels=args.get("labels", []),
-        created_by=sender,
-    )
+    # Accept either the new "work_type" or the legacy "type" kwarg.
+    # If "type" is passed, the Ticket model validator handles migration
+    # of legacy values (bug→bugfix, etc.) and sets workflow="thread" for
+    # the old task/question values.
+    raw_size = args.get("size", "m")
+    try:
+        size = Size(raw_size)
+    except ValueError:
+        raise ValueError(
+            f"Unknown size {raw_size!r}. "
+            f"Valid values: {[s.value for s in Size]}"
+        ) from None
+
+    ticket_kwargs: dict = {
+        "title": args["title"],
+        "description": args.get("description", ""),
+        "assignee": args.get("assignee"),
+        "parent_id": args.get("parent_id"),
+        "blocked_by": depends_on,
+        "labels": args.get("labels", []),
+        "created_by": sender,
+        "size": size,
+    }
+    if "workflow" in args:
+        ticket_kwargs["workflow"] = args["workflow"]
+    if "work_type" in args:
+        raw_wt = args["work_type"]
+        try:
+            ticket_kwargs["work_type"] = WorkType(raw_wt)
+        except ValueError:
+            raise ValueError(
+                f"Unknown work_type {raw_wt!r}. "
+                f"Valid values: {[w.value for w in WorkType]}"
+            ) from None
+    elif "type" in args:
+        # Legacy alias — the model validator migrates bug→bugfix etc.
+        # Anything that doesn't map cleanly surfaces as a pydantic
+        # ValidationError from WorkType(...), which is fine for
+        # forensics but not friendly — catch and rewrite it.
+        from jig.ticket import _LEGACY_TYPE_MIGRATION
+        raw_legacy = args["type"]
+        mapped = _LEGACY_TYPE_MIGRATION.get(raw_legacy, raw_legacy)
+        if mapped not in {w.value for w in WorkType}:
+            raise ValueError(
+                f"Unknown work_type {raw_legacy!r}. "
+                f"Valid values: {[w.value for w in WorkType]} "
+                f"(legacy accepted: {sorted(_LEGACY_TYPE_MIGRATION)})"
+            )
+        ticket_kwargs["type"] = raw_legacy
+    else:
+        raise KeyError("work_type is required")
+
+    ticket = Ticket(**ticket_kwargs)
+
+    # Phase 2D: if the caller didn't pin a workflow and the model's
+    # legacy-migration validator didn't override (e.g. type=task→thread),
+    # consult .jig/config.yaml. Explicit per-ticket overrides and legacy
+    # "thread" migration both win over config-driven resolution.
+    explicit_workflow = args.get("workflow")
+    if explicit_workflow is None and ticket.workflow == "default" and project_path is not None:
+        from jig.config import (
+            WorkflowResolutionError,
+            load_config,
+            resolve_workflow,
+        )
+        try:
+            cfg = load_config(project_path)
+        except FileNotFoundError:
+            cfg = None
+        if cfg is not None:
+            try:
+                resolved = resolve_workflow(
+                    cfg,
+                    work_type=ticket.work_type.value,
+                    size=ticket.size.value,
+                )
+            except WorkflowResolutionError:
+                # Should only fire with explicit=..., which we don't
+                # pass here. Raised defensively in case future code does.
+                raise
+            if resolved != ticket.workflow:
+                ticket = ticket.model_copy(update={"workflow": resolved})
+    elif explicit_workflow is not None and project_path is not None:
+        # Validate an explicit workflow against config.workflows.available.
+        from jig.config import WorkflowResolutionError, load_config, resolve_workflow
+        try:
+            cfg = load_config(project_path)
+        except FileNotFoundError:
+            cfg = None
+        if cfg is not None:
+            try:
+                resolve_workflow(
+                    cfg,
+                    work_type=ticket.work_type.value,
+                    size=ticket.size.value,
+                    explicit=explicit_workflow,
+                )
+            except WorkflowResolutionError as exc:
+                raise ValueError(str(exc)) from exc
+
     ticket_id = await tickets.create(ticket)
 
     # Update the reverse side: each dependency now blocks this ticket
@@ -54,7 +157,11 @@ async def handle_create_ticket(
         "ticket_id": ticket_id,
         "title": ticket.title,
         "description": ticket.description,
-        "type": ticket.type.value,
+        "work_type": ticket.work_type.value,
+        # Legacy alias for subscribers not yet updated to the Phase 1
+        # schema. Remove once TUI + any other consumers land on work_type.
+        "type": ticket.work_type.value,
+        "size": ticket.size.value,
         "assignee": ticket.assignee,
         "parent_id": ticket.parent_id,
         "depends_on": depends_on,
@@ -87,7 +194,16 @@ async def handle_read_ticket(*, tickets: TicketStore, ticket_id: str) -> Ticket:
 async def handle_list_tickets(
     *, tickets: TicketStore, args: dict
 ) -> list[Ticket]:
-    ttype = TicketType(args["type"]) if "type" in args else None
+    # Accept both "work_type" and legacy "type" in filter args. Legacy
+    # values (bug, chore, task, question) are migrated through the same
+    # mapping as the model validator so old callers keep working.
+    raw_work_type = args.get("work_type", args.get("type"))
+    if raw_work_type is None:
+        wt = None
+    else:
+        from jig.ticket import _LEGACY_TYPE_MIGRATION
+        mapped = _LEGACY_TYPE_MIGRATION.get(raw_work_type, raw_work_type)
+        wt = WorkType(mapped)
     status = TicketStatus(args["status"]) if "status" in args else None
     assignee = args.get("assignee")
     parent_id = args.get("parent_id")
@@ -100,7 +216,7 @@ async def handle_list_tickets(
         pool = await tickets.list_all()
 
     def keep(t: Ticket) -> bool:
-        if ttype is not None and t.type != ttype:
+        if wt is not None and t.work_type != wt:
             return False
         if status is not None and t.status != status:
             return False
@@ -110,21 +226,29 @@ async def handle_list_tickets(
 
 
 async def handle_read_comments(
-    *, comments: CommentStore, ticket_id: str, kind: str | None = None
-) -> list[Comment]:
-    all_for = await comments.for_ticket(ticket_id)
+    *, threads: ThreadStore, ticket_id: str, kind: str | None = None
+) -> list[ThreadEntry]:
+    """Return thread entries for a ticket, oldest first.
+
+    Legacy-API name kept for call-site compatibility during Phase 4.
+    ``kind`` filters on the new ``ThreadEntry.kind`` discriminator;
+    pre-Phase-4 callers who asked for ``commit`` / ``phase_run`` /
+    ``status_change`` should now pass ``system_event`` (all three fold
+    into that kind, distinguished by ``event_type``).
+    """
+    all_for = await threads.for_ticket(ticket_id)
     if kind is None:
         return all_for
-    return [c for c in all_for if c.kind == kind]
+    return [e for e in all_for if e.kind == kind]
 
 
 async def handle_comment_on_ticket(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
-    sender_cfg: AgentTypeConfig | None,
+    sender_cfg: RoleConfig | None,
     args: dict,
 ) -> str:
     kind = args.get("kind", "comment")
@@ -139,18 +263,43 @@ async def handle_comment_on_ticket(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    # Commenting on a ticket is always allowed — the agent is posting its own
-    # observations, not messaging the assignee.  The can_message restriction
-    # applies to create_ticket (which directs work to another role), not to
-    # comments which are read-only context.
+    content = args["content"]
+    entry: ThreadEntry
+    if kind == "comment":
+        entry = Note(ticket_id=ticket_id, author=sender, text=content)
+    elif kind == "decision":
+        entry = Decision(
+            ticket_id=ticket_id,
+            author=sender,
+            decision=content,
+            rationale="",
+        )
+    elif kind == "question":
+        entry = Question(
+            ticket_id=ticket_id,
+            author=sender,
+            target=args.get("target", "any_human"),
+            question=content,
+            blocking=bool(args.get("blocking", False)),
+        )
+    elif kind == "answer":
+        question_id = args.get("question_id") or await _latest_open_question_id(
+            threads, ticket_id
+        )
+        if not question_id:
+            raise ValueError(
+                "answer kind requires question_id (or an open Question on the ticket)"
+            )
+        entry = Answer(
+            ticket_id=ticket_id,
+            author=sender,
+            question_id=question_id,
+            text=content,
+        )
+    else:  # pragma: no cover — guarded by _WRITABLE_KINDS
+        raise ValueError(f"unhandled writable kind {kind!r}")
 
-    comment = Comment(
-        ticket_id=ticket_id,
-        author=sender,
-        content=args["content"],
-        kind=kind,
-    )
-    cid = await comments.post(comment)
+    cid = await threads.post(entry)
 
     await bus.publish(Message(
         sender=sender,
@@ -161,7 +310,7 @@ async def handle_comment_on_ticket(
             "ticket_id": ticket_id,
             "comment_id": cid,
             "author": sender,
-            "content": args["content"],
+            "content": content,
             "comment_kind": kind,
         },
         topic=f"tickets.{ticket_id}",
@@ -169,160 +318,21 @@ async def handle_comment_on_ticket(
     return cid
 
 
-async def handle_ask_question(
-    *,
-    tickets: TicketStore,
-    comments: CommentStore,
-    bus: MessageBus,
-    sender: str,
-    args: dict,
-) -> dict:
-    """Post one or more questions on a ticket and set it to needs_info.
-
-    Returns {"comment_ids": [...], "status": "needs_info"}.
-    """
-    ticket_id = args["ticket_id"]
-    questions: list[str] = args.get("questions", [])
-    # Also accept a single "question" string for convenience
-    if "question" in args and isinstance(args["question"], str):
-        questions.append(args["question"])
-    if not questions:
-        raise ValueError("at least one question is required")
-
-    ticket = await tickets.get(ticket_id)
-    if ticket is None:
-        raise KeyError(f"ticket {ticket_id} not found")
-
-    comment_ids: list[str] = []
-    for q in questions:
-        comment = Comment(
-            ticket_id=ticket_id,
-            author=sender,
-            content=q,
-            kind="question",
-        )
-        cid = await comments.post(comment)
-        comment_ids.append(cid)
-        await bus.publish(Message(
-            sender=sender,
-            to=ticket.assignee or "broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "comment_posted",
-                "ticket_id": ticket_id,
-                "comment_id": cid,
-                "author": sender,
-                "content": q,
-                "comment_kind": "question",
-            },
-            topic=f"tickets.{ticket_id}",
-        ))
-
-    # Transition to needs_info
-    before_status = ticket.status
-    updated = await tickets.update(ticket_id, status=TicketStatus.NEEDS_INFO)
-    if before_status != TicketStatus.NEEDS_INFO:
-        await comments.post(Comment(
-            ticket_id=ticket_id,
-            author=sender,
-            content=f"status {before_status.value} -> needs_info",
-            kind="status_change",
-        ))
-    await bus.publish(Message(
-        sender=sender,
-        to=updated.assignee or "broadcast",
-        type=MessageType.CONTEXT_UPDATE,
-        payload={
-            "kind": "ticket_updated",
-            "ticket_id": ticket_id,
-            "status": "needs_info",
-        },
-        topic=f"tickets.{ticket_id}",
-    ))
-
-    return {"comment_ids": comment_ids, "status": "needs_info"}
-
-
-async def handle_answer_questions(
-    *,
-    tickets: TicketStore,
-    comments: CommentStore,
-    bus: MessageBus,
-    sender: str,
-    args: dict,
-) -> dict:
-    """Post answers to pending questions and optionally resume the ticket.
-
-    args:
-        ticket_id: str
-        answers: list[str]         — one answer per pending question, in order
-        resume: bool (default True) — set ticket back to in_progress
-    """
-    ticket_id = args["ticket_id"]
-    answers: list[str] = args.get("answers", [])
-    resume: bool = args.get("resume", True)
-
-    ticket = await tickets.get(ticket_id)
-    if ticket is None:
-        raise KeyError(f"ticket {ticket_id} not found")
-
-    comment_ids: list[str] = []
-    for a in answers:
-        comment = Comment(
-            ticket_id=ticket_id,
-            author=sender,
-            content=a,
-            kind="answer",
-        )
-        cid = await comments.post(comment)
-        comment_ids.append(cid)
-        await bus.publish(Message(
-            sender=sender,
-            to=ticket.assignee or "broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "comment_posted",
-                "ticket_id": ticket_id,
-                "comment_id": cid,
-                "author": sender,
-                "content": a,
-                "comment_kind": "answer",
-            },
-            topic=f"tickets.{ticket_id}",
-        ))
-
-    result: dict = {"comment_ids": comment_ids}
-
-    if resume and ticket.status == TicketStatus.NEEDS_INFO:
-        updated = await tickets.update(ticket_id, status=TicketStatus.IN_PROGRESS)
-        await comments.post(Comment(
-            ticket_id=ticket_id,
-            author=sender,
-            content=f"status needs_info -> {updated.status.value}",
-            kind="status_change",
-        ))
-        await bus.publish(Message(
-            sender=sender,
-            to=updated.assignee or "broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "ticket_updated",
-                "ticket_id": ticket_id,
-                "status": updated.status.value,
-            },
-            topic=f"tickets.{ticket_id}",
-        ))
-        result["status"] = updated.status.value
-    else:
-        result["status"] = ticket.status.value
-
-    return result
+async def _latest_open_question_id(
+    threads: ThreadStore, ticket_id: str
+) -> str | None:
+    """Return the id of the most recent unresolved Question on the ticket."""
+    questions = await threads.find_by_kind(ticket_id, "question")
+    open_qs = [q for q in questions if not q.is_resolved()]
+    if not open_qs:
+        return None
+    return open_qs[-1].id
 
 
 async def handle_update_ticket(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     args: dict,
@@ -341,13 +351,13 @@ async def handle_update_ticket(
 
     updated = await tickets.update(ticket_id, **update_fields)
 
-    # Auto-emit status_change comment on status transitions
+    # Auto-emit status_change audit record on status transitions
     if "status" in update_fields and update_fields["status"] != before.status:
-        await comments.post(Comment(
+        await threads.post(SystemEvent(
             ticket_id=ticket_id,
             author=sender,
+            event_type="status_change",
             content=f"status {before.status.value} -> {updated.status.value}",
-            kind="status_change",
         ))
 
     # Agents set "resolved" to signal phase completion, but only the
@@ -388,11 +398,13 @@ async def handle_update_ticket(
 async def handle_commit_progress(
     *,
     tickets: TicketStore,
-    comments: CommentStore,
+    threads: ThreadStore,
     bus: MessageBus,
     sender: str,
     worktree_path: Path,
     args: dict,
+    checkpoints: "CheckpointStore | None" = None,
+    phase_name: str = "",
 ) -> dict:
     ticket_id = args["ticket_id"]
     agent_message = args["message"]
@@ -413,22 +425,64 @@ async def handle_commit_progress(
     try:
         sha = await commit_worktree(worktree_path, commit_message)
     except LintError as exc:
+        # Harness-triggered: lint/test hook fires regardless of outcome
+        # per doc 09. The failing lint output surfaces as open_questions
+        # on the resulting checkpoint so the next agent view sees what's
+        # red.
+        if checkpoints is not None:
+            from jig.checkpoint_mcp import record_auto_test_checkpoint
+
+            await record_auto_test_checkpoint(
+                checkpoints=checkpoints,
+                ticket_id=ticket_id,
+                phase_name=phase_name,
+                author=sender,
+                passed=False,
+                summary=f"{len(exc.errors)} unfixable lint errors",
+                open_questions=exc.errors,
+            )
         return {
             "success": False,
             "error": "lint_errors",
             "message": "Fix these lint errors before committing:",
             "errors": exc.errors,
         }
+
+    if checkpoints is not None:
+        # Lint passed (commit_worktree gets past the LintError check).
+        from jig.checkpoint_mcp import record_auto_test_checkpoint
+
+        await record_auto_test_checkpoint(
+            checkpoints=checkpoints,
+            ticket_id=ticket_id,
+            phase_name=phase_name,
+            author=sender,
+            passed=True,
+            summary="ruff clean",
+        )
+
     if sha is None:
         return {"sha": None, "comment_id": None}
 
-    cid = await comments.post(Comment(
+    cid = await threads.post(SystemEvent(
         ticket_id=ticket_id,
         author=sender,
+        event_type="commit",
         content=commit_message,
-        kind="commit",
         commit_sha=sha,
     ))
+
+    if checkpoints is not None:
+        from jig.checkpoint_mcp import record_auto_commit_checkpoint
+
+        await record_auto_commit_checkpoint(
+            checkpoints=checkpoints,
+            ticket_id=ticket_id,
+            phase_name=phase_name,
+            author=sender,
+            commit_sha=sha,
+            message=commit_message,
+        )
 
     await bus.publish(Message(
         sender=sender,

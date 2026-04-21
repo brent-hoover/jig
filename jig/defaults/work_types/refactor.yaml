@@ -1,0 +1,29 @@
+# refactor — internal restructuring, no behavior change. Doc 03.
+work_type: refactor
+
+required:
+  - summary
+  - current_structure
+  - target_structure
+  - equivalence_argument
+
+optional:
+  - migration_path
+  - risks
+  - dependencies
+
+required_by_size:
+  xs: [summary, target_structure]
+  s: [summary, current_structure, target_structure]
+  m: [summary, current_structure, target_structure, equivalence_argument]
+  l: [summary, current_structure, target_structure, equivalence_argument, migration_path]
+  xl: [summary, current_structure, target_structure, equivalence_argument, migration_path, risks]
+
+ownership:
+  summary: sa
+  current_structure: sa
+  target_structure: sa
+  equivalence_argument: sa
+  migration_path: sa
+  risks: sa
+  dependencies: sa

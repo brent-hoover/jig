@@ -5,14 +5,14 @@ from unittest.mock import patch
 
 import pytest
 
-from jig.models import AgentTypeConfig
+from jig.models import RoleConfig
 from jig.project import Project
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.store import MessageBus
-from jig.store.comments import CommentStore
 from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.ticket import Ticket, TicketType
+from jig.ticket import Ticket, WorkType
 
 
 async def _wait_for_subscription(bus, topic: str, timeout: float = 2.0) -> None:
@@ -31,14 +31,14 @@ async def _wait_for_subscription(bus, topic: str, timeout: float = 2.0) -> None:
 async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     tickets = TicketStore(tmp_path / "tickets.jsonl")
     await tickets.load()
-    comments = CommentStore(tmp_path / "comments.jsonl")
-    await comments.load()
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
     memory = MemoryStore(tmp_path)
     await memory.load()
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     t = Ticket(
-        type=TicketType.TASK,
+        work_type=WorkType.REFACTOR,
         title="t",
         created_by="o",
         description="do it",
@@ -48,7 +48,7 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     assert loaded is not None
     return AgentSpawnContext(
         role="dev",
-        role_cfg=AgentTypeConfig(role="dev", phase_prompt="be dev"),
+        role_cfg=RoleConfig(role="dev", phase_prompt="be dev"),
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=loaded,
         parent=None,
@@ -61,7 +61,7 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
             package_manager="uv",
         ),
         tickets=tickets,
-        comments=comments,
+        threads=threads,
         memory=memory,
         bus=bus,
     )

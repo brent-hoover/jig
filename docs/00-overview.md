@@ -19,7 +19,7 @@ handoffs. Every agent-involved task either bypasses the team's practices or
 forces a human to manually bridge the gap.
 
 The harness makes agents first-class participants in those practices. An
-agent that joins a work unit arrives with the context a human teammate
+agent that joins a ticket arrives with the context a human teammate
 would have. It communicates through the same channels. It hands off through
 the same gates. It's subject to the same definition of done. A human
 reviewing agent work sees the same artifacts they'd see reviewing a

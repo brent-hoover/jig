@@ -127,7 +127,8 @@ function ColumnView({ col }: { col: Column }) {
                 {STATUS_ICON[t.status] ?? "·"}
               </span>
               <span>{" "}</span>
-              <span>{truncate(t.title, 18)}</span>
+              <span style={{ fg: "#666666" }}>{`[${t.size}] `}</span>
+              <span>{truncate(t.title, 14)}</span>
             </text>
           </box>
         ))

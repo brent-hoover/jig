@@ -51,7 +51,7 @@ configuration for harness-performed merges is supported. See
 ## Needs attention during implementation
 
 **Size-as-signal runtime metrics.** What specific metrics indicate that
-a work unit is larger than its declared size? Proposal rate, deferral
+a ticket is larger than its declared size? Proposal rate, deferral
 rate, checkpoint churn are candidates. Shipped defaults to be calibrated
 over time per project. See [03](./03-specs-and-work-types.md).
 
@@ -87,9 +87,9 @@ experience accumulates.
 
 ## Worth revisiting after v1
 
-**Cross-work-unit coordination.** Work unit A blocked on a decision
-that affects work unit B. Currently handled by human decomposition.
-May want explicit inter-work-unit dependencies later.
+**Cross-ticket coordination.** Ticket A blocked on a decision
+that affects ticket B. Currently handled by human decomposition.
+May want explicit inter-ticket dependencies later.
 
 **Cross-project capability sharing.** A capability used across multiple
 projects. Out of scope now (one service per repo), but teams with
@@ -103,6 +103,6 @@ until clear need.
 reading the Markdown or YAML, no dedicated UI. Worth revisiting if
 teams find themselves rebuilding roadmap views elsewhere.
 
-**Spec-driven work unit auto-creation.** When a capability moves to
-"ready," offer to create a work unit. Useful but optional; teams do
+**Spec-driven ticket auto-creation.** When a capability moves to
+"ready," offer to create a ticket. Useful but optional; teams do
 this manually in v1. See [02](./02-project-spec.md).

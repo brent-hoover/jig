@@ -1,8 +1,9 @@
-from jig.models import AgentTypeConfig
+from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.prompt_builder import SpawnReason, build_initial_prompt
 from jig.skill_loader import Skill
-from jig.ticket import Comment, Ticket, TicketStatus, TicketType
+from jig.thread import Note
+from jig.ticket import Ticket, TicketStatus, WorkType
 
 
 def _project() -> Project:
@@ -13,20 +14,20 @@ def _project() -> Project:
     )
 
 
-def _cfg() -> AgentTypeConfig:
-    return AgentTypeConfig(role="dev", phase_prompt="You are dev.", response_prompt="You answer.")
+def _cfg() -> RoleConfig:
+    return RoleConfig(role="dev", phase_prompt="You are dev.", response_prompt="You answer.")
 
 
 def _ticket() -> Ticket:
     return Ticket(
-        type=TicketType.TASK, title="implement X", created_by="orchestrator",
+        work_type=WorkType.REFACTOR, title="implement X", created_by="orchestrator",
         description="do the thing", status=TicketStatus.OPEN,
     )
 
 
 def test_injection_order() -> None:
     parent = Ticket(
-        type=TicketType.FEATURE, title="parent", created_by="user",
+        work_type=WorkType.FEATURE, title="parent", created_by="user",
         description="overall goal",
     )
     uv_skill = Skill(
@@ -38,7 +39,7 @@ def test_injection_order() -> None:
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=parent,
-        comments=[],
+        entries=[],
         memories=["use pytest-asyncio"],
         project=_project(),
         skills=[uv_skill],
@@ -58,7 +59,7 @@ def test_qa_responder_uses_response_prompt() -> None:
         spawn_reason=SpawnReason.QA_RESPONDER,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -69,13 +70,13 @@ def test_qa_responder_uses_response_prompt() -> None:
 
 
 def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
-    cfg = AgentTypeConfig(role="dev", phase_prompt="You are dev.")
+    cfg = RoleConfig(role="dev", phase_prompt="You are dev.")
     prompt = build_initial_prompt(
         role_cfg=cfg,
         spawn_reason=SpawnReason.QA_RESPONDER,
         ticket=_ticket(),
         parent=None,
-        comments=[],
+        entries=[],
         memories=[],
         project=_project(),
         skills=[],
@@ -86,17 +87,17 @@ def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
 
 
 def test_parent_comments_included() -> None:
-    parent = Ticket(type=TicketType.FEATURE, title="p", created_by="u", description="")
-    parent_comments = [
-        Comment(ticket_id="parent-id", author="spec-writer", content="use redis"),
-        Comment(ticket_id="parent-id", author="spec-writer", content="index by id"),
+    parent = Ticket(work_type=WorkType.FEATURE, title="p", created_by="u", description="")
+    parent_entries = [
+        Note(ticket_id="parent-id", author="spec-writer", text="use redis"),
+        Note(ticket_id="parent-id", author="spec-writer", text="index by id"),
     ]
     prompt = build_initial_prompt(
         role_cfg=_cfg(),
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=_ticket(),
         parent=parent,
-        comments=parent_comments,
+        entries=parent_entries,
         memories=[],
         project=_project(),
         skills=[],
@@ -104,3 +105,84 @@ def test_parent_comments_included() -> None:
     )
     assert "use redis" in prompt
     assert "index by id" in prompt
+
+
+def test_phase_section_interpolates_task_template() -> None:
+    phase = PhaseConfig(
+        name="implement",
+        role="dev",
+        task_template="Implement code that passes the tests for: {ticket_title}",
+        acceptance_criteria="All tests pass",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        phase=phase,
+    )
+    assert "## Phase: implement" in prompt
+    assert "Implement code that passes the tests for: implement X" in prompt
+    assert "All tests pass" in prompt
+
+
+def test_phase_section_accepts_legacy_issue_title_placeholder() -> None:
+    phase = PhaseConfig(
+        name="spec",
+        role="spec",
+        task_template="Draft spec for: {issue_title}",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        phase=phase,
+    )
+    assert "Draft spec for: implement X" in prompt
+
+
+def test_phase_section_unknown_placeholder_left_intact() -> None:
+    """Unknown placeholders degrade to visible text rather than crashing."""
+    phase = PhaseConfig(
+        name="x", role="dev", task_template="work on {nonexistent}"
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        phase=phase,
+    )
+    assert "work on {nonexistent}" in prompt
+
+
+def test_phase_section_absent_when_phase_none() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+    )
+    assert "## Phase:" not in prompt
+    assert "### Acceptance criteria" not in prompt

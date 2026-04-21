@@ -7,7 +7,7 @@ from jig.events import EventEmitter, JigEvent
 
 class TestJigEvent:
     def test_serializes_to_json(self):
-        event = JigEvent(type="phase_started", data={"phase": "spec", "agent_type": "spec"})
+        event = JigEvent(type="phase_started", data={"phase": "spec", "role_cfg": "spec"})
         text = event.to_json()
         parsed = json.loads(text)
         assert parsed["type"] == "phase_started"

@@ -1,6 +1,6 @@
-"""Tests for jig.models — agent_type, phase, and workflow configs."""
+"""Tests for jig.models — role_cfg, phase, and workflow configs."""
 
-from jig.models import AgentTypeConfig, PhaseConfig, WorkflowConfig
+from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 
 
 class TestPhaseConfig:
@@ -47,43 +47,52 @@ class TestWorkflowConfig:
         assert len(restored.phases) == 1
 
 
-class TestAgentTypeConfig:
+class TestRoleConfig:
     def test_defaults(self) -> None:
-        config = AgentTypeConfig(role="dev", phase_prompt="You are a dev agent.")
+        config = RoleConfig(role="dev", phase_prompt="You are a dev agent.")
         assert config.role == "dev"
         assert config.phase_prompt == "You are a dev agent."
         assert config.response_prompt == ""
         assert config.allowed_tools == []
-        assert config.can_message == []
         assert config.default_context == []
+        assert config.allowed_mcps == []
 
     def test_full_config(self) -> None:
-        config = AgentTypeConfig(
+        config = RoleConfig(
             role="test",
             phase_prompt="You are a test agent.",
             response_prompt="You are answering a question.",
             allowed_tools=["Read", "Bash", "Grep"],
-            can_message=["dev", "user"],
             default_context=["ticket://design", "**/*_test.py"],
         )
         assert config.phase_prompt == "You are a test agent."
         assert config.response_prompt == "You are answering a question."
         assert config.allowed_tools == ["Read", "Bash", "Grep"]
-        assert config.can_message == ["dev", "user"]
         assert config.default_context == ["ticket://design", "**/*_test.py"]
 
     def test_serialization_roundtrip(self) -> None:
-        config = AgentTypeConfig(
+        config = RoleConfig(
             role="dev",
             phase_prompt="You are a dev agent.",
             response_prompt="You are answering a question.",
             allowed_tools=["Read", "Edit"],
-            can_message=["spec", "user"],
         )
         data = config.model_dump()
-        restored = AgentTypeConfig.model_validate(data)
+        restored = RoleConfig.model_validate(data)
         assert restored.role == config.role
         assert restored.phase_prompt == config.phase_prompt
         assert restored.response_prompt == config.response_prompt
         assert restored.allowed_tools == config.allowed_tools
-        assert restored.can_message == config.can_message
+
+    def test_ignores_legacy_can_message(self) -> None:
+        """Existing role yamls with stale can_message field keep loading."""
+        data = {
+            "role": "dev",
+            "phase_prompt": "test",
+            "can_message": ["spec"],
+        }
+        # Pydantic default is to ignore unknown fields; this test guards
+        # against a future config change that would break existing yamls.
+        config = RoleConfig.model_validate(data)
+        assert config.role == "dev"
+        assert not hasattr(config, "can_message")

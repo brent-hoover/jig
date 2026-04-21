@@ -243,3 +243,6 @@ cython_debug/
 
 # Bun build cache
 *.bun-build
+
+# Stakpak session files
+.stakpak/session*

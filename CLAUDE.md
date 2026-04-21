@@ -62,7 +62,7 @@ cd tui && bun run src/main.tsx  # Start TUI
 - `pytest` with `asyncio_mode = "auto"`
 - Conventional commits
 - Stores are append-only JSONL — no SQL, no external services
-- Agent roles defined as YAML in `.jig/agent_types/`
+- Agent roles defined as YAML in `.jig/roles/`
 - Workflows defined as YAML in `.jig/workflows/`
 
 ## Sandboxing

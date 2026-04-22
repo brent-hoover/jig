@@ -30,6 +30,7 @@ from jig.capabilities import (
 from jig.capability_compiler import (
     SANDBOX_HOOK_BIN,
     SCHEMA_VERSION,
+    CompiledWaiverRules,
     compile,
     materialize,
     write_claude_settings,
@@ -340,6 +341,31 @@ class TestCompile:
             ".jig/decisions/**",
         ]
 
+    def test_schema_version_is_2(self) -> None:
+        assert SCHEMA_VERSION == 2
+
+    def test_compile_waivers_empty_when_undeclared(self) -> None:
+        rules = compile(None, None)
+        assert isinstance(rules.waivers, CompiledWaiverRules)
+        assert rules.waivers.can_waive == []
+
+    def test_compile_propagates_waivers(self) -> None:
+        base = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        rules = compile(base, override)
+        assert rules.waivers.can_waive == [
+            "objection",
+            "check_failure:warning",
+        ]
+
+    def test_compile_output_carries_schema_2(self) -> None:
+        rules = compile(None, None)
+        assert rules.schema_version == 2
+
 
 # ---- materialisation ------------------------------------------------------
 
@@ -371,6 +397,21 @@ class TestWriteRulesJson:
         write_rules_json(compile(None, None), target)
         parsed = json.loads(target.read_text())
         assert parsed["schema_version"] == SCHEMA_VERSION
+
+    def test_rules_json_carries_waivers(self, tmp_path: Path) -> None:
+        decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(
+                can_waive=["objection", "check_failure:required"]
+            )
+        )
+        rules = compile(decl, None)
+        path = tmp_path / "rules.json"
+        write_rules_json(rules, path)
+        data = json.loads(path.read_text())
+        assert data["schema_version"] == 2
+        assert data["waivers"] == {
+            "can_waive": ["objection", "check_failure:required"]
+        }
 
 
 class TestWriteClaudeSettings:

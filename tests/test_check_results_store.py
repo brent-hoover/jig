@@ -81,9 +81,7 @@ class TestQueries:
         review = await store.for_phase("tkt-1", "review")
         assert [r.check_name for r in review] == ["y"]
 
-    async def test_latest_for_check_returns_newest(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_latest_for_check_returns_newest(self, tmp_path: Path) -> None:
         store = await _store(tmp_path)
         old = _make_result(verdict="fail", offset_s=0)
         new = _make_result(verdict="pass", offset_s=60)
@@ -93,15 +91,11 @@ class TestQueries:
         assert latest is not None
         assert latest.verdict == "pass"
 
-    async def test_latest_for_check_none_when_missing(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_latest_for_check_none_when_missing(self, tmp_path: Path) -> None:
         store = await _store(tmp_path)
         assert await store.latest_for_check("tkt-1", "dev", "nope") is None
 
-    async def test_latest_batch_keeps_one_per_check(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_latest_batch_keeps_one_per_check(self, tmp_path: Path) -> None:
         store = await _store(tmp_path)
         await store.post(_make_result(check_name="unit", verdict="fail", offset_s=0))
         await store.post(_make_result(check_name="unit", verdict="pass", offset_s=60))

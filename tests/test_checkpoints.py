@@ -55,9 +55,9 @@ from jig.ticket import Ticket, WorkType
 # ---- fixtures -------------------------------------------------------------
 
 
-async def _make_stores(tmp_path: Path) -> tuple[
-    TicketStore, ThreadStore, CheckpointStore, MessageBus, str
-]:
+async def _make_stores(
+    tmp_path: Path,
+) -> tuple[TicketStore, ThreadStore, CheckpointStore, MessageBus, str]:
     tickets = TicketStore(tmp_path / "tickets.jsonl")
     await tickets.load()
     threads = ThreadStore(tmp_path / "comments.jsonl")
@@ -82,7 +82,9 @@ async def _make_stores(tmp_path: Path) -> tuple[
 class TestCheckpointModel:
     def test_defaults_and_required(self) -> None:
         cp = Checkpoint(
-            ticket_id="t1", phase="implement", author="dev",
+            ticket_id="t1",
+            phase="implement",
+            author="dev",
             trigger="agent_milestone",
         )
         assert cp.description == ""
@@ -92,7 +94,9 @@ class TestCheckpointModel:
 
     def test_ruled_out_and_deferred_roundtrip(self) -> None:
         cp = Checkpoint(
-            ticket_id="t1", phase="implement", author="dev",
+            ticket_id="t1",
+            phase="implement",
+            author="dev",
             trigger="agent_milestone",
             ruled_out=[RuledOut(approach="cache in-memory", reason="too big")],
             deferred=[DeferredItem(item="rename columns", reason="later")],
@@ -108,8 +112,11 @@ class TestCheckpointStore:
     async def test_post_and_for_ticket(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
         cp = Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="first",
+            ticket_id=ticket_id,
+            phase="implement",
+            author="dev",
+            trigger="agent_milestone",
+            description="first",
         )
         cid = await checkpoints.post(cp)
         assert cid
@@ -120,32 +127,50 @@ class TestCheckpointStore:
     @pytest.mark.asyncio
     async def test_for_phase_scopes(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="a",
-        ))
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="review", author="rev",
-            trigger="agent_milestone", description="b",
-        ))
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="a",
+            )
+        )
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="review",
+                author="rev",
+                trigger="agent_milestone",
+                description="b",
+            )
+        )
         impl = await checkpoints.for_phase(ticket_id, "implement")
         review = await checkpoints.for_phase(ticket_id, "review")
         assert [c.description for c in impl] == ["a"]
         assert [c.description for c in review] == ["b"]
 
     @pytest.mark.asyncio
-    async def test_latest_returns_most_recent(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_latest_returns_most_recent(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
-        first = await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="first",
-        ))
-        second = await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="second",
-        ))
+        first = await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="first",
+            )
+        )
+        second = await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="second",
+            )
+        )
         assert first != second
         latest = await checkpoints.latest(ticket_id)
         assert latest is not None
@@ -154,14 +179,24 @@ class TestCheckpointStore:
     @pytest.mark.asyncio
     async def test_latest_phase_scoped(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="impl-a",
-        ))
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="review", author="rev",
-            trigger="agent_milestone", description="rev-a",
-        ))
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="impl-a",
+            )
+        )
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="review",
+                author="rev",
+                trigger="agent_milestone",
+                description="rev-a",
+            )
+        )
         latest_impl = await checkpoints.latest(ticket_id, phase="implement")
         assert latest_impl is not None
         assert latest_impl.description == "impl-a"
@@ -171,19 +206,27 @@ class TestCheckpointStore:
         self, tmp_path: Path
     ) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_deferred",
-            deferred=[DeferredItem(item="tidy config")],
-        ))
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_deferred",
-            deferred=[
-                DeferredItem(item="drop column", status="done"),
-                DeferredItem(item="rename bar"),
-            ],
-        ))
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_deferred",
+                deferred=[DeferredItem(item="tidy config")],
+            )
+        )
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_deferred",
+                deferred=[
+                    DeferredItem(item="drop column", status="done"),
+                    DeferredItem(item="rename bar"),
+                ],
+            )
+        )
         items = await checkpoints.deferred_items_open(ticket_id, "implement")
         names = [i.item for i in items]
         assert names == ["tidy config", "rename bar"]
@@ -193,18 +236,26 @@ class TestCheckpointStore:
         self, tmp_path: Path
     ) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="old",
-        ))
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="review", author="rev",
-            trigger="agent_milestone", description="current",
-        ))
-
-        flipped = await checkpoints.mark_phase_historical(
-            ticket_id, "implement"
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="old",
+            )
         )
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="review",
+                author="rev",
+                trigger="agent_milestone",
+                description="current",
+            )
+        )
+
+        flipped = await checkpoints.mark_phase_historical(ticket_id, "implement")
         assert flipped == 1
 
         # Default queries skip historical
@@ -212,26 +263,22 @@ class TestCheckpointStore:
         assert [c.description for c in current_view] == ["current"]
 
         # Opt-in shows both
-        full = await checkpoints.for_ticket(
-            ticket_id, include_historical=True
-        )
+        full = await checkpoints.for_ticket(ticket_id, include_historical=True)
         assert {c.description for c in full} == {"old", "current"}
 
     @pytest.mark.asyncio
-    async def test_mark_phase_historical_idempotent(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_mark_phase_historical_idempotent(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone",
-        ))
-        first = await checkpoints.mark_phase_historical(
-            ticket_id, "implement"
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+            )
         )
-        second = await checkpoints.mark_phase_historical(
-            ticket_id, "implement"
-        )
+        first = await checkpoints.mark_phase_historical(ticket_id, "implement")
+        second = await checkpoints.mark_phase_historical(ticket_id, "implement")
         assert first == 1
         assert second == 0  # Already historical
 
@@ -302,9 +349,7 @@ class TestCheckpointMilestone:
 class TestCheckpointDecision:
     @pytest.mark.asyncio
     async def test_mirrors_thread_decision(self, tmp_path: Path) -> None:
-        tickets, threads, checkpoints, _, ticket_id = await _make_stores(
-            tmp_path
-        )
+        tickets, threads, checkpoints, _, ticket_id = await _make_stores(tmp_path)
         dec = Decision(
             ticket_id=ticket_id,
             author="dev",
@@ -328,9 +373,7 @@ class TestCheckpointDecision:
 
     @pytest.mark.asyncio
     async def test_rejects_non_decision(self, tmp_path: Path) -> None:
-        tickets, threads, checkpoints, _, ticket_id = await _make_stores(
-            tmp_path
-        )
+        tickets, threads, checkpoints, _, ticket_id = await _make_stores(tmp_path)
         note = Note(ticket_id=ticket_id, author="dev", text="just a note")
         nid = await threads.post(note)
 
@@ -430,9 +473,7 @@ class TestHarnessHooks:
         assert cp.open_questions == []
 
     @pytest.mark.asyncio
-    async def test_auto_test_fail_captures_questions(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_auto_test_fail_captures_questions(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
         cid = await record_auto_test_checkpoint(
             checkpoints=checkpoints,
@@ -448,9 +489,7 @@ class TestHarnessHooks:
         assert cp.open_questions == ["E501 too long", "F401 unused"]
 
     @pytest.mark.asyncio
-    async def test_auto_pre_handoff_carries_deferred(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_auto_pre_handoff_carries_deferred(self, tmp_path: Path) -> None:
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
         deferred = [DeferredItem(item="revisit later")]
         cid = await record_auto_pre_handoff_checkpoint(
@@ -473,14 +512,10 @@ class TestHarnessHooks:
 
 class TestCommitProgressHooks:
     @pytest.mark.asyncio
-    async def test_commit_records_test_and_commit(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_commit_records_test_and_commit(self, tmp_path: Path) -> None:
         from jig.ticket_mcp import handle_commit_progress
 
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
-        )
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
 
         async def fake_commit(worktree: Path, message: str) -> str:
             return "aabbccdd1122"
@@ -510,9 +545,7 @@ class TestCommitProgressHooks:
         from jig.ticket_mcp import handle_commit_progress
         from jig.worktree import LintError
 
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
-        )
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
 
         async def lint_boom(worktree: Path, message: str) -> str:
             raise LintError(["E501 too long", "F401 unused"])
@@ -541,23 +574,27 @@ class TestCommitProgressHooks:
 
 class TestHandoffDeferredItemsFromCheckpoints:
     @pytest.mark.asyncio
-    async def test_handoff_auto_merges_open_items(
-        self, tmp_path: Path
-    ) -> None:
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
-        )
+    async def test_handoff_auto_merges_open_items(self, tmp_path: Path) -> None:
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
         # Two agent-deferred items from the phase so far.
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_deferred",
-            deferred=[DeferredItem(item="rename columns", reason="later")],
-        ))
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_deferred",
-            deferred=[DeferredItem(item="finish docs")],
-        ))
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_deferred",
+                deferred=[DeferredItem(item="rename columns", reason="later")],
+            )
+        )
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_deferred",
+                deferred=[DeferredItem(item="finish docs")],
+            )
+        )
 
         result = await handle_thread_handoff(
             tickets=tickets,
@@ -583,14 +620,16 @@ class TestHandoffDeferredItemsFromCheckpoints:
     async def test_handoff_dedupes_explicit_against_checkpoint(
         self, tmp_path: Path
     ) -> None:
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_deferred",
+                deferred=[DeferredItem(item="dup me", reason="meh")],
+            )
         )
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_deferred",
-            deferred=[DeferredItem(item="dup me", reason="meh")],
-        ))
         result = await handle_thread_handoff(
             tickets=tickets,
             threads=threads,
@@ -610,12 +649,8 @@ class TestHandoffDeferredItemsFromCheckpoints:
         assert [d.item for d in handoff.deferred_items] == ["dup me"]
 
     @pytest.mark.asyncio
-    async def test_handoff_writes_pre_handoff_checkpoint(
-        self, tmp_path: Path
-    ) -> None:
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
-        )
+    async def test_handoff_writes_pre_handoff_checkpoint(self, tmp_path: Path) -> None:
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
         await handle_thread_handoff(
             tickets=tickets,
             threads=threads,
@@ -638,9 +673,7 @@ class TestHandoffAcceptPrunesCheckpoints:
     async def test_accept_marks_phase_checkpoints_historical(
         self, tmp_path: Path
     ) -> None:
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
-        )
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
         save_workflow(
             tmp_path,
             WorkflowConfig(
@@ -652,14 +685,24 @@ class TestHandoffAcceptPrunesCheckpoints:
             ),
         )
         # Some in-flight checkpoints in the implement phase.
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="step 1",
-        ))
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="step 2",
-        ))
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="step 1",
+            )
+        )
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="step 2",
+            )
+        )
 
         result = await handle_thread_handoff(
             tickets=tickets,
@@ -696,12 +739,8 @@ class TestHandoffAcceptPrunesCheckpoints:
         assert all(c.historical for c in after_all)
 
     @pytest.mark.asyncio
-    async def test_reject_leaves_checkpoints_active(
-        self, tmp_path: Path
-    ) -> None:
-        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(
-            tmp_path
-        )
+    async def test_reject_leaves_checkpoints_active(self, tmp_path: Path) -> None:
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
         save_workflow(
             tmp_path,
             WorkflowConfig(
@@ -712,10 +751,15 @@ class TestHandoffAcceptPrunesCheckpoints:
                 ],
             ),
         )
-        await checkpoints.post(Checkpoint(
-            ticket_id=ticket_id, phase="implement", author="dev",
-            trigger="agent_milestone", description="step 1",
-        ))
+        await checkpoints.post(
+            Checkpoint(
+                ticket_id=ticket_id,
+                phase="implement",
+                author="dev",
+                trigger="agent_milestone",
+                description="step 1",
+            )
+        )
         result = await handle_thread_handoff(
             tickets=tickets,
             threads=threads,

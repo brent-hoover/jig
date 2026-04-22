@@ -25,7 +25,7 @@ def _parse_frontmatter(raw: str) -> tuple[dict, str]:
     if end == -1:
         return {}, raw
     front = raw[4:end]
-    body = raw[end + len("\n---\n"):].lstrip("\n")
+    body = raw[end + len("\n---\n") :].lstrip("\n")
     data = yaml.safe_load(front) or {}
     return data, body
 
@@ -41,12 +41,14 @@ def load_all_skills() -> list[Skill]:
         front, body = _parse_frontmatter(raw)
         name = front.get("name", entry.name.removesuffix(".md"))
         applies_to = front.get("applies_to") or {}
-        results.append(Skill(
-            name=name,
-            source_filename=entry.name,
-            applies_to=applies_to,
-            content=body,
-        ))
+        results.append(
+            Skill(
+                name=name,
+                source_filename=entry.name,
+                applies_to=applies_to,
+                content=body,
+            )
+        )
     return results
 
 

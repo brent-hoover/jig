@@ -127,7 +127,9 @@ async def test_typed_collection_update_serializes_datetime(tmp_path):
     """
     col = TypedCollection(tmp_path / "items.jsonl", model=ItemWithTime)
     await col.load()
-    doc_id = await col.insert(ItemWithTime(name="a", when=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+    doc_id = await col.insert(
+        ItemWithTime(name="a", when=datetime(2020, 1, 1, tzinfo=timezone.utc))
+    )
 
     # Pass a raw datetime to update — must not raise
     new_when = datetime(2030, 1, 1, tzinfo=timezone.utc)

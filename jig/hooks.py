@@ -472,7 +472,7 @@ def validate_commit_msg(msg: str) -> bool:
     """
     if not msg:
         return False
-    first_line = msg.splitlines()[0] if msg else ""
+    first_line = msg.splitlines()[0]
     if first_line.startswith(_AUTOBYPASS_PREFIXES):
         return True
     return bool(_CONVENTIONAL_RE.match(first_line))

@@ -45,9 +45,7 @@ class TypedCollection(Generic[T]):
         raw = await self._collection.get(doc_id)
         return None if raw is None else self._to_model(raw)
 
-    async def find(
-        self, predicate: Callable[[T], bool] | None = None
-    ) -> list[T]:
+    async def find(self, predicate: Callable[[T], bool] | None = None) -> list[T]:
         raws = await self._collection.find()
         models = [self._to_model(r) for r in raws]
         if predicate is None:

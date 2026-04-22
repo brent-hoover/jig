@@ -46,9 +46,7 @@ class CheckResult(StoreModel):
     ticket_id: str
     phase: str
     author: str = "harness"
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     check_name: str
     check_type: CheckType

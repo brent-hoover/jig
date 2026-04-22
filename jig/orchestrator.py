@@ -49,7 +49,9 @@ class Orchestrator:
       - dispatch loop: spawns fresh agents for unaddressed bus events
     """
 
-    def __init__(self, project_path: Path, emitter: "EventEmitter | None" = None) -> None:
+    def __init__(
+        self, project_path: Path, emitter: "EventEmitter | None" = None
+    ) -> None:
         self._project_path = project_path
         self._emitter = emitter
         self._project: Project | None = None
@@ -77,9 +79,7 @@ class Orchestrator:
             self.checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
-            self.check_results = CheckResultsStore(
-                store_dir / "check_results.jsonl"
-            )
+            self.check_results = CheckResultsStore(store_dir / "check_results.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
                 self.threads.load(),
@@ -183,7 +183,9 @@ class Orchestrator:
                     new_status = payload.get("status")
                     # Re-enqueue tickets reset to "open" (e.g. retry after failure)
                     if ticket_id and new_status == TicketStatus.OPEN.value:
-                        _logger.info("ticket %s reset to open — re-scheduling", ticket_id)
+                        _logger.info(
+                            "ticket %s reset to open — re-scheduling", ticket_id
+                        )
                         self._running_tickets.pop(ticket_id, None)
                         await self._handle_schedule(ticket_id)
                 elif kind == "shutdown_request":
@@ -221,7 +223,9 @@ class Orchestrator:
                 if dep is None or dep.status != TicketStatus.RESOLVED:
                     _logger.info(
                         "ticket %s blocked by %s (status=%s), deferring",
-                        ticket_id, dep_id, dep.status.value if dep else "missing",
+                        ticket_id,
+                        dep_id,
+                        dep.status.value if dep else "missing",
                     )
                     return
         _logger.info("scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow)
@@ -263,12 +267,18 @@ class Orchestrator:
             return
 
         try:
-            _logger.info("starting ticket %s: %s (workflow=%s)", ticket_id, ticket.title, ticket.workflow)
+            _logger.info(
+                "starting ticket %s: %s (workflow=%s)",
+                ticket_id,
+                ticket.title,
+                ticket.workflow,
+            )
             workflow = load_workflow(self._project_path, ticket.workflow)
         except FileNotFoundError:
             _logger.error(
                 "workflow %r not found for ticket %s — run 'jig sync' to install missing defaults",
-                ticket.workflow, ticket_id,
+                ticket.workflow,
+                ticket_id,
             )
             await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
             self._running_tickets.pop(ticket_id, None)
@@ -279,21 +289,25 @@ class Orchestrator:
         except DependencyMergeError as exc:
             _logger.error(
                 "dep merge failed for ticket %s: %s — failing ticket",
-                ticket_id, exc,
+                ticket_id,
+                exc,
             )
             if self.threads is not None:
                 from jig.thread import SystemEvent
-                await self.threads.post(SystemEvent(
-                    ticket_id=ticket_id,
-                    author="harness",
-                    event_type="dep_merge_failed",
-                    content=(
-                        f"Dependency branch {exc.dep_branch!r} "
-                        f"(from ticket {exc.dep_id!r}) could not be "
-                        f"merged into the worktree. Resolve manually "
-                        f"and retry."
-                    ),
-                ))
+
+                await self.threads.post(
+                    SystemEvent(
+                        ticket_id=ticket_id,
+                        author="harness",
+                        event_type="dep_merge_failed",
+                        content=(
+                            f"Dependency branch {exc.dep_branch!r} "
+                            f"(from ticket {exc.dep_id!r}) could not be "
+                            f"merged into the worktree. Resolve manually "
+                            f"and retry."
+                        ),
+                    )
+                )
             await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
             await self._on_ticket_failed(ticket_id, ticket)
             return
@@ -308,11 +322,19 @@ class Orchestrator:
 
         while phase_idx < len(workflow.phases):
             phase = workflow.phases[phase_idx]
-            _logger.info("phase %d/%d: %s (role=%s)", phase_idx + 1, len(workflow.phases), phase.name, phase.role)
+            _logger.info(
+                "phase %d/%d: %s (role=%s)",
+                phase_idx + 1,
+                len(workflow.phases),
+                phase.name,
+                phase.role,
+            )
             role_cfg = load_role(self._project_path, phase.role)
 
             # Tell the TUI which phase is running
-            await self._emit_phase_event("phase_started", ticket_id, phase, phase_idx, len(workflow.phases))
+            await self._emit_phase_event(
+                "phase_started", ticket_id, phase, phase_idx, len(workflow.phases)
+            )
 
             ctx = AgentSpawnContext(
                 role=phase.role,
@@ -332,21 +354,39 @@ class Orchestrator:
             sub_key = (ticket_id, phase.role)
             self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
             try:
-                _logger.info("spawning agent for %s on ticket %s", phase.role, ticket_id)
+                _logger.info(
+                    "spawning agent for %s on ticket %s", phase.role, ticket_id
+                )
                 result = await run_agent(ctx, emitter=self._emitter)
                 _logger.info("agent %s finished: %s", phase.role, result.status)
             except Exception:
                 _logger.exception(
-                    "agent failed for phase %s ticket %s", phase.name, ticket_id,
+                    "agent failed for phase %s ticket %s",
+                    phase.name,
+                    ticket_id,
                 )
-                await self._emit_phase_event("phase_complete", ticket_id, phase, phase_idx, len(workflow.phases), result="failed")
+                await self._emit_phase_event(
+                    "phase_complete",
+                    ticket_id,
+                    phase,
+                    phase_idx,
+                    len(workflow.phases),
+                    result="failed",
+                )
                 await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
                 await self._on_ticket_failed(ticket_id, ticket)
                 return
             finally:
                 self._live_subscribers.pop(sub_key, None)
 
-            await self._emit_phase_event("phase_complete", ticket_id, phase, phase_idx, len(workflow.phases), result=result.status)
+            await self._emit_phase_event(
+                "phase_complete",
+                ticket_id,
+                phase,
+                phase_idx,
+                len(workflow.phases),
+                result=result.status,
+            )
 
             if result.status == "success":
                 # Phase 5 Task O1c: if the agent posted a pending
@@ -392,7 +432,9 @@ class Orchestrator:
                 # flash "resolved" between phases. Do this BEFORE the commit
                 # safety net to minimize the status flicker window.
                 if phase_idx < len(workflow.phases):
-                    await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+                    await self._update_ticket_status(
+                        ticket_id, TicketStatus.IN_PROGRESS
+                    )
                 # Safety net: commit any uncommitted changes the agent left behind
                 await self._auto_commit_worktree(worktree, phase.name, ticket_id)
                 if phase_idx < len(workflow.phases):
@@ -400,9 +442,15 @@ class Orchestrator:
                 continue
 
             if result.status == "needs_info":
-                _logger.info("phase %s paused — waiting for user input on %s", phase.name, ticket_id)
+                _logger.info(
+                    "phase %s paused — waiting for user input on %s",
+                    phase.name,
+                    ticket_id,
+                )
                 await self._wait_for_resume(ticket_id)
-                _logger.info("ticket %s resumed — re-running phase %s", ticket_id, phase.name)
+                _logger.info(
+                    "ticket %s resumed — re-running phase %s", ticket_id, phase.name
+                )
                 ticket = await self.tickets.get(ticket_id)
                 continue  # re-run same phase_idx
 
@@ -411,7 +459,9 @@ class Orchestrator:
                 if fix_counts[phase_idx] > max_fix_cycles:
                     _logger.warning(
                         "phase %s blocked %d times — giving up on ticket %s",
-                        phase.name, fix_counts[phase_idx], ticket_id,
+                        phase.name,
+                        fix_counts[phase_idx],
+                        ticket_id,
                     )
                     await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
                     await self._on_ticket_failed(ticket_id, ticket)
@@ -427,13 +477,17 @@ class Orchestrator:
                         fix_counts[phase_idx],
                         max_fix_cycles,
                     )
-                    await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+                    await self._update_ticket_status(
+                        ticket_id, TicketStatus.IN_PROGRESS
+                    )
                     await self._auto_commit_worktree(worktree, phase.name, ticket_id)
                     phase_idx = fix_idx
                     ticket = await self.tickets.get(ticket_id)
                     continue
 
-                _logger.warning("phase %s blocked but no fix phase found — failing", phase.name)
+                _logger.warning(
+                    "phase %s blocked but no fix phase found — failing", phase.name
+                )
 
             # Unrecoverable: fail the ticket.
             await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
@@ -469,8 +523,10 @@ class Orchestrator:
             strategy = self._project.merge_strategy
             try:
                 merge_result = await merge_ticket(
-                    self._project_path, ticket_id,
-                    self._project.default_branch, strategy,
+                    self._project_path,
+                    ticket_id,
+                    self._project.default_branch,
+                    strategy,
                 )
                 _logger.info("merge complete: %s", merge_result)
             except MergeConflictError as exc:
@@ -488,21 +544,22 @@ class Orchestrator:
                 _logger.warning("merge failed for %s", ticket_id, exc_info=True)
 
         if merge_conflict:
-            await self._update_ticket_status(
-                ticket_id, TicketStatus.MERGE_CONFLICT
-            )
+            await self._update_ticket_status(ticket_id, TicketStatus.MERGE_CONFLICT)
             if self._emitter is not None:
                 from jig.events import JigEvent
-                await self._emitter.emit(JigEvent(
-                    type="ticket_merge_conflict",
-                    data={
-                        "kind": "ticket_merge_conflict",
-                        "ticket_id": ticket_id,
-                        "title": ticket.title,
-                        "branch": branch_name,
-                        "merge": merge_result,
-                    },
-                ))
+
+                await self._emitter.emit(
+                    JigEvent(
+                        type="ticket_merge_conflict",
+                        data={
+                            "kind": "ticket_merge_conflict",
+                            "ticket_id": ticket_id,
+                            "title": ticket.title,
+                            "branch": branch_name,
+                            "merge": merge_result,
+                        },
+                    )
+                )
             # Preserve worktree + branch so a human can resolve the
             # conflict manually — intentionally skipping remove_worktree.
             self._running_tickets.pop(ticket_id, None)
@@ -519,22 +576,27 @@ class Orchestrator:
 
         if self._emitter is not None:
             from jig.events import JigEvent
-            await self._emitter.emit(JigEvent(
-                type="ticket_completed",
-                data={
-                    "kind": "ticket_completed",
-                    "ticket_id": ticket_id,
-                    "title": ticket.title,
-                    "branch": branch_name,
-                    "merge": merge_result,
-                },
-            ))
+
+            await self._emitter.emit(
+                JigEvent(
+                    type="ticket_completed",
+                    data={
+                        "kind": "ticket_completed",
+                        "ticket_id": ticket_id,
+                        "title": ticket.title,
+                        "branch": branch_name,
+                        "merge": merge_result,
+                    },
+                )
+            )
 
         self._running_tickets.pop(ticket_id, None)
 
         try:
             await remove_worktree(self._project_path, ticket_id, keep_branch=True)
-            _logger.info("worktree removed for %s (branch %s preserved)", ticket_id, branch_name)
+            _logger.info(
+                "worktree removed for %s (branch %s preserved)", ticket_id, branch_name
+            )
         except Exception:
             _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
 
@@ -547,14 +609,17 @@ class Orchestrator:
 
         if self._emitter is not None:
             from jig.events import JigEvent
-            await self._emitter.emit(JigEvent(
-                type="ticket_failed",
-                data={
-                    "kind": "ticket_failed",
-                    "ticket_id": ticket_id,
-                    "title": ticket.title,
-                },
-            ))
+
+            await self._emitter.emit(
+                JigEvent(
+                    type="ticket_failed",
+                    data={
+                        "kind": "ticket_failed",
+                        "ticket_id": ticket_id,
+                        "title": ticket.title,
+                    },
+                )
+            )
 
         self._running_tickets.pop(ticket_id, None)
         await self._start_ready_tickets()
@@ -570,7 +635,8 @@ class Orchestrator:
                 continue
             _logger.info(
                 "ticket %s resolved — checking if %s is now unblocked",
-                completed_id, blocked_id,
+                completed_id,
+                blocked_id,
             )
             await self._handle_schedule(blocked_id)
 
@@ -616,13 +682,16 @@ class Orchestrator:
             dep_branch = f"jig/{dep_id}"
             try:
                 await merge_dep_into_worktree(worktree_path, dep_branch)
-                _logger.info("merged dep branch %s into worktree for %s", dep_branch, ticket.id)
+                _logger.info(
+                    "merged dep branch %s into worktree for %s", dep_branch, ticket.id
+                )
             except RuntimeError as exc:
                 _logger.error(
                     "dep branch %s could not be merged into worktree for "
                     "%s — failing ticket (branch may not exist or has "
                     "conflicts)",
-                    dep_branch, ticket.id,
+                    dep_branch,
+                    ticket.id,
                 )
                 raise DependencyMergeError(
                     ticket_id=ticket.id,
@@ -640,7 +709,8 @@ class Orchestrator:
         """
         topic = f"tickets.{ticket_id}"
         queue = await self.bus.subscribe_agent(
-            topic=topic, agent_id=f"orchestrator:wait:{ticket_id}",
+            topic=topic,
+            agent_id=f"orchestrator:wait:{ticket_id}",
         )
         try:
             while self._running:
@@ -674,26 +744,28 @@ class Orchestrator:
         topic. Phase 4 Task H: the TUI renders the blocker so a human can
         act (accept a Handoff, resolve an Objection, answer a Question).
         """
-        await self.bus.publish(Message(
-            sender="orchestrator",
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "phase_blocked_by_thread",
-                "ticket_id": ticket_id,
-                "phase_name": phase.name,
-                "phase_role": phase.role,
-                "blocking": [
-                    {
-                        "entry_id": getattr(e, "id", None),
-                        "kind": e.kind,
-                        "author": e.author,
-                    }
-                    for e in blocking
-                ],
-            },
-            topic="orchestrator",
-        ))
+        await self.bus.publish(
+            Message(
+                sender="orchestrator",
+                to="broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "phase_blocked_by_thread",
+                    "ticket_id": ticket_id,
+                    "phase_name": phase.name,
+                    "phase_role": phase.role,
+                    "blocking": [
+                        {
+                            "entry_id": getattr(e, "id", None),
+                            "kind": e.kind,
+                            "author": e.author,
+                        }
+                        for e in blocking
+                    ],
+                },
+                topic="orchestrator",
+            )
+        )
 
     async def _wait_for_thread_unblock(self, ticket_id: str) -> None:
         """Block until the ticket's blocking thread entries drain.
@@ -704,7 +776,8 @@ class Orchestrator:
         """
         topic = f"tickets.{ticket_id}"
         queue = await self.bus.subscribe_agent(
-            topic=topic, agent_id=f"orchestrator:thread-wait:{ticket_id}",
+            topic=topic,
+            agent_id=f"orchestrator:thread-wait:{ticket_id}",
         )
         try:
             while self._running:
@@ -810,9 +883,7 @@ class Orchestrator:
         # human accept.
         if phase.evaluator is None:
             return
-        history = [
-            e for e in entries if isinstance(e, Handoff)
-        ]
+        history = [e for e in entries if isinstance(e, Handoff)]
         resolved = resolve_evaluator(
             spec=phase.evaluator,
             workflow=workflow,
@@ -877,23 +948,32 @@ class Orchestrator:
                 latest = e
         return latest is not None and latest.acceptance_state == "rejected"
 
-    async def _auto_commit_worktree(self, worktree: Path, phase_name: str, ticket_id: str) -> None:
+    async def _auto_commit_worktree(
+        self, worktree: Path, phase_name: str, ticket_id: str
+    ) -> None:
         """Commit any uncommitted changes left by an agent after a phase completes."""
         from jig.worktree import commit_worktree
 
         try:
-            sha = await commit_worktree(worktree, f"chore({phase_name}): auto-commit after phase")
+            sha = await commit_worktree(
+                worktree, f"chore({phase_name}): auto-commit after phase"
+            )
             if sha:
-                _logger.info("auto-committed leftover changes after %s: %s", phase_name, sha)
+                _logger.info(
+                    "auto-committed leftover changes after %s: %s", phase_name, sha
+                )
                 if self.threads is not None:
                     from jig.thread import SystemEvent
-                    await self.threads.post(SystemEvent(
-                        ticket_id=ticket_id,
-                        author="orchestrator",
-                        event_type="commit",
-                        content=f"auto-committed leftover changes: {sha[:7]}",
-                        commit_sha=sha,
-                    ))
+
+                    await self.threads.post(
+                        SystemEvent(
+                            ticket_id=ticket_id,
+                            author="orchestrator",
+                            event_type="commit",
+                            content=f"auto-committed leftover changes: {sha[:7]}",
+                            commit_sha=sha,
+                        )
+                    )
         except Exception:
             _logger.warning("auto-commit failed after %s", phase_name, exc_info=True)
 
@@ -911,6 +991,7 @@ class Orchestrator:
         if self._emitter is None:
             return
         from jig.events import JigEvent
+
         data: dict = {
             "kind": event_type,
             "ticket_id": ticket_id,
@@ -929,17 +1010,19 @@ class Orchestrator:
     async def _update_ticket_status(self, ticket_id: str, status: TicketStatus) -> None:
         """Update ticket status AND publish a bus event so the TUI sees it."""
         await self.tickets.update_status(ticket_id, status)
-        await self.bus.publish(Message(
-            sender="orchestrator",
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "ticket_updated",
-                "ticket_id": ticket_id,
-                "status": status.value,
-            },
-            topic=f"tickets.{ticket_id}",
-        ))
+        await self.bus.publish(
+            Message(
+                sender="orchestrator",
+                to="broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "ticket_updated",
+                    "ticket_id": ticket_id,
+                    "status": status.value,
+                },
+                topic=f"tickets.{ticket_id}",
+            )
+        )
 
     @staticmethod
     def _find_fix_phase(workflow, blocked_phase_idx: int) -> int | None:
@@ -973,9 +1056,11 @@ class Orchestrator:
         if self.threads is None:
             raise RuntimeError("Orchestrator not started")
 
-        phase_result: str = result.status if result.status in {
-            "success", "failed", "blocked", "needs_info"
-        } else "failed"
+        phase_result: str = (
+            result.status
+            if result.status in {"success", "failed", "blocked", "needs_info"}
+            else "failed"
+        )
 
         await self.threads.post(
             SystemEvent(
@@ -1016,6 +1101,7 @@ class Orchestrator:
             payload = msg.payload or {}
             if self._emitter is not None and not payload.get("_internal"):
                 from jig.events import JigEvent
+
                 kind = payload.get("kind", "event")
                 try:
                     await self._emitter.emit(JigEvent(type=kind, data=payload))
@@ -1077,13 +1163,13 @@ class Orchestrator:
             role_cfg = load_role(self._project_path, role)
             worktree = await self._ensure_worktree(parent or ticket)
         except FileNotFoundError:
-            _logger.warning("unknown agent role %r — check agent used a valid role name", role)
+            _logger.warning(
+                "unknown agent role %r — check agent used a valid role name", role
+            )
             self._live_subscribers.pop((ticket_id, role), None)
             return
         except Exception:
-            _logger.exception(
-                "failed to spawn qa responder for %s/%s", ticket_id, role
-            )
+            _logger.exception("failed to spawn qa responder for %s/%s", ticket_id, role)
             self._live_subscribers.pop((ticket_id, role), None)
             return
 
@@ -1179,9 +1265,7 @@ class Orchestrator:
             self._live_subscribers.pop((ticket_id, role), None)
             return
         except Exception:
-            _logger.exception(
-                "failed to spawn evaluator for %s/%s", ticket_id, role
-            )
+            _logger.exception("failed to spawn evaluator for %s/%s", ticket_id, role)
             self._live_subscribers.pop((ticket_id, role), None)
             return
 

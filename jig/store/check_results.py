@@ -50,12 +50,8 @@ class CheckResultsStore:
         results.sort(key=lambda r: r.created_at)
         return results
 
-    async def for_phase(
-        self, ticket_id: str, phase: str
-    ) -> list[CheckResult]:
-        raws = await self._collection.find_where(
-            ticket_id=ticket_id, phase=phase
-        )
+    async def for_phase(self, ticket_id: str, phase: str) -> list[CheckResult]:
+        raws = await self._collection.find_where(ticket_id=ticket_id, phase=phase)
         results = [self._load(r) for r in raws]
         results.sort(key=lambda r: r.created_at)
         return results
@@ -73,9 +69,7 @@ class CheckResultsStore:
         results.sort(key=lambda r: r.created_at)
         return results[-1]
 
-    async def latest_batch(
-        self, ticket_id: str, phase: str
-    ) -> list[CheckResult]:
+    async def latest_batch(self, ticket_id: str, phase: str) -> list[CheckResult]:
         """Latest run of each declared check in a phase.
 
         When the same check fires multiple times (re-run on rejected

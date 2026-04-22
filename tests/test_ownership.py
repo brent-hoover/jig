@@ -54,9 +54,7 @@ class TestSpecField:
             roles={"sa": RoleAssignment(assignment="human", human="alice")},
         )
         schema = _schema(behaviors="po", summary="po")
-        route = resolve_owner(
-            cfg, "ticket://spec.behaviors", work_type_schema=schema
-        )
+        route = resolve_owner(cfg, "ticket://spec.behaviors", work_type_schema=schema)
         assert route.role == "sa"
         assert route.assignee == "alice"
 
@@ -66,9 +64,7 @@ class TestSpecField:
             roles={"sa": RoleAssignment(assignment="human", human="bob")},
         )
         schema = _schema(design="sa")
-        route = resolve_owner(
-            cfg, "ticket://spec.design", work_type_schema=schema
-        )
+        route = resolve_owner(cfg, "ticket://spec.design", work_type_schema=schema)
         assert route.role == "sa"
         assert route.assignee == "bob"
 
@@ -76,9 +72,7 @@ class TestSpecField:
         cfg = _cfg(tmp_path)
         schema = _schema(summary="po")
         with pytest.raises(OwnershipError, match="secret_field"):
-            resolve_owner(
-                cfg, "ticket://spec.secret_field", work_type_schema=schema
-            )
+            resolve_owner(cfg, "ticket://spec.secret_field", work_type_schema=schema)
 
 
 class TestWholeSpec:

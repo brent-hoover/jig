@@ -1,4 +1,5 @@
 """Tests for the per-ticket loop in Orchestrator."""
+
 import asyncio
 from pathlib import Path
 
@@ -35,13 +36,12 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
         ],
     )
     from jig.persistence import save_role, save_workflow
+
     (tmp_path / ".jig" / "workflows").mkdir(parents=True)
     (tmp_path / ".jig" / "roles").mkdir()
     save_workflow(tmp_path, wf)
     for role in ("spec-writer", "dev", "qa"):
-        save_role(
-            tmp_path, RoleConfig(role=role, phase_prompt=f"be {role}")
-        )
+        save_role(tmp_path, RoleConfig(role=role, phase_prompt=f"be {role}"))
 
     orch = Orchestrator(project_path=tmp_path)
 
@@ -67,16 +67,12 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
     async def fake_merge(*args, **kwargs):
         return "stub-merge"
 
-    monkeypatch.setattr(
-        "jig.worktree.merge_ticket", fake_merge
-    )
+    monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
 
     async def fake_remove(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(
-        "jig.worktree.remove_worktree", fake_remove
-    )
+    monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
 
     await orch.startup()
     try:
@@ -124,9 +120,7 @@ def _make_project_and_workflow(
     (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
     save_workflow(tmp_path, wf)
     for n in phase_names:
-        save_role(
-            tmp_path, RoleConfig(role=f"role-{n}", phase_prompt=f"be {n}")
-        )
+        save_role(tmp_path, RoleConfig(role=f"role-{n}", phase_prompt=f"be {n}"))
     return wf
 
 
@@ -213,9 +207,7 @@ async def test_current_phase_index_skips_by_phase_name_not_task_count(
 
         # Phase "a" is done but that's still only 1 phase.
         # The correct answer is 1 (only phase "a" is complete; start at "b").
-        assert result == 1, (
-            f"expected 1 (only phase 'a' done), got {result}"
-        )
+        assert result == 1, f"expected 1 (only phase 'a' done), got {result}"
     finally:
         await orch.shutdown()
 
@@ -270,9 +262,7 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
         running_task = orch._running_tickets.get(tid)
         if running_task is not None:
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(running_task), timeout=2.0
-                )
+                await asyncio.wait_for(asyncio.shield(running_task), timeout=2.0)
             except (asyncio.TimeoutError, Exception):
                 pass
 
@@ -315,6 +305,7 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
     async def fake_run_agent(ctx, emitter=None):
         run_calls.append(ctx.role)
         from jig.agent import RunAgentResult
+
         return RunAgentResult(status="success", final_text="ok")
 
     monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
@@ -337,9 +328,7 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
         running_task = orch._running_tickets.get(tid)
         if running_task is not None:
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(running_task), timeout=2.0
-                )
+                await asyncio.wait_for(asyncio.shield(running_task), timeout=2.0)
             except (asyncio.TimeoutError, Exception):
                 pass
 
@@ -352,9 +341,9 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
 
         entries = await orch.threads.for_ticket(tid)
         dep_events = [
-            e for e in entries
-            if isinstance(e, SystemEvent)
-            and e.event_type == "dep_merge_failed"
+            e
+            for e in entries
+            if isinstance(e, SystemEvent) and e.event_type == "dep_merge_failed"
         ]
         assert len(dep_events) == 1
         assert "dep-123" in dep_events[0].content

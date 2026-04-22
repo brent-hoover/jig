@@ -105,6 +105,7 @@ class _FakeSDK:
 
         class _Msg:
             pass
+
         yield _Msg()
 
     def install(self, stack):
@@ -115,9 +116,7 @@ class _FakeSDK:
                 self.create_check_mcp_server,
             )
         )
-        stack.enter_context(
-            patch.object(check_runner_mod, "query", self.query)
-        )
+        stack.enter_context(patch.object(check_runner_mod, "query", self.query))
 
 
 @contextmanager
@@ -209,11 +208,7 @@ class TestAgentCheckRunner:
         assert "missing error path" in result.output
 
     async def test_missing_verdict_is_error(self, tmp_path: Path) -> None:
-        cat = _catalog(
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            )
-        )
+        cat = _catalog(qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         runner = AgentCheckRunner(
@@ -254,11 +249,7 @@ class TestAgentCheckRunner:
         assert result.verdict == "timeout"
 
     async def test_spawn_error_is_recorded(self, tmp_path: Path) -> None:
-        cat = _catalog(
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            )
-        )
+        cat = _catalog(qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         runner = AgentCheckRunner(
@@ -280,9 +271,7 @@ class TestRunForPhase:
     async def test_skips_scripted_checks(self, tmp_path: Path) -> None:
         cat = _catalog(
             unit=ScriptedCheck(type="scripted", command="true"),
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            ),
+            qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"),
         )
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
@@ -321,9 +310,7 @@ class TestRunForPhase:
 
 class TestDispatch:
     async def test_wrong_type_raises(self, tmp_path: Path) -> None:
-        cat = _catalog(
-            lint=ScriptedCheck(type="scripted", command="true")
-        )
+        cat = _catalog(lint=ScriptedCheck(type="scripted", command="true"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         runner = AgentCheckRunner(
@@ -334,9 +321,7 @@ class TestDispatch:
             threads=threads,
         )
         with pytest.raises(TypeError):
-            await runner.run_check(
-                ticket=_ticket(), phase="review", check_name="lint"
-            )
+            await runner.run_check(ticket=_ticket(), phase="review", check_name="lint")
 
     async def test_unknown_check_raises(self, tmp_path: Path) -> None:
         results = await _make_store(tmp_path)
@@ -349,9 +334,7 @@ class TestDispatch:
             threads=threads,
         )
         with pytest.raises(KeyError):
-            await runner.run_check(
-                ticket=_ticket(), phase="review", check_name="nope"
-            )
+            await runner.run_check(ticket=_ticket(), phase="review", check_name="nope")
 
 
 class TestExcludedPaths:
@@ -366,14 +349,10 @@ class TestExcludedPaths:
         )
 
     def test_non_repo_uri_never_matches(self) -> None:
-        assert not check_runner_mod._matches_excluded(
-            "ticket://description", ["**"]
-        )
+        assert not check_runner_mod._matches_excluded("ticket://description", ["**"])
 
     def test_empty_excluded(self) -> None:
-        assert not check_runner_mod._matches_excluded(
-            "repo://anything", []
-        )
+        assert not check_runner_mod._matches_excluded("repo://anything", [])
 
 
 class TestImplementationAwareAllowsFilesystem:
@@ -384,9 +363,7 @@ class TestImplementationAwareAllowsFilesystem:
     runner passed in ``options``.
     """
 
-    async def test_implementation_aware_includes_read(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_implementation_aware_includes_read(self, tmp_path: Path) -> None:
         cat = _catalog(
             impl=ImplementationAwareAgentCheck(
                 type="implementation_aware_agent",
@@ -421,14 +398,8 @@ class TestImplementationAwareAllowsFilesystem:
         assert "Grep" in tools
         assert "Glob" in tools
 
-    async def test_black_box_excludes_filesystem(
-        self, tmp_path: Path
-    ) -> None:
-        cat = _catalog(
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            )
-        )
+    async def test_black_box_excludes_filesystem(self, tmp_path: Path) -> None:
+        cat = _catalog(qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         runner = AgentCheckRunner(
@@ -469,11 +440,7 @@ class TestCheckCompletedBusEvents:
     after each persisted result, same shape as the scripted runner."""
 
     async def test_publishes_on_pass(self, tmp_path: Path) -> None:
-        cat = _catalog(
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            )
-        )
+        cat = _catalog(qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         bus = await _make_bus(tmp_path)
@@ -491,10 +458,7 @@ class TestCheckCompletedBusEvents:
                 ticket=ticket, phase="review", check_name="qa"
             )
         history = await bus.get_history(f"tickets.{ticket.id}")
-        events = [
-            m for m in history
-            if m.payload.get("kind") == "check_completed"
-        ]
+        events = [m for m in history if m.payload.get("kind") == "check_completed"]
         assert len(events) == 1
         evt = events[0]
         assert evt.payload["check_name"] == "qa"
@@ -504,49 +468,39 @@ class TestCheckCompletedBusEvents:
         # checks from scripted ones in the event stream.
         assert evt.sender == "check-agent"
 
-    async def test_publishes_on_missing_verdict(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_publishes_on_missing_verdict(self, tmp_path: Path) -> None:
         """No ``check_verdict`` call → verdict=error + bus event."""
-        cat = _catalog(
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            )
-        )
+        cat = _catalog(qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         bus = await _make_bus(tmp_path)
         ticket = _ticket()
         runner = AgentCheckRunner(
-            catalog=cat, results=results,
+            catalog=cat,
+            results=results,
             worktree_path=_worktree(tmp_path),
-            project_path=tmp_path, threads=threads, bus=bus,
+            project_path=tmp_path,
+            threads=threads,
+            bus=bus,
         )
         with _fake_sdk(calls=[]):
-            await runner.run_check(
-                ticket=ticket, phase="review", check_name="qa"
-            )
+            await runner.run_check(ticket=ticket, phase="review", check_name="qa")
         history = await bus.get_history(f"tickets.{ticket.id}")
-        events = [
-            m for m in history
-            if m.payload.get("kind") == "check_completed"
-        ]
+        events = [m for m in history if m.payload.get("kind") == "check_completed"]
         assert len(events) == 1
         assert events[0].payload["verdict"] == "error"
 
     async def test_no_bus_no_event(self, tmp_path: Path) -> None:
         """Back-compat: existing tests don't wire a bus."""
-        cat = _catalog(
-            qa=BlackBoxAgentCheck(
-                type="black_box_agent", template="rubric"
-            )
-        )
+        cat = _catalog(qa=BlackBoxAgentCheck(type="black_box_agent", template="rubric"))
         results = await _make_store(tmp_path)
         threads = await _make_threads(tmp_path)
         runner = AgentCheckRunner(
-            catalog=cat, results=results,
+            catalog=cat,
+            results=results,
             worktree_path=_worktree(tmp_path),
-            project_path=tmp_path, threads=threads,
+            project_path=tmp_path,
+            threads=threads,
         )
         with _fake_sdk(calls=[("pass", "ok")]):
             result = await runner.run_check(

@@ -97,8 +97,7 @@ def load_project(project_path: Path) -> Project:
         return Project.model_validate_json(legacy.read_text())
 
     raise FileNotFoundError(
-        f"No project config found at {_config_file(project_path)} "
-        f"or {legacy}"
+        f"No project config found at {_config_file(project_path)} or {legacy}"
     )
 
 

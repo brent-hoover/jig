@@ -108,6 +108,7 @@ async def test_dispatch_loop_spawns_for_unaddressed_message(tmp_path: Path) -> N
     await orch.startup()
     try:
         from jig.store import Message, MessageType
+
         await orch.bus.publish(
             Message(
                 sender="dev",
@@ -155,6 +156,7 @@ async def test_dispatch_loop_skips_user_role(tmp_path: Path) -> None:
     await orch.startup()
     try:
         from jig.store import Message, MessageType
+
         await orch.bus.publish(
             Message(
                 sender="dev",
@@ -201,6 +203,7 @@ async def test_dispatch_loop_skips_if_live_subscriber_present(tmp_path: Path) ->
         fake_task = asyncio.create_task(asyncio.sleep(60))
         orch._live_subscribers[(tid, "dev")] = fake_task
         from jig.store import Message, MessageType
+
         await orch.bus.publish(
             Message(
                 sender="qa",
@@ -228,24 +231,38 @@ async def test_spawn_qa_responder_setup_failure_does_not_kill_dispatch(
     """_spawn_qa_responder must swallow setup errors, not propagate them."""
     save_project(
         tmp_path,
-        Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"),
+        Project(
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
+        ),
     )
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
         tid = await orch.tickets.create(
             Ticket(
-                work_type=WorkType.REFACTOR, title="t", created_by="o",
-                assignee="qa", workflow="thread",
+                work_type=WorkType.REFACTOR,
+                title="t",
+                created_by="o",
+                assignee="qa",
+                workflow="thread",
             )
         )
         fake_msg = Message(
-            sender="o", to="qa", type=MessageType.CONTEXT_UPDATE,
-            payload={}, topic=f"tickets.{tid}",
+            sender="o",
+            to="qa",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={},
+            topic=f"tickets.{tid}",
         )
+
         # Patch _ensure_worktree to raise — simulating any setup failure.
         async def boom(ticket):
             raise RuntimeError("boom")
+
         orch._ensure_worktree = boom  # type: ignore[method-assign]
 
         # Must not raise.
@@ -264,11 +281,18 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
     """Slot must be reserved synchronously before the first await."""
     save_project(
         tmp_path,
-        Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"),
+        Project(
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
+        ),
     )
     (tmp_path / ".jig" / "roles").mkdir(parents=True)
     from jig.persistence import save_role
     from jig.models import RoleConfig
+
     save_role(tmp_path, RoleConfig(role="qa", phase_prompt="be qa"))
 
     orch = Orchestrator(project_path=tmp_path)
@@ -291,13 +315,19 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
     try:
         tid = await orch.tickets.create(
             Ticket(
-                work_type=WorkType.FEATURE, title="q", created_by="dev",
-                assignee="qa", workflow="thread",
+                work_type=WorkType.FEATURE,
+                title="q",
+                created_by="dev",
+                assignee="qa",
+                workflow="thread",
             )
         )
         fake_msg = Message(
-            sender="dev", to="qa", type=MessageType.CONTEXT_UPDATE,
-            payload={}, topic=f"tickets.{tid}",
+            sender="dev",
+            to="qa",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={},
+            topic=f"tickets.{tid}",
         )
         # Start without awaiting; the sentinel should be set synchronously.
         task = asyncio.create_task(orch._spawn_qa_responder(tid, "qa", fake_msg))
@@ -313,17 +343,24 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
 async def test_orchestrator_emits_ticket_events_to_emitter(tmp_path: Path) -> None:
     save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))
     from jig.events import EventEmitter
+
     emitter = EventEmitter()
     orch = Orchestrator(project_path=tmp_path, emitter=emitter)
     await orch.startup()
     try:
         queue = emitter.subscribe()
-        await orch.tickets.create(Ticket(work_type=WorkType.FEATURE, title="f", created_by="user"))
-        await orch.bus.publish(Message(
-            sender="user", to="orchestrator", type=MessageType.CONTEXT_UPDATE,
-            payload={"kind": "ticket_created"},
-            topic="orchestrator",
-        ))
+        await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch.bus.publish(
+            Message(
+                sender="user",
+                to="orchestrator",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={"kind": "ticket_created"},
+                topic="orchestrator",
+            )
+        )
         await asyncio.sleep(0.1)
         events = []
         while not queue.empty():
@@ -336,10 +373,20 @@ async def test_orchestrator_emits_ticket_events_to_emitter(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -> None:
-    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path), language="python", package_manager="uv"))
+    save_project(
+        tmp_path,
+        Project(
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
+        ),
+    )
     (tmp_path / ".jig" / "roles").mkdir(parents=True)
     from jig.persistence import save_role
     from jig.models import RoleConfig
+
     save_role(tmp_path, RoleConfig(role="qa", phase_prompt="be qa"))
 
     orch = Orchestrator(project_path=tmp_path)
@@ -347,23 +394,33 @@ async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -
 
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
+
     async def fake_run_agent(ctx, emitter=None):
         calls.append(ctx.role)
         return RunAgentResult(status="success", final_text="ok")
+
     monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path
+
     orch._ensure_worktree = fake_ensure  # type: ignore
 
     await orch.startup()
     try:
-        tid = await orch.tickets.create(Ticket(
-            work_type=WorkType.FEATURE, title="q", created_by="dev",
-            assignee="qa", workflow="thread",
-        ))
+        tid = await orch.tickets.create(
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="q",
+                created_by="dev",
+                assignee="qa",
+                workflow="thread",
+            )
+        )
         fake_msg = Message(
-            sender="dev", to="qa", type=MessageType.CONTEXT_UPDATE,
+            sender="dev",
+            to="qa",
+            type=MessageType.CONTEXT_UPDATE,
             payload={"kind": "ticket_created", "ticket_id": tid},
             topic=f"tickets.{tid}",
         )

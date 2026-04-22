@@ -78,9 +78,7 @@ async def _make_spec(project: Path) -> None:
     )
 
 
-def _cfg_with_roles(
-    tmp_path: Path, *, self_approval: str = "warn"
-) -> Config:
+def _cfg_with_roles(tmp_path: Path, *, self_approval: str = "warn") -> Config:
     return Config(
         project=Project(id="p", name="p", path=str(tmp_path)),
         roles=RolesSection(
@@ -287,7 +285,8 @@ class TestSelfApprovalWarn:
 
         thread = await threads.for_ticket("t-1")
         markers = [
-            e for e in thread
+            e
+            for e in thread
             if e.kind == "system_event"
             and getattr(e, "event_type", None) == "status_change"
             and "self_approval_with_justification" in getattr(e, "content", "")
@@ -304,9 +303,7 @@ class TestSelfApprovalBlocked:
     ) -> None:
         await _make_ticket(tickets)
         await _make_spec(project)
-        save_config(
-            project, _cfg_with_roles(project, self_approval="blocked")
-        )
+        save_config(project, _cfg_with_roles(project, self_approval="blocked"))
 
         propose = await handle_propose_change(
             tickets=tickets,
@@ -502,10 +499,12 @@ class TestEndToEnd:
         # 8. Listing pending proposals returns nothing; resolver entry
         #    carries state=accepted so the accepted filter surfaces it.
         pending = await handle_list_proposals(
-            threads=threads, args={"ticket_id": "t-1", "state": "pending"},
+            threads=threads,
+            args={"ticket_id": "t-1", "state": "pending"},
         )
         accepted = await handle_list_proposals(
-            threads=threads, args={"ticket_id": "t-1", "state": "accepted"},
+            threads=threads,
+            args={"ticket_id": "t-1", "state": "accepted"},
         )
         assert pending == []
         assert len(accepted) >= 1
@@ -523,7 +522,9 @@ class TestListProposals:
         save_config(project, _cfg_with_roles(project))
 
         a = await handle_propose_change(
-            tickets=tickets, threads=threads, sender="alice",
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
             args={
                 "ticket_id": "t-1",
                 "target": "ticket://spec.summary",
@@ -532,7 +533,9 @@ class TestListProposals:
             project_path=project,
         )
         await handle_propose_change(
-            tickets=tickets, threads=threads, sender="alice",
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
             args={
                 "ticket_id": "t-1",
                 "target": "ticket://spec.summary",
@@ -541,19 +544,24 @@ class TestListProposals:
             project_path=project,
         )
         await handle_resolve_proposal(
-            tickets=tickets, threads=threads, sender="pam",
+            tickets=tickets,
+            threads=threads,
+            sender="pam",
             args={"proposal_id": a["comment_id"], "verdict": "reject"},
             project_path=project,
         )
 
         pending = await handle_list_proposals(
-            threads=threads, args={"ticket_id": "t-1", "state": "pending"},
+            threads=threads,
+            args={"ticket_id": "t-1", "state": "pending"},
         )
         rejected = await handle_list_proposals(
-            threads=threads, args={"ticket_id": "t-1", "state": "rejected"},
+            threads=threads,
+            args={"ticket_id": "t-1", "state": "rejected"},
         )
         all_for_ticket = await handle_list_proposals(
-            threads=threads, args={"ticket_id": "t-1"},
+            threads=threads,
+            args={"ticket_id": "t-1"},
         )
         assert len(pending) == 1
         assert len(rejected) >= 1  # resolver entry carries state=rejected

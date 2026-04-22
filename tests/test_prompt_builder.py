@@ -8,30 +8,42 @@ from jig.ticket import Ticket, TicketStatus, WorkType
 
 def _project() -> Project:
     return Project(
-        id="p", name="p", path="/tmp",
-        language="python", package_manager="uv",
+        id="p",
+        name="p",
+        path="/tmp",
+        language="python",
+        package_manager="uv",
         test_command="uv run pytest",
     )
 
 
 def _cfg() -> RoleConfig:
-    return RoleConfig(role="dev", phase_prompt="You are dev.", response_prompt="You answer.")
+    return RoleConfig(
+        role="dev", phase_prompt="You are dev.", response_prompt="You answer."
+    )
 
 
 def _ticket() -> Ticket:
     return Ticket(
-        work_type=WorkType.REFACTOR, title="implement X", created_by="orchestrator",
-        description="do the thing", status=TicketStatus.OPEN,
+        work_type=WorkType.REFACTOR,
+        title="implement X",
+        created_by="orchestrator",
+        description="do the thing",
+        status=TicketStatus.OPEN,
     )
 
 
 def test_injection_order() -> None:
     parent = Ticket(
-        work_type=WorkType.FEATURE, title="parent", created_by="user",
+        work_type=WorkType.FEATURE,
+        title="parent",
+        created_by="user",
         description="overall goal",
     )
     uv_skill = Skill(
-        name="uv", source_filename="uv.md", applies_to={},
+        name="uv",
+        source_filename="uv.md",
+        applies_to={},
         content="# uv\n\nalways uv run",
     )
     prompt = build_initial_prompt(
@@ -87,7 +99,9 @@ def test_qa_responder_falls_back_to_phase_prompt_with_preamble() -> None:
 
 
 def test_parent_comments_included() -> None:
-    parent = Ticket(work_type=WorkType.FEATURE, title="p", created_by="u", description="")
+    parent = Ticket(
+        work_type=WorkType.FEATURE, title="p", created_by="u", description=""
+    )
     parent_entries = [
         Note(ticket_id="parent-id", author="spec-writer", text="use redis"),
         Note(ticket_id="parent-id", author="spec-writer", text="index by id"),
@@ -154,9 +168,7 @@ def test_phase_section_accepts_legacy_issue_title_placeholder() -> None:
 
 def test_phase_section_unknown_placeholder_left_intact() -> None:
     """Unknown placeholders degrade to visible text rather than crashing."""
-    phase = PhaseConfig(
-        name="x", role="dev", task_template="work on {nonexistent}"
-    )
+    phase = PhaseConfig(name="x", role="dev", task_template="work on {nonexistent}")
     prompt = build_initial_prompt(
         role_cfg=_cfg(),
         spawn_reason=SpawnReason.PHASE_PRIMARY,

@@ -347,9 +347,7 @@ class TestDiscriminatedUnion:
 
     def test_missing_kind_fails(self) -> None:
         with pytest.raises(ValidationError):
-            parse_thread_entry(
-                {"ticket_id": "t-1", "author": "alice", "text": "hi"}
-            )
+            parse_thread_entry({"ticket_id": "t-1", "author": "alice", "text": "hi"})
 
 
 # ---- roundtrip ------------------------------------------------------------
@@ -379,9 +377,7 @@ class TestRoundtrip:
             summary="done",
             outputs=["a.py", "b.py"],
             deferred_items=[
-                DeferredItem(
-                    item="refactor helper", reason="scope", status="open"
-                ),
+                DeferredItem(item="refactor helper", reason="scope", status="open"),
                 DeferredItem(
                     item="better error msg",
                     reason="nice-to-have",

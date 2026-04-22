@@ -80,9 +80,11 @@ def _team_roles_section(current_role: str, all_roles: list["RoleConfig"]) -> str
     if not all_roles:
         return ""
     lines = ["## Team Roles\n"]
-    lines.append("These are the exact role names in this project. "
-                 "Use these names when assigning tickets or addressing messages — "
-                 "do NOT invent role names.\n")
+    lines.append(
+        "These are the exact role names in this project. "
+        "Use these names when assigning tickets or addressing messages — "
+        "do NOT invent role names.\n"
+    )
     for cfg in all_roles:
         marker = " ← you" if cfg.role == current_role else ""
         # Extract first sentence of phase_prompt as a brief description

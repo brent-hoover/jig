@@ -35,10 +35,18 @@ def _init_git(path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=path, check=True)
     subprocess.run(
         [
-            "git", "-c", "user.email=t@t", "-c", "user.name=t",
-            "commit", "--allow-empty", "-qm", "init",
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "init",
         ],
-        cwd=path, check=True,
+        cwd=path,
+        check=True,
     )
 
 
@@ -61,8 +69,11 @@ def _project(tmp_path: Path) -> Path:
     save_project(
         tmp_path,
         Project(
-            id="p", name="p", path=str(tmp_path),
-            language="python", package_manager="uv",
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
         ),
     )
     _init_git(tmp_path)
@@ -119,7 +130,8 @@ class TestNoPendingHandoff:
             assert orch.tickets is not None
             tid = await orch.tickets.create(
                 Ticket(
-                    work_type=WorkType.FEATURE, title="t",
+                    work_type=WorkType.FEATURE,
+                    title="t",
                     created_by="orchestrator",
                 )
             )
@@ -163,9 +175,7 @@ class TestNoPendingHandoff:
 
 class TestPassingGate:
     @pytest.mark.asyncio
-    async def test_passing_gate_leaves_handoff_pending(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_passing_gate_leaves_handoff_pending(self, tmp_path: Path) -> None:
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "true")
         orch = Orchestrator(project_path=project_path)
@@ -194,9 +204,7 @@ class TestPassingGate:
 
 class TestFailingGateBounces:
     @pytest.mark.asyncio
-    async def test_failing_gate_flips_handoff_to_rejected(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_failing_gate_flips_handoff_to_rejected(self, tmp_path: Path) -> None:
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "false")
         orch = Orchestrator(project_path=project_path)
@@ -221,9 +229,7 @@ class TestFailingGateBounces:
             await orch.shutdown()
 
     @pytest.mark.asyncio
-    async def test_bounce_publishes_rejected_event(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_bounce_publishes_rejected_event(self, tmp_path: Path) -> None:
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "false")
         orch = Orchestrator(project_path=project_path)
@@ -239,8 +245,7 @@ class TestFailingGateBounces:
             assert orch.bus is not None
             msgs = await orch.bus.get_history(f"tickets.{tid}")
             rejected = [
-                m for m in msgs
-                if m.payload.get("kind") == "thread_handoff_rejected"
+                m for m in msgs if m.payload.get("kind") == "thread_handoff_rejected"
             ]
             assert len(rejected) == 1
             assert rejected[0].payload["bounce"] is True
@@ -251,9 +256,7 @@ class TestFailingGateBounces:
 
 class TestCatalogLookup:
     @pytest.mark.asyncio
-    async def test_reads_project_catalog_from_disk(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_reads_project_catalog_from_disk(self, tmp_path: Path) -> None:
         """Sanity: the method reads ``.jig/checks.yaml`` via
         ``load_check_catalog`` at call time. Writing the catalog after
         startup still works because load happens per-call."""
@@ -290,9 +293,14 @@ class TestAutomatedOnlyAutoAccepts:
         await orch.startup()
         try:
             tid, hid = await _seed_pending_handoff(orch)
-            phase = _phase(checks=["unit"], evaluator=AutomatedOnlyEvaluator(type="automated_only"))
+            phase = _phase(
+                checks=["unit"], evaluator=AutomatedOnlyEvaluator(type="automated_only")
+            )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert orch.threads is not None
             h = await orch.threads.get(hid)
@@ -303,8 +311,7 @@ class TestAutomatedOnlyAutoAccepts:
             assert orch.bus is not None
             msgs = await orch.bus.get_history(f"tickets.{tid}")
             accepted = [
-                m for m in msgs
-                if m.payload.get("kind") == "thread_handoff_accepted"
+                m for m in msgs if m.payload.get("kind") == "thread_handoff_accepted"
             ]
             assert len(accepted) == 1
             assert accepted[0].payload["auto"] is True
@@ -328,7 +335,10 @@ class TestAutomatedOnlyAutoAccepts:
                 evaluator=SpecificRoleEvaluator(type="specific_role", role="reviewer"),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert orch.threads is not None
             h = await orch.threads.get(hid)
@@ -338,9 +348,7 @@ class TestAutomatedOnlyAutoAccepts:
             await orch.shutdown()
 
     @pytest.mark.asyncio
-    async def test_gate_fail_does_not_auto_accept(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_gate_fail_does_not_auto_accept(self, tmp_path: Path) -> None:
         """automated_only + gate fail must still bounce, not accept."""
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "false")
@@ -349,10 +357,14 @@ class TestAutomatedOnlyAutoAccepts:
         try:
             tid, hid = await _seed_pending_handoff(orch)
             phase = _phase(
-                checks=["unit"], evaluator=AutomatedOnlyEvaluator(type="automated_only"),
+                checks=["unit"],
+                evaluator=AutomatedOnlyEvaluator(type="automated_only"),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert orch.threads is not None
             h = await orch.threads.get(hid)
@@ -406,9 +418,7 @@ class TestEvaluatorSpawn:
     ) -> None:
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "true")
-        save_role(
-            project_path, RoleConfig(role="reviewer", phase_prompt="review")
-        )
+        save_role(project_path, RoleConfig(role="reviewer", phase_prompt="review"))
 
         orch = Orchestrator(project_path=project_path)
         await orch.startup()
@@ -417,15 +427,17 @@ class TestEvaluatorSpawn:
             tid, hid = await _seed_pending_handoff(orch)
             phase = _phase(
                 checks=["unit"],
-                evaluator=SpecificRoleEvaluator(
-                    type="specific_role", role="reviewer"
-                ),
+                evaluator=SpecificRoleEvaluator(type="specific_role", role="reviewer"),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             # Give the create_task a tick to run.
             import asyncio as _asyncio
+
             for _ in range(10):
                 await _asyncio.sleep(0.01)
                 if calls:
@@ -446,9 +458,7 @@ class TestEvaluatorSpawn:
         """Bounce takes precedence over spawn when the gate fails."""
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "false")
-        save_role(
-            project_path, RoleConfig(role="reviewer", phase_prompt="review")
-        )
+        save_role(project_path, RoleConfig(role="reviewer", phase_prompt="review"))
         orch = Orchestrator(project_path=project_path)
         await orch.startup()
         try:
@@ -456,12 +466,13 @@ class TestEvaluatorSpawn:
             tid, hid = await _seed_pending_handoff(orch)
             phase = _phase(
                 checks=["unit"],
-                evaluator=SpecificRoleEvaluator(
-                    type="specific_role", role="reviewer"
-                ),
+                evaluator=SpecificRoleEvaluator(type="specific_role", role="reviewer"),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert calls == []
             assert orch.threads is not None
@@ -488,7 +499,10 @@ class TestEvaluatorSpawn:
                 evaluator=AutomatedOnlyEvaluator(type="automated_only"),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert calls == []
             assert orch.threads is not None
@@ -513,12 +527,13 @@ class TestEvaluatorSpawn:
             tid, hid = await _seed_pending_handoff(orch)
             phase = _phase(
                 checks=["unit"],
-                evaluator=SpecificHumanEvaluator(
-                    type="specific_human", user="alice"
-                ),
+                evaluator=SpecificHumanEvaluator(type="specific_human", user="alice"),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert calls == []
             assert orch.threads is not None
@@ -541,7 +556,10 @@ class TestEvaluatorSpawn:
             tid, hid = await _seed_pending_handoff(orch)
             phase = _phase(checks=["unit"], evaluator=None)
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             assert calls == []
             assert orch.threads is not None
@@ -559,9 +577,7 @@ class TestEvaluatorSpawn:
         is spawned. The handoff stays pending until both accept."""
         project_path = _project(tmp_path)
         _write_check_catalog(project_path, "true")
-        save_role(
-            project_path, RoleConfig(role="reviewer", phase_prompt="review")
-        )
+        save_role(project_path, RoleConfig(role="reviewer", phase_prompt="review"))
         orch = Orchestrator(project_path=project_path)
         await orch.startup()
         try:
@@ -572,19 +588,19 @@ class TestEvaluatorSpawn:
                 evaluator=MultiEvaluator(
                     type="multi",
                     evaluators=[
-                        SpecificRoleEvaluator(
-                            type="specific_role", role="reviewer"
-                        ),
-                        SpecificHumanEvaluator(
-                            type="specific_human", user="alice"
-                        ),
+                        SpecificRoleEvaluator(type="specific_role", role="reviewer"),
+                        SpecificHumanEvaluator(type="specific_human", user="alice"),
                     ],
                 ),
             )
             await orch._run_handoff_gate_if_pending(
-                tid, phase, _workflow([phase]), tmp_path,
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
             )
             import asyncio as _asyncio
+
             for _ in range(10):
                 await _asyncio.sleep(0.01)
                 if calls:
@@ -613,19 +629,20 @@ class TestEvaluatorSpawn:
             tid, hid = await _seed_pending_handoff(orch)
             phase = _phase(
                 checks=["unit"],
-                evaluator=SpecificRoleEvaluator(
-                    type="specific_role", role="ghost"
-                ),
+                evaluator=SpecificRoleEvaluator(type="specific_role", role="ghost"),
             )
             import logging
+
             with caplog.at_level(logging.WARNING):
                 await orch._run_handoff_gate_if_pending(
-                    tid, phase, _workflow([phase]), tmp_path,
+                    tid,
+                    phase,
+                    _workflow([phase]),
+                    tmp_path,
                 )
             assert calls == []  # no run_agent fired
             assert any(
-                "unknown evaluator role" in rec.message
-                for rec in caplog.records
+                "unknown evaluator role" in rec.message for rec in caplog.records
             )
             assert orch.threads is not None
             h = await orch.threads.get(hid)
@@ -641,9 +658,7 @@ class TestNoChecksDeclared:
         self, tmp_path: Path
     ) -> None:
         project_path = _project(tmp_path)
-        save_workflow(
-            project_path, _workflow([_phase(checks=[])])
-        )
+        save_workflow(project_path, _workflow([_phase(checks=[])]))
         orch = Orchestrator(project_path=project_path)
         await orch.startup()
         try:

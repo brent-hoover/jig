@@ -237,9 +237,7 @@ class TestDecisionScheme:
     async def test_resolves_with_and_without_extension(
         self, jig_layout: Path, ticket: Ticket, threads: ThreadStore
     ) -> None:
-        (jig_layout / ".jig" / "decisions" / "DR-0001.md").write_text(
-            "We picked pg."
-        )
+        (jig_layout / ".jig" / "decisions" / "DR-0001.md").write_text("We picked pg.")
         bare = await _resolve(
             ["decision://DR-0001"],
             jig_layout=jig_layout,

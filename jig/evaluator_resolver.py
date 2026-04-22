@@ -65,9 +65,7 @@ class ResolvedEvaluator(BaseModel):
     members: list["ResolvedEvaluator"] = []
 
 
-def _natural_next_role(
-    workflow: WorkflowConfig, phase_name: str
-) -> str | None:
+def _natural_next_role(workflow: WorkflowConfig, phase_name: str) -> str | None:
     """Return the ``role`` of the phase immediately following
     ``phase_name`` in ``workflow``. ``None`` for a terminal phase or
     an unknown phase name.
@@ -135,11 +133,7 @@ def _resolve_single(
 
     if isinstance(spec, PreviousPhaseRoleEvaluator):
         phase_roles = {p.name: p.role for p in workflow.phases}
-        matching = [
-            h
-            for h in handoff_history
-            if phase_roles.get(h.phase) == spec.role
-        ]
+        matching = [h for h in handoff_history if phase_roles.get(h.phase) == spec.role]
         actor = _resolve_previous_phase_role(spec.role, matching)
         if actor is None:
             return None
@@ -167,27 +161,19 @@ def resolve_evaluator(
         members: list[ResolvedEvaluator] = []
         actors: list[str] = []
         for sub in spec.evaluators:
-            r = _resolve_single(
-                sub, workflow=workflow, handoff_history=handoff_history
-            )
+            r = _resolve_single(sub, workflow=workflow, handoff_history=handoff_history)
             if r is None:
                 # A single unresolvable nested spec collapses the
                 # whole multi — the harness warns and falls back.
                 return None
             members.append(r)
             actors.extend(r.actors)
-        return ResolvedEvaluator(
-            kind="multi", actors=actors, members=members
-        )
+        return ResolvedEvaluator(kind="multi", actors=actors, members=members)
 
-    return _resolve_single(
-        spec, workflow=workflow, handoff_history=handoff_history
-    )
+    return _resolve_single(spec, workflow=workflow, handoff_history=handoff_history)
 
 
-def natural_next_role(
-    workflow: WorkflowConfig, phase_name: str
-) -> str | None:
+def natural_next_role(workflow: WorkflowConfig, phase_name: str) -> str | None:
     """Public re-export of the natural-sequence default so callers
     don't need the private helper."""
     return _natural_next_role(workflow, phase_name)

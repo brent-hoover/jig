@@ -56,12 +56,8 @@ class TicketSpec(BaseModel):
     size: Size
     fields: dict[str, Any] = Field(default_factory=dict)
     version: int = 1
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Keep the JSON <-> YAML roundtrip stable: don't emit extra aliases,
     # do allow construction with either enum or str.
@@ -82,9 +78,7 @@ def _spec_path(project_path: Path, ticket_id: str) -> Path:
 # ---- schema check --------------------------------------------------------
 
 
-def _validate_against_schema(
-    spec: TicketSpec, schema: WorkTypeSchema
-) -> None:
+def _validate_against_schema(spec: TicketSpec, schema: WorkTypeSchema) -> None:
     """Validate ``spec.fields`` against the work-type schema.
 
     Two checks per doc 03:
@@ -99,23 +93,16 @@ def _validate_against_schema(
     required = schema.required_fields_for_size(spec.size)
     allowed = schema.allowed_fields()
 
-    missing = [
-        name
-        for name in required
-        if not _present(spec.fields.get(name))
-    ]
+    missing = [name for name in required if not _present(spec.fields.get(name))]
     unknown = [name for name in spec.fields if name not in allowed]
 
     errors: list[str] = []
     if missing:
         errors.append(
-            f"missing required fields for size {spec.size.value}: "
-            f"{sorted(missing)}"
+            f"missing required fields for size {spec.size.value}: {sorted(missing)}"
         )
     if unknown:
-        errors.append(
-            f"unknown fields not declared in schema: {sorted(unknown)}"
-        )
+        errors.append(f"unknown fields not declared in schema: {sorted(unknown)}")
     if errors:
         raise SpecValidationError(
             f"spec for ticket {spec.ticket_id!r} (work_type="
@@ -140,9 +127,7 @@ def _present(value: Any) -> bool:
 # ---- public API -----------------------------------------------------------
 
 
-def load_ticket_spec(
-    project_path: Path, ticket_id: str
-) -> TicketSpec | None:
+def load_ticket_spec(project_path: Path, ticket_id: str) -> TicketSpec | None:
     """Load a ticket spec if one exists; otherwise None."""
     path = _spec_path(project_path, ticket_id)
     if not path.is_file():
@@ -170,9 +155,7 @@ def save_ticket_spec(
     if bump_version:
         existing = load_ticket_spec(project_path, spec.ticket_id)
         if existing is not None:
-            spec = spec.model_copy(
-                update={"version": existing.version + 1}
-            )
+            spec = spec.model_copy(update={"version": existing.version + 1})
     spec = spec.model_copy(update={"updated_at": datetime.now(timezone.utc)})
 
     _specs_dir(project_path).mkdir(parents=True, exist_ok=True)

@@ -38,10 +38,18 @@ def _worktree(tmp_path: Path) -> Path:
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(
         [
-            "git", "-c", "user.email=t@t", "-c", "user.name=t",
-            "commit", "--allow-empty", "-qm", "init",
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "init",
         ],
-        cwd=root, check=True,
+        cwd=root,
+        check=True,
     )
     return root
 
@@ -139,17 +147,13 @@ class TestPassingGate:
         names = {r.check_name for r in batch}
         assert names == {"unit"}
 
-    async def test_no_automated_checks_declared(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_no_automated_checks_declared(self, tmp_path: Path) -> None:
         """Phase with empty automated_checks passes trivially; no
         runners fire."""
         tickets, threads, results = await _stores(tmp_path)
         _tid, hid = await _seed_pending_handoff(tickets, threads)
         catalog = CheckCatalog.model_validate({})
-        workflow = _wf(
-            phases=[PhaseConfig(name="implement", role="dev")]
-        )
+        workflow = _wf(phases=[PhaseConfig(name="implement", role="dev")])
 
         verdict = await run_handoff_gate(
             handoff_id=hid,
@@ -166,9 +170,7 @@ class TestPassingGate:
 
 
 class TestFailingGate:
-    async def test_required_fail_blocks_and_posts_event(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_required_fail_blocks_and_posts_event(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
         tid, hid = await _seed_pending_handoff(tickets, threads)
         catalog = CheckCatalog.model_validate(
@@ -201,9 +203,9 @@ class TestFailingGate:
         # The posted event is a check_failure SystemEvent on the ticket.
         entries = await threads.for_ticket(tid)
         failure_events = [
-            e for e in entries
-            if isinstance(e, SystemEvent)
-            and e.event_type == "check_failure"
+            e
+            for e in entries
+            if isinstance(e, SystemEvent) and e.event_type == "check_failure"
         ]
         assert len(failure_events) == 1
         assert failure_events[0].check_name == "unit"
@@ -211,9 +213,7 @@ class TestFailingGate:
 
 
 class TestWarningDoesntGate:
-    async def test_warning_fail_still_passes_gate(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_warning_fail_still_passes_gate(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
         _tid, hid = await _seed_pending_handoff(tickets, threads)
         catalog = CheckCatalog.model_validate(
@@ -251,9 +251,7 @@ class TestWarningDoesntGate:
 
 
 class TestErrors:
-    async def test_missing_handoff_raises_key_error(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_missing_handoff_raises_key_error(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
         with pytest.raises(KeyError, match="handoff"):
             await run_handoff_gate(
@@ -267,9 +265,7 @@ class TestErrors:
                 project_path=tmp_path,
             )
 
-    async def test_non_handoff_entry_raises_thread_error(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_non_handoff_entry_raises_thread_error(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
         tid = await tickets.create(
             Ticket(
@@ -278,9 +274,7 @@ class TestErrors:
                 created_by="orchestrator",
             )
         )
-        nid = await threads.post(
-            Note(ticket_id=tid, author="dev", text="hi")
-        )
+        nid = await threads.post(Note(ticket_id=tid, author="dev", text="hi"))
         with pytest.raises(ThreadError, match="not a handoff"):
             await run_handoff_gate(
                 handoff_id=nid,
@@ -293,9 +287,7 @@ class TestErrors:
                 project_path=tmp_path,
             )
 
-    async def test_already_resolved_handoff_rejected(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_already_resolved_handoff_rejected(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
         _tid, hid = await _seed_pending_handoff(tickets, threads)
         await threads.update(
@@ -309,20 +301,14 @@ class TestErrors:
                 threads=threads,
                 results=results,
                 catalog=CheckCatalog.model_validate({}),
-                workflow=_wf(
-                    phases=[PhaseConfig(name="implement", role="dev")]
-                ),
+                workflow=_wf(phases=[PhaseConfig(name="implement", role="dev")]),
                 worktree_path=_worktree(tmp_path),
                 project_path=tmp_path,
             )
 
-    async def test_unknown_phase_raises_key_error(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_unknown_phase_raises_key_error(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
-        _tid, hid = await _seed_pending_handoff(
-            tickets, threads, phase="unknown"
-        )
+        _tid, hid = await _seed_pending_handoff(tickets, threads, phase="unknown")
         with pytest.raises(KeyError, match="phase"):
             await run_handoff_gate(
                 handoff_id=hid,
@@ -330,9 +316,7 @@ class TestErrors:
                 threads=threads,
                 results=results,
                 catalog=CheckCatalog.model_validate({}),
-                workflow=_wf(
-                    phases=[PhaseConfig(name="implement", role="dev")]
-                ),
+                workflow=_wf(phases=[PhaseConfig(name="implement", role="dev")]),
                 worktree_path=_worktree(tmp_path),
                 project_path=tmp_path,
             )
@@ -343,9 +327,7 @@ class TestRunHandoffGateBusEvents:
     ``run_handoff_gate``, the internal ScriptedRunner/AgentCheckRunner
     publish ``check_completed`` per result."""
 
-    async def test_pass_publishes_check_completed(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_pass_publishes_check_completed(self, tmp_path: Path) -> None:
         tickets, threads, results = await _stores(tmp_path)
         bus = await _bus(tmp_path)
         tid, hid = await _seed_pending_handoff(tickets, threads)
@@ -376,10 +358,7 @@ class TestRunHandoffGateBusEvents:
 
         assert verdict.passing is True
         msgs = await bus.get_history(f"tickets.{tid}")
-        events = [
-            m for m in msgs
-            if m.payload.get("kind") == "check_completed"
-        ]
+        events = [m for m in msgs if m.payload.get("kind") == "check_completed"]
         assert len(events) == 1
         assert events[0].payload["check_name"] == "unit"
         assert events[0].payload["verdict"] == "pass"
@@ -429,10 +408,7 @@ class TestBounceHandoff:
         assert h.rejection_reason == reason
         # Bus event has ticket topic and bounce=True flag.
         msgs = await bus.get_history(f"tickets.{tid}")
-        match = [
-            m for m in msgs
-            if m.payload.get("kind") == "thread_handoff_rejected"
-        ]
+        match = [m for m in msgs if m.payload.get("kind") == "thread_handoff_rejected"]
         assert len(match) == 1
         payload = match[0].payload
         assert payload["handoff_id"] == hid
@@ -441,9 +417,7 @@ class TestBounceHandoff:
         assert payload["failing_checks"] == ["unit"]
         assert payload["missing_checks"] == []
 
-    async def test_missing_checks_appear_in_reason(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_missing_checks_appear_in_reason(self, tmp_path: Path) -> None:
         tickets, threads, _results = await _stores(tmp_path)
         bus = await _bus(tmp_path)
         _tid, hid = await _seed_pending_handoff(tickets, threads)
@@ -497,9 +471,7 @@ class TestBounceHandoff:
                 created_by="orchestrator",
             )
         )
-        nid = await threads.post(
-            Note(ticket_id=tid, author="dev", text="hi")
-        )
+        nid = await threads.post(Note(ticket_id=tid, author="dev", text="hi"))
         with pytest.raises(ThreadError, match="not a handoff"):
             await bounce_handoff(
                 handoff_id=nid,
@@ -594,9 +566,7 @@ class TestBounceHandoff:
             posted_events=["evt-unit"],  # lint failure wasn't posted
             mode="handoff",
         )
-        with pytest.raises(
-            ThreadError, match="posted check_failure event"
-        ):
+        with pytest.raises(ThreadError, match="posted check_failure event"):
             await bounce_handoff(
                 handoff_id=hid,
                 threads=threads,
@@ -604,9 +574,7 @@ class TestBounceHandoff:
                 verdict=lopsided,
             )
 
-    async def test_missing_only_verdict_allowed(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_missing_only_verdict_allowed(self, tmp_path: Path) -> None:
         """Regression guard for the parity check: a verdict with
         ``failing=[]`` but ``missing=[...]`` is a legitimate bounce.
         Missing checks didn't run so they have no events to post; the
@@ -639,9 +607,7 @@ class TestAcceptHandoffAutomated:
         bus = await _bus(tmp_path)
         tid, hid = await _seed_pending_handoff(tickets, threads)
 
-        await accept_handoff_automated(
-            handoff_id=hid, threads=threads, bus=bus
-        )
+        await accept_handoff_automated(handoff_id=hid, threads=threads, bus=bus)
 
         h = await threads.get(hid)
         assert isinstance(h, Handoff)
@@ -649,19 +615,14 @@ class TestAcceptHandoffAutomated:
         assert h.accepted_by == "harness"
         # Bus event has ticket topic, auto=True flag.
         msgs = await bus.get_history(f"tickets.{tid}")
-        match = [
-            m for m in msgs
-            if m.payload.get("kind") == "thread_handoff_accepted"
-        ]
+        match = [m for m in msgs if m.payload.get("kind") == "thread_handoff_accepted"]
         assert len(match) == 1
         payload = match[0].payload
         assert payload["handoff_id"] == hid
         assert payload["auto"] is True
         assert payload["accepted_by"] == "harness"
 
-    async def test_prunes_checkpoints_when_provided(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_prunes_checkpoints_when_provided(self, tmp_path: Path) -> None:
         """Parity with ``_close_handoff``'s accept branch — accepted
         phase's checkpoints move to historical so next-phase queries
         don't see them."""
@@ -672,6 +633,7 @@ class TestAcceptHandoffAutomated:
         await checkpoints.load()
 
         from jig.checkpoints import Checkpoint
+
         cp_id = await checkpoints.post(
             Checkpoint(
                 ticket_id=tid,
@@ -697,9 +659,7 @@ class TestAcceptHandoffAutomated:
         _tickets, threads, _results = await _stores(tmp_path)
         bus = await _bus(tmp_path)
         with pytest.raises(KeyError, match="handoff"):
-            await accept_handoff_automated(
-                handoff_id="nope", threads=threads, bus=bus
-            )
+            await accept_handoff_automated(handoff_id="nope", threads=threads, bus=bus)
 
     async def test_already_resolved_raises(self, tmp_path: Path) -> None:
         tickets, threads, _results = await _stores(tmp_path)
@@ -710,9 +670,7 @@ class TestAcceptHandoffAutomated:
             {"acceptance_state": "accepted", "accepted_by": "reviewer"},
         )
         with pytest.raises(ThreadError, match="already"):
-            await accept_handoff_automated(
-                handoff_id=hid, threads=threads, bus=bus
-            )
+            await accept_handoff_automated(handoff_id=hid, threads=threads, bus=bus)
 
     async def test_non_handoff_entry_raises(self, tmp_path: Path) -> None:
         tickets, threads, _results = await _stores(tmp_path)
@@ -724,10 +682,6 @@ class TestAcceptHandoffAutomated:
                 created_by="orchestrator",
             )
         )
-        nid = await threads.post(
-            Note(ticket_id=tid, author="dev", text="hi")
-        )
+        nid = await threads.post(Note(ticket_id=tid, author="dev", text="hi"))
         with pytest.raises(ThreadError, match="not a handoff"):
-            await accept_handoff_automated(
-                handoff_id=nid, threads=threads, bus=bus
-            )
+            await accept_handoff_automated(handoff_id=nid, threads=threads, bus=bus)

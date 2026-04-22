@@ -208,9 +208,7 @@ class ThreadStore:
         entries.sort(key=lambda e: e.created_at)
         return entries
 
-    async def find_by_kind(
-        self, ticket_id: str, kind: str
-    ) -> list[ThreadEntry]:
+    async def find_by_kind(self, ticket_id: str, kind: str) -> list[ThreadEntry]:
         """Entries on a ticket of the given new-shape ``kind``.
 
         Legacy ``commit`` / ``phase_run`` / ``status_change`` records
@@ -231,9 +229,7 @@ class ThreadStore:
         raws = await self._collection.find(lambda r: r.get("kind") == kind)
         return [self._load(r) for r in raws]
 
-    async def has_unresolved_blocking(
-        self, ticket_id: str
-    ) -> list[ThreadEntry]:
+    async def has_unresolved_blocking(self, ticket_id: str) -> list[ThreadEntry]:
         """Blocking entries still open on this ticket.
 
         The dispatch layer (Task H) calls this before advancing a

@@ -341,9 +341,7 @@ def _render_spec_field(name: str, value: object) -> str:
     header = f"### {name.replace('_', ' ').title()}"
     if isinstance(value, str):
         return f"{header}\n\n{value.rstrip()}"
-    body = _yaml.safe_dump(
-        value, default_flow_style=False, sort_keys=False
-    ).rstrip()
+    body = _yaml.safe_dump(value, default_flow_style=False, sort_keys=False).rstrip()
     return f"{header}\n\n```yaml\n{body}\n```"
 
 

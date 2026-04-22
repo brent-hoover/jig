@@ -63,7 +63,8 @@ class TicketStore:
         candidates: list[Ticket] = []
         for wt in TOP_LEVEL_WORK_TYPES:
             candidates.extend(
-                t for t in await self._collection.find_where(
+                t
+                for t in await self._collection.find_where(
                     work_type=wt, status=TicketStatus.OPEN
                 )
                 if t.workflow != "thread"

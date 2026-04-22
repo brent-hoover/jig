@@ -47,17 +47,13 @@ class TestExplicit:
             WorkflowsSection(available=["standard"]),
         )
         with pytest.raises(WorkflowResolutionError, match="missing"):
-            resolve_workflow(
-                cfg, work_type="feature", size="m", explicit="missing"
-            )
+            resolve_workflow(cfg, work_type="feature", size="m", explicit="missing")
 
     def test_explicit_accepted_when_available_empty(self, tmp_path: Path) -> None:
         """Empty ``available`` = no allow-list; any explicit name wins."""
         cfg = _cfg(tmp_path, WorkflowsSection())
         assert (
-            resolve_workflow(
-                cfg, work_type="feature", size="m", explicit="anything"
-            )
+            resolve_workflow(cfg, work_type="feature", size="m", explicit="anything")
             == "anything"
         )
 
@@ -134,9 +130,7 @@ class TestFallback:
         # Size xl isn't mapped anywhere → final fallback.
         assert resolve_workflow(cfg, work_type="feature", size="xl") == "default"
 
-    def test_implicit_pick_not_in_available_falls_through(
-        self, tmp_path: Path
-    ) -> None:
+    def test_implicit_pick_not_in_available_falls_through(self, tmp_path: Path) -> None:
         """Config inconsistency: resolved name not in allow-list.
 
         Per docstring we fall through to the next step rather than raise

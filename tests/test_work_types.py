@@ -30,8 +30,13 @@ class TestShippedDefaults:
     def test_all_seven_shipped(self, tmp_path: Path) -> None:
         names = list_work_type_names(tmp_path)
         assert set(names) == {
-            "feature", "bugfix", "refactor", "spike",
-            "perf", "migration", "docs",
+            "feature",
+            "bugfix",
+            "refactor",
+            "spike",
+            "perf",
+            "migration",
+            "docs",
         }
 
     def test_each_shipped_loads(self, tmp_path: Path) -> None:
@@ -45,7 +50,10 @@ class TestShippedDefaults:
         s = load_work_type_schema(tmp_path, "feature")
         assert s.work_type == WorkType.FEATURE
         assert set(s.required) >= {
-            "summary", "behaviors", "acceptance_criteria", "out_of_scope",
+            "summary",
+            "behaviors",
+            "acceptance_criteria",
+            "out_of_scope",
         }
         # xs must shrink the required set.
         assert s.required_fields_for_size(Size.XS) == ["summary"]

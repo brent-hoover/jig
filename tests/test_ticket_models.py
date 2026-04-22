@@ -62,9 +62,7 @@ def test_ticket_size_defaults_to_medium() -> None:
 
 def test_ticket_all_sizes_accepted() -> None:
     for size in Size:
-        t = Ticket(
-            work_type=WorkType.FEATURE, title="t", created_by="u", size=size
-        )
+        t = Ticket(work_type=WorkType.FEATURE, title="t", created_by="u", size=size)
         assert t.size == size
 
 
@@ -102,9 +100,7 @@ def test_ticket_legacy_question_defaults_to_thread_workflow() -> None:
 
 def test_ticket_legacy_migration_respects_explicit_workflow() -> None:
     """If the caller already set `workflow`, don't override it."""
-    t = Ticket(
-        type="task", title="t", created_by="u", workflow="custom"
-    )
+    t = Ticket(type="task", title="t", created_by="u", workflow="custom")
     assert t.workflow == "custom"
 
 
@@ -113,5 +109,3 @@ def test_ticket_legacy_bug_keeps_default_workflow() -> None:
     t = Ticket(type="bug", title="b", created_by="u")
     assert t.work_type == WorkType.BUGFIX
     assert t.workflow == "default"
-
-

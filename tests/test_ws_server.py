@@ -23,6 +23,7 @@ class TestWebSocketServer:
         ws_server, emitter = server
         async with websockets.connect(f"ws://127.0.0.1:{ws_server.port}") as ws:
             from websockets.protocol import State
+
             assert ws.state is State.OPEN
 
     async def test_client_receives_event(self, server):
@@ -57,18 +58,24 @@ async def test_tui_can_create_ticket_via_ws(tmp_path) -> None:
     await orch.startup()
 
     emitter = EventEmitter()
-    server = WebSocketServer(emitter=emitter, host="127.0.0.1", port=0, orchestrator=orch)
+    server = WebSocketServer(
+        emitter=emitter, host="127.0.0.1", port=0, orchestrator=orch
+    )
     await server.start()
     try:
         async with websockets.connect(f"ws://127.0.0.1:{server.port}") as ws:
-            await ws.send(json.dumps({
-                "command": "create_ticket",
-                "args": {
-                    "type": "feature",
-                    "title": "from-tui",
-                    "description": "",
-                },
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "command": "create_ticket",
+                        "args": {
+                            "type": "feature",
+                            "title": "from-tui",
+                            "description": "",
+                        },
+                    }
+                )
+            )
             reply = json.loads(await ws.recv())
             assert reply["ok"] is True
             assert "ticket_id" in reply

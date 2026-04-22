@@ -166,16 +166,13 @@ def resolve_owner(
                     "or the work-type schema's ownership map"
                 )
             return _route_for_role(config, role)
-        raise OwnershipError(
-            f"unsupported ticket:// target for ownership: {target}"
-        )
+        raise OwnershipError(f"unsupported ticket:// target for ownership: {target}")
 
     if scheme == "project":
         role = _project_owner(config, body)
         if role is None:
             raise OwnershipError(
-                f"no owner declared for {target!r}; add config.ownership."
-                f"{body}"
+                f"no owner declared for {target!r}; add config.ownership.{body}"
             )
         return _route_for_role(config, role)
 

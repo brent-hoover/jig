@@ -422,7 +422,7 @@ def test_run_pre_push_outside_worktree_no_fallback_skips(tmp_path: Path, capsys)
     assert "pre_push_command not set" in capsys.readouterr().out
 
 
-def test_run_pre_push_in_worktree_runs_phase_checks(tmp_path: Path, monkeypatch):
+def test_run_pre_push_in_worktree_runs_phase_checks(tmp_path: Path, capsys):
     """Ticket worktree → reads ticket + workflow → runs current phase's scripted checks."""
     # Layout a real jig project with one ticket worktree.
     project = tmp_path / "project"
@@ -447,10 +447,15 @@ phases:
     (project / ".jig" / "roles").mkdir()
     (project / ".jig" / "roles" / "dev.yaml").write_text("role: dev\n")
 
-    # Create ticket record.
+    # Create ticket record with the JsonlStore envelope so TicketStore.load()
+    # actually picks it up — a bare dict raises ValueError on missing _op/_id
+    # and the runner's narrowed except would silently fall through to the
+    # fallback path, leaving the phase-aware branch uncovered.
     (project / ".jig" / "store").mkdir()
     (project / ".jig" / "store" / "tickets.jsonl").write_text(
-        '{"id": "t-1", "work_type": "feature", "title": "x", "created_by": "u", "workflow": "default"}\n'
+        '{"_op": "insert", "_id": "t-1", "id": "t-1", '
+        '"work_type": "feature", "title": "x", "created_by": "u", '
+        '"workflow": "default"}\n'
     )
 
     # Simulate the worktree dir.
@@ -459,7 +464,14 @@ phases:
     (wt / ".git").write_text(f"gitdir: {project / '.git' / 'worktrees' / 't-1'}\n")
 
     rc = asyncio.run(run_pre_push(wt))
+    out = capsys.readouterr().out
     assert rc == 0
+    # Positive evidence the phase-aware path ran: _run_scripted echoes the
+    # lint command. If we'd fallen through to the fallback, we'd see the
+    # "pre_push_command not set" skip message instead.
+    assert "lint: true" in out
+    assert "pre_push_command not set" not in out
+    assert "not found" not in out
 
 
 def test_run_pre_push_in_worktree_ticket_missing_falls_through(tmp_path: Path):

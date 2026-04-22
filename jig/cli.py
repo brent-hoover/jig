@@ -636,3 +636,147 @@ def hooks_run(stage: str, args: tuple[str, ...], path: Path) -> None:
         rc = run_commit_msg(Path(args[0]))
         raise SystemExit(rc)
     raise click.ClickException(f"stage {stage!r} not yet implemented")
+
+
+# ---------------------------------------------------------------------------
+# `jig ticket ...` — human-driven ticket management against a running
+# orchestrator. The orchestrator already owns the business logic (via
+# `ws_server`'s `create_ticket` command); this is a thin WebSocket client.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_WS_URL = "ws://127.0.0.1:9100"
+_WORK_TYPES = ["feature", "bugfix", "refactor", "spike", "perf", "migration", "docs"]
+
+
+@cli.group("ticket")
+def ticket_group() -> None:
+    """Manage tickets against a running orchestrator."""
+
+
+async def _send_create_ticket(ws_url: str, args: dict) -> dict:
+    """Open ``ws_url``, send a create_ticket command, return the reply.
+
+    The ws_server emits mirrored events ({"type", "data"}) alongside the
+    command reply ({"ok": ..., ...}); we skip events and return the first
+    reply. Connection errors raise ``OSError`` — the caller turns them
+    into a friendly CLI message.
+    """
+    import json
+
+    from websockets.asyncio.client import connect
+
+    async with connect(ws_url, open_timeout=3, close_timeout=2) as ws:
+        await ws.send(json.dumps({"command": "create_ticket", "args": args}))
+        # Drain events until the command reply lands. A misbehaving server
+        # could starve us forever; a generous timeout per-recv keeps the
+        # CLI from hanging indefinitely.
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=10)
+            parsed = json.loads(raw)
+            if "ok" in parsed:
+                return parsed
+
+
+@ticket_group.command("create")
+@click.option("--title", required=True, help="One-line ticket title.")
+@click.option(
+    "--work-type",
+    type=click.Choice(_WORK_TYPES),
+    default="feature",
+    show_default=True,
+    help="Classification axis (see docs/03-specs-and-work-types.md).",
+)
+@click.option(
+    "--size",
+    default="m",
+    show_default=True,
+    help="T-shirt size (xs|s|m|l|xl). Unknown values are rejected by the server.",
+)
+@click.option(
+    "--description",
+    "description",
+    default=None,
+    help="Ticket body. Mutually exclusive with --description-file.",
+)
+@click.option(
+    "--description-file",
+    "description_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Read the ticket body from a file (for multi-line briefs).",
+)
+@click.option("--workflow", default=None, help="Override the resolved workflow.")
+@click.option("--assignee", default=None, help="Pre-assign to a role.")
+@click.option("--parent-id", default=None, help="Parent ticket ID (for sub-tickets).")
+@click.option(
+    "--depends-on",
+    "depends_on",
+    multiple=True,
+    help="Block this ticket until the given ticket resolves. Repeatable.",
+)
+@click.option(
+    "--ws-url",
+    default=_DEFAULT_WS_URL,
+    show_default=True,
+    help="Orchestrator WebSocket URL.",
+)
+def ticket_create(
+    title: str,
+    work_type: str,
+    size: str,
+    description: str | None,
+    description_file: Path | None,
+    workflow: str | None,
+    assignee: str | None,
+    parent_id: str | None,
+    depends_on: tuple[str, ...],
+    ws_url: str,
+) -> None:
+    """Create a ticket against a running orchestrator.
+
+    Prints the new ticket ID to stdout on success so callers can pipe it.
+    Requires `jig start` to be running at ``--ws-url``.
+    """
+    if description is not None and description_file is not None:
+        raise click.UsageError(
+            "--description and --description-file are mutually exclusive"
+        )
+    body = description
+    if description_file is not None:
+        body = description_file.read_text()
+
+    args: dict = {
+        "work_type": work_type,
+        "size": size,
+        "title": title,
+    }
+    if body is not None:
+        args["description"] = body
+    if workflow is not None:
+        args["workflow"] = workflow
+    if assignee is not None:
+        args["assignee"] = assignee
+    if parent_id is not None:
+        args["parent_id"] = parent_id
+    if depends_on:
+        args["depends_on"] = list(depends_on)
+
+    try:
+        reply = asyncio.run(_send_create_ticket(ws_url, args))
+    except OSError as exc:
+        raise click.ClickException(
+            f"could not connect to orchestrator at {ws_url}: {exc}"
+        ) from exc
+    except asyncio.TimeoutError as exc:
+        raise click.ClickException(
+            f"timed out waiting for orchestrator reply at {ws_url}"
+        ) from exc
+
+    if not reply.get("ok"):
+        raise click.ClickException(
+            f"orchestrator rejected ticket: {reply.get('error', 'unknown error')}"
+        )
+    ticket_id = reply.get("ticket_id")
+    if not ticket_id:
+        raise click.ClickException("orchestrator did not return a ticket_id")
+    click.echo(ticket_id)

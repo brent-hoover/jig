@@ -1,12 +1,17 @@
 """Tests for jig.hooks + jig.project HooksConfig."""
 
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from jig.hooks import (
     HOOK_NAMES,
     HOOK_SCRIPTS,
     SENTINEL_LINE,
+    _git_common_dir,
     _is_jig_managed,
+    _resolve_ticket_worktree,
 )
 from jig.project import HooksConfig, Project, load_project, save_project
 
@@ -101,3 +106,44 @@ def test_is_jig_managed_rejects_binary_file(tmp_path: Path):
     binary = tmp_path / "pre-commit"
     binary.write_bytes(b"\x7fELF\x02\x01\x01\x00\x00\x00" * 10)
     assert _is_jig_managed(binary) is False
+
+
+def _git_init(path: Path) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=path, check=True, capture_output=True
+    )
+
+
+def test_git_common_dir_in_main_repo(tmp_path: Path):
+    _git_init(tmp_path)
+    common = _git_common_dir(tmp_path)
+    assert common == (tmp_path / ".git").resolve()
+
+
+def test_git_common_dir_raises_outside_repo(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="not inside a git repository"):
+        _git_common_dir(tmp_path)
+
+
+def test_resolve_ticket_worktree_detects_jig_layout(tmp_path: Path):
+    _git_init(tmp_path)
+    # Simulate jig's layout: <project>/.jig/worktrees/<ticket_id>/
+    wt = tmp_path / ".jig" / "worktrees" / "t-123"
+    wt.mkdir(parents=True)
+    # Real jig worktrees have a .git FILE (not dir) — mimic that.
+    (wt / ".git").write_text("gitdir: ../../../.git/worktrees/t-123\n")
+    ticket_id = _resolve_ticket_worktree(wt)
+    assert ticket_id == "t-123"
+
+
+def test_resolve_ticket_worktree_returns_none_for_main_repo(tmp_path: Path):
+    _git_init(tmp_path)
+    assert _resolve_ticket_worktree(tmp_path) is None
+
+
+def test_resolve_ticket_worktree_false_positive_guard(tmp_path: Path):
+    """A dir literally named 'worktrees' without the .jig parent must not match."""
+    _git_init(tmp_path)
+    sneaky = tmp_path / "worktrees" / "t-fake"
+    sneaky.mkdir(parents=True)
+    assert _resolve_ticket_worktree(sneaky) is None

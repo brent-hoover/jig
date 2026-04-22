@@ -20,6 +20,7 @@ harness remains canonical.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 # The three git hook names jig installs. Fixed for v1 — per-hook
@@ -81,9 +82,53 @@ def _is_jig_managed(hook_path: Path) -> bool:
     return lines[1] == SENTINEL_LINE
 
 
+def _git_common_dir(cwd: Path) -> Path:
+    """Return the absolute path to the git common dir.
+
+    Works from the main repo or from any worktree. Raises
+    ``RuntimeError`` if ``cwd`` is not inside a git repository at all.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise RuntimeError(f"{cwd} is not inside a git repository") from exc
+    raw = result.stdout.strip()
+    if not raw:
+        raise RuntimeError(f"{cwd} is not inside a git repository")
+    p = Path(raw)
+    if not p.is_absolute():
+        p = (cwd / p).resolve()
+    return p
+
+
+def _resolve_ticket_worktree(cwd: Path) -> str | None:
+    """If ``cwd`` is inside a jig ticket worktree, return its ticket id.
+
+    A ticket worktree is exactly ``<project>/.jig/worktrees/<ticket_id>/``.
+    Returns None for any other layout — including directories that
+    contain a ``worktrees`` folder but not under ``.jig/``.
+    """
+    cwd = cwd.resolve()
+    parent = cwd.parent
+    grandparent = parent.parent
+    if parent.name != "worktrees":
+        return None
+    if grandparent.name != ".jig":
+        return None
+    return cwd.name
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
     "SENTINEL_LINE",
+    "_git_common_dir",
     "_is_jig_managed",
+    "_resolve_ticket_worktree",
 ]

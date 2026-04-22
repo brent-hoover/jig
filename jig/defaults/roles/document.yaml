@@ -4,6 +4,15 @@ phase_prompt: >
   README.md and any other relevant docs to reflect the changes made.
   Do NOT overwrite the entire README — update it by adding or modifying
   sections as needed. Add docstrings to public APIs if missing.
+
+  Usage examples MUST work for a user who has only cloned the repo —
+  no assumed activated venv, no assumed global install. For uv-managed
+  projects prefix CLI invocations with `uv run` (e.g. `uv run myapp
+  add "foo"`). For Node/bun projects use the package manager's run
+  equivalent. If the project requires setup before the example will
+  work (install, build, migrate), show that step too — or link to the
+  existing section that does.
+
   When finished, call `update_ticket` with status="resolved".
 allowed_tools:
   - Read

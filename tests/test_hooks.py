@@ -15,6 +15,7 @@ from jig.hooks import (
     _git_common_dir,
     _is_jig_managed,
     _resolve_ticket_worktree,
+    hook_status,
     install_hooks,
     uninstall_hooks,
 )
@@ -262,3 +263,34 @@ def test_uninstall_hooks_reports_missing(tmp_path: Path):
     _git_init(tmp_path)
     report = uninstall_hooks(tmp_path)
     assert all("not installed" in line for line in report)
+
+
+def test_hook_status_all_installed(tmp_path: Path):
+    _git_init(tmp_path)
+    install_hooks(tmp_path)
+    lines = hook_status(tmp_path)
+    assert len(lines) == 3
+    for name in HOOK_NAMES:
+        assert any(
+            line.startswith(name) and "installed (jig-managed)" in line
+            for line in lines
+        )
+
+
+def test_hook_status_mixed_states(tmp_path: Path):
+    _git_init(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    # pre-commit: jig-managed.
+    install_hooks(tmp_path)
+    # pre-push: foreign.
+    (hooks_dir / "pre-push").unlink()
+    (hooks_dir / "pre-push").write_text("#!/usr/bin/env bash\necho foreign\n")
+    # commit-msg: not installed.
+    (hooks_dir / "commit-msg").unlink()
+
+    lines = hook_status(tmp_path)
+    joined = "\n".join(lines)
+    assert "pre-commit" in joined and "jig-managed" in joined
+    assert "pre-push" in joined and "not jig-managed" in joined
+    assert "commit-msg" in joined and "not installed" in joined

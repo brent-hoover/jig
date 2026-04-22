@@ -205,6 +205,31 @@ def uninstall_hooks(project_path: Path) -> list[str]:
     return report
 
 
+def hook_status(project_path: Path) -> list[str]:
+    """Return one status line per hook for ``jig hooks status``.
+
+    Purely informational — never raises on foreign hooks or missing
+    files. The CLI prints these verbatim.
+    """
+    common = _git_common_dir(project_path)
+    hooks_dir = common / "hooks"
+    lines: list[str] = []
+    width = max(len(n) for n in HOOK_NAMES) + 1
+    for name in HOOK_NAMES:
+        target = hooks_dir / name
+        label = f"{name}:".ljust(width + 1)
+        if not target.exists():
+            lines.append(f"{label} not installed")
+        elif _is_jig_managed(target):
+            lines.append(f"{label} installed (jig-managed)")
+        else:
+            lines.append(
+                f"{label} exists but not jig-managed — "
+                "'jig hooks install --force' to back up and replace"
+            )
+    return lines
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
@@ -214,6 +239,7 @@ __all__ = [
     "_is_jig_managed",
     "_resolve_ticket_worktree",
     "_write_hook",
+    "hook_status",
     "install_hooks",
     "uninstall_hooks",
 ]

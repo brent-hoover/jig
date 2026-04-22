@@ -474,6 +474,41 @@ phases:
     assert "not found" not in out
 
 
+def test_run_pre_push_in_worktree_workflow_schema_invalid_skips(
+    tmp_path: Path, capsys
+):
+    """Schema-invalid workflow YAML must not block `git push`.
+
+    ``load_workflow`` pipes the YAML through ``WorkflowConfig.model_validate``
+    which raises ``pydantic.ValidationError`` for bad shapes. The runner has
+    to catch that alongside ``FileNotFoundError`` / ``yaml.YAMLError`` so a
+    malformed project workflow doesn't wedge the hook.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    _git_init(project)
+    _write_config_with_pre_push(project, None)
+    (project / ".jig" / "workflows").mkdir()
+    # Missing required ``name`` key → WorkflowConfig.model_validate raises
+    # ValidationError. yaml.safe_load still succeeds on this input.
+    (project / ".jig" / "workflows" / "default.yaml").write_text("phases: []\n")
+    (project / ".jig" / "store").mkdir()
+    (project / ".jig" / "store" / "tickets.jsonl").write_text(
+        '{"_op": "insert", "_id": "t-1", "id": "t-1", '
+        '"work_type": "feature", "title": "x", "created_by": "u", '
+        '"workflow": "default"}\n'
+    )
+
+    wt = project / ".jig" / "worktrees" / "t-1"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {project / '.git' / 'worktrees' / 't-1'}\n")
+
+    rc = asyncio.run(run_pre_push(wt))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "workflow 'default' not found; skipping" in out
+
+
 def test_run_pre_push_in_worktree_ticket_missing_falls_through(tmp_path: Path):
     """Worktree path but no ticket record → behave as if outside a worktree."""
     project = tmp_path / "project"

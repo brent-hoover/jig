@@ -28,6 +28,7 @@ from pathlib import Path
 
 import click
 import yaml
+from pydantic import ValidationError
 
 from jig.checks import CheckSeverity, ScriptedCheck, load_check_catalog
 from jig.config import load_config
@@ -362,12 +363,12 @@ async def _run_pre_push_in_worktree(worktree: Path, ticket_id: str) -> int | Non
     # NB: config.workflows is a ``WorkflowsSection`` (a resolution
     # policy, not a catalog of WorkflowConfigs). The catalog lookup is
     # ``jig.persistence.load_workflow`` with the project → shipped-default
-    # fallback. Missing/malformed workflow YAML is treated as "no
-    # phase-aware check list available" and we skip rather than error
-    # out the push.
+    # fallback. Missing YAML, malformed YAML, or a schema-invalid
+    # WorkflowConfig are all treated as "no phase-aware check list
+    # available" — we skip rather than error out the push.
     try:
         workflow = load_workflow(project_root, ticket.workflow)
-    except (FileNotFoundError, yaml.YAMLError):
+    except (FileNotFoundError, yaml.YAMLError, ValidationError):
         click.echo(f"jig pre-push: workflow {ticket.workflow!r} not found; skipping")
         return 0
 

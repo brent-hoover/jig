@@ -16,8 +16,8 @@ Task D (Objection / Resolution / Waiver) covers:
 * ``thread_resolve_objection`` posts a Resolution but does NOT close the
   Objection (asymmetry: only the objector closes).
 * ``thread_accept_resolution`` is objector-only.
-* ``thread_waive`` enforces ``config.waiver_authority`` and both the
-  Waiver and the Objection stay in the thread for audit.
+* ``thread_waive`` enforces the sender's compiled ``can_waive`` set
+  and both the Waiver and the Objection stay in the thread for audit.
 """
 
 from __future__ import annotations
@@ -26,10 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from jig.config import Config, save_config
 from jig.models import PhaseConfig, SpecificRoleEvaluator, WorkflowConfig
 from jig.persistence import save_workflow
-from jig.project import Project
 from jig.store import MessageBus
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -454,27 +452,6 @@ class TestThreadResolveQuestion:
                     "accepted_answer_id": ans_b["answer_id"],
                 },
             )
-
-
-# ---- Task D fixtures ------------------------------------------------------
-
-
-def _write_config(
-    tmp_path: Path, *, waiver_authority: list[str] | None = None
-) -> None:
-    """Persist a minimal `.jig/config.yaml` so `handle_thread_waive`
-    can read ``config.waiver_authority``.
-    """
-    project = Project(
-        id="test-project",
-        name="test",
-        path=str(tmp_path),
-    )
-    if waiver_authority is None:
-        cfg = Config(project=project)  # use default ["po", "sa", "user"]
-    else:
-        cfg = Config(project=project, waiver_authority=waiver_authority)
-    save_config(tmp_path, cfg)
 
 
 # ---- thread_object --------------------------------------------------------
@@ -2197,18 +2174,17 @@ class TestThreadWaiveCheck:
     @pytest.mark.asyncio
     async def test_waive_by_check_failure_id(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)  # default authority = ["po", "sa", "user"]
         fid = await _seed_check_failure(threads, ticket_id=ticket_id)
         result = await handle_thread_waive_check(
             tickets=tickets,
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"check_failure:required"}),
             args={
                 "check_failure_id": fid,
                 "justification": "flaky on CI, tracked in follow-up",
             },
-            project_path=tmp_path,
         )
         waiver = await threads.get(result["waiver_id"])
         assert isinstance(waiver, Waiver)
@@ -2230,7 +2206,6 @@ class TestThreadWaiveCheck:
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         old = await _seed_check_failure(
             threads, ticket_id=ticket_id, check_name="unit"
         )
@@ -2243,12 +2218,12 @@ class TestThreadWaiveCheck:
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"check_failure:required"}),
             args={
                 "ticket_id": ticket_id,
                 "check_name": "unit",
                 "justification": "will fix next sprint",
             },
-            project_path=tmp_path,
         )
         assert result["check_failure_id"] == new
         ev_new = await threads.get(new)
@@ -2263,30 +2238,79 @@ class TestThreadWaiveCheck:
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path, waiver_authority=["po", "sa"])
         fid = await _seed_check_failure(threads, ticket_id=ticket_id)
-        with pytest.raises(ThreadError, match="not authorized"):
+        with pytest.raises(
+            ThreadError,
+            match=r"cannot waive check failures.*'check_failure:required'",
+        ):
             await handle_thread_waive_check(
                 tickets=tickets,
                 threads=threads,
                 bus=bus,
                 sender="dev",
+                can_waive=frozenset({"check_failure:warning"}),
                 args={
                     "check_failure_id": fid,
                     "justification": "I promise it's fine",
                 },
-                project_path=tmp_path,
             )
         ev = await threads.get(fid)
         assert isinstance(ev, SystemEvent)
         assert ev.waived is False
 
     @pytest.mark.asyncio
+    async def test_severity_routed_into_token(
+        self, tmp_path: Path
+    ) -> None:
+        """Role with only warning-tier waiver authority is denied a
+        required-severity waive and allowed a warning-severity one."""
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        required_fid = await _seed_check_failure(
+            threads, ticket_id=ticket_id, severity="required"
+        )
+        warning_fid = await _seed_check_failure(
+            threads,
+            ticket_id=ticket_id,
+            check_name="lint",
+            severity="warning",
+        )
+        with pytest.raises(
+            ThreadError,
+            match=r"'check_failure:required'",
+        ):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                can_waive=frozenset({"check_failure:warning"}),
+                args={
+                    "check_failure_id": required_fid,
+                    "justification": "no authority for required",
+                },
+            )
+        # Warning-tier waive by same role succeeds.
+        result = await handle_thread_waive_check(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            can_waive=frozenset({"check_failure:warning"}),
+            args={
+                "check_failure_id": warning_fid,
+                "justification": "advisory, deferring",
+            },
+        )
+        ev = await threads.get(warning_fid)
+        assert isinstance(ev, SystemEvent)
+        assert ev.waived is True
+        assert result["waived_by"] == "dev"
+
+    @pytest.mark.asyncio
     async def test_empty_justification_rejected(
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         fid = await _seed_check_failure(threads, ticket_id=ticket_id)
         with pytest.raises(ValueError, match="justification"):
             await handle_thread_waive_check(
@@ -2294,28 +2318,27 @@ class TestThreadWaiveCheck:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"check_failure:required"}),
                 args={
                     "check_failure_id": fid,
                     "justification": "   ",
                 },
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
     async def test_already_waived_rejected(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         fid = await _seed_check_failure(threads, ticket_id=ticket_id)
         await handle_thread_waive_check(
             tickets=tickets,
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"check_failure:required"}),
             args={
                 "check_failure_id": fid,
                 "justification": "first waive",
             },
-            project_path=tmp_path,
         )
         with pytest.raises(ThreadError, match="already waived"):
             await handle_thread_waive_check(
@@ -2323,11 +2346,11 @@ class TestThreadWaiveCheck:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"check_failure:required"}),
                 args={
                     "check_failure_id": fid,
                     "justification": "second waive",
                 },
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
@@ -2335,7 +2358,6 @@ class TestThreadWaiveCheck:
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         note_id = await threads.post(
             Note(ticket_id=ticket_id, author="dev", text="hi")
         )
@@ -2345,11 +2367,11 @@ class TestThreadWaiveCheck:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"check_failure:required"}),
                 args={
                     "check_failure_id": note_id,
                     "justification": "wrong target",
                 },
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
@@ -2357,7 +2379,6 @@ class TestThreadWaiveCheck:
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         with pytest.raises(
             ThreadError, match="no unwaived check_failure"
         ):
@@ -2366,18 +2387,17 @@ class TestThreadWaiveCheck:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"check_failure:required"}),
                 args={
                     "ticket_id": ticket_id,
                     "check_name": "unit",
                     "justification": "nothing to waive yet",
                 },
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
     async def test_missing_args_rejected(self, tmp_path: Path) -> None:
         tickets, threads, bus, _ = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         with pytest.raises(
             ValueError, match="check_failure_id or"
         ):
@@ -2386,25 +2406,24 @@ class TestThreadWaiveCheck:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"check_failure:required"}),
                 args={"justification": "no target"},
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
     async def test_publishes_to_bus(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         fid = await _seed_check_failure(threads, ticket_id=ticket_id)
         await handle_thread_waive_check(
             tickets=tickets,
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"check_failure:required"}),
             args={
                 "check_failure_id": fid,
                 "justification": "known flake",
             },
-            project_path=tmp_path,
         )
         msgs = await bus.get_history(f"tickets.{ticket_id}")
         match = [
@@ -2430,7 +2449,6 @@ class TestThreadWaiveCheck:
         from jig.store.check_results import CheckResultsStore
 
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
 
         results = CheckResultsStore(tmp_path / "check_results.jsonl")
         await results.load()
@@ -2477,11 +2495,11 @@ class TestThreadWaiveCheck:
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"check_failure:required"}),
             args={
                 "check_failure_id": fid,
                 "justification": "will fix in follow-up",
             },
-            project_path=tmp_path,
         )
 
         v2 = await evaluate_handoff_gate(

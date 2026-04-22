@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from jig.checkpoint_mcp import record_auto_pre_handoff_checkpoint
-from jig.config import load_config
 from jig.evaluator_resolver import (
     ResolvedEvaluator,
     natural_next_role,
@@ -595,10 +594,10 @@ async def handle_thread_waive_check(
     threads: ThreadStore,
     bus: MessageBus,
     sender: str,
+    can_waive: frozenset[str],
     args: dict[str, Any],
-    project_path: Path,
 ) -> dict[str, Any]:
-    """Waive a required check_failure with justification.
+    """Waive a failing check_failure with justification.
 
     Scoped to a specific ``check_failure`` SystemEvent — either by the
     entry id (``check_failure_id``) or by (``ticket_id``, ``check_name``)
@@ -609,9 +608,16 @@ async def handle_thread_waive_check(
     (``jig.check_gate.evaluate_handoff_gate``) stops treating the
     failure as blocking.
 
-    Authorization mirrors ``handle_thread_waive``: ``sender`` must be
-    in ``config.waiver_authority``. Phase 5 Task H swaps this for the
-    capability-policy layer; until then the flat list is the gate.
+    Authorization: ``sender``'s compiled ``can_waive`` set must include
+    the severity-qualified token ``"check_failure:<severity>"``. The
+    event must be looked up before the auth check because severity
+    drives the token — an unauthorized caller passing a bogus id gets
+    a KeyError ("not found") rather than a ThreadError. This is
+    acceptable because any caller with thread-read access can confirm
+    existence via other tools. Defensive fail-closed: if the
+    SystemEvent's ``check_severity`` is ``None``, the constructed
+    token is ``"check_failure:None"``, which is not in
+    :data:`jig.capabilities.WAIVE_TOKENS` and matches nothing.
 
     Required args: ``justification`` plus one of
     (``check_failure_id``) or (``ticket_id``, ``check_name``).
@@ -619,13 +625,6 @@ async def handle_thread_waive_check(
     justification = args["justification"]
     if not justification.strip():
         raise ValueError("justification is required")
-
-    cfg = load_config(project_path)
-    if sender not in cfg.waiver_authority:
-        raise ThreadError(
-            f"{sender!r} is not authorized to waive check failures "
-            f"(config.waiver_authority={cfg.waiver_authority!r})"
-        )
 
     check_failure_id = args.get("check_failure_id")
     ticket_id = args.get("ticket_id")
@@ -664,6 +663,16 @@ async def handle_thread_waive_check(
         raise ThreadError(
             f"check_failure {check_failure_id!r} is already waived"
         )
+
+    # Severity drives the token — fail closed if ``check_severity`` is
+    # None (type permits it though practice populates it).
+    token = f"check_failure:{ev.check_severity}"
+    _require_waive_token(
+        token,
+        role=sender,
+        can_waive=can_waive,
+        subject=f"check failures of severity {ev.check_severity!r}",
+    )
 
     w = Waiver(
         ticket_id=ev.ticket_id,

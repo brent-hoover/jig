@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from jig.project import HooksConfig, Project, load_project, save_project
 
 

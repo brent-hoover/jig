@@ -93,3 +93,29 @@ def test_init_no_hooks_skips_install(tmp_path: Path):
         assert not (tmp_path / ".git" / "hooks" / name).exists(), (
             f"{name} should not be installed with --no-hooks"
         )
+
+
+def test_init_warns_and_succeeds_when_hook_install_fails(tmp_path: Path, monkeypatch):
+    """If install_hooks raises, init must still succeed with a warning."""
+    _init_git(tmp_path)
+
+    def boom(_path):
+        from jig.hooks import HookInstallError
+
+        raise HookInstallError("simulated failure")
+
+    # Patch the function that init imports lazily.
+    import jig.hooks as hooks_mod
+
+    monkeypatch.setattr(hooks_mod, "install_hooks", boom)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["init", "--path", str(tmp_path), "--no-input", "--branch", "main"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Warning: hook install failed" in result.output
+    assert "simulated failure" in result.output
+    # .jig must still be created — init's happy path completed.
+    assert (tmp_path / ".jig" / "config.yaml").is_file()

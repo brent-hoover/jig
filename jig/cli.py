@@ -211,11 +211,11 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
     # Install hooks BEFORE the initial commit so freshly-installed hooks
     # don't gate the init commit on themselves.
     if not no_hooks:
-        from jig.hooks import install_hooks
+        from jig.hooks import HookInstallError, install_hooks
 
         try:
             report = install_hooks(path)
-        except Exception as exc:
+        except HookInstallError as exc:
             click.echo(f"Warning: hook install failed: {exc}", err=True)
         else:
             for line in report:
@@ -224,7 +224,7 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
     # Commit everything so worktrees branch from a working state
     subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "chore: initialize jig project"],
+        ["git", "commit", "--no-verify", "-m", "chore: initialize jig project"],
         cwd=path, capture_output=True,
     )
     click.echo("Initial commit created.")

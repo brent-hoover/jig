@@ -26,8 +26,14 @@ import subprocess
 from pathlib import Path
 
 import click
+import yaml
 
 from jig.checks import CheckSeverity, ScriptedCheck, load_check_catalog
+from jig.config import load_config
+from jig.persistence import load_workflow
+from jig.phase import current_phase_index
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 
 # The three git hook names jig installs. Fixed for v1 — per-hook
 # install flags are YAGNI (see spec §Non-Goals).
@@ -314,6 +320,131 @@ async def run_pre_commit(project_path: Path) -> int:
     return 0
 
 
+def _project_root_from_worktree(cwd: Path) -> Path:
+    """Given a cwd inside a ticket worktree, return the project root.
+
+    Layout: ``<project>/.jig/worktrees/<ticket_id>/`` → ``<project>``.
+    """
+    return cwd.resolve().parent.parent.parent
+
+
+async def _run_pre_push_in_worktree(worktree: Path, ticket_id: str) -> int | None:
+    """Run the current phase's scripted checks from inside a ticket worktree.
+
+    Returns:
+        * ``0`` — all scripted checks for the current phase passed
+          (or the phase has no scripted checks, or every phase has
+          already completed).
+        * ``1`` — at least one scripted check failed.
+        * ``None`` — the config, ticket, or workflow couldn't be
+          resolved; the caller should fall through to the fallback
+          command.
+    """
+    project_root = _project_root_from_worktree(worktree)
+    # Probe the project config early — a missing config.yaml means the
+    # worktree parent isn't a real jig project, so fall through to the
+    # fallback. We don't need the parsed Config itself here.
+    try:
+        load_config(project_root)
+    except FileNotFoundError:
+        return None
+
+    tickets = TicketStore(project_root / ".jig" / "store" / "tickets.jsonl")
+    try:
+        await tickets.load()
+    except (FileNotFoundError, ValueError):
+        return None
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        return None
+
+    # NB: config.workflows is a ``WorkflowsSection`` (a resolution
+    # policy, not a catalog of WorkflowConfigs). The catalog lookup is
+    # ``jig.persistence.load_workflow`` with the project → shipped-default
+    # fallback. Missing/malformed workflow YAML is treated as "no
+    # phase-aware check list available" and we skip rather than error
+    # out the push.
+    try:
+        workflow = load_workflow(project_root, ticket.workflow)
+    except (FileNotFoundError, yaml.YAMLError):
+        click.echo(f"jig pre-push: workflow {ticket.workflow!r} not found; skipping")
+        return 0
+
+    threads = ThreadStore(project_root / ".jig" / "store" / "threads.jsonl")
+    await threads.load()
+    idx = await current_phase_index(threads, ticket_id, workflow)
+    if idx >= len(workflow.phases):
+        click.echo("jig pre-push: all phases complete; skipping")
+        return 0
+    phase = workflow.phases[idx]
+
+    catalog = load_check_catalog(project_root)
+    scripted_names = [
+        n for n in phase.automated_checks if isinstance(catalog.get(n), ScriptedCheck)
+    ]
+    if not scripted_names:
+        click.echo(
+            f"jig pre-push: phase {phase.name!r} has no scripted checks; skipping"
+        )
+        return 0
+
+    failures: list[str] = []
+    for name in scripted_names:
+        check = catalog.get(name)
+        assert isinstance(check, ScriptedCheck)
+        passed, reason = await _run_scripted(name, check, worktree)
+        if not passed:
+            failures.append(reason)
+    if failures:
+        _print_failure_summary(failures)
+        return 1
+    return 0
+
+
+async def _run_pre_push_fallback(project_root: Path) -> int:
+    """Run the developer's configured pre-push command, or skip."""
+    try:
+        config = load_config(project_root)
+    except FileNotFoundError:
+        click.echo("jig pre-push: no .jig/config.yaml; skipping")
+        return 0
+    command = config.project.hooks.pre_push_command
+    if not command:
+        click.echo("jig pre-push: hooks.pre_push_command not set; skipping")
+        return 0
+    click.echo(f"\u25b6 pre-push: {command}")
+    # Like ``_run_scripted``: inherit the parent's real stdout/stderr fds
+    # rather than forwarding sys.stdout/sys.stderr, which pytest capsys
+    # replaces with objects lacking a ``.fileno()``.
+    proc = await asyncio.create_subprocess_exec(
+        "/bin/sh",
+        "-c",
+        command,
+        cwd=str(project_root),
+    )
+    returncode = await proc.wait()
+    if returncode == 0:
+        return 0
+    _print_failure_summary([f"pre_push_command: exit {returncode}"])
+    return 1
+
+
+async def run_pre_push(cwd: Path) -> int:
+    """Phase-aware in a ticket worktree; falls back to the project command.
+
+    Returns the exit code the hook should terminate with.
+    """
+    ticket_id = _resolve_ticket_worktree(cwd)
+    if ticket_id is not None:
+        rc = await _run_pre_push_in_worktree(cwd, ticket_id)
+        if rc is not None:
+            return rc
+    # Fallback path: cwd is either outside a jig worktree, or we couldn't
+    # resolve ticket/workflow state — behave as the outside-worktree case.
+    project_root = _project_root_from_worktree(cwd) if ticket_id else cwd
+    return await _run_pre_push_fallback(project_root)
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
@@ -326,5 +457,6 @@ __all__ = [
     "hook_status",
     "install_hooks",
     "run_pre_commit",
+    "run_pre_push",
     "uninstall_hooks",
 ]

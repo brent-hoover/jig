@@ -19,6 +19,7 @@ from jig.hooks import (
     hook_status,
     install_hooks,
     run_pre_commit,
+    run_pre_push,
     uninstall_hooks,
 )
 from jig.project import HooksConfig, Project, load_project, save_project
@@ -388,4 +389,89 @@ checks:
 """,
     )
     rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0
+
+
+def _write_config_with_pre_push(tmp_path: Path, command: str | None) -> None:
+    (tmp_path / ".jig").mkdir(exist_ok=True)
+    hooks_block = f"\n  hooks:\n    pre_push_command: {command!r}\n" if command else ""
+    (tmp_path / ".jig" / "config.yaml").write_text(
+        f"project:\n  id: p1\n  name: p1\n  path: {tmp_path}\n{hooks_block}"
+    )
+
+
+def test_run_pre_push_outside_worktree_uses_fallback_command(tmp_path: Path):
+    _git_init(tmp_path)
+    _write_config_with_pre_push(tmp_path, "true")
+    rc = asyncio.run(run_pre_push(tmp_path))
+    assert rc == 0
+
+
+def test_run_pre_push_outside_worktree_fallback_fails(tmp_path: Path):
+    _git_init(tmp_path)
+    _write_config_with_pre_push(tmp_path, "exit 7")
+    rc = asyncio.run(run_pre_push(tmp_path))
+    assert rc != 0
+
+
+def test_run_pre_push_outside_worktree_no_fallback_skips(tmp_path: Path, capsys):
+    _git_init(tmp_path)
+    _write_config_with_pre_push(tmp_path, None)
+    rc = asyncio.run(run_pre_push(tmp_path))
+    assert rc == 0
+    assert "pre_push_command not set" in capsys.readouterr().out
+
+
+def test_run_pre_push_in_worktree_runs_phase_checks(tmp_path: Path, monkeypatch):
+    """Ticket worktree → reads ticket + workflow → runs current phase's scripted checks."""
+    # Layout a real jig project with one ticket worktree.
+    project = tmp_path / "project"
+    project.mkdir()
+    _git_init(project)
+    _write_config_with_pre_push(project, None)
+    (project / ".jig" / "checks.yaml").write_text("""
+checks:
+  lint:
+    type: scripted
+    command: "true"
+    severity: required
+""")
+    (project / ".jig" / "workflows").mkdir()
+    (project / ".jig" / "workflows" / "default.yaml").write_text("""
+name: default
+phases:
+  - name: build
+    role: dev
+    automated_checks: [lint]
+""")
+    (project / ".jig" / "roles").mkdir()
+    (project / ".jig" / "roles" / "dev.yaml").write_text("role: dev\n")
+
+    # Create ticket record.
+    (project / ".jig" / "store").mkdir()
+    (project / ".jig" / "store" / "tickets.jsonl").write_text(
+        '{"id": "t-1", "work_type": "feature", "title": "x", "created_by": "u", "workflow": "default"}\n'
+    )
+
+    # Simulate the worktree dir.
+    wt = project / ".jig" / "worktrees" / "t-1"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {project / '.git' / 'worktrees' / 't-1'}\n")
+
+    rc = asyncio.run(run_pre_push(wt))
+    assert rc == 0
+
+
+def test_run_pre_push_in_worktree_ticket_missing_falls_through(tmp_path: Path):
+    """Worktree path but no ticket record → behave as if outside a worktree."""
+    project = tmp_path / "project"
+    project.mkdir()
+    _git_init(project)
+    _write_config_with_pre_push(project, "true")  # fallback should fire
+
+    wt = project / ".jig" / "worktrees" / "t-missing"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {project / '.git'}\n")
+
+    rc = asyncio.run(run_pre_push(wt))
     assert rc == 0

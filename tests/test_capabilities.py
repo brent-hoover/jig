@@ -225,6 +225,71 @@ class TestMergeDeclarations:
         assert merged.tools is not None
         assert merged.tools.allowed == ["Read"]
 
+    def test_merge_waivers_base_only(self) -> None:
+        base = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        merged = merge_declarations(base, None)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["objection"]
+
+    def test_merge_waivers_override_only(self) -> None:
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        merged = merge_declarations(None, override)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["check_failure:warning"]
+
+    def test_merge_waivers_unions_both(self) -> None:
+        base = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        merged = merge_declarations(base, override)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == [
+            "objection",
+            "check_failure:warning",
+        ]
+
+    def test_merge_waivers_dedups(self) -> None:
+        base = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        merged = merge_declarations(base, override)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["objection"]
+
+    def test_merge_waivers_neither_declared(self) -> None:
+        base = CapabilityDeclaration(
+            tools=CapabilityTools(allowed=["Read"])
+        )
+        override = CapabilityDeclaration()
+        merged = merge_declarations(base, override)
+        assert merged.waivers is None
+
+    def test_merge_waivers_independent_of_other_fields(self) -> None:
+        base = CapabilityDeclaration(
+            tools=CapabilityTools(allowed=["Read"]),
+            waivers=CapabilityWaivers(can_waive=["objection"]),
+        )
+        override = CapabilityDeclaration(
+            paths=CapabilityPaths(writable=["ticket://worktree/**"]),
+        )
+        merged = merge_declarations(base, override)
+        assert merged.tools is not None
+        assert merged.tools.allowed == ["Read"]
+        assert merged.paths is not None
+        assert merged.paths.writable == ["ticket://worktree/**"]
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["objection"]
+
 
 # ---- compile() ------------------------------------------------------------
 

@@ -244,8 +244,18 @@ def merge_declarations(
             denied=_merge_str_lists(b.denied, o.denied),
         )
 
+    merged_waivers: CapabilityWaivers | None = None
+    if base.waivers is not None or override.waivers is not None:
+        merged_waivers = CapabilityWaivers(
+            can_waive=_merge_str_lists(
+                (base.waivers.can_waive if base.waivers else []),
+                (override.waivers.can_waive if override.waivers else []),
+            ),
+        )
+
     return CapabilityDeclaration(
         tools=merged_tools,
         tool_params=merged_params,
         paths=merged_paths,
+        waivers=merged_waivers,
     )

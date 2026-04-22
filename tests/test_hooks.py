@@ -16,6 +16,7 @@ from jig.hooks import (
     _is_jig_managed,
     _resolve_ticket_worktree,
     install_hooks,
+    uninstall_hooks,
 )
 from jig.project import HooksConfig, Project, load_project, save_project
 
@@ -218,3 +219,46 @@ def test_install_hooks_force_overwrites_backup(tmp_path: Path):
 
     assert (hooks_dir / "pre-commit.jig-backup").read_text() == new_foreign
     assert _is_jig_managed(hooks_dir / "pre-commit")
+
+
+def test_uninstall_hooks_removes_jig_managed_without_backup(tmp_path: Path):
+    _git_init(tmp_path)
+    install_hooks(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    report = uninstall_hooks(tmp_path)
+    for name in HOOK_NAMES:
+        assert not (hooks_dir / name).exists()
+    assert all("uninstalled" in line for line in report)
+
+
+def test_uninstall_hooks_restores_backup(tmp_path: Path):
+    _git_init(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    original = "#!/usr/bin/env bash\necho user hook\n"
+    (hooks_dir / "pre-commit").write_text(original)
+    install_hooks(tmp_path)
+
+    uninstall_hooks(tmp_path)
+
+    assert (hooks_dir / "pre-commit").read_text() == original
+    assert not (hooks_dir / "pre-commit.jig-backup").exists()
+
+
+def test_uninstall_hooks_leaves_foreign_alone(tmp_path: Path):
+    _git_init(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    foreign = "#!/usr/bin/env bash\necho foreign\n"
+    (hooks_dir / "pre-commit").write_text(foreign)
+
+    report = uninstall_hooks(tmp_path)
+
+    assert (hooks_dir / "pre-commit").read_text() == foreign
+    assert any("skipped" in line and "pre-commit" in line for line in report)
+
+
+def test_uninstall_hooks_reports_missing(tmp_path: Path):
+    _git_init(tmp_path)
+    report = uninstall_hooks(tmp_path)
+    assert all("not installed" in line for line in report)

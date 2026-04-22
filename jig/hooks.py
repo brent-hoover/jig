@@ -176,6 +176,35 @@ def _write_hook(target: Path, script: str) -> None:
     target.chmod(0o755)
 
 
+def uninstall_hooks(project_path: Path) -> list[str]:
+    """Remove jig-managed hooks and restore any backups.
+
+    Never errors on foreign hooks; reports them instead. Returns a
+    list of human-readable status lines.
+    """
+    common = _git_common_dir(project_path)
+    hooks_dir = common / "hooks"
+    report: list[str] = []
+
+    for name in HOOK_NAMES:
+        target = hooks_dir / name
+        backup = hooks_dir / f"{name}.jig-backup"
+
+        if not target.exists():
+            report.append(f"not installed: {name}")
+            continue
+        if not _is_jig_managed(target):
+            report.append(f"skipped: {name} (not jig-managed)")
+            continue
+        target.unlink()
+        if backup.exists():
+            shutil.move(str(backup), str(target))
+            report.append(f"uninstalled {name}, restored original from .jig-backup")
+        else:
+            report.append(f"uninstalled {name}")
+    return report
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
@@ -186,4 +215,5 @@ __all__ = [
     "_resolve_ticket_worktree",
     "_write_hook",
     "install_hooks",
+    "uninstall_hooks",
 ]

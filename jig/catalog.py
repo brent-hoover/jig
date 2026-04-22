@@ -37,7 +37,12 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from jig.capabilities import CapabilityDeclaration, is_known_tool
+from jig.capabilities import (
+    WAIVE_TOKENS,
+    CapabilityDeclaration,
+    is_known_tool,
+    is_known_waive_token,
+)
 from jig.checks import CheckCatalog, load_check_catalog
 from jig.config import Config, load_config
 from jig.models import RoleConfig, WorkflowConfig
@@ -228,25 +233,6 @@ def validate_catalog(
                     f"(known spec fields: {sorted(all_spec_fields)})"
                 )
 
-    # Phase 4H: config.waiver_authority must reference known roles.
-    # ``"user"`` is a sentinel (the operating human) and is always
-    # allowed; so are the project-level role names declared under
-    # ``config.roles`` (po, sa, or extras the project may add).
-    if config is not None:
-        project_level_roles = set(config.roles.model_dump().keys())
-        for role_name in config.waiver_authority:
-            if role_name == "user":
-                continue
-            if role_name in project_level_roles:
-                continue
-            if role_name not in known_roles:
-                fail(
-                    f"config.waiver_authority references unknown role "
-                    f"{role_name!r} (known project-level roles: "
-                    f"{sorted(project_level_roles)}; known agent roles: "
-                    f"{sorted(known_roles)})"
-                )
-
     # Config.roles.<role>.helper_template must name an existing role
     # whenever assignment == human_with_helper. Agent-assignment
     # templates are role names too (the helper agent runs as a role);
@@ -424,6 +410,16 @@ def _validate_capabilities(
                 msg = _validate_path_glob(pat)
                 if msg is not None:
                     errors.append(f"paths.{category}: {pat!r}: {msg}")
+
+    # waivers.can_waive (Phase 5 Task H). Unknown tokens silently
+    # deauthorize at the MCP handler, so fail loud at load time.
+    if decl.waivers is not None:
+        for token in decl.waivers.can_waive:
+            if not is_known_waive_token(token):
+                errors.append(
+                    f"waivers.can_waive: unknown token {token!r} "
+                    f"(known: {sorted(WAIVE_TOKENS)})"
+                )
 
     return errors
 

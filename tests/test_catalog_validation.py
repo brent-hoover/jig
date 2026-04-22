@@ -12,11 +12,13 @@ import pytest
 import yaml
 
 from jig.capabilities import (
+    WAIVE_TOKENS,
     BashToolParams,
     CapabilityDeclaration,
     CapabilityPaths,
     CapabilityToolParams,
     CapabilityTools,
+    CapabilityWaivers,
 )
 from jig.catalog import CatalogError, validate_catalog
 from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
@@ -494,41 +496,6 @@ class TestPhaseEscalationTargetReferences:
         validate_catalog(initialized_project)
 
 
-class TestWaiverAuthorityReferences:
-    """Phase 4 Task H: ``config.waiver_authority`` must name known roles."""
-
-    def test_unknown_waiver_role_fails(self, initialized_project: Path) -> None:
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["po", "sa", "user", "imaginary"]},
-        )
-        with pytest.raises(CatalogError, match="imaginary"):
-            validate_catalog(initialized_project)
-
-    def test_user_sentinel_allowed(self, initialized_project: Path) -> None:
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["user"]},
-        )
-        validate_catalog(initialized_project)
-
-    def test_project_level_role_allowed(self, initialized_project: Path) -> None:
-        """``po`` / ``sa`` live in ``config.roles`` rather than ``.jig/roles/``
-        but are valid waiver_authority entries."""
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["po", "sa"]},
-        )
-        validate_catalog(initialized_project)
-
-    def test_agent_role_allowed(self, initialized_project: Path) -> None:
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["dev", "review"]},
-        )
-        validate_catalog(initialized_project)
-
-
 class TestCapabilityDeclarationValidation:
     """Phase 5 Task F (doc 16 §Capability policy): ``jig validate``
     sanity-checks role ``capabilities`` and phase ``capability_overrides``.
@@ -793,3 +760,66 @@ class TestCapabilityDeclarationValidation:
         errors = validate_catalog(initialized_project, collect=True) or []
         assert any("Unknown1" in e for e in errors)
         assert any("ambiguous" in e for e in errors)
+
+
+class TestWaiverCapabilityValidation:
+    """Phase 5 Task H: ``capabilities.waivers.can_waive`` entries must
+    be recognised tokens. Unknown tokens fail validation outright."""
+
+    def test_unknown_token_on_role_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="dev",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    waivers=CapabilityWaivers(
+                        can_waive=["objection", "typo:bogus"]
+                    )
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="typo:bogus"):
+            validate_catalog(initialized_project)
+
+    def test_known_tokens_on_role_pass(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="dev",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    waivers=CapabilityWaivers(
+                        can_waive=sorted(WAIVE_TOKENS)
+                    )
+                ),
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_unknown_token_on_phase_override_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="broken",
+                phases=[
+                    PhaseConfig(
+                        name="p",
+                        role="dev",
+                        capability_overrides=CapabilityDeclaration(
+                            waivers=CapabilityWaivers(
+                                can_waive=["not-a-real-token"]
+                            )
+                        ),
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="not-a-real-token"):
+            validate_catalog(initialized_project)

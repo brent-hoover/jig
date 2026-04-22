@@ -57,3 +57,39 @@ def test_hooks_install_refuses_without_force_on_backup_collision(tmp_path: Path)
     assert "backup already exists" in result.output or "backup already exists" in str(
         result.exception
     )
+
+
+def test_init_installs_hooks_by_default(tmp_path: Path):
+    _init_git(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["init", "--path", str(tmp_path), "--no-input", "--branch", "main"],
+    )
+    assert result.exit_code == 0, result.output
+    for name in HOOK_NAMES:
+        assert _is_jig_managed(tmp_path / ".git" / "hooks" / name), (
+            f"{name} not installed by default"
+        )
+
+
+def test_init_no_hooks_skips_install(tmp_path: Path):
+    _init_git(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            "--path",
+            str(tmp_path),
+            "--no-input",
+            "--branch",
+            "main",
+            "--no-hooks",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    for name in HOOK_NAMES:
+        assert not (tmp_path / ".git" / "hooks" / name).exists(), (
+            f"{name} should not be installed with --no-hooks"
+        )

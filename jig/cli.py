@@ -141,7 +141,8 @@ def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
 @click.option("--branch", default=None, help="Default branch name (auto-detected from current branch).")
 @click.option("--template", "template_name", default=None, help="Project template (python, fastapi).")
 @click.option("--no-input", is_flag=True, help="Skip interactive prompts.")
-def init(path: Path, branch: str | None, template_name: str | None, no_input: bool) -> None:
+@click.option("--no-hooks", is_flag=True, help="Skip installing git hooks (pre-commit/pre-push/commit-msg).")
+def init(path: Path, branch: str | None, template_name: str | None, no_input: bool, no_hooks: bool) -> None:
     """Initialize .jig/ in a project."""
     if not (path / ".git").is_dir():
         if no_input:
@@ -206,6 +207,19 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
         project = _prompt_project_context(path, base_project)
         save_project(path, project)
         click.echo("\nProject saved to .jig/config.yaml")
+
+    # Install hooks BEFORE the initial commit so freshly-installed hooks
+    # don't gate the init commit on themselves.
+    if not no_hooks:
+        from jig.hooks import install_hooks
+
+        try:
+            report = install_hooks(path)
+        except Exception as exc:
+            click.echo(f"Warning: hook install failed: {exc}", err=True)
+        else:
+            for line in report:
+                click.echo(line)
 
     # Commit everything so worktrees branch from a working state
     subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)

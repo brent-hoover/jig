@@ -21,6 +21,7 @@ harness remains canonical.
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -445,6 +446,61 @@ async def run_pre_push(cwd: Path) -> int:
     return await _run_pre_push_fallback(project_root)
 
 
+# ---------------------------------------------------------------------------
+# commit-msg validator
+# ---------------------------------------------------------------------------
+
+# The conventional-commit contract: <type>(<scope>)?!?: <subject>. We enforce
+# the first line only — body and footer are free-form. The subject must have
+# at least one character after the ": " separator; `.+` guarantees that.
+_CONVENTIONAL_RE = re.compile(
+    r"^(feat|fix|chore|docs|test|refactor|perf|build|ci|style|revert)"
+    r"(\([^)]+\))?!?: .+"
+)
+
+# Prefixes git writes automatically. We never want to reject these —
+# rejecting a merge or revert mid-rebase would strand the developer.
+_AUTOBYPASS_PREFIXES = ("Merge ", "Revert ", "fixup! ", "squash! ")
+
+
+def validate_commit_msg(msg: str) -> bool:
+    """True when ``msg`` satisfies the conventional-commit contract.
+
+    The first line is what matters. Merge/Revert/fixup!/squash!
+    messages bypass the regex — git writes those automatically and we
+    never want to reject them.
+    """
+    if not msg:
+        return False
+    first_line = msg.splitlines()[0] if msg else ""
+    if first_line.startswith(_AUTOBYPASS_PREFIXES):
+        return True
+    return bool(_CONVENTIONAL_RE.match(first_line))
+
+
+def run_commit_msg(message_file: Path) -> int:
+    """Validate the commit message at ``message_file`` and return exit code."""
+    try:
+        msg = message_file.read_text()
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        click.echo(f"jig commit-msg: cannot read {message_file}: {exc}", err=True)
+        return 1
+    first_line = msg.splitlines()[0] if msg.splitlines() else ""
+    if validate_commit_msg(msg):
+        return 0
+    click.echo(
+        "jig commit-msg: commit message does not match conventional commits.",
+        err=True,
+    )
+    click.echo(
+        "Expected: <type>(<scope>)?!?: <subject>\n"
+        "Types: feat, fix, chore, docs, test, refactor, perf, build, ci, style, revert",
+        err=True,
+    )
+    click.echo(f"Rejected first line: {first_line!r}", err=True)
+    return 1
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
@@ -456,7 +512,9 @@ __all__ = [
     "_write_hook",
     "hook_status",
     "install_hooks",
+    "run_commit_msg",
     "run_pre_commit",
     "run_pre_push",
     "uninstall_hooks",
+    "validate_commit_msg",
 ]

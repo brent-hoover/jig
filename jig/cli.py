@@ -619,14 +619,20 @@ def hooks_run(stage: str, args: tuple[str, ...], path: Path) -> None:
     import asyncio
 
     from jig.hooks import (
+        run_commit_msg,
         run_pre_commit,
         run_pre_push,
-    )  # commit-msg wired in a later task
+    )
 
     if stage == "pre-commit":
         rc = asyncio.run(run_pre_commit(path))
         raise SystemExit(rc)
     if stage == "pre-push":
         rc = asyncio.run(run_pre_push(path))
+        raise SystemExit(rc)
+    if stage == "commit-msg":
+        if not args:
+            raise click.ClickException("commit-msg requires a message file path")
+        rc = run_commit_msg(Path(args[0]))
         raise SystemExit(rc)
     raise click.ClickException(f"stage {stage!r} not yet implemented")

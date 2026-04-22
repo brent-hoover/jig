@@ -487,3 +487,63 @@ def test_run_pre_push_in_worktree_ticket_missing_falls_through(tmp_path: Path):
 
     rc = asyncio.run(run_pre_push(wt))
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 12: commit-msg validator
+# ---------------------------------------------------------------------------
+
+from jig.hooks import run_commit_msg, validate_commit_msg  # noqa: E402
+
+
+@pytest.mark.parametrize("msg", [
+    "feat: add hooks",
+    "fix: correct typo",
+    "fix(scope): correct typo",
+    "chore!: breaking change",
+    "perf(db): cache indexes",
+    "build: bump deps",
+    "ci: update workflow",
+    "style: reformat",
+    "revert: prior change",
+    "docs: update readme",
+    "test: cover edge case",
+    "refactor: simplify",
+])
+def test_validate_commit_msg_accepts_valid(msg: str):
+    assert validate_commit_msg(msg) is True
+
+
+@pytest.mark.parametrize("msg", [
+    "random subject",
+    "",
+    "   leading whitespace: x",
+    "feat add hooks",
+    "FEAT: upper type",
+    "feat:",
+    "feat: ",
+])
+def test_validate_commit_msg_rejects_invalid(msg: str):
+    assert validate_commit_msg(msg) is False
+
+
+@pytest.mark.parametrize("msg", [
+    "Merge branch 'main'",
+    'Revert "feat: add hooks"',
+    "fixup! feat: add hooks",
+    "squash! fix: typo",
+])
+def test_validate_commit_msg_autobypass_git_generated(msg: str):
+    assert validate_commit_msg(msg) is True
+
+
+def test_run_commit_msg_reads_file_and_returns_code(tmp_path: Path, capsys):
+    msg_file = tmp_path / "MSG"
+    msg_file.write_text("feat: ok\n")
+    assert run_commit_msg(msg_file) == 0
+
+    msg_file.write_text("nope\n")
+    assert run_commit_msg(msg_file) == 1
+    err = capsys.readouterr().err
+    assert "nope" in err
+    assert "conventional" in err.lower() or "expected" in err.lower()

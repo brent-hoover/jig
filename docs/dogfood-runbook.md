@@ -21,6 +21,17 @@ loop — no API spend, finishes in a second.
   ```
 - `uv` ≥ 0.4.x (`uv --version`).
 - `bun` ≥ 1.3 for the TUI (`bun --version`).
+- `jig` installed as an editable uv tool so `jig` on `$PATH` tracks your
+  working tree:
+  ```bash
+  uv tool install --editable ~/Projects/personal/jig
+  # verify:
+  which jig                                   # ~/.local/bin/jig
+  uv tool list | grep jig                     # jig v0.1.0
+  ```
+  After this, `jig ...` works from any directory and always runs the code at
+  `~/Projects/personal/jig`. Re-run the install only if you change
+  `pyproject.toml` (new deps, new console script).
 - Clean working tree on the `jig` repo. Current develop or a feature branch —
   whatever you want to dogfood.
 
@@ -31,10 +42,10 @@ project.
 
 ```bash
 cd ~/Projects/personal/jig
-uv sync                            # editable install picks up local changes
-uv run pytest -q                   # full suite — must be green
-uv run python scripts/dogfood_smoke.py   # mock-agent E2E — must print "PASS"
-uv run jig --help                  # proves the [build-system] + console script wiring
+uv sync                                 # refresh the dev env for pytest
+uv run pytest -q                        # full suite — must be green
+uv run python scripts/dogfood_smoke.py  # mock-agent E2E — must print "PASS"
+jig --help                              # editable tool install is live
 ```
 
 Expected: tests green, smoke prints `[smoke] PASS`, `jig --help` lists
@@ -45,15 +56,16 @@ already broken.
 
 ## 2. Create the scratch project
 
+`jig`'s `--path` defaults to `.`, so every step below just runs from the
+scratch directory.
+
 ```bash
 rm -rf /tmp/jig-dogfood && mkdir /tmp/jig-dogfood
 cd /tmp/jig-dogfood
 git init -q
 git commit --allow-empty -qm "init"
 
-# Back out of the scratch dir for jig commands — jig takes --path.
-cd ~/Projects/personal/jig
-uv run jig init --path /tmp/jig-dogfood --template python --no-input
+jig init --template python --no-input
 ```
 
 `jig init` should report:
@@ -65,7 +77,7 @@ uv run jig init --path /tmp/jig-dogfood --template python --no-input
 Verify the catalog before you start the daemon:
 
 ```bash
-uv run jig validate --path /tmp/jig-dogfood
+jig validate
 ```
 
 Zero output + exit 0 = good. Any complaint = fix before continuing.
@@ -106,8 +118,8 @@ Two terminals from here on.
 **Terminal A — orchestrator:**
 
 ```bash
-cd ~/Projects/personal/jig
-uv run jig start --path /tmp/jig-dogfood --no-docker
+cd /tmp/jig-dogfood
+jig start --no-docker
 ```
 
 Expected:
@@ -219,7 +231,7 @@ the "friction" list — that's the actual output of a dogfood run.
 # Stop orchestrator (Ctrl-C in Terminal A)
 # Stop TUI (q in Terminal B)
 
-uv run jig reset --path /tmp/jig-dogfood --yes
+cd /tmp/jig-dogfood && jig reset --yes
 # or blow it away entirely:
 rm -rf /tmp/jig-dogfood
 ```

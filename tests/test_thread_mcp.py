@@ -658,7 +658,6 @@ class TestThreadResolveObjection:
     @pytest.mark.asyncio
     async def test_fails_when_waived(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         obj = await handle_thread_object(
             tickets=tickets,
             threads=threads,
@@ -674,11 +673,11 @@ class TestThreadResolveObjection:
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"objection"}),
             args={
                 "objection_id": obj["objection_id"],
                 "justification": "shipping for demo",
             },
-            project_path=tmp_path,
         )
         with pytest.raises(ThreadError, match="already resolved"):
             await handle_thread_resolve_objection(
@@ -807,7 +806,6 @@ class TestThreadWaive:
     @pytest.mark.asyncio
     async def test_authorized_role_waives(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)  # default authority = ["po", "sa", "user"]
         obj = await handle_thread_object(
             tickets=tickets,
             threads=threads,
@@ -823,18 +821,16 @@ class TestThreadWaive:
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"objection"}),
             args={
                 "objection_id": obj["objection_id"],
                 "justification": "shipping for demo, ticket tracks real fix",
             },
-            project_path=tmp_path,
         )
-        # Waiver entry is in the thread.
         waiver = await threads.get(result["waiver_id"])
         assert isinstance(waiver, Waiver)
         assert waiver.objection_id == obj["objection_id"]
         assert waiver.author == "po"
-        # Objection is flipped to waived and no longer blocking.
         o = await threads.get(obj["objection_id"])
         assert isinstance(o, Objection)
         assert o.waived_by == "po"
@@ -845,7 +841,6 @@ class TestThreadWaive:
     @pytest.mark.asyncio
     async def test_unauthorized_role_refused(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path, waiver_authority=["po", "sa"])
         obj = await handle_thread_object(
             tickets=tickets,
             threads=threads,
@@ -857,29 +852,56 @@ class TestThreadWaive:
                 "text": "CSRF",
             },
         )
-        with pytest.raises(ThreadError, match="not authorized"):
+        with pytest.raises(
+            ThreadError,
+            match=r"cannot waive objections.*capabilities.waivers.can_waive.*'objection'",
+        ):
             await handle_thread_waive(
                 threads=threads,
                 bus=bus,
                 sender="dev",
+                can_waive=frozenset({"check_failure:warning"}),
                 args={
                     "objection_id": obj["objection_id"],
                     "justification": "I promise it's fine",
                 },
-                project_path=tmp_path,
             )
-        # Objection untouched — still blocking.
         o = await threads.get(obj["objection_id"])
         assert isinstance(o, Objection)
         assert o.waived_by is None
         assert o.is_blocking()
 
     @pytest.mark.asyncio
+    async def test_empty_can_waive_refused(self, tmp_path: Path) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        obj = await handle_thread_object(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="reviewer",
+            args={
+                "ticket_id": ticket_id,
+                "target_artifact": "x",
+                "text": "x",
+            },
+        )
+        with pytest.raises(ThreadError, match="cannot waive objections"):
+            await handle_thread_waive(
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                can_waive=frozenset(),
+                args={
+                    "objection_id": obj["objection_id"],
+                    "justification": "no authority",
+                },
+            )
+
+    @pytest.mark.asyncio
     async def test_empty_justification_rejected(
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         obj = await handle_thread_object(
             tickets=tickets,
             threads=threads,
@@ -896,11 +918,11 @@ class TestThreadWaive:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"objection"}),
                 args={
                     "objection_id": obj["objection_id"],
                     "justification": "  ",
                 },
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
@@ -908,7 +930,6 @@ class TestThreadWaive:
         self, tmp_path: Path
     ) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         obj = await handle_thread_object(
             tickets=tickets,
             threads=threads,
@@ -931,17 +952,16 @@ class TestThreadWaive:
                 threads=threads,
                 bus=bus,
                 sender="po",
+                can_waive=frozenset({"objection"}),
                 args={
                     "objection_id": obj["objection_id"],
                     "justification": "too late",
                 },
-                project_path=tmp_path,
             )
 
     @pytest.mark.asyncio
     async def test_publishes_to_bus(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        _write_config(tmp_path)
         obj = await handle_thread_object(
             tickets=tickets,
             threads=threads,
@@ -957,11 +977,11 @@ class TestThreadWaive:
             threads=threads,
             bus=bus,
             sender="po",
+            can_waive=frozenset({"objection"}),
             args={
                 "objection_id": obj["objection_id"],
                 "justification": "shipping",
             },
-            project_path=tmp_path,
         )
         msgs = await bus.get_history(f"tickets.{ticket_id}")
         assert any(

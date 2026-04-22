@@ -68,6 +68,27 @@ class ThreadError(ValueError):
     """
 
 
+def _require_waive_token(
+    token: str,
+    *,
+    role: str,
+    can_waive: frozenset[str],
+    subject: str,
+) -> None:
+    """Raise :class:`ThreadError` if ``token`` is not in ``can_waive``.
+
+    Error names the exact missing token so the operator knows what to
+    add to ``capabilities.waivers.can_waive`` in the role YAML. The
+    current list is sorted for deterministic output."""
+
+    if token not in can_waive:
+        raise ThreadError(
+            f"role {role!r} cannot waive {subject} — "
+            f"capabilities.waivers.can_waive must include {token!r} "
+            f"(current: {sorted(can_waive)})"
+        )
+
+
 # ---- thread_ask -----------------------------------------------------------
 
 
@@ -463,8 +484,8 @@ async def handle_thread_waive(
     threads: ThreadStore,
     bus: MessageBus,
     sender: str,
+    can_waive: frozenset[str],
     args: dict[str, Any],
-    project_path: Path,
 ) -> dict[str, Any]:
     """Override an Objection via authorized Waiver.
 
@@ -473,9 +494,10 @@ async def handle_thread_waive(
     flips to waived-with-reason (``waived_by=sender``), which causes
     ``is_blocking()`` to return False.
 
-    Authorization: ``sender`` must be in ``config.waiver_authority``.
-    Phase 5's capability-policy layer (doc 16) supersedes this with
-    proper capability tokens; the flat list is a bridge until then.
+    Authorization: ``sender``'s compiled ``can_waive`` set must include
+    ``"objection"``. The set is materialised at agent spawn time from
+    ``RoleConfig.capabilities.waivers.can_waive`` unioned with any
+    phase-level ``capability_overrides`` (doc 16 §Capability policy).
 
     Required args: ``objection_id``, ``justification``.
     """
@@ -485,12 +507,12 @@ async def handle_thread_waive(
     if not justification.strip():
         raise ValueError("justification is required")
 
-    cfg = load_config(project_path)
-    if sender not in cfg.waiver_authority:
-        raise ThreadError(
-            f"{sender!r} is not authorized to waive objections "
-            f"(config.waiver_authority={cfg.waiver_authority!r})"
-        )
+    _require_waive_token(
+        "objection",
+        role=sender,
+        can_waive=can_waive,
+        subject="objections",
+    )
 
     o = await threads.get(objection_id)
     if o is None:

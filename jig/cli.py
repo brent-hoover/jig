@@ -481,3 +481,53 @@ def build() -> None:
     except subprocess.CalledProcessError:
         raise click.ClickException("Docker build failed. Check output above.")
     click.echo("Done.")
+
+
+@cli.group("hooks")
+def hooks_group() -> None:
+    """Manage human-side git hooks (pre-commit, pre-push, commit-msg)."""
+
+
+@hooks_group.command("install")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--force", is_flag=True, help="Overwrite an existing .jig-backup.")
+def hooks_install(path: Path, force: bool) -> None:
+    """Install jig-managed git hooks under .git/hooks/."""
+    from jig.hooks import HookInstallError, install_hooks
+
+    try:
+        report = install_hooks(path, force=force)
+    except HookInstallError as exc:
+        raise click.ClickException(str(exc))
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+    for line in report:
+        click.echo(line)
+
+
+@hooks_group.command("uninstall")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def hooks_uninstall(path: Path) -> None:
+    """Remove jig-managed git hooks; restore any backups."""
+    from jig.hooks import uninstall_hooks
+
+    try:
+        report = uninstall_hooks(path)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+    for line in report:
+        click.echo(line)
+
+
+@hooks_group.command("status")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def hooks_status_cmd(path: Path) -> None:
+    """Report which jig hooks are installed."""
+    from jig.hooks import hook_status
+
+    try:
+        lines = hook_status(path)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+    for line in lines:
+        click.echo(line)

@@ -75,8 +75,11 @@ async def test_bus_publish_accepts_message_instance(tmp_path):
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     msg = Message(
-        sender="alice", to="bob", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
+        sender="alice",
+        to="bob",
+        type=MessageType.STATUS,
+        payload={},
+        topic="JIG-1",
     )
     msg_id = await bus.publish(msg)
     assert isinstance(msg_id, str)
@@ -86,13 +89,15 @@ async def test_bus_publish_accepts_message_instance(tmp_path):
 async def test_bus_publish_accepts_dict_and_validates(tmp_path):
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
-    msg_id = await bus.publish({
-        "from": "alice",
-        "to": "bob",
-        "type": "status",
-        "payload": {},
-        "topic": "JIG-1",
-    })
+    msg_id = await bus.publish(
+        {
+            "from": "alice",
+            "to": "bob",
+            "type": "status",
+            "payload": {},
+            "topic": "JIG-1",
+        }
+    )
     assert isinstance(msg_id, str)
 
 
@@ -100,10 +105,15 @@ async def test_bus_single_subscriber_receives_message(tmp_path):
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     queue = await bus.subscribe("JIG-1")
-    await bus.publish(Message(
-        sender="alice", to="bob", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
-    ))
+    await bus.publish(
+        Message(
+            sender="alice",
+            to="bob",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-1",
+        )
+    )
     received = await asyncio.wait_for(queue.get(), timeout=1.0)
     assert received.sender == "alice"
 
@@ -112,10 +122,15 @@ async def test_bus_subscriber_does_not_receive_other_topic(tmp_path):
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     queue = await bus.subscribe("JIG-1")
-    await bus.publish(Message(
-        sender="alice", to="bob", type=MessageType.STATUS,
-        payload={}, topic="JIG-2",
-    ))
+    await bus.publish(
+        Message(
+            sender="alice",
+            to="bob",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-2",
+        )
+    )
     assert queue.empty()
 
 
@@ -124,10 +139,15 @@ async def test_bus_fans_out_to_multiple_subscribers(tmp_path):
     await bus.load()
     q1 = await bus.subscribe("JIG-1")
     q2 = await bus.subscribe("JIG-1")
-    await bus.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
-    ))
+    await bus.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-1",
+        )
+    )
     m1 = await asyncio.wait_for(q1.get(), timeout=1.0)
     m2 = await asyncio.wait_for(q2.get(), timeout=1.0)
     assert m1.sender == "a" and m2.sender == "a"
@@ -139,10 +159,15 @@ async def test_bus_unsubscribe_stops_delivery_to_that_queue(tmp_path):
     q1 = await bus.subscribe("JIG-1")
     q2 = await bus.subscribe("JIG-1")
     await bus.unsubscribe("JIG-1", q1)
-    await bus.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
-    ))
+    await bus.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-1",
+        )
+    )
     assert q1.empty()
     assert (await asyncio.wait_for(q2.get(), timeout=1.0)).sender == "a"
 
@@ -159,10 +184,15 @@ async def test_bus_get_history_oldest_first(tmp_path):
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     for i in range(3):
-        await bus.publish(Message(
-            sender="a", to="b", type=MessageType.STATUS,
-            payload={"i": i}, topic="JIG-1",
-        ))
+        await bus.publish(
+            Message(
+                sender="a",
+                to="b",
+                type=MessageType.STATUS,
+                payload={"i": i},
+                topic="JIG-1",
+            )
+        )
     history = await bus.get_history("JIG-1")
     assert [m.payload["i"] for m in history] == [0, 1, 2]
 
@@ -171,10 +201,15 @@ async def test_bus_get_history_respects_limit(tmp_path):
     bus = MessageBus(tmp_path / "messages.jsonl")
     await bus.load()
     for i in range(5):
-        await bus.publish(Message(
-            sender="a", to="b", type=MessageType.STATUS,
-            payload={"i": i}, topic="JIG-1",
-        ))
+        await bus.publish(
+            Message(
+                sender="a",
+                to="b",
+                type=MessageType.STATUS,
+                payload={"i": i},
+                topic="JIG-1",
+            )
+        )
     history = await bus.get_history("JIG-1", limit=2)
     assert [m.payload["i"] for m in history] == [3, 4]
 
@@ -188,10 +223,15 @@ async def test_bus_websocket_listener_fires_on_publish(tmp_path):
         received.append(msg)
 
     await bus.add_websocket_listener(listener)
-    await bus.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
-    ))
+    await bus.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-1",
+        )
+    )
     assert len(received) == 1 and received[0].sender == "a"
 
 
@@ -205,10 +245,15 @@ async def test_bus_raising_listener_does_not_break_delivery(tmp_path):
 
     await bus.add_websocket_listener(broken)
     # Publish should not raise
-    await bus.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
-    ))
+    await bus.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-1",
+        )
+    )
     received = await asyncio.wait_for(queue.get(), timeout=1.0)
     assert received.sender == "a"
 
@@ -217,10 +262,15 @@ async def test_bus_load_does_not_replay_to_queues(tmp_path):
     path = tmp_path / "messages.jsonl"
     bus1 = MessageBus(path)
     await bus1.load()
-    await bus1.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={}, topic="JIG-1",
-    ))
+    await bus1.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={},
+            topic="JIG-1",
+        )
+    )
 
     bus2 = MessageBus(path)
     await bus2.load()
@@ -233,14 +283,24 @@ async def test_bus_crash_recovery_via_get_history(tmp_path):
     path = tmp_path / "messages.jsonl"
     bus1 = MessageBus(path)
     await bus1.load()
-    await bus1.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={"i": 1}, topic="JIG-1",
-    ))
-    await bus1.publish(Message(
-        sender="a", to="b", type=MessageType.STATUS,
-        payload={"i": 2}, topic="JIG-1",
-    ))
+    await bus1.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={"i": 1},
+            topic="JIG-1",
+        )
+    )
+    await bus1.publish(
+        Message(
+            sender="a",
+            to="b",
+            type=MessageType.STATUS,
+            payload={"i": 2},
+            topic="JIG-1",
+        )
+    )
 
     bus2 = MessageBus(path)
     await bus2.load()

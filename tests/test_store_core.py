@@ -50,6 +50,7 @@ async def test_insert_writes_record_to_file(tmp_path):
     lines = path.read_text().splitlines()
     assert len(lines) == 1
     import json
+
     record = json.loads(lines[0])
     assert record == {"_op": "insert", "_id": "x", "name": "alice"}
 
@@ -210,10 +211,7 @@ async def test_load_raises_on_update_after_delete(tmp_path):
 
 async def test_load_raises_on_malformed_json_with_line_number(tmp_path):
     path = tmp_path / "s.jsonl"
-    path.write_text(
-        '{"_op": "insert", "_id": "x"}\n'
-        '{not valid json\n'
-    )
+    path.write_text('{"_op": "insert", "_id": "x"}\n{not valid json\n')
     store = JsonlStore(path)
     with pytest.raises(ValueError, match="line 2"):
         await store.load()
@@ -239,6 +237,7 @@ def test_public_api_exports():
     from jig.store import (
         JsonlStore,
     )
+
     # If all imports succeed, the test passes
     assert JsonlStore is not None
 

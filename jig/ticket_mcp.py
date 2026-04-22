@@ -53,8 +53,7 @@ async def handle_create_ticket(
         size = Size(raw_size)
     except ValueError:
         raise ValueError(
-            f"Unknown size {raw_size!r}. "
-            f"Valid values: {[s.value for s in Size]}"
+            f"Unknown size {raw_size!r}. Valid values: {[s.value for s in Size]}"
         ) from None
 
     ticket_kwargs: dict = {
@@ -84,6 +83,7 @@ async def handle_create_ticket(
         # ValidationError from WorkType(...), which is fine for
         # forensics but not friendly — catch and rewrite it.
         from jig.ticket import _LEGACY_TYPE_MIGRATION
+
         raw_legacy = args["type"]
         mapped = _LEGACY_TYPE_MIGRATION.get(raw_legacy, raw_legacy)
         if mapped not in {w.value for w in WorkType}:
@@ -103,12 +103,17 @@ async def handle_create_ticket(
     # consult .jig/config.yaml. Explicit per-ticket overrides and legacy
     # "thread" migration both win over config-driven resolution.
     explicit_workflow = args.get("workflow")
-    if explicit_workflow is None and ticket.workflow == "default" and project_path is not None:
+    if (
+        explicit_workflow is None
+        and ticket.workflow == "default"
+        and project_path is not None
+    ):
         from jig.config import (
             WorkflowResolutionError,
             load_config,
             resolve_workflow,
         )
+
         try:
             cfg = load_config(project_path)
         except FileNotFoundError:
@@ -129,6 +134,7 @@ async def handle_create_ticket(
     elif explicit_workflow is not None and project_path is not None:
         # Validate an explicit workflow against config.workflows.available.
         from jig.config import WorkflowResolutionError, load_config, resolve_workflow
+
         try:
             cfg = load_config(project_path)
         except FileNotFoundError:
@@ -167,20 +173,24 @@ async def handle_create_ticket(
         "depends_on": depends_on,
         "workflow": ticket.workflow,
     }
-    await bus.publish(Message(
-        sender=sender,
-        to=ticket.assignee or "orchestrator",
-        type=MessageType.CONTEXT_UPDATE,
-        payload=payload,
-        topic="orchestrator",
-    ))
-    await bus.publish(Message(
-        sender=sender,
-        to=ticket.assignee or "broadcast",
-        type=MessageType.CONTEXT_UPDATE,
-        payload=payload,
-        topic=f"tickets.{ticket_id}",
-    ))
+    await bus.publish(
+        Message(
+            sender=sender,
+            to=ticket.assignee or "orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload=payload,
+            topic="orchestrator",
+        )
+    )
+    await bus.publish(
+        Message(
+            sender=sender,
+            to=ticket.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload=payload,
+            topic=f"tickets.{ticket_id}",
+        )
+    )
     return ticket_id
 
 
@@ -191,9 +201,7 @@ async def handle_read_ticket(*, tickets: TicketStore, ticket_id: str) -> Ticket:
     return loaded
 
 
-async def handle_list_tickets(
-    *, tickets: TicketStore, args: dict
-) -> list[Ticket]:
+async def handle_list_tickets(*, tickets: TicketStore, args: dict) -> list[Ticket]:
     # Accept both "work_type" and legacy "type" in filter args. Legacy
     # values (bug, chore, task, question) are migrated through the same
     # mapping as the model validator so old callers keep working.
@@ -202,6 +210,7 @@ async def handle_list_tickets(
         wt = None
     else:
         from jig.ticket import _LEGACY_TYPE_MIGRATION
+
         mapped = _LEGACY_TYPE_MIGRATION.get(raw_work_type, raw_work_type)
         wt = WorkType(mapped)
     status = TicketStatus(args["status"]) if "status" in args else None
@@ -301,26 +310,26 @@ async def handle_comment_on_ticket(
 
     cid = await threads.post(entry)
 
-    await bus.publish(Message(
-        sender=sender,
-        to="broadcast",
-        type=MessageType.CONTEXT_UPDATE,
-        payload={
-            "kind": "comment_posted",
-            "ticket_id": ticket_id,
-            "comment_id": cid,
-            "author": sender,
-            "content": content,
-            "comment_kind": kind,
-        },
-        topic=f"tickets.{ticket_id}",
-    ))
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "comment_posted",
+                "ticket_id": ticket_id,
+                "comment_id": cid,
+                "author": sender,
+                "content": content,
+                "comment_kind": kind,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
     return cid
 
 
-async def _latest_open_question_id(
-    threads: ThreadStore, ticket_id: str
-) -> str | None:
+async def _latest_open_question_id(threads: ThreadStore, ticket_id: str) -> str | None:
     """Return the id of the most recent unresolved Question on the ticket."""
     questions = await threads.find_by_kind(ticket_id, "question")
     open_qs = [q for q in questions if not q.is_resolved()]
@@ -353,12 +362,14 @@ async def handle_update_ticket(
 
     # Auto-emit status_change audit record on status transitions
     if "status" in update_fields and update_fields["status"] != before.status:
-        await threads.post(SystemEvent(
-            ticket_id=ticket_id,
-            author=sender,
-            event_type="status_change",
-            content=f"status {before.status.value} -> {updated.status.value}",
-        ))
+        await threads.post(
+            SystemEvent(
+                ticket_id=ticket_id,
+                author=sender,
+                event_type="status_change",
+                content=f"status {before.status.value} -> {updated.status.value}",
+            )
+        )
 
     # Agents set "resolved" to signal phase completion, but only the
     # orchestrator should broadcast resolved/failed to the TUI — otherwise the
@@ -376,22 +387,26 @@ async def handle_update_ticket(
         "status": updated.status.value,
         **({"_internal": True} if internal else {}),
     }
-    await bus.publish(Message(
-        sender=sender,
-        to="broadcast",
-        type=MessageType.CONTEXT_UPDATE,
-        payload=update_payload,
-        topic=f"tickets.{ticket_id}",
-    ))
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload=update_payload,
+            topic=f"tickets.{ticket_id}",
+        )
+    )
     # Also notify the orchestrator so it can react to status changes
     # (e.g. re-enqueue a ticket reset to "open" for retry).
-    await bus.publish(Message(
-        sender=sender,
-        to="orchestrator",
-        type=MessageType.CONTEXT_UPDATE,
-        payload=update_payload,
-        topic="orchestrator",
-    ))
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload=update_payload,
+            topic="orchestrator",
+        )
+    )
     return updated
 
 
@@ -464,13 +479,15 @@ async def handle_commit_progress(
     if sha is None:
         return {"sha": None, "comment_id": None}
 
-    cid = await threads.post(SystemEvent(
-        ticket_id=ticket_id,
-        author=sender,
-        event_type="commit",
-        content=commit_message,
-        commit_sha=sha,
-    ))
+    cid = await threads.post(
+        SystemEvent(
+            ticket_id=ticket_id,
+            author=sender,
+            event_type="commit",
+            content=commit_message,
+            commit_sha=sha,
+        )
+    )
 
     if checkpoints is not None:
         from jig.checkpoint_mcp import record_auto_commit_checkpoint
@@ -484,18 +501,20 @@ async def handle_commit_progress(
             message=commit_message,
         )
 
-    await bus.publish(Message(
-        sender=sender,
-        to="broadcast",
-        type=MessageType.CONTEXT_UPDATE,
-        payload={
-            "kind": "commit_recorded",
-            "ticket_id": ticket_id,
-            "sha": sha,
-            "message": commit_message,
-        },
-        topic=f"tickets.{ticket_id}",
-    ))
+    await bus.publish(
+        Message(
+            sender=sender,
+            to="broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "commit_recorded",
+                "ticket_id": ticket_id,
+                "sha": sha,
+                "message": commit_message,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
     return {"sha": sha, "comment_id": cid}
 
 

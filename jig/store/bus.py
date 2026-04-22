@@ -26,9 +26,7 @@ class Message(StoreModel):
     to: str
     type: MessageType
     payload: dict
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     correlation_id: str | None = None
     topic: str
 
@@ -42,9 +40,7 @@ class MessageBus:
         )
         self._subscribers: dict[str, list[asyncio.Queue[Message]]] = {}
         self._listeners: list[Callable[[Message], Awaitable[None]]] = []
-        self._agent_subscriptions: dict[
-            tuple[str, str], asyncio.Queue[Message]
-        ] = {}
+        self._agent_subscriptions: dict[tuple[str, str], asyncio.Queue[Message]] = {}
         self._lock = asyncio.Lock()
 
     async def load(self) -> None:
@@ -96,9 +92,7 @@ class MessageBus:
             self._agent_subscriptions[key] = queue
             return queue
 
-    async def unsubscribe(
-        self, topic: str, queue: asyncio.Queue[Message]
-    ) -> None:
+    async def unsubscribe(self, topic: str, queue: asyncio.Queue[Message]) -> None:
         async with self._lock:
             queues = self._subscribers.get(topic)
             if not queues:
@@ -110,9 +104,7 @@ class MessageBus:
             if not queues:
                 del self._subscribers[topic]
 
-    async def get_history(
-        self, topic: str, limit: int = 100
-    ) -> list[Message]:
+    async def get_history(self, topic: str, limit: int = 100) -> list[Message]:
         results = await self._collection.find_where(topic=topic)
         results.sort(key=lambda m: m.timestamp)
         return results[-limit:]

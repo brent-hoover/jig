@@ -97,15 +97,22 @@ def exec_in_docker(
     image = os.environ.get("JIG_DOCKER_IMAGE", DEFAULT_IMAGE)
 
     args = [
-        "docker", "run", "--rm", "-it",
+        "docker",
+        "run",
+        "--rm",
+        "-it",
         # bwrap needs mount-namespace capabilities and pivot_root (blocked
         # by Docker's default seccomp profile) inside the container
-        "--cap-add", "SYS_ADMIN",
-        "--security-opt", "seccomp=unconfined",
+        "--cap-add",
+        "SYS_ADMIN",
+        "--security-opt",
+        "seccomp=unconfined",
         # Project directory
-        "-v", f"{project_path.resolve()}:/project",
+        "-v",
+        f"{project_path.resolve()}:/project",
         # WebSocket port for TUI
-        "-p", f"{ws_port}:{ws_port}",
+        "-p",
+        f"{ws_port}:{ws_port}",
     ]
 
     # Claude settings and plugins

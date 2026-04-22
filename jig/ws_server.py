@@ -100,7 +100,9 @@ class WebSocketServer:
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            await self._safe_send(websocket, json.dumps({"ok": False, "error": "bad json"}))
+            await self._safe_send(
+                websocket, json.dumps({"ok": False, "error": "bad json"})
+            )
             return
 
         command = payload.get("command")
@@ -115,7 +117,9 @@ class WebSocketServer:
                     args=args,
                     project_path=self._orch._project_path,
                 )
-                await self._safe_send(websocket, json.dumps({"ok": True, "ticket_id": tid}))
+                await self._safe_send(
+                    websocket, json.dumps({"ok": True, "ticket_id": tid})
+                )
             elif command == "comment_on_ticket":
                 cid = await handle_comment_on_ticket(
                     tickets=self._orch.tickets,
@@ -125,7 +129,9 @@ class WebSocketServer:
                     sender_cfg=None,
                     args=args,
                 )
-                await self._safe_send(websocket, json.dumps({"ok": True, "comment_id": cid}))
+                await self._safe_send(
+                    websocket, json.dumps({"ok": True, "comment_id": cid})
+                )
             elif command == "update_ticket":
                 updated = await handle_update_ticket(
                     tickets=self._orch.tickets,
@@ -142,32 +148,38 @@ class WebSocketServer:
                     tickets=self._orch.tickets,
                     args=args,
                 )
-                await self._safe_send(websocket, json.dumps({
-                    "ok": True,
-                    "tickets": [
+                await self._safe_send(
+                    websocket,
+                    json.dumps(
                         {
-                            "id": t.id,
-                            "work_type": t.work_type.value,
-                            # Legacy alias for TUI clients not yet updated
-                            # to the Phase 1 schema. Remove once Task G lands.
-                            "type": t.work_type.value,
-                            "size": t.size.value,
-                            "status": t.status.value,
-                            "title": t.title,
-                            "description": t.description,
-                            "assignee": t.assignee,
-                            "parent_id": t.parent_id,
-                            "blocked_by": t.blocked_by,
-                            "workflow": t.workflow,
+                            "ok": True,
+                            "tickets": [
+                                {
+                                    "id": t.id,
+                                    "work_type": t.work_type.value,
+                                    # Legacy alias for TUI clients not yet updated
+                                    # to the Phase 1 schema. Remove once Task G lands.
+                                    "type": t.work_type.value,
+                                    "size": t.size.value,
+                                    "status": t.status.value,
+                                    "title": t.title,
+                                    "description": t.description,
+                                    "assignee": t.assignee,
+                                    "parent_id": t.parent_id,
+                                    "blocked_by": t.blocked_by,
+                                    "workflow": t.workflow,
+                                }
+                                for t in all_tickets
+                            ],
                         }
-                        for t in all_tickets
-                    ],
-                }))
+                    ),
+                )
             elif command == "get_comments":
                 ticket_id = args.get("ticket_id")
                 if not ticket_id:
                     await self._safe_send(
-                        websocket, json.dumps({"ok": False, "error": "ticket_id required"})
+                        websocket,
+                        json.dumps({"ok": False, "error": "ticket_id required"}),
                     )
                     return
                 found = await handle_read_comments(
@@ -175,41 +187,58 @@ class WebSocketServer:
                     ticket_id=ticket_id,
                     kind=args.get("kind"),
                 )
-                await self._safe_send(websocket, json.dumps({
-                    "ok": True,
-                    "comments": [
-                        _thread_entry_to_wire(e) for e in found
-                    ],
-                }))
+                await self._safe_send(
+                    websocket,
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "comments": [_thread_entry_to_wire(e) for e in found],
+                        }
+                    ),
+                )
             elif command == "answer_questions":
                 result = await self._handle_answer_questions(args)
                 await self._safe_send(websocket, json.dumps({"ok": True, **result}))
             elif command == "list_agents":
                 agents = list_roles(self._orch._project_path)
-                await self._safe_send(websocket, json.dumps({
-                    "ok": True,
-                    "agents": [a.model_dump() for a in agents],
-                }))
+                await self._safe_send(
+                    websocket,
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "agents": [a.model_dump() for a in agents],
+                        }
+                    ),
+                )
             elif command == "preview_prompt":
                 from jig.runtime import AgentSpawnContext, SpawnReason
+
                 ticket_id = args.get("ticket_id")
                 role = args.get("role")
                 if not ticket_id or not role:
                     await self._safe_send(
-                        websocket, json.dumps({"ok": False, "error": "ticket_id and role required"})
+                        websocket,
+                        json.dumps(
+                            {"ok": False, "error": "ticket_id and role required"}
+                        ),
                     )
                     return
                 ticket = await self._orch.tickets.get(ticket_id)
                 if ticket is None:
                     await self._safe_send(
-                        websocket, json.dumps({"ok": False, "error": f"ticket {ticket_id} not found"})
+                        websocket,
+                        json.dumps(
+                            {"ok": False, "error": f"ticket {ticket_id} not found"}
+                        ),
                     )
                     return
                 parent = None
                 if ticket.parent_id:
                     parent = await self._orch.tickets.get(ticket.parent_id)
                 role_cfg = load_role(self._orch._project_path, role)
-                worktree_path = self._orch._project_path / ".jig" / "worktrees" / ticket_id
+                worktree_path = (
+                    self._orch._project_path / ".jig" / "worktrees" / ticket_id
+                )
                 ctx = AgentSpawnContext(
                     role=role,
                     role_cfg=role_cfg,
@@ -224,25 +253,38 @@ class WebSocketServer:
                     bus=self._orch.bus,
                 )
                 prompt = await build_agent_prompt(ctx)
-                await self._safe_send(websocket, json.dumps({
-                    "ok": True,
-                    "prompt": prompt,
-                    "system_prompt": role_cfg.phase_prompt,
-                    "char_count": len(prompt),
-                }))
+                await self._safe_send(
+                    websocket,
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "prompt": prompt,
+                            "system_prompt": role_cfg.phase_prompt,
+                            "char_count": len(prompt),
+                        }
+                    ),
+                )
             elif command == "get_workflow":
                 name = args.get("name", "default")
                 wf = load_workflow(self._orch._project_path, name)
-                await self._safe_send(websocket, json.dumps({
-                    "ok": True,
-                    "workflow": wf.model_dump(),
-                }))
+                await self._safe_send(
+                    websocket,
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "workflow": wf.model_dump(),
+                        }
+                    ),
+                )
             else:
                 await self._safe_send(
-                    websocket, json.dumps({"ok": False, "error": f"unknown command {command}"})
+                    websocket,
+                    json.dumps({"ok": False, "error": f"unknown command {command}"}),
                 )
         except Exception as exc:
-            await self._safe_send(websocket, json.dumps({"ok": False, "error": str(exc)}))
+            await self._safe_send(
+                websocket, json.dumps({"ok": False, "error": str(exc)})
+            )
 
     async def _handle_answer_questions(self, args: dict) -> dict:
         """Post operator answers for the ticket's open Questions and
@@ -277,26 +319,26 @@ class WebSocketServer:
                 )
                 kind_for_bus = "answer"
             else:
-                entry = Note(
-                    ticket_id=ticket_id, author="user", text=text
-                )
+                entry = Note(ticket_id=ticket_id, author="user", text=text)
                 kind_for_bus = "note"
             cid = await orch.threads.post(entry)
             comment_ids.append(cid)
-            await orch.bus.publish(Message(
-                sender="user",
-                to=ticket.assignee or "broadcast",
-                type=MessageType.CONTEXT_UPDATE,
-                payload={
-                    "kind": "comment_posted",
-                    "ticket_id": ticket_id,
-                    "comment_id": cid,
-                    "author": "user",
-                    "content": text,
-                    "comment_kind": kind_for_bus,
-                },
-                topic=f"tickets.{ticket_id}",
-            ))
+            await orch.bus.publish(
+                Message(
+                    sender="user",
+                    to=ticket.assignee or "broadcast",
+                    type=MessageType.CONTEXT_UPDATE,
+                    payload={
+                        "kind": "comment_posted",
+                        "ticket_id": ticket_id,
+                        "comment_id": cid,
+                        "author": "user",
+                        "content": text,
+                        "comment_kind": kind_for_bus,
+                    },
+                    topic=f"tickets.{ticket_id}",
+                )
+            )
 
         result: dict = {"comment_ids": comment_ids}
 
@@ -304,23 +346,27 @@ class WebSocketServer:
             updated = await orch.tickets.update(
                 ticket_id, status=TicketStatus.IN_PROGRESS
             )
-            await orch.threads.post(SystemEvent(
-                ticket_id=ticket_id,
-                author="user",
-                event_type="status_change",
-                content=f"status needs_info -> {updated.status.value}",
-            ))
-            await orch.bus.publish(Message(
-                sender="user",
-                to=updated.assignee or "broadcast",
-                type=MessageType.CONTEXT_UPDATE,
-                payload={
-                    "kind": "ticket_updated",
-                    "ticket_id": ticket_id,
-                    "status": updated.status.value,
-                },
-                topic=f"tickets.{ticket_id}",
-            ))
+            await orch.threads.post(
+                SystemEvent(
+                    ticket_id=ticket_id,
+                    author="user",
+                    event_type="status_change",
+                    content=f"status needs_info -> {updated.status.value}",
+                )
+            )
+            await orch.bus.publish(
+                Message(
+                    sender="user",
+                    to=updated.assignee or "broadcast",
+                    type=MessageType.CONTEXT_UPDATE,
+                    payload={
+                        "kind": "ticket_updated",
+                        "ticket_id": ticket_id,
+                        "status": updated.status.value,
+                    },
+                    topic=f"tickets.{ticket_id}",
+                )
+            )
             result["status"] = updated.status.value
         else:
             result["status"] = ticket.status.value
@@ -381,5 +427,3 @@ def _thread_entry_to_wire(entry) -> dict:
         wire["target"] = entry.target
         wire["blocking"] = entry.blocking
     return wire
-
-

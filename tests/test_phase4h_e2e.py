@@ -106,15 +106,11 @@ async def test_blocking_objection_resolves_then_advances_with_deferred_item(
         elif ctx.role == "dev":
             # The evaluator's view: deferred items from the prior phase
             # Handoff are readable via the thread store.
-            handoffs = await ctx.threads.find_by_kind(
-                ctx.ticket.id, "handoff"
-            )
+            handoffs = await ctx.threads.find_by_kind(ctx.ticket.id, "handoff")
             for h in handoffs:
                 assert isinstance(h, Handoff)
                 observed_deferred.extend(h.deferred_items)
-            await ctx.tickets.update_status(
-                ctx.ticket.id, TicketStatus.RESOLVED
-            )
+            await ctx.tickets.update_status(ctx.ticket.id, TicketStatus.RESOLVED)
         return RunAgentResult(status="success", final_text="ok")
 
     monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
@@ -139,9 +135,7 @@ async def test_blocking_objection_resolves_then_advances_with_deferred_item(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(
-                work_type=WorkType.FEATURE, title="f", created_by="user"
-            )
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
         )
         await orch._handle_schedule(tid)
 
@@ -151,9 +145,7 @@ async def test_blocking_objection_resolves_then_advances_with_deferred_item(
             blockers = await orch.threads.has_unresolved_blocking(tid)
             if len(blockers) >= 2:
                 break
-        assert run_calls == ["spec"], (
-            f"expected only 'spec' run, got {run_calls}"
-        )
+        assert run_calls == ["spec"], f"expected only 'spec' run, got {run_calls}"
 
         entries = await orch.threads.for_ticket(tid)
         objection = next(e for e in entries if e.kind == "objection")

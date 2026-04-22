@@ -34,9 +34,7 @@ class TestConfigModel:
 
     def test_defaults_fill_in_missing_sections(self, tmp_jig: Path) -> None:
         (tmp_jig / ".jig" / "config.yaml").write_text(
-            yaml.safe_dump(
-                {"project": {"id": "p", "name": "p", "path": str(tmp_jig)}}
-            )
+            yaml.safe_dump({"project": {"id": "p", "name": "p", "path": str(tmp_jig)}})
         )
         loaded = load_config(tmp_jig)
         assert isinstance(loaded.workflows, WorkflowsSection)
@@ -96,7 +94,8 @@ class TestWorkflowsByType:
     """Phase 1C only parses — phase 2 consumes."""
 
     def test_by_type_accepted(self, tmp_jig: Path) -> None:
-        yaml_text = """
+        yaml_text = (
+            """
 project: {id: p, name: p, path: "%s"}
 workflows:
   default_by_size: {xs: hotfix, s: small-change, m: standard, l: large-feature, xl: epic}
@@ -108,13 +107,18 @@ workflows:
     bugfix:
       default_by_size: {s: hotfix, m: small-change}
       available: [hotfix, small-change]
-""" % tmp_jig
+"""
+            % tmp_jig
+        )
         (tmp_jig / ".jig" / "config.yaml").write_text(yaml_text)
         cfg = load_config(tmp_jig)
 
         assert cfg.workflows.default_by_size["m"] == "standard"
         assert isinstance(cfg.workflows.by_type["feature"], WorkflowTypeEntry)
-        assert cfg.workflows.by_type["feature"].available == ["standard", "large-feature"]
+        assert cfg.workflows.by_type["feature"].available == [
+            "standard",
+            "large-feature",
+        ]
         assert cfg.workflows.by_type["bugfix"].default_by_size["s"] == "hotfix"
 
 

@@ -89,9 +89,7 @@ def save_role(project_path: Path, config: RoleConfig) -> None:
     """Save a role config to .jig/roles/<role>.yaml."""
     type_path = _jig_dir(project_path) / "roles" / f"{config.role}.yaml"
     type_path.parent.mkdir(parents=True, exist_ok=True)
-    type_path.write_text(
-        yaml.dump(config.model_dump(), default_flow_style=False)
-    )
+    type_path.write_text(yaml.dump(config.model_dump(), default_flow_style=False))
 
 
 def _role_path_project(project_path: Path, name: str) -> Path:

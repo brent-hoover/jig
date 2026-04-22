@@ -112,9 +112,7 @@ class TestPostAndRead:
                 created_at=t0 + timedelta(seconds=1),
             )
         )
-        await store.post(
-            Note(ticket_id="T1", author="a", text="first", created_at=t0)
-        )
+        await store.post(Note(ticket_id="T1", author="a", text="first", created_at=t0))
         entries = await store.for_ticket("T1")
         assert [e.text for e in entries] == ["first", "second"]  # type: ignore[attr-defined]
 
@@ -165,9 +163,7 @@ class TestUpdate:
         assert blocking == []
 
     @pytest.mark.asyncio
-    async def test_update_missing_entry_returns_false(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_update_missing_entry_returns_false(self, tmp_path: Path) -> None:
         store = ThreadStore(tmp_path / "comments.jsonl")
         await store.load()
         assert await store.update("missing", {"resolved_by": "x"}) is False
@@ -178,9 +174,7 @@ class TestUpdate:
 
 class TestLegacyMigration:
     @pytest.mark.asyncio
-    async def test_legacy_commit_becomes_system_event(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_legacy_commit_becomes_system_event(self, tmp_path: Path) -> None:
         """Phase 3 wrote ``Comment(kind="commit", commit_sha=...)``; the
         Phase 4 store surfaces it as SystemEvent(event_type="commit")."""
         path = tmp_path / "comments.jsonl"
@@ -207,9 +201,7 @@ class TestLegacyMigration:
         assert not ev.is_blocking()
 
     @pytest.mark.asyncio
-    async def test_legacy_phase_run_becomes_system_event(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_legacy_phase_run_becomes_system_event(self, tmp_path: Path) -> None:
         path = tmp_path / "comments.jsonl"
         await _raw_insert(
             path,
@@ -273,9 +265,7 @@ class TestLegacyMigration:
         assert n.text == "hello"
 
     @pytest.mark.asyncio
-    async def test_legacy_question_shape_migrates(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_legacy_question_shape_migrates(self, tmp_path: Path) -> None:
         """Old question comments had ``content`` but no typed
         ``question`` field; the migration pulls ``content`` across."""
         path = tmp_path / "comments.jsonl"
@@ -297,9 +287,7 @@ class TestLegacyMigration:
         assert q.target == "any_human"  # default
 
     @pytest.mark.asyncio
-    async def test_legacy_answer_shape_migrates(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_legacy_answer_shape_migrates(self, tmp_path: Path) -> None:
         path = tmp_path / "comments.jsonl"
         await _raw_insert(
             path,
@@ -320,9 +308,7 @@ class TestLegacyMigration:
         assert a.question_id == "q-1"  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
-    async def test_legacy_decision_shape_migrates(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_legacy_decision_shape_migrates(self, tmp_path: Path) -> None:
         path = tmp_path / "comments.jsonl"
         await _raw_insert(
             path,
@@ -342,9 +328,7 @@ class TestLegacyMigration:
         assert d.rationale == ""  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
-    async def test_legacy_proposal_envelope_migrates(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_legacy_proposal_envelope_migrates(self, tmp_path: Path) -> None:
         """Phase 3E stashed proposal fields on the Comment envelope
         with ``proposal_*`` prefixes. Task B renames them."""
         path = tmp_path / "comments.jsonl"
@@ -531,9 +515,7 @@ class TestGatingHelpers:
         assert await store.find_by_kind("T1", "commit") == []
 
     @pytest.mark.asyncio
-    async def test_find_by_kind_filters_new_shape(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_find_by_kind_filters_new_shape(self, tmp_path: Path) -> None:
         store = ThreadStore(tmp_path / "comments.jsonl")
         await store.load()
         await store.post(Note(ticket_id="T1", author="a", text="n"))
@@ -549,9 +531,7 @@ class TestGatingHelpers:
         assert len(notes) == 1
         assert isinstance(notes[0], Note)
 
-    async def test_all_by_kind_crosses_tickets(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_all_by_kind_crosses_tickets(self, tmp_path: Path) -> None:
         """`all_by_kind` returns matching entries across every ticket."""
         store = ThreadStore(tmp_path / "comments.jsonl")
         await store.load()

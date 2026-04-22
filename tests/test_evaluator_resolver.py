@@ -65,9 +65,7 @@ class TestSpecificHuman:
     def test_resolves_to_user(self) -> None:
         wf = _wf(PhaseConfig(name="p", role="dev"))
         r = resolve_evaluator(
-            spec=SpecificHumanEvaluator(
-                type="specific_human", user="alice"
-            ),
+            spec=SpecificHumanEvaluator(type="specific_human", user="alice"),
             workflow=wf,
             phase_name="p",
             handoff_history=[],
@@ -119,8 +117,10 @@ class TestPreviousPhaseRole:
         )
         history = [
             _handoff(
-                phase="review", author="dev",
-                state="rejected", accepted_by=None,
+                phase="review",
+                author="dev",
+                state="rejected",
+                accepted_by=None,
             ),
             _handoff(phase="review", author="dev", accepted_by="bob"),
         ]
@@ -199,12 +199,8 @@ class TestMulti:
             spec=MultiEvaluator(
                 type="multi",
                 evaluators=[
-                    SpecificRoleEvaluator(
-                        type="specific_role", role="reviewer"
-                    ),
-                    SpecificHumanEvaluator(
-                        type="specific_human", user="alice"
-                    ),
+                    SpecificRoleEvaluator(type="specific_role", role="reviewer"),
+                    SpecificHumanEvaluator(type="specific_human", user="alice"),
                 ],
             ),
             workflow=wf,
@@ -227,9 +223,7 @@ class TestMulti:
             spec=MultiEvaluator(
                 type="multi",
                 evaluators=[
-                    SpecificRoleEvaluator(
-                        type="specific_role", role="reviewer"
-                    ),
+                    SpecificRoleEvaluator(type="specific_role", role="reviewer"),
                     PreviousPhaseRoleEvaluator(
                         type="previous_phase_role", role="reviewer"
                     ),

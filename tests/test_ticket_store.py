@@ -23,13 +23,28 @@ async def test_create_and_get(tmp_path: Path) -> None:
 async def test_find_in_progress_top_level(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()
-    f = Ticket(work_type=WorkType.FEATURE, title="f", created_by="u", status=TicketStatus.IN_PROGRESS)
-    b = Ticket(work_type=WorkType.BUGFIX, title="b", created_by="u", status=TicketStatus.IN_PROGRESS)
-    c = Ticket(work_type=WorkType.REFACTOR, title="c", created_by="u", status=TicketStatus.OPEN)
+    f = Ticket(
+        work_type=WorkType.FEATURE,
+        title="f",
+        created_by="u",
+        status=TicketStatus.IN_PROGRESS,
+    )
+    b = Ticket(
+        work_type=WorkType.BUGFIX,
+        title="b",
+        created_by="u",
+        status=TicketStatus.IN_PROGRESS,
+    )
+    c = Ticket(
+        work_type=WorkType.REFACTOR, title="c", created_by="u", status=TicketStatus.OPEN
+    )
     # Thread-style tickets are excluded from workflow-top-level queries.
     task = Ticket(
-        work_type=WorkType.REFACTOR, title="t", created_by="o",
-        status=TicketStatus.IN_PROGRESS, workflow="thread",
+        work_type=WorkType.REFACTOR,
+        title="t",
+        created_by="o",
+        status=TicketStatus.IN_PROGRESS,
+        workflow="thread",
     )
     await store.create(f)
     await store.create(b)
@@ -45,9 +60,15 @@ async def test_find_in_progress_top_level(tmp_path: Path) -> None:
 async def test_find_by_assignee_uses_index(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()
-    await store.create(Ticket(work_type=WorkType.REFACTOR, title="a", created_by="o", assignee="dev"))
-    await store.create(Ticket(work_type=WorkType.REFACTOR, title="b", created_by="o", assignee="qa"))
-    await store.create(Ticket(work_type=WorkType.REFACTOR, title="c", created_by="o", assignee="dev"))
+    await store.create(
+        Ticket(work_type=WorkType.REFACTOR, title="a", created_by="o", assignee="dev")
+    )
+    await store.create(
+        Ticket(work_type=WorkType.REFACTOR, title="b", created_by="o", assignee="qa")
+    )
+    await store.create(
+        Ticket(work_type=WorkType.REFACTOR, title="c", created_by="o", assignee="dev")
+    )
 
     dev_tickets = await store.find_by_assignee("dev")
     assert sorted(t.title for t in dev_tickets) == ["a", "c"]
@@ -57,7 +78,9 @@ async def test_find_by_assignee_uses_index(tmp_path: Path) -> None:
 async def test_update_status_bumps_updated_at(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()
-    tid = await store.create(Ticket(work_type=WorkType.FEATURE, title="f", created_by="u"))
+    tid = await store.create(
+        Ticket(work_type=WorkType.FEATURE, title="f", created_by="u")
+    )
     before = (await store.get(tid)).updated_at
     await store.update_status(tid, TicketStatus.IN_PROGRESS)
     after = await store.get(tid)
@@ -70,7 +93,9 @@ async def test_reload_replays_log(tmp_path: Path) -> None:
     path = tmp_path / "tickets.jsonl"
     store = TicketStore(path)
     await store.load()
-    tid = await store.create(Ticket(work_type=WorkType.BUGFIX, title="b", created_by="u"))
+    tid = await store.create(
+        Ticket(work_type=WorkType.BUGFIX, title="b", created_by="u")
+    )
     await store.update_status(tid, TicketStatus.RESOLVED)
 
     store2 = TicketStore(path)
@@ -149,7 +174,9 @@ async def test_update_accepts_raw_datetime(tmp_path: Path) -> None:
 
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()
-    tid = await store.create(Ticket(work_type=WorkType.FEATURE, title="t", created_by="u"))
+    tid = await store.create(
+        Ticket(work_type=WorkType.FEATURE, title="t", created_by="u")
+    )
     # Pass a raw datetime — must not raise.
     when = datetime(2030, 1, 1, tzinfo=timezone.utc)
     updated = await store.update(tid, updated_at=when)

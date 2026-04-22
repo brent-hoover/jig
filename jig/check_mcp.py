@@ -66,9 +66,7 @@ def build_check_verdict_tool(captured: CapturedVerdict):
             )
         verdict = args.get("verdict")
         if verdict not in ("pass", "fail"):
-            raise ValueError(
-                f"verdict must be 'pass' or 'fail', got {verdict!r}"
-            )
+            raise ValueError(f"verdict must be 'pass' or 'fail', got {verdict!r}")
         reasoning = args.get("reasoning") or ""
         captured["verdict"] = verdict  # type: ignore[typeddict-item]
         captured["reasoning"] = str(reasoning)

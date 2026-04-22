@@ -27,13 +27,17 @@ def _detect_branch(path: Path) -> str:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=path, text=True, stderr=subprocess.DEVNULL,
+            cwd=path,
+            text=True,
+            stderr=subprocess.DEVNULL,
         ).strip()
     except subprocess.CalledProcessError:
         try:
             ref = subprocess.check_output(
                 ["git", "symbolic-ref", "HEAD"],
-                cwd=path, text=True, stderr=subprocess.DEVNULL,
+                cwd=path,
+                text=True,
+                stderr=subprocess.DEVNULL,
             ).strip()
             return ref.removeprefix("refs/heads/")
         except subprocess.CalledProcessError:
@@ -114,7 +118,14 @@ def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
 
     # Sanitize project name for use as a Python package name
     pkg_name = project_name.replace("-", "_").replace(" ", "_").lower()
-    skip_dirs = {"__pycache__", ".ruff_cache", ".mypy_cache", ".pytest_cache", ".venv", "node_modules"}
+    skip_dirs = {
+        "__pycache__",
+        ".ruff_cache",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".venv",
+        "node_modules",
+    }
 
     for src_file in tpl_dir.rglob("*"):
         if not src_file.is_file():
@@ -138,10 +149,30 @@ def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--branch", default=None, help="Default branch name (auto-detected from current branch).")
-@click.option("--template", "template_name", default=None, help="Project template (python, fastapi).")
+@click.option(
+    "--branch",
+    default=None,
+    help="Default branch name (auto-detected from current branch).",
+)
+@click.option(
+    "--template",
+    "template_name",
+    default=None,
+    help="Project template (python, fastapi).",
+)
 @click.option("--no-input", is_flag=True, help="Skip interactive prompts.")
-def init(path: Path, branch: str | None, template_name: str | None, no_input: bool) -> None:
+@click.option(
+    "--no-hooks",
+    is_flag=True,
+    help="Skip installing git hooks (pre-commit/pre-push/commit-msg).",
+)
+def init(
+    path: Path,
+    branch: str | None,
+    template_name: str | None,
+    no_input: bool,
+    no_hooks: bool,
+) -> None:
     """Initialize .jig/ in a project."""
     if not (path / ".git").is_dir():
         if no_input:
@@ -158,7 +189,9 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
         )
         if result.returncode != 0:
             raise click.ClickException(f"git init failed: {result.stderr.strip()}")
-        click.echo(f"Initialized empty git repository in {path} (branch: {init_branch})")
+        click.echo(
+            f"Initialized empty git repository in {path} (branch: {init_branch})"
+        )
 
     if branch is None:
         branch = _detect_branch(path)
@@ -207,24 +240,50 @@ def init(path: Path, branch: str | None, template_name: str | None, no_input: bo
         save_project(path, project)
         click.echo("\nProject saved to .jig/config.yaml")
 
+    # Install hooks BEFORE the initial commit so freshly-installed hooks
+    # don't gate the init commit on themselves.
+    if not no_hooks:
+        from jig.hooks import HookInstallError, install_hooks
+
+        try:
+            report = install_hooks(path)
+        except HookInstallError as exc:
+            click.echo(f"Warning: hook install failed: {exc}", err=True)
+        else:
+            for line in report:
+                click.echo(line)
+
     # Commit everything so worktrees branch from a working state
     subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "chore: initialize jig project"],
-        cwd=path, capture_output=True,
+        ["git", "commit", "--no-verify", "-m", "chore: initialize jig project"],
+        cwd=path,
+        capture_output=True,
     )
     click.echo("Initial commit created.")
 
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--ws-port", default=9100, type=int, help="WebSocket server port.", show_default=True)
+@click.option(
+    "--ws-port",
+    default=9100,
+    type=int,
+    help="WebSocket server port.",
+    show_default=True,
+)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose (DEBUG) logging.")
-@click.option("--no-docker", is_flag=True, help="Run without Docker container (no sandbox).")
+@click.option(
+    "--no-docker", is_flag=True, help="Run without Docker container (no sandbox)."
+)
 def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     """Start the Jig orchestrator daemon."""
     from jig.container import (
-        is_in_container, docker_available, image_exists, build_image, exec_in_docker,
+        is_in_container,
+        docker_available,
+        image_exists,
+        build_image,
+        exec_in_docker,
     )
 
     if not is_in_container() and not no_docker:
@@ -267,27 +326,33 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
 
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
-        raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
+        raise click.ClickException(
+            f"Jig not initialized in {path}. Run 'jig init' first."
+        )
 
     # Fail-loud catalog validation (Phase 2F). Unknown role / workflow /
     # check references, malformed YAML, and missing required context
     # artifacts all surface here before any loop starts.
     from jig.catalog import CatalogError, validate_catalog
+
     try:
         validate_catalog(path)
     except CatalogError as exc:
         raise click.ClickException(f"Catalog validation failed: {exc}")
 
     from datetime import datetime
+
     log_dir = jig_dir / "logs"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"jig-{datetime.now():%Y%m%d-%H%M%S}.log"
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
     root.addHandler(file_handler)
     click.echo(f"Logging to {log_file}")
 
@@ -322,7 +387,9 @@ def sync(path: Path) -> None:
     """
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
-        raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
+        raise click.ClickException(
+            f"Jig not initialized in {path}. Run 'jig init' first."
+        )
 
     from jig.persistence import _defaults_dir
 
@@ -374,7 +441,9 @@ def validate(path: Path, ticket_id: str | None) -> None:
     """
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
-        raise click.ClickException(f"Jig not initialized in {path}. Run 'jig init' first.")
+        raise click.ClickException(
+            f"Jig not initialized in {path}. Run 'jig init' first."
+        )
 
     if ticket_id is not None:
         worktree_path = jig_dir / "worktrees" / ticket_id
@@ -392,6 +461,7 @@ def validate(path: Path, ticket_id: str | None) -> None:
     # Catalog dry-run. Collect every error so the operator sees the
     # whole picture in one pass.
     from jig.catalog import validate_catalog
+
     errors = validate_catalog(path, collect=True) or []
     if errors:
         for msg in errors:
@@ -404,7 +474,9 @@ def validate(path: Path, ticket_id: str | None) -> None:
 
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.confirmation_option(prompt="This will delete .jig/ and reinitialize git. Continue?")
+@click.confirmation_option(
+    prompt="This will delete .jig/ and reinitialize git. Continue?"
+)
 def reset(path: Path) -> None:
     """Reset project to a clean state for testing."""
     jig_dir = path / ".jig"
@@ -414,7 +486,9 @@ def reset(path: Path) -> None:
         try:
             result = subprocess.run(
                 ["git", "worktree", "list", "--porcelain"],
-                cwd=path, capture_output=True, text=True,
+                cwd=path,
+                capture_output=True,
+                text=True,
             )
             for line in result.stdout.splitlines():
                 if line.startswith("worktree "):
@@ -424,7 +498,8 @@ def reset(path: Path) -> None:
                     click.echo(f"  Removing worktree: {wt}")
                     subprocess.run(
                         ["git", "worktree", "remove", "--force", wt],
-                        cwd=path, capture_output=True,
+                        cwd=path,
+                        capture_output=True,
                     )
         except Exception:
             pass
@@ -434,7 +509,9 @@ def reset(path: Path) -> None:
     try:
         ref = subprocess.check_output(
             ["git", "symbolic-ref", "HEAD"],
-            cwd=path, text=True, stderr=subprocess.DEVNULL,
+            cwd=path,
+            text=True,
+            stderr=subprocess.DEVNULL,
         ).strip()
         branch = ref.removeprefix("refs/heads/")
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -481,3 +558,81 @@ def build() -> None:
     except subprocess.CalledProcessError:
         raise click.ClickException("Docker build failed. Check output above.")
     click.echo("Done.")
+
+
+@cli.group("hooks")
+def hooks_group() -> None:
+    """Manage human-side git hooks (pre-commit, pre-push, commit-msg)."""
+
+
+@hooks_group.command("install")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--force", is_flag=True, help="Overwrite an existing .jig-backup.")
+def hooks_install(path: Path, force: bool) -> None:
+    """Install jig-managed git hooks under .git/hooks/."""
+    from jig.hooks import HookInstallError, install_hooks
+
+    try:
+        report = install_hooks(path, force=force)
+    except HookInstallError as exc:
+        raise click.ClickException(str(exc))
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+    for line in report:
+        click.echo(line)
+
+
+@hooks_group.command("uninstall")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def hooks_uninstall(path: Path) -> None:
+    """Remove jig-managed git hooks; restore any backups."""
+    from jig.hooks import uninstall_hooks
+
+    try:
+        report = uninstall_hooks(path)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+    for line in report:
+        click.echo(line)
+
+
+@hooks_group.command("status")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def hooks_status_cmd(path: Path) -> None:
+    """Report which jig hooks are installed."""
+    from jig.hooks import hook_status
+
+    try:
+        lines = hook_status(path)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+    for line in lines:
+        click.echo(line)
+
+
+@hooks_group.command("run")
+@click.argument("stage", type=click.Choice(["pre-commit", "pre-push", "commit-msg"]))
+@click.argument("args", nargs=-1)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def hooks_run(stage: str, args: tuple[str, ...], path: Path) -> None:
+    """Run the check subset for a hook stage (invoked by hook scripts)."""
+    import asyncio
+
+    from jig.hooks import (
+        run_commit_msg,
+        run_pre_commit,
+        run_pre_push,
+    )
+
+    if stage == "pre-commit":
+        rc = asyncio.run(run_pre_commit(path))
+        raise SystemExit(rc)
+    if stage == "pre-push":
+        rc = asyncio.run(run_pre_push(path))
+        raise SystemExit(rc)
+    if stage == "commit-msg":
+        if not args:
+            raise click.ClickException("commit-msg requires a message file path")
+        rc = run_commit_msg(Path(args[0]))
+        raise SystemExit(rc)
+    raise click.ClickException(f"stage {stage!r} not yet implemented")

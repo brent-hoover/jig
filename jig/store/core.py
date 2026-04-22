@@ -36,13 +36,9 @@ class JsonlStore:
                         f"{self._path}: malformed JSON on line {line_no}: {e}"
                     ) from e
                 if "_op" not in record:
-                    raise ValueError(
-                        f"{self._path}: missing _op on line {line_no}"
-                    )
+                    raise ValueError(f"{self._path}: missing _op on line {line_no}")
                 if "_id" not in record:
-                    raise ValueError(
-                        f"{self._path}: missing _id on line {line_no}"
-                    )
+                    raise ValueError(f"{self._path}: missing _id on line {line_no}")
                 op = record["_op"]
                 doc_id = record["_id"]
                 if op == "insert":
@@ -52,20 +48,17 @@ class JsonlStore:
                 elif op == "update":
                     if doc_id not in live_ids:
                         raise ValueError(
-                            f"{self._path}:{line_no}: update for unknown id "
-                            f"{doc_id!r}"
+                            f"{self._path}:{line_no}: update for unknown id {doc_id!r}"
                         )
                     current = self._docs[doc_id]
                     changes = {
-                        k: v for k, v in record.items()
-                        if k not in ("_op", "_id")
+                        k: v for k, v in record.items() if k not in ("_op", "_id")
                     }
                     current.update(changes)
                 elif op == "delete":
                     if doc_id not in live_ids:
                         raise ValueError(
-                            f"{self._path}:{line_no}: delete for unknown id "
-                            f"{doc_id!r}"
+                            f"{self._path}:{line_no}: delete for unknown id {doc_id!r}"
                         )
                     self._docs.pop(doc_id, None)
                     live_ids.discard(doc_id)
@@ -111,16 +104,12 @@ class JsonlStore:
             return None
         return dict(self._docs[doc_id])
 
-    async def find(
-        self, predicate: Callable[[dict], bool] | None = None
-    ) -> list[dict]:
+    async def find(self, predicate: Callable[[dict], bool] | None = None) -> list[dict]:
         if predicate is None:
             return [dict(d) for d in self._docs.values()]
         return [dict(d) for d in self._docs.values() if predicate(d)]
 
-    async def count(
-        self, predicate: Callable[[dict], bool] | None = None
-    ) -> int:
+    async def count(self, predicate: Callable[[dict], bool] | None = None) -> int:
         if predicate is None:
             return len(self._docs)
         return sum(1 for d in self._docs.values() if predicate(d))

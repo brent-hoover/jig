@@ -94,9 +94,7 @@ def _shipped_path(name: str) -> Path:
 # ---- loader / list --------------------------------------------------------
 
 
-def load_work_type_schema(
-    project_path: Path, name: str
-) -> WorkTypeSchema:
+def load_work_type_schema(project_path: Path, name: str) -> WorkTypeSchema:
     """Load a work-type schema by name.
 
     Project override beats shipped default. Missing in both layers

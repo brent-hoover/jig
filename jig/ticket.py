@@ -84,12 +84,8 @@ class Ticket(StoreModel):
     workflow: str = "default"
     labels: list[str] = []
     created_by: str
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @model_validator(mode="before")
     @classmethod
@@ -118,5 +114,3 @@ class Ticket(StoreModel):
                 if legacy in ("task", "question") and "workflow" not in data:
                     data["workflow"] = "thread"
         return data
-
-

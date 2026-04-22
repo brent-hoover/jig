@@ -118,15 +118,12 @@ async def handle_resolve_proposal(
     """
     verdict = args["verdict"]
     if verdict not in {"accept", "reject", "refine"}:
-        raise ValueError(
-            f"verdict must be accept/reject/refine, got {verdict!r}"
-        )
+        raise ValueError(f"verdict must be accept/reject/refine, got {verdict!r}")
 
     proposal = await _find_proposal(threads, args["proposal_id"])
     if proposal.state != "pending":
         raise ProposalError(
-            f"proposal {proposal.id} is not pending "
-            f"(state={proposal.state})"
+            f"proposal {proposal.id} is not pending (state={proposal.state})"
         )
 
     # --- self-cert guard (doc 04) ---
@@ -151,9 +148,13 @@ async def handle_resolve_proposal(
     }[verdict]
 
     spec_version = None
-    if verdict == "accept" and proposal.target and (
-        proposal.target == "ticket://spec"
-        or proposal.target.startswith("ticket://spec.")
+    if (
+        verdict == "accept"
+        and proposal.target
+        and (
+            proposal.target == "ticket://spec"
+            or proposal.target.startswith("ticket://spec.")
+        )
     ):
         spec_version = await _apply_spec_change(
             proposal=proposal,
@@ -230,10 +231,7 @@ async def handle_list_proposals(
     # caused I7: a state-filter query like ``state='accepted'`` would
     # return resolver entries, not the original accepted proposals the
     # caller wanted.
-    proposals = [
-        e for e in found
-        if e.kind == "proposal" and e.parent_id is None
-    ]
+    proposals = [e for e in found if e.kind == "proposal" and e.parent_id is None]
     if state:
         proposals = [p for p in proposals if p.state == state]
     if target:
@@ -245,9 +243,7 @@ async def handle_list_proposals(
 # ---- helpers --------------------------------------------------------------
 
 
-async def _find_proposal(
-    threads: ThreadStore, proposal_id: str
-) -> Proposal:
+async def _find_proposal(threads: ThreadStore, proposal_id: str) -> Proposal:
     entry = await threads.get(proposal_id)
     if entry is None or entry.kind != "proposal":
         raise KeyError(f"proposal {proposal_id!r} not found")
@@ -287,9 +283,7 @@ async def _apply_spec_change(
 
     if target == "ticket://spec":
         if not isinstance(parsed, dict):
-            raise ProposalError(
-                "whole-spec change must be a YAML mapping of fields"
-            )
+            raise ProposalError("whole-spec change must be a YAML mapping of fields")
         new_fields = {**spec.fields, **parsed}
     else:
         field = target[len("ticket://spec.") :]
@@ -304,9 +298,7 @@ async def _apply_spec_change(
         created_at=spec.created_at,
     )
     try:
-        saved = save_ticket_spec(
-            project_path, next_spec, bump_version=False
-        )
+        saved = save_ticket_spec(project_path, next_spec, bump_version=False)
     except SpecValidationError:
         # Fail loud — Phase 3 does not auto-rollback a malformed
         # change. The proposal stays in the thread for the operator

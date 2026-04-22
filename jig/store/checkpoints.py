@@ -36,18 +36,14 @@ class CheckpointStore:
         raw = checkpoint.model_dump(mode="json", by_alias=True)
         return await self._collection.insert(raw)
 
-    async def mark_phase_historical(
-        self, ticket_id: str, phase: str
-    ) -> int:
+    async def mark_phase_historical(self, ticket_id: str, phase: str) -> int:
         """Flip every checkpoint for (ticket_id, phase) to ``historical=True``.
 
         Called from the Handoff-accept path so finished-phase records
         drop out of default queries but stay in the JSONL for audit.
         Returns the count of records updated.
         """
-        raws = await self._collection.find_where(
-            ticket_id=ticket_id, phase=phase
-        )
+        raws = await self._collection.find_where(ticket_id=ticket_id, phase=phase)
         updated = 0
         for r in raws:
             if r.get("historical") is True:
@@ -82,9 +78,7 @@ class CheckpointStore:
         *,
         include_historical: bool = False,
     ) -> list[Checkpoint]:
-        raws = await self._collection.find_where(
-            ticket_id=ticket_id, phase=phase
-        )
+        raws = await self._collection.find_where(ticket_id=ticket_id, phase=phase)
         cps = [self._load(r) for r in raws]
         if not include_historical:
             cps = [c for c in cps if not c.historical]
@@ -104,9 +98,7 @@ class CheckpointStore:
                 ticket_id, phase, include_historical=include_historical
             )
             if phase is not None
-            else await self.for_ticket(
-                ticket_id, include_historical=include_historical
-            )
+            else await self.for_ticket(ticket_id, include_historical=include_historical)
         )
         return cps[-1] if cps else None
 

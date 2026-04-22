@@ -150,16 +150,13 @@ async def handle_checkpoint_decision(
         raise CheckpointError(f"decision {decision_id!r} not found")
     if not isinstance(entry, Decision):
         raise CheckpointError(
-            f"thread entry {decision_id!r} is a "
-            f"{entry.kind!r}, not a decision"
+            f"thread entry {decision_id!r} is a {entry.kind!r}, not a decision"
         )
 
     await _require_ticket(tickets, entry.ticket_id)
 
     description = (
-        f"decision: {entry.decision}"
-        if entry.decision
-        else "decision (no summary)"
+        f"decision: {entry.decision}" if entry.decision else "decision (no summary)"
     )
     cp = Checkpoint(
         ticket_id=entry.ticket_id,

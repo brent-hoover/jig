@@ -219,9 +219,7 @@ async def evaluate_handoff_gate(
 
         event_id = ""
         if post_events:
-            event_id = await _post_failure_event(
-                threads=threads, result=result
-            )
+            event_id = await _post_failure_event(threads=threads, result=result)
             posted.append(event_id)
         failing.append(
             CheckFailureEntry(

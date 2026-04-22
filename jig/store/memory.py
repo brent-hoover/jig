@@ -33,9 +33,7 @@ class Handoff(StoreModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
-    _migrate_issue_id = model_validator(mode="before")(
-        _migrate_issue_id
-    )
+    _migrate_issue_id = model_validator(mode="before")(_migrate_issue_id)
 
 
 class Learning(StoreModel):
@@ -48,9 +46,7 @@ class Learning(StoreModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
-    _migrate_issue_id = model_validator(mode="before")(
-        _migrate_issue_id
-    )
+    _migrate_issue_id = model_validator(mode="before")(_migrate_issue_id)
 
 
 class MemoryStore:
@@ -87,9 +83,7 @@ class MemoryStore:
         )
         return await self._handoffs.insert(handoff)
 
-    async def read_handoff(
-        self, ticket_id: str, to_phase: str
-    ) -> Handoff | None:
+    async def read_handoff(self, ticket_id: str, to_phase: str) -> Handoff | None:
         results = await self._handoffs.find_where(
             ticket_id=ticket_id, to_phase=to_phase
         )
@@ -122,16 +116,11 @@ class MemoryStore:
         results = await self._learnings.find_where(ticket_id=ticket_id)
         if tags:
             tag_set = set(tags)
-            results = [
-                item for item in results
-                if tag_set.intersection(item.tags)
-            ]
+            results = [item for item in results if tag_set.intersection(item.tags)]
         results.sort(key=lambda item: item.timestamp, reverse=True)
         return results[:limit]
 
-    async def get_context_block(
-        self, ticket_id: str, to_phase: str
-    ) -> str:
+    async def get_context_block(self, ticket_id: str, to_phase: str) -> str:
         handoff = await self.read_handoff(ticket_id, to_phase)
         learnings = await self.get_learnings(ticket_id, limit=10)
 
@@ -145,8 +134,7 @@ class MemoryStore:
             parts.append("## Learnings")
             for learning in learnings:
                 tag_suffix = (
-                    f" (tags: {', '.join(learning.tags)})"
-                    if learning.tags else ""
+                    f" (tags: {', '.join(learning.tags)})" if learning.tags else ""
                 )
                 parts.append(f"- {learning.content}{tag_suffix}")
         return "\n".join(parts)
@@ -160,9 +148,7 @@ class MemoryStore:
         )
         return await self._learnings.insert(learning)
 
-    async def get_role_learnings(
-        self, role: str, limit: int = 20
-    ) -> list[Learning]:
+    async def get_role_learnings(self, role: str, limit: int = 20) -> list[Learning]:
         results = await self._learnings.find_where(role=role)
         results.sort(key=lambda learning: learning.timestamp)
         return results[:limit]

@@ -235,17 +235,14 @@ class ScriptedRunner:
             # than leave a zombie attached to the orchestrator.
             proc.kill()
             try:
-                stdout, _ = await asyncio.wait_for(
-                    proc.communicate(), timeout=5.0
-                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             except (asyncio.TimeoutError, Exception):
                 stdout = b""
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=1.0)
                 except (asyncio.TimeoutError, Exception):
                     _logger.warning(
-                        "check %r on ticket %s leaked a child pid=%s "
-                        "after SIGKILL",
+                        "check %r on ticket %s leaked a child pid=%s after SIGKILL",
                         check_name,
                         ticket_id,
                         proc.pid,
@@ -271,9 +268,7 @@ class ScriptedRunner:
             commit_sha=commit_sha,
         )
         await self._results.post(result)
-        await _publish_check_completed(
-            self._bus, result=result, sender=self._author
-        )
+        await _publish_check_completed(self._bus, result=result, sender=self._author)
         return result
 
     async def run_for_phase(
@@ -297,16 +292,12 @@ class ScriptedRunner:
             if not isinstance(check, ScriptedCheck):
                 continue
             results.append(
-                await self.run_check(
-                    ticket_id=ticket_id, phase=phase, check_name=name
-                )
+                await self.run_check(ticket_id=ticket_id, phase=phase, check_name=name)
             )
         return results
 
 
-def severity_for(
-    catalog: CheckCatalog, check_name: str
-) -> CheckSeverity | None:
+def severity_for(catalog: CheckCatalog, check_name: str) -> CheckSeverity | None:
     """Look up a check's severity without running it.
 
     The gating layer (Task D) needs this to decide whether a fail
@@ -360,9 +351,7 @@ async def _resolve_check_context(
     filtered: list[str] = []
     for uri in check.context:
         if _matches_excluded(uri, excluded):
-            _logger.warning(
-                "context URI %s excluded by check policy; skipping", uri
-            )
+            _logger.warning("context URI %s excluded by check policy; skipping", uri)
             continue
         filtered.append(uri)
     return await resolve_context_uris(
@@ -397,11 +386,13 @@ def _build_check_prompt(
     ]
     if resolved_context:
         parts.extend([resolved_context.strip(), ""])
-    parts.extend([
-        "When finished, call the `check_verdict` tool exactly once "
-        "with a verdict of `pass` or `fail` and 1–3 sentences of "
-        "reasoning. Do not emit a verdict any other way.",
-    ])
+    parts.extend(
+        [
+            "When finished, call the `check_verdict` tool exactly once "
+            "with a verdict of `pass` or `fail` and 1–3 sentences of "
+            "reasoning. Do not emit a verdict any other way.",
+        ]
+    )
     return "\n".join(parts)
 
 
@@ -449,9 +440,7 @@ class AgentCheckRunner:
         check = self._catalog.get(check_name)
         if check is None:
             raise KeyError(f"check {check_name!r} not in catalog")
-        if not isinstance(
-            check, (ImplementationAwareAgentCheck, BlackBoxAgentCheck)
-        ):
+        if not isinstance(check, (ImplementationAwareAgentCheck, BlackBoxAgentCheck)):
             raise TypeError(
                 f"check {check_name!r} is {check.type!r}; "
                 "AgentCheckRunner handles agent checks only"
@@ -501,9 +490,7 @@ class AgentCheckRunner:
         spawn_error: str | None = None
 
         async def _drive() -> None:
-            async for _msg in query(
-                prompt=initial_prompt, options=options
-            ):
+            async for _msg in query(prompt=initial_prompt, options=options):
                 # Stop as soon as the verdict is recorded — the agent
                 # may keep talking after the tool call, but the
                 # runner only cares about the first verdict and has
@@ -516,9 +503,7 @@ class AgentCheckRunner:
         except asyncio.TimeoutError:
             timed_out = True
         except Exception as exc:  # noqa: BLE001
-            _logger.exception(
-                "agent check %s crashed", check_name
-            )
+            _logger.exception("agent check %s crashed", check_name)
             spawn_error = f"{type(exc).__name__}: {exc}"
 
         finished_at = datetime.now(timezone.utc)
@@ -550,9 +535,7 @@ class AgentCheckRunner:
             commit_sha=commit_sha,
         )
         await self._results.post(result)
-        await _publish_check_completed(
-            self._bus, result=result, sender=self._author
-        )
+        await _publish_check_completed(self._bus, result=result, sender=self._author)
         return result
 
     async def run_for_phase(

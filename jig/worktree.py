@@ -29,15 +29,15 @@ class MergeConflictError(RuntimeError):
         self.ticket_id = ticket_id
         self.source_branch = source_branch
         super().__init__(
-            f"Merge conflict for {source_branch} "
-            f"(branch preserved for manual merge)"
+            f"Merge conflict for {source_branch} (branch preserved for manual merge)"
         )
 
 
 async def _run_git(cwd: Path, *args: str) -> str:
     """Run a git command and return stdout."""
     proc = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -66,7 +66,10 @@ async def create_worktree(
     except RuntimeError:
         await _run_git(
             project_path,
-            "commit", "--allow-empty", "-m", "chore: initialize repository",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "chore: initialize repository",
         )
 
     # If the branch already exists (leftover from a previous run), delete it
@@ -80,8 +83,12 @@ async def create_worktree(
 
     await _run_git(
         project_path,
-        "worktree", "add", "-b", branch_name,
-        str(worktree_path), base_branch,
+        "worktree",
+        "add",
+        "-b",
+        branch_name,
+        str(worktree_path),
+        base_branch,
     )
     return worktree_path
 
@@ -98,18 +105,25 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
 
     # 1. Auto-format
     proc = await asyncio.create_subprocess_exec(
-        "ruff", "format", ".",
+        "ruff",
+        "format",
+        ".",
         cwd=worktree_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
     stdout, _ = await proc.communicate()
     if proc.returncode != 0:
-        _logger.warning("ruff format failed (rc=%d): %s", proc.returncode, stdout.decode().strip())
+        _logger.warning(
+            "ruff format failed (rc=%d): %s", proc.returncode, stdout.decode().strip()
+        )
 
     # 2. Auto-fix lint violations
     proc = await asyncio.create_subprocess_exec(
-        "ruff", "check", "--fix", ".",
+        "ruff",
+        "check",
+        "--fix",
+        ".",
         cwd=worktree_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -118,7 +132,9 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
 
     # 3. Check for remaining unfixable issues
     proc = await asyncio.create_subprocess_exec(
-        "ruff", "check", ".",
+        "ruff",
+        "check",
+        ".",
         cwd=worktree_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -145,7 +161,10 @@ async def commit_worktree(worktree_path: Path, message: str) -> str | None:
 
     # Check if there's anything staged
     proc = await asyncio.create_subprocess_exec(
-        "git", "diff", "--cached", "--quiet",
+        "git",
+        "diff",
+        "--cached",
+        "--quiet",
         cwd=worktree_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -160,7 +179,10 @@ async def commit_worktree(worktree_path: Path, message: str) -> str | None:
 
 
 async def remove_worktree(
-    project_path: Path, ticket_id: str, *, keep_branch: bool = False,
+    project_path: Path,
+    ticket_id: str,
+    *,
+    keep_branch: bool = False,
 ) -> None:
     """Remove a git worktree, optionally preserving its branch for merge."""
     worktree_path = project_path / ".jig" / "worktrees" / ticket_id
@@ -180,8 +202,14 @@ async def merge_dep_into_worktree(worktree_path: Path, dep_branch: str) -> None:
     """
     # Verify the branch exists before attempting merge
     await _run_git(worktree_path, "rev-parse", "--verify", dep_branch)
-    await _run_git(worktree_path, "merge", dep_branch, "--no-edit",
-                   "-m", f"chore: merge dependency {dep_branch}")
+    await _run_git(
+        worktree_path,
+        "merge",
+        dep_branch,
+        "--no-edit",
+        "-m",
+        f"chore: merge dependency {dep_branch}",
+    )
 
 
 async def _run_cmd(cwd: Path, *args: str) -> str:
@@ -235,11 +263,17 @@ async def merge_ticket(
             await _run_git(project_path, "push", "-u", "origin", feature_branch)
             stdout = await _run_cmd(
                 project_path,
-                "gh", "pr", "create",
-                "--base", base_branch,
-                "--head", feature_branch,
-                "--title", f"jig: {ticket_id}",
-                "--body", f"Automated PR for ticket {ticket_id}",
+                "gh",
+                "pr",
+                "create",
+                "--base",
+                base_branch,
+                "--head",
+                feature_branch,
+                "--title",
+                f"jig: {ticket_id}",
+                "--body",
+                f"Automated PR for ticket {ticket_id}",
             )
             return f"Created PR: {stdout}"
         except (RuntimeError, FileNotFoundError) as e:
@@ -247,7 +281,9 @@ async def merge_ticket(
 
     # Direct or squash merge — serialize to prevent racing on the main repo.
     async with _merge_lock:
-        return await _do_merge(project_path, ticket_id, source_branch, base_branch, strategy)
+        return await _do_merge(
+            project_path, ticket_id, source_branch, base_branch, strategy
+        )
 
 
 async def _do_merge(
@@ -278,7 +314,10 @@ async def _do_merge(
             await _run_git(project_path, "merge", "--squash", source_branch)
             # Check if the squash produced anything to commit
             proc = await asyncio.create_subprocess_exec(
-                "git", "diff", "--cached", "--quiet",
+                "git",
+                "diff",
+                "--cached",
+                "--quiet",
                 cwd=project_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -290,7 +329,9 @@ async def _do_merge(
             return f"Squash-merged {source_branch} into {base_branch}"
         else:
             # MergeStrategy.DIRECT
-            await _run_git(project_path, "merge", source_branch, "-m", f"Merge {ticket_id}")
+            await _run_git(
+                project_path, "merge", source_branch, "-m", f"Merge {ticket_id}"
+            )
             return f"Merged {source_branch} into {base_branch}"
     except RuntimeError as exc:
         # Merge conflict — abort and leave branch intact for manual

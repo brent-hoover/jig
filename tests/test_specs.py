@@ -89,23 +89,17 @@ class TestVersionBump:
         assert on_disk.version == 2
         assert on_disk.fields["summary"] == "rewritten"
 
-    def test_bump_version_false_preserves(
-        self, initialized_project: Path
-    ) -> None:
+    def test_bump_version_false_preserves(self, initialized_project: Path) -> None:
         save_ticket_spec(initialized_project, _feature_spec())
         explicit = _feature_spec(summary="explicit")
         # mimic a proposal-accept path that computed version itself.
         explicit = explicit.model_copy(update={"version": 9})
-        saved = save_ticket_spec(
-            initialized_project, explicit, bump_version=False
-        )
+        saved = save_ticket_spec(initialized_project, explicit, bump_version=False)
         assert saved.version == 9
 
 
 class TestSchemaValidation:
-    def test_missing_required_m_rejected(
-        self, initialized_project: Path
-    ) -> None:
+    def test_missing_required_m_rejected(self, initialized_project: Path) -> None:
         """Feature at M requires summary+behaviors+AC+oos."""
         bad = TicketSpec(
             ticket_id="t-1",
@@ -116,9 +110,7 @@ class TestSchemaValidation:
         with pytest.raises(SpecValidationError, match="missing required fields"):
             save_ticket_spec(initialized_project, bad)
 
-    def test_xs_requires_only_summary(
-        self, initialized_project: Path
-    ) -> None:
+    def test_xs_requires_only_summary(self, initialized_project: Path) -> None:
         xs = TicketSpec(
             ticket_id="t-xs",
             work_type=WorkType.FEATURE,
@@ -127,32 +119,24 @@ class TestSchemaValidation:
         )
         save_ticket_spec(initialized_project, xs)  # no raise
 
-    def test_unknown_field_rejected(
-        self, initialized_project: Path
-    ) -> None:
+    def test_unknown_field_rejected(self, initialized_project: Path) -> None:
         with pytest.raises(SpecValidationError, match="unknown fields"):
             save_ticket_spec(
                 initialized_project,
                 _feature_spec(note_from_space="bloop"),
             )
 
-    def test_empty_string_counts_as_missing(
-        self, initialized_project: Path
-    ) -> None:
+    def test_empty_string_counts_as_missing(self, initialized_project: Path) -> None:
         bad = _feature_spec(summary="")
         with pytest.raises(SpecValidationError, match="summary"):
             save_ticket_spec(initialized_project, bad)
 
-    def test_empty_list_counts_as_missing(
-        self, initialized_project: Path
-    ) -> None:
+    def test_empty_list_counts_as_missing(self, initialized_project: Path) -> None:
         bad = _feature_spec(behaviors=[])
         with pytest.raises(SpecValidationError, match="behaviors"):
             save_ticket_spec(initialized_project, bad)
 
-    def test_spike_without_behaviors_accepted(
-        self, initialized_project: Path
-    ) -> None:
+    def test_spike_without_behaviors_accepted(self, initialized_project: Path) -> None:
         """Spike has no behaviors in the schema, so omitting it is fine."""
         spec = TicketSpec(
             ticket_id="spike-1",
@@ -187,9 +171,7 @@ class TestInitCreatesSpecsDir:
 
 
 class TestYAMLShapeOnDisk:
-    def test_field_values_preserve_types(
-        self, initialized_project: Path
-    ) -> None:
+    def test_field_values_preserve_types(self, initialized_project: Path) -> None:
         """Complex structured fields must roundtrip untouched."""
         spec = _feature_spec(
             behaviors=[

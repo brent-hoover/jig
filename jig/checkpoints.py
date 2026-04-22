@@ -67,9 +67,7 @@ class Checkpoint(StoreModel):
     ticket_id: str
     phase: str
     author: str
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Narrative slots per doc 09 §Shape.
     description: str = ""

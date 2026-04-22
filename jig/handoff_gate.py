@@ -78,9 +78,7 @@ async def run_handoff_gate(
     if handoff is None:
         raise KeyError(f"handoff {handoff_id!r} not found")
     if not isinstance(handoff, Handoff):
-        raise ThreadError(
-            f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff"
-        )
+        raise ThreadError(f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff")
     if handoff.is_resolved():
         raise ThreadError(
             f"handoff {handoff_id!r} is already "
@@ -91,14 +89,9 @@ async def run_handoff_gate(
     if ticket is None:
         raise KeyError(f"ticket {handoff.ticket_id} not found")
 
-    phase_cfg = next(
-        (p for p in workflow.phases if p.name == handoff.phase), None
-    )
+    phase_cfg = next((p for p in workflow.phases if p.name == handoff.phase), None)
     if phase_cfg is None:
-        raise KeyError(
-            f"phase {handoff.phase!r} not in workflow "
-            f"{workflow.name!r}"
-        )
+        raise KeyError(f"phase {handoff.phase!r} not in workflow {workflow.name!r}")
 
     check_names = list(phase_cfg.automated_checks)
     if check_names:
@@ -150,14 +143,11 @@ def _compose_bounce_reason(verdict: GateVerdict) -> str:
         lines.append("Failing required checks:")
         for entry in verdict.failing:
             lines.append(
-                f"  - {entry.check_name} ({entry.verdict}) "
-                f"[event {entry.event_id}]"
+                f"  - {entry.check_name} ({entry.verdict}) [event {entry.event_id}]"
             )
     if verdict.missing:
         lines.append("")
-        lines.append(
-            "Required checks with no result (treated as fail):"
-        )
+        lines.append("Required checks with no result (treated as fail):")
         for name in verdict.missing:
             lines.append(f"  - {name}")
     lines.append("")
@@ -195,18 +185,14 @@ async def bounce_handoff(
     if handoff is None:
         raise KeyError(f"handoff {handoff_id!r} not found")
     if not isinstance(handoff, Handoff):
-        raise ThreadError(
-            f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff"
-        )
+        raise ThreadError(f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff")
     if handoff.is_resolved():
         raise ThreadError(
             f"handoff {handoff_id!r} is already "
             f"{handoff.acceptance_state!r}; cannot bounce"
         )
     if verdict.passing:
-        raise ThreadError(
-            "refusing to bounce a handoff on a passing gate verdict"
-        )
+        raise ThreadError("refusing to bounce a handoff on a passing gate verdict")
     # Defense-in-depth: bouncing requires a verdict from the
     # write-side gate run (mode="handoff") — the read-only
     # ``check_gate_status`` call emits mode="pre-spawn" and never posts
@@ -214,8 +200,7 @@ async def bounce_handoff(
     # without an audit trail.
     if verdict.mode != "handoff":
         raise ThreadError(
-            f"bounce requires a handoff-mode verdict, got "
-            f"mode={verdict.mode!r}"
+            f"bounce requires a handoff-mode verdict, got mode={verdict.mode!r}"
         )
     # Every failing check must have produced an event — the bounce
     # reason links to them and the next fix iteration cites them from
@@ -251,9 +236,7 @@ async def bounce_handoff(
                 "rejection_reason": reason,
                 "rejected_by": _BOUNCE_AUTHOR,
                 "bounce": True,
-                "failing_checks": [
-                    f.check_name for f in verdict.failing
-                ],
+                "failing_checks": [f.check_name for f in verdict.failing],
                 "missing_checks": list(verdict.missing),
             },
             topic=f"tickets.{handoff.ticket_id}",
@@ -293,9 +276,7 @@ async def accept_handoff_automated(
     if handoff is None:
         raise KeyError(f"handoff {handoff_id!r} not found")
     if not isinstance(handoff, Handoff):
-        raise ThreadError(
-            f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff"
-        )
+        raise ThreadError(f"entry {handoff_id!r} is a {handoff.kind!r}, not a handoff")
     if handoff.is_resolved():
         raise ThreadError(
             f"handoff {handoff_id!r} is already "
@@ -311,9 +292,7 @@ async def accept_handoff_automated(
     )
 
     if checkpoints is not None:
-        await checkpoints.mark_phase_historical(
-            handoff.ticket_id, handoff.phase
-        )
+        await checkpoints.mark_phase_historical(handoff.ticket_id, handoff.phase)
 
     await bus.publish(
         Message(

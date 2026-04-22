@@ -32,14 +32,19 @@ async def test_read_handoff_returns_most_recent(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
     await mem.write_handoff(
-        ticket_id="JIG-1", from_phase="spec", to_phase="test",
+        ticket_id="JIG-1",
+        from_phase="spec",
+        to_phase="test",
         summary="first",
     )
     # Ensure distinct timestamps
     import asyncio
+
     await asyncio.sleep(0.01)
     await mem.write_handoff(
-        ticket_id="JIG-1", from_phase="spec", to_phase="test",
+        ticket_id="JIG-1",
+        from_phase="spec",
+        to_phase="test",
         summary="second",
     )
     handoff = await mem.read_handoff("JIG-1", "test")
@@ -50,8 +55,10 @@ async def test_add_and_get_learnings_returns_models(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
     await mem.add_learning(
-        ticket_id="JIG-1", phase="test",
-        content="pytest fixtures are sticky", tags=["testing"],
+        ticket_id="JIG-1",
+        phase="test",
+        content="pytest fixtures are sticky",
+        tags=["testing"],
     )
     learnings = await mem.get_learnings("JIG-1")
     assert len(learnings) == 1
@@ -63,13 +70,22 @@ async def test_get_learnings_filters_by_tag_overlap(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
     await mem.add_learning(
-        ticket_id="JIG-1", phase="test", content="a", tags=["testing"],
+        ticket_id="JIG-1",
+        phase="test",
+        content="a",
+        tags=["testing"],
     )
     await mem.add_learning(
-        ticket_id="JIG-1", phase="test", content="b", tags=["architecture"],
+        ticket_id="JIG-1",
+        phase="test",
+        content="b",
+        tags=["architecture"],
     )
     await mem.add_learning(
-        ticket_id="JIG-1", phase="test", content="c", tags=["gotcha", "testing"],
+        ticket_id="JIG-1",
+        phase="test",
+        content="c",
+        tags=["gotcha", "testing"],
     )
     filtered = await mem.get_learnings("JIG-1", tags=["testing"])
     assert {item.content for item in filtered} == {"a", "c"}
@@ -77,6 +93,7 @@ async def test_get_learnings_filters_by_tag_overlap(tmp_path):
 
 async def test_get_learnings_respects_limit_and_sort_order(tmp_path):
     import asyncio
+
     mem = MemoryStore(tmp_path)
     await mem.load()
     for content in ["first", "second", "third", "fourth"]:
@@ -99,12 +116,16 @@ async def test_context_block_with_handoff_and_learnings(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
     await mem.write_handoff(
-        ticket_id="JIG-1", from_phase="spec", to_phase="test",
+        ticket_id="JIG-1",
+        from_phase="spec",
+        to_phase="test",
         summary="spec approved",
     )
     await mem.add_learning(
-        ticket_id="JIG-1", phase="spec",
-        content="prefer fixtures", tags=["testing"],
+        ticket_id="JIG-1",
+        phase="spec",
+        content="prefer fixtures",
+        tags=["testing"],
     )
     block = await mem.get_context_block("JIG-1", "test")
     assert "## Handoff from spec" in block
@@ -118,7 +139,9 @@ async def test_context_block_handoff_only_no_learnings_section(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
     await mem.write_handoff(
-        ticket_id="JIG-1", from_phase="spec", to_phase="test",
+        ticket_id="JIG-1",
+        from_phase="spec",
+        to_phase="test",
         summary="done",
     )
     block = await mem.get_context_block("JIG-1", "test")
@@ -130,7 +153,9 @@ async def test_context_block_learnings_only_no_handoff_section(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
     await mem.add_learning(
-        ticket_id="JIG-1", phase="spec", content="x",
+        ticket_id="JIG-1",
+        phase="spec",
+        content="x",
     )
     block = await mem.get_context_block("JIG-1", "test")
     assert "## Handoff" not in block

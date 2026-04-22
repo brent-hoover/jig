@@ -11,9 +11,22 @@ import json
 import warnings
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from jig.models import MergeStrategy
+
+
+class HooksConfig(BaseModel):
+    """Human-side git hook configuration (Phase 5 Task I).
+
+    Per docs/superpowers/specs/2026-04-22-jig-hooks-design.md. Currently
+    only `pre_push_command` is used: when a developer runs `git push`
+    from outside a jig ticket worktree, the pre-push hook falls back to
+    running this command. Inside a worktree, pre-push is phase-aware
+    and derives its check list from the ticket's workflow.
+    """
+
+    pre_push_command: str | None = None
 
 
 class Project(BaseModel):
@@ -28,6 +41,7 @@ class Project(BaseModel):
     test_command: str = ""
     build_command: str = ""
     merge_strategy: MergeStrategy = MergeStrategy.FEATURE_BRANCH
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
 
     def path_or_default(self) -> Path:
         return Path(self.path)
@@ -83,8 +97,7 @@ def load_project(project_path: Path) -> Project:
         return Project.model_validate_json(legacy.read_text())
 
     raise FileNotFoundError(
-        f"No project config found at {_config_file(project_path)} "
-        f"or {legacy}"
+        f"No project config found at {_config_file(project_path)} or {legacy}"
     )
 
 

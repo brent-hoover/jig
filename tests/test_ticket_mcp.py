@@ -107,7 +107,9 @@ async def test_create_ticket_rejects_unknown_size(stores) -> None:
 async def test_read_ticket(stores) -> None:
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="user",
+        tickets=tickets,
+        bus=bus,
+        sender="user",
         args={"type": "feature", "title": "f"},
     )
     loaded = await handle_read_ticket(tickets=tickets, ticket_id=tid)
@@ -125,11 +127,15 @@ async def test_read_ticket_missing_raises(stores) -> None:
 async def test_list_tickets_filtered(stores) -> None:
     tickets, threads, bus = stores
     await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "feature", "title": "f1"},
     )
     await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "bug", "title": "b1"},
     )
     features = await handle_list_tickets(tickets=tickets, args={"type": "feature"})
@@ -140,7 +146,9 @@ async def test_list_tickets_filtered(stores) -> None:
 async def test_read_comments_direct_post(stores) -> None:
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "task", "title": "t"},
     )
     await threads.post(Note(ticket_id=tid, author="dev", text="hello"))
@@ -154,13 +162,18 @@ async def test_read_comments_direct_post(stores) -> None:
 async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "task", "title": "t"},
     )
     with pytest.raises(ValueError):
         await handle_comment_on_ticket(
-            tickets=tickets, threads=threads, bus=bus,
-            sender="dev", sender_cfg=None,
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            sender_cfg=None,
             args={"ticket_id": tid, "content": "x", "kind": "phase_run"},
         )
 
@@ -169,17 +182,22 @@ async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
 async def test_update_ticket_status_emits_status_change_comment(stores) -> None:
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "feature", "title": "f"},
     )
     await handle_update_ticket(
-        tickets=tickets, threads=threads, bus=bus,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
         sender="orchestrator",
         args={"ticket_id": tid, "status": "in_progress"},
     )
     entries = await threads.for_ticket(tid)
     status_changes = [
-        e for e in entries
+        e
+        for e in entries
         if e.kind == "system_event" and e.event_type == "status_change"
     ]
     assert len(status_changes) == 1
@@ -190,11 +208,15 @@ async def test_update_ticket_status_emits_status_change_comment(stores) -> None:
 async def test_update_ticket_non_status_field(stores) -> None:
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "feature", "title": "f"},
     )
     await handle_update_ticket(
-        tickets=tickets, threads=threads, bus=bus,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
         sender="orchestrator",
         args={"ticket_id": tid, "description": "more detail"},
     )
@@ -202,8 +224,7 @@ async def test_update_ticket_non_status_field(stores) -> None:
     assert loaded.description == "more detail"
     entries = await threads.for_ticket(tid)
     assert not any(
-        e.kind == "system_event" and e.event_type == "status_change"
-        for e in entries
+        e.kind == "system_event" and e.event_type == "status_change" for e in entries
     )
 
 
@@ -212,13 +233,18 @@ async def test_comment_on_ticket_self_role_allowed(stores) -> None:
     """A dev agent can comment on a dev-assigned ticket."""
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "task", "title": "t", "assignee": "dev"},
     )
     dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
-        tickets=tickets, threads=threads, bus=bus,
-        sender="dev", sender_cfg=dev_cfg,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender="dev",
+        sender_cfg=dev_cfg,
         args={"ticket_id": tid, "content": "progress"},
     )
     assert cid
@@ -229,21 +255,29 @@ async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
     """Any agent can still reach the orchestrator."""
     tickets, threads, bus = stores
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "task", "title": "t", "assignee": "orchestrator"},
     )
     dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
-        tickets=tickets, threads=threads, bus=bus,
-        sender="dev", sender_cfg=dev_cfg,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender="dev",
+        sender_cfg=dev_cfg,
         args={"ticket_id": tid, "content": "question for orchestrator"},
     )
     assert cid
 
 
 @pytest.mark.asyncio
-async def test_commit_progress_creates_commit_and_system_event(stores, tmp_path) -> None:
+async def test_commit_progress_creates_commit_and_system_event(
+    stores, tmp_path
+) -> None:
     import subprocess
+
     tickets, threads, bus = stores
 
     work = tmp_path / "worktree"
@@ -254,12 +288,17 @@ async def test_commit_progress_creates_commit_and_system_event(stores, tmp_path)
     (work / "a.txt").write_text("hello")
 
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "feature", "title": "f"},
     )
     from jig.ticket_mcp import handle_commit_progress
+
     result = await handle_commit_progress(
-        tickets=tickets, threads=threads, bus=bus,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
         sender="dev",
         worktree_path=work,
         args={"ticket_id": tid, "message": "add a.txt"},
@@ -268,8 +307,7 @@ async def test_commit_progress_creates_commit_and_system_event(stores, tmp_path)
     assert result["sha"]
     entries = await threads.for_ticket(tid)
     commits = [
-        e for e in entries
-        if e.kind == "system_event" and e.event_type == "commit"
+        e for e in entries if e.kind == "system_event" and e.event_type == "commit"
     ]
     assert len(commits) == 1
     assert commits[0].commit_sha == result["sha"]
@@ -277,31 +315,41 @@ async def test_commit_progress_creates_commit_and_system_event(stores, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_commit_progress_nothing_to_commit_returns_none_sha(stores, tmp_path) -> None:
+async def test_commit_progress_nothing_to_commit_returns_none_sha(
+    stores, tmp_path
+) -> None:
     import subprocess
+
     tickets, threads, bus = stores
     work = tmp_path / "worktree2"
     work.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=work, check=True)
     subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
-    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=work, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "init"], cwd=work, check=True
+    )
 
     tid = await handle_create_ticket(
-        tickets=tickets, bus=bus, sender="u",
+        tickets=tickets,
+        bus=bus,
+        sender="u",
         args={"type": "feature", "title": "f"},
     )
     from jig.ticket_mcp import handle_commit_progress
+
     result = await handle_commit_progress(
-        tickets=tickets, threads=threads, bus=bus,
-        sender="dev", worktree_path=work,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender="dev",
+        worktree_path=work,
         args={"ticket_id": tid, "message": "noop"},
     )
     assert result["sha"] is None
     entries = await threads.for_ticket(tid)
     commits = [
-        e for e in entries
-        if e.kind == "system_event" and e.event_type == "commit"
+        e for e in entries if e.kind == "system_event" and e.event_type == "commit"
     ]
     assert commits == []
 
@@ -314,7 +362,8 @@ async def test_record_learning_writes_to_memory_store(tmp_path: Path) -> None:
     memory = MemoryStore(tmp_path)
     await memory.load()
     await handle_record_learning(
-        memory=memory, role="dev",
+        memory=memory,
+        role="dev",
         args={"content": "always use uv run"},
     )
     learnings = await memory.get_role_learnings("dev")
@@ -329,7 +378,8 @@ async def test_request_context_reads_worktree_file(tmp_path: Path) -> None:
     work.mkdir()
     (work / "README.md").write_text("hello")
     result = await handle_request_context(
-        worktree_path=work, args={"path": "README.md"},
+        worktree_path=work,
+        args={"path": "README.md"},
     )
     assert result == "hello"
 
@@ -341,6 +391,7 @@ async def test_request_context_missing_file(tmp_path: Path) -> None:
     work = tmp_path / "w"
     work.mkdir()
     result = await handle_request_context(
-        worktree_path=work, args={"path": "nope.txt"},
+        worktree_path=work,
+        args={"path": "nope.txt"},
     )
     assert "not found" in result.lower()

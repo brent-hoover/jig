@@ -20,6 +20,7 @@ harness remains canonical.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -124,11 +125,65 @@ def _resolve_ticket_worktree(cwd: Path) -> str | None:
     return cwd.name
 
 
+class HookInstallError(RuntimeError):
+    """Raised when install_hooks refuses a clobber."""
+
+
+def install_hooks(project_path: Path, *, force: bool = False) -> list[str]:
+    """Install all three jig hooks under the project's git common dir.
+
+    Returns a list of human-readable status lines (one per hook) so
+    the CLI can echo them. Raises ``HookInstallError`` if a non-jig
+    hook would overwrite an existing ``.jig-backup`` and ``force`` is
+    False.
+    """
+    common = _git_common_dir(project_path)
+    hooks_dir = common / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    report: list[str] = []
+    for name in HOOK_NAMES:
+        target = hooks_dir / name
+        backup = hooks_dir / f"{name}.jig-backup"
+        script = HOOK_SCRIPTS[name]
+
+        if not target.exists():
+            _write_hook(target, script)
+            report.append(f"installed {name}")
+            continue
+
+        if _is_jig_managed(target):
+            _write_hook(target, script)
+            report.append(f"refreshed {name}")
+            continue
+
+        # Target exists and isn't ours.
+        if backup.exists() and not force:
+            raise HookInstallError(
+                f"refusing to overwrite {target}: backup already exists at "
+                f"{backup}. Re-run with --force to replace the backup."
+            )
+        # Preserve original mode bits on the backup file.
+        shutil.move(str(target), str(backup))
+        _write_hook(target, script)
+        report.append(f"installed {name} (existing hook backed up to .jig-backup)")
+    return report
+
+
+def _write_hook(target: Path, script: str) -> None:
+    """Atomically-ish write the hook script and chmod 0755."""
+    target.write_text(script)
+    target.chmod(0o755)
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
     "SENTINEL_LINE",
+    "HookInstallError",
     "_git_common_dir",
     "_is_jig_managed",
     "_resolve_ticket_worktree",
+    "_write_hook",
+    "install_hooks",
 ]

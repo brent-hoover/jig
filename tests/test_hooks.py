@@ -1,5 +1,7 @@
 """Tests for jig.hooks + jig.project HooksConfig."""
 
+import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -9,9 +11,11 @@ from jig.hooks import (
     HOOK_NAMES,
     HOOK_SCRIPTS,
     SENTINEL_LINE,
+    HookInstallError,
     _git_common_dir,
     _is_jig_managed,
     _resolve_ticket_worktree,
+    install_hooks,
 )
 from jig.project import HooksConfig, Project, load_project, save_project
 
@@ -147,3 +151,70 @@ def test_resolve_ticket_worktree_false_positive_guard(tmp_path: Path):
     sneaky = tmp_path / "worktrees" / "t-fake"
     sneaky.mkdir(parents=True)
     assert _resolve_ticket_worktree(sneaky) is None
+
+
+def test_install_hooks_fresh_writes_all_three(tmp_path: Path):
+    _git_init(tmp_path)
+    report = install_hooks(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    for name in HOOK_NAMES:
+        target = hooks_dir / name
+        assert target.is_file(), f"{name} not installed"
+        assert _is_jig_managed(target)
+        mode = os.stat(target).st_mode
+        assert mode & stat.S_IXUSR, f"{name} not executable"
+    assert all("installed" in line for line in report)
+
+
+def test_install_hooks_refresh_over_jig_managed(tmp_path: Path):
+    _git_init(tmp_path)
+    install_hooks(tmp_path)
+    # Second run refreshes silently, no .jig-backup files.
+    report = install_hooks(tmp_path)
+    assert all("refreshed" in line for line in report)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    assert not (hooks_dir / "pre-commit.jig-backup").exists()
+
+
+def test_install_hooks_backs_up_existing_foreign_hook(tmp_path: Path):
+    _git_init(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    original = "#!/usr/bin/env bash\necho 'user hook'\n"
+    (hooks_dir / "pre-commit").write_text(original)
+    os.chmod(hooks_dir / "pre-commit", 0o755)
+
+    report = install_hooks(tmp_path)
+
+    backup = hooks_dir / "pre-commit.jig-backup"
+    assert backup.is_file()
+    assert backup.read_text() == original
+    assert _is_jig_managed(hooks_dir / "pre-commit")
+    assert any("backed up" in line for line in report)
+
+
+def test_install_hooks_refuses_when_backup_collision(tmp_path: Path):
+    _git_init(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    (hooks_dir / "pre-commit").write_text("#!/usr/bin/env bash\necho one\n")
+    (hooks_dir / "pre-commit.jig-backup").write_text(
+        "#!/usr/bin/env bash\necho earlier\n"
+    )
+
+    with pytest.raises(HookInstallError, match="backup already exists"):
+        install_hooks(tmp_path)
+
+
+def test_install_hooks_force_overwrites_backup(tmp_path: Path):
+    _git_init(tmp_path)
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    new_foreign = "#!/usr/bin/env bash\necho new\n"
+    (hooks_dir / "pre-commit").write_text(new_foreign)
+    (hooks_dir / "pre-commit.jig-backup").write_text("#!/usr/bin/env bash\necho old\n")
+
+    install_hooks(tmp_path, force=True)
+
+    assert (hooks_dir / "pre-commit.jig-backup").read_text() == new_foreign
+    assert _is_jig_managed(hooks_dir / "pre-commit")

@@ -173,6 +173,21 @@ Submit. The TUI should:
 3. Flip to `in_progress` via `ticket_updated`.
 4. Fire `phase_started` with `phase_name="spec"`.
 
+**CLI alternative.** If you'd rather script the seed (or you're dogfooding
+headlessly), `jig ticket create` talks to the same WS endpoint:
+
+```bash
+jig ticket create \
+  --title "add the thing" \
+  --work-type feature --size s \
+  --description-file /tmp/jig-dogfood/.jig/spec/project.md
+# prints the ticket_id to stdout on success
+```
+
+Exits non-zero with a clean message if the orchestrator isn't running or
+rejects the ticket — no traceback. Pipe the ID into whatever you want to
+watch next.
+
 ## 7. Watch the phases run
 
 Default workflow (`jig/defaults/workflows/default.yaml`):

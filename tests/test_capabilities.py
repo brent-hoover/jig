@@ -36,6 +36,7 @@ from jig.capability_compiler import (
     write_claude_settings,
     write_rules_json,
 )
+from jig.models import RoleConfig
 
 
 # ---- declaration shape ----------------------------------------------------
@@ -520,3 +521,16 @@ class TestMaterialize:
         assert settings_path == worktree / ".claude" / "settings.json"
         assert rules_path.exists()
         assert settings_path.exists()
+
+
+class TestRoleConfigPromptDefault:
+    """``user.yaml`` and similar non-dispatched roles ship without a
+    phase_prompt — the field default must permit the empty string."""
+
+    def test_empty_phase_prompt_accepted(self) -> None:
+        r = RoleConfig(role="user")
+        assert r.phase_prompt == ""
+
+    def test_explicit_empty_phase_prompt_accepted(self) -> None:
+        r = RoleConfig(role="user", phase_prompt="")
+        assert r.phase_prompt == ""

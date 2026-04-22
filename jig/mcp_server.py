@@ -41,6 +41,11 @@ def create_agent_mcp_server(
     etc.) now translate to ThreadEntry types on the way in.
     """
 
+    # TODO(task-11): agent.py does not yet plumb the compiled can_waive
+    # through to this factory. Until that lands, the empty default
+    # silently rejects every thread_waive / thread_waive_check attempt.
+    # Remove this comment once agent.py passes the real frozenset.
+
     # Allowed assignees: known roles + orchestrator + user
     _allowed_assignees = valid_roles | {"orchestrator", "user"}
 
@@ -307,9 +312,10 @@ def create_agent_mcp_server(
         "failure for that check). Authorization is enforced against "
         "your role's compiled capabilities.waivers.can_waive — the "
         "required token is 'check_failure:<severity>' where severity "
-        "comes from the failure event. The waiver and the underlying "
-        "check_failure event both remain in the thread; the gate "
-        "stops treating the failure as blocking.",
+        "is 'required' or 'warning' — taken from the failure event's "
+        "severity field. The waiver and the underlying check_failure "
+        "event both remain in the thread; the gate stops treating the "
+        "failure as blocking.",
         {
             "justification": str,
             "check_failure_id": str,

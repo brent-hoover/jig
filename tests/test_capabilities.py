@@ -10,6 +10,7 @@ tests/test_agent_streaming.py::TestMaterializeCapabilityPolicy.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -36,8 +37,13 @@ from jig.capability_compiler import (
     write_claude_settings,
     write_rules_json,
 )
+from jig.mcp_server import create_agent_mcp_server
 from jig.models import RoleConfig
 from jig.persistence import _jig_dir, load_role
+from jig.store import MessageBus
+from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 
 
 # ---- declaration shape ----------------------------------------------------
@@ -559,37 +565,48 @@ class TestUserRoleDefault:
 
 
 class TestMcpServerWaiverPlumbing:
-    """``create_agent_mcp_server`` accepts ``can_waive`` and forwards
-    it into the two waiver handlers. The server object itself doesn't
-    expose the frozenset — we assert the kwarg is accepted without
-    errors and that an end-to-end call path uses it (deferred to the
-    streaming integration test in Task 11)."""
+    """``create_agent_mcp_server`` must forward the ``can_waive``
+    frozenset through to ``handle_thread_waive``. We reach into the
+    tools list passed to ``create_sdk_mcp_server`` (via a monkeypatched
+    factory that captures the kwargs) and invoke the ``thread_waive``
+    tool's handler directly, asserting the captured ``can_waive``
+    matches what the caller supplied."""
 
-    def test_create_agent_mcp_server_accepts_can_waive(
-        self, tmp_path: Path
+    def test_create_agent_mcp_server_forwards_can_waive_to_handler(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import asyncio
+        import jig.mcp_server as mcp_server_mod
+        import jig.thread_mcp as thread_mcp_mod
 
-        from jig.store import MessageBus
-        from jig.store.checkpoints import CheckpointStore
-        from jig.store.memory import MemoryStore
-        from jig.store.threads import ThreadStore
-        from jig.store.tickets import TicketStore
-        from jig.mcp_server import create_agent_mcp_server
-        from jig.models import RoleConfig
+        captured_tools: dict[str, object] = {}
 
-        async def build() -> None:
+        real_factory = mcp_server_mod.create_sdk_mcp_server
+
+        def spy_factory(*, name: str, tools: list) -> object:
+            captured_tools["tools"] = tools
+            return real_factory(name=name, tools=tools)
+
+        monkeypatch.setattr(
+            mcp_server_mod, "create_sdk_mcp_server", spy_factory
+        )
+
+        captured_kwargs: dict[str, object] = {}
+
+        async def stub_handle_thread_waive(**kwargs: object) -> dict[str, object]:
+            captured_kwargs.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(
+            thread_mcp_mod, "handle_thread_waive", stub_handle_thread_waive
+        )
+
+        async def run() -> None:
             tickets = TicketStore(tmp_path / "tickets.jsonl")
             threads = ThreadStore(tmp_path / "threads.jsonl")
             memory = MemoryStore(tmp_path / "memory.jsonl")
-            checkpoints = CheckpointStore(tmp_path / "checkpoints.jsonl")
             bus = MessageBus(tmp_path / "messages.jsonl")
-            await tickets.load()
-            await threads.load()
-            await memory.load()
-            await checkpoints.load()
 
-            server = create_agent_mcp_server(
+            create_agent_mcp_server(
                 tickets=tickets,
                 threads=threads,
                 memory=memory,
@@ -600,6 +617,20 @@ class TestMcpServerWaiverPlumbing:
                 project_path=tmp_path,
                 can_waive=frozenset({"objection"}),
             )
-            assert server is not None
 
-        asyncio.run(build())
+            tools = captured_tools["tools"]
+            thread_waive_tool = next(
+                t for t in tools if t.name == "thread_waive"  # type: ignore[attr-defined]
+            )
+            await thread_waive_tool.handler(  # type: ignore[attr-defined]
+                {"objection_id": "o1", "justification": "j"}
+            )
+
+        asyncio.run(run())
+
+        assert captured_kwargs.get("can_waive") == frozenset({"objection"})
+        assert captured_kwargs.get("sender") == "dev"
+        assert captured_kwargs.get("args") == {
+            "objection_id": "o1",
+            "justification": "j",
+        }

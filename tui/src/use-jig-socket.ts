@@ -129,6 +129,19 @@ function reduce(state: AppState, event: JigEvent): AppState {
       })
       return { ...state, tickets, events }
     }
+    case "ticket_merge_conflict": {
+      // Ticket finished its phases but the auto-merge collided. Worktree and
+      // branch are preserved so a human can resolve it. Surface the status
+      // so the kanban/ticket views stop showing "in progress".
+      if (!ticketId) return { ...state, events }
+      const tickets = bumpTicket(state.tickets, ticketId, {
+        status: "merge_conflict",
+        currentPhase: null,
+        phaseIndex: null,
+        totalPhases: null,
+      })
+      return { ...state, tickets, events }
+    }
     case "phase_started": {
       if (!ticketId) return { ...state, events }
       const tickets = bumpTicket(state.tickets, ticketId, {

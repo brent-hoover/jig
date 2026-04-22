@@ -7,6 +7,7 @@ const STATUS_LABEL: Record<string, string> = {
   blocked: "BLOCKED",
   needs_info: "needs info",
   failed: "FAILED",
+  merge_conflict: "MERGE CONFLICT",
   resolved: "resolved",
   closed: "closed",
 }
@@ -17,6 +18,7 @@ const STATUS_COLOR: Record<string, string> = {
   blocked: "#ff8800",
   needs_info: "#ff00ff",
   failed: "#cc0000",
+  merge_conflict: "#ff8800",
   resolved: "#00cc00",
   closed: "#444444",
 }

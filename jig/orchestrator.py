@@ -957,28 +957,15 @@ class Orchestrator:
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.
 
-        Reads ``phase_run`` system events on the ticket and matches by
-        phase name. Legacy ``Comment(kind="phase_run")`` records are
-        migrated to ``SystemEvent(event_type="phase_run")`` by
-        ``ThreadStore``, so historical tickets stay readable.
+        Delegates to ``jig.phase.current_phase_index`` — that helper is
+        shared with the hooks runner so pre-push can answer the same
+        question without an orchestrator instance.
         """
+        from jig.phase import current_phase_index
+
         if self.threads is None:
             raise RuntimeError("Orchestrator not started")
-        events = await self.threads.find_by_kind(ticket_id, "system_event")
-        succeeded: set[str] = set()
-        for e in events:
-            if getattr(e, "event_type", None) != "phase_run":
-                continue
-            if getattr(e, "phase_result", None) != "success":
-                continue
-            content = getattr(e, "content", "")
-            # Recorded as ``phase <name>: <status>``.
-            name = content.removeprefix("phase ").split(":")[0]
-            succeeded.add(name)
-        for phase_idx, phase in enumerate(workflow.phases):
-            if phase.name not in succeeded:
-                return phase_idx
-        return len(workflow.phases)
+        return await current_phase_index(self.threads, ticket_id, workflow)
 
     async def _write_phase_run_comment(self, ticket_id: str, phase, result) -> None:
         from jig.thread import SystemEvent

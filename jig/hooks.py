@@ -28,9 +28,9 @@ HOOK_NAMES: tuple[str, ...] = ("pre-commit", "pre-push", "commit-msg")
 
 # Literal second-line string that marks a hook file as ours. We control
 # the bytes we write, so a byte-exact comparison on line 2 is enough.
-SENTINEL_LINE = (
-    "# jig-managed hook — safe to remove via 'jig hooks uninstall'"
-)
+# The em-dash is U+2014, not ASCII `--`. Autocorrect would silently
+# break recognition of previously-installed hooks — leave it alone.
+SENTINEL_LINE = "# jig-managed hook — safe to remove via 'jig hooks uninstall'"
 
 
 def _build_script(stage: str, *, forward: str) -> str:
@@ -42,20 +42,20 @@ def _build_script(stage: str, *, forward: str) -> str:
     (path to the commit message file).
     """
     tail = f" {forward}" if forward else ""
-    return (
-        "#!/usr/bin/env bash\n"
-        f"{SENTINEL_LINE}\n"
-        f"# stage: {stage}\n"
-        "set -e\n"
-        "\n"
-        "if ! command -v jig >/dev/null 2>&1; then\n"
-        '  echo "jig hook: '"'"'jig'"'"' command not found on PATH." >&2\n'
-        '  echo "Install jig or run '"'"'jig hooks uninstall'"'"' to remove this hook." >&2\n'
-        "  exit 1\n"
-        "fi\n"
-        "\n"
-        f'exec jig hooks run {stage}{tail}\n'
-    )
+    return f"""\
+#!/usr/bin/env bash
+{SENTINEL_LINE}
+# stage: {stage}
+set -e
+
+if ! command -v jig >/dev/null 2>&1; then
+  echo "jig hook: 'jig' command not found on PATH." >&2
+  echo "Install jig or run 'jig hooks uninstall' to remove this hook." >&2
+  exit 1
+fi
+
+exec jig hooks run {stage}{tail}
+"""
 
 
 HOOK_SCRIPTS: dict[str, str] = {
@@ -73,7 +73,7 @@ def _is_jig_managed(hook_path: Path) -> bool:
     """
     try:
         text = hook_path.read_text()
-    except (FileNotFoundError, IsADirectoryError, UnicodeDecodeError):
+    except (FileNotFoundError, IsADirectoryError, PermissionError, UnicodeDecodeError):
         return False
     lines = text.splitlines()
     if len(lines) < 2:

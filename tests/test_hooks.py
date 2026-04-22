@@ -39,10 +39,7 @@ def test_project_legacy_config_without_hooks_block_loads_cleanly(tmp_path: Path)
     """Existing .jig/config.yaml files with no 'hooks:' section must keep working."""
     (tmp_path / ".jig").mkdir()
     (tmp_path / ".jig" / "config.yaml").write_text(
-        "project:\n"
-        "  id: legacy\n"
-        "  name: legacy\n"
-        "  path: " + str(tmp_path) + "\n"
+        "project:\n  id: legacy\n  name: legacy\n  path: " + str(tmp_path) + "\n"
     )
     loaded = load_project(tmp_path)
     assert isinstance(loaded.hooks, HooksConfig)
@@ -84,3 +81,23 @@ def test_is_jig_managed_rejects_short_file(tmp_path: Path):
     short = tmp_path / "pre-commit"
     short.write_text("#!/usr/bin/env bash\n")
     assert _is_jig_managed(short) is False
+
+
+def test_is_jig_managed_follows_symlink(tmp_path: Path):
+    real = tmp_path / "real"
+    real.write_text("#!/usr/bin/env bash\necho foreign\n")
+    link = tmp_path / "pre-commit"
+    link.symlink_to(real)
+    assert _is_jig_managed(link) is False
+
+
+def test_is_jig_managed_rejects_empty_file(tmp_path: Path):
+    empty = tmp_path / "pre-commit"
+    empty.touch()
+    assert _is_jig_managed(empty) is False
+
+
+def test_is_jig_managed_rejects_binary_file(tmp_path: Path):
+    binary = tmp_path / "pre-commit"
+    binary.write_bytes(b"\x7fELF\x02\x01\x01\x00\x00\x00" * 10)
+    assert _is_jig_managed(binary) is False

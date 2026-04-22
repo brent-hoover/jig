@@ -556,3 +556,50 @@ class TestUserRoleDefault:
         assert r.capabilities is not None
         assert r.capabilities.waivers is not None
         assert set(r.capabilities.waivers.can_waive) == WAIVE_TOKENS
+
+
+class TestMcpServerWaiverPlumbing:
+    """``create_agent_mcp_server`` accepts ``can_waive`` and forwards
+    it into the two waiver handlers. The server object itself doesn't
+    expose the frozenset — we assert the kwarg is accepted without
+    errors and that an end-to-end call path uses it (deferred to the
+    streaming integration test in Task 11)."""
+
+    def test_create_agent_mcp_server_accepts_can_waive(
+        self, tmp_path: Path
+    ) -> None:
+        import asyncio
+
+        from jig.store import MessageBus
+        from jig.store.checkpoints import CheckpointStore
+        from jig.store.memory import MemoryStore
+        from jig.store.threads import ThreadStore
+        from jig.store.tickets import TicketStore
+        from jig.mcp_server import create_agent_mcp_server
+        from jig.models import RoleConfig
+
+        async def build() -> None:
+            tickets = TicketStore(tmp_path / "tickets.jsonl")
+            threads = ThreadStore(tmp_path / "threads.jsonl")
+            memory = MemoryStore(tmp_path / "memory.jsonl")
+            checkpoints = CheckpointStore(tmp_path / "checkpoints.jsonl")
+            bus = MessageBus(tmp_path / "messages.jsonl")
+            await tickets.load()
+            await threads.load()
+            await memory.load()
+            await checkpoints.load()
+
+            server = create_agent_mcp_server(
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                agent_role="dev",
+                agent_cfg=RoleConfig(role="dev", phase_prompt="x"),
+                worktree_path=tmp_path,
+                project_path=tmp_path,
+                can_waive=frozenset({"objection"}),
+            )
+            assert server is not None
+
+        asyncio.run(build())

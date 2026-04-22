@@ -30,6 +30,7 @@ def create_agent_mcp_server(
     package_manager: str = "",
     checkpoints: CheckpointStore | None = None,
     phase_name: str = "",
+    can_waive: frozenset[str] = frozenset(),
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -281,10 +282,11 @@ def create_agent_mcp_server(
 
     @tool(
         "thread_waive",
-        "Override an objection with explicit justification. Authorization is "
-        "enforced against config.waiver_authority — if your role isn't in the "
-        "list, this fails. The waiver and the original objection both stay "
-        "in the thread as audit trail.",
+        "Override an objection with explicit justification. Authorization "
+        "is enforced against your role's compiled "
+        "capabilities.waivers.can_waive — if the token 'objection' is not "
+        "present, this fails. The waiver and the original objection both "
+        "stay in the thread as audit trail.",
         {"objection_id": str, "justification": str},
     )
     async def thread_waive(args):
@@ -292,20 +294,22 @@ def create_agent_mcp_server(
             threads=threads,
             bus=bus,
             sender=agent_role,
+            can_waive=can_waive,
             args=args,
-            project_path=project_path,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
         "thread_waive_check",
-        "Waive a failing required check with justification. Pass either "
+        "Waive a failing check with justification. Pass either "
         "check_failure_id (targets a specific check_failure SystemEvent) "
         "or ticket_id+check_name (resolves to the most recent unwaived "
-        "failure for that check). Same authorization as thread_waive "
-        "(config.waiver_authority). The waiver and the underlying "
-        "check_failure event both remain in the thread; the gate stops "
-        "treating the failure as blocking.",
+        "failure for that check). Authorization is enforced against "
+        "your role's compiled capabilities.waivers.can_waive — the "
+        "required token is 'check_failure:<severity>' where severity "
+        "comes from the failure event. The waiver and the underlying "
+        "check_failure event both remain in the thread; the gate "
+        "stops treating the failure as blocking.",
         {
             "justification": str,
             "check_failure_id": str,
@@ -333,8 +337,8 @@ def create_agent_mcp_server(
             threads=threads,
             bus=bus,
             sender=agent_role,
+            can_waive=can_waive,
             args=forwarded,
-            project_path=project_path,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 

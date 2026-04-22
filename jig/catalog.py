@@ -117,6 +117,27 @@ def validate_catalog(
     known_workflows = set(list_workflow_names(project_path))
     known_checks = set(checks.names())
 
+    # Roles referenced by at least one workflow phase are *dispatchable* —
+    # they have to carry a real system prompt or the agent spawn would
+    # run with no instructions. ``RoleConfig.phase_prompt`` defaults to
+    # ``""`` so pseudo-roles (e.g. the shipped ``user`` role that only
+    # carries waiver capability) can load, but any such role must not
+    # appear in a workflow phase. Collect the referenced set up front so
+    # the check below is a single pass.
+    dispatched_role_names: set[str] = set()
+    for wf in workflows:
+        for phase in wf.phases:
+            dispatched_role_names.add(phase.role)
+
+    for role in roles:
+        if role.role in dispatched_role_names and not role.phase_prompt.strip():
+            fail(
+                f"role {role.role!r}: phase_prompt is empty but the role is "
+                f"dispatched by at least one workflow phase — set a "
+                f"non-empty phase_prompt, or remove the workflow reference "
+                f"if this is a pseudo-role"
+            )
+
     # Phase role + check references
     for wf in workflows:
         for phase in wf.phases:

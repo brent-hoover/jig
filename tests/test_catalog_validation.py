@@ -813,3 +813,71 @@ class TestWaiverCapabilityValidation:
         )
         with pytest.raises(CatalogError, match="not-a-real-token"):
             validate_catalog(initialized_project)
+
+
+class TestRolePhasePromptRequired:
+    """A role referenced by a workflow phase must have a non-empty
+    ``phase_prompt``. The field defaults to ``""`` for pseudo-roles
+    like ``user`` that only carry capabilities; catalog validation
+    catches the case where an accidentally-empty prompt would silently
+    dispatch an agent with no system prompt."""
+
+    def test_empty_prompt_on_dispatched_role_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(role="silent", phase_prompt=""),
+        )
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[PhaseConfig(name="p", role="silent")],
+            ),
+        )
+        with pytest.raises(
+            CatalogError,
+            match=r"role 'silent'.*phase_prompt",
+        ):
+            validate_catalog(initialized_project)
+
+    def test_empty_prompt_on_pseudo_role_passes(
+        self, initialized_project: Path
+    ) -> None:
+        """Custom pseudo-role with empty prompt but never referenced by a
+        workflow — validation passes. Mirrors the shipped ``user`` role."""
+        save_role(
+            initialized_project,
+            RoleConfig(role="waiver-holder", phase_prompt=""),
+        )
+        # No workflow references "waiver-holder" — catalog is clean.
+        validate_catalog(initialized_project)
+
+    def test_shipped_user_role_does_not_trip_rule(
+        self, initialized_project: Path
+    ) -> None:
+        """Regression: the shipped ``user`` role ships with an empty
+        ``phase_prompt`` and must not be flagged — no workflow phase
+        references it, which is the whole point of a pseudo-role."""
+        validate_catalog(initialized_project)
+
+    def test_whitespace_only_prompt_also_fails(self, initialized_project: Path) -> None:
+        """A prompt of ``"   \n"`` carries no content — treat it the same
+        as empty so operators don't get silently-no-prompt agents."""
+        save_role(
+            initialized_project,
+            RoleConfig(role="blanky", phase_prompt="   \n"),
+        )
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[PhaseConfig(name="p", role="blanky")],
+            ),
+        )
+        with pytest.raises(
+            CatalogError,
+            match=r"role 'blanky'.*phase_prompt",
+        ):
+            validate_catalog(initialized_project)

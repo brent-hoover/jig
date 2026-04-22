@@ -601,10 +601,10 @@ async def handle_thread_waive_check(
     drives the token — an unauthorized caller passing a bogus id gets
     a KeyError ("not found") rather than a ThreadError. This is
     acceptable because any caller with thread-read access can confirm
-    existence via other tools. Defensive fail-closed: if the
-    SystemEvent's ``check_severity`` is ``None``, the constructed
-    token is ``"check_failure:None"``, which is not in
-    :data:`jig.capabilities.WAIVE_TOKENS` and matches nothing.
+    existence via other tools. Malformed events with
+    ``check_severity is None`` raise a distinct ThreadError so the
+    operator sees "malformed event" rather than a misleading
+    "missing capability 'check_failure:None'" message.
 
     Required args: ``justification`` plus one of
     (``check_failure_id``) or (``ticket_id``, ``check_name``).
@@ -645,8 +645,18 @@ async def handle_thread_waive_check(
     if ev.waived:
         raise ThreadError(f"check_failure {check_failure_id!r} is already waived")
 
-    # Severity drives the token — fail closed if ``check_severity`` is
-    # None (type permits it though practice populates it).
+    # Severity drives the token. ``check_severity`` is Optional on the
+    # model though the producers (check_gate, check_runner) always set
+    # it. If a malformed event slips through, surface it explicitly —
+    # a blind ``f"check_failure:{None}"`` would otherwise report the
+    # role as lacking ``'check_failure:None'``, which reads as a
+    # capability-list problem instead of the data-quality problem it
+    # actually is.
+    if ev.check_severity is None:
+        raise ThreadError(
+            f"check_failure {check_failure_id!r} is missing check_severity "
+            f"(malformed event) — cannot route to a waive token"
+        )
     token = f"check_failure:{ev.check_severity}"
     _require_waive_token(
         token,

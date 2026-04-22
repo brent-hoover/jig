@@ -2326,6 +2326,47 @@ class TestThreadWaiveCheck:
             )
 
     @pytest.mark.asyncio
+    async def test_missing_severity_reports_malformed_event(
+        self, tmp_path: Path
+    ) -> None:
+        """Guard the ``check_severity is None`` path explicitly — surface
+        the malformed event rather than emitting a bogus token like
+        ``'check_failure:None'`` that reads as a capability-list problem."""
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        # Post a check_failure with severity=None (possible since the
+        # field is Optional even though practice populates it).
+        fid = await threads.post(
+            SystemEvent(
+                ticket_id=ticket_id,
+                author="harness",
+                event_type="check_failure",
+                content="malformed failure",
+                check_name="unit",
+                check_severity=None,
+                check_verdict="fail",
+            )
+        )
+        with pytest.raises(
+            ThreadError,
+            match=r"missing check_severity",
+        ):
+            await handle_thread_waive_check(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="po",
+                can_waive=frozenset({"check_failure:required"}),
+                args={
+                    "check_failure_id": fid,
+                    "justification": "should never get here",
+                },
+            )
+        # Unchanged state — error fired before any mutation.
+        ev = await threads.get(fid)
+        assert isinstance(ev, SystemEvent)
+        assert ev.waived is False
+
+    @pytest.mark.asyncio
     async def test_publishes_to_bus(self, tmp_path: Path) -> None:
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
         fid = await _seed_check_failure(threads, ticket_id=ticket_id)

@@ -17,11 +17,14 @@ import pytest
 from pydantic import ValidationError
 
 from jig.capabilities import (
+    WAIVE_TOKENS,
     BashToolParams,
     CapabilityDeclaration,
     CapabilityPaths,
     CapabilityToolParams,
     CapabilityTools,
+    CapabilityWaivers,
+    is_known_waive_token,
     merge_declarations,
 )
 from jig.capability_compiler import (
@@ -43,6 +46,7 @@ class TestDeclarationConstruction:
         assert decl.tools is None
         assert decl.tool_params is None
         assert decl.paths is None
+        assert decl.waivers is None
 
     def test_full_declaration_valid(self) -> None:
         decl = CapabilityDeclaration(
@@ -86,6 +90,41 @@ class TestDeclarationConstruction:
             )
 
 
+class TestCapabilityWaivers:
+    def test_empty_waivers_valid(self) -> None:
+        w = CapabilityWaivers()
+        assert w.can_waive == []
+
+    def test_waivers_accepts_all_known_tokens(self) -> None:
+        w = CapabilityWaivers(can_waive=sorted(WAIVE_TOKENS))
+        assert set(w.can_waive) == WAIVE_TOKENS
+
+    def test_waivers_rejects_extra_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            CapabilityWaivers.model_validate(
+                {"can_waive": ["objection"], "extra": "nope"}
+            )
+
+    def test_known_waive_tokens_registry(self) -> None:
+        assert "objection" in WAIVE_TOKENS
+        assert "check_failure:required" in WAIVE_TOKENS
+        assert "check_failure:warning" in WAIVE_TOKENS
+        assert is_known_waive_token("objection") is True
+        assert is_known_waive_token("check_failure:warning") is True
+        assert is_known_waive_token("bogus") is False
+
+    def test_declaration_accepts_waivers_field(self) -> None:
+        decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        assert decl.waivers is not None
+        assert decl.waivers.can_waive == ["objection"]
+
+    def test_declaration_waivers_defaults_none(self) -> None:
+        decl = CapabilityDeclaration()
+        assert decl.waivers is None
+
+
 # ---- merge_declarations ---------------------------------------------------
 
 
@@ -95,6 +134,7 @@ class TestMergeDeclarations:
         assert merged.tools is None
         assert merged.tool_params is None
         assert merged.paths is None
+        assert merged.waivers is None
 
     def test_base_only_preserved(self) -> None:
         base = CapabilityDeclaration(

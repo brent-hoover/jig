@@ -37,6 +37,7 @@ from jig.capability_compiler import (
     write_rules_json,
 )
 from jig.models import RoleConfig
+from jig.persistence import _jig_dir, load_role
 
 
 # ---- declaration shape ----------------------------------------------------
@@ -534,3 +535,24 @@ class TestRoleConfigPromptDefault:
     def test_explicit_empty_phase_prompt_accepted(self) -> None:
         r = RoleConfig(role="user", phase_prompt="")
         assert r.phase_prompt == ""
+
+
+class TestUserRoleDefault:
+    """``user.yaml`` ships as a pseudo-role carrying default waiver
+    authority. It's never dispatched to Claude Code; loading + parsing
+    must work so future user-driven waive flows can reuse the same
+    capability codepath."""
+
+    def test_user_role_loads_with_default_waiver_capability(
+        self, tmp_path: Path
+    ) -> None:
+        # initialize a minimal project skeleton so load_role's resolver
+        # can find shipped defaults by falling through to jig/defaults/
+        _jig_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+
+        r = load_role(tmp_path, "user")
+        assert r.role == "user"
+        assert r.phase_prompt == ""
+        assert r.capabilities is not None
+        assert r.capabilities.waivers is not None
+        assert set(r.capabilities.waivers.can_waive) == WAIVE_TOKENS

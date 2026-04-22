@@ -20,9 +20,14 @@ harness remains canonical.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 from pathlib import Path
+
+import click
+
+from jig.checks import CheckSeverity, ScriptedCheck, load_check_catalog
 
 # The three git hook names jig installs. Fixed for v1 — per-hook
 # install flags are YAGNI (see spec §Non-Goals).
@@ -230,6 +235,85 @@ def hook_status(project_path: Path) -> list[str]:
     return lines
 
 
+async def _run_scripted(name: str, check: ScriptedCheck, cwd: Path) -> tuple[bool, str]:
+    """Run one scripted check, stream output, return (passed, reason).
+
+    Does NOT persist a CheckResult — hooks are ephemeral. ``reason``
+    is the terse failure label printed in the summary block (empty
+    when passing). Commands run under ``/bin/sh -c`` in ``cwd`` so the
+    same shell-aware strings used by the catalog's ScriptedRunner
+    work identically.
+    """
+    click.echo(f"\u25b6 {name}: {check.command}")
+    working_dir = (cwd / check.working_dir).resolve()
+    # stdout/stderr default to None → subprocess inherits the parent's
+    # real fds so the developer sees live output. We don't forward
+    # sys.stdout/sys.stderr explicitly because test harnesses (pytest
+    # capsys) replace those with objects lacking a ``.fileno()``, which
+    # would break subprocess spawning.
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "/bin/sh",
+            "-c",
+            check.command,
+            cwd=str(working_dir),
+        )
+    except (FileNotFoundError, NotADirectoryError, OSError) as exc:
+        click.echo(f"\u2717 {name} spawn failed: {exc}", err=True)
+        return False, f"{name}: spawn failed"
+
+    try:
+        returncode = await asyncio.wait_for(proc.wait(), timeout=check.timeout_s)
+    except asyncio.TimeoutError:
+        proc.kill()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pass
+        return False, f"{name}: timed out after {check.timeout_s}s"
+
+    if returncode == 0:
+        click.echo(f"\u2713 {name}")
+        return True, ""
+    return False, f"{name}: exit {returncode}"
+
+
+def _print_failure_summary(failures: list[str]) -> None:
+    # Print to stdout so test capsys.readouterr().out captures it.
+    click.echo("")
+    click.echo("jig hook: required checks failed")
+    for f in failures:
+        click.echo(f"  - {f}")
+    click.echo("Fix the failures above, or use 'git commit --no-verify' to bypass.")
+
+
+async def run_pre_commit(project_path: Path) -> int:
+    """Execute all required scripted checks in the catalog.
+
+    Returns the exit code the hook should terminate with.
+    """
+    catalog = load_check_catalog(project_path)
+    required_scripted = [
+        (name, check)
+        for name, check in catalog.root.items()
+        if isinstance(check, ScriptedCheck) and check.severity is CheckSeverity.REQUIRED
+    ]
+    if not required_scripted:
+        click.echo("jig pre-commit: no required scripted checks; skipping")
+        return 0
+
+    failures: list[str] = []
+    for name, check in required_scripted:
+        passed, reason = await _run_scripted(name, check, project_path)
+        if not passed:
+            failures.append(reason)
+
+    if failures:
+        _print_failure_summary(failures)
+        return 1
+    return 0
+
+
 __all__ = [
     "HOOK_NAMES",
     "HOOK_SCRIPTS",
@@ -241,5 +325,6 @@ __all__ = [
     "_write_hook",
     "hook_status",
     "install_hooks",
+    "run_pre_commit",
     "uninstall_hooks",
 ]

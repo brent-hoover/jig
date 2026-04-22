@@ -1,5 +1,6 @@
 """Tests for jig.hooks + jig.project HooksConfig."""
 
+import asyncio
 import os
 import stat
 import subprocess
@@ -17,6 +18,7 @@ from jig.hooks import (
     _resolve_ticket_worktree,
     hook_status,
     install_hooks,
+    run_pre_commit,
     uninstall_hooks,
 )
 from jig.project import HooksConfig, Project, load_project, save_project
@@ -294,3 +296,96 @@ def test_hook_status_mixed_states(tmp_path: Path):
     assert "pre-commit" in joined and "jig-managed" in joined
     assert "pre-push" in joined and "not jig-managed" in joined
     assert "commit-msg" in joined and "not installed" in joined
+
+
+def _seed_catalog(project_path: Path, body: str) -> None:
+    jig = project_path / ".jig"
+    jig.mkdir(exist_ok=True)
+    (jig / "checks.yaml").write_text(body)
+
+
+def test_run_pre_commit_no_catalog_exits_zero(tmp_path: Path, capsys):
+    _git_init(tmp_path)
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0
+    assert "no required scripted checks" in capsys.readouterr().out
+
+
+def test_run_pre_commit_all_pass(tmp_path: Path, capsys):
+    _git_init(tmp_path)
+    _seed_catalog(
+        tmp_path,
+        """
+checks:
+  lint:
+    type: scripted
+    command: "true"
+    severity: required
+  format:
+    type: scripted
+    command: "true"
+    severity: required
+""",
+    )
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0
+
+
+def test_run_pre_commit_fail_lists_all_failures(tmp_path: Path, capsys):
+    _git_init(tmp_path)
+    _seed_catalog(
+        tmp_path,
+        """
+checks:
+  ok:
+    type: scripted
+    command: "true"
+    severity: required
+  broken:
+    type: scripted
+    command: "exit 3"
+    severity: required
+  alsobroken:
+    type: scripted
+    command: "exit 4"
+    severity: required
+""",
+    )
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "broken" in out
+    assert "alsobroken" in out
+    assert "--no-verify" in out
+
+
+def test_run_pre_commit_skips_warning_severity(tmp_path: Path):
+    _git_init(tmp_path)
+    _seed_catalog(
+        tmp_path,
+        """
+checks:
+  soft:
+    type: scripted
+    command: "exit 1"
+    severity: warning
+""",
+    )
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0
+
+
+def test_run_pre_commit_skips_agent_checks(tmp_path: Path):
+    _git_init(tmp_path)
+    _seed_catalog(
+        tmp_path,
+        """
+checks:
+  review:
+    type: implementation_aware_agent
+    template: "review the diff"
+    severity: required
+""",
+    )
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0

@@ -545,3 +545,19 @@ def hooks_status_cmd(path: Path) -> None:
         raise click.ClickException(str(exc))
     for line in lines:
         click.echo(line)
+
+
+@hooks_group.command("run")
+@click.argument("stage", type=click.Choice(["pre-commit", "pre-push", "commit-msg"]))
+@click.argument("args", nargs=-1)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def hooks_run(stage: str, args: tuple[str, ...], path: Path) -> None:
+    """Run the check subset for a hook stage (invoked by hook scripts)."""
+    import asyncio
+
+    from jig.hooks import run_pre_commit  # pre-push / commit-msg wired in later tasks
+
+    if stage == "pre-commit":
+        rc = asyncio.run(run_pre_commit(path))
+        raise SystemExit(rc)
+    raise click.ClickException(f"stage {stage!r} not yet implemented")

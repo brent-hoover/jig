@@ -150,7 +150,20 @@ class TestDefaultRoles:
         save_default_roles(tmp_new_jig_project)
         types = list_roles(tmp_new_jig_project)
         roles = {t.role for t in types}
-        assert roles == {"spec", "test", "dev", "review", "validate", "document", "pm"}
+        # ``user`` is a shipped pseudo-role (no phase_prompt, no allowed_tools)
+        # — never dispatched to Claude Code; carries default waiver capability
+        # for future user-driven waive flows. It surfaces via the shipped
+        # fallthrough in ``list_roles`` even when not explicitly copied.
+        assert roles == {
+            "spec",
+            "test",
+            "dev",
+            "review",
+            "validate",
+            "document",
+            "pm",
+            "user",
+        }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:
         save_default_roles(tmp_new_jig_project)

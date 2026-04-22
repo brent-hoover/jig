@@ -766,36 +766,28 @@ class TestWaiverCapabilityValidation:
     """Phase 5 Task H: ``capabilities.waivers.can_waive`` entries must
     be recognised tokens. Unknown tokens fail validation outright."""
 
-    def test_unknown_token_on_role_fails(
-        self, initialized_project: Path
-    ) -> None:
+    def test_unknown_token_on_role_fails(self, initialized_project: Path) -> None:
         save_role(
             initialized_project,
             RoleConfig(
                 role="dev",
                 phase_prompt="x",
                 capabilities=CapabilityDeclaration(
-                    waivers=CapabilityWaivers(
-                        can_waive=["objection", "typo:bogus"]
-                    )
+                    waivers=CapabilityWaivers(can_waive=["objection", "typo:bogus"])
                 ),
             ),
         )
         with pytest.raises(CatalogError, match="typo:bogus"):
             validate_catalog(initialized_project)
 
-    def test_known_tokens_on_role_pass(
-        self, initialized_project: Path
-    ) -> None:
+    def test_known_tokens_on_role_pass(self, initialized_project: Path) -> None:
         save_role(
             initialized_project,
             RoleConfig(
                 role="dev",
                 phase_prompt="x",
                 capabilities=CapabilityDeclaration(
-                    waivers=CapabilityWaivers(
-                        can_waive=sorted(WAIVE_TOKENS)
-                    )
+                    waivers=CapabilityWaivers(can_waive=sorted(WAIVE_TOKENS))
                 ),
             ),
         )
@@ -813,9 +805,7 @@ class TestWaiverCapabilityValidation:
                         name="p",
                         role="dev",
                         capability_overrides=CapabilityDeclaration(
-                            waivers=CapabilityWaivers(
-                                can_waive=["not-a-real-token"]
-                            )
+                            waivers=CapabilityWaivers(can_waive=["not-a-real-token"])
                         ),
                     )
                 ],

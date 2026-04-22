@@ -176,9 +176,7 @@ async def handle_thread_answer(
     if q is None:
         raise KeyError(f"question {question_id!r} not found")
     if not isinstance(q, Question):
-        raise ThreadError(
-            f"entry {question_id!r} is a {q.kind!r}, not a question"
-        )
+        raise ThreadError(f"entry {question_id!r} is a {q.kind!r}, not a question")
     if q.is_resolved():
         raise ThreadError(
             f"question {question_id!r} is already resolved "
@@ -240,9 +238,7 @@ async def handle_thread_resolve_question(
     if q is None:
         raise KeyError(f"question {question_id!r} not found")
     if not isinstance(q, Question):
-        raise ThreadError(
-            f"entry {question_id!r} is a {q.kind!r}, not a question"
-        )
+        raise ThreadError(f"entry {question_id!r} is a {q.kind!r}, not a question")
     if q.is_resolved():
         raise ThreadError(
             f"question {question_id!r} is already resolved "
@@ -259,17 +255,14 @@ async def handle_thread_resolve_question(
         # Validate the answer exists and points back at this question.
         a = await threads.get(accepted_answer_id)
         if a is None:
-            raise KeyError(
-                f"accepted_answer_id {accepted_answer_id!r} not found"
-            )
+            raise KeyError(f"accepted_answer_id {accepted_answer_id!r} not found")
         if not isinstance(a, Answer):
             raise ThreadError(
                 f"entry {accepted_answer_id!r} is a {a.kind!r}, not an answer"
             )
         if a.question_id != question_id:
             raise ThreadError(
-                f"answer {accepted_answer_id!r} is not against "
-                f"question {question_id!r}"
+                f"answer {accepted_answer_id!r} is not against question {question_id!r}"
             )
         changes["accepted_answer_id"] = accepted_answer_id
     await threads.update(question_id, changes)
@@ -383,9 +376,7 @@ async def handle_thread_resolve_objection(
     if o is None:
         raise KeyError(f"objection {objection_id!r} not found")
     if not isinstance(o, Objection):
-        raise ThreadError(
-            f"entry {objection_id!r} is a {o.kind!r}, not an objection"
-        )
+        raise ThreadError(f"entry {objection_id!r} is a {o.kind!r}, not an objection")
     if o.is_resolved():
         raise ThreadError(
             f"objection {objection_id!r} is already resolved "
@@ -442,9 +433,7 @@ async def handle_thread_accept_resolution(
     if o is None:
         raise KeyError(f"objection {objection_id!r} not found")
     if not isinstance(o, Objection):
-        raise ThreadError(
-            f"entry {objection_id!r} is a {o.kind!r}, not an objection"
-        )
+        raise ThreadError(f"entry {objection_id!r} is a {o.kind!r}, not an objection")
     if o.is_resolved():
         raise ThreadError(
             f"objection {objection_id!r} is already resolved "
@@ -517,9 +506,7 @@ async def handle_thread_waive(
     if o is None:
         raise KeyError(f"objection {objection_id!r} not found")
     if not isinstance(o, Objection):
-        raise ThreadError(
-            f"entry {objection_id!r} is a {o.kind!r}, not an objection"
-        )
+        raise ThreadError(f"entry {objection_id!r} is a {o.kind!r}, not an objection")
     if o.is_resolved():
         raise ThreadError(
             f"objection {objection_id!r} is already resolved "
@@ -633,9 +620,7 @@ async def handle_thread_waive_check(
     if check_failure_id:
         ev = await threads.get(check_failure_id)
         if ev is None:
-            raise KeyError(
-                f"check_failure {check_failure_id!r} not found"
-            )
+            raise KeyError(f"check_failure {check_failure_id!r} not found")
         if not isinstance(ev, SystemEvent) or ev.event_type != "check_failure":
             raise ThreadError(
                 f"entry {check_failure_id!r} is not a check_failure event"
@@ -655,14 +640,10 @@ async def handle_thread_waive_check(
             )
         check_failure_id = ev.id
     else:
-        raise ValueError(
-            "supply either check_failure_id or (ticket_id, check_name)"
-        )
+        raise ValueError("supply either check_failure_id or (ticket_id, check_name)")
 
     if ev.waived:
-        raise ThreadError(
-            f"check_failure {check_failure_id!r} is already waived"
-        )
+        raise ThreadError(f"check_failure {check_failure_id!r} is already waived")
 
     # Severity drives the token — fail closed if ``check_severity`` is
     # None (type permits it though practice populates it).
@@ -917,10 +898,7 @@ async def handle_thread_escalate(
     if await tickets.get(ticket_id) is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    if (
-        phase_escalation_targets is not None
-        and target not in phase_escalation_targets
-    ):
+    if phase_escalation_targets is not None and target not in phase_escalation_targets:
         _logger.warning(
             "escalation target %r not in phase escalation_targets %s "
             "(ticket=%s, sender=%s); allowing in Phase 4",
@@ -929,11 +907,7 @@ async def handle_thread_escalate(
             ticket_id,
             sender,
         )
-    elif (
-        valid_roles
-        and target != "human"
-        and target not in valid_roles
-    ):
+    elif valid_roles and target != "human" and target not in valid_roles:
         _logger.warning(
             "escalation target %r is not a known role or 'human' "
             "(ticket=%s, sender=%s); allowing in Phase 4",
@@ -978,9 +952,7 @@ async def handle_thread_escalate(
 # ---- thread_uncertain -----------------------------------------------------
 
 
-def _route_uncertain(
-    details: str, valid_roles: frozenset[str]
-) -> str | None:
+def _route_uncertain(details: str, valid_roles: frozenset[str]) -> str | None:
     """Phase 4 routing heuristic: if ``details`` mentions a known role
     name as a whole word, return that role. Otherwise return None and
     the caller falls back to an Escalation.
@@ -998,9 +970,7 @@ def _route_uncertain(
     for role in valid_roles:
         if not role:
             continue
-        for m in re.finditer(
-            rf"\b{re.escape(role.lower())}\b", lowered
-        ):
+        for m in re.finditer(rf"\b{re.escape(role.lower())}\b", lowered):
             idx = m.start()
             if best is None or idx < best[0]:
                 best = (idx, role)
@@ -1131,9 +1101,7 @@ async def _resolve_phase_evaluator(
             continue
         if phase.evaluator is not None:
             history = [
-                e
-                for e in await threads.for_ticket(ticket_id)
-                if isinstance(e, Handoff)
+                e for e in await threads.for_ticket(ticket_id) if isinstance(e, Handoff)
             ]
             resolved = resolve_evaluator(
                 spec=phase.evaluator,
@@ -1210,9 +1178,7 @@ async def handle_thread_handoff(
             )
 
     if checkpoints is not None:
-        from_checkpoints = await checkpoints.deferred_items_open(
-            ticket_id, phase
-        )
+        from_checkpoints = await checkpoints.deferred_items_open(ticket_id, phase)
         # Dedupe: skip items whose (item, reason) pair is already in the
         # explicit list. Evaluator sees each issue once.
         seen = {(d.item, d.reason) for d in deferred}
@@ -1286,14 +1252,9 @@ async def _close_handoff(
     if h is None:
         raise KeyError(f"handoff {handoff_id!r} not found")
     if not isinstance(h, Handoff):
-        raise ThreadError(
-            f"entry {handoff_id!r} is a {h.kind!r}, not a handoff"
-        )
+        raise ThreadError(f"entry {handoff_id!r} is a {h.kind!r}, not a handoff")
     if h.is_resolved():
-        raise ThreadError(
-            f"handoff {handoff_id!r} is already "
-            f"{h.acceptance_state!r}"
-        )
+        raise ThreadError(f"handoff {handoff_id!r} is already {h.acceptance_state!r}")
 
     ticket = await tickets.get(h.ticket_id)
     if ticket is None:

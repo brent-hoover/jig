@@ -53,6 +53,7 @@ class TestInitProject:
         checks_path = tmp_project / ".jig" / "checks.yaml"
         assert checks_path.is_file()
         import yaml
+
         data = yaml.safe_load(checks_path.read_text())
         assert data == {"checks": {}}
 
@@ -238,7 +239,14 @@ class TestDefaultWorkflow:
         workflow = load_workflow(tmp_new_jig_project, "default")
         assert workflow.name == "default"
         phase_names = [p.name for p in workflow.phases]
-        assert phase_names == ["spec", "test", "implement", "review", "validate", "document"]
+        assert phase_names == [
+            "spec",
+            "test",
+            "implement",
+            "review",
+            "validate",
+            "document",
+        ]
 
     def test_roles_correct(self, tmp_new_jig_project: Path) -> None:
         save_default_workflow(tmp_new_jig_project)

@@ -54,7 +54,17 @@ def create_agent_mcp_server(
         "create_ticket",
         "Create a new ticket. Use depends_on to list ticket IDs that must be resolved before this ticket can start. "
         "Set workflow to 'project' for tickets that need PM planning breakdown.",
-        {"work_type": str, "size": str, "title": str, "description": str, "assignee": str, "parent_id": str, "depends_on": list, "workflow": str, "labels": list},
+        {
+            "work_type": str,
+            "size": str,
+            "title": str,
+            "description": str,
+            "assignee": str,
+            "parent_id": str,
+            "depends_on": list,
+            "workflow": str,
+            "labels": list,
+        },
     )
     async def create_ticket(args):
         _check_assignee(args.get("assignee"))
@@ -73,13 +83,21 @@ def create_agent_mcp_server(
         {"ticket_id": str},
     )
     async def read_ticket(args):
-        t = await ticket_mcp.handle_read_ticket(tickets=tickets, ticket_id=args["ticket_id"])
+        t = await ticket_mcp.handle_read_ticket(
+            tickets=tickets, ticket_id=args["ticket_id"]
+        )
         return {"content": [{"type": "text", "text": t.model_dump_json()}]}
 
     @tool(
         "update_ticket",
         "Update fields on an existing ticket",
-        {"ticket_id": str, "status": str, "description": str, "assignee": str, "labels": list},
+        {
+            "ticket_id": str,
+            "status": str,
+            "description": str,
+            "assignee": str,
+            "labels": list,
+        },
     )
     async def update_ticket(args):
         _check_assignee(args.get("assignee"))
@@ -129,49 +147,57 @@ def create_agent_mcp_server(
 
         comment_ids: list[str] = []
         for q in questions:
-            cid = await threads.post(Question(
-                ticket_id=ticket_id,
-                author=agent_role,
-                target="any_human",
-                question=q,
-                blocking=True,
-            ))
+            cid = await threads.post(
+                Question(
+                    ticket_id=ticket_id,
+                    author=agent_role,
+                    target="any_human",
+                    question=q,
+                    blocking=True,
+                )
+            )
             comment_ids.append(cid)
-            await bus.publish(Message(
-                sender=agent_role,
-                to=ticket.assignee or "broadcast",
-                type=MessageType.CONTEXT_UPDATE,
-                payload={
-                    "kind": "comment_posted",
-                    "ticket_id": ticket_id,
-                    "comment_id": cid,
-                    "author": agent_role,
-                    "content": q,
-                    "comment_kind": "question",
-                },
-                topic=f"tickets.{ticket_id}",
-            ))
+            await bus.publish(
+                Message(
+                    sender=agent_role,
+                    to=ticket.assignee or "broadcast",
+                    type=MessageType.CONTEXT_UPDATE,
+                    payload={
+                        "kind": "comment_posted",
+                        "ticket_id": ticket_id,
+                        "comment_id": cid,
+                        "author": agent_role,
+                        "content": q,
+                        "comment_kind": "question",
+                    },
+                    topic=f"tickets.{ticket_id}",
+                )
+            )
 
         before_status = ticket.status
         updated = await tickets.update(ticket_id, status=TicketStatus.NEEDS_INFO)
         if before_status != TicketStatus.NEEDS_INFO:
-            await threads.post(SystemEvent(
-                ticket_id=ticket_id,
-                author=agent_role,
-                event_type="status_change",
-                content=f"status {before_status.value} -> needs_info",
-            ))
-        await bus.publish(Message(
-            sender=agent_role,
-            to=updated.assignee or "broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "ticket_updated",
-                "ticket_id": ticket_id,
-                "status": "needs_info",
-            },
-            topic=f"tickets.{ticket_id}",
-        ))
+            await threads.post(
+                SystemEvent(
+                    ticket_id=ticket_id,
+                    author=agent_role,
+                    event_type="status_change",
+                    content=f"status {before_status.value} -> needs_info",
+                )
+            )
+        await bus.publish(
+            Message(
+                sender=agent_role,
+                to=updated.assignee or "broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "ticket_updated",
+                    "ticket_id": ticket_id,
+                    "status": "needs_info",
+                },
+                topic=f"tickets.{ticket_id}",
+            )
+        )
 
         result = {"comment_ids": comment_ids, "status": "needs_info"}
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
@@ -324,8 +350,10 @@ def create_agent_mcp_server(
         # branch logic requires either check_failure_id OR both
         # ticket_id and check_name.
         forwarded = {
-            k: v for k, v in args.items()
-            if k in {
+            k: v
+            for k, v in args.items()
+            if k
+            in {
                 "justification",
                 "check_failure_id",
                 "ticket_id",

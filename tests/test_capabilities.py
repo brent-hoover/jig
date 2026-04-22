@@ -123,9 +123,7 @@ class TestCapabilityWaivers:
         assert is_known_waive_token("bogus") is False
 
     def test_declaration_accepts_waivers_field(self) -> None:
-        decl = CapabilityDeclaration(
-            waivers=CapabilityWaivers(can_waive=["objection"])
-        )
+        decl = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
         assert decl.waivers is not None
         assert decl.waivers.can_waive == ["objection"]
 
@@ -235,9 +233,7 @@ class TestMergeDeclarations:
         assert merged.tools.allowed == ["Read"]
 
     def test_merge_waivers_base_only(self) -> None:
-        base = CapabilityDeclaration(
-            waivers=CapabilityWaivers(can_waive=["objection"])
-        )
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
         merged = merge_declarations(base, None)
         assert merged.waivers is not None
         assert merged.waivers.can_waive == ["objection"]
@@ -251,9 +247,7 @@ class TestMergeDeclarations:
         assert merged.waivers.can_waive == ["check_failure:warning"]
 
     def test_merge_waivers_unions_both(self) -> None:
-        base = CapabilityDeclaration(
-            waivers=CapabilityWaivers(can_waive=["objection"])
-        )
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
         override = CapabilityDeclaration(
             waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
         )
@@ -265,9 +259,7 @@ class TestMergeDeclarations:
         ]
 
     def test_merge_waivers_dedups(self) -> None:
-        base = CapabilityDeclaration(
-            waivers=CapabilityWaivers(can_waive=["objection"])
-        )
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
         override = CapabilityDeclaration(
             waivers=CapabilityWaivers(can_waive=["objection"])
         )
@@ -276,9 +268,7 @@ class TestMergeDeclarations:
         assert merged.waivers.can_waive == ["objection"]
 
     def test_merge_waivers_neither_declared(self) -> None:
-        base = CapabilityDeclaration(
-            tools=CapabilityTools(allowed=["Read"])
-        )
+        base = CapabilityDeclaration(tools=CapabilityTools(allowed=["Read"]))
         override = CapabilityDeclaration()
         merged = merge_declarations(base, override)
         assert merged.waivers is None
@@ -358,9 +348,7 @@ class TestCompile:
         assert rules.waivers.can_waive == []
 
     def test_compile_propagates_waivers(self) -> None:
-        base = CapabilityDeclaration(
-            waivers=CapabilityWaivers(can_waive=["objection"])
-        )
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
         override = CapabilityDeclaration(
             waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
         )
@@ -408,18 +396,14 @@ class TestWriteRulesJson:
 
     def test_rules_json_carries_waivers(self, tmp_path: Path) -> None:
         decl = CapabilityDeclaration(
-            waivers=CapabilityWaivers(
-                can_waive=["objection", "check_failure:required"]
-            )
+            waivers=CapabilityWaivers(can_waive=["objection", "check_failure:required"])
         )
         rules = compile(decl, None)
         path = tmp_path / "rules.json"
         write_rules_json(rules, path)
         data = json.loads(path.read_text())
         assert data["schema_version"] == 2
-        assert data["waivers"] == {
-            "can_waive": ["objection", "check_failure:required"]
-        }
+        assert data["waivers"] == {"can_waive": ["objection", "check_failure:required"]}
 
 
 class TestWriteClaudeSettings:
@@ -586,9 +570,7 @@ class TestMcpServerWaiverPlumbing:
             captured_tools["tools"] = tools
             return real_factory(name=name, tools=tools)
 
-        monkeypatch.setattr(
-            mcp_server_mod, "create_sdk_mcp_server", spy_factory
-        )
+        monkeypatch.setattr(mcp_server_mod, "create_sdk_mcp_server", spy_factory)
 
         captured_kwargs: dict[str, object] = {}
 
@@ -620,7 +602,9 @@ class TestMcpServerWaiverPlumbing:
 
             tools = captured_tools["tools"]
             thread_waive_tool = next(
-                t for t in tools if t.name == "thread_waive"  # type: ignore[attr-defined]
+                t
+                for t in tools
+                if t.name == "thread_waive"  # type: ignore[attr-defined]
             )
             await thread_waive_tool.handler(  # type: ignore[attr-defined]
                 {"objection_id": "o1", "justification": "j"}

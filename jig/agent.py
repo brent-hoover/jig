@@ -187,9 +187,7 @@ def _materialize_capability_policy(
     phase_caps = ctx.phase.capability_overrides if ctx.phase else None
 
     if role_caps is None and phase_caps is None:
-        return _CapabilityMaterialization(
-            policy_dir=None, can_waive=frozenset()
-        )
+        return _CapabilityMaterialization(policy_dir=None, can_waive=frozenset())
 
     rules = compile_capabilities(role_caps, phase_caps)
     can_waive = frozenset(rules.waivers.can_waive)
@@ -201,9 +199,7 @@ def _materialize_capability_policy(
             ctx.role,
             ctx.ticket.id,
         )
-        return _CapabilityMaterialization(
-            policy_dir=None, can_waive=can_waive
-        )
+        return _CapabilityMaterialization(policy_dir=None, can_waive=can_waive)
 
     try:
         policy_dir = (
@@ -225,18 +221,14 @@ def _materialize_capability_policy(
             rules_path,
             settings_path,
         )
-        return _CapabilityMaterialization(
-            policy_dir=policy_dir, can_waive=can_waive
-        )
+        return _CapabilityMaterialization(policy_dir=policy_dir, can_waive=can_waive)
     except OSError:
         _logger.exception(
             "capability materialisation failed for %s on %s",
             ctx.role,
             ctx.ticket.id,
         )
-        return _CapabilityMaterialization(
-            policy_dir=None, can_waive=can_waive
-        )
+        return _CapabilityMaterialization(policy_dir=None, can_waive=can_waive)
 
 
 def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:

@@ -174,10 +174,10 @@ class Resolution(_ThreadEntryBase):
 class Waiver(_ThreadEntryBase):
     """Explicitly overrides an Objection or a check_failure SystemEvent.
 
-    Authorization is enforced at post-time: today against
-    ``config.waiver_authority``; Phase 5 Task H flips this to the
-    capability layer. The Waiver itself and its target both stay in
-    the thread — the audit trail is the point (doc 08 §Waivers leave
+    Authorization is enforced at post-time against the author's
+    compiled ``capabilities.waivers.can_waive`` set (doc 16 §Capability
+    policy). The Waiver itself and its target both stay in the thread
+    — the audit trail is the point (doc 08 §Waivers leave
     an audit trail).
 
     Exactly one of ``objection_id`` / ``check_failure_id`` must be

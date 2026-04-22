@@ -72,9 +72,7 @@ class _ThreadEntryBase(StoreModel):
 
     ticket_id: str
     author: str
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def is_blocking(self) -> bool:
         """Whether this entry blocks phase advancement.
@@ -174,10 +172,10 @@ class Resolution(_ThreadEntryBase):
 class Waiver(_ThreadEntryBase):
     """Explicitly overrides an Objection or a check_failure SystemEvent.
 
-    Authorization is enforced at post-time: today against
-    ``config.waiver_authority``; Phase 5 Task H flips this to the
-    capability layer. The Waiver itself and its target both stay in
-    the thread — the audit trail is the point (doc 08 §Waivers leave
+    Authorization is enforced at post-time against the author's
+    compiled ``capabilities.waivers.can_waive`` set (doc 16 §Capability
+    policy). The Waiver itself and its target both stay in the thread
+    — the audit trail is the point (doc 08 §Waivers leave
     an audit trail).
 
     Exactly one of ``objection_id`` / ``check_failure_id`` must be
@@ -193,7 +191,8 @@ class Waiver(_ThreadEntryBase):
 
     def model_post_init(self, __context: object) -> None:  # type: ignore[override]
         set_fields = [
-            f for f in ("objection_id", "check_failure_id")
+            f
+            for f in ("objection_id", "check_failure_id")
             if getattr(self, f) is not None
         ]
         if len(set_fields) != 1:
@@ -273,9 +272,7 @@ class Handoff(_ThreadEntryBase):
     outputs: list[str] = Field(default_factory=list)
     summary: str = ""
     deferred_items: list[DeferredItem] = Field(default_factory=list)
-    acceptance_state: Literal[
-        "pending", "accepted", "rejected"
-    ] = "pending"
+    acceptance_state: Literal["pending", "accepted", "rejected"] = "pending"
     accepted_by: str | None = None
     rejection_reason: str | None = None
 
@@ -301,8 +298,7 @@ class Handoff(_ThreadEntryBase):
         elif state == "accepted":
             if self.accepted_by is None:
                 raise ValueError(
-                    "Handoff(acceptance_state='accepted') requires "
-                    "accepted_by"
+                    "Handoff(acceptance_state='accepted') requires accepted_by"
                 )
             if self.rejection_reason is not None:
                 raise ValueError(
@@ -312,8 +308,7 @@ class Handoff(_ThreadEntryBase):
         elif state == "rejected":
             if self.rejection_reason is None:
                 raise ValueError(
-                    "Handoff(acceptance_state='rejected') requires "
-                    "rejection_reason"
+                    "Handoff(acceptance_state='rejected') requires rejection_reason"
                 )
 
 
@@ -334,9 +329,7 @@ class Proposal(_ThreadEntryBase):
     section: str | None = None
     change: str | None = None  # YAML fragment or prose
     rationale: str = ""
-    state: Literal["pending", "accepted", "rejected", "refining"] = (
-        "pending"
-    )
+    state: Literal["pending", "accepted", "rejected", "refining"] = "pending"
     owners: list[str] = Field(default_factory=list)
     parent_id: str | None = None  # resolver entries reference original
     spec_version: int | None = None
@@ -381,9 +374,7 @@ class SystemEvent(_ThreadEntryBase):
     ]
     content: str = ""
     commit_sha: str | None = None
-    phase_result: Literal[
-        "success", "failed", "blocked", "needs_info"
-    ] | None = None
+    phase_result: Literal["success", "failed", "blocked", "needs_info"] | None = None
     phase_branch: str | None = None
     # ---- check_failure-only fields (Task D) -----------------------------
     # Populated only when ``event_type == "check_failure"``. Left as

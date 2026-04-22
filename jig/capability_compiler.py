@@ -39,7 +39,7 @@ from jig.capabilities import (
 # Compiled-rules schema version. Bump on breaking changes to
 # ``CompiledRules`` so stale hook scripts can fail loud rather than
 # silently misinterpret fields.
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 2
 
 # Sandbox-absolute path where ``rules.json`` is bind-mounted for the
 # hook scripts to read. Matches doc 16 §Hook compilation at spawn time.
@@ -66,6 +66,21 @@ class CompiledPathRules(BaseModel):
     denied: list[str] = []
 
 
+class CompiledWaiverRules(BaseModel):
+    """Compiled waiver capability. Orchestrator-side only — hook
+    scripts inside the sandbox don't read this block. The two
+    ``thread_waive*`` MCP handlers consult ``can_waive`` at call time;
+    the set is fixed at spawn (same contract as the other compiled
+    rules: compile-once at spawn, enforce-on-use).
+
+    Ships in ``rules.json`` for completeness of the compiled artefact
+    (easier debugging, single source of truth for "what policy did
+    this spawn see")."""
+
+    model_config = ConfigDict(extra="forbid")
+    can_waive: list[str] = []
+
+
 class CompiledRules(BaseModel):
     """Enforcement-side compiled ruleset.
 
@@ -84,6 +99,7 @@ class CompiledRules(BaseModel):
     tools: CompiledToolRules = Field(default_factory=CompiledToolRules)
     bash: CompiledBashRules = Field(default_factory=CompiledBashRules)
     paths: CompiledPathRules = Field(default_factory=CompiledPathRules)
+    waivers: CompiledWaiverRules = Field(default_factory=CompiledWaiverRules)
 
 
 def compile(
@@ -113,6 +129,7 @@ def compile(
         if merged.tool_params and merged.tool_params.Bash
         else BashToolParams()
     )
+    waivers_source = merged.waivers.can_waive if merged.waivers else []
 
     return CompiledRules(
         schema_version=SCHEMA_VERSION,
@@ -123,6 +140,7 @@ def compile(
             readable=list(paths.readable),
             denied=list(paths.denied),
         ),
+        waivers=CompiledWaiverRules(can_waive=list(waivers_source)),
     )
 
 

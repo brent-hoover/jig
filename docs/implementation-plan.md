@@ -958,7 +958,7 @@ ad-hoc `handle_ask_question` / `handle_answer_questions` flow in
       reason. Authorization check: doc 08 says "authorized actors
       only"; Phase 4 reads `config.waiver_authority: list[str]`
       (roles allowed to waive; default `["po", "sa", "user"]`).
-      Full policy enforcement lands Phase 5.
+      Full policy enforcement lands Phase 5. Retired in Phase 5 Task H.
 - [x] Both the Objection and its Waiver stay in the thread; the
       audit trail is the point.
 
@@ -1063,7 +1063,11 @@ models and MCP handlers. Separate from thread per doc 09.
 - [x] `validate_catalog` extensions:
   - Workflow phases that declare `questions_to` or
     `escalation_targets` reference known role names.
-  - `config.waiver_authority` references known roles.
+  - ~~`config.waiver_authority` references known roles.~~
+    Retired in Phase 5 Task H; replaced by
+    `_validate_capabilities` checking that every
+    `capabilities.waivers.can_waive` token is a known
+    waive token (see `jig/capabilities.py::WAIVE_TOKENS`).
 - [x] Unit tests per task. Minimum surface:
   - thread_ask/answer/resolve_question roundtrip + asker-only
     close.
@@ -1097,7 +1101,8 @@ models and MCP handlers. Separate from thread per doc 09.
 - A Handoff carries the phase's deferred items and the evaluator
   sees them at accept/reject time.
 - `jig validate` fails loud on unknown roles referenced by
-  `questions_to`, `escalation_targets`, or `waiver_authority`.
+  `questions_to` or `escalation_targets`. (The
+  `waiver_authority` check was retired in Phase 5 Task H.)
 - Phase 3's proposal entries continue to roundtrip through the
   new typed thread store (migration is read-compatible).
 
@@ -1146,9 +1151,10 @@ models and MCP handlers. Separate from thread per doc 09.
   since the objector *is* the author. If future work splits
   author from resolver (e.g., a human PO inherits an agent's
   Objection), revisit.
-- **Waiver authority via config.** A flat `waiver_authority:
+- ~~**Waiver authority via config.** A flat `waiver_authority:
   list[str]` is enough for Phase 4. Doc 16's capability-policy
-  model supersedes this in Phase 5 — intentional stepping-stone.
+  model supersedes this in Phase 5 — intentional stepping-stone.~~
+  Resolved in Phase 5 Task H.
 - **Checkpoint hooks coupled to worktree.py.** The auto-commit
   and auto-test hooks live where the actions happen today.
   When Phase 5 adds a proper check-execution layer, move the
@@ -1205,8 +1211,9 @@ Concretely:
 - **Human-side hooks.** `jig init` installs pre-commit /
   pre-push / commit-msg hooks that invoke the same check
   commands so a dev's local experience matches the harness.
-- **Carry-over cleanup.** Phase 4's flat `waiver_authority` list
-  becomes a capability. `thread_ask` / `thread_escalate` gate on
+- **Carry-over cleanup.** ~~Phase 4's flat `waiver_authority` list
+  becomes a capability.~~ Delivered in Phase 5 Task H.
+  `thread_ask` / `thread_escalate` gate on
   the phase's `questions_to` / `escalation_targets` at post
   time, not just at catalog-load. Section locks
   (`locked_after_phase`) enforce at proposal-accept. Deferred
@@ -1429,9 +1436,9 @@ Design notes:
       Handler posts the Waiver, flips the target SystemEvent's
       `waived=True` via `threads.update`, and publishes
       `thread_check_failure_waived` on `tickets.{id}`.
-      Authorization mirrors `thread_waive` — `sender` must be
-      in `config.waiver_authority` (Task H will swap this for
-      capability tokens).*
+      Authorization mirrors `thread_waive` — `sender`'s role
+      must declare `capabilities.waivers.can_waive` containing
+      `"check_failure:<severity>"` (Task H landed this swap).*
 - [ ] Evaluator view shows active waivers alongside check
       results.
       *Deferred to Task O — evaluator spawn prompt composition
@@ -1523,17 +1530,17 @@ Design notes:
 Retires the flat `config.waiver_authority: list[str]` from
 Phase 4.
 
-- [ ] Role templates carry
+- [x] Role templates carry
       `capabilities.waivers: {can_waive: [check_severity|
       objection_kind|…]}`. Phase overrides as usual.
-- [ ] `thread_mcp.handle_thread_waive` and the new
+- [x] `thread_mcp.handle_thread_waive` and the new
       `thread_waive_check` consult the compiled rules from
       Task F instead of reading `config.waiver_authority`.
-- [ ] Unauthorized-waiver error message names the capability
+- [x] Unauthorized-waiver error message names the capability
       the actor lacks, not just the role list.
-- [ ] Migration: `config.yaml` `waiver_authority` continues
-      to load for a cycle but emits a deprecation warning
-      pointing at the new capability key.
+- [x] ~~Migration path for legacy `config.yaml`~~ — retired
+      outright; project has no legacy users at the time of
+      this change, so no deprecation cycle needed.
 
 **I. Human-side git hooks**
 
@@ -1741,8 +1748,9 @@ spawn.
   or escape-the-sandbox path globs in role capabilities.
 - Phase-level `questions_to` / `escalation_targets` enforce
   at post-time.
-- `waiver_authority` reads from capability policy; flat list
-  in `config.yaml` still loads with a deprecation warning.
+- Waivers are declared under `capabilities.waivers.can_waive`
+  on role templates and phase overrides; the Phase 4 flat list
+  is retired.
 - `jig init` installs git hooks running the same checks as
   the harness.
 - Deferred-item promotion at handoff creates a child

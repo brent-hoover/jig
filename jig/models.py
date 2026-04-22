@@ -17,7 +17,7 @@ class MergeStrategy(str, Enum):
 
 class RoleConfig(BaseModel):
     role: str
-    phase_prompt: str
+    phase_prompt: str = ""
     response_prompt: str = ""
     allowed_tools: list[str] = []
     # NOTE: `can_message` was a stub with no enforcement and is removed

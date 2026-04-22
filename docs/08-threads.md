@@ -185,7 +185,12 @@ invested in at the level of MCP server documentation — see note below):
 - `thread_answer(question_id, text)` — respond to a Question.
 - `thread_object(target_artifact, text)` — raise an Objection.
 - `thread_resolve(entry_id, text)` — post a Resolution (objector closes it).
-- `thread_waive(entry_id, justification)` — post a Waiver (authorized actors only).
+- `thread_waive(entry_id, justification)` — post a Waiver.
+  Authorization: `sender`'s role must declare
+  `capabilities.waivers.can_waive` including `"objection"` (for
+  `thread_waive`) or `"check_failure:<severity>"` (for
+  `thread_waive_check`). Declared on the role template or broadened
+  via phase `capability_overrides`.
 - `thread_decide(decision, rationale)` — record a Decision.
 - `thread_handoff(outputs, summary)` — mark phase complete with output refs and narrative summary.
 - `thread_escalate(reason, details)` — escalate by reason.

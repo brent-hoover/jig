@@ -10,6 +10,7 @@ tests/test_agent_streaming.py::TestMaterializeCapabilityPolicy.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -17,21 +18,32 @@ import pytest
 from pydantic import ValidationError
 
 from jig.capabilities import (
+    WAIVE_TOKENS,
     BashToolParams,
     CapabilityDeclaration,
     CapabilityPaths,
     CapabilityToolParams,
     CapabilityTools,
+    CapabilityWaivers,
+    is_known_waive_token,
     merge_declarations,
 )
 from jig.capability_compiler import (
     SANDBOX_HOOK_BIN,
     SCHEMA_VERSION,
+    CompiledWaiverRules,
     compile,
     materialize,
     write_claude_settings,
     write_rules_json,
 )
+from jig.mcp_server import create_agent_mcp_server
+from jig.models import RoleConfig
+from jig.persistence import _jig_dir, load_role
+from jig.store import MessageBus
+from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 
 
 # ---- declaration shape ----------------------------------------------------
@@ -43,6 +55,7 @@ class TestDeclarationConstruction:
         assert decl.tools is None
         assert decl.tool_params is None
         assert decl.paths is None
+        assert decl.waivers is None
 
     def test_full_declaration_valid(self) -> None:
         decl = CapabilityDeclaration(
@@ -86,6 +99,39 @@ class TestDeclarationConstruction:
             )
 
 
+class TestCapabilityWaivers:
+    def test_empty_waivers_valid(self) -> None:
+        w = CapabilityWaivers()
+        assert w.can_waive == []
+
+    def test_waivers_accepts_all_known_tokens(self) -> None:
+        w = CapabilityWaivers(can_waive=sorted(WAIVE_TOKENS))
+        assert set(w.can_waive) == WAIVE_TOKENS
+
+    def test_waivers_rejects_extra_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            CapabilityWaivers.model_validate(
+                {"can_waive": ["objection"], "extra": "nope"}
+            )
+
+    def test_known_waive_tokens_registry(self) -> None:
+        assert "objection" in WAIVE_TOKENS
+        assert "check_failure:required" in WAIVE_TOKENS
+        assert "check_failure:warning" in WAIVE_TOKENS
+        assert is_known_waive_token("objection") is True
+        assert is_known_waive_token("check_failure:warning") is True
+        assert is_known_waive_token("bogus") is False
+
+    def test_declaration_accepts_waivers_field(self) -> None:
+        decl = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
+        assert decl.waivers is not None
+        assert decl.waivers.can_waive == ["objection"]
+
+    def test_declaration_waivers_defaults_none(self) -> None:
+        decl = CapabilityDeclaration()
+        assert decl.waivers is None
+
+
 # ---- merge_declarations ---------------------------------------------------
 
 
@@ -95,6 +141,7 @@ class TestMergeDeclarations:
         assert merged.tools is None
         assert merged.tool_params is None
         assert merged.paths is None
+        assert merged.waivers is None
 
     def test_base_only_preserved(self) -> None:
         base = CapabilityDeclaration(
@@ -185,6 +232,63 @@ class TestMergeDeclarations:
         assert merged.tools is not None
         assert merged.tools.allowed == ["Read"]
 
+    def test_merge_waivers_base_only(self) -> None:
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
+        merged = merge_declarations(base, None)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["objection"]
+
+    def test_merge_waivers_override_only(self) -> None:
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        merged = merge_declarations(None, override)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["check_failure:warning"]
+
+    def test_merge_waivers_unions_both(self) -> None:
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        merged = merge_declarations(base, override)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == [
+            "objection",
+            "check_failure:warning",
+        ]
+
+    def test_merge_waivers_dedups(self) -> None:
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        merged = merge_declarations(base, override)
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["objection"]
+
+    def test_merge_waivers_neither_declared(self) -> None:
+        base = CapabilityDeclaration(tools=CapabilityTools(allowed=["Read"]))
+        override = CapabilityDeclaration()
+        merged = merge_declarations(base, override)
+        assert merged.waivers is None
+
+    def test_merge_waivers_independent_of_other_fields(self) -> None:
+        base = CapabilityDeclaration(
+            tools=CapabilityTools(allowed=["Read"]),
+            waivers=CapabilityWaivers(can_waive=["objection"]),
+        )
+        override = CapabilityDeclaration(
+            paths=CapabilityPaths(writable=["ticket://worktree/**"]),
+        )
+        merged = merge_declarations(base, override)
+        assert merged.tools is not None
+        assert merged.tools.allowed == ["Read"]
+        assert merged.paths is not None
+        assert merged.paths.writable == ["ticket://worktree/**"]
+        assert merged.waivers is not None
+        assert merged.waivers.can_waive == ["objection"]
+
 
 # ---- compile() ------------------------------------------------------------
 
@@ -235,6 +339,29 @@ class TestCompile:
             ".jig/decisions/**",
         ]
 
+    def test_schema_version_is_2(self) -> None:
+        assert SCHEMA_VERSION == 2
+
+    def test_compile_waivers_empty_when_undeclared(self) -> None:
+        rules = compile(None, None)
+        assert isinstance(rules.waivers, CompiledWaiverRules)
+        assert rules.waivers.can_waive == []
+
+    def test_compile_propagates_waivers(self) -> None:
+        base = CapabilityDeclaration(waivers=CapabilityWaivers(can_waive=["objection"]))
+        override = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        rules = compile(base, override)
+        assert rules.waivers.can_waive == [
+            "objection",
+            "check_failure:warning",
+        ]
+
+    def test_compile_output_carries_schema_2(self) -> None:
+        rules = compile(None, None)
+        assert rules.schema_version == 2
+
 
 # ---- materialisation ------------------------------------------------------
 
@@ -266,6 +393,17 @@ class TestWriteRulesJson:
         write_rules_json(compile(None, None), target)
         parsed = json.loads(target.read_text())
         assert parsed["schema_version"] == SCHEMA_VERSION
+
+    def test_rules_json_carries_waivers(self, tmp_path: Path) -> None:
+        decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection", "check_failure:required"])
+        )
+        rules = compile(decl, None)
+        path = tmp_path / "rules.json"
+        write_rules_json(rules, path)
+        data = json.loads(path.read_text())
+        assert data["schema_version"] == 2
+        assert data["waivers"] == {"can_waive": ["objection", "check_failure:required"]}
 
 
 class TestWriteClaudeSettings:
@@ -374,3 +512,109 @@ class TestMaterialize:
         assert settings_path == worktree / ".claude" / "settings.json"
         assert rules_path.exists()
         assert settings_path.exists()
+
+
+class TestRoleConfigPromptDefault:
+    """``user.yaml`` and similar non-dispatched roles ship without a
+    phase_prompt — the field default must permit the empty string."""
+
+    def test_empty_phase_prompt_accepted(self) -> None:
+        r = RoleConfig(role="user")
+        assert r.phase_prompt == ""
+
+    def test_explicit_empty_phase_prompt_accepted(self) -> None:
+        r = RoleConfig(role="user", phase_prompt="")
+        assert r.phase_prompt == ""
+
+
+class TestUserRoleDefault:
+    """``user.yaml`` ships as a pseudo-role carrying default waiver
+    authority. It's never dispatched to Claude Code; loading + parsing
+    must work so future user-driven waive flows can reuse the same
+    capability codepath."""
+
+    def test_user_role_loads_with_default_waiver_capability(
+        self, tmp_path: Path
+    ) -> None:
+        # initialize a minimal project skeleton so load_role's resolver
+        # can find shipped defaults by falling through to jig/defaults/
+        _jig_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+
+        r = load_role(tmp_path, "user")
+        assert r.role == "user"
+        assert r.phase_prompt == ""
+        assert r.capabilities is not None
+        assert r.capabilities.waivers is not None
+        assert set(r.capabilities.waivers.can_waive) == WAIVE_TOKENS
+
+
+class TestMcpServerWaiverPlumbing:
+    """``create_agent_mcp_server`` must forward the ``can_waive``
+    frozenset through to ``handle_thread_waive``. We reach into the
+    tools list passed to ``create_sdk_mcp_server`` (via a monkeypatched
+    factory that captures the kwargs) and invoke the ``thread_waive``
+    tool's handler directly, asserting the captured ``can_waive``
+    matches what the caller supplied."""
+
+    def test_create_agent_mcp_server_forwards_can_waive_to_handler(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import jig.mcp_server as mcp_server_mod
+        import jig.thread_mcp as thread_mcp_mod
+
+        captured_tools: dict[str, object] = {}
+
+        real_factory = mcp_server_mod.create_sdk_mcp_server
+
+        def spy_factory(*, name: str, tools: list) -> object:
+            captured_tools["tools"] = tools
+            return real_factory(name=name, tools=tools)
+
+        monkeypatch.setattr(mcp_server_mod, "create_sdk_mcp_server", spy_factory)
+
+        captured_kwargs: dict[str, object] = {}
+
+        async def stub_handle_thread_waive(**kwargs: object) -> dict[str, object]:
+            captured_kwargs.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(
+            thread_mcp_mod, "handle_thread_waive", stub_handle_thread_waive
+        )
+
+        async def run() -> None:
+            tickets = TicketStore(tmp_path / "tickets.jsonl")
+            threads = ThreadStore(tmp_path / "threads.jsonl")
+            memory = MemoryStore(tmp_path / "memory.jsonl")
+            bus = MessageBus(tmp_path / "messages.jsonl")
+
+            create_agent_mcp_server(
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                agent_role="dev",
+                agent_cfg=RoleConfig(role="dev", phase_prompt="x"),
+                worktree_path=tmp_path,
+                project_path=tmp_path,
+                can_waive=frozenset({"objection"}),
+            )
+
+            tools = captured_tools["tools"]
+            thread_waive_tool = next(
+                t
+                for t in tools
+                if t.name == "thread_waive"  # type: ignore[attr-defined]
+            )
+            await thread_waive_tool.handler(  # type: ignore[attr-defined]
+                {"objection_id": "o1", "justification": "j"}
+            )
+
+        asyncio.run(run())
+
+        assert captured_kwargs.get("can_waive") == frozenset({"objection"})
+        assert captured_kwargs.get("sender") == "dev"
+        assert captured_kwargs.get("args") == {
+            "objection_id": "o1",
+            "justification": "j",
+        }

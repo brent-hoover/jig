@@ -107,6 +107,28 @@ Phase overrides layer on top. A review phase for the same role might
 drop `Edit`/`Write` entirely; an integration phase for a parent
 workflow might widen the writable paths.
 
+### Waiver authority
+
+`capabilities.waivers.can_waive` is a flat list of string tokens that
+authorize the role to post Waivers against specific thread entries.
+Recognised tokens:
+
+- `"objection"` — any `Objection` entry.
+- `"check_failure:required"` — `SystemEvent(event_type="check_failure")`
+  with `check_severity == "required"`.
+- `"check_failure:warning"` — same, severity `"warning"`.
+
+Merge semantics: phase `capability_overrides` union with the role
+template's base, same as the other list fields — phase overrides can
+broaden waiver authority but never narrow it. Unknown tokens fail
+`jig validate` at load time.
+
+The MCP tools `thread_waive` and `thread_waive_check` enforce these
+tokens at call time. Enforcement runs in the orchestrator process,
+not in the sandbox — the hook scripts ignore the `waivers` block in
+`rules.json` (it's present for completeness of the compiled
+artefact, not for sandbox-side gating).
+
 ### Enforcement split
 
 Three enforcement mechanisms, each appropriate for a different

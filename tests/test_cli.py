@@ -44,7 +44,8 @@ class TestInit:
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path, check=True,
+            cwd=tmp_path,
+            check=True,
         )
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code == 0, result.output
@@ -65,11 +66,14 @@ class TestInit:
         assert (jig / "archive").is_dir()
         assert (jig / "checks.yaml").is_file()
 
-    def test_init_config_yaml_contains_branch(self, tmp_path: Path, runner: CliRunner) -> None:
+    def test_init_config_yaml_contains_branch(
+        self, tmp_path: Path, runner: CliRunner
+    ) -> None:
         subprocess.run(["git", "init", "-q", "-b", "develop"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path, check=True,
+            cwd=tmp_path,
+            check=True,
         )
         result = runner.invoke(
             cli, ["init", "--path", str(tmp_path), "--branch", "develop", "--no-input"]
@@ -78,12 +82,16 @@ class TestInit:
         data = yaml.safe_load((tmp_path / ".jig" / "config.yaml").read_text())
         assert data["project"]["default_branch"] == "develop"
 
-    def test_already_initialized(self, runner: CliRunner, tmp_new_jig_project: Path) -> None:
+    def test_already_initialized(
+        self, runner: CliRunner, tmp_new_jig_project: Path
+    ) -> None:
         result = runner.invoke(cli, ["init", "--path", str(tmp_new_jig_project)])
         assert result.exit_code != 0
         assert "already" in result.output.lower()
 
-    def test_not_git_repo_no_input_errors(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_not_git_repo_no_input_errors(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code != 0
         assert "git" in result.output.lower()
@@ -110,25 +118,40 @@ class TestInit:
 
 
 class TestInitCreatesAgentTypes:
-    def test_init_creates_default_roles(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_init_creates_default_roles(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path, check=True,
+            cwd=tmp_path,
+            check=True,
         )
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code == 0, result.output
         types = list_roles(tmp_path)
         roles = {t.role for t in types}
-        assert roles == {"spec", "test", "dev", "review", "validate", "document", "pm"}
+        assert roles == {
+            "spec",
+            "test",
+            "dev",
+            "review",
+            "validate",
+            "document",
+            "pm",
+            "user",
+        }
 
 
 class TestInitCreatesWorkflow:
-    def test_init_creates_default_workflow(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_init_creates_default_workflow(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
         subprocess.run(
             ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path, check=True,
+            cwd=tmp_path,
+            check=True,
         )
         result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
         assert result.exit_code == 0, result.output
@@ -158,10 +181,17 @@ class TestStart:
         mock_ws.stop = AsyncMock()
         mock_ws.port = 0
 
-        result = runner.invoke(cli, [
-            "start", "--path", str(tmp_new_jig_project), "--ws-port", "0",
-            "--no-docker",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "start",
+                "--path",
+                str(tmp_new_jig_project),
+                "--ws-port",
+                "0",
+                "--no-docker",
+            ],
+        )
         # KeyboardInterrupt exits cleanly
         assert result.exit_code == 0, result.output
         MockOrchestrator.assert_called_once()
@@ -184,12 +214,20 @@ class TestValidate:
         """A real git repo with .jig/ initialized (new layout)."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
         subprocess.run(
-            ["git", "config", "user.email", "t@t.com"], cwd=repo, check=True, capture_output=True
+            ["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True
         )
         subprocess.run(
-            ["git", "config", "user.name", "T"], cwd=repo, check=True, capture_output=True
+            ["git", "config", "user.email", "t@t.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "T"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
         )
         (repo / "README.md").write_text("# Test\n")
         subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
@@ -203,17 +241,31 @@ class TestValidate:
         return repo
 
     def test_validate_ticket(self, runner: CliRunner, git_jig_project: Path) -> None:
-        result = runner.invoke(cli, [
-            "validate", "--path", str(git_jig_project), "--ticket-id", "ticket-1",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                "--path",
+                str(git_jig_project),
+                "--ticket-id",
+                "ticket-1",
+            ],
+        )
         assert result.exit_code == 0
         assert "validated" in result.output.lower()
 
     def test_not_initialized(self, runner: CliRunner, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
-        result = runner.invoke(cli, [
-            "validate", "--path", str(tmp_path), "--ticket-id", "ticket-1",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                "--path",
+                str(tmp_path),
+                "--ticket-id",
+                "ticket-1",
+            ],
+        )
         assert result.exit_code != 0
         assert "not initialized" in result.output.lower()
 

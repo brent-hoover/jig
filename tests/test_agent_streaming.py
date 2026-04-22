@@ -446,11 +446,113 @@ class TestMaterializeWithoutSandbox:
 
         result = agent_module._materialize_capability_policy(ctx)
 
-        # Returns None so the caller knows not to wire the policy
-        # mount into BwrapConfig (there's no sandbox to mount it into
-        # anyway).
-        assert result is None
+        # ``policy_dir`` is None so the caller knows not to wire the
+        # policy mount into BwrapConfig (there's no sandbox to mount it
+        # into anyway). ``can_waive`` is still surfaced — orchestrator-
+        # side waiver authorization runs regardless of sandbox.
+        assert result.policy_dir is None
+        assert result.can_waive == frozenset()
         # Nothing on disk — no settings.json to break Claude Code's
         # tool dispatch on the host.
         assert not (tmp_path / "worktree" / ".claude").exists()
         assert not (tmp_path / ".jig" / "runtime").exists()
+
+
+class TestCompiledWaiverPlumbing:
+    """Phase 5 Task H: the compiled ``can_waive`` set from role +
+    phase capabilities is visible to the orchestrator-side waiver
+    MCP handlers. This test exercises the compile-at-spawn path
+    without standing up Claude Code."""
+
+    def test_compiled_can_waive_from_role_base(self) -> None:
+        from jig.capabilities import (
+            CapabilityDeclaration,
+            CapabilityWaivers,
+        )
+        from jig.capability_compiler import compile as compile_capabilities
+
+        role_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        rules = compile_capabilities(role_decl, None)
+        assert frozenset(rules.waivers.can_waive) == frozenset({"objection"})
+
+    def test_compiled_can_waive_unions_phase_override(self) -> None:
+        from jig.capabilities import (
+            CapabilityDeclaration,
+            CapabilityWaivers,
+        )
+        from jig.capability_compiler import compile as compile_capabilities
+
+        role_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        phase_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        rules = compile_capabilities(role_decl, phase_decl)
+        assert frozenset(rules.waivers.can_waive) == frozenset(
+            {"objection", "check_failure:warning"}
+        )
+
+    def test_compiled_can_waive_empty_when_undeclared(self) -> None:
+        from jig.capability_compiler import compile as compile_capabilities
+
+        rules = compile_capabilities(None, None)
+        assert rules.waivers.can_waive == []
+
+    def test_run_agent_threads_can_waive_from_materialization_into_mcp_factory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Task 11 wiring: ``run_agent`` must pass ``cap.can_waive``
+        from ``_materialize_capability_policy`` into
+        ``create_agent_mcp_server``. This is the seam under test —
+        mutation-dropping ``can_waive=cap.can_waive`` from the factory
+        call in ``jig/agent.py`` should fail THIS test.
+
+        Structure: a spy replaces ``create_agent_mcp_server``, captures
+        the kwargs the real call site passes, then raises a sentinel
+        to halt ``run_agent`` before it drops into the Claude SDK
+        streaming loop (which would need far heavier stubbing)."""
+        from typing import Any
+
+        from jig import agent as agent_module
+        from jig.capabilities import (
+            CapabilityDeclaration,
+            CapabilityWaivers,
+        )
+
+        captured: dict[str, Any] = {}
+
+        class _CapturedKwargs(RuntimeError):
+            pass
+
+        def _spy(**kwargs: Any) -> None:
+            captured.update(kwargs)
+            raise _CapturedKwargs
+
+        # The sandbox gate on ``_materialize_capability_policy`` — Task F
+        # keeps hook-writing inert on the host to avoid ENOENT on
+        # container-absolute paths. We need the compiled ``can_waive``
+        # (non-sandbox branch still returns it; see
+        # ``TestMaterializeWithoutSandbox``), but flipping the gate on
+        # exercises the full materialisation path which is what the
+        # production call-site hits inside the container.
+        monkeypatch.setenv("JIG_IN_CONTAINER", "1")
+        monkeypatch.setattr(agent_module, "create_agent_mcp_server", _spy)
+
+        async def _run() -> None:
+            ctx = await _make_context(tmp_path)
+            ctx.role_cfg = RoleConfig(
+                role="dev",
+                phase_prompt="be dev",
+                capabilities=CapabilityDeclaration(
+                    waivers=CapabilityWaivers(can_waive=["objection"]),
+                ),
+            )
+            with pytest.raises(_CapturedKwargs):
+                await agent_module.run_agent(ctx)
+
+        asyncio.run(_run())
+
+        assert captured["can_waive"] == frozenset({"objection"})

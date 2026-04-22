@@ -1,0 +1,8 @@
+role: user
+phase_prompt: ""
+capabilities:
+  waivers:
+    can_waive:
+      - objection
+      - check_failure:required
+      - check_failure:warning

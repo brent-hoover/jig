@@ -12,11 +12,13 @@ import pytest
 import yaml
 
 from jig.capabilities import (
+    WAIVE_TOKENS,
     BashToolParams,
     CapabilityDeclaration,
     CapabilityPaths,
     CapabilityToolParams,
     CapabilityTools,
+    CapabilityWaivers,
 )
 from jig.catalog import CatalogError, validate_catalog
 from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
@@ -494,41 +496,6 @@ class TestPhaseEscalationTargetReferences:
         validate_catalog(initialized_project)
 
 
-class TestWaiverAuthorityReferences:
-    """Phase 4 Task H: ``config.waiver_authority`` must name known roles."""
-
-    def test_unknown_waiver_role_fails(self, initialized_project: Path) -> None:
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["po", "sa", "user", "imaginary"]},
-        )
-        with pytest.raises(CatalogError, match="imaginary"):
-            validate_catalog(initialized_project)
-
-    def test_user_sentinel_allowed(self, initialized_project: Path) -> None:
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["user"]},
-        )
-        validate_catalog(initialized_project)
-
-    def test_project_level_role_allowed(self, initialized_project: Path) -> None:
-        """``po`` / ``sa`` live in ``config.roles`` rather than ``.jig/roles/``
-        but are valid waiver_authority entries."""
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["po", "sa"]},
-        )
-        validate_catalog(initialized_project)
-
-    def test_agent_role_allowed(self, initialized_project: Path) -> None:
-        _write_config(
-            initialized_project,
-            {"waiver_authority": ["dev", "review"]},
-        )
-        validate_catalog(initialized_project)
-
-
 class TestCapabilityDeclarationValidation:
     """Phase 5 Task F (doc 16 §Capability policy): ``jig validate``
     sanity-checks role ``capabilities`` and phase ``capability_overrides``.
@@ -793,3 +760,124 @@ class TestCapabilityDeclarationValidation:
         errors = validate_catalog(initialized_project, collect=True) or []
         assert any("Unknown1" in e for e in errors)
         assert any("ambiguous" in e for e in errors)
+
+
+class TestWaiverCapabilityValidation:
+    """Phase 5 Task H: ``capabilities.waivers.can_waive`` entries must
+    be recognised tokens. Unknown tokens fail validation outright."""
+
+    def test_unknown_token_on_role_fails(self, initialized_project: Path) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="dev",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    waivers=CapabilityWaivers(can_waive=["objection", "typo:bogus"])
+                ),
+            ),
+        )
+        with pytest.raises(CatalogError, match="typo:bogus"):
+            validate_catalog(initialized_project)
+
+    def test_known_tokens_on_role_pass(self, initialized_project: Path) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="dev",
+                phase_prompt="x",
+                capabilities=CapabilityDeclaration(
+                    waivers=CapabilityWaivers(can_waive=sorted(WAIVE_TOKENS))
+                ),
+            ),
+        )
+        validate_catalog(initialized_project)
+
+    def test_unknown_token_on_phase_override_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="broken",
+                phases=[
+                    PhaseConfig(
+                        name="p",
+                        role="dev",
+                        capability_overrides=CapabilityDeclaration(
+                            waivers=CapabilityWaivers(can_waive=["not-a-real-token"])
+                        ),
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="not-a-real-token"):
+            validate_catalog(initialized_project)
+
+
+class TestRolePhasePromptRequired:
+    """A role referenced by a workflow phase must have a non-empty
+    ``phase_prompt``. The field defaults to ``""`` for pseudo-roles
+    like ``user`` that only carry capabilities; catalog validation
+    catches the case where an accidentally-empty prompt would silently
+    dispatch an agent with no system prompt."""
+
+    def test_empty_prompt_on_dispatched_role_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(role="silent", phase_prompt=""),
+        )
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[PhaseConfig(name="p", role="silent")],
+            ),
+        )
+        with pytest.raises(
+            CatalogError,
+            match=r"role 'silent'.*phase_prompt",
+        ):
+            validate_catalog(initialized_project)
+
+    def test_empty_prompt_on_pseudo_role_passes(
+        self, initialized_project: Path
+    ) -> None:
+        """Custom pseudo-role with empty prompt but never referenced by a
+        workflow — validation passes. Mirrors the shipped ``user`` role."""
+        save_role(
+            initialized_project,
+            RoleConfig(role="waiver-holder", phase_prompt=""),
+        )
+        # No workflow references "waiver-holder" — catalog is clean.
+        validate_catalog(initialized_project)
+
+    def test_shipped_user_role_does_not_trip_rule(
+        self, initialized_project: Path
+    ) -> None:
+        """Regression: the shipped ``user`` role ships with an empty
+        ``phase_prompt`` and must not be flagged — no workflow phase
+        references it, which is the whole point of a pseudo-role."""
+        validate_catalog(initialized_project)
+
+    def test_whitespace_only_prompt_also_fails(self, initialized_project: Path) -> None:
+        """A prompt of ``"   \n"`` carries no content — treat it the same
+        as empty so operators don't get silently-no-prompt agents."""
+        save_role(
+            initialized_project,
+            RoleConfig(role="blanky", phase_prompt="   \n"),
+        )
+        save_workflow(
+            initialized_project,
+            WorkflowConfig(
+                name="w",
+                phases=[PhaseConfig(name="p", role="blanky")],
+            ),
+        )
+        with pytest.raises(
+            CatalogError,
+            match=r"role 'blanky'.*phase_prompt",
+        ):
+            validate_catalog(initialized_project)

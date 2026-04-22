@@ -125,18 +125,57 @@ class CapabilityPaths(BaseModel):
     denied: list[str] = []
 
 
+class CapabilityWaivers(BaseModel):
+    """Waiver-authority declaration. ``can_waive`` is a flat list of
+    string tokens matched against waiveable thread entries. Recognised
+    tokens are:
+
+    * ``"objection"`` — any :class:`jig.thread.Objection` entry.
+    * ``"check_failure:required"`` — a
+      :class:`jig.thread.SystemEvent` with ``event_type=="check_failure"``
+      and ``check_severity=="required"``.
+    * ``"check_failure:warning"`` — same, severity ``"warning"``.
+
+    The colon-delimited shape extends cleanly when new waiveable
+    dimensions land (e.g. ``"objection:security"`` if objections grow a
+    kind field). ``jig/catalog.py::_validate_capabilities`` will fail
+    loud on unknown tokens at load time (wired up in Phase 5
+    Task H)."""
+
+    model_config = ConfigDict(extra="forbid")
+    can_waive: list[str] = []
+
+
+WAIVE_TOKENS: frozenset[str] = frozenset(
+    {
+        "objection",
+        "check_failure:required",
+        "check_failure:warning",
+    }
+)
+
+
+def is_known_waive_token(token: str) -> bool:
+    """True if ``token`` is a recognised ``can_waive`` entry. Used by
+    ``jig validate`` to catch typos in
+    ``capabilities.waivers.can_waive`` at load time."""
+
+    return token in WAIVE_TOKENS
+
+
 class CapabilityDeclaration(BaseModel):
     """Top-level capability declaration. Both the role template's base
     and a phase-level override parse into this shape — they merge by
     union under the rules above.
 
-    All three sub-fields are optional so a partial declaration (e.g.,
-    tools only, or paths only) is valid and composes cleanly."""
+    All four sub-fields are optional so a partial declaration (e.g.,
+    tools only, or waivers only) is valid and composes cleanly."""
 
     model_config = ConfigDict(extra="forbid")
     tools: CapabilityTools | None = None
     tool_params: CapabilityToolParams | None = None
     paths: CapabilityPaths | None = None
+    waivers: CapabilityWaivers | None = None
 
 
 def _merge_str_lists(*sources: list[str]) -> list[str]:
@@ -205,8 +244,18 @@ def merge_declarations(
             denied=_merge_str_lists(b.denied, o.denied),
         )
 
+    merged_waivers: CapabilityWaivers | None = None
+    if base.waivers is not None or override.waivers is not None:
+        merged_waivers = CapabilityWaivers(
+            can_waive=_merge_str_lists(
+                (base.waivers.can_waive if base.waivers else []),
+                (override.waivers.can_waive if override.waivers else []),
+            ),
+        )
+
     return CapabilityDeclaration(
         tools=merged_tools,
         tool_params=merged_params,
         paths=merged_paths,
+        waivers=merged_waivers,
     )

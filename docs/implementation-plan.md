@@ -1544,16 +1544,16 @@ Phase 4.
 
 **I. Human-side git hooks**
 
-- [ ] `jig hooks install` / `jig hooks uninstall` /
+- [x] `jig hooks install` / `jig hooks uninstall` /
       `jig hooks status` CLI. Operates on `.git/hooks/` in
       the project.
-- [ ] `jig init` invokes `jig hooks install` by default;
+- [x] `jig init` invokes `jig hooks install` by default;
       opt-out via flag.
-- [ ] Installed hooks: `pre-commit` (required content
+- [x] Installed hooks: `pre-commit` (required content
       checks), `pre-push` (tests if configured),
       `commit-msg` (conventional-commit format if
       configured).
-- [ ] Idempotent: existing hooks backed up to
+- [x] Idempotent: existing hooks backed up to
       `.git/hooks/*.jig-backup` before overwrite. Existing
       jig-managed hooks replaced silently.
 

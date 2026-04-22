@@ -150,61 +150,62 @@ def _hook_bin_dir() -> Path:
     return hook_bin_dir()
 
 
-def _materialize_capability_policy(ctx: AgentSpawnContext) -> Path | None:
-    """Compile + write capability artefacts for a spawn.
+@dataclass(frozen=True)
+class _CapabilityMaterialization:
+    """Return value of :func:`_materialize_capability_policy`. Splits
+    out the sandbox policy dir (bind-mounted for hook scripts) from
+    the orchestrator-side waiver set (consulted by thread_mcp handlers
+    regardless of sandbox availability)."""
 
-    Returns the policy directory that was written (suitable for
-    bind-mounting at ``/jig/policy/``), or ``None`` when the spawn has
-    no declared capabilities / materialisation failed / we're running
-    without the bwrap sandbox. Callers use the return value to decide
-    whether to pass the directory into :class:`BwrapConfig` — a
-    ``None`` result means no hook scripts were registered, so the
-    sandbox doesn't need the policy mount.
+    policy_dir: Path | None
+    can_waive: frozenset[str]
 
-    No-op when neither the role nor the phase declares capabilities —
-    we don't want to silently clobber a hand-maintained
-    ``.claude/settings.json`` in the worktree, and writing an empty
-    ``rules.json`` with no hooks registered gains nothing at enforcement.
 
-    No-op when ``sandbox_available()`` is false (e.g. ``jig start
-    --no-docker``): the hook registrations in ``.claude/settings.json``
-    point at ``/jig/bin/check-*``, which only exists inside the
-    container. Emitting them on the host would hand Claude Code
-    ENOENT on every matching tool call, breaking the agent's ability
-    to run at all. Capability enforcement and no-docker execution are
-    mutually exclusive by design — if you need policy in a local dev
-    run, use Docker.
+def _materialize_capability_policy(
+    ctx: AgentSpawnContext,
+) -> _CapabilityMaterialization:
+    """Compile capability policy for a spawn and (when the sandbox is
+    available) write the hook enforcement artefacts.
 
-    Location:
+    Returns both the policy directory (for bind-mount — may be ``None``
+    when no declaration exists or sandbox is unavailable) and the
+    compiled ``can_waive`` frozenset. Waiver authorization runs
+    orchestrator-side (in :mod:`jig.thread_mcp`), so the frozenset is
+    surfaced independently of whether sandbox hooks were materialised.
+
+    Location of the hook artefacts (when emitted):
 
     * ``rules.json`` → ``<project>/.jig/runtime/<ticket_id>/policy/``
-      (outside the worktree so the git tree the agent sees stays clean;
-      the sandbox bind-mounts this to ``/jig/policy/rules.json``).
-    * ``.claude/settings.json`` → written inside the worktree because
-      Claude Code discovers settings relative to its cwd.
+    * ``.claude/settings.json`` → ``<worktree>/.claude/settings.json``
 
-    Failures are logged and non-fatal — hook policy is belt-and-braces
-    on top of bwrap, so a materialisation glitch shouldn't block a
-    spawn that already has Docker + bwrap isolation. Task G will make
-    this fail-loud once the hooks are production-required.
+    Materialisation failures log + return ``policy_dir=None`` but keep
+    the compiled ``can_waive`` — a filesystem glitch shouldn't
+    deauthorize the agent's waiver tokens, which aren't enforced via
+    the hooks anyway.
     """
     role_caps = ctx.role_cfg.capabilities
     phase_caps = ctx.phase.capability_overrides if ctx.phase else None
+
     if role_caps is None and phase_caps is None:
-        return None
+        return _CapabilityMaterialization(
+            policy_dir=None, can_waive=frozenset()
+        )
+
+    rules = compile_capabilities(role_caps, phase_caps)
+    can_waive = frozenset(rules.waivers.can_waive)
+
     if not sandbox_available():
-        # See docstring. A DEBUG log is enough — no-docker is an
-        # opt-in mode and every spawn would log, which isn't useful.
         _logger.debug(
             "skipping capability materialisation for %s on %s: "
             "no sandbox available (hook paths are container-absolute)",
             ctx.role,
             ctx.ticket.id,
         )
-        return None
+        return _CapabilityMaterialization(
+            policy_dir=None, can_waive=can_waive
+        )
 
     try:
-        rules = compile_capabilities(role_caps, phase_caps)
         policy_dir = (
             ctx.project.path_or_default()
             / ".jig"
@@ -224,19 +225,18 @@ def _materialize_capability_policy(ctx: AgentSpawnContext) -> Path | None:
             rules_path,
             settings_path,
         )
-        return policy_dir
+        return _CapabilityMaterialization(
+            policy_dir=policy_dir, can_waive=can_waive
+        )
     except OSError:
-        # Narrow: only swallow filesystem errors (disk full, perms,
-        # broken mount). Bugs in compile/materialize should propagate
-        # so the spawn fails loud rather than silently skipping
-        # enforcement. Task G will tighten this further once hooks
-        # are the primary enforcement layer.
         _logger.exception(
             "capability materialisation failed for %s on %s",
             ctx.role,
             ctx.ticket.id,
         )
-        return None
+        return _CapabilityMaterialization(
+            policy_dir=None, can_waive=can_waive
+        )
 
 
 def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
@@ -327,6 +327,15 @@ async def run_agent(
     _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
     _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
 
+    # Phase 5 Task F: compile capability policy (role base + phase
+    # override) and materialize the two enforcement artefacts before
+    # Claude Code starts. Only writes files when a declaration actually
+    # exists — a spawn with no declared policy gets no .claude/settings
+    # overwrite and no rules.json clutter. Task G's hook scripts read
+    # rules.json at tool-eval time. Hoisted before the MCP server so
+    # the compiled ``can_waive`` set can flow into the factory.
+    cap = _materialize_capability_policy(ctx)
+
     all_roles = list_roles(ctx.project.path_or_default())
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
@@ -341,6 +350,7 @@ async def run_agent(
         package_manager=ctx.project.package_manager,
         checkpoints=ctx.checkpoints,
         phase_name=ctx.phase.name if ctx.phase else "",
+        can_waive=cap.can_waive,
     )
 
     mcp_servers: dict = {"jig": mcp_server}
@@ -348,14 +358,6 @@ async def run_agent(
     mcp_servers.update(external)
     if external:
         _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
-
-    # Phase 5 Task F: compile capability policy (role base + phase
-    # override) and materialize the two enforcement artefacts before
-    # Claude Code starts. Only writes files when a declaration actually
-    # exists — a spawn with no declared policy gets no .claude/settings
-    # overwrite and no rules.json clutter. Task G's hook scripts read
-    # rules.json at tool-eval time.
-    policy_dir = _materialize_capability_policy(ctx)
 
     options = ClaudeAgentOptions(
         cwd=str(ctx.worktree_path),
@@ -433,10 +435,10 @@ async def run_agent(
         # the settings.json registers no hooks, so the sandbox doesn't
         # need either mount — keeping bwrap's mount list minimal
         # reduces attack surface.
-        hook_bin = _hook_bin_dir() if policy_dir is not None else None
+        hook_bin = _hook_bin_dir() if cap.policy_dir is not None else None
         bwrap_cfg = BwrapConfig(
             worktree_host_path=ctx.worktree_path,
-            policy_dir_host_path=policy_dir,
+            policy_dir_host_path=cap.policy_dir,
             hook_bin_host_path=hook_bin,
         )
         transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)

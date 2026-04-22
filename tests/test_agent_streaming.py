@@ -446,11 +446,110 @@ class TestMaterializeWithoutSandbox:
 
         result = agent_module._materialize_capability_policy(ctx)
 
-        # Returns None so the caller knows not to wire the policy
-        # mount into BwrapConfig (there's no sandbox to mount it into
-        # anyway).
-        assert result is None
+        # ``policy_dir`` is None so the caller knows not to wire the
+        # policy mount into BwrapConfig (there's no sandbox to mount it
+        # into anyway). ``can_waive`` is still surfaced — orchestrator-
+        # side waiver authorization runs regardless of sandbox.
+        assert result.policy_dir is None
+        assert result.can_waive == frozenset()
         # Nothing on disk — no settings.json to break Claude Code's
         # tool dispatch on the host.
         assert not (tmp_path / "worktree" / ".claude").exists()
         assert not (tmp_path / ".jig" / "runtime").exists()
+
+
+class TestCompiledWaiverPlumbing:
+    """Phase 5 Task H: the compiled ``can_waive`` set from role +
+    phase capabilities is visible to the orchestrator-side waiver
+    MCP handlers. This test exercises the compile-at-spawn path
+    without standing up Claude Code."""
+
+    def test_compiled_can_waive_from_role_base(self) -> None:
+        from jig.capabilities import (
+            CapabilityDeclaration,
+            CapabilityWaivers,
+        )
+        from jig.capability_compiler import compile as compile_capabilities
+
+        role_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        rules = compile_capabilities(role_decl, None)
+        assert frozenset(rules.waivers.can_waive) == frozenset({"objection"})
+
+    def test_compiled_can_waive_unions_phase_override(self) -> None:
+        from jig.capabilities import (
+            CapabilityDeclaration,
+            CapabilityWaivers,
+        )
+        from jig.capability_compiler import compile as compile_capabilities
+
+        role_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        phase_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["check_failure:warning"])
+        )
+        rules = compile_capabilities(role_decl, phase_decl)
+        assert frozenset(rules.waivers.can_waive) == frozenset(
+            {"objection", "check_failure:warning"}
+        )
+
+    def test_compiled_can_waive_empty_when_undeclared(self) -> None:
+        from jig.capability_compiler import compile as compile_capabilities
+
+        rules = compile_capabilities(None, None)
+        assert rules.waivers.can_waive == []
+
+    def test_can_waive_forwarded_to_mcp_server(
+        self, tmp_path: Path
+    ) -> None:
+        """Whole-path check: compile returns a can_waive list; the MCP
+        server factory accepts that list as a frozenset."""
+        import asyncio
+
+        from jig.capabilities import (
+            CapabilityDeclaration,
+            CapabilityWaivers,
+        )
+        from jig.capability_compiler import compile as compile_capabilities
+        from jig.mcp_server import create_agent_mcp_server
+        from jig.models import RoleConfig
+        from jig.store import MessageBus
+        from jig.store.memory import MemoryStore
+        from jig.store.threads import ThreadStore
+        from jig.store.tickets import TicketStore
+
+        role_decl = CapabilityDeclaration(
+            waivers=CapabilityWaivers(can_waive=["objection"])
+        )
+        rules = compile_capabilities(role_decl, None)
+        can_waive = frozenset(rules.waivers.can_waive)
+
+        async def build() -> None:
+            tickets = TicketStore(tmp_path / "tickets.jsonl")
+            threads = ThreadStore(tmp_path / "threads.jsonl")
+            memory = MemoryStore(tmp_path / "memory.jsonl")
+            bus = MessageBus(tmp_path / "messages.jsonl")
+            await tickets.load()
+            await threads.load()
+            await memory.load()
+
+            server = create_agent_mcp_server(
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                agent_role="dev",
+                agent_cfg=RoleConfig(
+                    role="dev",
+                    phase_prompt="x",
+                    capabilities=role_decl,
+                ),
+                worktree_path=tmp_path,
+                project_path=tmp_path,
+                can_waive=can_waive,
+            )
+            assert server is not None
+
+        asyncio.run(build())

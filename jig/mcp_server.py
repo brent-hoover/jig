@@ -41,11 +41,6 @@ def create_agent_mcp_server(
     etc.) now translate to ThreadEntry types on the way in.
     """
 
-    # TODO(task-11): agent.py does not yet plumb the compiled can_waive
-    # through to this factory. Until that lands, the empty default
-    # silently rejects every thread_waive / thread_waive_check attempt.
-    # Remove this comment once agent.py passes the real frozenset.
-
     # Allowed assignees: known roles + orchestrator + user
     _allowed_assignees = valid_roles | {"orchestrator", "user"}
 

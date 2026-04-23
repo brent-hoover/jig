@@ -846,8 +846,8 @@ def story(
     level: str,
 ) -> None:
     """Print the full story of a ticket."""
-    import json as json_mod
-    from datetime import datetime
+    import json
+    from datetime import datetime, timezone
 
     from jig.story import StorySource, build_story
     from jig.store.threads import ThreadStore
@@ -859,6 +859,10 @@ def story(
             since_dt = datetime.fromisoformat(since)
         except ValueError as exc:
             raise click.ClickException(f"Invalid --since: {exc}")
+        # Coerce naive timestamps to UTC so comparison with the aware
+        # event timestamps inside build_story() doesn't raise TypeError.
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
 
     async def run() -> list:
         threads_path = path / ".jig" / "store" / "comments.jsonl"
@@ -898,7 +902,7 @@ def story(
     if json_out:
         for ev in events:
             click.echo(
-                json_mod.dumps(
+                json.dumps(
                     {
                         "ts": ev.ts.isoformat(),
                         "source": ev.source.value,

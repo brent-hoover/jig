@@ -91,6 +91,42 @@ async def test_story_command_json_output(tmp_path: Path) -> None:
     assert parsed["kind"] == "note"
 
 
+@pytest.mark.asyncio
+async def test_story_command_naive_since_is_coerced_to_utc(tmp_path: Path) -> None:
+    """Naive ISO8601 `--since` must not crash against aware event timestamps."""
+    save_project(
+        tmp_path,
+        Project(
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
+        ),
+    )
+    tickets_path, threads_path = _store_paths(tmp_path)
+
+    tickets = TicketStore(tickets_path)
+    await tickets.load()
+    threads = ThreadStore(threads_path)
+    await threads.load()
+
+    tid = await tickets.create(
+        Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+    )
+    await threads.post(Note(ticket_id=tid, author="dev", text="visible"))
+
+    runner = CliRunner()
+    # No tzinfo on --since — must be coerced to UTC and not raise TypeError.
+    result = await asyncio.to_thread(
+        runner.invoke,
+        cli,
+        ["story", tid, "--path", str(tmp_path), "--since", "1970-01-01T00:00:00"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "visible" in result.output
+
+
 def test_story_command_unknown_ticket_exits_nonzero(tmp_path: Path) -> None:
     save_project(
         tmp_path,

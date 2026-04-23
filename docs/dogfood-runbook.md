@@ -84,28 +84,27 @@ Zero output + exit 0 = good. Any complaint = fix before continuing.
 
 ## 3. Write a project brief (PO step)
 
-`jig init` does **not** scaffold `.jig/spec/project.md` today (the PO/spec-agent
-wiring from `docs/02-project-spec.md` isn't implemented yet). For now:
+`jig init` scaffolds `.jig/spec/project.md` with the doc-02 section headers
+already in place — open it and fill in the one-paragraph premise plus whatever
+you have under each state category.
 
-1. Write the brief manually:
-   ```bash
-   mkdir -p /tmp/jig-dogfood/.jig/spec
-   $EDITOR /tmp/jig-dogfood/.jig/spec/project.md
-   ```
-   Follow the format in `docs/02-project-spec.md`:
-   - `# <project name>` + one paragraph
-   - `## Built` / `## Planned (committed)` / `## Planned (not yet committed)` /
-     `## Backlog` / `## Non-goals`
-   - Elaborated capabilities → level-3 headers + prose
-   - One-liners → bullets
-2. Commit it in the scratch repo:
-   ```bash
-   cd /tmp/jig-dogfood && git add .jig/spec/project.md && \
-     git commit -qm "po: initial project brief" && cd -
-   ```
-3. When you create the first ticket, **paste the relevant capability section
-   into the ticket description** — the spec agent doesn't auto-pull from
-   `project.md` yet.
+```bash
+$EDITOR /tmp/jig-dogfood/.jig/spec/project.md
+git -C /tmp/jig-dogfood add .jig/spec/project.md
+git -C /tmp/jig-dogfood commit -qm "po: initial project brief"
+```
+
+Format reminders (full reference: `docs/02-project-spec.md` §"Human format
+example"):
+- `# <project name>` + one paragraph
+- `## Built` / `## Planned (committed)` / `## Planned (not yet committed)` /
+  `## Backlog` / `## Non-goals`
+- Elaborated capabilities → level-3 headers + prose
+- One-liners → bullets
+
+When you create the first ticket, **paste the relevant capability section
+into the ticket description** — the spec agent doesn't auto-pull from
+`project.md` yet.
 
 Keep the scope *tiny*: one capability, one or two functions worth of code.
 First real runs blow up in places you don't expect; a big ticket wastes a lot

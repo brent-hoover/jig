@@ -200,13 +200,19 @@ def _describe_target(entry: ThreadEntry) -> str:
 
     Used in the nudge Note's text. Questions and Escalations carry an
     explicit ``target``; other blocking kinds (Objection, Handoff)
-    don't — we name the kind instead so the Note still reads
-    sensibly.
+    don't, so we fall back to actor-neutral role wording for the
+    known blocking kinds and a generic responder label otherwise.
+    Previously returned ``"{kind} author"``, which was misleading —
+    the author is the one BLOCKED, not the one who needs to act.
     """
     target = getattr(entry, "target", None)
     if target:
         return str(target)
-    return f"{entry.kind} author"
+    fallback_targets = {
+        "handoff": "an evaluator",
+        "objection": "a resolver",
+    }
+    return fallback_targets.get(entry.kind, "the relevant responder")
 
 
 async def _post_nudge(

@@ -56,6 +56,15 @@ class DeferredItem(BaseModel):
     are nested inside Checkpoint records, so the id lives on the
     payload rather than in a top-level JSONL index — the enclosing
     Checkpoint is how we locate it.
+
+    Legacy records written before the id field existed are backfilled
+    deterministically by ``jig.store.checkpoints._backfill_deferred_ids``
+    as ``{checkpoint_id}:deferred:{index}`` — the uuid4 default here
+    only fires for fresh writes, where the generated value is
+    serialized into the JSONL and stays stable on reload. Without
+    that backfill, Pydantic would regenerate a fresh uuid on every
+    load for legacy items and promote-by-id would break across
+    orchestrator restarts.
     """
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))

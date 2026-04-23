@@ -20,6 +20,32 @@ from jig.store.collection import Collection
 from jig.thread import DeferredItem
 
 
+def _backfill_deferred_ids(raw: dict) -> None:
+    """Mutate ``raw["deferred"]`` to give every item a stable ``id``.
+
+    Records written before ``DeferredItem.id`` was introduced (Phase 5
+    Task J) don't carry an ``id`` field. Pydantic's default factory
+    fires on each load with a fresh ``uuid4``, which is fatal for
+    ``checkpoint_promote_deferred`` — the evaluator looks up an id
+    that won't match after the next orchestrator restart.
+
+    Backfill with ``{checkpoint_id}:deferred:{index}``: deterministic,
+    doesn't depend on uuid state, survives reloads. When
+    :func:`CheckpointStore.update_deferred_item` rewrites the record
+    the backfilled id persists, so subsequent loads never need to
+    re-derive it — a lazy migration healed at first touch.
+
+    No-ops when every item already has an id (the common case for
+    any record written post-Task-J). Idempotent, so calling from
+    both the read and write paths is safe.
+    """
+    checkpoint_id = raw.get("_id") or "legacy"
+    deferred = raw.get("deferred") or []
+    for idx, d in enumerate(deferred):
+        if not d.get("id"):
+            d["id"] = f"{checkpoint_id}:deferred:{idx}"
+
+
 class CheckpointStore:
     def __init__(self, path: Path) -> None:
         self._collection = Collection(
@@ -55,6 +81,7 @@ class CheckpointStore:
     # ---- reads ----------------------------------------------------------
 
     def _load(self, raw: dict) -> Checkpoint:
+        _backfill_deferred_ids(raw)
         return Checkpoint.model_validate(raw)
 
     async def get(self, checkpoint_id: str) -> Checkpoint | None:
@@ -157,10 +184,17 @@ class CheckpointStore:
         Phase 5 Task J uses this to mark items ``promoted`` and
         record the new child ticket id without touching other
         fields on the checkpoint record.
+
+        Runs the same ``_backfill_deferred_ids`` step ``_load`` does,
+        so legacy records (written before ``DeferredItem.id`` was
+        required) resolve their deterministic derived id here and
+        get rewritten with the id embedded — a lazy migration that
+        heals the record the first time it's touched.
         """
         raw = await self._collection.get(checkpoint_id)
         if raw is None:
             return False
+        _backfill_deferred_ids(raw)
         items = list(raw.get("deferred", []))
         found = False
         for d in items:

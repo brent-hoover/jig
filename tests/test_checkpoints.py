@@ -284,6 +284,100 @@ class TestCheckpointStore:
         assert second == 0  # Already historical
 
 
+class TestLegacyDeferredItemBackfill:
+    """Legacy records written before ``DeferredItem.id`` was introduced
+    don't carry an ``id`` field on their deferred items. Pydantic's
+    ``default_factory`` would mint a fresh uuid4 on every load, which
+    breaks ``checkpoint_promote_deferred`` across restarts.
+
+    The backfill derives ``{checkpoint_id}:deferred:{index}`` at read
+    time (and again on write via ``update_deferred_item``), healing
+    the record the first time it's touched.
+    """
+
+    @pytest.mark.asyncio
+    async def test_backfilled_id_is_stable_across_loads(
+        self, tmp_path: Path
+    ) -> None:
+        """Two reads of the same legacy record yield the same id."""
+        _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
+        # Raw insert bypassing the pydantic model — simulates a JSONL
+        # record written before DeferredItem carried an id.
+        legacy_raw = {
+            "ticket_id": ticket_id,
+            "phase": "implement",
+            "author": "dev",
+            "trigger": "agent_deferred",
+            "description": "",
+            "completed": [],
+            "ruled_out": [],
+            "deferred": [
+                {"item": "no id on disk", "reason": "legacy", "status": "open"},
+            ],
+            "open_questions": [],
+            "created_at": "2026-04-20T00:00:00+00:00",
+            "historical": False,
+            "plan": "",
+            "position": "",
+        }
+        checkpoint_id = await checkpoints._collection.insert(legacy_raw)
+
+        first_read = await checkpoints.for_ticket(ticket_id)
+        second_read = await checkpoints.for_ticket(ticket_id)
+        assert len(first_read) == 1
+        assert len(second_read) == 1
+
+        first_id = first_read[0].deferred[0].id
+        second_id = second_read[0].deferred[0].id
+        assert first_id == second_id
+        # And it's the deterministic derivation, not a uuid4.
+        assert first_id == f"{checkpoint_id}:deferred:0"
+
+    @pytest.mark.asyncio
+    async def test_update_deferred_item_works_with_derived_id(
+        self, tmp_path: Path
+    ) -> None:
+        """Promotion (update_deferred_item) resolves the derived id and
+        rewrites the record — the next read sees the backfilled id
+        persisted, so subsequent updates don't rely on re-derivation."""
+        _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
+        legacy_raw = {
+            "ticket_id": ticket_id,
+            "phase": "implement",
+            "author": "dev",
+            "trigger": "agent_deferred",
+            "description": "",
+            "completed": [],
+            "ruled_out": [],
+            "deferred": [
+                {"item": "promote me", "reason": "", "status": "open"},
+            ],
+            "open_questions": [],
+            "created_at": "2026-04-20T00:00:00+00:00",
+            "historical": False,
+            "plan": "",
+            "position": "",
+        }
+        checkpoint_id = await checkpoints._collection.insert(legacy_raw)
+        derived_id = f"{checkpoint_id}:deferred:0"
+
+        ok = await checkpoints.update_deferred_item(
+            checkpoint_id,
+            derived_id,
+            status="promoted",
+            promoted_ticket_id="child-1",
+        )
+        assert ok is True
+
+        # On-disk record now has the id baked in — the lazy migration
+        # healed the record.
+        raw = await checkpoints._collection.get(checkpoint_id)
+        assert raw is not None
+        assert raw["deferred"][0]["id"] == derived_id
+        assert raw["deferred"][0]["status"] == "promoted"
+        assert raw["deferred"][0]["promoted_ticket_id"] == "child-1"
+
+
 # ---- agent MCP handlers ---------------------------------------------------
 
 

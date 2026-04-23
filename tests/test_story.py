@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 from jig.story import StoryEvent, StorySource, _render_system_event, build_story
 from jig.thread import Handoff, Note, SystemEvent
+from jig.ticket import Ticket, WorkType
 
 
 def test_story_event_frozen_dataclass_construction() -> None:
@@ -190,3 +192,223 @@ def test_render_system_event_agent_run() -> None:
     assert "dev" in message
     assert "turns=7" in message
     assert "duration=4321ms" in message
+
+
+# ---- include_children + since filter (Task 13) ----------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_story_include_children(tmp_path: Path) -> None:
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+    tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+
+    parent_id = await tickets.create(
+        Ticket(work_type=WorkType.FEATURE, title="parent", created_by="user")
+    )
+    child_id = await tickets.create(
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="child",
+            created_by="user",
+            parent_id=parent_id,
+        )
+    )
+
+    await threads.post(
+        Note(ticket_id=parent_id, author="dev", text="parent note")
+    )
+    await threads.post(
+        Note(ticket_id=child_id, author="dev", text="child note")
+    )
+
+    # Without include_children — only parent entries.
+    events = await build_story(
+        parent_id,
+        project_path=tmp_path,
+        threads=threads,
+        tickets=tickets,
+    )
+    assert len(events) == 1
+    assert "parent note" in events[0].message
+
+    # With include_children — both entries.
+    events = await build_story(
+        parent_id,
+        project_path=tmp_path,
+        threads=threads,
+        tickets=tickets,
+        include_children=True,
+    )
+    msgs = [e.message for e in events]
+    assert any("parent note" in m for m in msgs)
+    assert any("child note" in m for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_build_story_include_children_requires_tickets(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+
+    with pytest.raises(ValueError, match="TicketStore"):
+        await build_story(
+            "tid-1",
+            project_path=tmp_path,
+            threads=threads,
+            include_children=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_story_include_children_grandchild(tmp_path: Path) -> None:
+    """Recursion must traverse more than one level deep."""
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+    tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+
+    parent_id = await tickets.create(
+        Ticket(work_type=WorkType.FEATURE, title="parent", created_by="u")
+    )
+    child_id = await tickets.create(
+        Ticket(
+            work_type=WorkType.FEATURE, title="child", created_by="u",
+            parent_id=parent_id,
+        )
+    )
+    grandchild_id = await tickets.create(
+        Ticket(
+            work_type=WorkType.FEATURE, title="grandchild", created_by="u",
+            parent_id=child_id,
+        )
+    )
+
+    await threads.post(Note(ticket_id=parent_id, author="d", text="P"))
+    await threads.post(Note(ticket_id=child_id, author="d", text="C"))
+    await threads.post(Note(ticket_id=grandchild_id, author="d", text="G"))
+
+    events = await build_story(
+        parent_id,
+        project_path=tmp_path,
+        threads=threads,
+        tickets=tickets,
+        include_children=True,
+    )
+    msgs = [e.message for e in events]
+    assert any("P" in m for m in msgs)
+    assert any("C" in m for m in msgs)
+    assert any("G" in m for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_build_story_include_children_cycle_safe(tmp_path: Path) -> None:
+    """A parent/child cycle in ticket data must not infinite-recurse."""
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+    tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+
+    a_id = await tickets.create(
+        Ticket(work_type=WorkType.FEATURE, title="A", created_by="u")
+    )
+    b_id = await tickets.create(
+        Ticket(
+            work_type=WorkType.FEATURE, title="B", created_by="u",
+            parent_id=a_id,
+        )
+    )
+    # Forge a cycle: point A's parent at B.
+    await tickets.update(a_id, parent_id=b_id)
+
+    await threads.post(Note(ticket_id=a_id, author="d", text="a-note"))
+    await threads.post(Note(ticket_id=b_id, author="d", text="b-note"))
+
+    events = await build_story(
+        a_id,
+        project_path=tmp_path,
+        threads=threads,
+        tickets=tickets,
+        include_children=True,
+    )
+    msgs = [e.message for e in events]
+    assert any("a-note" in m for m in msgs)
+    assert any("b-note" in m for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_build_story_since_with_include_children(tmp_path: Path) -> None:
+    """`since` must also filter child entries when include_children=True."""
+    import asyncio
+
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+    tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+
+    parent_id = await tickets.create(
+        Ticket(work_type=WorkType.FEATURE, title="p", created_by="u")
+    )
+    child_id = await tickets.create(
+        Ticket(
+            work_type=WorkType.FEATURE, title="c", created_by="u",
+            parent_id=parent_id,
+        )
+    )
+
+    await threads.post(Note(ticket_id=parent_id, author="d", text="p-early"))
+    await threads.post(Note(ticket_id=child_id, author="d", text="c-early"))
+    await asyncio.sleep(0.01)
+    cutoff = datetime.now(timezone.utc)
+    await asyncio.sleep(0.01)
+    await threads.post(Note(ticket_id=parent_id, author="d", text="p-late"))
+    await threads.post(Note(ticket_id=child_id, author="d", text="c-late"))
+
+    events = await build_story(
+        parent_id,
+        project_path=tmp_path,
+        threads=threads,
+        tickets=tickets,
+        include_children=True,
+        since=cutoff,
+    )
+    msgs = [e.message for e in events]
+    assert not any("early" in m for m in msgs)
+    assert any("p-late" in m for m in msgs)
+    assert any("c-late" in m for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_build_story_since_filter(tmp_path: Path) -> None:
+    import asyncio
+
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+
+    await threads.post(
+        Note(ticket_id="tid-1", author="dev", text="early")
+    )
+    await asyncio.sleep(0.01)
+    cutoff = datetime.now(timezone.utc)
+    await asyncio.sleep(0.01)
+    await threads.post(
+        Note(ticket_id="tid-1", author="dev", text="late")
+    )
+
+    events = await build_story(
+        "tid-1",
+        project_path=tmp_path,
+        threads=threads,
+        since=cutoff,
+    )
+    msgs = [e.message for e in events]
+    assert not any("early" in m for m in msgs)
+    assert any("late" in m for m in msgs)

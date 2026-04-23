@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 
 from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 from jig.thread import (
     Answer,
     Decision,
@@ -232,10 +233,20 @@ async def build_story(
     *,
     project_path: Path,
     threads: ThreadStore,
+    tickets: TicketStore | None = None,
     include_children: bool = False,
     since: datetime | None = None,
+    _visited: set[str] | None = None,
 ) -> list[StoryEvent]:
     events: list[StoryEvent] = []
+    if _visited is None:
+        _visited = set()
+    if ticket_id in _visited:
+        _logger.warning(
+            "build_story: cycle detected at ticket %s; skipping", ticket_id
+        )
+        return events
+    _visited.add(ticket_id)
 
     # 1. Thread entries for this ticket.
     entries = await threads.for_ticket(ticket_id)
@@ -260,8 +271,22 @@ async def build_story(
 
     # 3. Optionally include children.
     if include_children:
-        # Task 13 fills this in.
-        pass
+        if tickets is None:
+            raise ValueError(
+                "include_children=True requires tickets= TicketStore"
+            )
+        children = await tickets.find_by_parent(ticket_id)
+        for child in children:
+            child_events = await build_story(
+                child.id,
+                project_path=project_path,
+                threads=threads,
+                tickets=tickets,
+                include_children=True,
+                since=since,
+                _visited=_visited,
+            )
+            events.extend(child_events)
 
     # 4. Filter by `since`.
     if since is not None:

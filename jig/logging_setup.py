@@ -8,6 +8,7 @@ the per-invocation log file. `jig.cli.start` calls
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -52,6 +53,45 @@ class LogContextFilter(logging.Filter):
         return True
 
 
+class JsonFormatter(logging.Formatter):
+    """Renders each log record as one JSON object per line.
+
+    Schema:
+      {ts, level, logger, msg, ticket_id, phase, role, agent_id,
+       exc?, extra?}
+    """
+
+    # Standard LogRecord attrs we don't want in the output.
+    _RESERVED = {
+        "args", "asctime", "created", "exc_info", "exc_text", "filename",
+        "funcName", "levelname", "levelno", "lineno", "message", "module",
+        "msecs", "msg", "name", "pathname", "process", "processName",
+        "relativeCreated", "stack_info", "thread", "threadName",
+        "taskName",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": datetime.fromtimestamp(record.created).isoformat(
+                timespec="milliseconds"
+            ),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+            "ticket_id": getattr(record, "ticket_id", None),
+            "phase": getattr(record, "phase", None),
+            "role": getattr(record, "role", None),
+            "agent_id": getattr(record, "agent_id", None),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        # Allow callers to pass structured data via `extra={"extra": {...}}`
+        extra = getattr(record, "extra", None)
+        if isinstance(extra, dict):
+            payload["extra"] = extra
+        return json.dumps(payload, default=str)
+
+
 def configure_logging(project_path: Path, *, verbose: bool = False) -> Path:
     """Configure root logger + console + file handlers.
 
@@ -82,15 +122,10 @@ def configure_logging(project_path: Path, *, verbose: bool = False) -> Path:
 
     log_dir = project_path / ".jig" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"jig-{datetime.now():%Y%m%d-%H%M%S}.log"
+    log_file = log_dir / f"jig-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s %(levelname)-7s %(name)s [%(ticket_short)s] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
+    file_handler.setFormatter(JsonFormatter())
     file_handler.addFilter(context_filter)
     root.addHandler(file_handler)
     return log_file

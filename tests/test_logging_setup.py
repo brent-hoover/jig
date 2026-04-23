@@ -138,3 +138,38 @@ def test_console_format_includes_ticket_short(tmp_path: Path) -> None:
     out = buf.getvalue()
     assert "[abcd1234]" in out
     assert "boom" in out
+
+
+import json
+
+
+def test_log_file_is_jsonl_with_correlation_fields(tmp_path: Path) -> None:
+    (tmp_path / ".jig").mkdir()
+    log_file = configure_logging(tmp_path, verbose=False)
+
+    tok_tid = _ticket_id_var.set("abcd1234-full")
+    tok_phase = _phase_var.set("gated")
+    tok_role = _role_var.set("dev")
+    try:
+        logging.getLogger("jig.test").info("hello %s", "world")
+    finally:
+        _ticket_id_var.reset(tok_tid)
+        _phase_var.reset(tok_phase)
+        _role_var.reset(tok_role)
+
+    # Flush the file handler so the content is on disk
+    for h in logging.getLogger().handlers:
+        h.flush()
+
+    assert log_file.suffix == ".jsonl"
+    content = log_file.read_text().strip().splitlines()
+    assert content, "expected at least one log line"
+    rec = json.loads(content[-1])
+    assert rec["level"] == "INFO"
+    assert rec["logger"] == "jig.test"
+    assert rec["msg"] == "hello world"
+    assert rec["ticket_id"] == "abcd1234-full"
+    assert rec["phase"] == "gated"
+    assert rec["role"] == "dev"
+    assert rec["agent_id"] is None
+    assert "ts" in rec

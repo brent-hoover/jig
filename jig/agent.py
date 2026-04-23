@@ -594,11 +594,7 @@ async def run_agent(
                                     )
                                 else:
                                     truncated = raw
-                                is_error = (
-                                    bool(block.is_error)
-                                    if block.is_error
-                                    else False
-                                )
+                                is_error = bool(block.is_error)
                                 _logger.debug(
                                     "[%s] tool_result: id=%s is_error=%s %s",
                                     tag,

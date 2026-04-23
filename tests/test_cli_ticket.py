@@ -76,9 +76,9 @@ async def test_ticket_create_basic(orchestrator_ws) -> None:
     ticket_id = result.output.strip()
     assert ticket_id
     tickets = await orch.tickets.list_all()
-    assert any(
-        t.id == ticket_id and t.title == "cli ticket" for t in tickets
-    ), f"ticket {ticket_id!r} not found in store"
+    assert any(t.id == ticket_id and t.title == "cli ticket" for t in tickets), (
+        f"ticket {ticket_id!r} not found in store"
+    )
 
 
 @pytest.mark.asyncio
@@ -105,9 +105,7 @@ async def test_ticket_create_defaults(orchestrator_ws) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ticket_create_description_file(
-    orchestrator_ws, tmp_path: Path
-) -> None:
+async def test_ticket_create_description_file(orchestrator_ws, tmp_path: Path) -> None:
     """--description-file reads the body from disk (for multi-line briefs)."""
     orch, server = orchestrator_ws
     brief = tmp_path / "brief.md"
@@ -176,7 +174,10 @@ def test_ticket_create_no_server() -> None:
         ],
     )
     assert result.exit_code != 0
-    assert "could not connect" in result.output.lower() or "refused" in result.output.lower()
+    assert (
+        "could not connect" in result.output.lower()
+        or "refused" in result.output.lower()
+    )
 
 
 @pytest.mark.asyncio

@@ -1616,16 +1616,16 @@ Doc 08's orchestrator-as-resolver-of-last-resort.
 **M. Carry-over — section-lock enforcement**
 
 Spec section locks (`locked_after_phase`) parsed in Phase 3F
-but not enforced.
+and now enforced.
 
-- [ ] Spec-write path (`proposal_mcp.handle_resolve_proposal`
+- [x] Spec-write path (`proposal_mcp.handle_resolve_proposal`
       accept branch): if the accepted proposal targets a
       section with `locked_after_phase=<phase>` and that
       phase has a successful Handoff on the ticket, refuse
       with a readable error.
-- [ ] `jig validate --ticket-id`: surface section-lock
+- [x] `jig validate --ticket-id`: surface section-lock
       status as part of the ticket's pre-flight report.
-- [ ] Tests: proposal against `spec.behaviors` after the
+- [x] Tests: proposal against `spec.behaviors` after the
       `spec` phase handoff fails loud; same proposal before
       handoff accepts cleanly.
 

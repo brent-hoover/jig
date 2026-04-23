@@ -24,6 +24,7 @@ from jig.proposal_mcp import (
 from jig.specs import TicketSpec, load_ticket_spec, save_ticket_spec
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.thread import Handoff
 from jig.ticket import Size, Ticket, WorkType
 
 
@@ -508,6 +509,230 @@ class TestEndToEnd:
         )
         assert pending == []
         assert len(accepted) >= 1
+
+
+async def _post_accepted_handoff(
+    threads: ThreadStore, ticket_id: str, phase: str
+) -> None:
+    await threads.post(
+        Handoff(
+            ticket_id=ticket_id,
+            author="dev",
+            phase=phase,
+            summary=f"{phase} complete",
+            acceptance_state="accepted",
+            accepted_by="reviewer",
+        )
+    )
+
+
+class TestSectionLocks:
+    """Phase 5 Task M — ``section_locks`` from the work-type schema
+    refuses proposal-accept once the locking phase has handed off."""
+
+    async def test_accept_on_locked_section_after_handoff_refused(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        """``behaviors`` is locked after the ``spec`` phase on
+        feature.yaml. Once an accepted Handoff for ``spec`` lands, a
+        proposal accept targeting ``ticket://spec.behaviors`` must
+        fail loud — even from a distinct reviewer."""
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, _cfg_with_roles(project))
+
+        propose = await handle_propose_change(
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
+            args={
+                "ticket_id": "t-1",
+                "target": "ticket://spec.behaviors",
+                "change": yaml.safe_dump([{"id": "B2", "when": "hover", "then": "ok"}]),
+            },
+            project_path=project,
+        )
+
+        # Spec phase just closed.
+        await _post_accepted_handoff(threads, "t-1", "spec")
+
+        with pytest.raises(ProposalError, match="locked"):
+            await handle_resolve_proposal(
+                tickets=tickets,
+                threads=threads,
+                sender="pam",
+                args={
+                    "proposal_id": propose["comment_id"],
+                    "verdict": "accept",
+                },
+                project_path=project,
+            )
+
+        # Spec stays at v1 — accept was refused.
+        spec = load_ticket_spec(project, "t-1")
+        assert spec is not None and spec.version == 1
+
+    async def test_accept_on_locked_section_before_handoff_allowed(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        """Same target, same config — but no accepted handoff yet.
+        Accept must succeed."""
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, _cfg_with_roles(project))
+
+        propose = await handle_propose_change(
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
+            args={
+                "ticket_id": "t-1",
+                "target": "ticket://spec.behaviors",
+                "change": yaml.safe_dump([{"id": "B2", "when": "hover", "then": "ok"}]),
+            },
+            project_path=project,
+        )
+        result = await handle_resolve_proposal(
+            tickets=tickets,
+            threads=threads,
+            sender="pam",
+            args={
+                "proposal_id": propose["comment_id"],
+                "verdict": "accept",
+            },
+            project_path=project,
+        )
+        assert result["state"] == "accepted"
+        assert result["spec_version"] == 2
+
+    async def test_accept_on_unlocked_section_after_handoff_allowed(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        """``summary`` is not locked — editing it after a ``spec``
+        handoff is still fine."""
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, _cfg_with_roles(project))
+        await _post_accepted_handoff(threads, "t-1", "spec")
+
+        propose = await handle_propose_change(
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
+            args={
+                "ticket_id": "t-1",
+                "target": "ticket://spec.summary",
+                "change": "rewritten",
+            },
+            project_path=project,
+        )
+        result = await handle_resolve_proposal(
+            tickets=tickets,
+            threads=threads,
+            sender="pam",
+            args={
+                "proposal_id": propose["comment_id"],
+                "verdict": "accept",
+            },
+            project_path=project,
+        )
+        assert result["state"] == "accepted"
+        assert result["spec_version"] == 2
+
+    async def test_whole_spec_accept_touching_locked_field_refused(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        """``ticket://spec`` accepts must inspect every field in the
+        payload and refuse if any intersect the lock map."""
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, _cfg_with_roles(project))
+        await _post_accepted_handoff(threads, "t-1", "spec")
+
+        propose = await handle_propose_change(
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
+            args={
+                "ticket_id": "t-1",
+                "target": "ticket://spec",
+                "change": yaml.safe_dump(
+                    {
+                        "summary": "fine",
+                        "behaviors": [{"id": "B9", "when": "resize", "then": "ok"}],
+                    }
+                ),
+            },
+            project_path=project,
+        )
+        with pytest.raises(ProposalError, match="locked"):
+            await handle_resolve_proposal(
+                tickets=tickets,
+                threads=threads,
+                sender="pam",
+                args={
+                    "proposal_id": propose["comment_id"],
+                    "verdict": "accept",
+                },
+                project_path=project,
+            )
+
+    async def test_pending_handoff_does_not_lock(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        """Only **accepted** handoffs trip the lock; a pending one
+        leaves the section editable."""
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, _cfg_with_roles(project))
+
+        # Pending — evaluator hasn't signed off yet.
+        await threads.post(
+            Handoff(
+                ticket_id="t-1",
+                author="dev",
+                phase="spec",
+                summary="spec in review",
+            )
+        )
+
+        propose = await handle_propose_change(
+            tickets=tickets,
+            threads=threads,
+            sender="alice",
+            args={
+                "ticket_id": "t-1",
+                "target": "ticket://spec.behaviors",
+                "change": yaml.safe_dump([{"id": "B2", "when": "hover", "then": "ok"}]),
+            },
+            project_path=project,
+        )
+        result = await handle_resolve_proposal(
+            tickets=tickets,
+            threads=threads,
+            sender="pam",
+            args={
+                "proposal_id": propose["comment_id"],
+                "verdict": "accept",
+            },
+            project_path=project,
+        )
+        assert result["state"] == "accepted"
 
 
 class TestListProposals:

@@ -21,6 +21,7 @@ from typing import Any
 
 from jig.config import load_config
 from jig.ownership import OwnerRouting, resolve_owner
+from jig.section_locks import locked_sections_for_ticket
 from jig.specs import (
     SpecValidationError,
     TicketSpec,
@@ -156,6 +157,13 @@ async def handle_resolve_proposal(
             or proposal.target.startswith("ticket://spec.")
         )
     ):
+        await _enforce_section_locks(
+            tickets=tickets,
+            threads=threads,
+            proposal=proposal,
+            applied_change=args.get("applied_change"),
+            project_path=project_path,
+        )
         spec_version = await _apply_spec_change(
             proposal=proposal,
             applied_change=args.get("applied_change"),
@@ -249,6 +257,67 @@ async def _find_proposal(threads: ThreadStore, proposal_id: str) -> Proposal:
         raise KeyError(f"proposal {proposal_id!r} not found")
     assert isinstance(entry, Proposal)  # narrow for type-checkers
     return entry
+
+
+async def _enforce_section_locks(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    proposal: Proposal,
+    applied_change: str | None,
+    project_path: Path,
+) -> None:
+    """Refuse a spec-targeted accept that would edit a locked section.
+
+    Per doc 16: once a phase with ``section_locks.<field>.
+    locked_after_phase=<phase>`` has an accepted Handoff on the
+    ticket, ``field`` is off-limits. The check runs in the accept
+    branch before any persistence happens, so a refused proposal
+    stays in the thread untouched for a later reviewer.
+
+    ``ticket://spec.<field>`` names a single field; ``ticket://spec``
+    can touch many — we parse the YAML payload (opaque otherwise)
+    just far enough to recover the keys and intersect them with the
+    lock map.
+    """
+    ticket = await tickets.get(proposal.ticket_id)
+    if ticket is None:
+        # No ticket = deeper problem; the spec-apply step downstream
+        # would fail anyway. Skip lock enforcement rather than shadow
+        # that error.
+        return
+
+    locked = await locked_sections_for_ticket(
+        project_path, threads, ticket.id, ticket.work_type
+    )
+    if not locked:
+        return
+
+    target = proposal.target or ""
+    affected: set[str]
+    if target == "ticket://spec":
+        import yaml as _yaml
+
+        payload = applied_change or proposal.change or ""
+        parsed = _yaml.safe_load(payload) if payload.strip() else {}
+        if not isinstance(parsed, dict):
+            # Malformed payload — let ``_apply_spec_change`` raise
+            # the proper error; don't mask it with a lock error.
+            return
+        affected = set(parsed.keys())
+    else:
+        field = target[len("ticket://spec.") :]
+        affected = {field}
+
+    hit = affected & locked.keys()
+    if hit:
+        fields = ", ".join(sorted(hit))
+        phases = ", ".join(sorted({locked[f] for f in hit}))
+        raise ProposalError(
+            f"section locked: field(s) {fields} on ticket "
+            f"{proposal.ticket_id!r} are locked after phase(s) "
+            f"{phases}; that phase's handoff has already been accepted"
+        )
 
 
 async def _apply_spec_change(

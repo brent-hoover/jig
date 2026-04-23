@@ -263,8 +263,7 @@ async def handle_checkpoint_promote_deferred(
     located = await checkpoints.find_deferred_item(ticket_id, deferred_item_id)
     if located is None:
         raise CheckpointError(
-            f"deferred item {deferred_item_id!r} not found "
-            f"on ticket {ticket_id!r}"
+            f"deferred item {deferred_item_id!r} not found on ticket {ticket_id!r}"
         )
     owning_cp_id, item = located
 

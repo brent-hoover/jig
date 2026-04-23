@@ -94,12 +94,14 @@ _Commit: 73ee3c0._
   for a different reason the deadlock tests are a candidate for
   consolidation.
 
-### Task M — section-lock enforcement
-_Tracked as a carry-over task in the plan, not yet started._
+### ~~Task M — section-lock enforcement~~
+_Landed._
 
-* Spec section locks (`locked_after_phase`) parsed in Phase 3F
-  but not enforced in the proposal-accept path. Full plan:
-  `docs/implementation-plan.md` §Task M.
+* ~~Spec section locks (`locked_after_phase`) parsed in Phase 3F
+  but not enforced in the proposal-accept path.~~ Enforcement
+  wired in `proposal_mcp.handle_resolve_proposal` via
+  `jig/section_locks.py`; `jig validate --ticket-id` surfaces
+  the active lock map as part of pre-flight.
 
 ### Task N — helper-agent spawning
 _Tracked as a carry-over task in the plan, not yet started._
@@ -121,6 +123,8 @@ _Tracked as a test task in the plan, bullets all `[ ]`._
 
 ## Phase 5 — landed
 
+* ~~**Section-lock enforcement** (Phase 3F parsed-not-enforced).~~
+  Landed as Task M (this commit).
 * ~~**Deferred-item → ticket promotion** (Phase 4 carry-over).~~
   Landed as Task J in c515c82.
 * ~~**Thread-target enforcement** (Phase 4 parsed-not-enforced).~~

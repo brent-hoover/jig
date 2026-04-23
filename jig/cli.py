@@ -47,6 +47,47 @@ def _detect_branch(path: Path) -> str:
 _MERGE_STRATEGIES = [s.value for s in MergeStrategy]
 
 
+async def _report_section_locks(project_path: Path, ticket_id: str) -> None:
+    """Surface section-lock status for a single ticket during ``jig validate``.
+
+    Task M: before touching a ticket's spec, operators want to see
+    which fields are locked and by which phase. This runs as part
+    of ``jig validate --ticket-id``. Missing ticket / missing stores
+    are treated as "nothing to report" rather than errors — the
+    flag predates this pre-flight and legacy callers may invoke it
+    against ids that never booked a ticket record (e.g. pure
+    worktree cleanup).
+    """
+    from jig.section_locks import locked_sections_for_ticket
+    from jig.store.threads import ThreadStore
+    from jig.store.tickets import TicketStore
+
+    store_dir = project_path / ".jig" / "store"
+    tickets_path = store_dir / "tickets.jsonl"
+    threads_path = store_dir / "comments.jsonl"
+    if not tickets_path.is_file():
+        return
+
+    tickets = TicketStore(tickets_path)
+    await tickets.load()
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        return
+
+    threads = ThreadStore(threads_path)
+    await threads.load()
+    locked = await locked_sections_for_ticket(
+        project_path, threads, ticket_id, ticket.work_type
+    )
+    if not locked:
+        click.echo("  No section locks active on this ticket.")
+        return
+
+    click.echo("  Locked sections:")
+    for field in sorted(locked):
+        click.echo(f"    - {field} (locked after phase '{locked[field]}')")
+
+
 def _prompt_project_context(path: Path, existing: Project) -> Project:
     """Interactively gather project fields."""
     click.echo("Project context. (Press Enter to skip/keep current value)\n")
@@ -455,6 +496,7 @@ def validate(path: Path, ticket_id: str | None) -> None:
                     f"Could not remove worktree {ticket_id}: {e}"
                 )
             click.echo(f"  Removed worktree: {ticket_id}")
+        asyncio.run(_report_section_locks(path, ticket_id))
         click.echo(f"Ticket {ticket_id} validated.")
         return
 

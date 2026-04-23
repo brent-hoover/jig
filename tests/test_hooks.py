@@ -474,9 +474,7 @@ phases:
     assert "not found" not in out
 
 
-def test_run_pre_push_in_worktree_workflow_schema_invalid_skips(
-    tmp_path: Path, capsys
-):
+def test_run_pre_push_in_worktree_workflow_schema_invalid_skips(tmp_path: Path, capsys):
     """Schema-invalid workflow YAML must not block `git push`.
 
     ``load_workflow`` pipes the YAML through ``WorkflowConfig.model_validate``

@@ -277,6 +277,101 @@ class TestValidate:
         assert result.exit_code == 0, result.output
         assert "catalog ok" in result.output.lower()
 
+    def test_validate_ticket_reports_no_locks_when_none_active(
+        self, runner: CliRunner, git_jig_project: Path
+    ) -> None:
+        """Task M pre-flight: a real feature ticket with no accepted
+        handoff shows no locks active."""
+        import asyncio
+
+        from jig.store.tickets import TicketStore
+        from jig.ticket import Size, Ticket, WorkType
+
+        async def _seed() -> None:
+            tickets = TicketStore(git_jig_project / ".jig" / "store" / "tickets.jsonl")
+            await tickets.load()
+            await tickets.create(
+                Ticket(
+                    id="t-locks",
+                    work_type=WorkType.FEATURE,
+                    size=Size.M,
+                    title="widget",
+                    created_by="alice",
+                )
+            )
+
+        asyncio.run(_seed())
+
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                "--path",
+                str(git_jig_project),
+                "--ticket-id",
+                "t-locks",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "no section locks active" in result.output.lower()
+
+    def test_validate_ticket_reports_locked_sections(
+        self, runner: CliRunner, git_jig_project: Path
+    ) -> None:
+        """Task M pre-flight: an accepted ``spec`` handoff on a
+        feature ticket locks ``behaviors`` + ``acceptance_criteria``;
+        those surface by name with their locking phase."""
+        import asyncio
+
+        from jig.store.threads import ThreadStore
+        from jig.store.tickets import TicketStore
+        from jig.thread import Handoff
+        from jig.ticket import Size, Ticket, WorkType
+
+        async def _seed() -> None:
+            tickets = TicketStore(git_jig_project / ".jig" / "store" / "tickets.jsonl")
+            await tickets.load()
+            await tickets.create(
+                Ticket(
+                    id="t-locked",
+                    work_type=WorkType.FEATURE,
+                    size=Size.M,
+                    title="widget",
+                    created_by="alice",
+                )
+            )
+            threads = ThreadStore(git_jig_project / ".jig" / "store" / "comments.jsonl")
+            await threads.load()
+            await threads.post(
+                Handoff(
+                    ticket_id="t-locked",
+                    author="dev",
+                    phase="spec",
+                    summary="spec done",
+                    acceptance_state="accepted",
+                    accepted_by="reviewer",
+                )
+            )
+
+        asyncio.run(_seed())
+
+        result = runner.invoke(
+            cli,
+            [
+                "validate",
+                "--path",
+                str(git_jig_project),
+                "--ticket-id",
+                "t-locked",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        out = result.output.lower()
+        assert "locked sections" in out
+        assert "behaviors" in out
+        assert "acceptance_criteria" in out
+        assert "spec" in out  # locking phase
+
     def test_dry_run_reports_broken_catalog(
         self, runner: CliRunner, git_jig_project: Path
     ) -> None:

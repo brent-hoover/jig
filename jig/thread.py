@@ -403,6 +403,9 @@ class SystemEvent(_ThreadEntryBase):
         "status_change",
         "check_failure",
         "dep_merge_failed",
+        "phase_start",
+        "phase_end",
+        "agent_run",
     ]
     content: str = ""
     commit_sha: str | None = None

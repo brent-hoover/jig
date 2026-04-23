@@ -1778,9 +1778,9 @@ spawn.
       raises `ThreadError("evaluator cannot be the completing
       actor")` inside the evaluator spawn; the handoff stays
       pending and dev never runs. (Pre-spawn orchestrator-level
-      escalation noted in §Risks line 1853 is not yet wired; the
-      observable outcome — no advance — still matches the exit
-      criterion.)*
+      escalation — see §Risks "Self-certification guard timing"
+      — is not yet wired; the observable outcome, no advance,
+      still matches the exit criterion.)*
 - [ ] ~~Integration: black-box QA check cannot read `src/**`
       (hook denies; verify via tool-log assertions).~~ **Parked
       — hook-boundary enforcement runs inside Claude Code's

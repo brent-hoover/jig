@@ -532,12 +532,13 @@ async def test_evaluator_equal_to_completing_role_does_not_advance(
                 )
             )
         elif ctx.role == "dev":
-            # Would only run if the guard failed — record it so the
-            # assertion below surfaces the cause.
-            pytest.fail(
-                f"dev should not have run; guard should have held. "
-                f"errors seen: {accept_errors!r}"
-            )
+            # Guard held correctly → dev should never be reached. A
+            # pytest.fail() here would be swallowed by the orchestrator's
+            # task-done cleanup callback, so instead we just record
+            # `run_calls` and let ``assert "dev" not in run_calls`` in
+            # the test body surface a guard-failure at a level pytest
+            # can see.
+            pass
         return RunAgentResult(status="success", final_text="ok")
 
     monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)

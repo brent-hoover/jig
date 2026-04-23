@@ -12,6 +12,8 @@ from claude_agent_sdk.types import (
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
+    ThinkingConfigAdaptive,
     ToolUseBlock,
 )
 
@@ -74,6 +76,23 @@ def _tool_detail(tool_name: str, tool_input: dict) -> str:
         if isinstance(v, str) and v:
             return _sanitize_for_tui(v, limit=60)
     return ""
+
+
+def _thinking_config() -> ThinkingConfigAdaptive:
+    """Return the ThinkingConfig to pass to the SDK.
+
+    Adaptive lets the model choose its thinking budget per turn. If
+    cost becomes a concern, swap to ThinkingConfigEnabled(budget_tokens=N)
+    behind a single knob here.
+    """
+    return ThinkingConfigAdaptive(type="adaptive")
+
+
+# Cap for raw logged block text. Thinking blocks + tool results can
+# be large; truncate to keep the log file manageable. A companion
+# ``*_truncated`` DEBUG line records the real length so post-mortem
+# readers know to fetch the full content some other way if needed.
+_LOG_TRUNCATE_BYTES = 32 * 1024
 
 
 @dataclass
@@ -398,6 +417,7 @@ async def run_agent(
             system_prompt=ctx.role_cfg.phase_prompt,
             mcp_servers=mcp_servers,
             permission_mode="bypassPermissions",
+            thinking=_thinking_config(),
         )
         _logger.info(
             "agent config: cwd=%s tools=%s mcps=%s",
@@ -517,6 +537,22 @@ async def run_agent(
                                         "text": short,
                                     },
                                 )
+                        elif isinstance(block, ThinkingBlock):
+                            # Post-mortem only — not emitted to TUI.
+                            raw = block.thinking or ""
+                            raw_bytes = raw.encode("utf-8")
+                            if len(raw_bytes) > _LOG_TRUNCATE_BYTES:
+                                truncated = raw_bytes[:_LOG_TRUNCATE_BYTES].decode(
+                                    "utf-8", errors="ignore"
+                                )
+                                _logger.debug(
+                                    "[%s] thinking_truncated: full_len=%d",
+                                    tag,
+                                    len(raw),
+                                )
+                            else:
+                                truncated = raw
+                            _logger.debug("[%s] thinking: %s", tag, truncated)
                 elif isinstance(message, SystemMessage):
                     _logger.debug("[%s] system: %s", tag, message.subtype)
                 elif isinstance(message, ResultMessage):

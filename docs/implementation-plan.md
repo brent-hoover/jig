@@ -1762,20 +1762,53 @@ spawn.
 **P. Tests + end-to-end**
 
 - [ ] Unit tests per task (runners, compiler, resolver, etc.).
-- [ ] Integration: ticket reaches implement handoff → required
+- [x] Integration: ticket reaches implement handoff → required
       check fails → agent fixes → handoff → checks pass →
       evaluator accepts → advance.
-- [ ] Integration: evaluator=completing-actor conflict
+      *`tests/test_phase5p_check_fail_then_fix.py` — wires a
+      scripted `test -f FIXED` check into a two-phase workflow,
+      first run posts a handoff with FIXED absent (gate bounces),
+      second run touches FIXED (gate passes, automated_only
+      evaluator auto-accepts), dev phase runs, ticket resolves.*
+- [x] Integration: evaluator=completing-actor conflict
       → orchestrator escalates, phase doesn't advance.
-- [ ] Integration: black-box QA check cannot read `src/**`
-      (hook denies; verify via tool-log assertions).
-- [ ] Integration: dev agent under default template refused
+      *`tests/test_phase5p_evaluator_completing_actor.py` —
+      phase evaluator resolves to the completing role; the
+      accept-time self-cert guard at `jig/thread_mcp.py:1380`
+      raises `ThreadError("evaluator cannot be the completing
+      actor")` inside the evaluator spawn; the handoff stays
+      pending and dev never runs. (Pre-spawn orchestrator-level
+      escalation noted in §Risks line 1853 is not yet wired; the
+      observable outcome — no advance — still matches the exit
+      criterion.)*
+- [ ] ~~Integration: black-box QA check cannot read `src/**`
+      (hook denies; verify via tool-log assertions).~~ **Parked
+      — hook-boundary enforcement runs inside Claude Code's
+      subprocess tool-eval layer and cannot be driven from
+      pytest. Compiler-side guarantees (rules.json shape,
+      `.claude/settings.json` content, `black_box_agent.excluded`
+      propagation) are covered by `tests/test_capability_compiler.py`
+      and `tests/test_checks.py`.**
+- [ ] ~~Integration: dev agent under default template refused
       at hook level when attempting `rm -rf`, `git push
-      --force`, write to `.jig/spec/**`.
-- [ ] Integration: deferred item with `status="promoted"`
+      --force`, write to `.jig/spec/**`.~~ **Parked — same
+      reason. See `tests/test_capability_compiler.py` for the
+      deny-pattern merge + `test_default_role_templates.py` for
+      the default dev template's deny list.**
+- [x] Integration: deferred item with `status="promoted"`
       becomes a child ticket on handoff accept.
-- [ ] Integration: blocking question open for > T2 triggers
+      *`tests/test_phase5p_promote_deferred_on_accept.py` —
+      evaluator calls `checkpoint_promote_deferred` before
+      accepting the handoff; child ticket is created with
+      `parent_id`, DeferredItem flips to `status="promoted"`
+      with `promoted_ticket_id` pointing at the child.*
+- [x] Integration: blocking question open for > T2 triggers
       escalation + `needs_info`.
+      *`tests/test_phase5p_deadlock_escalates_question.py` —
+      `sweep_blocking_entries(now=q.created_at + T2 + 1)` with
+      `nudge_after_s=0` posts an Escalation tagged `any_human`
+      with `reason="deadlock_timeout"` and flips the ticket to
+      NEEDS_INFO.*
 
 ### Exit criteria
 

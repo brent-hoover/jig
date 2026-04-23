@@ -1,7 +1,9 @@
 """MCP server factory for agent ticket tools."""
 
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
@@ -22,21 +24,24 @@ from jig.thread import Question, SystemEvent
 from jig.ticket import TicketStatus
 
 
+ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
 def _wrap_with_context(
-    handler,
+    handler: ToolHandler,
     *,
     ticket_id: str | None,
     phase: str | None,
     role: str | None,
     agent_id: str | None,
-):
+) -> ToolHandler:
     """Wrap an MCP tool handler so each call runs with the given
     correlation context. The MCP SDK invokes each tool in a fresh
     asyncio task that does NOT inherit our per-ticket contextvars,
     so handlers must set them explicitly at the call boundary.
     """
 
-    async def wrapper(args):
+    async def wrapper(args: dict[str, Any]) -> dict[str, Any]:
         t_tid = _ticket_id_var.set(ticket_id)
         t_phase = _phase_var.set(phase)
         t_role = _role_var.set(role)

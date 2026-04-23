@@ -47,9 +47,11 @@ async def test_wrap_with_context_sets_and_resets_contextvars() -> None:
         "role": "dev",
         "agent_id": "dev:tid-abc",
     }
-    # After the call, vars should be unset again.
+    # After the call, all four vars should be unset again.
     assert _ticket_id_var.get() is None
     assert _phase_var.get() is None
+    assert _role_var.get() is None
+    assert _agent_id_var.get() is None
 
 
 @pytest.mark.asyncio

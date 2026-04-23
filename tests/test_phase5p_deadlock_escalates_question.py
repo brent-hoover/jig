@@ -93,6 +93,10 @@ async def test_blocking_question_past_t2_escalates_and_flips_needs_info(
 
         # An Escalation with responds_to=<question.id>, target=any_human,
         # and reason=deadlock_timeout now exists on the thread.
+        # Exactly-one is safe here because the orchestrator runs no
+        # background deadlock sweep — ``sweep_blocking_entries`` above
+        # is the only caller, and its own idempotency guard prevents
+        # double-posting against the same blocking entry.
         entries = await orch.threads.for_ticket(tid)
         escalations = [e for e in entries if isinstance(e, Escalation)]
         assert len(escalations) == 1

@@ -167,7 +167,19 @@ git commit -m "test: add Phase 5 Task P integration-test scaffolding helper"
 ## Task 2: Test — required check fails → agent fixes → advance
 
 **Scenario (doc 10 §Gating + implementation-plan §Task P bullet 1):**
-Phase `spec` has one required scripted check (`compile`) whose command is `test -f FIXED`. On the first `run_agent(role="spec")`, the fake agent posts a Handoff without creating `FIXED` — the gate runs the scripted check, it exits non-zero, and `bounce_handoff` flips the Handoff to `rejected`. The orchestrator's `_phase_handoff_rejected` branch reruns the phase. On the second `run_agent(role="spec")` the fake agent `touch`es `FIXED` in the worktree before posting a new pending Handoff; the gate re-runs, now passes, and because the phase's evaluator is `AutomatedOnlyEvaluator`, `accept_handoff_automated` closes it. Phase 2 (`dev`) runs, sets the ticket to `RESOLVED`.
+
+Two-phase workflow, both `role: dev`: `baseline` (no checks, evaluator=automated_only) → `gated` (required scripted check `compile`, evaluator=automated_only). This mirrors production: `_find_fix_phase` (orchestrator.py:1100-1111) only considers `_write_roles = {"dev"}`, scans phases *before* the blocked index, and excludes the blocked phase itself — so the gated phase must have a prior dev-role phase to route back to.
+
+Sequence:
+
+1. `run_agent` fires for phase 0 `baseline`. Fake agent posts a pending Handoff. Gate runs (no checks → pass). Evaluator=automated_only → `accept_handoff_automated` closes it.
+2. `run_agent` fires for phase 1 `gated`. Fake agent posts a pending Handoff but has NOT created `FIXED` in the worktree. Gate runs `test -f FIXED` → non-zero → `evaluate_handoff_gate` emits a `check_failure` SystemEvent, `bounce_handoff` flips the Handoff to `rejected`.
+3. Orchestrator's `_phase_handoff_rejected` returns True; the main loop treats this as `status="blocked"` and calls `_find_fix_phase(workflow, 1)` → returns 0 (prior dev phase).
+4. `run_agent` fires for phase 0 `baseline` AGAIN. Fake agent detects this is a rerun (gated has already been invoked at least once) and `touch`es `FIXED` in the worktree before posting a new Handoff. Auto-accept (no checks).
+5. `run_agent` fires for phase 1 `gated` AGAIN. Check passes now. Auto-accept.
+6. All phases complete → `_on_ticket_completed` → stubbed merge → ticket status becomes `RESOLVED`.
+
+Assertions cover: handoff bounce+accept transitions with the `"harness"` acceptor string, `check_failure` SystemEvent presence + `check_name`, phase-rerun ordering (`[baseline, gated, baseline, gated]`), and terminal `RESOLVED` status.
 
 **Files:**
 - Create: `tests/test_phase5p_check_fail_then_fix.py`
@@ -185,16 +197,23 @@ Exercises:
    one check_failure SystemEvent per failing required check.
 3. handoff_gate.bounce_handoff flips the handoff to ``rejected``
    with ``rejected_by="harness"`` and the verdict summary.
-4. Orchestrator's _phase_handoff_rejected reruns the phase.
+4. Orchestrator's _phase_handoff_rejected → _find_fix_phase routes
+   back to the prior dev phase; main loop reruns from that index.
 5. On rerun, the worktree state flips the check to passing.
 6. AutomatedOnlyEvaluator → accept_handoff_automated auto-closes
    the handoff with ``accepted_by="harness"``.
-7. Next phase runs and resolves the ticket.
+7. All phases complete → stubbed merge → ticket is RESOLVED.
+
+Workflow rationale: both phases use ``role="dev"`` because
+``jig.orchestrator._find_fix_phase`` hardcodes
+``_write_roles = {"dev"}`` and scans only phases *before* the
+blocked index. A gated phase needs a prior dev-role phase to
+route back to, so ``baseline`` exists purely as the fix-target.
+The fake agent disambiguates via ``ctx.phase.name``.
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -217,19 +236,23 @@ async def test_required_check_fails_then_agent_fixes_and_phase_advances(
     workflow = WorkflowConfig(
         name="default",
         phases=[
+            # Phase 0 — prior dev phase; the fix-phase target when
+            # phase 1 bounces. No checks; auto-accept.
             PhaseConfig(
-                name="spec",
-                role="spec",
+                name="baseline",
+                role="dev",
+                evaluator=AutomatedOnlyEvaluator(type="automated_only"),
+            ),
+            # Phase 1 — the gated phase. Required scripted check.
+            PhaseConfig(
+                name="gated",
+                role="dev",
                 automated_checks=["compile"],
                 evaluator=AutomatedOnlyEvaluator(type="automated_only"),
             ),
-            PhaseConfig(name="dev", role="dev"),
         ],
     )
-    roles = [
-        RoleConfig(role="spec", phase_prompt="spec"),
-        RoleConfig(role="dev", phase_prompt="dev"),
-    ]
+    roles = [RoleConfig(role="dev", phase_prompt="dev")]
     checks_yaml = (
         "checks:\n"
         "  compile:\n"
@@ -248,28 +271,41 @@ async def test_required_check_fails_then_agent_fixes_and_phase_advances(
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
-    run_calls: list[str] = []
+    run_calls: list[str] = []  # records ctx.phase.name per invocation
     worktree = tmp_path / "worktree"
 
     async def fake_run_agent(ctx, emitter=None):
-        run_calls.append(ctx.role)
-        if ctx.role == "spec":
-            # Second invocation: fix the code before posting the
-            # next handoff. First call leaves FIXED absent.
-            spec_invocations = sum(1 for r in run_calls if r == "spec")
-            if spec_invocations >= 2:
+        # ctx.phase is populated for PHASE_PRIMARY spawn reason
+        # (the only reason this test triggers). Fall back to role
+        # for defensive logging if an evaluator spawn ever sneaks in.
+        phase_name = ctx.phase.name if ctx.phase is not None else f"role:{ctx.role}"
+        run_calls.append(phase_name)
+
+        if phase_name == "baseline":
+            # On the rerun (triggered by gated's bounce), create FIXED
+            # so the next gated invocation's check passes. Detect the
+            # rerun by checking whether gated has already been invoked.
+            if "gated" in run_calls:
                 (worktree / "FIXED").write_text("")
             await ctx.threads.post(
                 Handoff(
                     ticket_id=ctx.ticket.id,
-                    author="spec",
-                    phase="spec",
-                    outputs=["spec.md"],
-                    summary=f"attempt {spec_invocations}",
+                    author="dev",
+                    phase="baseline",
+                    outputs=["baseline.md"],
+                    summary=f"baseline attempt {run_calls.count('baseline')}",
                 )
             )
-        elif ctx.role == "dev":
-            await ctx.tickets.update_status(ctx.ticket.id, TicketStatus.RESOLVED)
+        elif phase_name == "gated":
+            await ctx.threads.post(
+                Handoff(
+                    ticket_id=ctx.ticket.id,
+                    author="dev",
+                    phase="gated",
+                    outputs=["gated.md"],
+                    summary=f"gated attempt {run_calls.count('gated')}",
+                )
+            )
         return RunAgentResult(status="success", final_text="ok")
 
     monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
@@ -281,8 +317,9 @@ async def test_required_check_fails_then_agent_fixes_and_phase_advances(
         )
         await orch._handle_schedule(tid)
 
-        # Wait for the ticket to reach RESOLVED — the full loop:
-        # spec(fail) → bounce → spec(pass) → auto-accept → dev → RESOLVED.
+        # Wait for terminal RESOLVED via the stubbed-merge path:
+        # baseline→auto-accept, gated→bounce, baseline(rerun)→auto-accept,
+        # gated(rerun)→auto-accept, all-phases-done → _on_ticket_completed.
         async def resolved() -> bool:
             t = await orch.tickets.get(tid)
             return t is not None and t.status == TicketStatus.RESOLVED
@@ -291,30 +328,49 @@ async def test_required_check_fails_then_agent_fixes_and_phase_advances(
             f"ticket did not resolve; run_calls={run_calls}"
         )
 
-        # Spec phase must have run at least twice (once bounced, once accepted).
-        spec_calls = [r for r in run_calls if r == "spec"]
-        assert len(spec_calls) >= 2, f"expected >=2 spec runs, got {run_calls}"
-        # Dev ran exactly once after the auto-accept.
-        assert run_calls.count("dev") == 1, f"expected 1 dev run, got {run_calls}"
+        # Phase ordering: at least baseline → gated → baseline → gated.
+        assert run_calls.count("baseline") >= 2, (
+            f"expected >=2 baseline runs, got {run_calls}"
+        )
+        assert run_calls.count("gated") >= 2, (
+            f"expected >=2 gated runs, got {run_calls}"
+        )
+        # Baseline must have run before gated at least once.
+        assert run_calls.index("baseline") < run_calls.index("gated"), (
+            f"baseline did not run before gated; run_calls={run_calls}"
+        )
 
-        # First handoff rejected by harness; last one accepted by harness.
+        # Exactly one harness-bounced handoff (the first gated handoff).
         handoffs = await orch.threads.find_by_kind(tid, "handoff")
-        assert len(handoffs) >= 2
-        assert any(
-            isinstance(h, Handoff)
+        assert len(handoffs) >= 3, f"expected >=3 handoffs, got {len(handoffs)}"
+        bounced = [
+            h
+            for h in handoffs
+            if isinstance(h, Handoff)
             and h.acceptance_state == "rejected"
             and (h.rejection_reason or "").startswith("Handoff bounced")
-            for h in handoffs
-        ), "expected at least one harness-bounced handoff"
-        accepted = [
-            h for h in handoffs if isinstance(h, Handoff) and h.acceptance_state == "accepted"
         ]
-        assert len(accepted) == 1
-        assert accepted[0].accepted_by == "harness"
+        assert len(bounced) == 1, (
+            f"expected exactly one bounced handoff, got {len(bounced)}"
+        )
+        assert bounced[0].phase == "gated"
 
-        # At least one check_failure SystemEvent landed on the thread.
+        # All accepted handoffs were auto-accepted by the harness.
+        accepted = [
+            h
+            for h in handoffs
+            if isinstance(h, Handoff) and h.acceptance_state == "accepted"
+        ]
+        assert accepted, "expected at least one accepted handoff"
+        assert all(h.accepted_by == "harness" for h in accepted), (
+            f"non-harness acceptor present: "
+            f"{[h.accepted_by for h in accepted]}"
+        )
+
+        # At least one check_failure SystemEvent landed on the thread,
+        # naming the failing required check.
         entries = await orch.threads.for_ticket(tid)
-        from jig.thread import SystemEvent  # local import — avoids top-of-file noise
+        from jig.thread import SystemEvent  # local import — keeps top-of-file tidy
 
         failures = [
             e
@@ -335,9 +391,10 @@ Expected: fails. The most likely first failure is a `ModuleNotFoundError: No mod
 - [ ] **Step 3: Debug any real wiring gap**
 
 Likely issues and fixes:
-- If `run_calls` shows only `["spec"]` and the ticket never resolves: the bounce→rerun wiring isn't triggering. Check that `PhaseConfig.automated_checks=["compile"]` appears in the saved workflow (`cat .jig/workflows/default.yaml` from inside the test via `tmp_path` inspection).
-- If the first handoff never bounces (stays accepted): `.jig/checks.yaml` wasn't written before `startup()`, or the scripted runner's cwd isn't `worktree_dir`. Helper writes the file before orchestrator init; verify the file exists on disk during the test by printing `(tmp_path / ".jig/checks.yaml").read_text()` inside `fake_run_agent`.
-- If `test -f FIXED` passes on the first run: the fake agent is running in a different cwd than the scripted check. Add `(worktree / "FIXED").unlink(missing_ok=True)` at the top of the `spec` branch to be defensive.
+- If `run_calls` stops at `["baseline", "gated"]` and the ticket goes `FAILED` with log `"phase gated blocked but no fix phase found"`: `_find_fix_phase` is returning None. The workflow must have a prior `role="dev"` phase before `gated`. Double-check phase 0 still has `role="dev"`.
+- If the first gated handoff never bounces (stays accepted): `.jig/checks.yaml` wasn't written before `startup()`, or the scripted runner's cwd isn't the worktree. Helper writes the file before orchestrator init; verify by printing `(tmp_path / ".jig/checks.yaml").read_text()` inside `fake_run_agent`.
+- If `test -f FIXED` passes on the first `gated` run: the fake agent's baseline branch already created `FIXED` because `"gated" in run_calls` was True too early. The guard must only fire on baseline *reruns*, so check that `run_calls.count("baseline") >= 2` would be the alternative detector if ordering is off.
+- If `ctx.phase is None` on a recorded invocation: an evaluator spawn is sneaking in (shouldn't happen with automated_only evaluator — it never spawns an agent). Check `ctx.spawn_reason`; the test assumes only `PHASE_PRIMARY` spawns.
 
 No production code changes should be needed — the wiring landed in Task O.
 

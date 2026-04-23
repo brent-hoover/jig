@@ -11,7 +11,8 @@ Coverage:
 * Literal permit under a ``**``-trailing deny (the canonical shadow).
 * ``*``-segment within a ``**`` deny prefix (single-segment wildcard
   subsumed by unbounded wildcard).
-* Different URI schemes don't cross-subsume.
+* URI schemes that normalise to the same sandbox path DO
+  cross-subsume (the policy is path-based at the hook boundary).
 * Unrelated denies don't spuriously flag permits.
 * Phase ``capability_overrides`` warnings are labeled with workflow +
   phase, not role.
@@ -69,12 +70,14 @@ class TestPatternSubsumes:
         # ``repo://secrets/**`` matches many. Not subsumed.
         assert not _pattern_subsumes("repo://secrets/key.pem", "repo://secrets/**")
 
-    def test_different_schemes_do_not_subsume(self) -> None:
-        # ``ticket://`` and ``repo://`` both resolve under /workspace
-        # but the sub-paths differ — ticket://worktree/X is
-        # /workspace/X, repo://X is also /workspace/X. In practice the
-        # resolver normalises to the same root, so equal bodies DO
-        # subsume. Verify the normalisation.
+    def test_schemes_cross_subsume_via_normalization(self) -> None:
+        # ``ticket://worktree/X`` and ``repo://X`` both resolve to
+        # ``/workspace/X`` at the hook boundary. Because
+        # ``resolve_uri_glob`` normalises to the sandbox-absolute path
+        # before comparison, a ``ticket://worktree/**`` deny DOES
+        # subsume a ``repo://...`` permit, even though the scheme
+        # prefixes differ. This is intentional — the policy the hook
+        # enforces is path-based, not scheme-based.
         assert _pattern_subsumes("ticket://worktree/**", "repo://anything")
 
     def test_unmapped_scheme_never_subsumes(self) -> None:

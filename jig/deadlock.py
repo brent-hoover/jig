@@ -59,8 +59,10 @@ _logger = logging.getLogger(__name__)
 _TERMINAL_STATUSES: frozenset[TicketStatus] = frozenset(
     {
         TicketStatus.RESOLVED,
+        TicketStatus.CLOSED,
         TicketStatus.BLOCKED,  # manually parked — operator owns it
         TicketStatus.FAILED,
+        TicketStatus.MERGE_CONFLICT,  # awaiting manual merge resolution
     }
 )
 
@@ -132,36 +134,52 @@ async def sweep_blocking_entries(
                 # Clock skew — created_at is in the future. Don't act.
                 continue
 
-            already_nudged = _has_responder(entries, kind_cls=Note, entry_id=entry.id)
-            already_escalated = _has_responder(
-                entries, kind_cls=Escalation, entry_id=entry.id
-            )
-
-            # Escalation tier first: if we're past T2, we want to see
-            # needs_info surface even if the T1 nudge hasn't been
-            # recorded yet (the cumulative nudge below still posts).
-            if (
-                escalate_after_s > 0
-                and age_s >= escalate_after_s
-                and not already_escalated
-            ):
-                await _post_escalation(
-                    tickets=tickets,
-                    threads=threads,
-                    bus=bus,
-                    ticket_id=ticket.id,
-                    entry=entry,
+            try:
+                already_nudged = _has_responder(
+                    entries, kind_cls=Note, entry_id=entry.id
                 )
-                result.escalated.append(entry.id)
-
-            if nudge_after_s > 0 and age_s >= nudge_after_s and not already_nudged:
-                await _post_nudge(
-                    threads=threads,
-                    bus=bus,
-                    ticket_id=ticket.id,
-                    entry=entry,
+                already_escalated = _has_responder(
+                    entries, kind_cls=Escalation, entry_id=entry.id
                 )
-                result.nudged.append(entry.id)
+
+                # Escalation tier first: if we're past T2, we want to see
+                # needs_info surface even if the T1 nudge hasn't been
+                # recorded yet (the cumulative nudge below still posts).
+                if (
+                    escalate_after_s > 0
+                    and age_s >= escalate_after_s
+                    and not already_escalated
+                ):
+                    await _post_escalation(
+                        tickets=tickets,
+                        threads=threads,
+                        bus=bus,
+                        ticket_id=ticket.id,
+                        entry=entry,
+                    )
+                    result.escalated.append(entry.id)
+
+                if (
+                    nudge_after_s > 0
+                    and age_s >= nudge_after_s
+                    and not already_nudged
+                ):
+                    await _post_nudge(
+                        threads=threads,
+                        bus=bus,
+                        ticket_id=ticket.id,
+                        entry=entry,
+                        now=now,
+                    )
+                    result.nudged.append(entry.id)
+            except Exception:
+                _logger.exception(
+                    "deadlock sweep: failed to process blocking entry %s "
+                    "for ticket %s — skipping and continuing",
+                    entry.id,
+                    ticket.id,
+                )
+                continue
 
     return result
 
@@ -197,11 +215,10 @@ async def _post_nudge(
     bus: MessageBus,
     ticket_id: str,
     entry: ThreadEntry,
+    now: datetime,
 ) -> None:
     target = _describe_target(entry)
-    age_hours = int(
-        (datetime.now(timezone.utc) - entry.created_at).total_seconds() // 3600
-    )
+    age_hours = int((now - entry.created_at).total_seconds() // 3600)
     text = (
         f"Deadlock nudge: {entry.kind} {entry.id!r} has been open "
         f"~{age_hours}h waiting on {target}. Please respond or "
@@ -214,10 +231,16 @@ async def _post_nudge(
         responds_to=entry.id,
     )
     nid = await threads.post(note)
+    # ``to="broadcast"`` is deliberate: the orchestrator's QA-responder
+    # dispatch treats ``msg.to`` as a role name, and the nudge's actual
+    # target can be ``any_human`` or a phrase like ``"question author"``
+    # that doesn't match any role config. Broadcasting lets the TUI /
+    # WS relay still see the event while keeping the human-readable
+    # target on the payload.
     await bus.publish(
         Message(
             sender="orchestrator",
-            to=target,
+            to="broadcast",
             type=MessageType.CONTEXT_UPDATE,
             payload={
                 "kind": "deadlock_nudge_posted",
@@ -245,6 +268,10 @@ async def _post_escalation(
     ticket_id: str,
     entry: ThreadEntry,
 ) -> None:
+    # ``now`` is not currently used in the escalation text — thresholds
+    # alone tell the operator enough. Kept out of the signature rather
+    # than accepted-and-ignored to avoid the misleading impression that
+    # this call is clock-sensitive.
     target = _describe_target(entry)
     details = (
         f"{entry.kind} {entry.id!r} remained open past the deadlock "
@@ -269,10 +296,14 @@ async def _post_escalation(
     if ticket is not None and ticket.status != TicketStatus.NEEDS_INFO:
         await tickets.update_status(ticket_id, TicketStatus.NEEDS_INFO)
 
+    # ``to="broadcast"``: same reasoning as ``_post_nudge`` — the
+    # orchestrator's QA-responder dispatch treats ``msg.to`` as a role
+    # name, and ``any_human`` isn't one. The human target stays on the
+    # ``Escalation.target`` field (thread-level) and on the payload.
     await bus.publish(
         Message(
             sender="orchestrator",
-            to="any_human",
+            to="broadcast",
             type=MessageType.CONTEXT_UPDATE,
             payload={
                 "kind": "deadlock_escalation_posted",

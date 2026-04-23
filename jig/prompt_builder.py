@@ -234,9 +234,12 @@ def _evaluator_section(
     via ``evaluator_bundle``. Everything else lives on the thread
     already, so we just filter ``entries`` by kind + relationship.
 
-    Returns empty string when the bundle is missing AND the thread has
-    no evaluator-relevant content — graceful degradation on store-read
-    failure keeps the spawn from cascading into a prompt-builder crash.
+    Returns empty string when ``bundle`` is ``None`` — graceful
+    degradation on store-read failure keeps the spawn from cascading
+    into a prompt-builder crash, at the cost of losing thread-derived
+    context (waivers, helper drafts) for that one spawn. A future
+    refactor could render the thread-only portion without the bundle;
+    today the two are rendered together and fall together.
     """
     if bundle is None:
         return ""

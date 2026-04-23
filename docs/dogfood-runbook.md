@@ -80,7 +80,10 @@ Verify the catalog before you start the daemon:
 jig validate
 ```
 
-Zero output + exit 0 = good. Any complaint = fix before continuing.
+Expected on success: exit 0 and normal output such as `Catalog OK.`. The CLI
+may also print `[WARN] ...` advisories; treat those as non-fatal unless the
+command exits non-zero or prints a real validation error. Fix any actual
+validation errors before continuing.
 
 ## 3. Write a project brief (PO step)
 

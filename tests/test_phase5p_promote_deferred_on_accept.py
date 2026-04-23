@@ -89,10 +89,15 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
             )
         elif ctx.spawn_reason == SpawnReason.EVALUATOR and ctx.role == "dev":
             handoffs = await ctx.threads.find_by_kind(ctx.ticket.id, "handoff")
-            pending = next(
+            pendings = [
                 h for h in handoffs
                 if isinstance(h, Handoff) and h.acceptance_state == "pending"
+            ]
+            assert len(pendings) == 1, (
+                f"expected exactly one pending handoff, got {len(pendings)}"
             )
+            pending = pendings[0]
+            assert pending.deferred_items, "pending handoff has no deferred items"
             did = pending.deferred_items[0].id
             # Promote first, then accept.
             await handle_checkpoint_promote_deferred(

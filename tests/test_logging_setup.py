@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 from pathlib import Path
 
@@ -140,9 +141,6 @@ def test_console_format_includes_ticket_short(tmp_path: Path) -> None:
     assert "boom" in out
 
 
-import json
-
-
 def test_log_file_is_jsonl_with_correlation_fields(tmp_path: Path) -> None:
     (tmp_path / ".jig").mkdir()
     log_file = configure_logging(tmp_path, verbose=False)
@@ -173,3 +171,4 @@ def test_log_file_is_jsonl_with_correlation_fields(tmp_path: Path) -> None:
     assert rec["role"] == "dev"
     assert rec["agent_id"] is None
     assert "ts" in rec
+    assert rec["ts"].endswith("+00:00")

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from jig.store.threads import ThreadStore
-from jig.story import StoryEvent, StorySource, build_story
-from jig.thread import Handoff, Note
+from jig.story import StoryEvent, StorySource, _render_system_event, build_story
+from jig.thread import Handoff, Note, SystemEvent
 
 
 def test_story_event_frozen_dataclass_construction() -> None:
@@ -130,3 +130,63 @@ async def test_build_story_sorts_thread_and_log_by_timestamp(
     assert len(events) == 2
     assert "ancient" in events[0].message
     assert "recent" in events[1].message
+
+
+# ---- Renderer unit tests for the three new system event types --------------
+
+
+def test_render_system_event_phase_start() -> None:
+    ev = SystemEvent(
+        ticket_id="tid-1",
+        author="orchestrator",
+        event_type="phase_start",
+        content="spec",
+        payload={"phase": "spec", "role": "spec", "spawn_reason": "phase_primary"},
+    )
+    kind, message = _render_system_event(ev)
+    assert kind == "system_event/phase_start"
+    assert "PHASE START spec" in message
+    assert "role=spec" in message
+
+
+def test_render_system_event_phase_end() -> None:
+    ev = SystemEvent(
+        ticket_id="tid-1",
+        author="orchestrator",
+        event_type="phase_end",
+        content="success",
+        payload={
+            "phase": "dev",
+            "role": "dev",
+            "outcome": "success",
+            "duration_ms": 12345,
+        },
+    )
+    kind, message = _render_system_event(ev)
+    assert kind == "system_event/phase_end"
+    assert "PHASE END" in message
+    assert "dev" in message
+    assert "outcome=success" in message
+    assert "duration=12345ms" in message
+
+
+def test_render_system_event_agent_run() -> None:
+    ev = SystemEvent(
+        ticket_id="tid-1",
+        author="orchestrator",
+        event_type="agent_run",
+        content="dev ran 7 turns",
+        payload={
+            "role": "dev",
+            "num_turns": 7,
+            "duration_ms": 4321,
+            "spawn_reason": "phase_primary",
+            "result_preview": "done",
+        },
+    )
+    kind, message = _render_system_event(ev)
+    assert kind == "system_event/agent_run"
+    assert "AGENT RUN" in message
+    assert "dev" in message
+    assert "turns=7" in message
+    assert "duration=4321ms" in message

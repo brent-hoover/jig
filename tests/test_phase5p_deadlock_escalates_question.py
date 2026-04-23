@@ -93,10 +93,15 @@ async def test_blocking_question_past_t2_escalates_and_flips_needs_info(
 
         # An Escalation with responds_to=<question.id>, target=any_human,
         # and reason=deadlock_timeout now exists on the thread.
-        # Exactly-one is safe here because the orchestrator runs no
-        # background deadlock sweep — ``sweep_blocking_entries`` above
-        # is the only caller, and its own idempotency guard prevents
-        # double-posting against the same blocking entry.
+        # Exactly-one is safe despite the orchestrator's background
+        # ``_run_deadlock_loop`` running in parallel: (a) it ticks on
+        # ``DEADLOCK_SWEEP_INTERVAL_S`` = 60s, longer than this test's
+        # total lifetime; (b) even if it fired, its default thresholds
+        # (4h / 24h) against the real wall-clock would short-circuit
+        # before escalating a question that was created milliseconds
+        # ago. The future ``now=`` we pass above is only visible to
+        # this explicit sweep. The sweep's idempotency guard further
+        # protects against double-posting on the same entry.
         entries = await orch.threads.for_ticket(tid)
         escalations = [e for e in entries if isinstance(e, Escalation)]
         assert len(escalations) == 1

@@ -1771,7 +1771,7 @@ spawn.
       second run touches FIXED (gate passes, automated_only
       evaluator auto-accepts), dev phase runs, ticket resolves.*
 - [x] Integration: evaluator=completing-actor conflict
-      → orchestrator escalates, phase doesn't advance.
+      → handoff remains pending, phase doesn't advance.
       *`tests/test_phase5p_evaluator_completing_actor.py` —
       phase evaluator resolves to the completing role; the
       accept-time self-cert guard at `jig/thread_mcp.py:1380`

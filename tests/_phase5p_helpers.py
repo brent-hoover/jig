@@ -1,8 +1,9 @@
 """Shared scaffolding for Phase 5 Task P integration tests.
 
 Each test configures phases/roles/checks, then calls ``build_orch``
-to get an ``Orchestrator`` wired with in-memory stores and stubs
-that bypass the real git/worktree paths.
+to get an ``Orchestrator`` for a temporary test project. Stores are
+the real JSONL-backed implementations writing under ``tmp_path/.jig/
+store``; only the worktree and merge/remove paths are stubbed.
 """
 
 from __future__ import annotations

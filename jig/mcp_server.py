@@ -31,6 +31,8 @@ def create_agent_mcp_server(
     checkpoints: CheckpointStore | None = None,
     phase_name: str = "",
     can_waive: frozenset[str] = frozenset(),
+    phase_questions_to: frozenset[str] = frozenset(),
+    phase_escalation_targets: frozenset[str] = frozenset(),
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -218,6 +220,7 @@ def create_agent_mcp_server(
             bus=bus,
             sender=agent_role,
             args=args,
+            phase_questions_to=phase_questions_to or None,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -427,6 +430,7 @@ def create_agent_mcp_server(
             sender=agent_role,
             args=args,
             valid_roles=valid_roles,
+            phase_escalation_targets=phase_escalation_targets or None,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 

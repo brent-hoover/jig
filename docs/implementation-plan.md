@@ -1580,15 +1580,15 @@ Phase 4.
 
 **K. Carry-over — thread-target enforcement**
 
-- [ ] `thread_ask`: if the phase declares `questions_to` and
+- [x] `thread_ask`: if the phase declares `questions_to` and
       the tool's `target` isn't in that list (plus
       `any_human`), refuse the post with a readable error.
-- [ ] `thread_escalate`: same rule against
+- [x] `thread_escalate`: same rule against
       `escalation_targets`.
-- [ ] Validation stays at catalog-load (unknown roles fail
+- [x] Validation stays at catalog-load (unknown roles fail
       `jig validate`) — enforcement at post-time is purely
       additive.
-- [ ] Phases without `questions_to` / `escalation_targets`
+- [x] Phases without `questions_to` / `escalation_targets`
       declared keep today's permissive behavior.
 
 **L. Carry-over — deadlock auto-resolution**

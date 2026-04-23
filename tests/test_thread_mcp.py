@@ -183,6 +183,91 @@ class TestThreadAsk:
                 },
             )
 
+    # ---- Phase 5 Task K: questions_to enforcement -------------------------
+
+    @pytest.mark.asyncio
+    async def test_phase_questions_to_refuses_target_outside_list(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        with pytest.raises(ThreadError, match="questions_to"):
+            await handle_thread_ask(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                args={
+                    "ticket_id": ticket_id,
+                    "target": "po",
+                    "question": "policy check?",
+                },
+                phase_questions_to=frozenset({"reviewer", "sa"}),
+            )
+
+    @pytest.mark.asyncio
+    async def test_phase_questions_to_allows_listed_target(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_ask(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "target": "reviewer",
+                "question": "cache?",
+            },
+            phase_questions_to=frozenset({"reviewer", "sa"}),
+        )
+        entry = await threads.get(result["question_id"])
+        assert isinstance(entry, Question)
+        assert entry.target == "reviewer"
+
+    @pytest.mark.asyncio
+    async def test_phase_questions_to_allows_any_human_escape_hatch(
+        self, tmp_path: Path
+    ) -> None:
+        """``any_human`` is always allowed even when the phase list
+        doesn't mention it — it's the operator-pause escape hatch."""
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_ask(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "target": "any_human",
+                "question": "help?",
+            },
+            phase_questions_to=frozenset({"reviewer"}),
+        )
+        entry = await threads.get(result["question_id"])
+        assert isinstance(entry, Question)
+        assert entry.target == "any_human"
+
+    @pytest.mark.asyncio
+    async def test_empty_phase_questions_to_is_permissive(self, tmp_path: Path) -> None:
+        """Phases that don't declare ``questions_to`` keep today's
+        permissive behavior — no check runs, any target goes through."""
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_ask(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "target": "po",
+                "question": "?",
+            },
+            phase_questions_to=None,
+        )
+        entry = await threads.get(result["question_id"])
+        assert isinstance(entry, Question)
+
 
 # ---- thread_answer --------------------------------------------------------
 
@@ -1170,14 +1255,13 @@ class TestThreadEscalate:
         assert any("not a known role" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_phase_escalation_targets_warn_only(
-        self, tmp_path: Path, caplog
+    async def test_phase_escalation_targets_refuses_outside_list(
+        self, tmp_path: Path
     ) -> None:
+        """Phase 5 Task K flips this from warn-only to hard refusal."""
         tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="jig.thread_mcp"):
-            result = await handle_thread_escalate(
+        with pytest.raises(ThreadError, match="escalation_targets"):
+            await handle_thread_escalate(
                 tickets=tickets,
                 threads=threads,
                 bus=bus,
@@ -1190,10 +1274,92 @@ class TestThreadEscalate:
                 },
                 phase_escalation_targets=frozenset({"sa", "human"}),
             )
-        # Allowed despite warning — Phase 4 is advisory.
+
+    @pytest.mark.asyncio
+    async def test_phase_escalation_targets_allows_listed_target(
+        self, tmp_path: Path
+    ) -> None:
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "reason": "x",
+                "details": "y",
+                "target": "sa",
+            },
+            phase_escalation_targets=frozenset({"sa", "human"}),
+        )
         entry = await threads.get(result["escalation_id"])
         assert isinstance(entry, Escalation)
-        assert any("phase escalation_targets" in r.message for r in caplog.records)
+        assert entry.target == "sa"
+
+    @pytest.mark.asyncio
+    async def test_phase_escalation_targets_allows_human_escape_hatch(
+        self, tmp_path: Path
+    ) -> None:
+        """``human`` / ``any_human`` are always allowed escape hatches
+        regardless of the phase list."""
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        # Default target is "human" — must pass even with a narrow list.
+        result = await handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "reason": "x",
+                "details": "y",
+            },
+            phase_escalation_targets=frozenset({"sa"}),
+        )
+        entry = await threads.get(result["escalation_id"])
+        assert isinstance(entry, Escalation)
+        assert entry.target == "human"
+
+        result2 = await handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "reason": "x",
+                "details": "y",
+                "target": "any_human",
+            },
+            phase_escalation_targets=frozenset({"sa"}),
+        )
+        entry2 = await threads.get(result2["escalation_id"])
+        assert isinstance(entry2, Escalation)
+        assert entry2.target == "any_human"
+
+    @pytest.mark.asyncio
+    async def test_empty_phase_escalation_targets_is_permissive(
+        self, tmp_path: Path
+    ) -> None:
+        """Phases that don't declare ``escalation_targets`` keep
+        today's permissive behavior — any target is accepted."""
+        tickets, threads, bus, ticket_id = await _make_stores(tmp_path)
+        result = await handle_thread_escalate(
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            sender="dev",
+            args={
+                "ticket_id": ticket_id,
+                "reason": "x",
+                "details": "y",
+                "target": "po",
+            },
+            phase_escalation_targets=None,
+        )
+        entry = await threads.get(result["escalation_id"])
+        assert isinstance(entry, Escalation)
 
     @pytest.mark.asyncio
     async def test_empty_reason_rejected(self, tmp_path: Path) -> None:

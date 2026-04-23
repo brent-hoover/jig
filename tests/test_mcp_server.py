@@ -123,3 +123,66 @@ async def test_checkpoint_tools_registered_when_store_provided(
     )
     tool_names = {t.name for t in captured["tools"]}
     assert tool_names == _BASE_TOOLS | _CHECKPOINT_TOOLS
+
+
+@pytest.mark.asyncio
+async def test_phase_allowlists_enforced_through_mcp_tools(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Phase 5 Task K: the MCP factory routes the phase's
+    ``questions_to`` / ``escalation_targets`` frozensets into the
+    ``thread_ask`` / ``thread_escalate`` tool closures so end-to-end
+    tool calls refuse disallowed targets."""
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
+    ticket_id = await tickets.create(
+        __import__("jig.ticket", fromlist=["Ticket", "WorkType"]).Ticket(
+            work_type=__import__("jig.ticket", fromlist=["WorkType"]).WorkType.FEATURE,
+            title="t",
+            created_by="orchestrator",
+        )
+    )
+    cfg = RoleConfig(role="dev", phase_prompt="")
+
+    captured: dict = {}
+    _patch_create_server(monkeypatch, captured)
+
+    mcp_server.create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="dev",
+        agent_cfg=cfg,
+        worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
+        phase_questions_to=frozenset({"reviewer"}),
+        phase_escalation_targets=frozenset({"sa"}),
+    )
+    tools_by_name = {t.name: t for t in captured["tools"]}
+
+    from jig.thread_mcp import ThreadError
+
+    # thread_ask refuses a target outside the phase list.
+    with pytest.raises(ThreadError, match="questions_to"):
+        await tools_by_name["thread_ask"].handler(
+            {"ticket_id": ticket_id, "target": "po", "question": "?"}
+        )
+    # any_human still works despite the narrow list.
+    await tools_by_name["thread_ask"].handler(
+        {"ticket_id": ticket_id, "target": "any_human", "question": "?"}
+    )
+
+    # thread_escalate refuses a target outside the phase list.
+    with pytest.raises(ThreadError, match="escalation_targets"):
+        await tools_by_name["thread_escalate"].handler(
+            {
+                "ticket_id": ticket_id,
+                "reason": "x",
+                "details": "y",
+                "target": "po",
+            }
+        )
+    # Default "human" target still passes.
+    await tools_by_name["thread_escalate"].handler(
+        {"ticket_id": ticket_id, "reason": "x", "details": "y"}
+    )

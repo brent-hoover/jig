@@ -329,6 +329,18 @@ async def run_agent(
     cap = _materialize_capability_policy(ctx)
 
     all_roles = list_roles(ctx.project.path_or_default())
+    # Phase 5 Task K: per-phase thread-target allow-lists feed into
+    # thread_ask / thread_escalate as hard refusals. Missing ctx.phase
+    # (standalone spawns, tests) or empty lists keep today's permissive
+    # behavior — the MCP factory treats an empty frozenset as "no
+    # restriction declared".
+    phase_q_to: frozenset[str] = (
+        frozenset(ctx.phase.questions_to) if ctx.phase else frozenset()
+    )
+    phase_esc_targets: frozenset[str] = (
+        frozenset(ctx.phase.escalation_targets) if ctx.phase else frozenset()
+    )
+
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
         threads=ctx.threads,
@@ -343,6 +355,8 @@ async def run_agent(
         checkpoints=ctx.checkpoints,
         phase_name=ctx.phase.name if ctx.phase else "",
         can_waive=cap.can_waive,
+        phase_questions_to=phase_q_to,
+        phase_escalation_targets=phase_esc_targets,
     )
 
     mcp_servers: dict = {"jig": mcp_server}

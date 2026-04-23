@@ -17,10 +17,18 @@ conversation. The operator-pause UX (``ask_question`` MCP tool and
 surfaces (``mcp_server.py`` and ``ws_server.py``) now that the doc-08
 thread types are the canonical conversation store.
 
-Target validation is intentionally loose here. The plan's Task C
-note pins enforcement to Phase 5 — workflow phases will start
-declaring ``questions_to`` / ``escalation_targets`` alongside the
-policy layer. For now we only reject obvious garbage (empty string).
+Target validation: Phase 5 Task K flips the post-time checks from
+warn-only to hard refusal. ``handle_thread_ask`` and
+``handle_thread_escalate`` both take an optional phase allow-list
+kwarg (``phase_questions_to`` / ``phase_escalation_targets``). When
+the kwarg is ``None`` the handler stays permissive — phases that
+don't declare the field on disk inherit today's "anything goes"
+behavior. When the kwarg is a frozenset, the caller must either
+hit a listed target or the always-allowed escape hatch
+``{"human", "any_human"}``; anything else raises
+:class:`ThreadError`. Catalog-load validation (``jig validate``)
+still rejects phases that name unknown roles, so post-time checks
+are purely additive.
 """
 
 from __future__ import annotations
@@ -67,6 +75,39 @@ class ThreadError(ValueError):
     """
 
 
+# Phase 5 Task K: targets that always pass the phase allow-list,
+# regardless of what the phase declares. These are the human-operator
+# escape hatches — a phase that limits ``questions_to: [reviewer]`` still
+# needs a way for a confused agent to page a human, and the operator
+# pause UX depends on ``any_human`` Questions landing.
+_HUMAN_TARGET_ESCAPE_HATCH: frozenset[str] = frozenset({"human", "any_human"})
+
+
+def _require_target_in_phase_allowlist(
+    target: str,
+    *,
+    allowlist: frozenset[str] | None,
+    field_name: str,
+) -> None:
+    """Enforce a phase's ``questions_to`` / ``escalation_targets`` list.
+
+    ``allowlist=None`` means the phase didn't declare the field — stay
+    permissive. An empty frozenset is treated the same (nothing
+    declared, nothing to enforce) so callers don't need to normalize.
+    """
+    if not allowlist:
+        return
+    if target in _HUMAN_TARGET_ESCAPE_HATCH:
+        return
+    if target in allowlist:
+        return
+    raise ThreadError(
+        f"target {target!r} is not permitted by this phase's {field_name} "
+        f"(allowed: {sorted(allowlist)} plus human escape hatch "
+        f"{sorted(_HUMAN_TARGET_ESCAPE_HATCH)})"
+    )
+
+
 def _require_waive_token(
     token: str,
     *,
@@ -98,11 +139,18 @@ async def handle_thread_ask(
     bus: MessageBus,
     sender: str,
     args: dict[str, Any],
+    phase_questions_to: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Post a typed Question on a ticket.
 
     Required args: ``ticket_id``, ``target``, ``question``.
     Optional: ``blocking`` (default False).
+
+    ``phase_questions_to`` is the phase's declared allow-list of
+    legal Question targets (Phase 5 Task K). ``None`` (or empty)
+    keeps today's permissive behavior; a populated frozenset
+    refuses targets that aren't in it, except for the always-
+    allowed human escape hatch (``human`` / ``any_human``).
 
     Returns ``{"question_id": ..., "blocking": ..., "target": ...}``.
     """
@@ -115,6 +163,10 @@ async def handle_thread_ask(
         raise ValueError("target is required")
     if not question_text.strip():
         raise ValueError("question is required")
+
+    _require_target_in_phase_allowlist(
+        target, allowlist=phase_questions_to, field_name="questions_to"
+    )
 
     if await tickets.get(ticket_id) is None:
         raise KeyError(f"ticket {ticket_id} not found")
@@ -887,10 +939,14 @@ async def handle_thread_escalate(
 ) -> dict[str, Any]:
     """Post an Escalation. Always blocking until a resolver acts.
 
-    Target validation is best-effort in Phase 4: if
-    ``phase_escalation_targets`` is supplied and ``target`` isn't in
-    it, log a warning but don't refuse. Phase 5 flips this to a hard
-    check once workflow phases declare their targets.
+    Phase 5 Task K enforcement: when ``phase_escalation_targets`` is a
+    populated frozenset, ``target`` must be in it or be one of the
+    always-allowed human escape hatches (``human`` / ``any_human``).
+    ``None``/empty keeps the old permissive behavior so phases that
+    don't declare the field still post cleanly. The separate
+    ``valid_roles`` check below is still warn-only — it's a sanity
+    hint for operators running without phase declarations, not a
+    gate (``jig validate`` catches unknown roles at catalog-load).
 
     Required args: ``ticket_id``, ``reason``, ``details``.
     Optional: ``target`` (default ``"human"``).
@@ -908,19 +964,22 @@ async def handle_thread_escalate(
     if await tickets.get(ticket_id) is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    if phase_escalation_targets is not None and target not in phase_escalation_targets:
+    _require_target_in_phase_allowlist(
+        target,
+        allowlist=phase_escalation_targets,
+        field_name="escalation_targets",
+    )
+
+    if (
+        not phase_escalation_targets
+        and valid_roles
+        and target not in _HUMAN_TARGET_ESCAPE_HATCH
+        and target not in valid_roles
+    ):
         _logger.warning(
-            "escalation target %r not in phase escalation_targets %s "
-            "(ticket=%s, sender=%s); allowing in Phase 4",
-            target,
-            sorted(phase_escalation_targets),
-            ticket_id,
-            sender,
-        )
-    elif valid_roles and target != "human" and target not in valid_roles:
-        _logger.warning(
-            "escalation target %r is not a known role or 'human' "
-            "(ticket=%s, sender=%s); allowing in Phase 4",
+            "escalation target %r is not a known role or human escape hatch "
+            "(ticket=%s, sender=%s); allowing because phase_escalation_targets "
+            "isn't declared",
             target,
             ticket_id,
             sender,

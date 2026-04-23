@@ -9,6 +9,8 @@ if TYPE_CHECKING:
     from jig.events import EventEmitter
 
 from jig.agent import run_agent
+from jig.config import DeadlockSection, load_config
+from jig.deadlock import sweep_blocking_entries
 from jig.project import Project, load_project
 from jig.thread import Handoff
 from jig.store import Message, MessageBus, MessageType
@@ -20,6 +22,13 @@ from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
 
 _logger = logging.getLogger(__name__)
+
+# Wall-clock cadence between deadlock sweeps. Shorter than both
+# thresholds so a sweep always runs within a useful delay of an
+# entry crossing T1, but long enough to not burn cycles on a
+# healthy project. Tests that want fast iteration create tight
+# sweeps by calling ``sweep_blocking_entries`` directly.
+DEADLOCK_SWEEP_INTERVAL_S = 60.0
 
 
 class DependencyMergeError(RuntimeError):
@@ -66,6 +75,11 @@ class Orchestrator:
         self._live_subscribers: dict[tuple[str, str], asyncio.Task] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._service_task: asyncio.Task | None = None
+        self._deadlock_task: asyncio.Task | None = None
+        # Phase 5 Task L thresholds — loaded from config at startup
+        # so shutdown/emergency_reset can read them without a second
+        # config parse.
+        self._deadlock_cfg: DeadlockSection = DeadlockSection()
         self._running = False
 
     async def startup(self) -> None:
@@ -88,18 +102,33 @@ class Orchestrator:
                 self.bus.load(),
                 self.check_results.load(),
             )
+            # Phase 5 Task L: load deadlock thresholds from
+            # `.jig/config.yaml`. Missing config (fresh install,
+            # tests) falls back to the shipped defaults rather
+            # than failing startup.
+            try:
+                self._deadlock_cfg = load_config(self._project_path).deadlock
+            except FileNotFoundError:
+                self._deadlock_cfg = DeadlockSection()
+            except Exception:
+                _logger.warning(
+                    "could not load deadlock config; using defaults",
+                    exc_info=True,
+                )
+                self._deadlock_cfg = DeadlockSection()
             self._running = True
             await self._resume_in_progress()
             await self._start_ready_tickets()
             self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
             self._service_task = asyncio.create_task(self._run_service_loop())
+            self._deadlock_task = asyncio.create_task(self._run_deadlock_loop())
         except Exception:
             await self._emergency_reset()
             raise
 
     async def _emergency_reset(self) -> None:
         self._running = False
-        for task in (self._dispatch_task, self._service_task):
+        for task in (self._dispatch_task, self._service_task, self._deadlock_task):
             if task is not None:
                 task.cancel()
                 try:
@@ -120,6 +149,7 @@ class Orchestrator:
         self._live_subscribers.clear()
         self._dispatch_task = None
         self._service_task = None
+        self._deadlock_task = None
         self._project = None
         self.tickets = None
         self.threads = None
@@ -135,6 +165,8 @@ class Orchestrator:
             tasks_to_cancel.append(self._dispatch_task)
         if self._service_task is not None:
             tasks_to_cancel.append(self._service_task)
+        if self._deadlock_task is not None:
+            tasks_to_cancel.append(self._deadlock_task)
         tasks_to_cancel.extend(self._running_tickets.values())
         tasks_to_cancel.extend(self._live_subscribers.values())
         for task in tasks_to_cancel:
@@ -150,6 +182,7 @@ class Orchestrator:
         self._live_subscribers.clear()
         self._dispatch_task = None
         self._service_task = None
+        self._deadlock_task = None
 
     async def _resume_in_progress(self) -> None:
         if self.tickets is None:
@@ -192,6 +225,46 @@ class Orchestrator:
                     self._running = False
         finally:
             await self.bus.unsubscribe("orchestrator", queue)
+
+    async def _run_deadlock_loop(self) -> None:
+        """Periodically sweep open blocking thread entries for age-based
+        auto-resolution (Phase 5 Task L).
+
+        Runs every ``DEADLOCK_SWEEP_INTERVAL_S`` seconds. A single sweep
+        failure (bad ticket record, transient IO error) is logged and
+        swallowed so one bad apple can't wedge the whole loop — the
+        next tick picks up where we left off. Both thresholds come
+        from ``self._deadlock_cfg`` which was loaded once at
+        ``startup()``; operators who want to change them mid-run
+        restart the orchestrator.
+        """
+        if self.tickets is None or self.threads is None or self.bus is None:
+            raise RuntimeError("Orchestrator not started — call startup() first")
+        while self._running:
+            try:
+                await asyncio.sleep(DEADLOCK_SWEEP_INTERVAL_S)
+            except asyncio.CancelledError:
+                raise
+            if not self._running:
+                return
+            try:
+                result = await sweep_blocking_entries(
+                    tickets=self.tickets,
+                    threads=self.threads,
+                    bus=self.bus,
+                    nudge_after_s=self._deadlock_cfg.nudge_after_s,
+                    escalate_after_s=self._deadlock_cfg.escalate_after_s,
+                )
+                if result.nudged or result.escalated:
+                    _logger.info(
+                        "deadlock sweep: nudged=%d escalated=%d",
+                        len(result.nudged),
+                        len(result.escalated),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _logger.warning("deadlock sweep raised; continuing", exc_info=True)
 
     async def _handle_schedule(self, ticket_id: str) -> None:
         """Schedule a ticket if its dependencies are satisfied.
@@ -1269,6 +1342,40 @@ class Orchestrator:
             self._live_subscribers.pop((ticket_id, role), None)
             return
 
+        # Phase 5 Task C/E/J — assemble the evaluator bundle so the
+        # prompt builder can render structured check results alongside
+        # the handoff. The bundle always carries the handoff id; the
+        # check-results list is best-effort — if the handoff entry or
+        # the check_results store is unavailable we still spawn with a
+        # bare bundle, and the prompt builder degrades gracefully.
+        check_results_payload: list[dict] = []
+        try:
+            pending_handoff = await self.threads.get(handoff_id)
+            if (
+                pending_handoff is not None
+                and pending_handoff.kind == "handoff"
+                and self.check_results is not None
+            ):
+                batch = await self.check_results.latest_batch(
+                    ticket_id, pending_handoff.phase
+                )
+                check_results_payload = [
+                    {
+                        "check_name": r.check_name,
+                        "verdict": r.verdict,
+                        "severity": r.severity,
+                        "output": r.output,
+                    }
+                    for r in batch
+                ]
+        except Exception:
+            _logger.exception(
+                "failed to assemble check-results bundle for evaluator "
+                "spawn on ticket %s handoff %s; spawning with empty batch",
+                ticket_id,
+                handoff_id,
+            )
+
         ctx = AgentSpawnContext(
             role=role,
             role_cfg=role_cfg,
@@ -1286,6 +1393,7 @@ class Orchestrator:
                 "kind": "thread_handoff_evaluator_spawn",
                 "ticket_id": ticket_id,
                 "handoff_id": handoff_id,
+                "check_results": check_results_payload,
             },
         )
         task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))

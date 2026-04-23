@@ -287,6 +287,13 @@ policy typically escalates; a human that cannot satisfy it typically
 either fixes the problem or waives with justification. Both paths
 produce audit records; the mechanism is the same.
 
+One deliberate escape hatch: the targets `human` and `any_human`
+bypass the phase `questions_to` / `escalation_targets` allow-list —
+a confused agent can always page a human regardless of how
+restrictive the phase routing is. See
+[08 — Threads §Targeting constraints](./08-threads.md) and the
+`_HUMAN_TARGET_ESCAPE_HATCH` constant in `jig/thread_mcp.py`.
+
 ## Content policy
 
 Already enforced by the check catalog ([10](./10-verification.md)).

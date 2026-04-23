@@ -7,6 +7,7 @@ const STATUS_ICON: Record<string, string> = {
   blocked: "⊘",
   needs_info: "?",
   failed: "✗",
+  merge_conflict: "⚠",
   resolved: "✓",
   closed: "·",
 }
@@ -17,6 +18,7 @@ const STATUS_COLOR: Record<string, string> = {
   blocked: "#ff8800",
   needs_info: "#ff00ff",
   failed: "#cc0000",
+  merge_conflict: "#ff8800",
   resolved: "#00cc00",
   closed: "#444444",
 }
@@ -77,7 +79,9 @@ function buildColumns(
     tickets: all.filter(
       (t) =>
         !t.currentPhase &&
-        (t.status === "failed" || t.status === "blocked"),
+        (t.status === "failed" ||
+          t.status === "blocked" ||
+          t.status === "merge_conflict"),
     ),
     color: "#cc0000",
   })

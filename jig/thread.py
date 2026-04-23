@@ -33,6 +33,7 @@ can advance.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Union
 
@@ -49,14 +50,30 @@ class DeferredItem(BaseModel):
 
     Task G on the checkpoint channel writes these; Task F packages
     them into Handoff entries so the evaluator can review.
+
+    ``id`` is the stable identifier the evaluator references when
+    calling ``checkpoint_promote_deferred`` (Phase 5 Task J). Items
+    are nested inside Checkpoint records, so the id lives on the
+    payload rather than in a top-level JSONL index — the enclosing
+    Checkpoint is how we locate it.
+
+    Legacy records written before the id field existed are backfilled
+    deterministically by ``jig.store.checkpoints._backfill_deferred_ids``
+    as ``{checkpoint_id}:deferred:{index}`` — the uuid4 default here
+    only fires for fresh writes, where the generated value is
+    serialized into the JSONL and stays stable on reload. Without
+    that backfill, Pydantic would regenerate a fresh uuid on every
+    load for legacy items and promote-by-id would break across
+    orchestrator restarts.
     """
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     item: str
     reason: str = ""
     status: Literal["open", "done", "promoted", "accepted"] = "open"
     # Populated when the evaluator promotes to a new ticket (Phase 5
-    # lands the auto-creation side). Recorded now so the migration is
-    # read-compatible.
+    # Task J wires the auto-creation side). Recorded now so the
+    # migration stays read-compatible.
     promoted_ticket_id: str | None = None
 
 
@@ -220,10 +237,18 @@ class Decision(_ThreadEntryBase):
 
 class Note(_ThreadEntryBase):
     """Freeform observation. Auto-resolved. Replaces the legacy
-    ``comment`` kind (Task B migration)."""
+    ``comment`` kind (Task B migration).
+
+    ``responds_to`` links a Note back at another thread entry it's
+    commenting on. Phase 5 Task L uses this for deadlock-nudge
+    idempotency — the orchestrator posts at most one nudge per
+    blocking entry and keys uniqueness off ``responds_to``. Plain
+    human-authored notes leave it ``None``.
+    """
 
     kind: Literal["note"] = "note"
     text: str
+    responds_to: str | None = None
 
 
 class Uncertain(_ThreadEntryBase):
@@ -240,6 +265,12 @@ class Escalation(_ThreadEntryBase):
     """Beyond-my-scope signal. Always blocking until a resolver
     acts (Phase 5 wires the auto-routing layer; Phase 4 just records
     and gates).
+
+    ``responds_to`` links this Escalation to a blocking entry the
+    orchestrator-as-resolver-of-last-resort escalated on behalf of
+    (Phase 5 Task L). Direct agent-posted Escalations leave it
+    ``None`` — the field exists so the deadlock sweep can stay
+    idempotent without walking log lines.
     """
 
     kind: Literal["escalation"] = "escalation"
@@ -247,6 +278,7 @@ class Escalation(_ThreadEntryBase):
     details: str  # prose
     target: str = "human"  # role name or "human"
     resolved_by: str | None = None
+    responds_to: str | None = None
 
     def is_blocking(self) -> bool:
         return not self.is_resolved()

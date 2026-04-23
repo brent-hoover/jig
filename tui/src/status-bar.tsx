@@ -15,7 +15,7 @@ function countByStatus(tickets: Record<string, Ticket>) {
   for (const t of Object.values(tickets)) {
     if (t.status === "resolved" || t.status === "closed") done++
     else if (t.status === "needs_info") needsInfo++
-    else if (t.status === "failed") failed++
+    else if (t.status === "failed" || t.status === "merge_conflict") failed++
     else if (t.status === "in_progress") active++
     else open++
   }

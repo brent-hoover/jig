@@ -1347,14 +1347,20 @@ specific role templates and tight context.
       contains the sender (e.g., `specific_role("dev")` with a
       dev-authored handoff). Escalation-on-conflict (auto-post
       Escalation + halt) lands with orchestrator wiring in Task O.*
-- [ ] Evaluator spawn prompt: handoff entry + check results
+- [x] Evaluator spawn prompt: handoff entry + check results
       (from Task A/B) + any check-failure audit entries + any
       active waivers. Check results are passed as structured
       data (handoff rubric section), not free text.
-      *Deferred to Task D — that task lands `check_failure`
-      SystemEvent plumbing and the orchestrator path that composes
-      the prompt. Resolver exposes enough for the spawner to decide
-      who to spawn; prompt composition is the next piece.*
+      *Implemented: `_spawn_evaluator` pins the handoff id and
+      pre-assembles the phase's `latest_batch` check results into
+      `ctx.initial_bus_message`; `prompt_builder._evaluator_section`
+      reads the bundle and renders Handoff record, structured Check
+      results (fenced excerpts on non-pass), Check-failure audit
+      (with WAIVED flag), Active waivers (check-failure + objection
+      variants), and Helper-agent drafts (Notes with
+      `responds_to` ∈ proposal ids). EVALUATOR branch in
+      `_instructions_section` references `thread_accept_handoff` /
+      `thread_reject_handoff` with the literal handoff id pinned.*
 - [x] `automated_only` phases skip evaluator spawn entirely
       when all required checks pass.
       *Implemented: handoff-close guard raises
@@ -1439,12 +1445,13 @@ Design notes:
       Authorization mirrors `thread_waive` — `sender`'s role
       must declare `capabilities.waivers.can_waive` containing
       `"check_failure:<severity>"` (Task H landed this swap).*
-- [ ] Evaluator view shows active waivers alongside check
+- [x] Evaluator view shows active waivers alongside check
       results.
-      *Deferred to Task O — evaluator spawn prompt composition
-      lives with the orchestrator wiring. The data is already
-      readable: agents pull the thread via `read_comments` and
-      filter for `kind=waiver` + `check_failure_id` non-null.*
+      *Implemented alongside Task C's prompt composition:
+      `_evaluator_section` renders an "Active waivers" block
+      that surfaces both check-failure waivers (linked to their
+      `SystemEvent`) and objection waivers — exactly-one-of
+      invariant makes branching trivial.*
 - [x] Waivers on check failures searchable via the existing
       thread store; audit query for "how often did we waive X"
       is a readable loop, not an index.
@@ -1559,65 +1566,75 @@ Phase 4.
 
 **J. Carry-over — deferred-item → ticket promotion**
 
-- [ ] Evaluator-facing MCP tool: `checkpoint_promote_deferred
+- [x] Evaluator-facing MCP tool: `checkpoint_promote_deferred
       (deferred_item_id, [title, work_type, assignee,
       labels])`. Creates a child ticket, sets
       `parent_id=<current ticket>`, records
       `promoted_ticket_id` on the DeferredItem.
-- [ ] Called during handoff acceptance. Accepted-handoff path
+- [x] Called during handoff acceptance. Accepted-handoff path
       walks the phase's deferred items and lets the evaluator
-      promote any.
-- [ ] Promoted items surface in the evaluator prompt
-      alongside handoff artifacts (Task C).
-- [ ] Tests: handoff with one promoted item produces a new
+      promote any. (Tool is available to the evaluator; the
+      accepted-handoff walk uses `deferred_items_open` against
+      the checkpoint store so promoted items drop out once
+      their status flips to `promoted`.)
+- [x] Promoted items surface in the evaluator prompt
+      alongside handoff artifacts (Task C). _Landed with the
+      Task C evaluator-section work: `_evaluator_section`
+      walks the handoff's `deferred_items` and renders each
+      one's `status` with the child `promoted_ticket_id`
+      when present._
+- [x] Tests: handoff with one promoted item produces a new
       ticket with the right parent; already-promoted items
       don't double-create.
 
 **K. Carry-over — thread-target enforcement**
 
-- [ ] `thread_ask`: if the phase declares `questions_to` and
+- [x] `thread_ask`: if the phase declares `questions_to` and
       the tool's `target` isn't in that list (plus
       `any_human`), refuse the post with a readable error.
-- [ ] `thread_escalate`: same rule against
+- [x] `thread_escalate`: same rule against
       `escalation_targets`.
-- [ ] Validation stays at catalog-load (unknown roles fail
+- [x] Validation stays at catalog-load (unknown roles fail
       `jig validate`) — enforcement at post-time is purely
       additive.
-- [ ] Phases without `questions_to` / `escalation_targets`
+- [x] Phases without `questions_to` / `escalation_targets`
       declared keep today's permissive behavior.
 
 **L. Carry-over — deadlock auto-resolution**
 
 Doc 08's orchestrator-as-resolver-of-last-resort.
 
-- [ ] Orchestrator tracks per-blocking-entry age: open
+- [x] Orchestrator tracks per-blocking-entry age: open
       blocking thread entry older than T1 triggers a nudge
       (posts a Note tagging the target actor). Open past
       T2 triggers an Escalation (posts to any_human, flips
       ticket to `needs_info`).
-- [ ] Thresholds: project-wide defaults in `config.yaml`
+- [x] Thresholds: project-wide defaults in `config.yaml`
       (`deadlock.nudge_after_s`, `deadlock.escalate_after_s`).
       Starting values T1 = 4h, T2 = 24h. Per-phase overrides
-      optional.
-- [ ] The nudge + escalation actions are idempotent —
+      optional (not yet wired — doc 08 extension).
+- [x] The nudge + escalation actions are idempotent —
       re-firing the check doesn't spam duplicates.
-- [ ] Tests: freezegun an open blocking question past T1,
-      verify a Note lands; past T2, verify an Escalation +
-      status transition.
+- [x] Tests: open blocking question past T1 (clock dialed
+      via injected `now`), verify a Note lands; past T2,
+      verify an Escalation + status transition. (freezegun
+      not installed; used an explicit `now` kwarg on
+      `sweep_blocking_entries` instead — simpler and
+      dep-free.)
 
 **M. Carry-over — section-lock enforcement**
 
 Spec section locks (`locked_after_phase`) parsed in Phase 3F
-but not enforced.
+and now enforced.
 
-- [ ] Spec-write path (`proposal_mcp.handle_resolve_proposal`
+- [x] Spec-write path (`proposal_mcp.handle_resolve_proposal`
       accept branch): if the accepted proposal targets a
       section with `locked_after_phase=<phase>` and that
       phase has a successful Handoff on the ticket, refuse
       with a readable error.
-- [ ] `jig validate --ticket-id`: surface section-lock
+- [x] `jig validate --ticket-id`: surface section-lock
       status as part of the ticket's pre-flight report.
-- [ ] Tests: proposal against `spec.behaviors` after the
+- [x] Tests: proposal against `spec.behaviors` after the
       `spec` phase handoff fails loud; same proposal before
       handoff accepts cleanly.
 
@@ -1627,24 +1644,41 @@ but not enforced.
 `OwnerRouting.helper_template` (Phase 3). Phase 5 wires the
 spawn.
 
-- [ ] Proposal-routing hook: when an owner resolves to
+- [x] Proposal-routing hook: when an owner resolves to
       `human_with_helper` and the proposal targets that
       owner, spawn the declared `helper_template` first with
       the proposal + context, capture its draft response as a
       Note on the thread, surface it to the human in the
       evaluator prompt.
-- [ ] Helper agent is a short-lived check-agent-style spawn
+      *Hook lives in `proposal_mcp.handle_propose_change`;
+      the spawn module is `jig/helper_spawn.py`. Distinct
+      "helper draft" labeling in the evaluator prompt rides
+      with the deferred Task C prompt-composition work — the
+      Note itself is already visible via thread iteration.*
+- [x] Helper agent is a short-lived check-agent-style spawn
       (same machinery as Task B), not a persistent role.
-- [ ] The human's acceptance is what resolves the proposal;
+      *Mirrors `AgentCheckRunner`: `submit_helper_draft` as
+      the single scoped MCP tool, `asyncio.wait_for` with a
+      `HELPER_DEFAULT_TIMEOUT_S=120` budget, best-effort
+      (skip + log on timeout / crash / no-submit).*
+- [x] The human's acceptance is what resolves the proposal;
       the helper's draft is context only.
+      *The helper posts a `Note`, not a `Proposal` resolver
+      — `handle_resolve_proposal` is the only path that flips
+      proposal state.*
 
 **O. Orchestrator wiring**
 
-- [ ] Handoff path through the orchestrator:
+- [x] Handoff path through the orchestrator:
       `thread_handoff` → run required checks (Task A+B) →
       gate on results (Task D) → on pass, resolve evaluator
       (Task C) and spawn → evaluator accepts/rejects per
       Phase 4.
+      *Complete via O1a–O2b. Evaluator-prompt composition
+      (check results + waivers in the spawn message) is
+      still open — tracked under Task C's final bullet and
+      Task E's "evaluator view" bullet; implementation will
+      extend `_spawn_evaluator`'s `initial_bus_message`.*
       - [x] **O1a** — `run_handoff_gate` primitive in
             `jig/handoff_gate.py` glues ScriptedRunner +
             AgentCheckRunner + `evaluate_handoff_gate`
@@ -1696,12 +1730,19 @@ spawn.
             existing `has_unresolved_blocking` wait does
             the actual blocking on the handoff, so the
             spawn stays fire-and-forget.
-- [ ] Per-spawn: capability compilation (Task F) materializes
+- [x] Per-spawn: capability compilation (Task F) materializes
       `rules.json` + `.claude/settings.json` before the
       agent starts.
-- [ ] Deadlock sweep: the orchestrator's existing tick loop
+      *Complete — `agent.py:_materialize_capability_policy`
+      runs pre-spawn (agent.py:329), produces the two
+      enforcement artefacts per Task F, and the hook scripts
+      from Task G read `rules.json` at tool-eval time.*
+- [x] Deadlock sweep: the orchestrator's existing tick loop
       grows a deadlock-check pass (Task L). No new scheduler.
-- [ ] CheckResult bus events: the runner publishes
+      *Landed in 73ee3c0 — `sweep_blocking_entries` runs
+      on the per-ticket loop with project-wide
+      `deadlock.nudge_after_s` / `escalate_after_s` thresholds.*
+- [x] CheckResult bus events: the runner publishes
       `check_completed` messages so the TUI can show
       progress.
       - [x] **O3** — `check_completed` bus events emitted by

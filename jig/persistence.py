@@ -32,6 +32,44 @@ def _jig_dir(project_path: Path) -> Path:
     return project_path / ".jig"
 
 
+def _project_md_stub(project_name: str) -> str:
+    """Return the initial body for ``.jig/spec/project.md``.
+
+    Matches the human-format example in ``docs/02-project-spec.md``.
+    Each category header is present but empty, so the PO has clear
+    prompts instead of a blank file.
+    """
+    return (
+        f"# {project_name}\n"
+        "\n"
+        "<!-- One paragraph: what this product is, who it's for.\n"
+        "     Deletes this comment when you fill it in. -->\n"
+        "\n"
+        "## Built\n"
+        "\n"
+        "<!-- Capabilities already shipped. Bullets for one-liners; use\n"
+        "     level-3 headers (### Name) + prose for elaborated ones. -->\n"
+        "\n"
+        "## Planned (committed)\n"
+        "\n"
+        "<!-- Next up. Elaborated capabilities become tickets soon. -->\n"
+        "\n"
+        "## Planned (not yet committed)\n"
+        "\n"
+        "<!-- Likely but not promised. Bullets are fine until they get\n"
+        "     promoted to committed. -->\n"
+        "\n"
+        "## Backlog\n"
+        "\n"
+        "<!-- Ideas. Low detail by design. -->\n"
+        "\n"
+        "## Non-goals\n"
+        "\n"
+        "<!-- Things we've explicitly decided not to build, with\n"
+        "     rationale. -->\n"
+    )
+
+
 def _defaults_dir() -> Path:
     """Return the path to the built-in defaults directory."""
     return Path(__file__).resolve().parent / "defaults"
@@ -80,6 +118,13 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
         "# Populated in phase 5.\n"
         "checks: {}\n"
     )
+
+    # PO-facing project brief. Shape from docs/02-project-spec.md
+    # §"Human format example" — state-category headers the PO fills in
+    # over time. Deriving the title from the directory name beats
+    # shipping a stub that calls every project "myproject".
+    spec_path = jig_dir / "spec" / "project.md"
+    spec_path.write_text(_project_md_stub(project_path.resolve().name))
 
 
 # ---- roles ----------------------------------------------------------------

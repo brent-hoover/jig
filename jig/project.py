@@ -40,7 +40,10 @@ class Project(BaseModel):
     package_manager: str = ""
     test_command: str = ""
     build_command: str = ""
-    merge_strategy: MergeStrategy = MergeStrategy.FEATURE_BRANCH
+    # Default to SQUASH so a completed ticket actually lands on the
+    # default branch. FEATURE_BRANCH is correct when the human wants to
+    # open a PR / review before integration — opt in via `jig init`.
+    merge_strategy: MergeStrategy = MergeStrategy.SQUASH
     hooks: HooksConfig = Field(default_factory=HooksConfig)
 
     def path_or_default(self) -> Path:

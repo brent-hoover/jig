@@ -31,6 +31,8 @@ def create_agent_mcp_server(
     checkpoints: CheckpointStore | None = None,
     phase_name: str = "",
     can_waive: frozenset[str] = frozenset(),
+    phase_questions_to: frozenset[str] = frozenset(),
+    phase_escalation_targets: frozenset[str] = frozenset(),
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -218,6 +220,7 @@ def create_agent_mcp_server(
             bus=bus,
             sender=agent_role,
             args=args,
+            phase_questions_to=phase_questions_to or None,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -427,6 +430,7 @@ def create_agent_mcp_server(
             sender=agent_role,
             args=args,
             valid_roles=valid_roles,
+            phase_escalation_targets=phase_escalation_targets or None,
         )
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
@@ -587,6 +591,41 @@ def create_agent_mcp_server(
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     @tool(
+        "checkpoint_promote_deferred",
+        "Promote a deferred item from this ticket's handoff into its "
+        "own child ticket. Use during handoff review when a deferred "
+        "item deserves its own tracking rather than staying as a "
+        "follow-up note. Creates a child ticket with parent_id set to "
+        "the current ticket. Idempotent — re-calling with the same "
+        "deferred_item_id returns the existing child id.",
+        {
+            "ticket_id": str,
+            "deferred_item_id": str,
+            "title": str,
+            "work_type": str,
+            "description": str,
+            "size": str,
+            "assignee": str,
+            "labels": list,
+        },
+    )
+    async def checkpoint_promote_deferred(args):
+        if checkpoints is None:
+            raise RuntimeError(
+                "checkpoint store not wired — server built without checkpoints"
+            )
+        result = await checkpoint_mcp.handle_checkpoint_promote_deferred(
+            tickets=tickets,
+            checkpoints=checkpoints,
+            bus=bus,
+            sender=agent_role,
+            phase_name=phase_name,
+            args=args,
+            project_path=project_path,
+        )
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    @tool(
         "list_tickets",
         "List tickets with optional filters",
         {"work_type": str, "status": str, "assignee": str, "parent_id": str},
@@ -693,7 +732,12 @@ def create_agent_mcp_server(
     ]
     if checkpoints is not None:
         all_tools.extend(
-            [checkpoint_milestone, checkpoint_decision, checkpoint_deferred]
+            [
+                checkpoint_milestone,
+                checkpoint_decision,
+                checkpoint_deferred,
+                checkpoint_promote_deferred,
+            ]
         )
     if package_manager:
         all_tools.append(add_dependency)

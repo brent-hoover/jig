@@ -23,7 +23,7 @@ from jig.events import EventEmitter, JigEvent
 from jig.mcp_server import create_agent_mcp_server
 from jig.persistence import list_roles
 from jig.prompt_builder import build_initial_prompt
-from jig.runtime import AgentSpawnContext
+from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
 from jig.skill_loader import load_all_skills, match_skills
 from jig.store import Message
@@ -115,6 +115,14 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
 
     all_roles = list_roles(ctx.project.path_or_default())
 
+    # For evaluator spawns the orchestrator stamps a structured bundle
+    # (handoff id + check results) onto ``initial_bus_message``; the
+    # prompt builder consumes it directly. Non-evaluator spawns pass
+    # ``None`` and the builder ignores it.
+    evaluator_bundle = (
+        ctx.initial_bus_message if ctx.spawn_reason == SpawnReason.EVALUATOR else None
+    )
+
     return build_initial_prompt(
         role_cfg=ctx.role_cfg,
         spawn_reason=ctx.spawn_reason,
@@ -129,6 +137,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         all_roles=all_roles,
         worktree_path=str(ctx.worktree_path),
         phase=ctx.phase,
+        evaluator_bundle=evaluator_bundle,
     )
 
 
@@ -329,6 +338,18 @@ async def run_agent(
     cap = _materialize_capability_policy(ctx)
 
     all_roles = list_roles(ctx.project.path_or_default())
+    # Phase 5 Task K: per-phase thread-target allow-lists feed into
+    # thread_ask / thread_escalate as hard refusals. Missing ctx.phase
+    # (standalone spawns, tests) or empty lists keep today's permissive
+    # behavior — the MCP factory treats an empty frozenset as "no
+    # restriction declared".
+    phase_q_to: frozenset[str] = (
+        frozenset(ctx.phase.questions_to) if ctx.phase else frozenset()
+    )
+    phase_esc_targets: frozenset[str] = (
+        frozenset(ctx.phase.escalation_targets) if ctx.phase else frozenset()
+    )
+
     mcp_server = create_agent_mcp_server(
         tickets=ctx.tickets,
         threads=ctx.threads,
@@ -343,6 +364,8 @@ async def run_agent(
         checkpoints=ctx.checkpoints,
         phase_name=ctx.phase.name if ctx.phase else "",
         can_waive=cap.can_waive,
+        phase_questions_to=phase_q_to,
+        phase_escalation_targets=phase_esc_targets,
     )
 
     mcp_servers: dict = {"jig": mcp_server}

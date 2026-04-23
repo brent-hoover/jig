@@ -6,6 +6,8 @@ import io
 import logging
 from pathlib import Path
 
+import pytest
+
 from jig.logging_setup import (
     LogContextFilter,
     _agent_id_var,
@@ -14,6 +16,29 @@ from jig.logging_setup import (
     _ticket_id_var,
     configure_logging,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_root_logger():
+    """Snapshot + restore root logger handlers and level.
+
+    configure_logging() mutates the root logger; without this fixture,
+    handlers stack across tests and the log-file handler holds the
+    log file open (causing Windows test issues too).
+    """
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    try:
+        yield
+    finally:
+        # Close and remove any handlers added during the test so the
+        # log file is released cleanly.
+        for h in root.handlers:
+            if h not in saved_handlers:
+                h.close()
+        root.handlers = saved_handlers
+        root.level = saved_level
 
 
 def test_configure_logging_creates_log_file_and_handlers(tmp_path: Path) -> None:

@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
-from jig.logging_setup import configure_logging
+from jig.logging_setup import (
+    LogContextFilter,
+    _agent_id_var,
+    _phase_var,
+    _role_var,
+    _ticket_id_var,
+    configure_logging,
+)
 
 
 def test_configure_logging_creates_log_file_and_handlers(tmp_path: Path) -> None:
@@ -30,3 +38,78 @@ def test_configure_logging_quiets_noisy_loggers(tmp_path: Path) -> None:
 
     assert logging.getLogger("websockets").level == logging.WARNING
     assert logging.getLogger("mcp").level == logging.WARNING
+
+
+def test_filter_adds_correlation_fields_to_record(tmp_path: Path) -> None:
+    (tmp_path / ".jig").mkdir()
+    configure_logging(tmp_path, verbose=False)
+
+    filt = LogContextFilter()
+    record = logging.LogRecord(
+        name="t", level=logging.INFO, pathname="", lineno=0,
+        msg="hi", args=(), exc_info=None,
+    )
+
+    tok_tid = _ticket_id_var.set("abcd1234-5678-90ab-cdef-000000000000")
+    tok_phase = _phase_var.set("spec")
+    tok_role = _role_var.set("dev")
+    tok_agent = _agent_id_var.set("dev:abcd1234")
+    try:
+        filt.filter(record)
+    finally:
+        _ticket_id_var.reset(tok_tid)
+        _phase_var.reset(tok_phase)
+        _role_var.reset(tok_role)
+        _agent_id_var.reset(tok_agent)
+
+    assert record.ticket_id == "abcd1234-5678-90ab-cdef-000000000000"
+    assert record.ticket_short == "abcd1234"
+    assert record.phase == "spec"
+    assert record.role == "dev"
+    assert record.agent_id == "dev:abcd1234"
+
+
+def test_filter_handles_unset_contextvars(tmp_path: Path) -> None:
+    (tmp_path / ".jig").mkdir()
+    configure_logging(tmp_path, verbose=False)
+
+    filt = LogContextFilter()
+    record = logging.LogRecord(
+        name="t", level=logging.INFO, pathname="", lineno=0,
+        msg="hi", args=(), exc_info=None,
+    )
+    filt.filter(record)
+    assert record.ticket_id is None
+    assert record.ticket_short == "        "  # 8-space pad
+    assert record.phase is None
+    assert record.role is None
+    assert record.agent_id is None
+
+
+def test_console_format_includes_ticket_short(tmp_path: Path) -> None:
+    (tmp_path / ".jig").mkdir()
+    configure_logging(tmp_path, verbose=False)
+
+    # Capture console output
+    buf = io.StringIO()
+    stream_handler = logging.StreamHandler(buf)
+    stream_handler.setLevel(logging.INFO)
+    # Match the console formatter
+    root = logging.getLogger()
+    existing_fmt = next(
+        h.formatter for h in root.handlers
+        if isinstance(h, logging.StreamHandler) and h.formatter is not None
+    )
+    stream_handler.setFormatter(existing_fmt)
+    stream_handler.addFilter(LogContextFilter())
+    root.addHandler(stream_handler)
+
+    tok = _ticket_id_var.set("abcd1234-rest-of-uuid")
+    try:
+        logging.getLogger("x").info("boom")
+    finally:
+        _ticket_id_var.reset(tok)
+
+    out = buf.getvalue()
+    assert "[abcd1234]" in out
+    assert "boom" in out

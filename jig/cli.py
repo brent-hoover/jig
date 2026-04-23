@@ -1,7 +1,6 @@
 """Jig CLI."""
 
 import asyncio
-import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -347,24 +346,6 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
                 err=True,
             )
 
-    level = logging.DEBUG if verbose else logging.INFO
-
-    console_fmt = logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    console = logging.StreamHandler()
-    console.setLevel(level)
-    console.setFormatter(console_fmt)
-
-    root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
-    root.addHandler(console)
-
-    # Quiet noisy third-party loggers — frame-level WS debug is never useful
-    logging.getLogger("websockets").setLevel(logging.WARNING)
-    logging.getLogger("mcp").setLevel(logging.WARNING)
-
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
         raise click.ClickException(
@@ -381,20 +362,9 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     except CatalogError as exc:
         raise click.ClickException(f"Catalog validation failed: {exc}")
 
-    from datetime import datetime
+    from jig.logging_setup import configure_logging
 
-    log_dir = jig_dir / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"jig-{datetime.now():%Y%m%d-%H%M%S}.log"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-    root.addHandler(file_handler)
+    log_file = configure_logging(path, verbose=verbose)
     click.echo(f"Logging to {log_file}")
 
     async def run_daemon() -> None:

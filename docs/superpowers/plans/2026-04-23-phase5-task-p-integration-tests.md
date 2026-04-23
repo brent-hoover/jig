@@ -605,7 +605,7 @@ git commit -m "test(phase5p): evaluator equal to completing role blocks advance"
 ## Task 4: Test — deferred item promoted to child ticket on accept
 
 **Scenario (doc 09 §Deferred items + implementation-plan Task J):**
-Phase `spec` completes with a Handoff carrying `deferred_items=[DeferredItem(item="add-perf-section", reason="punted")]`. Before accepting, the evaluator (next phase's role `dev` by natural-sequence default — no explicit evaluator) calls `handle_checkpoint_promote_deferred(sender="dev", args={"ticket_id": <tid>, "deferred_item_id": <did>})`, which creates a child ticket with `parent_id=<tid>`, flips the DeferredItem's `status="promoted"` and writes `promoted_ticket_id=<child>`. The evaluator then calls `handle_thread_accept_handoff(sender="dev", ...)` and the phase advances. After the dust settles, the test asserts:
+Phase `spec` completes with a Handoff carrying `deferred_items=[DeferredItem(item="add-perf-section", reason="punted")]`. The phase declares an explicit `evaluator=SpecificRoleEvaluator(role="dev")` so the orchestrator spawns a `dev`-role evaluator after the gate passes. (A `phase.evaluator=None` leaves the handoff pending indefinitely — `orchestrator.py:957-958` returns early in that case — so an explicit evaluator is required to drive the accept path.) Inside the evaluator spawn, the fake agent calls `handle_checkpoint_promote_deferred(sender="dev", args={"ticket_id": <tid>, "deferred_item_id": <did>})`, which creates a child ticket with `parent_id=<tid>`, flips the DeferredItem's `status="promoted"`, and writes `promoted_ticket_id=<child>`. The evaluator then calls `handle_thread_accept_handoff(sender="dev", ...)` and the phase advances. After the dust settles, the test asserts:
 
 1. A child ticket exists with `parent_id == parent tid`.
 2. The underlying `DeferredItem` on the checkpoint has `status == "promoted"` and `promoted_ticket_id == child.id`.
@@ -635,7 +635,12 @@ from pathlib import Path
 import pytest
 
 from jig.checkpoint_mcp import handle_checkpoint_promote_deferred
-from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
+from jig.models import (
+    PhaseConfig,
+    RoleConfig,
+    SpecificRoleEvaluator,
+    WorkflowConfig,
+)
 from jig.thread import DeferredItem, Handoff
 from jig.thread_mcp import handle_thread_accept_handoff
 from jig.ticket import Ticket, TicketStatus, WorkType
@@ -649,7 +654,15 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
     workflow = WorkflowConfig(
         name="default",
         phases=[
-            PhaseConfig(name="spec", role="spec"),
+            # Explicit dev evaluator — without it, orchestrator.py:957-958
+            # short-circuits and the handoff never gets an evaluator spawn.
+            PhaseConfig(
+                name="spec",
+                role="spec",
+                evaluator=SpecificRoleEvaluator(
+                    type="specific_role", role="dev"
+                ),
+            ),
             PhaseConfig(name="dev", role="dev"),
         ],
     )

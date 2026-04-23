@@ -546,9 +546,9 @@ async def run_agent(
                                     "utf-8", errors="ignore"
                                 )
                                 _logger.debug(
-                                    "[%s] thinking_truncated: full_len=%d",
+                                    "[%s] thinking_truncated: full_bytes=%d",
                                     tag,
-                                    len(raw),
+                                    len(raw_bytes),
                                 )
                             else:
                                 truncated = raw

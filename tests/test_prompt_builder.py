@@ -362,6 +362,51 @@ def test_evaluator_prompt_surfaces_check_results_structured() -> None:
     assert prompt.count("```") >= 2  # the fail excerpt is fenced
 
 
+def test_evaluator_prompt_normalizes_enum_severity() -> None:
+    """Orchestrator passes ``r.severity`` (the ``CheckSeverity`` enum)
+    straight into the bundle, not ``r.severity.value``. In Python 3.11+
+    ``str(CheckSeverity.REQUIRED)`` renders as ``"CheckSeverity.REQUIRED"``
+    rather than ``"required"``, so the prompt builder must pull ``.value``
+    to avoid leaking the class name into the evaluator prompt."""
+    from jig.checks import CheckSeverity
+
+    handoff = _handoff_entry()
+    bundle = {
+        "handoff_id": handoff.id,
+        "check_results": [
+            {
+                "check_name": "unit-tests",
+                "verdict": "pass",
+                # The live orchestrator bundle shape — raw enum, not .value.
+                "severity": CheckSeverity.REQUIRED,
+                "output": "",
+            },
+            {
+                "check_name": "ruff",
+                "verdict": "fail",
+                "severity": CheckSeverity.WARNING,
+                "output": "E501 line too long",
+            },
+        ],
+    }
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle=bundle,
+    )
+    # Enum value rendered, class name never exposed.
+    assert "[required]" in prompt
+    assert "[warning]" in prompt
+    assert "CheckSeverity" not in prompt
+
+
 def test_evaluator_prompt_surfaces_check_failure_audit_with_waivers() -> None:
     """Historical check_failure events appear alongside current results.
 

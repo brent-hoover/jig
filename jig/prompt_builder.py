@@ -290,7 +290,19 @@ def _evaluator_section(
         for r in check_results:
             name = r.get("check_name") or "?"
             verdict = r.get("verdict") or "?"
-            severity = r.get("severity") or "?"
+            # ``r["severity"]`` is whatever the bundle passes — the
+            # orchestrator hands in a ``CheckSeverity`` enum (not its
+            # ``.value``). In Python 3.11+ ``str(CheckSeverity.REQUIRED)``
+            # returns ``"CheckSeverity.REQUIRED"`` rather than
+            # ``"required"``, which would leak the class name into the
+            # evaluator prompt. Pull ``.value`` when present and fall
+            # back to ``str`` so plain-string severities (tests, future
+            # callers) still render.
+            raw_severity = r.get("severity")
+            if raw_severity is None:
+                severity = "?"
+            else:
+                severity = str(getattr(raw_severity, "value", raw_severity))
             parts.append(f"- **{name}** [{severity}]: `{verdict}`")
             # Quote the excerpt only on non-pass — a green dump of every
             # check's stdout would drown the evaluator in noise.

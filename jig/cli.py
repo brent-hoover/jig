@@ -802,3 +802,124 @@ def ticket_create(
     if not ticket_id:
         raise click.ClickException("orchestrator did not return a ticket_id")
     click.echo(ticket_id)
+
+
+# ---------------------------------------------------------------------------
+# `jig story <ticket-id>` — print the combined thread + log narrative for a
+# single ticket. Backed by `jig.story.build_story` (Task 13). Pretty-print by
+# default; `--json` emits one JSON object per line for machine consumers.
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("ticket_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+@click.option("--json", "json_out", is_flag=True, help="Output JSON per line.")
+@click.option(
+    "--include-children",
+    is_flag=True,
+    help="Include events from child tickets.",
+)
+@click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="ISO8601 timestamp — only show events at or after this time.",
+)
+@click.option(
+    "--level",
+    type=click.Choice(["DEBUG", "INFO"]),
+    default="INFO",
+    help="Minimum log level (thread entries are always shown).",
+)
+def story(
+    ticket_id: str,
+    path: Path,
+    json_out: bool,
+    include_children: bool,
+    since: str | None,
+    level: str,
+) -> None:
+    """Print the full story of a ticket."""
+    import json as json_mod
+    from datetime import datetime
+
+    from jig.story import StorySource, build_story
+    from jig.store.threads import ThreadStore
+    from jig.store.tickets import TicketStore
+
+    since_dt: datetime | None = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+        except ValueError as exc:
+            raise click.ClickException(f"Invalid --since: {exc}")
+
+    async def run() -> list:
+        threads_path = path / ".jig" / "store" / "comments.jsonl"
+        tickets_path = path / ".jig" / "store" / "tickets.jsonl"
+        threads = ThreadStore(threads_path)
+        await threads.load()
+        tickets = TicketStore(tickets_path)
+        await tickets.load()
+        # Verify ticket exists up front so unknown ids fail loud rather
+        # than returning an empty story.
+        t = await tickets.get(ticket_id)
+        if t is None:
+            raise click.ClickException(f"Ticket {ticket_id!r} not found")
+        return await build_story(
+            ticket_id,
+            project_path=path,
+            threads=threads,
+            tickets=tickets,
+            include_children=include_children,
+            since=since_dt,
+        )
+
+    events = asyncio.run(run())
+
+    # Filter by level for log events only (thread entries are always shown).
+    if level == "INFO":
+        events = [
+            e
+            for e in events
+            if e.source != StorySource.log or e.level != "DEBUG"
+        ]
+
+    if not events:
+        click.echo("(no events)", err=True)
+        return
+
+    if json_out:
+        for ev in events:
+            click.echo(
+                json_mod.dumps(
+                    {
+                        "ts": ev.ts.isoformat(),
+                        "source": ev.source.value,
+                        "kind": ev.kind,
+                        "level": ev.level,
+                        "message": ev.message,
+                        "ticket_id": ev.ticket_id,
+                        "phase": ev.phase,
+                        "role": ev.role,
+                    }
+                )
+            )
+        return
+
+    # Pretty print. Show elapsed since first event.
+    first_ts = events[0].ts
+    for ev in events:
+        elapsed = (ev.ts - first_ts).total_seconds()
+        src_tag = "T" if ev.source == StorySource.thread else "L"
+        click.echo(
+            f"{ev.ts.strftime('%H:%M:%S.%f')[:12]} "
+            f"(+{elapsed:7.2f}s) [{src_tag}] "
+            f"{ev.level:5s} {ev.message}"
+        )

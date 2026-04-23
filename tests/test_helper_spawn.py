@@ -52,12 +52,17 @@ class _FakeSDK:
         self.hang = hang
         self._captured: dict | None = None
         self._orig = helper_spawn_mod.create_helper_mcp_server
+        # Populated from the ``options`` kwarg on the ``query`` call so
+        # tests can assert on the scoped allow-list without booting a
+        # real agent.
+        self.last_options = None
 
     def create_helper_mcp_server(self, captured):
         self._captured = captured
         return self._orig(captured)
 
     async def query(self, prompt, options, **kwargs):
+        self.last_options = options
         if self.raise_exc is not None:
             raise self.raise_exc
         if self.hang:
@@ -238,6 +243,62 @@ class TestSpawnHappyPath:
         # helper draft at a glance, even before Task C's prompt
         # composition lands.
         assert note.author == "pm"
+
+
+# ---- allow-list scoping ----------------------------------------------------
+
+
+class TestAllowedToolsScoping:
+    """The helper's ``allowed_tools`` is deliberately hard-scoped rather
+    than inherited from the helper role template. Even if a team's helper
+    role normally allows ``Write`` / ``Bash``, the helper spawn must
+    override that to a minimal read-only + one-scoped-MCP surface — the
+    helper has no authority to change the workspace or the ticket."""
+
+    @pytest.mark.asyncio
+    async def test_allowed_tools_is_scoped_set_not_role_inheritance(
+        self, tmp_path: Path, threads: ThreadStore
+    ) -> None:
+        """Regardless of what ``role_cfg.allowed_tools`` lists, the spawn
+        passes exactly ``[submit_helper_draft, Read, Grep, Glob]`` to the
+        SDK. Guards against accidental blast-radius increase if a helper
+        role template grows a broader tool list later."""
+        routing = _routing(helper="pm")
+        proposal = await _post_proposal(threads)
+
+        # Monkeypatch the loaded role config to carry tools that must
+        # NOT leak into the helper spawn's allow-list. ``load_role`` is
+        # re-imported on each call, so patching ``helper_spawn_mod.load_role``
+        # is the simplest way to inject a bloated role.
+        from jig.models import RoleConfig
+
+        bloated = RoleConfig(
+            role="pm",
+            phase_prompt="you are pm",
+            allowed_tools=["Write", "Bash", "Edit"],  # must NOT leak through
+        )
+        with (
+            patch.object(helper_spawn_mod, "load_role", return_value=bloated),
+            _fake_sdk(drafts=["draft"]) as fake,
+        ):
+            note_id = await spawn_helper_for_proposal(
+                project_path=tmp_path,
+                threads=threads,
+                proposal=proposal,
+                routing=routing,
+            )
+        assert note_id is not None
+        assert fake.last_options is not None
+        tools = list(fake.last_options.allowed_tools or [])
+        assert tools == [
+            "mcp__jig_helper__submit_helper_draft",
+            "Read",
+            "Grep",
+            "Glob",
+        ]
+        # Double-check the dangerous ones didn't leak.
+        for forbidden in ("Write", "Bash", "Edit"):
+            assert forbidden not in tools
 
 
 # ---- failure paths ---------------------------------------------------------

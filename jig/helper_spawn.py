@@ -12,8 +12,11 @@ The helper is:
 
 * **Short-lived** — bounded by ``timeout_s`` (default
   :data:`HELPER_DEFAULT_TIMEOUT_S`). Mirrors ``AgentCheckRunner``'s
-  pattern: one scoped MCP tool (``submit_helper_draft``), no
-  persistent thread state beyond the Note it emits.
+  pattern: one side-effecting MCP tool (``submit_helper_draft``)
+  plus read-only context access (``Read`` / ``Grep`` / ``Glob``),
+  no persistent thread state beyond the Note it emits. The helper
+  cannot ``Write``, ``Bash``, spawn sub-agents, or invoke other
+  MCPs even if the helper role template would permit it.
 * **Best-effort** — timeouts, crashes, and "agent forgot to submit"
   all log a warning and return ``None`` without posting anything. The
   proposal is still routed normally; the human simply doesn't get a
@@ -182,8 +185,23 @@ async def spawn_helper_for_proposal(
     mcp_server = create_helper_mcp_server(captured)
     prompt = _build_helper_prompt(proposal)
 
-    allowed_tools = list(role_cfg.allowed_tools) + [
-        "mcp__jig_helper__submit_helper_draft"
+    # Hard-scoped allow-list — deliberately NOT inherited from
+    # ``role_cfg.allowed_tools``. The helper contract is:
+    #
+    # * one side-effecting tool: ``submit_helper_draft`` (scoped MCP)
+    # * read-only context access: ``Read``, ``Grep``, ``Glob``
+    #
+    # This mirrors the implementation-aware branch of
+    # ``check_runner``'s allow-list. Helpers must not ``Write``,
+    # ``Bash``, spawn sub-agents, or invoke other MCPs even if their
+    # normal role template would permit it — the helper is a
+    # short-lived context-only process with no authority to change
+    # the workspace or the ticket.
+    allowed_tools: list[str] = [
+        "mcp__jig_helper__submit_helper_draft",
+        "Read",
+        "Grep",
+        "Glob",
     ]
     options = ClaudeAgentOptions(
         cwd=str(cwd or project_path),

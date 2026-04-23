@@ -38,6 +38,7 @@ from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
 from jig.skill_loader import load_all_skills, match_skills
 from jig.store import Message
+from jig.thread import SystemEvent
 from jig.ticket import TicketStatus
 
 _logger = logging.getLogger(__name__)
@@ -612,6 +613,29 @@ async def run_agent(
                         message.num_turns,
                         (message.duration_ms or 0) / 1000,
                     )
+                    # Post an agent_run SystemEvent so the story view
+                    # gets per-spawn timing without having to parse logs.
+                    try:
+                        preview = _sanitize_for_tui(final_text, limit=500)
+                        await ctx.threads.post(
+                            SystemEvent(
+                                ticket_id=ctx.ticket.id,
+                                author="orchestrator",
+                                event_type="agent_run",
+                                content=f"{ctx.role} ran {message.num_turns} turns",
+                                payload={
+                                    "role": ctx.role,
+                                    "num_turns": message.num_turns,
+                                    "duration_ms": message.duration_ms or 0,
+                                    "spawn_reason": ctx.spawn_reason.value,
+                                    "result_preview": preview,
+                                },
+                            )
+                        )
+                    except Exception:
+                        _logger.warning(
+                            "failed to post agent_run SystemEvent", exc_info=True,
+                        )
                 else:
                     # Fallback for mocked result-like messages
                     result = getattr(message, "result", None)

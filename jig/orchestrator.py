@@ -1084,8 +1084,6 @@ class Orchestrator:
                     "auto-committed leftover changes after %s: %s", phase_name, sha
                 )
                 if self.threads is not None:
-                    from jig.thread import SystemEvent
-
                     await self.threads.post(
                         SystemEvent(
                             ticket_id=ticket_id,
@@ -1172,8 +1170,6 @@ class Orchestrator:
         return await current_phase_index(self.threads, ticket_id, workflow)
 
     async def _write_phase_run_comment(self, ticket_id: str, phase, result) -> None:
-        from jig.thread import SystemEvent
-
         if self.threads is None:
             raise RuntimeError("Orchestrator not started")
 

@@ -43,6 +43,7 @@ _CHECKPOINT_TOOLS = {
     "checkpoint_milestone",
     "checkpoint_decision",
     "checkpoint_deferred",
+    "checkpoint_promote_deferred",
 }
 
 

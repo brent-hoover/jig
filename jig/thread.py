@@ -33,6 +33,7 @@ can advance.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Union
 
@@ -49,14 +50,21 @@ class DeferredItem(BaseModel):
 
     Task G on the checkpoint channel writes these; Task F packages
     them into Handoff entries so the evaluator can review.
+
+    ``id`` is the stable identifier the evaluator references when
+    calling ``checkpoint_promote_deferred`` (Phase 5 Task J). Items
+    are nested inside Checkpoint records, so the id lives on the
+    payload rather than in a top-level JSONL index — the enclosing
+    Checkpoint is how we locate it.
     """
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     item: str
     reason: str = ""
     status: Literal["open", "done", "promoted", "accepted"] = "open"
     # Populated when the evaluator promotes to a new ticket (Phase 5
-    # lands the auto-creation side). Recorded now so the migration is
-    # read-compatible.
+    # Task J wires the auto-creation side). Recorded now so the
+    # migration stays read-compatible.
     promoted_ticket_id: str | None = None
 
 

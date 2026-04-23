@@ -1559,17 +1559,22 @@ Phase 4.
 
 **J. Carry-over — deferred-item → ticket promotion**
 
-- [ ] Evaluator-facing MCP tool: `checkpoint_promote_deferred
+- [x] Evaluator-facing MCP tool: `checkpoint_promote_deferred
       (deferred_item_id, [title, work_type, assignee,
       labels])`. Creates a child ticket, sets
       `parent_id=<current ticket>`, records
       `promoted_ticket_id` on the DeferredItem.
-- [ ] Called during handoff acceptance. Accepted-handoff path
+- [x] Called during handoff acceptance. Accepted-handoff path
       walks the phase's deferred items and lets the evaluator
-      promote any.
+      promote any. (Tool is available to the evaluator; the
+      accepted-handoff walk uses `deferred_items_open` against
+      the checkpoint store so promoted items drop out once
+      their status flips to `promoted`.)
 - [ ] Promoted items surface in the evaluator prompt
-      alongside handoff artifacts (Task C).
-- [ ] Tests: handoff with one promoted item produces a new
+      alongside handoff artifacts (Task C). _Blocked on Task C's
+      open "evaluator spawn prompt" bullet — prompt composition
+      lives there._
+- [x] Tests: handoff with one promoted item produces a new
       ticket with the right parent; already-promoted items
       don't double-create.
 

@@ -1,6 +1,6 @@
 """Checkpoint MCP handlers per doc 09 / Phase 4 Task G.
 
-Three agent-facing tools:
+Four agent-facing tools:
 
 * ``checkpoint_milestone(description, position, plan, completed=[],
   ruled_out=[])`` — the workhorse "here's where I am" snapshot.
@@ -10,6 +10,10 @@ Three agent-facing tools:
 * ``checkpoint_deferred(item, reason)`` — single-item append; the
   item surfaces on the next Handoff's ``deferred_items`` for the
   evaluator to review.
+* ``checkpoint_promote_deferred(deferred_item_id, [title, work_type,
+  assignee, labels])`` — evaluator-facing; creates a child ticket
+  (``parent_id=<current ticket>``) and marks the DeferredItem
+  ``status="promoted"``. Idempotent on re-call (Phase 5 Task J).
 
 Plus three harness hooks invoked from the orchestration layer
 (``ticket_mcp``/``thread_mcp``) — **not** from agent MCP tools:
@@ -28,9 +32,11 @@ translates into tool output; callers inside the codebase propagate.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from jig.checkpoints import Checkpoint, RuledOut
+from jig.store.bus import MessageBus
 from jig.store.checkpoints import CheckpointStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -202,7 +208,112 @@ async def handle_checkpoint_deferred(
         trigger="agent_deferred",
     )
     cid = await checkpoints.post(cp)
-    return {"checkpoint_id": cid, "item": item}
+    return {"checkpoint_id": cid, "item": item, "deferred_item_id": deferred.id}
+
+
+async def handle_checkpoint_promote_deferred(
+    *,
+    tickets: TicketStore,
+    checkpoints: CheckpointStore,
+    bus: MessageBus,
+    sender: str,
+    phase_name: str,
+    args: dict[str, Any],
+    project_path: Path | None = None,
+) -> dict[str, Any]:
+    """Promote a ``DeferredItem`` to a child ticket.
+
+    Phase 5 Task J. The evaluator reviewing a Handoff spots an item
+    worth tracking separately, calls this with ``deferred_item_id``,
+    and lands a new ticket with ``parent_id=<current ticket>``. The
+    DeferredItem itself gets ``status="promoted"`` and
+    ``promoted_ticket_id=<new>`` so ``deferred_items_open`` stops
+    surfacing it on future handoffs.
+
+    Args:
+      * ``ticket_id`` (required) — the ticket whose deferred items
+        we're promoting from. Becomes ``parent_id`` on the child.
+      * ``deferred_item_id`` (required) — stable id of the item,
+        available from the Handoff's ``deferred_items`` payload or
+        the ``checkpoint_deferred`` return value.
+      * ``title`` — child ticket title; defaults to the item text.
+      * ``work_type`` — child ticket work_type; defaults to ``feature``.
+      * ``description`` — child ticket description; defaults to the
+        item's ``reason`` (so the "why we deferred" prose becomes
+        the new ticket's body).
+      * ``size`` / ``assignee`` / ``labels`` — passed through to
+        ``create_ticket`` when provided.
+
+    Idempotent: if the DeferredItem already has ``promoted_ticket_id``
+    set, returns that id without creating a duplicate. The caller
+    sees ``created: False`` in that case.
+    """
+    # Late import — ticket_mcp imports from thread_mcp, which pulls
+    # the typed store. Keeping the dependency lazy here avoids a
+    # circular during module init.
+    from jig.ticket_mcp import handle_create_ticket
+
+    ticket_id = args["ticket_id"]
+    await _require_ticket(tickets, ticket_id)
+
+    deferred_item_id = (args.get("deferred_item_id") or "").strip()
+    if not deferred_item_id:
+        raise CheckpointError("deferred_item_id is required")
+
+    located = await checkpoints.find_deferred_item(ticket_id, deferred_item_id)
+    if located is None:
+        raise CheckpointError(
+            f"deferred item {deferred_item_id!r} not found "
+            f"on ticket {ticket_id!r}"
+        )
+    owning_cp_id, item = located
+
+    # Idempotent path — already promoted. Return the existing child.
+    if item.promoted_ticket_id is not None:
+        return {
+            "ticket_id": item.promoted_ticket_id,
+            "deferred_item_id": deferred_item_id,
+            "created": False,
+        }
+
+    create_args: dict[str, Any] = {
+        "title": args.get("title") or item.item,
+        "work_type": args.get("work_type", "feature"),
+        "parent_id": ticket_id,
+        "description": args.get("description") or item.reason or "",
+    }
+    for field in ("size", "assignee", "labels"):
+        if field in args and args[field] is not None:
+            create_args[field] = args[field]
+
+    child_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender=sender,
+        args=create_args,
+        project_path=project_path,
+    )
+
+    # Persist the promotion on the canonical (checkpoint-embedded) item.
+    # The Handoff's ``deferred_items`` is a snapshot; leaving it stale is
+    # fine since the gate that re-surfaces items (``deferred_items_open``)
+    # reads from checkpoints.
+    updated = await checkpoints.update_deferred_item(
+        owning_cp_id,
+        deferred_item_id,
+        status="promoted",
+        promoted_ticket_id=child_id,
+    )
+    if not updated:
+        raise CheckpointError(
+            f"failed to persist promotion on checkpoint {owning_cp_id!r}"
+        )
+
+    return {
+        "ticket_id": child_id,
+        "deferred_item_id": deferred_item_id,
+        "created": True,
+    }
 
 
 # ---- harness hooks --------------------------------------------------------
@@ -301,6 +412,7 @@ __all__ = [
     "handle_checkpoint_decision",
     "handle_checkpoint_deferred",
     "handle_checkpoint_milestone",
+    "handle_checkpoint_promote_deferred",
     "record_auto_commit_checkpoint",
     "record_auto_pre_handoff_checkpoint",
     "record_auto_test_checkpoint",

@@ -120,6 +120,62 @@ class CheckpointStore:
                     items.append(d)
         return items
 
+    async def find_deferred_item(
+        self, ticket_id: str, item_id: str
+    ) -> tuple[str, DeferredItem] | None:
+        """Locate an embedded ``DeferredItem`` by id within a ticket.
+
+        Returns ``(checkpoint_id, item)`` or ``None``. Searches
+        historical checkpoints too so a promote call that arrives
+        after ``mark_phase_historical`` (e.g., during handoff-accept
+        review) still finds the authoring record.
+
+        Phase 5 Task J uses this to resolve ``deferred_item_id`` to
+        the owning checkpoint before mutating the item's status.
+        """
+        cps = await self.for_ticket(ticket_id, include_historical=True)
+        for cp in cps:
+            for d in cp.deferred:
+                if d.id == item_id:
+                    return (cp.id, d)
+        return None
+
+    async def update_deferred_item(
+        self,
+        checkpoint_id: str,
+        item_id: str,
+        *,
+        status: str | None = None,
+        promoted_ticket_id: str | None = None,
+    ) -> bool:
+        """Update a single embedded ``DeferredItem`` in place.
+
+        Returns ``True`` when the item was found and the checkpoint
+        was rewritten; ``False`` if the checkpoint or item is
+        missing.
+
+        Phase 5 Task J uses this to mark items ``promoted`` and
+        record the new child ticket id without touching other
+        fields on the checkpoint record.
+        """
+        raw = await self._collection.get(checkpoint_id)
+        if raw is None:
+            return False
+        items = list(raw.get("deferred", []))
+        found = False
+        for d in items:
+            if d.get("id") == item_id:
+                if status is not None:
+                    d["status"] = status
+                if promoted_ticket_id is not None:
+                    d["promoted_ticket_id"] = promoted_ticket_id
+                found = True
+                break
+        if not found:
+            return False
+        await self._collection.update(checkpoint_id, {"deferred": items})
+        return True
+
 
 __all__ = [
     "CheckpointStore",

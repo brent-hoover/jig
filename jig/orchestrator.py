@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,7 +14,7 @@ from jig.config import DeadlockSection, load_config
 from jig.deadlock import sweep_blocking_entries
 from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
 from jig.project import Project, load_project
-from jig.thread import Handoff
+from jig.thread import Handoff, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.checkpoints import CheckpointStore
@@ -369,8 +370,6 @@ class Orchestrator:
                     exc,
                 )
                 if self.threads is not None:
-                    from jig.thread import SystemEvent
-
                     await self.threads.post(
                         SystemEvent(
                             ticket_id=ticket_id,
@@ -400,6 +399,11 @@ class Orchestrator:
                 phase = workflow.phases[phase_idx]
                 phase_token = _phase_var.set(phase.name)
                 role_token = _role_var.set(phase.role)
+                phase_started_at = time.monotonic()
+                # Sentinel so the phase_end finally block can report a
+                # sane outcome if the agent raises before ``result`` is
+                # bound below.
+                result = None
                 try:
                     _logger.info(
                         "phase %d/%d: %s (role=%s)",
@@ -408,6 +412,20 @@ class Orchestrator:
                         phase.name,
                         phase.role,
                     )
+                    if self.threads is not None:
+                        await self.threads.post(
+                            SystemEvent(
+                                ticket_id=ticket_id,
+                                author="orchestrator",
+                                event_type="phase_start",
+                                content=phase.name,
+                                payload={
+                                    "phase": phase.name,
+                                    "role": phase.role,
+                                    "spawn_reason": "phase_primary",
+                                },
+                            )
+                        )
                     role_cfg = load_role(self._project_path, phase.role)
 
                     # Tell the TUI which phase is running
@@ -574,6 +592,25 @@ class Orchestrator:
                     return
 
                 finally:
+                    if self.threads is not None:
+                        outcome = result.status if result is not None else "failed"
+                        duration_ms = int(
+                            (time.monotonic() - phase_started_at) * 1000
+                        )
+                        await self.threads.post(
+                            SystemEvent(
+                                ticket_id=ticket_id,
+                                author="orchestrator",
+                                event_type="phase_end",
+                                content=outcome,
+                                payload={
+                                    "phase": phase.name,
+                                    "role": phase.role,
+                                    "duration_ms": duration_ms,
+                                    "outcome": outcome,
+                                },
+                            )
+                        )
                     _phase_var.reset(phase_token)
                     _role_var.reset(role_token)
             await self._on_ticket_completed(ticket_id, ticket)

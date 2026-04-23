@@ -137,23 +137,44 @@ junk drawer it's becoming.
 ### Layer B — richer agent-output capture
 
 **Problem:** tool inputs are truncated to a TUI-friendly detail,
-tool results are dropped entirely. Post-mortem, you can see the
-agent called `Bash` but not what command ran or what it produced.
+tool results are dropped entirely, and thinking blocks are dropped
+entirely. Post-mortem, you can see the agent called `Bash` but not
+what command ran, what it produced, or what it was reasoning about.
 
-**Solution:** inside `run_agent`'s streaming loop, log the full
-tool input and the tool result at DEBUG, keep the short
-`_sanitize_for_tui` line at INFO (for live watching).
+**Solution:** inside `run_agent`'s streaming loop, capture the full
+content-block set the SDK actually emits.
 
 - `AssistantMessage` + `ToolUseBlock` →
   - INFO `tool: <name> <detail>` (unchanged)
   - DEBUG `tool_input: <json.dumps(block.input)>`
-- `UserMessage` + tool_result block → new handling
+- `AssistantMessage` + `ThinkingBlock` → **new**
+  - DEBUG `thinking: <block.thinking>` (full text, no sanitize)
+  - Truncate at 32KB with a companion `thinking_truncated` DEBUG
+    line carrying the full length.
+  - `block.signature` is logged at DEBUG but not shown in the
+    story renderer (it's an opaque SDK-internal verification
+    token; no narrative value).
+  - Thinking is *not* emitted to the TUI via the existing
+    `JigEvent` path — live viewers get the short text/tool lines,
+    not raw reasoning. The story renderer shows thinking because
+    post-mortem it's the most useful signal for "why did the
+    agent do X".
+- `UserMessage` + `ToolResultBlock` → **new**
   - DEBUG `tool_result: <id=block.tool_use_id, text=...>`
   - Result text is NOT sanitized for the TUI — it goes to the log
     raw (JSON formatter will escape as needed). Truncate at 32KB;
     log a separate DEBUG `tool_result_truncated` with the full
     length for longer ones.
 - `ResultMessage` — promote to layer C (see below).
+
+**Enabling thinking:** jig doesn't currently set `ThinkingConfig`
+on `ClaudeAgentOptions`. Set `thinking=ThinkingConfigAdaptive()`
+in `run_agent` so the model chooses its own thinking budget per
+turn rather than relying on SDK defaults. If token cost becomes a
+concern, swap to `ThinkingConfigEnabled(budget_tokens=N)` with a
+configurable knob — out of scope for this spec, but the code
+should funnel through a single `_thinking_config()` helper so the
+knob has one place to land.
 
 **Emitter note:** the existing `JigEvent` emit-to-TUI path stays as
 is — it's the live-watch stream, not the post-mortem story.
@@ -251,7 +272,8 @@ but without shelling out to `jig`.
   thread/escalation     → "🚨 ESCALATION target={target}: {reason}"
   thread/system_event   → dispatch by event_type (phase_start, etc.)
   log/INFO              → "{logger}: {msg}"
-  log/DEBUG             → dimmed in terminal rendering
+  log/DEBUG (thinking)  → "💭 {thinking[:300]}…" (indented)
+  log/DEBUG (other)     → dimmed in terminal rendering
   ```
 
   (Emoji/unicode: strictly ASCII fallback when `JIG_NO_UNICODE=1`.)

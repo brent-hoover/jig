@@ -98,6 +98,29 @@ class EscalationSection(BaseModel):
     default_human: str = ""
 
 
+class DeadlockSection(BaseModel):
+    """Age-based deadlock auto-resolution thresholds (Phase 5 Task L).
+
+    Seconds rather than human strings so the sweep can diff
+    ``datetime`` values directly. Defaults match doc 08's
+    orchestrator-as-resolver-of-last-resort expectations:
+
+    * ``nudge_after_s`` — 4 hours. An open blocking thread entry
+      older than this triggers a Note tagging the target actor.
+    * ``escalate_after_s`` — 24 hours. An open blocking entry past
+      this triggers an Escalation to ``any_human`` and flips the
+      ticket to ``needs_info``.
+
+    Set either to ``0`` to disable that tier (useful when operating
+    purely on human cadence). Per-phase overrides are not wired yet —
+    Phase 5 ships project-wide values; doc 08 leaves the per-phase
+    surface as an open extension.
+    """
+
+    nudge_after_s: int = 4 * 3600
+    escalate_after_s: int = 24 * 3600
+
+
 class Config(BaseModel):
     """Top-level config for a jig project, persisted as `.jig/config.yaml`."""
 
@@ -106,6 +129,7 @@ class Config(BaseModel):
     ownership: OwnershipSection = Field(default_factory=OwnershipSection)
     roles: RolesSection = Field(default_factory=RolesSection)
     escalation: EscalationSection = Field(default_factory=EscalationSection)
+    deadlock: DeadlockSection = Field(default_factory=DeadlockSection)
     # Phase 3G self-certification policy per doc 04.
     #   "warn"    — allow but record "self_approval_with_justification"
     #               (shipped default — solo devs need the escape hatch).
@@ -231,6 +255,7 @@ def validate_workflow_references(
 
 __all__ = [
     "Config",
+    "DeadlockSection",
     "EscalationSection",
     "OwnershipSection",
     "RoleAssignment",

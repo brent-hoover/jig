@@ -228,10 +228,18 @@ class Decision(_ThreadEntryBase):
 
 class Note(_ThreadEntryBase):
     """Freeform observation. Auto-resolved. Replaces the legacy
-    ``comment`` kind (Task B migration)."""
+    ``comment`` kind (Task B migration).
+
+    ``responds_to`` links a Note back at another thread entry it's
+    commenting on. Phase 5 Task L uses this for deadlock-nudge
+    idempotency — the orchestrator posts at most one nudge per
+    blocking entry and keys uniqueness off ``responds_to``. Plain
+    human-authored notes leave it ``None``.
+    """
 
     kind: Literal["note"] = "note"
     text: str
+    responds_to: str | None = None
 
 
 class Uncertain(_ThreadEntryBase):
@@ -248,6 +256,12 @@ class Escalation(_ThreadEntryBase):
     """Beyond-my-scope signal. Always blocking until a resolver
     acts (Phase 5 wires the auto-routing layer; Phase 4 just records
     and gates).
+
+    ``responds_to`` links this Escalation to a blocking entry the
+    orchestrator-as-resolver-of-last-resort escalated on behalf of
+    (Phase 5 Task L). Direct agent-posted Escalations leave it
+    ``None`` — the field exists so the deadlock sweep can stay
+    idempotent without walking log lines.
     """
 
     kind: Literal["escalation"] = "escalation"
@@ -255,6 +269,7 @@ class Escalation(_ThreadEntryBase):
     details: str  # prose
     target: str = "human"  # role name or "human"
     resolved_by: str | None = None
+    responds_to: str | None = None
 
     def is_blocking(self) -> bool:
         return not self.is_resolved()

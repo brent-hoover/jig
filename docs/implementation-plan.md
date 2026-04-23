@@ -1595,20 +1595,23 @@ Phase 4.
 
 Doc 08's orchestrator-as-resolver-of-last-resort.
 
-- [ ] Orchestrator tracks per-blocking-entry age: open
+- [x] Orchestrator tracks per-blocking-entry age: open
       blocking thread entry older than T1 triggers a nudge
       (posts a Note tagging the target actor). Open past
       T2 triggers an Escalation (posts to any_human, flips
       ticket to `needs_info`).
-- [ ] Thresholds: project-wide defaults in `config.yaml`
+- [x] Thresholds: project-wide defaults in `config.yaml`
       (`deadlock.nudge_after_s`, `deadlock.escalate_after_s`).
       Starting values T1 = 4h, T2 = 24h. Per-phase overrides
-      optional.
-- [ ] The nudge + escalation actions are idempotent —
+      optional (not yet wired — doc 08 extension).
+- [x] The nudge + escalation actions are idempotent —
       re-firing the check doesn't spam duplicates.
-- [ ] Tests: freezegun an open blocking question past T1,
-      verify a Note lands; past T2, verify an Escalation +
-      status transition.
+- [x] Tests: open blocking question past T1 (clock dialed
+      via injected `now`), verify a Note lands; past T2,
+      verify an Escalation + status transition. (freezegun
+      not installed; used an explicit `now` kwarg on
+      `sweep_blocking_entries` instead — simpler and
+      dep-free.)
 
 **M. Carry-over — section-lock enforcement**
 

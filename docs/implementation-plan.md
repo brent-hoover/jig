@@ -1635,16 +1635,28 @@ and now enforced.
 `OwnerRouting.helper_template` (Phase 3). Phase 5 wires the
 spawn.
 
-- [ ] Proposal-routing hook: when an owner resolves to
+- [x] Proposal-routing hook: when an owner resolves to
       `human_with_helper` and the proposal targets that
       owner, spawn the declared `helper_template` first with
       the proposal + context, capture its draft response as a
       Note on the thread, surface it to the human in the
       evaluator prompt.
-- [ ] Helper agent is a short-lived check-agent-style spawn
+      *Hook lives in `proposal_mcp.handle_propose_change`;
+      the spawn module is `jig/helper_spawn.py`. Distinct
+      "helper draft" labeling in the evaluator prompt rides
+      with the deferred Task C prompt-composition work — the
+      Note itself is already visible via thread iteration.*
+- [x] Helper agent is a short-lived check-agent-style spawn
       (same machinery as Task B), not a persistent role.
-- [ ] The human's acceptance is what resolves the proposal;
+      *Mirrors `AgentCheckRunner`: `submit_helper_draft` as
+      the single scoped MCP tool, `asyncio.wait_for` with a
+      `HELPER_DEFAULT_TIMEOUT_S=120` budget, best-effort
+      (skip + log on timeout / crash / no-submit).*
+- [x] The human's acceptance is what resolves the proposal;
       the helper's draft is context only.
+      *The helper posts a `Note`, not a `Proposal` resolver
+      — `handle_resolve_proposal` is the only path that flips
+      proposal state.*
 
 **O. Orchestrator wiring**
 

@@ -7,12 +7,16 @@ reject / refine state transitions, and list_proposals filtering.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
 
+from jig import helper_spawn as helper_spawn_mod
 from jig.config import Config, RoleAssignment, RolesSection, save_config
+from jig.helper_spawn import build_helper_draft_tool
 from jig.persistence import init_project
 from jig.project import Project
 from jig.proposal_mcp import (
@@ -24,7 +28,7 @@ from jig.proposal_mcp import (
 from jig.specs import TicketSpec, load_ticket_spec, save_ticket_spec
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Handoff
+from jig.thread import Handoff, Note
 from jig.ticket import Size, Ticket, WorkType
 
 
@@ -733,6 +737,128 @@ class TestSectionLocks:
             project_path=project,
         )
         assert result["state"] == "accepted"
+
+
+class TestHumanWithHelperSpawn:
+    """Phase 5 Task N — ``handle_propose_change`` spawns the declared
+    ``helper_template`` when the resolved routing is
+    ``human_with_helper``. The helper's draft lands as a Note linked
+    to the proposal; the proposal itself stays pending for the human."""
+
+    @staticmethod
+    def _cfg_with_hwh_po(tmp_path: Path) -> Config:
+        return Config(
+            project=Project(id="p", name="p", path=str(tmp_path)),
+            roles=RolesSection(
+                po=RoleAssignment(
+                    assignment="human_with_helper",
+                    human="pam",
+                    helper_template="pm",
+                ),
+                sa=RoleAssignment(assignment="human", human="sam"),
+            ),
+            self_approval="warn",
+        )
+
+    @staticmethod
+    @contextmanager
+    def _patched_sdk(drafts):
+        """Patch ``helper_spawn``'s SDK handles so the proposal-MCP test
+        never boots a real agent. Mirrors ``test_helper_spawn._fake_sdk``
+        but scoped tightly to what this integration test needs."""
+        captured_ref: dict[str, object] = {"slot": None}
+        orig_factory = helper_spawn_mod.create_helper_mcp_server
+
+        def _factory(captured):
+            captured_ref["slot"] = captured
+            return orig_factory(captured)
+
+        async def _query(prompt, options, **kwargs):
+            slot = captured_ref["slot"]
+            assert slot is not None, "create_helper_mcp_server not called"
+            handler = build_helper_draft_tool(slot).handler  # type: ignore[arg-type]
+            for text in drafts:
+                await handler({"text": text})
+
+            class _Msg:
+                pass
+
+            yield _Msg()
+
+        with (
+            patch.object(helper_spawn_mod, "create_helper_mcp_server", _factory),
+            patch.object(helper_spawn_mod, "query", _query),
+        ):
+            yield
+
+    async def test_proposal_spawns_helper_posts_note(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, self._cfg_with_hwh_po(project))
+
+        with self._patched_sdk(
+            drafts=["suggest tightening the summary to one sentence"]
+        ):
+            propose = await handle_propose_change(
+                tickets=tickets,
+                threads=threads,
+                sender="alice",
+                args={
+                    "ticket_id": "t-1",
+                    "target": "ticket://spec.summary",
+                    "change": "new summary",
+                },
+                project_path=project,
+            )
+
+        assert propose["state"] == "pending"
+        assert propose["routing"]["assignment"] == "human_with_helper"
+        assert propose["routing"]["helper_template"] == "pm"
+        assert propose["helper_note_id"] is not None
+
+        note = await threads.get(propose["helper_note_id"])
+        assert isinstance(note, Note)
+        assert note.text == "suggest tightening the summary to one sentence"
+        assert note.responds_to == propose["comment_id"]
+        assert note.author == "pm"
+
+    async def test_plain_human_routing_skips_spawn(
+        self,
+        project: Path,
+        tickets: TicketStore,
+        threads: ThreadStore,
+    ) -> None:
+        """Config with plain ``human`` routing must not invoke the
+        helper path at all — no Note, no SDK call."""
+        await _make_ticket(tickets)
+        await _make_spec(project)
+        save_config(project, _cfg_with_roles(project))
+
+        # If the hook misfires, the stubbed SDK would explode — the
+        # ``raise``-on-entry query below proves nothing tried to call it.
+        async def _exploding_query(prompt, options, **kwargs):
+            raise AssertionError("helper spawn invoked on plain human routing")
+            yield  # pragma: no cover — keep the generator shape happy
+
+        with patch.object(helper_spawn_mod, "query", _exploding_query):
+            propose = await handle_propose_change(
+                tickets=tickets,
+                threads=threads,
+                sender="alice",
+                args={
+                    "ticket_id": "t-1",
+                    "target": "ticket://spec.summary",
+                    "change": "new summary",
+                },
+                project_path=project,
+            )
+
+        assert propose["helper_note_id"] is None
 
 
 class TestListProposals:

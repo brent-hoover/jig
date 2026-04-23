@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from jig.config import load_config
+from jig.helper_spawn import spawn_helper_for_proposal
 from jig.ownership import OwnerRouting, resolve_owner
 from jig.section_locks import locked_sections_for_ticket
 from jig.specs import (
@@ -89,10 +90,27 @@ async def handle_propose_change(
         owners=[routing.role],
     )
     pid = await threads.post(proposal)
+
+    # Task N: spawn the configured helper when the owner's assignment
+    # style calls for one. Best-effort — skip conditions and failure
+    # modes all return ``None`` without side effects, and the proposal
+    # is already durable on the thread regardless.
+    helper_note_id: str | None = None
+    if routing.assignment == "human_with_helper" and routing.helper_template:
+        stored = await threads.get(pid)
+        if isinstance(stored, Proposal):
+            helper_note_id = await spawn_helper_for_proposal(
+                project_path=project_path,
+                threads=threads,
+                proposal=stored,
+                routing=routing,
+            )
+
     return {
         "comment_id": pid,
         "routing": _routing_to_dict(routing),
         "state": "pending",
+        "helper_note_id": helper_note_id,
     }
 
 

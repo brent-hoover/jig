@@ -103,12 +103,31 @@ _Landed._
   `jig/section_locks.py`; `jig validate --ticket-id` surfaces
   the active lock map as part of pre-flight.
 
-### Task N — helper-agent spawning
-_Tracked as a carry-over task in the plan, not yet started._
+### ~~Task N — helper-agent spawning~~
+_Landed._
 
-* `human_with_helper` owner resolution returns the
+* ~~`human_with_helper` owner resolution returns the
   `helper_template` name (Phase 3), but the pre-human spawn
-  isn't wired. Full plan: `docs/implementation-plan.md` §Task N.
+  isn't wired.~~ Spawn wired in
+  `proposal_mcp.handle_propose_change` via
+  `jig/helper_spawn.py`: short-lived check-agent-style spawn
+  with `submit_helper_draft` as the single scoped MCP tool,
+  best-effort on timeout / crash / no-draft, draft posted as
+  a `Note` with `responds_to=<proposal.id>` and
+  `author=<helper_role_name>` so readers can tell it's a
+  helper draft. Explicit "helper-draft" labeling in the
+  evaluator prompt still waits on Task C (see new entry
+  below).
+
+### Helper-draft labeling in evaluator prompt
+_Commit: this one._
+
+* The helper's `Note` is visible to evaluators via thread
+  iteration, but isn't singled out as a "helper draft" vs a
+  plain human Note in the prompt-composition layer. Lands
+  alongside the Task C evaluator-prompt work (same prompt-
+  builder hook — it can inspect `note.responds_to` and the
+  authoring role to tag the draft).
 
 ### Task P — Phase 5 E2E integration tests
 _Tracked as a test task in the plan, bullets all `[ ]`._
@@ -123,8 +142,10 @@ _Tracked as a test task in the plan, bullets all `[ ]`._
 
 ## Phase 5 — landed
 
+* ~~**Helper-agent spawning** (Phase 3 parsed-routing carry-over).~~
+  Landed as Task N (this commit).
 * ~~**Section-lock enforcement** (Phase 3F parsed-not-enforced).~~
-  Landed as Task M (this commit).
+  Landed as Task M.
 * ~~**Deferred-item → ticket promotion** (Phase 4 carry-over).~~
   Landed as Task J in c515c82.
 * ~~**Thread-target enforcement** (Phase 4 parsed-not-enforced).~~

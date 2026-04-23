@@ -1640,11 +1640,16 @@ spawn.
 
 **O. Orchestrator wiring**
 
-- [ ] Handoff path through the orchestrator:
+- [x] Handoff path through the orchestrator:
       `thread_handoff` → run required checks (Task A+B) →
       gate on results (Task D) → on pass, resolve evaluator
       (Task C) and spawn → evaluator accepts/rejects per
       Phase 4.
+      *Complete via O1a–O2b. Evaluator-prompt composition
+      (check results + waivers in the spawn message) is
+      still open — tracked under Task C's final bullet and
+      Task E's "evaluator view" bullet; implementation will
+      extend `_spawn_evaluator`'s `initial_bus_message`.*
       - [x] **O1a** — `run_handoff_gate` primitive in
             `jig/handoff_gate.py` glues ScriptedRunner +
             AgentCheckRunner + `evaluate_handoff_gate`
@@ -1696,12 +1701,16 @@ spawn.
             existing `has_unresolved_blocking` wait does
             the actual blocking on the handoff, so the
             spawn stays fire-and-forget.
-- [ ] Per-spawn: capability compilation (Task F) materializes
+- [x] Per-spawn: capability compilation (Task F) materializes
       `rules.json` + `.claude/settings.json` before the
       agent starts.
+      *Complete — `agent.py:_materialize_capability_policy`
+      runs pre-spawn (agent.py:329), produces the two
+      enforcement artefacts per Task F, and the hook scripts
+      from Task G read `rules.json` at tool-eval time.*
 - [ ] Deadlock sweep: the orchestrator's existing tick loop
       grows a deadlock-check pass (Task L). No new scheduler.
-- [ ] CheckResult bus events: the runner publishes
+- [x] CheckResult bus events: the runner publishes
       `check_completed` messages so the TUI can show
       progress.
       - [x] **O3** — `check_completed` bus events emitted by

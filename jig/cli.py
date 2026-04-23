@@ -502,7 +502,7 @@ def validate(path: Path, ticket_id: str | None) -> None:
 
     # Catalog dry-run. Collect every error so the operator sees the
     # whole picture in one pass.
-    from jig.catalog import validate_catalog
+    from jig.catalog import collect_policy_warnings, validate_catalog
 
     errors = validate_catalog(path, collect=True) or []
     if errors:
@@ -511,7 +511,17 @@ def validate(path: Path, ticket_id: str | None) -> None:
         raise click.ClickException(
             f"Catalog validation failed ({len(errors)} error(s))."
         )
-    click.echo("Catalog OK.")
+    # Task F — shadow-pattern advisories. Non-fatal: a permit fully
+    # subsumed by a deny compiles to a deterministic ruleset, just one
+    # where the permit never fires. Surface as [WARN] so the operator
+    # can decide whether to fix or suppress.
+    warnings = collect_policy_warnings(path)
+    for msg in warnings:
+        click.echo(f"  [WARN] {msg}", err=True)
+    if warnings:
+        click.echo(f"Catalog OK with {len(warnings)} advisory warning(s).")
+    else:
+        click.echo("Catalog OK.")
 
 
 @cli.command()

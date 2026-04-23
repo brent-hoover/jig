@@ -37,6 +37,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from jig.bin._hooklib import _split_segments, resolve_uri_glob
 from jig.capabilities import (
     WAIVE_TOKENS,
     CapabilityDeclaration,
@@ -497,9 +498,164 @@ def _validate_path_glob(pattern: str) -> str | None:
     )
 
 
+# ---------------------------------------------------------------------
+# Phase 5 Task F — shadow-pattern detection (advisory).
+#
+# Errors block catalog load; warnings do not. We check each capability
+# declaration for ``writable``/``readable`` patterns that are fully
+# subsumed by a ``denied`` pattern — the permit looks effective in YAML
+# but never fires at the hook boundary because deny always wins. Not a
+# correctness bug (the compiled ruleset is still deterministic), but a
+# silent footgun worth surfacing alongside ``jig validate``.
+#
+# Subsumption is conservative: we only flag the common shapes
+# (``**``-trailing deny globs, literal-under-prefix, `*`-segment within
+# same shape). Complex mid-wildcard patterns that technically subsume
+# are left unflagged — preferring under-warning to false positives.
+# ---------------------------------------------------------------------
+
+
+def _segment_subsumes(p1_seg: str, p2_seg: str) -> bool:
+    """Does every single-segment string matching ``p2_seg`` also
+    match ``p1_seg``? Conservative: literal equality or ``*``-wildcard
+    in ``p1_seg``. Other pattern-vs-pattern shapes return False."""
+
+    if p1_seg == p2_seg:
+        return True
+    if p1_seg == "*":
+        # ``*`` matches any single-segment string; any pattern that
+        # produces single-segment strings is subsumed by ``*``.
+        return True
+    return False
+
+
+def _segs_subsume(p1: list[str], i: int, p2: list[str], j: int) -> bool:
+    """Recursive worker: does p1[i:] subsume p2[j:]?
+
+    Returns True iff every path whose segments match ``p2[j:]`` also
+    match ``p1[i:]``. A ``**`` in ``p2`` immediately fails subsumption
+    unless the matching ``p1`` position is also ``**`` — otherwise
+    p2's unbounded expansion can outgrow p1's specific segment count.
+    """
+
+    while i < len(p1):
+        if p1[i] == "**":
+            # Trailing ``**`` absorbs anything — subsumes the rest of p2.
+            if i + 1 == len(p1):
+                return True
+            # Try consuming 0..K of p2's remaining segments and
+            # recursing on the tail. If p2's next segment is ``**`` we
+            # must let p1's ``**`` absorb *at least* that position —
+            # the recursion handles it naturally because p2[j]==``**``
+            # forces the early-return path below to False, which
+            # cuts the branch.
+            for k in range(j, len(p2) + 1):
+                if _segs_subsume(p1, i + 1, p2, k):
+                    return True
+            return False
+        if j >= len(p2):
+            # p1 still expects a segment; p2 can't provide one.
+            return False
+        if p2[j] == "**":
+            # p2 expands to an unbounded number of segments; p1's
+            # specific segment can't match every expansion length.
+            return False
+        if not _segment_subsumes(p1[i], p2[j]):
+            return False
+        i += 1
+        j += 1
+    # p1 exhausted. p2 must also be exhausted — any residual segments
+    # mean p2 generates longer paths that p1 doesn't accept.
+    return j == len(p2)
+
+
+def _pattern_subsumes(denied: str, permit: str) -> bool:
+    """True if every path matching ``permit`` also matches ``denied``.
+
+    Both patterns are resolved through ``resolve_uri_glob`` so we
+    compare on the sandbox-absolute form. Patterns whose scheme can't
+    be resolved (unmapped URIs) never subsume anything — the hook
+    can't enforce them either.
+    """
+
+    d_abs = resolve_uri_glob(denied)
+    p_abs = resolve_uri_glob(permit)
+    if d_abs is None or p_abs is None:
+        return False
+    return _segs_subsume(_split_segments(d_abs), 0, _split_segments(p_abs), 0)
+
+
+def _shadow_warnings(decl: CapabilityDeclaration | None) -> list[str]:
+    """Advisory: permit patterns fully subsumed by deny patterns.
+
+    Returns one warning per shadowed permit. Both ``writable`` and
+    ``readable`` are scanned against ``denied``; bidirectional
+    subsumption (e.g., a denied pattern subsumed by a permit) is not
+    flagged — the deny still fires correctly, so there's no footgun.
+    """
+
+    if decl is None or decl.paths is None:
+        return []
+
+    warnings: list[str] = []
+    denied = decl.paths.denied
+    if not denied:
+        return warnings
+
+    for category in ("writable", "readable"):
+        permits = getattr(decl.paths, category)
+        for permit in permits:
+            for denied_pat in denied:
+                if _pattern_subsumes(denied_pat, permit):
+                    warnings.append(
+                        f"paths.{category} {permit!r} is shadowed by "
+                        f"paths.denied {denied_pat!r} — the permit "
+                        f"never fires at the hook boundary"
+                    )
+                    break  # one warning per permit is enough
+    return warnings
+
+
+def collect_policy_warnings(project_path: Path) -> list[str]:
+    """Return advisory warnings about capability-policy shape.
+
+    Currently emits one message per ``writable``/``readable`` pattern
+    fully shadowed by a ``denied`` pattern in the same declaration.
+    Walks role-level ``capabilities`` and each phase's
+    ``capability_overrides``. Warnings are context-prefixed so the
+    operator knows which role/phase to edit.
+
+    Advisory only — never raises. Unknown roles / malformed YAML are
+    caught by :func:`validate_catalog` and not re-reported here.
+    """
+
+    out: list[str] = []
+    try:
+        roles, _ = _load_all_roles(project_path)
+    except Exception:
+        return out
+    for role in roles:
+        for msg in _shadow_warnings(role.capabilities):
+            out.append(f"role {role.role!r} capabilities: {msg}")
+
+    try:
+        workflows, _ = _load_all_workflows(project_path)
+    except Exception:
+        return out
+    for wf in workflows:
+        for phase in wf.phases:
+            for msg in _shadow_warnings(phase.capability_overrides):
+                out.append(
+                    f"workflow {wf.name!r} phase {phase.name!r} "
+                    f"capability_overrides: {msg}"
+                )
+    return out
+
+
 # Exposed so tests can exercise the loader helpers directly.
 __all__ = [
     "CatalogError",
+    "collect_policy_warnings",
     "validate_catalog",
 ]
 

@@ -51,16 +51,16 @@ _Landed._
   "Active waivers" block — walks the ticket's waivers and
   surfaces both variants (check-failure and objection).
 
-### Task F — shadow-pattern detection in `jig validate`
-_Commit: 9ec1c77._
+### ~~Task F — shadow-pattern detection in `jig validate`~~
+_Landed._
 
-* `jig validate` doesn't warn when a `writable` path is fully
-  subsumed by a `denied` glob (or vice versa). Not a correctness
-  bug — the compiler still emits a deterministic ruleset — but
-  it leaves a silent footgun where a permit looks effective in
-  YAML but never fires at the hook boundary. Landing this needs
-  a glob-subsumption check similar to the segment matcher in
-  `_hooklib.py`.
+* ~~`jig validate` doesn't warn when a `writable` path is fully
+  subsumed by a `denied` glob (or vice versa).~~ Landed as
+  `catalog.collect_policy_warnings`: conservative segment-wise
+  subsumption (`_segs_subsume` + `_segment_subsumes`) over
+  `resolve_uri_glob`-normalised forms, surfaced as `[WARN]` in
+  `jig validate`. Advisory only; catalog still compiles to a
+  deterministic ruleset.
 
 ### ~~Task J — promoted deferred-items in evaluator prompt~~
 _Landed._
@@ -146,8 +146,10 @@ _Tracked as a test task in the plan, bullets all `[ ]`._
 
 ## Phase 5 — landed
 
+* ~~**Shadow-pattern detection** (Task F).~~ Landed this commit —
+  `catalog.collect_policy_warnings`.
 * ~~**Evaluator spawn prompt composition** (Tasks C/E/J₃ +
-  helper-draft labeling).~~ Landed this commit —
+  helper-draft labeling).~~ Landed in the prior commit —
   `prompt_builder._evaluator_section` + orchestrator bundle
   assembly.
 * ~~**Helper-agent spawning** (Phase 3 parsed-routing carry-over).~~

@@ -26,26 +26,30 @@ task.
 
 ## Phase 5 — still open
 
-### Task C / Task O — evaluator spawn prompt composition
-_Commits: 52a56bc, f55f455 (O2b)._
+### ~~Task C / Task O — evaluator spawn prompt composition~~
+_Landed._
 
-* The evaluator agent is spawned via `_spawn_evaluator` with an
+* ~~The evaluator agent is spawned via `_spawn_evaluator` with an
   `initial_bus_message` naming the handoff id, but the _prompt
   composition_ (handoff entry + check results + check-failure
   audit + active waivers, structured not free-text) isn't yet
-  wired. Resolver + spawn plumbing are done; composition goes
-  into `agent.py`'s prompt builder next to the context-bundle
-  wiring. Tracked by Task C bullet 4 and Task E "evaluator view"
-  bullet, both still `[ ]` in the plan.
+  wired.~~ Composition landed in `prompt_builder._evaluator_section`:
+  orchestrator pre-assembles `latest_batch` into
+  `initial_bus_message.check_results`, prompt builder renders
+  Handoff record, structured Check results (fenced excerpts on
+  non-pass), Check-failure audit (with WAIVED flag), Active
+  waivers (both variants), and Helper-agent drafts. EVALUATOR
+  branch in `_instructions_section` pins the handoff id
+  literally and references `thread_accept_handoff` /
+  `thread_reject_handoff`.
 
-### Task E — evaluator view of active waivers
-_Commit: 3f212d0._
+### ~~Task E — evaluator view of active waivers~~
+_Landed._
 
-* Evaluator prompt doesn't yet surface active waivers alongside
-  check results. Data is already readable via thread iteration
-  (`kind=waiver` + `check_failure_id` non-null), so scripted
-  evaluators can find it — but the convenience surfacing waits
-  on the same prompt-composition work as Task C above.
+* ~~Evaluator prompt doesn't yet surface active waivers
+  alongside check results.~~ Rendered by `_evaluator_section`'s
+  "Active waivers" block — walks the ticket's waivers and
+  surfaces both variants (check-failure and objection).
 
 ### Task F — shadow-pattern detection in `jig validate`
 _Commit: 9ec1c77._
@@ -58,14 +62,14 @@ _Commit: 9ec1c77._
   a glob-subsumption check similar to the segment matcher in
   `_hooklib.py`.
 
-### Task J — promoted deferred-items in evaluator prompt
-_Commit: c515c82._
+### ~~Task J — promoted deferred-items in evaluator prompt~~
+_Landed._
 
-* When a checkpoint deferred-item is promoted to a child ticket,
-  the spawning agent's prompt doesn't yet announce the promoted
-  ticket id. Blocked on Task C's evaluator-prompt composition
-  (same prompt-builder work as Task E). Tracked as bullet 3
-  under Task J in the plan.
+* ~~When a checkpoint deferred-item is promoted to a child
+  ticket, the spawning agent's prompt doesn't yet announce the
+  promoted ticket id.~~ Landed with Task C: `_evaluator_section`
+  walks the handoff's `deferred_items` and renders each item's
+  `status` plus the child `promoted_ticket_id` when present.
 
 ### Task K — doc cross-refs for human-target escape hatch
 _Commit: f069bb6._
@@ -119,15 +123,15 @@ _Landed._
   evaluator prompt still waits on Task C (see new entry
   below).
 
-### Helper-draft labeling in evaluator prompt
-_Commit: this one._
+### ~~Helper-draft labeling in evaluator prompt~~
+_Landed._
 
-* The helper's `Note` is visible to evaluators via thread
+* ~~The helper's `Note` is visible to evaluators via thread
   iteration, but isn't singled out as a "helper draft" vs a
-  plain human Note in the prompt-composition layer. Lands
-  alongside the Task C evaluator-prompt work (same prompt-
-  builder hook — it can inspect `note.responds_to` and the
-  authoring role to tag the draft).
+  plain human Note in the prompt-composition layer.~~ Landed
+  with Task C: `_evaluator_section` computes the set of
+  proposal ids and labels any `Note` whose `responds_to` is in
+  that set under a dedicated "Helper-agent drafts" heading.
 
 ### Task P — Phase 5 E2E integration tests
 _Tracked as a test task in the plan, bullets all `[ ]`._
@@ -142,6 +146,10 @@ _Tracked as a test task in the plan, bullets all `[ ]`._
 
 ## Phase 5 — landed
 
+* ~~**Evaluator spawn prompt composition** (Tasks C/E/J₃ +
+  helper-draft labeling).~~ Landed this commit —
+  `prompt_builder._evaluator_section` + orchestrator bundle
+  assembly.
 * ~~**Helper-agent spawning** (Phase 3 parsed-routing carry-over).~~
   Landed as Task N (this commit).
 * ~~**Section-lock enforcement** (Phase 3F parsed-not-enforced).~~

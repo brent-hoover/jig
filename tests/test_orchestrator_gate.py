@@ -10,11 +10,14 @@ branch once the handoff is flipped to ``rejected``.
 from __future__ import annotations
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 import yaml
 
+from jig.check_results import CheckResult
+from jig.checks import CheckSeverity
 from jig.models import (
     AutomatedOnlyEvaluator,
     MultiEvaluator,
@@ -610,6 +613,111 @@ class TestEvaluatorSpawn:
             h = await orch.threads.get(hid)
             assert isinstance(h, Handoff)
             assert h.acceptance_state == "pending"
+        finally:
+            await orch.shutdown()
+
+    @staticmethod
+    def _patch_spawn_capture(
+        monkeypatch, orch: Orchestrator, tmp_path: Path
+    ) -> list[dict]:
+        """Variant of ``_patch_spawn`` that records the full
+        ``initial_bus_message`` per run_agent call.
+
+        Used by tests that assert the orchestrator assembles the
+        evaluator bundle (handoff id + check_results payload) before
+        handing control to ``run_agent``.
+        """
+        import jig.orchestrator as orch_module
+        from jig.agent import RunAgentResult
+
+        bundles: list[dict] = []
+
+        async def fake_run_agent(ctx, emitter=None):
+            bundles.append(ctx.initial_bus_message)
+            return RunAgentResult(status="success", final_text="ok")
+
+        monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+        async def fake_ensure(ticket):
+            return tmp_path / "worktree"
+
+        orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+        return bundles
+
+    @pytest.mark.asyncio
+    async def test_evaluator_spawn_bundles_check_results(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Task C/E/J — on evaluator spawn, the orchestrator pins the
+        handoff id and serializes the phase's latest-batch check
+        results into ``initial_bus_message``. The prompt builder reads
+        this bundle to render the evaluator view.
+
+        The gate itself posts a ``CheckResult`` for the phase's
+        ``automated_checks`` (here: ``unit``). We additionally seed a
+        prior-phase result under a different ``check_name`` so the
+        bundle shows ``latest_batch`` returning both entries — the
+        serialization is not filtered to catalog-declared checks.
+        """
+        project_path = _project(tmp_path)
+        _write_check_catalog(project_path, "true")
+        save_role(project_path, RoleConfig(role="reviewer", phase_prompt="review"))
+        orch = Orchestrator(project_path=project_path)
+        await orch.startup()
+        try:
+            bundles = self._patch_spawn_capture(monkeypatch, orch, tmp_path)
+            tid, hid = await _seed_pending_handoff(orch)
+            assert orch.check_results is not None
+            base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            # Seed a lint result for the same phase with a different
+            # check_name — latest_batch should surface it alongside
+            # the unit result the gate is about to write.
+            await orch.check_results.post(
+                CheckResult(
+                    ticket_id=tid,
+                    phase="implement",
+                    check_name="lint",
+                    check_type="scripted",
+                    verdict="pass",
+                    severity=CheckSeverity.WARNING,
+                    started_at=base,
+                    finished_at=base,
+                    output="clean",
+                )
+            )
+            phase = _phase(
+                checks=["unit"],
+                evaluator=SpecificRoleEvaluator(type="specific_role", role="reviewer"),
+            )
+            await orch._run_handoff_gate_if_pending(
+                tid,
+                phase,
+                _workflow([phase]),
+                tmp_path,
+            )
+            import asyncio as _asyncio
+
+            for _ in range(10):
+                await _asyncio.sleep(0.01)
+                if bundles:
+                    break
+
+            assert len(bundles) == 1
+            bundle = bundles[0]
+            assert bundle is not None
+            assert bundle["kind"] == "thread_handoff_evaluator_spawn"
+            assert bundle["ticket_id"] == tid
+            assert bundle["handoff_id"] == hid
+            by_name = {r["check_name"]: r for r in bundle["check_results"]}
+            assert set(by_name) == {"lint", "unit"}
+            assert by_name["lint"] == {
+                "check_name": "lint",
+                "verdict": "pass",
+                "severity": CheckSeverity.WARNING,
+                "output": "clean",
+            }
+            assert by_name["unit"]["verdict"] == "pass"
+            assert by_name["unit"]["severity"] == CheckSeverity.REQUIRED
         finally:
             await orch.shutdown()
 

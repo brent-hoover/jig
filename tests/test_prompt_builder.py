@@ -2,7 +2,15 @@ from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.prompt_builder import SpawnReason, build_initial_prompt
 from jig.skill_loader import Skill
-from jig.thread import Note
+from jig.thread import (
+    DeferredItem,
+    Handoff,
+    Note,
+    Objection,
+    Proposal,
+    SystemEvent,
+    Waiver,
+)
 from jig.ticket import Ticket, TicketStatus, WorkType
 
 
@@ -198,3 +206,351 @@ def test_phase_section_absent_when_phase_none() -> None:
     )
     assert "## Phase:" not in prompt
     assert "### Acceptance criteria" not in prompt
+
+
+# ---- Evaluator prompt composition (Phase 5 Task C/E/J/helper-label) -------
+#
+# An evaluator agent is spawned on gate-pass to accept or reject a pending
+# Handoff. Its prompt must surface:
+#
+# 1. A distinct role framing — "you are an evaluator" vs the normal work
+#    prompt (so a role that pulls double duty as actor + evaluator knows
+#    which hat it's wearing).
+# 2. The target handoff (phase / summary / outputs / deferred items).
+# 3. Structured check results from the CheckResultsStore (latest_batch
+#    for the phase) — required gating inputs, not free text.
+# 4. Check-failure audit events from the thread — including waived ones —
+#    so the evaluator can see historical attempts and which waivers are
+#    currently masking failures.
+# 5. Active waivers on both check-failures and objections — named with
+#    the waiving author and justification.
+# 6. Promoted deferred-items on the handoff — already-promoted items show
+#    their child ticket id so the evaluator doesn't re-promote them.
+# 7. Helper-agent drafts (Notes that `responds_to` a Proposal) — labeled
+#    distinctly so they read as context, not human decisions.
+# 8. Instructions pointing at `thread_accept_handoff` / `thread_reject_handoff`
+#    with the pinned handoff id.
+
+
+def _handoff_entry(
+    *,
+    ticket_id: str = "T1",
+    phase: str = "implement",
+    author: str = "dev",
+    summary: str = "",
+    outputs: list[str] | None = None,
+    deferred_items: list[DeferredItem] | None = None,
+) -> Handoff:
+    return Handoff(
+        ticket_id=ticket_id,
+        author=author,
+        phase=phase,
+        summary=summary,
+        outputs=list(outputs or []),
+        deferred_items=list(deferred_items or []),
+    )
+
+
+def _eval_ticket() -> Ticket:
+    # Match the id expected by the handoff entry helper above.
+    return Ticket(
+        id="T1",
+        work_type=WorkType.FEATURE,
+        title="add the thing",
+        created_by="orchestrator",
+        description="ticket body",
+        status=TicketStatus.OPEN,
+    )
+
+
+def test_evaluator_role_framing_distinct_from_phase_primary() -> None:
+    """Evaluator prompt frames the agent as an evaluator, not the phase actor.
+
+    Without this, a dev-role agent spawned to evaluate another dev's
+    handoff would read its own phase_prompt and think it's doing the
+    work. The framing has to make clear which hat is being worn.
+    """
+    handoff = _handoff_entry()
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle={"handoff_id": handoff.id},
+    )
+    assert "evaluating a handoff" in prompt.lower()
+    # The role's own phase_prompt is still present (context) but behind
+    # the evaluator framing.
+    assert "You are dev." in prompt
+    # Instructions point at the accept/reject tools with the pinned id.
+    assert "thread_accept_handoff" in prompt
+    assert "thread_reject_handoff" in prompt
+    assert handoff.id in prompt
+
+
+def test_evaluator_prompt_surfaces_handoff_record() -> None:
+    handoff = _handoff_entry(
+        summary="implemented the widget; tests green",
+        outputs=["src/widget.py", "tests/test_widget.py"],
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle={"handoff_id": handoff.id},
+    )
+    assert "implement" in prompt  # phase name
+    assert "implemented the widget" in prompt
+    assert "src/widget.py" in prompt
+    assert "tests/test_widget.py" in prompt
+
+
+def test_evaluator_prompt_surfaces_check_results_structured() -> None:
+    """Check results are passed as structured data, not free text.
+
+    The bundle carries serialized CheckResult records; the prompt lists
+    them by name + verdict + severity. Failing checks get their output
+    excerpt shown so the evaluator can see what broke without a second
+    tool call to read_comments.
+    """
+    handoff = _handoff_entry()
+    bundle = {
+        "handoff_id": handoff.id,
+        "check_results": [
+            {
+                "check_name": "unit-tests",
+                "verdict": "pass",
+                "severity": "required",
+                "output": "",
+            },
+            {
+                "check_name": "ruff",
+                "verdict": "fail",
+                "severity": "required",
+                "output": "E501 line too long\nF401 unused import",
+            },
+        ],
+    }
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle=bundle,
+    )
+    assert "unit-tests" in prompt
+    assert "ruff" in prompt
+    # Failing check's excerpt is quoted.
+    assert "E501" in prompt
+    # Passing check does NOT dump output (quiet success).
+    assert prompt.count("```") >= 2  # the fail excerpt is fenced
+
+
+def test_evaluator_prompt_surfaces_check_failure_audit_with_waivers() -> None:
+    """Historical check_failure events appear alongside current results.
+
+    Waived failures are flagged so the evaluator can see which required
+    checks are currently masked by an authorized waiver and who authored
+    the waiver.
+    """
+    handoff = _handoff_entry()
+    failure = SystemEvent(
+        ticket_id="T1",
+        author="harness",
+        event_type="check_failure",
+        check_name="integration-tests",
+        check_severity="required",
+        check_verdict="fail",
+        excerpt="timeout after 30s",
+        waived=True,
+    )
+    waiver = Waiver(
+        ticket_id="T1",
+        author="sa",
+        check_failure_id=failure.id,
+        justification="flaky in CI; tracked as TKT-99",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff, failure, waiver],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle={"handoff_id": handoff.id},
+    )
+    assert "integration-tests" in prompt
+    assert "timeout after 30s" in prompt
+    assert "WAIVED" in prompt
+    # Active waiver section names the author + justification.
+    assert "sa" in prompt
+    assert "flaky in CI" in prompt
+
+
+def test_evaluator_prompt_surfaces_objection_waivers() -> None:
+    handoff = _handoff_entry()
+    objection = Objection(
+        ticket_id="T1",
+        author="reviewer",
+        target_artifact="src/foo.py",
+        text="race condition on startup",
+    )
+    waiver = Waiver(
+        ticket_id="T1",
+        author="sa",
+        objection_id=objection.id,
+        justification="accepted risk; tracked downstream",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff, objection, waiver],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle={"handoff_id": handoff.id},
+    )
+    assert "accepted risk" in prompt
+    assert "race condition" in prompt  # the objection text or a snippet
+
+
+def test_evaluator_prompt_surfaces_promoted_deferred_items() -> None:
+    """Deferred items already promoted to child tickets list the child id.
+
+    Without this, the evaluator might try to re-promote a deferred item
+    that's already become its own ticket — Task J's idempotency catches
+    that at the tool boundary, but the UX goal is for the evaluator to
+    see "this one's handled" at a glance.
+    """
+    promoted = DeferredItem(
+        item="rewrite auth",
+        reason="out of scope",
+        status="promoted",
+        promoted_ticket_id="TKT-42",
+    )
+    open_item = DeferredItem(
+        item="tune cache TTL",
+        reason="needs measurement",
+        status="open",
+    )
+    handoff = _handoff_entry(deferred_items=[promoted, open_item])
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle={"handoff_id": handoff.id},
+    )
+    # Promoted item shows the child ticket id.
+    assert "TKT-42" in prompt
+    assert "rewrite auth" in prompt
+    # Open item appears but without a child ticket id.
+    assert "tune cache TTL" in prompt
+
+
+def test_evaluator_prompt_labels_helper_drafts() -> None:
+    """Helper-agent Notes that respond to a Proposal are labeled distinctly.
+
+    `jig/helper_spawn.py` (Task N) posts the draft as a Note with
+    ``author=<helper_role_name>`` and ``responds_to=<proposal.id>``. The
+    evaluator prompt tags these as "helper-agent drafts" so a human
+    reviewer reading the prompt knows the text is context, not an
+    authoritative human decision.
+    """
+    handoff = _handoff_entry()
+    proposal = Proposal(
+        ticket_id="T1",
+        author="dev",
+        target="ticket://spec.behaviors",
+        rationale="tighten the retry policy",
+    )
+    helper_note = Note(
+        ticket_id="T1",
+        author="pm",  # the helper role name
+        text="Suggest retrying up to 3 times with jitter.",
+        responds_to=proposal.id,
+    )
+    # A plain note (no responds_to) must NOT be labeled as a helper draft.
+    plain_note = Note(
+        ticket_id="T1",
+        author="dev",
+        text="FYI: dependency bumped.",
+    )
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[handoff, proposal, helper_note, plain_note],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle={"handoff_id": handoff.id},
+    )
+    # Helper-draft label present, scoped to the pm's note.
+    assert "helper" in prompt.lower()
+    assert "Suggest retrying up to 3 times" in prompt
+    # Plain note is still in the normal thread section but not under the
+    # helper-draft heading.
+    helper_section_start = prompt.lower().find("helper")
+    assert helper_section_start != -1
+    # The FYI note appears somewhere in the prompt but not between the
+    # helper heading and the instructions section (proxy: the helper
+    # section is scoped to proposal-responding notes only).
+    instructions_start = prompt.find("## Instructions")
+    helper_slice = prompt[helper_section_start:instructions_start]
+    assert "FYI: dependency bumped" not in helper_slice
+
+
+def test_evaluator_prompt_without_bundle_still_renders_role_framing() -> None:
+    """Missing bundle is a graceful degradation, not a crash.
+
+    Covers the path where `_spawn_evaluator` fails to assemble the
+    bundle (e.g., transient store read error). The agent still gets an
+    evaluator-framed prompt; the evaluator-specific sections are
+    simply absent. The orchestrator logs the degradation.
+    """
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.EVALUATOR,
+        ticket=_eval_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        evaluator_bundle=None,
+    )
+    assert "evaluating a handoff" in prompt.lower()
+    # No crash; structured sections are simply absent.
+    assert "## Check results" not in prompt
+    assert "## Evaluator bundle" not in prompt

@@ -1347,14 +1347,20 @@ specific role templates and tight context.
       contains the sender (e.g., `specific_role("dev")` with a
       dev-authored handoff). Escalation-on-conflict (auto-post
       Escalation + halt) lands with orchestrator wiring in Task O.*
-- [ ] Evaluator spawn prompt: handoff entry + check results
+- [x] Evaluator spawn prompt: handoff entry + check results
       (from Task A/B) + any check-failure audit entries + any
       active waivers. Check results are passed as structured
       data (handoff rubric section), not free text.
-      *Deferred to Task D — that task lands `check_failure`
-      SystemEvent plumbing and the orchestrator path that composes
-      the prompt. Resolver exposes enough for the spawner to decide
-      who to spawn; prompt composition is the next piece.*
+      *Implemented: `_spawn_evaluator` pins the handoff id and
+      pre-assembles the phase's `latest_batch` check results into
+      `ctx.initial_bus_message`; `prompt_builder._evaluator_section`
+      reads the bundle and renders Handoff record, structured Check
+      results (fenced excerpts on non-pass), Check-failure audit
+      (with WAIVED flag), Active waivers (check-failure + objection
+      variants), and Helper-agent drafts (Notes with
+      `responds_to` ∈ proposal ids). EVALUATOR branch in
+      `_instructions_section` references `thread_accept_handoff` /
+      `thread_reject_handoff` with the literal handoff id pinned.*
 - [x] `automated_only` phases skip evaluator spawn entirely
       when all required checks pass.
       *Implemented: handoff-close guard raises
@@ -1439,12 +1445,13 @@ Design notes:
       Authorization mirrors `thread_waive` — `sender`'s role
       must declare `capabilities.waivers.can_waive` containing
       `"check_failure:<severity>"` (Task H landed this swap).*
-- [ ] Evaluator view shows active waivers alongside check
+- [x] Evaluator view shows active waivers alongside check
       results.
-      *Deferred to Task O — evaluator spawn prompt composition
-      lives with the orchestrator wiring. The data is already
-      readable: agents pull the thread via `read_comments` and
-      filter for `kind=waiver` + `check_failure_id` non-null.*
+      *Implemented alongside Task C's prompt composition:
+      `_evaluator_section` renders an "Active waivers" block
+      that surfaces both check-failure waivers (linked to their
+      `SystemEvent`) and objection waivers — exactly-one-of
+      invariant makes branching trivial.*
 - [x] Waivers on check failures searchable via the existing
       thread store; audit query for "how often did we waive X"
       is a readable loop, not an index.
@@ -1570,10 +1577,12 @@ Phase 4.
       accepted-handoff walk uses `deferred_items_open` against
       the checkpoint store so promoted items drop out once
       their status flips to `promoted`.)
-- [ ] Promoted items surface in the evaluator prompt
-      alongside handoff artifacts (Task C). _Blocked on Task C's
-      open "evaluator spawn prompt" bullet — prompt composition
-      lives there._
+- [x] Promoted items surface in the evaluator prompt
+      alongside handoff artifacts (Task C). _Landed with the
+      Task C evaluator-section work: `_evaluator_section`
+      walks the handoff's `deferred_items` and renders each
+      one's `status` with the child `promoted_ticket_id`
+      when present._
 - [x] Tests: handoff with one promoted item produces a new
       ticket with the right parent; already-promoted items
       don't double-create.

@@ -1342,6 +1342,40 @@ class Orchestrator:
             self._live_subscribers.pop((ticket_id, role), None)
             return
 
+        # Phase 5 Task C/E/J — assemble the evaluator bundle so the
+        # prompt builder can render structured check results alongside
+        # the handoff. The bundle always carries the handoff id; the
+        # check-results list is best-effort — if the handoff entry or
+        # the check_results store is unavailable we still spawn with a
+        # bare bundle, and the prompt builder degrades gracefully.
+        check_results_payload: list[dict] = []
+        try:
+            pending_handoff = await self.threads.get(handoff_id)
+            if (
+                pending_handoff is not None
+                and pending_handoff.kind == "handoff"
+                and self.check_results is not None
+            ):
+                batch = await self.check_results.latest_batch(
+                    ticket_id, pending_handoff.phase
+                )
+                check_results_payload = [
+                    {
+                        "check_name": r.check_name,
+                        "verdict": r.verdict,
+                        "severity": r.severity,
+                        "output": r.output,
+                    }
+                    for r in batch
+                ]
+        except Exception:
+            _logger.exception(
+                "failed to assemble check-results bundle for evaluator "
+                "spawn on ticket %s handoff %s; spawning with empty batch",
+                ticket_id,
+                handoff_id,
+            )
+
         ctx = AgentSpawnContext(
             role=role,
             role_cfg=role_cfg,
@@ -1359,6 +1393,7 @@ class Orchestrator:
                 "kind": "thread_handoff_evaluator_spawn",
                 "ticket_id": ticket_id,
                 "handoff_id": handoff_id,
+                "check_results": check_results_payload,
             },
         )
         task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))

@@ -159,6 +159,13 @@ entry.
 An agent that doesn't know how to target correctly posts an Uncertain
 and the orchestrator routes.
 
+**Human escape hatch.** The special targets `human` and `any_human`
+always pass the phase allow-list, even when `questions_to` /
+`escalation_targets` is restrictive. This preserves the operator
+pause UX: a confused agent can always page a human without the phase
+author having to remember to enumerate it every time. The constant
+is `_HUMAN_TARGET_ESCAPE_HATCH` in `jig/thread_mcp.py`.
+
 ## Visibility and propagation
 
 The service's WebSocket event channel publishes thread updates in real

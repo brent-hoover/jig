@@ -26,6 +26,13 @@ task.
 
 ## Phase 5 — still open
 
+_Phase 5 is effectively closed. The only items still actionable are
+the two Task L extensions (per-phase threshold overrides, freezegun
+consolidation) and Task P (E2E integration tests, gated on the
+observability milestone — see memory note). Everything else in this
+section is struck-through and retained for history._
+
+
 ### ~~Task C / Task O — evaluator spawn prompt composition~~
 _Landed._
 
@@ -71,14 +78,15 @@ _Landed._
   walks the handoff's `deferred_items` and renders each item's
   `status` plus the child `promoted_ticket_id` when present.
 
-### Task K — doc cross-refs for human-target escape hatch
-_Commit: f069bb6._
+### ~~Task K — doc cross-refs for human-target escape hatch~~
+_Landed._
 
-* The `"human"` / `"any_human"` escape-hatch semantics are
+* ~~The `"human"` / `"any_human"` escape-hatch semantics are
   encoded in `_HUMAN_TARGET_ESCAPE_HATCH` and locked down by
   tests, but docs 08 ("threads") and 16 ("policy-and-
-  enforcement") don't mention them explicitly. Next time either
-  doc is edited, add a one-liner referencing this constant.
+  enforcement") don't mention them explicitly.~~ Added
+  explicit notes in both docs referencing the constant
+  location (`jig/thread_mcp.py`).
 
 ### Task L — per-phase deadlock threshold overrides
 _Commit: 73ee3c0._

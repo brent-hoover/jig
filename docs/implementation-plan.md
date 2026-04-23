@@ -1737,8 +1737,11 @@ spawn.
       runs pre-spawn (agent.py:329), produces the two
       enforcement artefacts per Task F, and the hook scripts
       from Task G read `rules.json` at tool-eval time.*
-- [ ] Deadlock sweep: the orchestrator's existing tick loop
+- [x] Deadlock sweep: the orchestrator's existing tick loop
       grows a deadlock-check pass (Task L). No new scheduler.
+      *Landed in 73ee3c0 — `sweep_blocking_entries` runs
+      on the per-ticket loop with project-wide
+      `deadlock.nudge_after_s` / `escalate_after_s` thresholds.*
 - [x] CheckResult bus events: the runner publishes
       `check_completed` messages so the TUI can show
       progress.

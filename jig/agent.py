@@ -1,6 +1,7 @@
 """Agent runner — spawns Claude Code agents via the SDK in streaming input mode."""
 
 import asyncio
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -14,7 +15,9 @@ from claude_agent_sdk.types import (
     TextBlock,
     ThinkingBlock,
     ThinkingConfigAdaptive,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from jig.capability_compiler import compile as compile_capabilities
@@ -278,7 +281,6 @@ def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
     if not allowed_mcps:
         return {}
 
-    import json
     from pathlib import Path
 
     result: dict = {}
@@ -512,6 +514,12 @@ async def run_agent(
                         if isinstance(block, ToolUseBlock):
                             detail = _tool_detail(block.name, block.input or {})
                             _logger.info("[%s] tool: %s %s", tag, block.name, detail)
+                            _logger.debug(
+                                "[%s] tool_input: id=%s %s",
+                                tag,
+                                block.id,
+                                json.dumps(block.input or {}, default=str),
+                            )
                             await _emit(
                                 "agent_tool",
                                 {
@@ -553,6 +561,51 @@ async def run_agent(
                             else:
                                 truncated = raw
                             _logger.debug("[%s] thinking: %s", tag, truncated)
+                elif isinstance(message, UserMessage):
+                    content = message.content
+                    if isinstance(content, str):
+                        # Rare but allowed by the SDK type union; there are no
+                        # tool-result blocks to capture in a bare-string
+                        # user message.
+                        pass
+                    else:
+                        for block in content or []:
+                            if isinstance(block, ToolResultBlock):
+                                raw = (
+                                    block.content
+                                    if block.content is not None
+                                    else ""
+                                )
+                                if not isinstance(raw, str):
+                                    # SDK may give back a list of dicts;
+                                    # serialise.
+                                    raw = json.dumps(raw, default=str)
+                                raw_bytes = raw.encode("utf-8")
+                                if len(raw_bytes) > _LOG_TRUNCATE_BYTES:
+                                    truncated = raw_bytes[
+                                        :_LOG_TRUNCATE_BYTES
+                                    ].decode("utf-8", errors="ignore")
+                                    _logger.debug(
+                                        "[%s] tool_result_truncated: "
+                                        "id=%s full_bytes=%d",
+                                        tag,
+                                        block.tool_use_id,
+                                        len(raw_bytes),
+                                    )
+                                else:
+                                    truncated = raw
+                                is_error = (
+                                    bool(block.is_error)
+                                    if block.is_error
+                                    else False
+                                )
+                                _logger.debug(
+                                    "[%s] tool_result: id=%s is_error=%s %s",
+                                    tag,
+                                    block.tool_use_id,
+                                    is_error,
+                                    truncated,
+                                )
                 elif isinstance(message, SystemMessage):
                     _logger.debug("[%s] system: %s", tag, message.subtype)
                 elif isinstance(message, ResultMessage):

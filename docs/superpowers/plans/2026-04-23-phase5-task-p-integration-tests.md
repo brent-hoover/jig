@@ -605,7 +605,7 @@ git commit -m "test(phase5p): evaluator equal to completing role blocks advance"
 ## Task 4: Test — deferred item promoted to child ticket on accept
 
 **Scenario (doc 09 §Deferred items + implementation-plan Task J):**
-Phase `spec` completes with a Handoff carrying `deferred_items=[DeferredItem(item="add-perf-section", reason="punted")]`. The phase declares an explicit `evaluator=SpecificRoleEvaluator(role="dev")` so the orchestrator spawns a `dev`-role evaluator after the gate passes. (A `phase.evaluator=None` leaves the handoff pending indefinitely — `orchestrator.py:957-958` returns early in that case — so an explicit evaluator is required to drive the accept path.) Inside the evaluator spawn, the fake agent calls `handle_checkpoint_promote_deferred(sender="dev", args={"ticket_id": <tid>, "deferred_item_id": <did>})`, which creates a child ticket with `parent_id=<tid>`, flips the DeferredItem's `status="promoted"`, and writes `promoted_ticket_id=<child>`. The evaluator then calls `handle_thread_accept_handoff(sender="dev", ...)` and the phase advances. After the dust settles, the test asserts:
+Phase `spec` completes via `handle_thread_handoff` (not a raw `threads.post`) with `deferred_items=[DeferredItem(item="add-perf-section", reason="punted")]`. Routing through `handle_thread_handoff` is required so the `auto_pre_handoff` checkpoint captures the DeferredItem — `handle_checkpoint_promote_deferred` resolves the id via `CheckpointStore.find_deferred_item`, which searches checkpoints only (`jig/store/checkpoints.py::find_deferred_item`). A raw `threads.post(Handoff(...))` would skip `record_auto_pre_handoff_checkpoint` (`jig/thread_mcp.py:1261`) and leave the item invisible. The phase also declares an explicit `evaluator=SpecificRoleEvaluator(role="dev")` so the orchestrator spawns a `dev`-role evaluator after the gate passes. (A `phase.evaluator=None` leaves the handoff pending indefinitely — `orchestrator.py:957-958` returns early in that case — so an explicit evaluator is required to drive the accept path.) Inside the evaluator spawn, the fake agent calls `handle_checkpoint_promote_deferred(sender="dev", args={"ticket_id": <tid>, "deferred_item_id": <did>})`, which creates a child ticket with `parent_id=<tid>`, flips the DeferredItem's `status="promoted"`, and writes `promoted_ticket_id=<child>`. The evaluator then calls `handle_thread_accept_handoff(sender="dev", ...)` and the phase advances. After the dust settles, the test asserts:
 
 1. A child ticket exists with `parent_id == parent tid`.
 2. The underlying `DeferredItem` on the checkpoint has `status == "promoted"` and `promoted_ticket_id == child.id`.
@@ -642,7 +642,7 @@ from jig.models import (
     WorkflowConfig,
 )
 from jig.thread import DeferredItem, Handoff
-from jig.thread_mcp import handle_thread_accept_handoff
+from jig.thread_mcp import handle_thread_accept_handoff, handle_thread_handoff
 from jig.ticket import Ticket, TicketStatus, WorkType
 from tests._phase5p_helpers import build_orch, poll_until
 
@@ -683,20 +683,30 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
     async def fake_run_agent(ctx, emitter=None):
         run_calls.append(ctx.role)
         if ctx.role == "spec" and ctx.spawn_reason != SpawnReason.EVALUATOR:
-            await ctx.threads.post(
-                Handoff(
-                    ticket_id=ctx.ticket.id,
-                    author="spec",
-                    phase="spec",
-                    outputs=["spec.md"],
-                    summary="draft",
-                    deferred_items=[
+            # Route through handle_thread_handoff, not a raw
+            # threads.post, so the auto_pre_handoff checkpoint captures
+            # the DeferredItem. find_deferred_item searches checkpoints
+            # only (jig/store/checkpoints.py::find_deferred_item) — a
+            # direct threads.post would leave the item invisible to
+            # handle_checkpoint_promote_deferred.
+            await handle_thread_handoff(
+                tickets=ctx.tickets,
+                threads=ctx.threads,
+                bus=ctx.bus,
+                sender="spec",
+                args={
+                    "ticket_id": ctx.ticket.id,
+                    "phase": "spec",
+                    "outputs": ["spec.md"],
+                    "summary": "draft",
+                    "deferred_items": [
                         DeferredItem(
                             item="add-perf-section",
                             reason="punted out of scope",
                         )
                     ],
-                )
+                },
+                checkpoints=ctx.checkpoints,
             )
         elif ctx.spawn_reason == SpawnReason.EVALUATOR and ctx.role == "dev":
             handoffs = await ctx.threads.find_by_kind(ctx.ticket.id, "handoff")

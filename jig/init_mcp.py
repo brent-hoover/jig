@@ -12,7 +12,6 @@ from pathlib import Path
 from jig.markdown_sections import get_section, list_sections, set_section
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
-from jig.store.tickets import TicketStore
 from jig.thread import Handoff
 
 
@@ -39,7 +38,6 @@ async def handle_brief_set_section(
 
 async def handle_po_finish_brief(
     *,
-    tickets: TicketStore,
     threads: ThreadStore,
     bus: MessageBus,
     project_path: Path,
@@ -48,13 +46,10 @@ async def handle_po_finish_brief(
 ) -> str:
     """Emit a Handoff on the brief ticket, targeting spec-generator."""
     path = _brief_path(project_path)
-    if not path.is_file() or not list_sections(path):
+    if not list_sections(path):
         raise ValueError(
             "cannot finish an empty brief — add at least one section"
         )
-    brief = await tickets.get("brief")
-    if brief is None:
-        raise KeyError("brief ticket not found")
     handoff = Handoff(
         ticket_id="brief",
         author=author,

@@ -98,7 +98,6 @@ async def test_brief_set_section_appends_when_missing(wired):
 @pytest.mark.asyncio
 async def test_po_finish_brief_emits_handoff(wired):
     await handle_po_finish_brief(
-        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
@@ -117,7 +116,19 @@ async def test_po_finish_brief_on_empty_brief_raises(wired):
     wired["brief_path"].write_text("# myproj\n")  # no sections
     with pytest.raises(ValueError, match="empty"):
         await handle_po_finish_brief(
-            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            project_path=wired["project_path"],
+            summary="trying",
+            author="po",
+        )
+
+
+@pytest.mark.asyncio
+async def test_po_finish_brief_missing_file_raises_filenotfound(wired):
+    wired["brief_path"].unlink()
+    with pytest.raises(FileNotFoundError):
+        await handle_po_finish_brief(
             threads=wired["threads"],
             bus=wired["bus"],
             project_path=wired["project_path"],

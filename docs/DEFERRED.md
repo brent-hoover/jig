@@ -28,9 +28,12 @@ task.
 
 _Phase 5 is effectively closed. The only items still actionable are
 the two Task L extensions (per-phase threshold overrides, freezegun
-consolidation) and Task P (E2E integration tests, gated on the
-observability milestone — see memory note). Everything else in this
-section is struck-through and retained for history._
+consolidation) and Task P (E2E integration tests). The observability
+milestone that gated Task P shipped in plan
+`2026-04-23-per-ticket-story-logs` (structured JSONL logs with
+correlation contextvars, timing SystemEvents, `jig.story` library,
+`jig story` CLI). Everything else in this section is struck-through
+and retained for history._
 
 
 ### ~~Task C / Task O — evaluator spawn prompt composition~~
@@ -148,9 +151,12 @@ _Tracked as a test task in the plan, bullets all `[ ]`._
   listed under Task P (required-fail-then-fix, self-cert
   conflict, black-box QA can't read src, hook-level rm -rf /
   force-push / spec-write deny, promoted deferred-item, T2
-  escalation) are still open. Meaningful when the dogfood
-  harness is observable enough to assert them (memory note:
-  observability is the current next priority).
+  escalation) are still open. The observability gate has
+  lifted (see
+  `docs/superpowers/plans/2026-04-23-per-ticket-story-logs.md`);
+  these tests can now assert on `jig story` narratives with
+  `phase_start` / `agent_run` / `phase_end` timing events and
+  structured log correlation.
 
 ## Phase 5 — landed
 
@@ -174,6 +180,18 @@ _Tracked as a test task in the plan, bullets all `[ ]`._
   Landed as Task H in ed8bb45.
 
 ## Cross-phase — still open
+
+### TUI integration of per-ticket story view
+_Plan: `2026-04-23-per-ticket-story-logs.md` §Layer F._
+
+* The library (`jig.story`) and the CLI (`jig story`) shipped.
+  The TUI has no story view yet — users who want a narrative
+  shell out to `jig story <tid>`. Proper integration would
+  expose `build_story` / `stream_story` through a new
+  `ws_server.py` handler (`story.request` / `story.subscribe`)
+  and render it in a ticket-detail pane. Lands when the TUI
+  grows a ticket-detail view; today's ticket list view has no
+  need for it.
 
 ### `issue_id` → `ticket_id` alias shim in memory store
 _Commit: 4196b91 (I3)._

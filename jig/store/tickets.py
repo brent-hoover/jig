@@ -25,12 +25,18 @@ class TicketStore:
         await self._collection.load()
 
     async def create(self, ticket: Ticket) -> str:
-        existing = await self._collection.get(ticket.id)
-        if existing is not None:
-            raise ValueError(
-                f"ticket with id {ticket.id!r} already exists"
-            )
-        return await self._collection.insert(ticket)
+        # Uniqueness is enforced inside Collection.insert under its
+        # asyncio.Lock — no TOCTOU window between check and append.
+        # We re-raise with a ticket-specific message so callers (CLI,
+        # init flow) get a domain-friendly error.
+        try:
+            return await self._collection.insert(ticket)
+        except ValueError as e:
+            if "already exists" in str(e):
+                raise ValueError(
+                    f"ticket with id {ticket.id!r} already exists"
+                ) from e
+            raise
 
     async def get(self, ticket_id: str) -> Ticket | None:
         return await self._collection.get(ticket_id)

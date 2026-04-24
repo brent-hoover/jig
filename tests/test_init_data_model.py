@@ -1,4 +1,5 @@
 """Data model extensions for the init workflow."""
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -121,3 +122,42 @@ async def test_create_reserved_ticket_twice_raises(tmp_path):
     )
     with pytest.raises(ValueError, match="already exists"):
         await store.create(second)
+
+
+@pytest.mark.asyncio
+async def test_ticket_store_create_duplicate_id_concurrent(tmp_path):
+    """Two concurrent create() calls for the same explicit id must
+    produce exactly one success and one ValueError, with exactly one
+    insert op in the JSONL log. Guards against the TOCTOU race where
+    the existence check happened outside the store's asyncio.Lock.
+    """
+    path = tmp_path / "tickets.jsonl"
+    store = TicketStore(path)
+    await store.load()
+
+    def make() -> Ticket:
+        return Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="b",
+            created_by="cli",
+        )
+
+    results = await asyncio.gather(
+        store.create(make()),
+        store.create(make()),
+        return_exceptions=True,
+    )
+    successes = [r for r in results if not isinstance(r, Exception)]
+    failures = [r for r in results if isinstance(r, ValueError)]
+    assert len(successes) == 1, f"expected 1 success, got {results!r}"
+    assert len(failures) == 1, f"expected 1 ValueError, got {results!r}"
+
+    # JSONL log should have exactly one insert op for "brief"
+    lines = path.read_text().splitlines()
+    insert_lines = [
+        ln for ln in lines if '"_op": "insert"' in ln and '"_id": "brief"' in ln
+    ]
+    assert len(insert_lines) == 1, (
+        f"expected 1 insert line, got {len(insert_lines)}: {insert_lines!r}"
+    )

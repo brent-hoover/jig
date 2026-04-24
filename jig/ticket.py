@@ -21,6 +21,8 @@ class WorkType(str, Enum):
     PERF = "perf"
     MIGRATION = "migration"
     DOCS = "docs"
+    BRIEF = "brief"
+    ARCHITECTURE = "architecture"
 
 
 # Transitional alias. Remove in the next release cycle once the doc rename

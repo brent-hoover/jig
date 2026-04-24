@@ -244,11 +244,16 @@ class Note(_ThreadEntryBase):
     idempotency — the orchestrator posts at most one nudge per
     blocking entry and keys uniqueness off ``responds_to``. Plain
     human-authored notes leave it ``None``.
+
+    ``payload`` carries structured content for Notes that represent
+    machine-generated findings (e.g. spec-generator Gap lists).
+    Defaults to an empty dict for plain notes.
     """
 
     kind: Literal["note"] = "note"
     text: str
     responds_to: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 class Uncertain(_ThreadEntryBase):
@@ -406,6 +411,10 @@ class SystemEvent(_ThreadEntryBase):
         "phase_start",
         "phase_end",
         "agent_run",
+        "spec_generated",
+        "spec_gaps_reported",
+        "sa_skipped",
+        "scaffold_applied",
     ]
     content: str = ""
     commit_sha: str | None = None

@@ -129,7 +129,6 @@ async def handle_spec_report_gaps(
     *,
     threads: ThreadStore,
     bus: MessageBus,
-    project_path: Path,
     gaps: list[Gap],
     author: str,
 ) -> None:

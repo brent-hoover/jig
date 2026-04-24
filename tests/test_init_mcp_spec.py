@@ -81,7 +81,6 @@ async def test_spec_report_gaps_posts_note_with_payload(wired):
     await handle_spec_report_gaps(
         threads=wired["threads"],
         bus=wired["bus"],
-        project_path=wired["project_path"],
         gaps=gaps,
         author="spec-generator",
     )
@@ -93,6 +92,48 @@ async def test_spec_report_gaps_posts_note_with_payload(wired):
     assert any(e.event_type == "spec_gaps_reported" for e in events)
     spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
     assert not spec_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_spec_publish_with_multiple_advisory_notes_posts_one_note(wired):
+    await handle_spec_publish(
+        threads=wired["threads"],
+        bus=wired["bus"],
+        project_path=wired["project_path"],
+        yaml_content="name: x\n",
+        advisory_notes=["clarify A", "consider B", "tighten C"],
+        author="spec-generator",
+    )
+    entries = await wired["threads"].for_ticket("brief")
+    notes = [e for e in entries if isinstance(e, Note)]
+    assert len(notes) == 1
+    text = notes[0].text
+    assert "clarify A" in text
+    assert "consider B" in text
+    assert "tighten C" in text
+    assert notes[0].payload["advisory_notes"] == ["clarify A", "consider B", "tighten C"]
+
+
+@pytest.mark.asyncio
+async def test_spec_report_gaps_preserves_order_and_count(wired):
+    gaps = [
+        Gap(kind="missing", location="Built", description="No items.", severity="blocking"),
+        Gap(kind="ambiguity", location="Non-goals", description="Vague.", severity="advisory"),
+        Gap(kind="contradiction", location="Planned (committed)", description="Conflicts with Built.", severity="blocking"),
+    ]
+    await handle_spec_report_gaps(
+        threads=wired["threads"],
+        bus=wired["bus"],
+        gaps=gaps,
+        author="spec-generator",
+    )
+    entries = await wired["threads"].for_ticket("brief")
+    notes = [e for e in entries if isinstance(e, Note)]
+    assert len(notes) == 1
+    persisted = notes[0].payload["gaps"]
+    assert len(persisted) == 3
+    assert [g["kind"] for g in persisted] == ["missing", "ambiguity", "contradiction"]
+    assert [g["location"] for g in persisted] == ["Built", "Non-goals", "Planned (committed)"]
 
 
 @pytest.mark.asyncio

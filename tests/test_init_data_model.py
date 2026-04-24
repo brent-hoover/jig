@@ -1,7 +1,10 @@
 """Data model extensions for the init workflow."""
+from pathlib import Path
+
+from jig.persistence import load_role
+from jig.spec_generator import Gap
 from jig.thread import Note, SystemEvent
 from jig.ticket import WorkType
-from jig.spec_generator import Gap
 
 
 def test_worktype_has_brief_and_architecture():
@@ -51,3 +54,29 @@ def test_gap_model_round_trip():
     dumped = g.model_dump()
     assert dumped["kind"] == "contradiction"
     Gap.model_validate(dumped)
+
+
+def test_po_role_loads():
+    cfg = load_role(Path("/nonexistent-project"), "po")
+    assert cfg.role == "po"
+    assert "Product Owner" in cfg.phase_prompt or "PO" in cfg.phase_prompt
+    assert "brief_set_section" in cfg.allowed_tools
+    assert "po_finish_brief" in cfg.allowed_tools
+
+
+def test_sa_role_loads():
+    cfg = load_role(Path("/nonexistent-project"), "sa")
+    assert cfg.role == "sa"
+    assert "arch_set_field" in cfg.allowed_tools
+    assert "sa_propose_scaffold" in cfg.allowed_tools
+    # SA must NOT have brief_* tools per REQ-INIT-SA.4
+    assert not any(t.startswith("brief_") for t in cfg.allowed_tools)
+
+
+def test_spec_generator_role_loads():
+    cfg = load_role(Path("/nonexistent-project"), "spec-generator")
+    assert cfg.role == "spec-generator"
+    assert "spec_publish" in cfg.allowed_tools
+    assert "spec_report_gaps" in cfg.allowed_tools
+    # No conversational tools per REQ-INIT-SPECGEN.9
+    assert "ask_question" not in cfg.allowed_tools

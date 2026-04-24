@@ -140,6 +140,9 @@ class TestInitCreatesAgentTypes:
             "document",
             "pm",
             "user",
+            "po",
+            "sa",
+            "spec-generator",
         }
 
 

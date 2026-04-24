@@ -48,6 +48,8 @@ async def test_spec_publish_writes_file_and_emits_event(wired):
     entries = await wired["threads"].for_ticket("brief")
     events = [e for e in entries if isinstance(e, SystemEvent)]
     assert any(e.event_type == "spec_generated" for e in events)
+    notes = [e for e in entries if isinstance(e, Note)]
+    assert len(notes) == 0
 
 
 @pytest.mark.asyncio
@@ -104,3 +106,13 @@ async def test_spec_publish_rejects_unparseable_yaml(wired):
             advisory_notes=[],
             author="spec-generator",
         )
+    # Atomicity: spec file must NOT exist after a failed publish.
+    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+    assert not spec_file.exists()
+    # Atomicity: no spec_generated SystemEvent on the brief thread.
+    entries = await wired["threads"].for_ticket("brief")
+    events = [e for e in entries if isinstance(e, SystemEvent)]
+    assert not any(e.event_type == "spec_generated" for e in events)
+    # Atomicity: no bus message published to the orchestrator topic.
+    history = await wired["bus"].get_history("orchestrator")
+    assert all(m.payload.get("kind") != "spec_generated" for m in history)

@@ -50,6 +50,7 @@ uv run ruff check jig/         # Lint
 jig build                      # Build Docker image
 jig start                      # Start orchestrator (auto-builds Docker on first run)
 jig start --no-docker          # Run without sandbox
+jig story <ticket-id>          # Print merged thread+log story for a ticket
 cd tui && bun install           # Install TUI deps
 cd tui && bun run src/main.tsx  # Start TUI
 ```

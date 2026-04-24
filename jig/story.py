@@ -175,11 +175,15 @@ def _render_system_event(ev: SystemEvent) -> tuple[str, str]:
 
 
 def _parse_log_line(line: str) -> dict | None:
-    """Parse a single JSONL log line. Return None on any error so
-    a single corrupt line doesn't break the scan."""
+    """Parse a single JSONL log line. Return None on any error so a
+    single corrupt line doesn't break the scan; log at WARNING so
+    operators know the logs are lossy (fail-loud discipline)."""
     try:
         return json.loads(line)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        _logger.warning(
+            "build_story: skipping unparseable log line: %s", exc
+        )
         return None
 
 

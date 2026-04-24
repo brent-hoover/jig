@@ -84,6 +84,11 @@ def _yaml_set(data: dict, path: str, value: Any) -> dict:
                 cursor[idx] = {}
             cursor = cursor[idx]
         else:
+            if not isinstance(cursor, dict):
+                raise ValueError(
+                    f"path {path!r}: segment {p!r} cannot descend into "
+                    f"{type(cursor).__name__}"
+                )
             if p not in cursor or not isinstance(cursor[p], (dict, list)):
                 # Determine child type by peeking at next segment.
                 next_p = parts[i + 1]

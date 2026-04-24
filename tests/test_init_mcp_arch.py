@@ -232,3 +232,24 @@ async def test_arch_set_field_posts_tool_use_note(wired):
     assert len(notes) == 1
     assert notes[0].payload == {"path": "rationale", "value": "async backend"}
     assert notes[0].author == "sa"
+
+
+@pytest.mark.asyncio
+async def test_arch_set_field_descend_list_with_non_numeric_key_raises_valueerror(wired):
+    # First, set up a list at "items".
+    await handle_arch_set_field(
+        threads=wired["threads"],
+        project_path=wired["project_path"],
+        path="items.0",
+        value="first",
+        author="sa",
+    )
+    # Now try to descend the list with a non-numeric segment (non-terminal).
+    with pytest.raises(ValueError, match="cannot descend"):
+        await handle_arch_set_field(
+            threads=wired["threads"],
+            project_path=wired["project_path"],
+            path="items.foo.bar",
+            value="x",
+            author="sa",
+        )

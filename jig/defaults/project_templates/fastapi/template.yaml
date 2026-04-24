@@ -1,0 +1,6 @@
+name: fastapi
+description: "FastAPI service with uv, pytest, and a containerized deploy target."
+language: python
+framework: fastapi
+deploy_target: container
+package_manager: uv

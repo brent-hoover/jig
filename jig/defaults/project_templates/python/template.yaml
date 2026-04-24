@@ -1,0 +1,6 @@
+name: python
+description: "Python project with uv and pytest."
+language: python
+framework: null
+deploy_target: null
+package_manager: uv

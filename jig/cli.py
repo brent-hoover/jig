@@ -1,7 +1,6 @@
 """Jig CLI."""
 
 import asyncio
-import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -347,24 +346,6 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
                 err=True,
             )
 
-    level = logging.DEBUG if verbose else logging.INFO
-
-    console_fmt = logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    console = logging.StreamHandler()
-    console.setLevel(level)
-    console.setFormatter(console_fmt)
-
-    root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
-    root.addHandler(console)
-
-    # Quiet noisy third-party loggers — frame-level WS debug is never useful
-    logging.getLogger("websockets").setLevel(logging.WARNING)
-    logging.getLogger("mcp").setLevel(logging.WARNING)
-
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
         raise click.ClickException(
@@ -381,20 +362,9 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
     except CatalogError as exc:
         raise click.ClickException(f"Catalog validation failed: {exc}")
 
-    from datetime import datetime
+    from jig.logging_setup import configure_logging
 
-    log_dir = jig_dir / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"jig-{datetime.now():%Y%m%d-%H%M%S}.log"
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-    root.addHandler(file_handler)
+    log_file = configure_logging(path, verbose=verbose)
     click.echo(f"Logging to {log_file}")
 
     async def run_daemon() -> None:
@@ -832,3 +802,128 @@ def ticket_create(
     if not ticket_id:
         raise click.ClickException("orchestrator did not return a ticket_id")
     click.echo(ticket_id)
+
+
+# ---------------------------------------------------------------------------
+# `jig story <ticket-id>` — print the combined thread + log narrative for a
+# single ticket. Backed by `jig.story.build_story` (Task 13). Pretty-print by
+# default; `--json` emits one JSON object per line for machine consumers.
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("ticket_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+@click.option("--json", "json_out", is_flag=True, help="Output JSON per line.")
+@click.option(
+    "--include-children",
+    is_flag=True,
+    help="Include events from child tickets.",
+)
+@click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="ISO8601 timestamp — only show events at or after this time.",
+)
+@click.option(
+    "--level",
+    type=click.Choice(["DEBUG", "INFO"]),
+    default="INFO",
+    help="Minimum log level (thread entries are always shown).",
+)
+def story(
+    ticket_id: str,
+    path: Path,
+    json_out: bool,
+    include_children: bool,
+    since: str | None,
+    level: str,
+) -> None:
+    """Print the full story of a ticket."""
+    import json
+    from datetime import datetime, timezone
+
+    from jig.story import StorySource, build_story
+    from jig.store.threads import ThreadStore
+    from jig.store.tickets import TicketStore
+
+    since_dt: datetime | None = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+        except ValueError as exc:
+            raise click.ClickException(f"Invalid --since: {exc}")
+        # Coerce naive timestamps to UTC so comparison with the aware
+        # event timestamps inside build_story() doesn't raise TypeError.
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+
+    async def run() -> list:
+        threads_path = path / ".jig" / "store" / "comments.jsonl"
+        tickets_path = path / ".jig" / "store" / "tickets.jsonl"
+        threads = ThreadStore(threads_path)
+        await threads.load()
+        tickets = TicketStore(tickets_path)
+        await tickets.load()
+        # Verify ticket exists up front so unknown ids fail loud rather
+        # than returning an empty story.
+        t = await tickets.get(ticket_id)
+        if t is None:
+            raise click.ClickException(f"Ticket {ticket_id!r} not found")
+        return await build_story(
+            ticket_id,
+            project_path=path,
+            threads=threads,
+            tickets=tickets,
+            include_children=include_children,
+            since=since_dt,
+        )
+
+    events = asyncio.run(run())
+
+    # Filter by level for log events only (thread entries are always shown).
+    if level == "INFO":
+        events = [
+            e
+            for e in events
+            if e.source != StorySource.log or e.level != "DEBUG"
+        ]
+
+    if not events:
+        click.echo("(no events)", err=True)
+        return
+
+    if json_out:
+        for ev in events:
+            click.echo(
+                json.dumps(
+                    {
+                        "ts": ev.ts.isoformat(),
+                        "source": ev.source.value,
+                        "kind": ev.kind,
+                        "level": ev.level,
+                        "message": ev.message,
+                        "ticket_id": ev.ticket_id,
+                        "phase": ev.phase,
+                        "role": ev.role,
+                    }
+                )
+            )
+        return
+
+    # Pretty print. Show elapsed since first event.
+    first_ts = events[0].ts
+    for ev in events:
+        elapsed = (ev.ts - first_ts).total_seconds()
+        src_tag = "T" if ev.source == StorySource.thread else "L"
+        click.echo(
+            f"{ev.ts.strftime('%H:%M:%S.%f')[:12]} "
+            f"(+{elapsed:7.2f}s) [{src_tag}] "
+            f"{ev.level:5s} {ev.message}"
+        )

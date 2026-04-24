@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,8 +12,9 @@ if TYPE_CHECKING:
 from jig.agent import run_agent
 from jig.config import DeadlockSection, load_config
 from jig.deadlock import sweep_blocking_entries
+from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
 from jig.project import Project, load_project
-from jig.thread import Handoff
+from jig.thread import Handoff, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.checkpoints import CheckpointStore
@@ -334,240 +336,286 @@ class Orchestrator:
         ):
             raise RuntimeError("Orchestrator not started — call startup() first")
 
-        ticket = await self.tickets.get(ticket_id)
-        if ticket is None:
-            _logger.warning("ticket %s not found, aborting", ticket_id)
-            return
-
+        tid_token = _ticket_id_var.set(ticket_id)
         try:
-            _logger.info(
-                "starting ticket %s: %s (workflow=%s)",
-                ticket_id,
-                ticket.title,
-                ticket.workflow,
-            )
-            workflow = load_workflow(self._project_path, ticket.workflow)
-        except FileNotFoundError:
-            _logger.error(
-                "workflow %r not found for ticket %s — run 'jig sync' to install missing defaults",
-                ticket.workflow,
-                ticket_id,
-            )
-            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
-            self._running_tickets.pop(ticket_id, None)
-            return
+            ticket = await self.tickets.get(ticket_id)
+            if ticket is None:
+                _logger.warning("ticket %s not found, aborting", ticket_id)
+                return
 
-        try:
-            worktree = await self._ensure_worktree(ticket)
-        except DependencyMergeError as exc:
-            _logger.error(
-                "dep merge failed for ticket %s: %s — failing ticket",
-                ticket_id,
-                exc,
-            )
-            if self.threads is not None:
-                from jig.thread import SystemEvent
-
-                await self.threads.post(
-                    SystemEvent(
-                        ticket_id=ticket_id,
-                        author="harness",
-                        event_type="dep_merge_failed",
-                        content=(
-                            f"Dependency branch {exc.dep_branch!r} "
-                            f"(from ticket {exc.dep_id!r}) could not be "
-                            f"merged into the worktree. Resolve manually "
-                            f"and retry."
-                        ),
-                    )
-                )
-            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
-            await self._on_ticket_failed(ticket_id, ticket)
-            return
-        _logger.info("worktree ready at %s", worktree)
-        phase_idx = await self._current_phase_index(ticket_id, workflow)
-        _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
-
-        # Track how many times a phase has been retried after a blocked result.
-        # Prevents infinite review→dev→review loops.
-        max_fix_cycles = 3
-        fix_counts: dict[int, int] = {}
-
-        while phase_idx < len(workflow.phases):
-            phase = workflow.phases[phase_idx]
-            _logger.info(
-                "phase %d/%d: %s (role=%s)",
-                phase_idx + 1,
-                len(workflow.phases),
-                phase.name,
-                phase.role,
-            )
-            role_cfg = load_role(self._project_path, phase.role)
-
-            # Tell the TUI which phase is running
-            await self._emit_phase_event(
-                "phase_started", ticket_id, phase, phase_idx, len(workflow.phases)
-            )
-
-            ctx = AgentSpawnContext(
-                role=phase.role,
-                role_cfg=role_cfg,
-                spawn_reason=SpawnReason.PHASE_PRIMARY,
-                ticket=ticket,
-                parent=None,
-                worktree_path=worktree,
-                project=self._project,
-                tickets=self.tickets,
-                threads=self.threads,
-                memory=self.memory,
-                bus=self.bus,
-                checkpoints=self.checkpoints,
-                phase=phase,
-            )
-            sub_key = (ticket_id, phase.role)
-            self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
             try:
                 _logger.info(
-                    "spawning agent for %s on ticket %s", phase.role, ticket_id
+                    "starting ticket %s: %s (workflow=%s)",
+                    ticket_id,
+                    ticket.title,
+                    ticket.workflow,
                 )
-                result = await run_agent(ctx, emitter=self._emitter)
-                _logger.info("agent %s finished: %s", phase.role, result.status)
-            except Exception:
-                _logger.exception(
-                    "agent failed for phase %s ticket %s",
-                    phase.name,
+                workflow = load_workflow(self._project_path, ticket.workflow)
+            except FileNotFoundError:
+                _logger.error(
+                    "workflow %r not found for ticket %s — run 'jig sync' to install missing defaults",
+                    ticket.workflow,
                     ticket_id,
                 )
-                await self._emit_phase_event(
-                    "phase_complete",
+                await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                self._running_tickets.pop(ticket_id, None)
+                return
+
+            try:
+                worktree = await self._ensure_worktree(ticket)
+            except DependencyMergeError as exc:
+                _logger.error(
+                    "dep merge failed for ticket %s: %s — failing ticket",
                     ticket_id,
-                    phase,
-                    phase_idx,
-                    len(workflow.phases),
-                    result="failed",
+                    exc,
                 )
+                if self.threads is not None:
+                    await self.threads.post(
+                        SystemEvent(
+                            ticket_id=ticket_id,
+                            author="harness",
+                            event_type="dep_merge_failed",
+                            content=(
+                                f"Dependency branch {exc.dep_branch!r} "
+                                f"(from ticket {exc.dep_id!r}) could not be "
+                                f"merged into the worktree. Resolve manually "
+                                f"and retry."
+                            ),
+                        )
+                    )
                 await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
                 await self._on_ticket_failed(ticket_id, ticket)
                 return
-            finally:
-                self._live_subscribers.pop(sub_key, None)
+            _logger.info("worktree ready at %s", worktree)
+            phase_idx = await self._current_phase_index(ticket_id, workflow)
+            _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
 
-            await self._emit_phase_event(
-                "phase_complete",
-                ticket_id,
-                phase,
-                phase_idx,
-                len(workflow.phases),
-                result=result.status,
-            )
+            # Track how many times a phase has been retried after a blocked result.
+            # Prevents infinite review→dev→review loops.
+            max_fix_cycles = 3
+            fix_counts: dict[int, int] = {}
 
-            if result.status == "success":
-                # Phase 5 Task O1c: if the agent posted a pending
-                # Handoff for this phase, run the automated check
-                # gate. On fail we bounce it (flip to rejected) so
-                # the ``_phase_handoff_rejected`` check below reroutes
-                # to the fix phase via the existing blocked retry
-                # path. Gate-pass leaves the handoff pending for
-                # evaluator resolution (O2a/O2b).
-                await self._run_handoff_gate_if_pending(
-                    ticket_id, phase, workflow, worktree
-                )
-
-                # Phase 4 Task H gate: a phase cannot advance while the
-                # ticket has unresolved blocking thread entries (pending
-                # Handoff, blocking Question, unresolved Objection,
-                # open Escalation). We publish ``phase_blocked_by_thread``
-                # on the orchestrator topic for the TUI and wait for the
-                # entries to resolve. A rejected Handoff unblocks and
-                # then cycles through the existing retry logic.
-                if self.threads is not None:
-                    blocking = await self.threads.has_unresolved_blocking(ticket_id)
-                    while blocking:
-                        await self._emit_phase_blocked_by_thread(
-                            ticket_id, phase, blocking
-                        )
-                        await self._wait_for_thread_unblock(ticket_id)
-                        blocking = await self.threads.has_unresolved_blocking(ticket_id)
-                    if await self._phase_handoff_rejected(ticket_id, phase.name):
-                        result.status = "blocked"
-
-            # Record the phase_run AFTER gate + thread-blocking may
-            # demote ``result.status`` so the audit record reflects the
-            # final outcome (e.g. a post-gate bounce records "blocked",
-            # not the agent's self-reported "success"). The earlier
-            # `raise` paths above skip this intentionally — a crashed
-            # phase is recorded via ``_on_ticket_failed``, not here.
-            await self._write_phase_run_comment(ticket_id, phase, result)
-
-            if result.status == "success":
-                phase_idx += 1
-                # Immediately reset ticket to in_progress so the TUI doesn't
-                # flash "resolved" between phases. Do this BEFORE the commit
-                # safety net to minimize the status flicker window.
-                if phase_idx < len(workflow.phases):
-                    await self._update_ticket_status(
-                        ticket_id, TicketStatus.IN_PROGRESS
-                    )
-                # Safety net: commit any uncommitted changes the agent left behind
-                await self._auto_commit_worktree(worktree, phase.name, ticket_id)
-                if phase_idx < len(workflow.phases):
-                    ticket = await self.tickets.get(ticket_id)
-                continue
-
-            if result.status == "needs_info":
-                _logger.info(
-                    "phase %s paused — waiting for user input on %s",
-                    phase.name,
-                    ticket_id,
-                )
-                await self._wait_for_resume(ticket_id)
-                _logger.info(
-                    "ticket %s resumed — re-running phase %s", ticket_id, phase.name
-                )
-                ticket = await self.tickets.get(ticket_id)
-                continue  # re-run same phase_idx
-
-            if result.status == "blocked":
-                fix_counts[phase_idx] = fix_counts.get(phase_idx, 0) + 1
-                if fix_counts[phase_idx] > max_fix_cycles:
-                    _logger.warning(
-                        "phase %s blocked %d times — giving up on ticket %s",
+            while phase_idx < len(workflow.phases):
+                phase = workflow.phases[phase_idx]
+                phase_token = _phase_var.set(phase.name)
+                role_token = _role_var.set(phase.role)
+                phase_started_at = time.monotonic()
+                # Sentinel so the phase_end finally block can report a
+                # sane outcome if the agent raises before ``result`` is
+                # bound below.
+                result = None
+                try:
+                    _logger.info(
+                        "phase %d/%d: %s (role=%s)",
+                        phase_idx + 1,
+                        len(workflow.phases),
                         phase.name,
-                        fix_counts[phase_idx],
-                        ticket_id,
+                        phase.role,
                     )
+                    if self.threads is not None:
+                        await self.threads.post(
+                            SystemEvent(
+                                ticket_id=ticket_id,
+                                author="orchestrator",
+                                event_type="phase_start",
+                                content=phase.name,
+                                payload={
+                                    "phase": phase.name,
+                                    "role": phase.role,
+                                    "spawn_reason": "phase_primary",
+                                },
+                            )
+                        )
+                    role_cfg = load_role(self._project_path, phase.role)
+
+                    # Tell the TUI which phase is running
+                    await self._emit_phase_event(
+                        "phase_started", ticket_id, phase, phase_idx, len(workflow.phases)
+                    )
+
+                    ctx = AgentSpawnContext(
+                        role=phase.role,
+                        role_cfg=role_cfg,
+                        spawn_reason=SpawnReason.PHASE_PRIMARY,
+                        ticket=ticket,
+                        parent=None,
+                        worktree_path=worktree,
+                        project=self._project,
+                        tickets=self.tickets,
+                        threads=self.threads,
+                        memory=self.memory,
+                        bus=self.bus,
+                        checkpoints=self.checkpoints,
+                        phase=phase,
+                    )
+                    sub_key = (ticket_id, phase.role)
+                    self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
+                    try:
+                        _logger.info(
+                            "spawning agent for %s on ticket %s", phase.role, ticket_id
+                        )
+                        result = await run_agent(ctx, emitter=self._emitter)
+                        _logger.info("agent %s finished: %s", phase.role, result.status)
+                    except Exception:
+                        _logger.exception(
+                            "agent failed for phase %s ticket %s",
+                            phase.name,
+                            ticket_id,
+                        )
+                        await self._emit_phase_event(
+                            "phase_complete",
+                            ticket_id,
+                            phase,
+                            phase_idx,
+                            len(workflow.phases),
+                            result="failed",
+                        )
+                        await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                        await self._on_ticket_failed(ticket_id, ticket)
+                        return
+                    finally:
+                        self._live_subscribers.pop(sub_key, None)
+
+                    await self._emit_phase_event(
+                        "phase_complete",
+                        ticket_id,
+                        phase,
+                        phase_idx,
+                        len(workflow.phases),
+                        result=result.status,
+                    )
+
+                    if result.status == "success":
+                        # Phase 5 Task O1c: if the agent posted a pending
+                        # Handoff for this phase, run the automated check
+                        # gate. On fail we bounce it (flip to rejected) so
+                        # the ``_phase_handoff_rejected`` check below reroutes
+                        # to the fix phase via the existing blocked retry
+                        # path. Gate-pass leaves the handoff pending for
+                        # evaluator resolution (O2a/O2b).
+                        await self._run_handoff_gate_if_pending(
+                            ticket_id, phase, workflow, worktree
+                        )
+
+                        # Phase 4 Task H gate: a phase cannot advance while the
+                        # ticket has unresolved blocking thread entries (pending
+                        # Handoff, blocking Question, unresolved Objection,
+                        # open Escalation). We publish ``phase_blocked_by_thread``
+                        # on the orchestrator topic for the TUI and wait for the
+                        # entries to resolve. A rejected Handoff unblocks and
+                        # then cycles through the existing retry logic.
+                        if self.threads is not None:
+                            blocking = await self.threads.has_unresolved_blocking(ticket_id)
+                            while blocking:
+                                await self._emit_phase_blocked_by_thread(
+                                    ticket_id, phase, blocking
+                                )
+                                await self._wait_for_thread_unblock(ticket_id)
+                                blocking = await self.threads.has_unresolved_blocking(ticket_id)
+                            if await self._phase_handoff_rejected(ticket_id, phase.name):
+                                result.status = "blocked"
+
+                    # Record the phase_run AFTER gate + thread-blocking may
+                    # demote ``result.status`` so the audit record reflects the
+                    # final outcome (e.g. a post-gate bounce records "blocked",
+                    # not the agent's self-reported "success"). The earlier
+                    # `raise` paths above skip this intentionally — a crashed
+                    # phase is recorded via ``_on_ticket_failed``, not here.
+                    await self._write_phase_run_comment(ticket_id, phase, result)
+
+                    if result.status == "success":
+                        phase_idx += 1
+                        # Immediately reset ticket to in_progress so the TUI doesn't
+                        # flash "resolved" between phases. Do this BEFORE the commit
+                        # safety net to minimize the status flicker window.
+                        if phase_idx < len(workflow.phases):
+                            await self._update_ticket_status(
+                                ticket_id, TicketStatus.IN_PROGRESS
+                            )
+                        # Safety net: commit any uncommitted changes the agent left behind
+                        await self._auto_commit_worktree(worktree, phase.name, ticket_id)
+                        if phase_idx < len(workflow.phases):
+                            ticket = await self.tickets.get(ticket_id)
+                        continue
+
+                    if result.status == "needs_info":
+                        _logger.info(
+                            "phase %s paused — waiting for user input on %s",
+                            phase.name,
+                            ticket_id,
+                        )
+                        await self._wait_for_resume(ticket_id)
+                        _logger.info(
+                            "ticket %s resumed — re-running phase %s", ticket_id, phase.name
+                        )
+                        ticket = await self.tickets.get(ticket_id)
+                        continue  # re-run same phase_idx
+
+                    if result.status == "blocked":
+                        fix_counts[phase_idx] = fix_counts.get(phase_idx, 0) + 1
+                        if fix_counts[phase_idx] > max_fix_cycles:
+                            _logger.warning(
+                                "phase %s blocked %d times — giving up on ticket %s",
+                                phase.name,
+                                fix_counts[phase_idx],
+                                ticket_id,
+                            )
+                            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                            await self._on_ticket_failed(ticket_id, ticket)
+                            return
+
+                        # Find the most recent dev/writing phase before this one to fix issues.
+                        fix_idx = self._find_fix_phase(workflow, phase_idx)
+                        if fix_idx is not None:
+                            _logger.info(
+                                "phase %s blocked — routing back to %s (attempt %d/%d)",
+                                phase.name,
+                                workflow.phases[fix_idx].name,
+                                fix_counts[phase_idx],
+                                max_fix_cycles,
+                            )
+                            await self._update_ticket_status(
+                                ticket_id, TicketStatus.IN_PROGRESS
+                            )
+                            await self._auto_commit_worktree(worktree, phase.name, ticket_id)
+                            phase_idx = fix_idx
+                            ticket = await self.tickets.get(ticket_id)
+                            continue
+
+                        _logger.warning(
+                            "phase %s blocked but no fix phase found — failing", phase.name
+                        )
+
+                    # Unrecoverable: fail the ticket.
                     await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
                     await self._on_ticket_failed(ticket_id, ticket)
                     return
 
-                # Find the most recent dev/writing phase before this one to fix issues.
-                fix_idx = self._find_fix_phase(workflow, phase_idx)
-                if fix_idx is not None:
-                    _logger.info(
-                        "phase %s blocked — routing back to %s (attempt %d/%d)",
-                        phase.name,
-                        workflow.phases[fix_idx].name,
-                        fix_counts[phase_idx],
-                        max_fix_cycles,
-                    )
-                    await self._update_ticket_status(
-                        ticket_id, TicketStatus.IN_PROGRESS
-                    )
-                    await self._auto_commit_worktree(worktree, phase.name, ticket_id)
-                    phase_idx = fix_idx
-                    ticket = await self.tickets.get(ticket_id)
-                    continue
-
-                _logger.warning(
-                    "phase %s blocked but no fix phase found — failing", phase.name
-                )
-
-            # Unrecoverable: fail the ticket.
-            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
-            await self._on_ticket_failed(ticket_id, ticket)
-            return
-
-        await self._on_ticket_completed(ticket_id, ticket)
+                finally:
+                    if self.threads is not None:
+                        outcome = result.status if result is not None else "failed"
+                        duration_ms = int(
+                            (time.monotonic() - phase_started_at) * 1000
+                        )
+                        await self.threads.post(
+                            SystemEvent(
+                                ticket_id=ticket_id,
+                                author="orchestrator",
+                                event_type="phase_end",
+                                content=outcome,
+                                payload={
+                                    "phase": phase.name,
+                                    "role": phase.role,
+                                    "duration_ms": duration_ms,
+                                    "outcome": outcome,
+                                },
+                            )
+                        )
+                    _phase_var.reset(phase_token)
+                    _role_var.reset(role_token)
+            await self._on_ticket_completed(ticket_id, ticket)
+        finally:
+            _ticket_id_var.reset(tid_token)
 
     async def _on_ticket_completed(self, ticket_id: str, ticket) -> None:
         """Post-completion: merge branch, set final status, emit event,
@@ -1036,8 +1084,6 @@ class Orchestrator:
                     "auto-committed leftover changes after %s: %s", phase_name, sha
                 )
                 if self.threads is not None:
-                    from jig.thread import SystemEvent
-
                     await self.threads.post(
                         SystemEvent(
                             ticket_id=ticket_id,
@@ -1124,8 +1170,6 @@ class Orchestrator:
         return await current_phase_index(self.threads, ticket_id, workflow)
 
     async def _write_phase_run_comment(self, ticket_id: str, phase, result) -> None:
-        from jig.thread import SystemEvent
-
         if self.threads is None:
             raise RuntimeError("Orchestrator not started")
 

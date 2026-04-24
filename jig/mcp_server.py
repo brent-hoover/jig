@@ -1,11 +1,19 @@
 """MCP server factory for agent ticket tools."""
 
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 from jig import checkpoint_mcp, thread_mcp, ticket_mcp
+from jig.logging_setup import (
+    _agent_id_var,
+    _phase_var,
+    _role_var,
+    _ticket_id_var,
+)
 from jig.models import RoleConfig
 from jig.store import Message, MessageBus, MessageType
 from jig.store.checkpoints import CheckpointStore
@@ -14,6 +22,39 @@ from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Question, SystemEvent
 from jig.ticket import TicketStatus
+
+
+ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
+def _wrap_with_context(
+    handler: ToolHandler,
+    *,
+    ticket_id: str | None,
+    phase: str | None,
+    role: str | None,
+    agent_id: str | None,
+) -> ToolHandler:
+    """Wrap an MCP tool handler so each call runs with the given
+    correlation context. The MCP SDK invokes each tool in a fresh
+    asyncio task that does NOT inherit our per-ticket contextvars,
+    so handlers must set them explicitly at the call boundary.
+    """
+
+    async def wrapper(args: dict[str, Any]) -> dict[str, Any]:
+        t_tid = _ticket_id_var.set(ticket_id)
+        t_phase = _phase_var.set(phase)
+        t_role = _role_var.set(role)
+        t_agent = _agent_id_var.set(agent_id)
+        try:
+            return await handler(args)
+        finally:
+            _ticket_id_var.reset(t_tid)
+            _phase_var.reset(t_phase)
+            _role_var.reset(t_role)
+            _agent_id_var.reset(t_agent)
+
+    return wrapper
 
 
 def create_agent_mcp_server(
@@ -33,6 +74,7 @@ def create_agent_mcp_server(
     can_waive: frozenset[str] = frozenset(),
     phase_questions_to: frozenset[str] = frozenset(),
     phase_escalation_targets: frozenset[str] = frozenset(),
+    ticket_id: str = "",
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -741,6 +783,19 @@ def create_agent_mcp_server(
         )
     if package_manager:
         all_tools.append(add_dependency)
+
+    # Wrap every tool handler so the correlation context is set on
+    # each incoming call. MCP tool calls arrive in fresh asyncio tasks
+    # that don't inherit the factory's contextvars.
+    _agent_id_stamp = f"{agent_role}:{(ticket_id or '')[:8]}"
+    for t in all_tools:
+        t.handler = _wrap_with_context(
+            t.handler,
+            ticket_id=ticket_id or None,
+            phase=phase_name or None,
+            role=agent_role,
+            agent_id=_agent_id_stamp,
+        )
 
     return create_sdk_mcp_server(
         name="jig",

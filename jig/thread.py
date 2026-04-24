@@ -403,6 +403,9 @@ class SystemEvent(_ThreadEntryBase):
         "status_change",
         "check_failure",
         "dep_merge_failed",
+        "phase_start",
+        "phase_end",
+        "agent_run",
     ]
     content: str = ""
     commit_sha: str | None = None
@@ -424,6 +427,10 @@ class SystemEvent(_ThreadEntryBase):
     # Flipped True by ``thread_waive_check`` (Task E). The gate reads
     # this to decide whether a failing check still blocks.
     waived: bool = False
+    # Free-form structured data for new event_types (phase_start,
+    # phase_end, agent_run). Existing event_types ignore this; the
+    # discriminated-union shape stays flat.
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 # ---- discriminated union --------------------------------------------------

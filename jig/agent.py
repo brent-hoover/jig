@@ -1,6 +1,7 @@
 """Agent runner — spawns Claude Code agents via the SDK in streaming input mode."""
 
 import asyncio
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -12,7 +13,11 @@ from claude_agent_sdk.types import (
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
+    ThinkingConfigAdaptive,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from jig.capability_compiler import compile as compile_capabilities
@@ -20,6 +25,12 @@ from jig.capability_compiler import materialize as materialize_capabilities
 from jig.context_resolver import resolve_context_uris
 from jig.environment import load_environment_md
 from jig.events import EventEmitter, JigEvent
+from jig.logging_setup import (
+    _agent_id_var,
+    _phase_var,
+    _role_var,
+    _ticket_id_var,
+)
 from jig.mcp_server import create_agent_mcp_server
 from jig.persistence import list_roles
 from jig.prompt_builder import build_initial_prompt
@@ -27,6 +38,7 @@ from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
 from jig.skill_loader import load_all_skills, match_skills
 from jig.store import Message
+from jig.thread import SystemEvent
 from jig.ticket import TicketStatus
 
 _logger = logging.getLogger(__name__)
@@ -68,6 +80,23 @@ def _tool_detail(tool_name: str, tool_input: dict) -> str:
         if isinstance(v, str) and v:
             return _sanitize_for_tui(v, limit=60)
     return ""
+
+
+def _thinking_config() -> ThinkingConfigAdaptive:
+    """Return the ThinkingConfig to pass to the SDK.
+
+    Adaptive lets the model choose its thinking budget per turn. If
+    cost becomes a concern, swap to ThinkingConfigEnabled(budget_tokens=N)
+    behind a single knob here.
+    """
+    return ThinkingConfigAdaptive(type="adaptive")
+
+
+# Cap for raw logged block text. Thinking blocks + tool results can
+# be large; truncate to keep the log file manageable. A companion
+# ``*_truncated`` DEBUG line records the real length so post-mortem
+# readers know to fetch the full content some other way if needed.
+_LOG_TRUNCATE_BYTES = 32 * 1024
 
 
 @dataclass
@@ -253,7 +282,6 @@ def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
     if not allowed_mcps:
         return {}
 
-    import json
     from pathlib import Path
 
     result: dict = {}
@@ -323,216 +351,320 @@ async def run_agent(
     a ticket_updated payload or by the timeout-poll noticing a terminal status
     on the ticket record).
     """
-    initial_prompt = await build_agent_prompt(ctx)
-    _logger.info("prompt built for %s (%d chars)", ctx.role, len(initial_prompt))
-    _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
-    _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
-
-    # Phase 5 Task F: compile capability policy (role base + phase
-    # override) and materialize the two enforcement artefacts before
-    # Claude Code starts. Only writes files when a declaration actually
-    # exists — a spawn with no declared policy gets no .claude/settings
-    # overwrite and no rules.json clutter. Task G's hook scripts read
-    # rules.json at tool-eval time. Hoisted before the MCP server so
-    # the compiled ``can_waive`` set can flow into the factory.
-    cap = _materialize_capability_policy(ctx)
-
-    all_roles = list_roles(ctx.project.path_or_default())
-    # Phase 5 Task K: per-phase thread-target allow-lists feed into
-    # thread_ask / thread_escalate as hard refusals. Missing ctx.phase
-    # (standalone spawns, tests) or empty lists keep today's permissive
-    # behavior — the MCP factory treats an empty frozenset as "no
-    # restriction declared".
-    phase_q_to: frozenset[str] = (
-        frozenset(ctx.phase.questions_to) if ctx.phase else frozenset()
-    )
-    phase_esc_targets: frozenset[str] = (
-        frozenset(ctx.phase.escalation_targets) if ctx.phase else frozenset()
-    )
-
-    mcp_server = create_agent_mcp_server(
-        tickets=ctx.tickets,
-        threads=ctx.threads,
-        memory=ctx.memory,
-        bus=ctx.bus,
-        agent_role=ctx.role,
-        agent_cfg=ctx.role_cfg,
-        worktree_path=ctx.worktree_path,
-        project_path=ctx.project.path_or_default(),
-        valid_roles=frozenset(r.role for r in all_roles),
-        package_manager=ctx.project.package_manager,
-        checkpoints=ctx.checkpoints,
-        phase_name=ctx.phase.name if ctx.phase else "",
-        can_waive=cap.can_waive,
-        phase_questions_to=phase_q_to,
-        phase_escalation_targets=phase_esc_targets,
-    )
-
-    mcp_servers: dict = {"jig": mcp_server}
-    external = _resolve_external_mcps(ctx.role_cfg.allowed_mcps)
-    mcp_servers.update(external)
-    if external:
-        _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
-
-    options = ClaudeAgentOptions(
-        cwd=str(ctx.worktree_path),
-        allowed_tools=ctx.role_cfg.allowed_tools,
-        system_prompt=ctx.role_cfg.phase_prompt,
-        mcp_servers=mcp_servers,
-        permission_mode="bypassPermissions",
-    )
-    _logger.info(
-        "agent config: cwd=%s tools=%s mcps=%s",
-        ctx.worktree_path,
-        ctx.role_cfg.allowed_tools,
-        ctx.role_cfg.allowed_mcps or ["jig"],
-    )
-
-    topic = f"tickets.{ctx.ticket.id}"
-    bus_queue = await ctx.bus.subscribe_agent(
-        topic=topic,
-        agent_id=f"{ctx.role}:{ctx.ticket.id}",
-    )
-    terminal_statuses = {
-        TicketStatus.RESOLVED,
-        TicketStatus.BLOCKED,
-        TicketStatus.NEEDS_INFO,
-    }
-    terminal_values = {status.value for status in terminal_statuses}
-    done = asyncio.Event()
-
-    def _user_message(content: str) -> dict:
-        return {
-            "type": "user",
-            "session_id": "",
-            "message": {"role": "user", "content": content},
-            "parent_tool_use_id": None,
-        }
-
-    async def _prompt_stream():
-        yield _user_message(initial_prompt)
-        while not done.is_set():
-            try:
-                msg = await asyncio.wait_for(bus_queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                current = await ctx.tickets.get(ctx.ticket.id)
-                if current and current.status in terminal_statuses:
-                    done.set()
-                continue
-            if not _is_relevant(msg, ctx):
-                continue
-            yield _user_message(_format_bus_event(msg))
-            payload = msg.payload or {}
-            if (
-                payload.get("kind") == "ticket_updated"
-                and payload.get("ticket_id") == ctx.ticket.id
-                and payload.get("status") in terminal_values
-            ):
-                done.set()
-
-    async def _emit(event_type: str, data: dict) -> None:
-        """Log and optionally emit an event to the TUI."""
-        if emitter is not None:
-            try:
-                await emitter.emit(JigEvent(type=event_type, data=data))
-            except Exception:
-                _logger.warning("emitter.emit raised; continuing", exc_info=True)
-
-    final_text = ""
-    # Short ticket prefix for log lines: first 8 chars of UUID
-    tid = ctx.ticket.id[:8]
-    tag = f"{ctx.role}:{tid}"
-    # Build sandboxed transport when running inside the jig container
-    transport = None
-    if sandbox_available():
-        # Only mount the policy + hook-bin dirs when we actually wrote
-        # a rules.json for this spawn. Without declared capabilities
-        # the settings.json registers no hooks, so the sandbox doesn't
-        # need either mount — keeping bwrap's mount list minimal
-        # reduces attack surface.
-        hook_bin = _hook_bin_dir() if cap.policy_dir is not None else None
-        bwrap_cfg = BwrapConfig(
-            worktree_host_path=ctx.worktree_path,
-            policy_dir_host_path=cap.policy_dir,
-            hook_bin_host_path=hook_bin,
-        )
-        transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
-        _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
-
-    _logger.info(
-        "launching claude agent for %s on %s in %s",
-        ctx.role,
-        ctx.ticket.id,
-        ctx.worktree_path,
-    )
+    # Stamp correlation fields for this spawn. ticket_id / phase /
+    # role are already set by the orchestrator in its per-ticket
+    # path, but run_agent is also called by evaluator spawns and
+    # tests so re-set defensively. The finally block at the end of
+    # this function resets these tokens.
+    _agent_id = f"{ctx.role}:{ctx.ticket.id[:8]}"
+    _tid_token = _ticket_id_var.set(ctx.ticket.id)
+    _phase_token = _phase_var.set(ctx.phase.name if ctx.phase else None)
+    _role_token = _role_var.set(ctx.role)
+    _agent_token = _agent_id_var.set(_agent_id)
     try:
-        async for message in query(
-            prompt=_prompt_stream(), options=options, transport=transport
-        ):
-            if isinstance(message, AssistantMessage):
-                for block in message.content or []:
-                    if isinstance(block, ToolUseBlock):
-                        detail = _tool_detail(block.name, block.input or {})
-                        _logger.info("[%s] tool: %s %s", tag, block.name, detail)
-                        await _emit(
-                            "agent_tool",
-                            {
-                                "role": ctx.role,
-                                "ticket_id": ctx.ticket.id,
-                                "tool": block.name,
-                                "detail": detail,
-                            },
-                        )
-                    elif isinstance(block, TextBlock):
-                        short = _sanitize_for_tui(block.text)
-                        if short:
-                            _logger.info(
-                                "[%s] text: %s",
+        initial_prompt = await build_agent_prompt(ctx)
+        _logger.info("prompt built for %s (%d chars)", ctx.role, len(initial_prompt))
+        _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
+        _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
+
+        # Phase 5 Task F: compile capability policy (role base + phase
+        # override) and materialize the two enforcement artefacts before
+        # Claude Code starts. Only writes files when a declaration actually
+        # exists — a spawn with no declared policy gets no .claude/settings
+        # overwrite and no rules.json clutter. Task G's hook scripts read
+        # rules.json at tool-eval time. Hoisted before the MCP server so
+        # the compiled ``can_waive`` set can flow into the factory.
+        cap = _materialize_capability_policy(ctx)
+
+        all_roles = list_roles(ctx.project.path_or_default())
+        # Phase 5 Task K: per-phase thread-target allow-lists feed into
+        # thread_ask / thread_escalate as hard refusals. Missing ctx.phase
+        # (standalone spawns, tests) or empty lists keep today's permissive
+        # behavior — the MCP factory treats an empty frozenset as "no
+        # restriction declared".
+        phase_q_to: frozenset[str] = (
+            frozenset(ctx.phase.questions_to) if ctx.phase else frozenset()
+        )
+        phase_esc_targets: frozenset[str] = (
+            frozenset(ctx.phase.escalation_targets) if ctx.phase else frozenset()
+        )
+
+        mcp_server = create_agent_mcp_server(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            memory=ctx.memory,
+            bus=ctx.bus,
+            agent_role=ctx.role,
+            agent_cfg=ctx.role_cfg,
+            worktree_path=ctx.worktree_path,
+            project_path=ctx.project.path_or_default(),
+            valid_roles=frozenset(r.role for r in all_roles),
+            package_manager=ctx.project.package_manager,
+            checkpoints=ctx.checkpoints,
+            phase_name=ctx.phase.name if ctx.phase else "",
+            can_waive=cap.can_waive,
+            phase_questions_to=phase_q_to,
+            phase_escalation_targets=phase_esc_targets,
+            ticket_id=ctx.ticket.id,
+        )
+
+        mcp_servers: dict = {"jig": mcp_server}
+        external = _resolve_external_mcps(ctx.role_cfg.allowed_mcps)
+        mcp_servers.update(external)
+        if external:
+            _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
+
+        options = ClaudeAgentOptions(
+            cwd=str(ctx.worktree_path),
+            allowed_tools=ctx.role_cfg.allowed_tools,
+            system_prompt=ctx.role_cfg.phase_prompt,
+            mcp_servers=mcp_servers,
+            permission_mode="bypassPermissions",
+            thinking=_thinking_config(),
+        )
+        _logger.info(
+            "agent config: cwd=%s tools=%s mcps=%s",
+            ctx.worktree_path,
+            ctx.role_cfg.allowed_tools,
+            ctx.role_cfg.allowed_mcps or ["jig"],
+        )
+
+        topic = f"tickets.{ctx.ticket.id}"
+        bus_queue = await ctx.bus.subscribe_agent(
+            topic=topic,
+            agent_id=f"{ctx.role}:{ctx.ticket.id}",
+        )
+        terminal_statuses = {
+            TicketStatus.RESOLVED,
+            TicketStatus.BLOCKED,
+            TicketStatus.NEEDS_INFO,
+        }
+        terminal_values = {status.value for status in terminal_statuses}
+        done = asyncio.Event()
+
+        def _user_message(content: str) -> dict:
+            return {
+                "type": "user",
+                "session_id": "",
+                "message": {"role": "user", "content": content},
+                "parent_tool_use_id": None,
+            }
+
+        async def _prompt_stream():
+            yield _user_message(initial_prompt)
+            while not done.is_set():
+                try:
+                    msg = await asyncio.wait_for(bus_queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    current = await ctx.tickets.get(ctx.ticket.id)
+                    if current and current.status in terminal_statuses:
+                        done.set()
+                    continue
+                if not _is_relevant(msg, ctx):
+                    continue
+                yield _user_message(_format_bus_event(msg))
+                payload = msg.payload or {}
+                if (
+                    payload.get("kind") == "ticket_updated"
+                    and payload.get("ticket_id") == ctx.ticket.id
+                    and payload.get("status") in terminal_values
+                ):
+                    done.set()
+
+        async def _emit(event_type: str, data: dict) -> None:
+            """Log and optionally emit an event to the TUI."""
+            if emitter is not None:
+                try:
+                    await emitter.emit(JigEvent(type=event_type, data=data))
+                except Exception:
+                    _logger.warning("emitter.emit raised; continuing", exc_info=True)
+
+        final_text = ""
+        # Short ticket prefix for log lines: first 8 chars of UUID
+        tid = ctx.ticket.id[:8]
+        tag = f"{ctx.role}:{tid}"
+        # Build sandboxed transport when running inside the jig container
+        transport = None
+        if sandbox_available():
+            # Only mount the policy + hook-bin dirs when we actually wrote
+            # a rules.json for this spawn. Without declared capabilities
+            # the settings.json registers no hooks, so the sandbox doesn't
+            # need either mount — keeping bwrap's mount list minimal
+            # reduces attack surface.
+            hook_bin = _hook_bin_dir() if cap.policy_dir is not None else None
+            bwrap_cfg = BwrapConfig(
+                worktree_host_path=ctx.worktree_path,
+                policy_dir_host_path=cap.policy_dir,
+                hook_bin_host_path=hook_bin,
+            )
+            transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
+            _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
+
+        _logger.info(
+            "launching claude agent for %s on %s in %s",
+            ctx.role,
+            ctx.ticket.id,
+            ctx.worktree_path,
+        )
+        try:
+            async for message in query(
+                prompt=_prompt_stream(), options=options, transport=transport
+            ):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content or []:
+                        if isinstance(block, ToolUseBlock):
+                            detail = _tool_detail(block.name, block.input or {})
+                            _logger.info("[%s] tool: %s %s", tag, block.name, detail)
+                            _logger.debug(
+                                "[%s] tool_input: id=%s %s",
                                 tag,
-                                _sanitize_for_tui(block.text, limit=2000),
+                                block.id,
+                                json.dumps(block.input or {}, default=str),
                             )
                             await _emit(
-                                "agent_text",
+                                "agent_tool",
                                 {
                                     "role": ctx.role,
                                     "ticket_id": ctx.ticket.id,
-                                    "text": short,
+                                    "tool": block.name,
+                                    "detail": detail,
                                 },
                             )
-            elif isinstance(message, SystemMessage):
-                _logger.debug("[%s] system: %s", tag, message.subtype)
-            elif isinstance(message, ResultMessage):
-                final_text = message.result or ""
-                _logger.info(
-                    "[%s] completed: %s turns, %.1fs",
-                    tag,
-                    message.num_turns,
-                    (message.duration_ms or 0) / 1000,
-                )
-            else:
-                # Fallback for mocked result-like messages
-                result = getattr(message, "result", None)
-                if isinstance(result, str):
-                    final_text = result
-    except Exception:
-        _logger.exception("claude agent SDK query failed for %s", ctx.role)
-        raise
-    finally:
-        done.set()
-        # Remove the queue from the topic fan-out list to prevent a slow leak
-        # in the orchestrator's per-ticket lifecycle.
-        # NOTE: _agent_subscriptions in bus.py still retains the key; cleaning
-        # that up is a known limitation to address in bus.py cleanup.
-        try:
-            await ctx.bus.unsubscribe(topic, bus_queue)
-        except Exception as exc:  # noqa: BLE001
-            _logger.warning("Failed to unsubscribe bus queue for %s: %s", topic, exc)
+                        elif isinstance(block, TextBlock):
+                            short = _sanitize_for_tui(block.text)
+                            if short:
+                                _logger.info(
+                                    "[%s] text: %s",
+                                    tag,
+                                    _sanitize_for_tui(block.text, limit=2000),
+                                )
+                                await _emit(
+                                    "agent_text",
+                                    {
+                                        "role": ctx.role,
+                                        "ticket_id": ctx.ticket.id,
+                                        "text": short,
+                                    },
+                                )
+                        elif isinstance(block, ThinkingBlock):
+                            # Post-mortem only — not emitted to TUI.
+                            raw = block.thinking or ""
+                            raw_bytes = raw.encode("utf-8")
+                            if len(raw_bytes) > _LOG_TRUNCATE_BYTES:
+                                truncated = raw_bytes[:_LOG_TRUNCATE_BYTES].decode(
+                                    "utf-8", errors="ignore"
+                                )
+                                _logger.debug(
+                                    "[%s] thinking_truncated: full_bytes=%d",
+                                    tag,
+                                    len(raw_bytes),
+                                )
+                            else:
+                                truncated = raw
+                            _logger.debug("[%s] thinking: %s", tag, truncated)
+                elif isinstance(message, UserMessage):
+                    content = message.content
+                    if isinstance(content, str):
+                        # Rare but allowed by the SDK type union; there are no
+                        # tool-result blocks to capture in a bare-string
+                        # user message.
+                        pass
+                    else:
+                        for block in content or []:
+                            if isinstance(block, ToolResultBlock):
+                                raw = (
+                                    block.content
+                                    if block.content is not None
+                                    else ""
+                                )
+                                if not isinstance(raw, str):
+                                    # SDK may give back a list of dicts;
+                                    # serialise.
+                                    raw = json.dumps(raw, default=str)
+                                raw_bytes = raw.encode("utf-8")
+                                if len(raw_bytes) > _LOG_TRUNCATE_BYTES:
+                                    truncated = raw_bytes[
+                                        :_LOG_TRUNCATE_BYTES
+                                    ].decode("utf-8", errors="ignore")
+                                    _logger.debug(
+                                        "[%s] tool_result_truncated: "
+                                        "id=%s full_bytes=%d",
+                                        tag,
+                                        block.tool_use_id,
+                                        len(raw_bytes),
+                                    )
+                                else:
+                                    truncated = raw
+                                is_error = bool(block.is_error)
+                                _logger.debug(
+                                    "[%s] tool_result: id=%s is_error=%s %s",
+                                    tag,
+                                    block.tool_use_id,
+                                    is_error,
+                                    truncated,
+                                )
+                elif isinstance(message, SystemMessage):
+                    _logger.debug("[%s] system: %s", tag, message.subtype)
+                elif isinstance(message, ResultMessage):
+                    final_text = message.result or ""
+                    _logger.info(
+                        "[%s] completed: %s turns, %.1fs",
+                        tag,
+                        message.num_turns,
+                        (message.duration_ms or 0) / 1000,
+                    )
+                    # Post an agent_run SystemEvent so the story view
+                    # gets per-spawn timing without having to parse logs.
+                    try:
+                        preview = _sanitize_for_tui(final_text, limit=500)
+                        await ctx.threads.post(
+                            SystemEvent(
+                                ticket_id=ctx.ticket.id,
+                                author="orchestrator",
+                                event_type="agent_run",
+                                content=f"{ctx.role} ran {message.num_turns} turns",
+                                payload={
+                                    "role": ctx.role,
+                                    "num_turns": message.num_turns,
+                                    "duration_ms": message.duration_ms or 0,
+                                    "spawn_reason": ctx.spawn_reason.value,
+                                    "result_preview": preview,
+                                },
+                            )
+                        )
+                    except Exception:
+                        _logger.warning(
+                            "failed to post agent_run SystemEvent", exc_info=True,
+                        )
+                else:
+                    # Fallback for mocked result-like messages
+                    result = getattr(message, "result", None)
+                    if isinstance(result, str):
+                        final_text = result
+        except Exception:
+            _logger.exception("claude agent SDK query failed for %s", ctx.role)
+            raise
+        finally:
+            done.set()
+            # Remove the queue from the topic fan-out list to prevent a slow leak
+            # in the orchestrator's per-ticket lifecycle.
+            # NOTE: _agent_subscriptions in bus.py still retains the key; cleaning
+            # that up is a known limitation to address in bus.py cleanup.
+            try:
+                await ctx.bus.unsubscribe(topic, bus_queue)
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("Failed to unsubscribe bus queue for %s: %s", topic, exc)
 
-    current = await ctx.tickets.get(ctx.ticket.id)
-    status = "success"
-    if current is not None:
-        status = _status_to_result(current.status)
-    return RunAgentResult(status=status, final_text=final_text)
+        current = await ctx.tickets.get(ctx.ticket.id)
+        status = "success"
+        if current is not None:
+            status = _status_to_result(current.status)
+        return RunAgentResult(status=status, final_text=final_text)
+    finally:
+        _ticket_id_var.reset(_tid_token)
+        _phase_var.reset(_phase_token)
+        _role_var.reset(_role_token)
+        _agent_id_var.reset(_agent_token)
 
 
 def _is_relevant(msg: Message, ctx: AgentSpawnContext) -> bool:

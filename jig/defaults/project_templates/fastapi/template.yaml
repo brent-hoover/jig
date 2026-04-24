@@ -1,4 +1,3 @@
-name: fastapi
 description: "FastAPI service with uv, pytest, and a containerized deploy target."
 language: python
 framework: fastapi

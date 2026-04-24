@@ -21,7 +21,7 @@ class TemplateMetadata(BaseModel):
     language: str
     framework: str | None = None
     deploy_target: str | None = None
-    package_manager: str = ""
+    package_manager: str | None = None
 
 
 def _templates_root() -> Path:
@@ -39,6 +39,12 @@ def list_templates() -> list[str]:
 def load_template_metadata(name: str) -> TemplateMetadata:
     """Load the metadata for a template. Raises KeyError if the
     template does not exist; ValueError if it has no template.yaml.
+
+    The ``name`` field on the returned metadata is always derived from
+    the directory name and is not read from ``template.yaml`` — any
+    declared ``name`` there is ignored. This prevents silent drift
+    between the directory the template lives in and the identifier it
+    advertises.
     """
     root = _templates_root()
     tpl_dir = root / name
@@ -50,5 +56,5 @@ def load_template_metadata(name: str) -> TemplateMetadata:
             f"template {name!r} missing template.yaml at {meta_path}"
         )
     data = yaml.safe_load(meta_path.read_text()) or {}
-    data.setdefault("name", name)
+    data["name"] = name
     return TemplateMetadata.model_validate(data)

@@ -25,6 +25,11 @@ class TicketStore:
         await self._collection.load()
 
     async def create(self, ticket: Ticket) -> str:
+        existing = await self._collection.get(ticket.id)
+        if existing is not None:
+            raise ValueError(
+                f"ticket with id {ticket.id!r} already exists"
+            )
         return await self._collection.insert(ticket)
 
     async def get(self, ticket_id: str) -> Ticket | None:

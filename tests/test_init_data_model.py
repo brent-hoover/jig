@@ -1,10 +1,13 @@
 """Data model extensions for the init workflow."""
 from pathlib import Path
 
+import pytest
+
 from jig.persistence import load_role
 from jig.spec_generator import Gap
+from jig.store.tickets import TicketStore
 from jig.thread import Note, SystemEvent
-from jig.ticket import WorkType
+from jig.ticket import Ticket, WorkType
 
 
 def test_worktype_has_brief_and_architecture():
@@ -80,3 +83,41 @@ def test_spec_generator_role_loads():
     assert "spec_report_gaps" in cfg.allowed_tools
     # No conversational tools per REQ-INIT-SPECGEN.9
     assert "ask_question" not in cfg.allowed_tools
+
+
+@pytest.mark.asyncio
+async def test_create_reserved_ticket_uses_given_id(tmp_path):
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+    ticket = Ticket(
+        id="brief",
+        work_type=WorkType.BRIEF,
+        title="Project brief",
+        created_by="cli",
+    )
+    tid = await store.create(ticket)
+    assert tid == "brief"
+    loaded = await store.get("brief")
+    assert loaded is not None
+    assert loaded.work_type == WorkType.BRIEF
+
+
+@pytest.mark.asyncio
+async def test_create_reserved_ticket_twice_raises(tmp_path):
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+    first = Ticket(
+        id="brief",
+        work_type=WorkType.BRIEF,
+        title="t1",
+        created_by="cli",
+    )
+    await store.create(first)
+    second = Ticket(
+        id="brief",
+        work_type=WorkType.BRIEF,
+        title="t2",
+        created_by="cli",
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        await store.create(second)

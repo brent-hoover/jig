@@ -33,3 +33,15 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
+
+    # Durably record the rename in the parent directory.
+    try:
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        # Platform or filesystem doesn't support directory fsync. The
+        # replace itself succeeded; data is already durable.
+        pass

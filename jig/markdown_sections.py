@@ -15,7 +15,7 @@ _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 def list_sections(path: Path) -> list[str]:
     """Return the names of all level-2 sections, in document order."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     return [m.group(1) for m in _HEADING_RE.finditer(text)]
 
 
@@ -24,7 +24,7 @@ def get_section(path: Path, name: str) -> str:
     and the next level-2 heading or EOF), without the heading line.
     Raises KeyError if the section is not present.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     bounds = _section_bounds(text, name)
     if bounds is None:
         raise KeyError(name)
@@ -37,7 +37,7 @@ def set_section(path: Path, name: str, body: str) -> None:
     section at EOF if not present. ``body`` should not include the
     heading line. A trailing newline is ensured.
     """
-    text = path.read_text() if path.exists() else ""
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
     if not body.endswith("\n"):
         body = body + "\n"
 

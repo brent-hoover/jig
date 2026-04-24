@@ -41,3 +41,21 @@ def test_atomic_write_no_partial_on_interrupt(tmp_path: Path, monkeypatch):
         atomic_write_text(target, "corrupted")
     monkeypatch.setattr(os, "replace", orig_replace)
     assert target.read_text() == "original"
+
+
+def test_atomic_write_fsyncs_directory(tmp_path: Path, monkeypatch):
+    """fsync is called on both the file fd and the parent directory fd."""
+    import os
+
+    fsync_calls: list[int] = []
+    orig_fsync = os.fsync
+
+    def counting_fsync(fd):
+        fsync_calls.append(fd)
+        return orig_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", counting_fsync)
+    target = tmp_path / "data.txt"
+    atomic_write_text(target, "durable")
+    # Expect at least 2 fsync calls: the file fd, then the parent dir fd.
+    assert len(fsync_calls) >= 2

@@ -9,14 +9,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
+from jig.atomic import atomic_write_text
 from jig.markdown_sections import get_section, list_sections, set_section
+from jig.spec_generator import Gap
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
-from jig.thread import Handoff
+from jig.thread import Handoff, Note, SystemEvent
 
 
 def _brief_path(project_path: Path) -> Path:
     return project_path / ".jig" / "spec" / "project.md"
+
+
+def _spec_path(project_path: Path) -> Path:
+    return project_path / ".jig" / "spec" / "project.structured.yaml"
 
 
 async def handle_brief_list_sections(*, project_path: Path) -> list[str]:
@@ -72,3 +80,85 @@ async def handle_po_finish_brief(
         )
     )
     return entry_id
+
+
+async def handle_spec_publish(
+    *,
+    threads: ThreadStore,
+    bus: MessageBus,
+    project_path: Path,
+    yaml_content: str,
+    advisory_notes: list[str],
+    author: str,
+) -> None:
+    """Write the structured spec and emit spec_generated."""
+    try:
+        yaml.safe_load(yaml_content)
+    except yaml.YAMLError as e:
+        raise ValueError(f"cannot parse spec YAML: {e}") from e
+    atomic_write_text(_spec_path(project_path), yaml_content)
+    if advisory_notes:
+        await threads.post(
+            Note(
+                ticket_id="brief",
+                author=author,
+                text="Advisory notes:\n" + "\n".join(f"- {n}" for n in advisory_notes),
+                payload={"advisory_notes": list(advisory_notes)},
+            )
+        )
+    await threads.post(
+        SystemEvent(
+            ticket_id="brief",
+            author=author,
+            event_type="spec_generated",
+            content="structured spec written",
+        )
+    )
+    await bus.publish(
+        Message(
+            sender=author,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={"kind": "spec_generated", "ticket_id": "brief"},
+            topic="orchestrator",
+        )
+    )
+
+
+async def handle_spec_report_gaps(
+    *,
+    threads: ThreadStore,
+    bus: MessageBus,
+    project_path: Path,
+    gaps: list[Gap],
+    author: str,
+) -> None:
+    """Post a structured Note and emit spec_gaps_reported."""
+    rendered = "\n".join(
+        f"- [{g.severity}] {g.location}: {g.description}" for g in gaps
+    )
+    await threads.post(
+        Note(
+            ticket_id="brief",
+            author=author,
+            text=f"Gaps:\n{rendered}",
+            payload={"gaps": [g.model_dump() for g in gaps]},
+        )
+    )
+    await threads.post(
+        SystemEvent(
+            ticket_id="brief",
+            author=author,
+            event_type="spec_gaps_reported",
+            content=f"{len(gaps)} gap(s) reported",
+        )
+    )
+    await bus.publish(
+        Message(
+            sender=author,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={"kind": "spec_gaps_reported", "ticket_id": "brief"},
+            topic="orchestrator",
+        )
+    )

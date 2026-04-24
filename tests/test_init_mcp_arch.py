@@ -13,6 +13,7 @@ from jig.init_mcp import (
 from jig.store.bus import MessageBus
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.thread import Note
 from jig.ticket import Ticket, WorkType
 
 
@@ -179,3 +180,55 @@ async def test_sa_propose_scaffold_empty_rationale_raises(wired):
             config={},
             author="sa",
         )
+
+
+@pytest.mark.asyncio
+async def test_arch_set_field_three_segment_path_with_list_index(wired):
+    await handle_arch_set_field(
+        threads=wired["threads"],
+        project_path=wired["project_path"],
+        path="data_stores.0.type",
+        value="postgres",
+        author="sa",
+    )
+    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
+    data = yaml.safe_load(arch_file.read_text())
+    assert data == {"data_stores": [{"type": "postgres"}]}
+
+
+@pytest.mark.asyncio
+async def test_arch_set_field_disjoint_writes_both_persist(wired):
+    await handle_arch_set_field(
+        threads=wired["threads"],
+        project_path=wired["project_path"],
+        path="rationale",
+        value="async backend",
+        author="sa",
+    )
+    await handle_arch_set_field(
+        threads=wired["threads"],
+        project_path=wired["project_path"],
+        path="language",
+        value="python",
+        author="sa",
+    )
+    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
+    data = yaml.safe_load(arch_file.read_text())
+    assert data["rationale"] == "async backend"
+    assert data["language"] == "python"
+
+
+@pytest.mark.asyncio
+async def test_arch_set_field_posts_tool_use_note(wired):
+    await handle_arch_set_field(
+        threads=wired["threads"],
+        project_path=wired["project_path"],
+        path="rationale",
+        value="async backend",
+        author="sa",
+    )
+    entries = await wired["threads"].for_ticket("architecture")
+    notes = [e for e in entries if isinstance(e, Note)]
+    assert len(notes) == 1
+    assert notes[0].payload == {"path": "rationale", "value": "async backend"}
+    assert notes[0].author == "sa"

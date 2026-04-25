@@ -27,7 +27,7 @@ from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.template_registry import list_templates, load_template_metadata
-from jig.thread import Note, SystemEvent
+from jig.thread import Handoff, Note, SystemEvent
 from jig.ticket import Ticket, WorkType
 
 
@@ -475,6 +475,85 @@ async def apply_scaffold(
             content=f"template={template_name}",
         )
     )
+
+
+class ResumeState(str, Enum):
+    PO_CONVERSATION = "po_conversation"
+    SPEC_GENERATION = "spec_generation"
+    GAP_PROMPT = "gap_prompt"
+    BRANCH_PROMPT = "branch_prompt"
+    SA_CONVERSATION = "sa_conversation"
+    SA_CONFIRM_PROMPT = "sa_confirm_prompt"
+    DIRECT_TEMPLATE_PICK = "direct_template_pick"
+    ALREADY_DONE = "already_done"
+    BROKEN = "broken"
+
+
+async def classify_resume(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+) -> ResumeState:
+    """Pure inspection. Maps persisted state to the next action."""
+    # Short-circuit on already-done / broken via directory state.
+    ds = classify_directory(project_path)
+    if ds == DirState.ALREADY_DONE:
+        return ResumeState.ALREADY_DONE
+    if ds == DirState.BROKEN:
+        return ResumeState.BROKEN
+
+    brief = await tickets.get("brief")
+    if brief is None:
+        return ResumeState.PO_CONVERSATION
+
+    brief_entries = await threads.for_ticket("brief")
+    has_handoff = any(isinstance(e, Handoff) for e in brief_entries)
+    has_spec_gen_event = any(
+        isinstance(e, SystemEvent) and e.event_type == "spec_generated"
+        for e in brief_entries
+    )
+    has_gaps_event = any(
+        isinstance(e, SystemEvent) and e.event_type == "spec_gaps_reported"
+        for e in brief_entries
+    )
+
+    if not has_handoff and not has_spec_gen_event:
+        return ResumeState.PO_CONVERSATION
+    if has_gaps_event and not has_spec_gen_event:
+        return ResumeState.GAP_PROMPT
+    if not has_spec_gen_event:
+        return ResumeState.SPEC_GENERATION
+
+    # Spec generated. Now look at architecture ticket.
+    arch = await tickets.get("architecture")
+    if arch is None:
+        return ResumeState.BRANCH_PROMPT
+
+    arch_entries = await threads.for_ticket("architecture")
+    has_sa_skipped = any(
+        isinstance(e, SystemEvent) and e.event_type == "sa_skipped"
+        for e in arch_entries
+    )
+    has_scaffold_applied = any(
+        isinstance(e, SystemEvent) and e.event_type == "scaffold_applied"
+        for e in arch_entries
+    )
+    proposal = next(
+        (
+            e for e in arch_entries
+            if isinstance(e, Note) and e.payload.get("kind") == "sa_propose_scaffold"
+        ),
+        None,
+    )
+
+    if has_scaffold_applied:
+        return ResumeState.ALREADY_DONE
+    if has_sa_skipped:
+        return ResumeState.DIRECT_TEMPLATE_PICK
+    if proposal is not None:
+        return ResumeState.SA_CONFIRM_PROMPT
+    return ResumeState.SA_CONVERSATION
 
 
 def _confirm_force(target: Path) -> None:

@@ -19,7 +19,7 @@ import yaml
 from jig.agent import run_agent
 from jig.atomic import atomic_write_text
 from jig.persistence import load_role
-from jig.project import load_project
+from jig.project import Project, load_project, save_project
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.spec_generator import Gap, run_spec_generator
 from jig.store.bus import MessageBus
@@ -62,21 +62,31 @@ def classify_directory(path: Path) -> DirState:
 
 
 def create_stub(path: Path, *, name: str) -> None:
-    """Create the minimal on-disk stub: ``.jig/project.yaml`` and
-    ``.jig/spec/project.md``. Idempotent: never overwrites an existing
-    project.yaml or brief.
+    """Create the minimal on-disk stub: ``.jig/project.yaml``,
+    ``.jig/config.yaml``, and ``.jig/spec/project.md``. Idempotent: never
+    overwrites an existing project.yaml or config.yaml.
+
+    The lightweight ``project.yaml`` is the init-state marker read by
+    ``classify_directory``; ``config.yaml`` is the runtime project config
+    read by ``load_project`` once the workflow advances past stub creation.
+    Both share the same ``id``.
     """
     path.mkdir(parents=True, exist_ok=True)
     (path / ".jig").mkdir(exist_ok=True)
     (path / ".jig" / "spec").mkdir(exist_ok=True)
     project_yaml = path / ".jig" / "project.yaml"
     if not project_yaml.is_file():
+        project_id = str(uuid.uuid4())
         data = {
-            "id": str(uuid.uuid4()),
+            "id": project_id,
             "name": name,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         atomic_write_text(project_yaml, yaml.safe_dump(data, sort_keys=False))
+        save_project(
+            path,
+            Project(id=project_id, name=name, path=str(path.resolve())),
+        )
     brief = path / ".jig" / "spec" / "project.md"
     if not brief.is_file():
         atomic_write_text(brief, f"# {name}\n")

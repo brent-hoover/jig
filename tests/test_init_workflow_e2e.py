@@ -20,44 +20,7 @@ from jig.init_mcp import (
     handle_spec_publish,
 )
 from jig.init_workflow import run_init
-from jig.models import RoleConfig
-from jig.persistence import save_role
-from jig.project import Project, save_project
 from jig.runtime import AgentSpawnContext
-
-
-def _seed_project(tmp_path: Path, name: str) -> Path:
-    """Create the project directory with config.yaml + role overrides.
-
-    ``run_init`` calls ``load_project``/``load_role`` from inside
-    ``run_po_conversation`` etc., so we have to seed both before
-    dispatch can succeed. Pre-creating ``.jig/project.yaml`` plus
-    ``config.yaml`` puts the directory in ``IN_PROGRESS`` state, which
-    ``run_init`` treats the same as ``FRESH``.
-    """
-    project = tmp_path / name
-    project.mkdir()
-    (project / ".jig").mkdir()
-    (project / ".jig" / "spec").mkdir()
-    # Stub project.yaml so classify_directory accepts it as IN_PROGRESS.
-    (project / ".jig" / "project.yaml").write_text(
-        f"id: {name}\nname: {name}\ncreated_at: 2026-04-24T00:00:00Z\n"
-    )
-    (project / ".jig" / "spec" / "project.md").write_text(f"# {name}\n")
-    save_project(
-        project,
-        Project(
-            id=name,
-            name=name,
-            path=str(project),
-            language="python",
-            package_manager="uv",
-        ),
-    )
-    (project / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
-    for role in ("po", "sa", "spec-generator"):
-        save_role(project, RoleConfig(role=role, phase_prompt=role))
-    return project
 
 
 class FakeAgent:
@@ -84,7 +47,6 @@ class FakeAgent:
 
 async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    project = _seed_project(tmp_path, "proj")
     agent = FakeAgent()
 
     @agent.handle(role="po", ticket_id="brief")
@@ -138,6 +100,7 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             patch("jig.spec_generator.run_agent", new=agent.run):
         await run_init(name="proj", force=False)
 
+    project = tmp_path / "proj"
     assert (project / ".jig" / "spec" / "project.md").is_file()
     assert (project / ".jig" / "spec" / "project.structured.yaml").is_file()
     assert (project / ".jig" / "spec" / "architecture.yaml").is_file()
@@ -151,7 +114,6 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
 
 async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    project = _seed_project(tmp_path, "directproj")
     agent = FakeAgent()
 
     @agent.handle(role="po", ticket_id="brief")
@@ -187,6 +149,7 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
             patch("jig.spec_generator.run_agent", new=agent.run):
         await run_init(name="directproj", force=False)
 
+    project = tmp_path / "directproj"
     arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
@@ -200,7 +163,6 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
 
 async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    project = _seed_project(tmp_path, "resumeproj")
     agent = FakeAgent()
 
     @agent.handle(role="po", ticket_id="brief")
@@ -249,6 +211,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
         # Second run picks up at BRANCH_PROMPT and lands the scaffold.
         await run_init(name="resumeproj", force=False)
 
+    project = tmp_path / "resumeproj"
     arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())

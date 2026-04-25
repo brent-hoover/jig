@@ -49,7 +49,7 @@ jig --help                              # editable tool install is live
 ```
 
 Expected: tests green, smoke prints `[smoke] PASS`, `jig --help` lists
-`build / hooks / init / reset / start / sync / validate`.
+`build / hooks / init / reset / start / story / sync / ticket / validate`.
 
 If any of these fail, **stop** — a real-agent run will just amplify whatever's
 already broken.
@@ -207,11 +207,28 @@ worktree. You'll see:
 **If it lands on `needs_info`:** open the ticket (Tab to ticket view, j/k to
 pick it), press whatever the TUI hint says to answer (currently: open the
 answer modal per `tui/src/answer-form.tsx`). The `answer_questions` path
-flips the ticket back to `in_progress` and the phase resumes.
+flips the ticket back to `in_progress` and the phase resumes. To see what
+the agent actually asked (with surrounding context), run:
+
+```bash
+jig story <ticket-id>            # merged thread + log narrative
+jig story <ticket-id> --json     # one event per line for grep/jq
+```
 
 **If a phase fails:** the ticket goes to `failed`. The worktree is preserved
-at `/tmp/jig-dogfood/jig/<ticket-id>/`. Look at
-`/tmp/jig-dogfood/.jig/logs/jig-<timestamp>.log` for the traceback.
+at `/tmp/jig-dogfood/jig/<ticket-id>/`. Reach for `jig story` first — it
+interleaves thread entries (handoffs, questions, decisions, system events)
+with the matching log lines, scoped to that one ticket, sorted by time:
+
+```bash
+jig story <ticket-id>
+jig story <ticket-id> --since 2026-04-25T14:00:00   # narrow to the failing run
+jig story <ticket-id> --include-children            # if it has subtickets
+jig story <ticket-id> --level DEBUG                 # include DEBUG log lines
+```
+
+Drop into `/tmp/jig-dogfood/.jig/logs/jig-<timestamp>.jsonl` only if the
+story is missing context (an unticketed crash, daemon-level errors, etc).
 
 **If everything works:** after `document` finishes, the orchestrator merges
 `jig/<ticket-id>` into your default branch, emits `ticket_completed`, and the
@@ -240,7 +257,8 @@ the "friction" list — that's the actual output of a dogfood run.
 - **Phase blocked by thread.** Something posted a blocking Objection or a
   Handoff that nobody accepted. `phase_blocked_by_thread` lands on the bus;
   TUI logs it. Human action required — accept the handoff or resolve the
-  objection via the thread tools.
+  objection via the thread tools. `jig story <ticket-id>` shows exactly
+  which thread entry is blocking and who posted it.
 
 ## 9. Reset between runs
 

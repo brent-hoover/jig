@@ -9,10 +9,9 @@ import click
 
 from jig.events import EventEmitter
 from jig.models import MergeStrategy
-from jig.project import Project, save_project
+from jig.project import Project
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
-from jig.persistence import init_project
 from jig.worktree import remove_worktree
 
 
@@ -188,119 +187,15 @@ def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
 
 
 @cli.command()
-@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--branch",
-    default=None,
-    help="Default branch name (auto-detected from current branch).",
-)
-@click.option(
-    "--template",
-    "template_name",
-    default=None,
-    help="Project template (python, fastapi).",
-)
-@click.option("--no-input", is_flag=True, help="Skip interactive prompts.")
-@click.option(
-    "--no-hooks",
-    is_flag=True,
-    help="Skip installing git hooks (pre-commit/pre-push/commit-msg).",
-)
-def init(
-    path: Path,
-    branch: str | None,
-    template_name: str | None,
-    no_input: bool,
-    no_hooks: bool,
-) -> None:
-    """Initialize .jig/ in a project."""
-    if not (path / ".git").is_dir():
-        if no_input:
-            raise click.ClickException(
-                f"{path} is not a git repository. Run 'git init' first, or omit --no-input to be prompted."
-            )
-        if not click.confirm(
-            f"{path} is not a git repository. Initialize one?", default=True
-        ):
-            raise click.ClickException("Aborted: jig requires a git repository.")
-        init_branch = branch or "main"
-        result = subprocess.run(
-            ["git", "init", "-b", init_branch], cwd=path, capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            raise click.ClickException(f"git init failed: {result.stderr.strip()}")
-        click.echo(
-            f"Initialized empty git repository in {path} (branch: {init_branch})"
-        )
+@click.argument("name")
+@click.option("--force", is_flag=True, help="Wipe .jig/ state and restart.")
+def init(name: str, force: bool) -> None:
+    """Initialize a new jig project: brief → spec → architecture → scaffold."""
+    import asyncio
 
-    if branch is None:
-        branch = _detect_branch(path)
+    from jig.init_workflow import run_init
 
-    try:
-        init_project(path, default_branch=branch)
-    except FileExistsError:
-        raise click.ClickException(f"Already initialized: {path / '.jig'}")
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    click.echo(f"Initialized Jig in {path / '.jig'} (branch: {branch})")
-
-    project_name = path.resolve().name
-
-    # Apply project template if specified (or prompt for one)
-    if template_name is None and not no_input:
-        available = _available_templates()
-        if available:
-            choice = click.prompt(
-                f"Project template ({', '.join(available)}, or blank to skip)",
-                default="",
-            )
-            if choice.strip():
-                template_name = choice.strip()
-
-    if template_name:
-        _apply_template(template_name, path, project_name)
-        click.echo(f"Applied template: {template_name}")
-    project_id = project_name
-    tpl_defaults = _TEMPLATE_DEFAULTS.get(template_name or "", {})
-
-    base_project = Project(
-        id=project_id,
-        name=project_name,
-        path=str(path.resolve()),
-        default_branch=branch,
-        **tpl_defaults,
-    )
-
-    if no_input:
-        save_project(path, base_project)
-    else:
-        click.echo()
-        project = _prompt_project_context(path, base_project)
-        save_project(path, project)
-        click.echo("\nProject saved to .jig/config.yaml")
-
-    # Install hooks BEFORE the initial commit so freshly-installed hooks
-    # don't gate the init commit on themselves.
-    if not no_hooks:
-        from jig.hooks import HookInstallError, install_hooks
-
-        try:
-            report = install_hooks(path)
-        except HookInstallError as exc:
-            click.echo(f"Warning: hook install failed: {exc}", err=True)
-        else:
-            for line in report:
-                click.echo(line)
-
-    # Commit everything so worktrees branch from a working state
-    subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "--no-verify", "-m", "chore: initialize jig project"],
-        cwd=path,
-        capture_output=True,
-    )
-    click.echo("Initial commit created.")
+    asyncio.run(run_init(name=name, force=force))
 
 
 @cli.command()

@@ -9,7 +9,6 @@ import yaml
 from click.testing import CliRunner
 
 from jig.cli import cli
-from jig.persistence import list_roles, load_workflow
 
 
 @pytest.fixture
@@ -37,130 +36,6 @@ def tmp_new_jig_project(tmp_path: Path) -> Path:
     (jig_dir / "worktrees").mkdir()
     (jig_dir / "store").mkdir()
     return tmp_path
-
-
-class TestInit:
-    def test_init_creates_config_yaml(self, tmp_path: Path, runner: CliRunner) -> None:
-        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path,
-            check=True,
-        )
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
-        assert result.exit_code == 0, result.output
-        jig = tmp_path / ".jig"
-        assert (jig / "config.yaml").is_file()
-        assert not (jig / "project.json").exists()
-        assert not (jig / "issues").exists()
-        # Operational
-        assert (jig / "worktrees").is_dir()
-        assert (jig / "roles").is_dir()
-        assert (jig / "workflows").is_dir()
-        assert (jig / "store").is_dir()
-        # Doc-17 placeholders
-        assert (jig / "spec").is_dir()
-        assert (jig / "context" / "project").is_dir()
-        assert (jig / "context" / "roles").is_dir()
-        assert (jig / "decisions").is_dir()
-        assert (jig / "archive").is_dir()
-        assert (jig / "checks.yaml").is_file()
-
-    def test_init_config_yaml_contains_branch(
-        self, tmp_path: Path, runner: CliRunner
-    ) -> None:
-        subprocess.run(["git", "init", "-q", "-b", "develop"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path,
-            check=True,
-        )
-        result = runner.invoke(
-            cli, ["init", "--path", str(tmp_path), "--branch", "develop", "--no-input"]
-        )
-        assert result.exit_code == 0, result.output
-        data = yaml.safe_load((tmp_path / ".jig" / "config.yaml").read_text())
-        assert data["project"]["default_branch"] == "develop"
-
-    def test_already_initialized(
-        self, runner: CliRunner, tmp_new_jig_project: Path
-    ) -> None:
-        result = runner.invoke(cli, ["init", "--path", str(tmp_new_jig_project)])
-        assert result.exit_code != 0
-        assert "already" in result.output.lower()
-
-    def test_not_git_repo_no_input_errors(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
-        assert result.exit_code != 0
-        assert "git" in result.output.lower()
-
-    def test_not_git_repo_prompt_accept_creates_repo(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        # "y" to confirm git init, then blank lines to accept project-context defaults
-        result = runner.invoke(
-            cli, ["init", "--path", str(tmp_path)], input="y\n" + "\n" * 20
-        )
-        assert result.exit_code == 0, result.output
-        assert (tmp_path / ".git").is_dir()
-        assert (tmp_path / ".jig").is_dir()
-        assert "Initialized empty git repository" in result.output
-
-    def test_not_git_repo_prompt_decline_aborts(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="n\n")
-        assert result.exit_code != 0
-        assert not (tmp_path / ".jig").exists()
-        assert "Aborted" in result.output
-
-
-class TestInitCreatesAgentTypes:
-    def test_init_creates_default_roles(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path,
-            check=True,
-        )
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
-        assert result.exit_code == 0, result.output
-        types = list_roles(tmp_path)
-        roles = {t.role for t in types}
-        assert roles == {
-            "spec",
-            "test",
-            "dev",
-            "review",
-            "validate",
-            "document",
-            "pm",
-            "user",
-            "po",
-            "sa",
-            "spec-generator",
-        }
-
-
-class TestInitCreatesWorkflow:
-    def test_init_creates_default_workflow(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "--allow-empty", "-m", "init"],
-            cwd=tmp_path,
-            check=True,
-        )
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path), "--no-input"])
-        assert result.exit_code == 0, result.output
-        workflow = load_workflow(tmp_path, "default")
-        assert workflow.name == "default"
-        assert len(workflow.phases) == 6
 
 
 class TestStart:
@@ -238,9 +113,15 @@ class TestValidate:
             ["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True
         )
 
-        result = CliRunner().invoke(cli, ["init", "--path", str(repo), "--no-input"])
-        assert result.exit_code == 0, result.output
-        # jig init creates its own commit; nothing further to stage.
+        from jig.persistence import init_project
+
+        init_project(repo, default_branch="main")
+        subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "--no-verify", "-m", "chore: init jig"],
+            cwd=repo,
+            capture_output=True,
+        )
         return repo
 
     def test_validate_ticket(self, runner: CliRunner, git_jig_project: Path) -> None:

@@ -1,8 +1,8 @@
 """CLI init entry: directory state, stub creation, top-level dispatch."""
 from pathlib import Path
 
-import pytest
-
+from jig import init_workflow as iw_mod
+from jig.agent import RunAgentResult
 from jig.init_workflow import (
     DirState,
     classify_directory,
@@ -114,21 +114,16 @@ async def _bootstrap_init_project(tmp_path: Path):
     return tickets, threads, memory, bus
 
 
-@pytest.mark.asyncio
 async def test_run_po_conversation_creates_brief_ticket_and_spawns(
     tmp_path: Path, monkeypatch
 ):
     tickets, threads, memory, bus = await _bootstrap_init_project(tmp_path)
 
-    captured: dict = {}
+    captured = {}
 
     async def fake_run_agent(ctx, emitter=None):
         captured["ctx"] = ctx
-        from jig.agent import RunAgentResult
-
         return RunAgentResult(status="success", final_text="ok")
-
-    from jig import init_workflow as iw_mod
 
     monkeypatch.setattr(iw_mod, "run_agent", fake_run_agent)
 
@@ -150,7 +145,6 @@ async def test_run_po_conversation_creates_brief_ticket_and_spawns(
     assert ctx.worktree_path == tmp_path
 
 
-@pytest.mark.asyncio
 async def test_run_po_conversation_is_idempotent_on_existing_brief(
     tmp_path: Path, monkeypatch
 ):
@@ -159,20 +153,16 @@ async def test_run_po_conversation_is_idempotent_on_existing_brief(
         Ticket(
             id="brief",
             work_type=WorkType.BRIEF,
-            title="Project brief",
+            title="Pre-existing brief",
             created_by="cli",
         )
     )
 
-    captured: dict = {}
+    captured = {}
 
     async def fake_run_agent(ctx, emitter=None):
         captured["ctx"] = ctx
-        from jig.agent import RunAgentResult
-
         return RunAgentResult(status="success", final_text="ok")
-
-    from jig import init_workflow as iw_mod
 
     monkeypatch.setattr(iw_mod, "run_agent", fake_run_agent)
 
@@ -186,3 +176,8 @@ async def test_run_po_conversation_is_idempotent_on_existing_brief(
 
     ctx = captured["ctx"]
     assert ctx.ticket.id == "brief"
+    assert ctx.ticket.title == "Pre-existing brief"
+
+    persisted = await tickets.get("brief")
+    assert persisted is not None
+    assert persisted.title == "Pre-existing brief"

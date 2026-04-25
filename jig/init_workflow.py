@@ -21,7 +21,7 @@ from jig.atomic import atomic_write_text
 from jig.persistence import load_role
 from jig.project import load_project
 from jig.runtime import AgentSpawnContext, SpawnReason
-from jig.spec_generator import Gap
+from jig.spec_generator import Gap, run_spec_generator
 from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
@@ -127,7 +127,6 @@ async def run_init(*, name: str, force: bool) -> None:
             )
             continue
         if rs == ResumeState.SPEC_GENERATION:
-            from jig.spec_generator import run_spec_generator
             await run_spec_generator(
                 project_path=target, tickets=tickets,
                 threads=threads, memory=memory, bus=bus,
@@ -170,13 +169,17 @@ async def run_init(*, name: str, force: bool) -> None:
             continue
         if rs == ResumeState.SA_CONFIRM_PROMPT:
             decision, proposal = await prompt_sa_confirm(threads)
-            assert proposal is not None
             if decision == ConfirmChoice.NO:
                 click.echo("Scaffold cancelled. State saved.")
                 return
             if decision == ConfirmChoice.SWAP:
-                # Re-spawn SA; the existing proposal remains in the
-                # thread so SA sees the prior decision.
+                # Re-spawn SA. SA reads the existing proposal from the
+                # thread, treats it as the prior decision, and is
+                # expected to post a NEW proposal — `latest_scaffold_proposal`
+                # then returns that new one on the next iteration. If SA
+                # exits without proposing again, the user sees the same
+                # proposal and can hit `n` to abort. We do not record a
+                # swap marker — the proposal sequence itself is the trail.
                 await run_sa_conversation(
                     project_path=target, tickets=tickets,
                     threads=threads, memory=memory, bus=bus,
@@ -374,7 +377,7 @@ async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:
 
 async def prompt_sa_confirm(
     threads: ThreadStore,
-) -> tuple[ConfirmChoice, dict | None]:
+) -> tuple[ConfirmChoice, dict]:
     proposal = await latest_scaffold_proposal(threads)
     if proposal is None:
         raise RuntimeError("prompt_sa_confirm called with no proposal")

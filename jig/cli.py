@@ -8,8 +8,6 @@ from pathlib import Path
 import click
 
 from jig.events import EventEmitter
-from jig.models import MergeStrategy
-from jig.project import Project
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
 from jig.worktree import remove_worktree
@@ -18,31 +16,6 @@ from jig.worktree import remove_worktree
 @click.group()
 def cli() -> None:
     """Jig: Agent harness for Claude Code."""
-
-
-def _detect_branch(path: Path) -> str:
-    """Detect the current git branch, falling back to 'main'."""
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=path,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except subprocess.CalledProcessError:
-        try:
-            ref = subprocess.check_output(
-                ["git", "symbolic-ref", "HEAD"],
-                cwd=path,
-                text=True,
-                stderr=subprocess.DEVNULL,
-            ).strip()
-            return ref.removeprefix("refs/heads/")
-        except subprocess.CalledProcessError:
-            return "main"
-
-
-_MERGE_STRATEGIES = [s.value for s in MergeStrategy]
 
 
 async def _report_section_locks(project_path: Path, ticket_id: str) -> None:
@@ -84,106 +57,6 @@ async def _report_section_locks(project_path: Path, ticket_id: str) -> None:
     click.echo("  Locked sections:")
     for field in sorted(locked):
         click.echo(f"    - {field} (locked after phase '{locked[field]}')")
-
-
-def _prompt_project_context(path: Path, existing: Project) -> Project:
-    """Interactively gather project fields."""
-    click.echo("Project context. (Press Enter to skip/keep current value)\n")
-
-    name = click.prompt("Project name", default=existing.name or path.resolve().name)
-    description = click.prompt("Short description", default=existing.description)
-    language = click.prompt("Primary language", default=existing.language)
-    framework = click.prompt("Framework", default=existing.framework)
-    pkg_mgr = click.prompt("Package manager", default=existing.package_manager)
-    build_cmd = click.prompt("Build command", default=existing.build_command)
-    test_cmd = click.prompt("Test command", default=existing.test_command)
-    merge = click.prompt(
-        f"Merge strategy ({', '.join(_MERGE_STRATEGIES)})",
-        default=existing.merge_strategy.value,
-        type=click.Choice(_MERGE_STRATEGIES, case_sensitive=False),
-        show_choices=False,
-    )
-
-    return Project(
-        id=existing.id,
-        name=name,
-        path=str(path.resolve()),
-        default_branch=existing.default_branch,
-        description=description,
-        language=language,
-        framework=framework,
-        package_manager=pkg_mgr,
-        build_command=build_cmd,
-        test_command=test_cmd,
-        merge_strategy=MergeStrategy(merge),
-    )
-
-
-_TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
-    "python": {
-        "language": "python",
-        "framework": "",
-        "package_manager": "uv",
-        "test_command": "uv run pytest",
-        "build_command": "uv build",
-    },
-    "fastapi": {
-        "language": "python",
-        "framework": "fastapi",
-        "package_manager": "uv",
-        "test_command": "uv run pytest",
-        "build_command": "uv build",
-    },
-}
-
-
-def _available_templates() -> list[str]:
-    """Return names of bundled project templates."""
-    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
-    if not tpl_root.is_dir():
-        return []
-    return sorted(d.name for d in tpl_root.iterdir() if d.is_dir())
-
-
-def _apply_template(template_name: str, dest: Path, project_name: str) -> None:
-    """Copy a project template into dest, replacing 'myproject' with project_name."""
-    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
-    tpl_dir = tpl_root / template_name
-    if not tpl_dir.is_dir():
-        available = _available_templates()
-        raise click.ClickException(
-            f"Unknown template {template_name!r}. Available: {', '.join(available) or 'none'}"
-        )
-
-    # Sanitize project name for use as a Python package name
-    pkg_name = project_name.replace("-", "_").replace(" ", "_").lower()
-    skip_dirs = {
-        "__pycache__",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".venv",
-        "node_modules",
-    }
-
-    for src_file in tpl_dir.rglob("*"):
-        if not src_file.is_file():
-            continue
-        if skip_dirs & set(src_file.relative_to(tpl_dir).parts):
-            continue
-        rel = src_file.relative_to(tpl_dir)
-        # Rename paths containing "myproject" to the actual package name
-        dest_rel = Path(str(rel).replace("myproject", pkg_name))
-        dest_file = dest / dest_rel
-        dest_file.parent.mkdir(parents=True, exist_ok=True)
-        content = src_file.read_bytes()
-        # Replace placeholder in text files
-        try:
-            text = content.decode()
-            text = text.replace("myproject", pkg_name)
-            dest_file.write_text(text)
-        except UnicodeDecodeError:
-            dest_file.write_bytes(content)
 
 
 @cli.command()

@@ -7,9 +7,33 @@ later task.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
+
+from jig.persistence import load_role
+from jig.project import load_project
+from jig.runtime import AgentSpawnContext, SpawnReason
+from jig.store.bus import MessageBus
+from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
+
+# ``run_agent`` lives in ``jig.agent``, which transitively imports
+# ``jig.init_mcp`` — and that module imports ``Gap`` from this one. To
+# break the cycle we resolve ``run_agent`` lazily on first use and bind
+# it to a module-level name so tests can ``monkeypatch.setattr`` it.
+run_agent = None  # type: ignore[assignment]
+
+
+def _resolve_run_agent():
+    global run_agent
+    if run_agent is None:
+        from jig.agent import run_agent as _run_agent
+
+        run_agent = _run_agent
+    return run_agent
 
 
 class Gap(BaseModel):
@@ -20,3 +44,47 @@ class Gap(BaseModel):
     description: str
     suggested_question: str | None = None
     severity: Literal["blocking", "advisory"]
+
+
+async def run_spec_generator(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+) -> None:
+    """Spawn the one-shot spec-generator agent on the brief ticket.
+
+    Returns when the agent process exits. The agent is responsible for
+    calling ``spec_publish`` or ``spec_report_gaps`` before exit; if it
+    exits without either, resume logic re-runs it on the next init.
+
+    The spec-generator runs against the real project directory (not an
+    isolated worktree) because it reads ``.jig/spec/project.md`` and
+    writes the structured spec back into the project tree.
+    """
+    brief = await tickets.get("brief")
+    if brief is None:
+        raise KeyError("brief")
+
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "spec-generator")
+
+    ctx = AgentSpawnContext(
+        role="spec-generator",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=brief,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    _resolve_run_agent()
+    # Re-read from globals so monkeypatched test doubles win over the
+    # cached real reference.
+    await globals()["run_agent"](ctx)

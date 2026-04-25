@@ -9,11 +9,13 @@ from jig.init_workflow import (
     DirState,
     classify_directory,
     create_stub,
+    create_sa_skipped_marker,
     latest_gap_note,
     latest_scaffold_proposal,
     render_branch_prompt,
     render_gap_prompt,
     render_sa_confirm_prompt,
+    render_template_list,
     run_po_conversation,
     run_sa_conversation,
 )
@@ -25,7 +27,7 @@ from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Note
+from jig.thread import Note, SystemEvent
 from jig.ticket import Ticket, WorkType
 
 
@@ -315,3 +317,24 @@ async def test_run_sa_conversation_creates_arch_ticket_and_spawns(
     assert captured["ctx"].role == "sa"
     assert captured["ctx"].ticket.id == "architecture"
     assert captured["ctx"].worktree_path == tmp_path
+
+
+def test_render_template_list_shows_numbered_choices():
+    text = render_template_list(["python", "fastapi"])
+    assert "1)" in text
+    assert "python" in text
+    assert "2)" in text
+    assert "fastapi" in text
+
+
+async def test_create_sa_skipped_marker_creates_ticket_and_event(tmp_path: Path):
+    tickets = TicketStore(tmp_path / "tickets.jsonl")
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+    await create_sa_skipped_marker(tickets=tickets, threads=threads)
+    arch = await tickets.get("architecture")
+    assert arch is not None
+    entries = await threads.for_ticket("architecture")
+    events = [e for e in entries if isinstance(e, SystemEvent)]
+    assert any(e.event_type == "sa_skipped" for e in events)

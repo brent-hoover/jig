@@ -25,7 +25,8 @@ from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Note
+from jig.template_registry import list_templates, load_template_metadata
+from jig.thread import Note, SystemEvent
 from jig.ticket import Ticket, WorkType
 
 
@@ -301,6 +302,56 @@ async def run_sa_conversation(
         bus=bus,
     )
     await run_agent(ctx)
+
+
+def render_template_list(names: list[str]) -> str:
+    lines = ["Available templates:"]
+    for i, n in enumerate(names, start=1):
+        md = load_template_metadata(n)
+        desc = md.description
+        lines.append(f"  {i}) {n} — {desc}" if desc else f"  {i}) {n}")
+    return "\n".join(lines)
+
+
+async def prompt_direct_template() -> str:
+    names = list_templates()
+    while True:
+        click.echo(render_template_list(names))
+        reply = click.prompt(
+            f"Pick (1-{len(names)})", default="1", show_default=False
+        ).strip()
+        try:
+            idx = int(reply)
+        except ValueError:
+            click.echo("Please enter a number.")
+            continue
+        if 1 <= idx <= len(names):
+            return names[idx - 1]
+        click.echo("Out of range.")
+
+
+async def create_sa_skipped_marker(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+) -> None:
+    arch = await tickets.get("architecture")
+    if arch is None:
+        arch = Ticket(
+            id="architecture",
+            work_type=WorkType.ARCHITECTURE,
+            title="Architecture",
+            created_by="cli",
+        )
+        await tickets.create(arch)
+    await threads.post(
+        SystemEvent(
+            ticket_id="architecture",
+            author="cli",
+            event_type="sa_skipped",
+            content="user chose direct-pick",
+        )
+    )
 
 
 def _confirm_force(target: Path) -> None:

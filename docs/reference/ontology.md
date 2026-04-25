@@ -21,7 +21,23 @@ by tooling that cannot parse Markdown (planning, scaffolding, check rules).
 Never authoritative on its own — if brief and spec disagree, brief wins
 and the spec is regenerated.
 
-See `docs/02-project-spec.md` for the full data-model design.
+See `docs/reference/02-project-spec.md` for the full data-model design.
+
+### Brief / spec separation
+A hard invariant. `project.md` (the brief) is human-facing. `project.structured.yaml`
+(the spec) is agent-facing. **Only the PO and the spec-generator ever read the brief.**
+Every other agent — SA, PM, workers — works off the spec. This keeps the human's
+document a narrative while giving agents a stable, structured contract. Any agent
+design that requires a non-PO agent to read the brief is wrong.
+
+### Architecture
+The machine-generated YAML at `.jig/spec/architecture.yaml`. Authored by the
+SA (Systems Architect) on the SA path, or populated from template metadata on
+the direct path. Structured rather than narrative because it is an agent-to-agent
+artifact — downstream context hydration consumes it. Required keys on every
+init: `template`, `template_applied_at`, `sa_path`, `language`, `framework`.
+SA-path extras include `rationale`, `config`, and optional structured fields
+(data stores, external services, deferred decisions).
 
 ## Roles
 
@@ -37,10 +53,11 @@ work, maintains the project plan. Model tier: Sonnet.
 ## Work units
 
 ### Capability
-An addressable unit within the brief — a named scope boundary like
-`due-dates` or `task-prioritization`. Lives under
-`.jig/spec/capabilities/` in the structured spec. Referenced as
-`project://spec/capabilities/<name>`.
+A named product feature or functional area — what the product does for
+its users (e.g. `due-dates`, `task-prioritization`). The PO identifies
+capabilities while authoring the brief. Each one appears as a subtree
+in the structured spec, addressable as
+`project://spec/capabilities/<name>`. Tickets implement capabilities.
 
 ### Ticket
 A unit of executable work. A capability may spawn zero or more tickets as

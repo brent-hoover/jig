@@ -246,3 +246,4 @@ cython_debug/
 
 # Stakpak session files
 .stakpak/session*
+.claude/.worktrees/

@@ -7,7 +7,7 @@ from typing import Any
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-from jig import checkpoint_mcp, thread_mcp, ticket_mcp
+from jig import checkpoint_mcp, init_mcp, thread_mcp, ticket_mcp
 from jig.logging_setup import (
     _agent_id_var,
     _phase_var,
@@ -783,6 +783,219 @@ def create_agent_mcp_server(
         )
     if package_manager:
         all_tools.append(add_dependency)
+
+    # Init-workflow tools (brief / spec / architecture). Each is gated
+    # on ``agent_cfg.allowed_tools`` so a role only sees the tools it
+    # has been granted. Handlers live in ``jig.init_mcp``; wrappers
+    # here translate MCP args into the handler's keyword arguments.
+
+    if "brief_list_sections" in agent_cfg.allowed_tools:
+
+        @tool(
+            "brief_list_sections",
+            "List markdown sections (H2 headings) in the project brief.",
+            {},
+        )
+        async def brief_list_sections(args):
+            sections = await init_mcp.handle_brief_list_sections(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(sections)}]}
+
+        all_tools.append(brief_list_sections)
+
+    if "brief_get_section" in agent_cfg.allowed_tools:
+
+        @tool(
+            "brief_get_section",
+            "Read a single section of the project brief by H2 heading name.",
+            {"name": str},
+        )
+        async def brief_get_section(args):
+            text = await init_mcp.handle_brief_get_section(
+                project_path=project_path,
+                name=args["name"],
+            )
+            return {"content": [{"type": "text", "text": text}]}
+
+        all_tools.append(brief_get_section)
+
+    if "brief_set_section" in agent_cfg.allowed_tools:
+
+        @tool(
+            "brief_set_section",
+            "Create or replace a section of the project brief.",
+            {"name": str, "markdown": str},
+        )
+        async def brief_set_section(args):
+            await init_mcp.handle_brief_set_section(
+                project_path=project_path,
+                name=args["name"],
+                markdown=args["markdown"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(brief_set_section)
+
+    if "po_finish_brief" in agent_cfg.allowed_tools:
+
+        @tool(
+            "po_finish_brief",
+            "Signal the brief is complete and hand off to the spec-generator.",
+            {"summary": str},
+        )
+        async def po_finish_brief(args):
+            entry_id = await init_mcp.handle_po_finish_brief(
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                summary=args["summary"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(po_finish_brief)
+
+    if "spec_publish" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_publish",
+            "Write the structured spec YAML and emit spec_generated.",
+            {"yaml_content": str, "advisory_notes": list},
+        )
+        async def spec_publish(args):
+            await init_mcp.handle_spec_publish(
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                yaml_content=args["yaml_content"],
+                advisory_notes=args.get("advisory_notes", []),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(spec_publish)
+
+    if "spec_report_gaps" in agent_cfg.allowed_tools:
+        from jig.spec_generator import Gap as _Gap
+
+        @tool(
+            "spec_report_gaps",
+            "Report blocking and advisory gaps found while validating the brief.",
+            {"gaps": list},
+        )
+        async def spec_report_gaps(args):
+            gaps = [_Gap.model_validate(g) for g in args["gaps"]]
+            await init_mcp.handle_spec_report_gaps(
+                threads=threads,
+                bus=bus,
+                gaps=gaps,
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(spec_report_gaps)
+
+    if "spec_get_field" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_get_field",
+            "Read a field from the structured spec by dotted path.",
+            {"path": str},
+        )
+        async def spec_get_field(args):
+            value = await init_mcp.handle_spec_get_field(
+                project_path=project_path,
+                path=args["path"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(value)}]}
+
+        all_tools.append(spec_get_field)
+
+    if "spec_list_fields" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_list_fields",
+            "List all dotted field paths defined in the structured spec.",
+            {},
+        )
+        async def spec_list_fields(args):
+            fields = await init_mcp.handle_spec_list_fields(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(fields)}]}
+
+        all_tools.append(spec_list_fields)
+
+    if "arch_get_field" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_get_field",
+            "Read a field from architecture.yaml by dotted path.",
+            {"path": str},
+        )
+        async def arch_get_field(args):
+            value = await init_mcp.handle_arch_get_field(
+                project_path=project_path,
+                path=args["path"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(value)}]}
+
+        all_tools.append(arch_get_field)
+
+    if "arch_list_fields" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_list_fields",
+            "List all dotted field paths defined in architecture.yaml.",
+            {},
+        )
+        async def arch_list_fields(args):
+            fields = await init_mcp.handle_arch_list_fields(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(fields)}]}
+
+        all_tools.append(arch_list_fields)
+
+    if "arch_set_field" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_field",
+            "Set a field in architecture.yaml at a dotted path.",
+            {"path": str, "value": Any},
+        )
+        async def arch_set_field(args):
+            await init_mcp.handle_arch_set_field(
+                threads=threads,
+                project_path=project_path,
+                path=args["path"],
+                value=args["value"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(arch_set_field)
+
+    if "sa_propose_scaffold" in agent_cfg.allowed_tools:
+
+        @tool(
+            "sa_propose_scaffold",
+            "Propose a project scaffold template for the orchestrator to apply.",
+            {"template_name": str, "rationale": str, "config": dict},
+        )
+        async def sa_propose_scaffold(args):
+            await init_mcp.handle_sa_propose_scaffold(
+                threads=threads,
+                bus=bus,
+                template_name=args["template_name"],
+                rationale=args["rationale"],
+                config=args.get("config", {}),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(sa_propose_scaffold)
 
     # Wrap every tool handler so the correlation context is set on
     # each incoming call. MCP tool calls arrive in fresh asyncio tasks

@@ -189,6 +189,9 @@ class TestDefaultRoles:
             "document",
             "pm",
             "user",
+            "po",
+            "sa",
+            "spec-generator",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

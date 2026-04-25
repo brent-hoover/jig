@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from jig.agent import run_agent
 from jig.persistence import load_role
 from jig.project import load_project
 from jig.runtime import AgentSpawnContext, SpawnReason
@@ -19,21 +20,6 @@ from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-
-# ``run_agent`` lives in ``jig.agent``, which transitively imports
-# ``jig.init_mcp`` — and that module imports ``Gap`` from this one. To
-# break the cycle we resolve ``run_agent`` lazily on first use and bind
-# it to a module-level name so tests can ``monkeypatch.setattr`` it.
-run_agent = None  # type: ignore[assignment]
-
-
-def _resolve_run_agent():
-    global run_agent
-    if run_agent is None:
-        from jig.agent import run_agent as _run_agent
-
-        run_agent = _run_agent
-    return run_agent
 
 
 class Gap(BaseModel):
@@ -84,7 +70,4 @@ async def run_spec_generator(
         memory=memory,
         bus=bus,
     )
-    _resolve_run_agent()
-    # Re-read from globals so monkeypatched test doubles win over the
-    # cached real reference.
-    await globals()["run_agent"](ctx)
+    await run_agent(ctx)

@@ -8,17 +8,19 @@ them in ``@tool`` decorators with role-scoped visibility.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from jig.atomic import atomic_write_text
 from jig.markdown_sections import get_section, list_sections, set_section
-from jig.spec_generator import Gap
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.template_registry import list_templates
 from jig.thread import Handoff, Note, SystemEvent
+
+if TYPE_CHECKING:
+    from jig.spec_generator import Gap
 
 
 def _brief_path(project_path: Path) -> Path:

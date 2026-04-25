@@ -20,10 +20,12 @@ from jig.atomic import atomic_write_text
 from jig.persistence import load_role
 from jig.project import load_project
 from jig.runtime import AgentSpawnContext, SpawnReason
+from jig.spec_generator import Gap
 from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.thread import Note
 from jig.ticket import Ticket, WorkType
 
 
@@ -141,6 +143,43 @@ async def run_po_conversation(
         bus=bus,
     )
     await run_agent(ctx)
+
+
+async def latest_gap_note(threads: ThreadStore) -> Note | None:
+    """Return the most recent Gap-bearing Note on the brief ticket,
+    or None if no gaps have been reported.
+    """
+    entries = await threads.for_ticket("brief")
+    gap_notes = [
+        e for e in entries
+        if isinstance(e, Note) and "gaps" in e.payload
+    ]
+    if not gap_notes:
+        return None
+    return gap_notes[-1]
+
+
+def render_gap_prompt(gaps: list[Gap]) -> str:
+    lines = ["Spec generation found gaps in the brief:"]
+    for g in gaps:
+        lines.append(f"  - [{g.severity}] {g.location}: {g.description}")
+    lines.append("")
+    lines.append("[R] Resume PO conversation to address  (default)")
+    lines.append("[Q] Quit (state saved; resume later with `jig init <name>`)")
+    return "\n".join(lines)
+
+
+async def prompt_gap_decision(threads: ThreadStore) -> str:
+    """Display the gap prompt and return the user's decision ('R' or 'Q')."""
+    note = await latest_gap_note(threads)
+    if note is None:
+        raise RuntimeError("prompt_gap_decision called with no gap note")
+    gaps = [Gap.model_validate(g) for g in note.payload["gaps"]]
+    click.echo(render_gap_prompt(gaps))
+    reply = click.prompt("Choice", default="R", show_default=False).strip().upper()
+    if reply not in ("R", "Q"):
+        reply = "R"
+    return reply
 
 
 def _confirm_force(target: Path) -> None:

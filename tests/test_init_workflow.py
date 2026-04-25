@@ -7,15 +7,19 @@ from jig.init_workflow import (
     DirState,
     classify_directory,
     create_stub,
+    latest_gap_note,
+    render_gap_prompt,
     run_po_conversation,
 )
 from jig.models import RoleConfig
 from jig.persistence import save_role
 from jig.project import Project, save_project
+from jig.spec_generator import Gap
 from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.thread import Note
 from jig.ticket import Ticket, WorkType
 
 
@@ -181,3 +185,41 @@ async def test_run_po_conversation_is_idempotent_on_existing_brief(
     persisted = await tickets.get("brief")
     assert persisted is not None
     assert persisted.title == "Pre-existing brief"
+
+
+async def test_latest_gap_note_returns_most_recent(tmp_path: Path):
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
+    await threads.post(
+        Note(
+            ticket_id="brief",
+            author="spec-generator",
+            text="first",
+            payload={"gaps": [{"kind": "missing", "severity": "blocking",
+                               "location": "x", "description": "d1"}]},
+        )
+    )
+    await threads.post(
+        Note(
+            ticket_id="brief",
+            author="spec-generator",
+            text="second",
+            payload={"gaps": [{"kind": "ambiguity", "severity": "blocking",
+                               "location": "y", "description": "d2"}]},
+        )
+    )
+    note = await latest_gap_note(threads)
+    assert note is not None
+    assert note.text == "second"
+
+
+def test_render_gap_prompt_formats_gaps():
+    gaps = [
+        Gap(kind="missing", location="Built", description="X", severity="blocking"),
+        Gap(kind="ambiguity", location="Planned", description="Y", severity="blocking"),
+    ]
+    text = render_gap_prompt(gaps)
+    assert "[R] Resume PO" in text
+    assert "[Q] Quit" in text
+    assert "X" in text
+    assert "Y" in text

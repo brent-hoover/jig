@@ -83,28 +83,145 @@ def create_stub(path: Path, *, name: str) -> None:
 
 
 async def run_init(*, name: str, force: bool) -> None:
-    """Top-level init flow. Fleshed out across subsequent tasks.
-
-    At this task stage, ``run_init`` only handles fresh / already-done /
-    broken branches and creates the stub. PO spawn, spec-gen, branch
-    prompt, SA, and scaffold are wired in later tasks.
-    """
+    """Top-level init flow. Dispatches fresh vs resume by classification."""
     target = Path(name)
-    state = classify_directory(target)
-    if state == DirState.ALREADY_DONE and not force:
+    ds = classify_directory(target)
+    if ds == DirState.ALREADY_DONE and not force:
         raise click.ClickException(
             f"{target} already initialized. Use --force to restart from scratch."
         )
-    if state == DirState.BROKEN and not force:
+    if ds == DirState.BROKEN and not force:
         raise click.ClickException(
             f"{target}/.jig is in an inconsistent state. Use --force to reset."
         )
     if force and (target / ".jig").is_dir():
         _confirm_force(target)
         shutil.rmtree(target / ".jig")
+
     create_stub(target, name=name)
-    click.echo(f"Initialized stub at {target}/.jig")
-    # Later tasks wire the rest of the flow here.
+    store_dir = target / ".jig" / "store"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    tickets = TicketStore(store_dir / "tickets.jsonl")
+    threads = ThreadStore(store_dir / "comments.jsonl")
+    memory = MemoryStore(store_dir)
+    bus = MessageBus(store_dir / "messages.jsonl")
+    for s in (tickets, threads, memory, bus):
+        await s.load()
+
+    # Iterate: each pass classifies the resume state and advances one step.
+    while True:
+        rs = await classify_resume(
+            project_path=target, tickets=tickets, threads=threads
+        )
+        if rs == ResumeState.ALREADY_DONE:
+            _print_already_done(target)
+            return
+        if rs == ResumeState.BROKEN:
+            raise click.ClickException(
+                f"{target}/.jig is inconsistent. Use --force to reset."
+            )
+        if rs == ResumeState.PO_CONVERSATION:
+            await run_po_conversation(
+                project_path=target, tickets=tickets,
+                threads=threads, memory=memory, bus=bus,
+            )
+            continue
+        if rs == ResumeState.SPEC_GENERATION:
+            from jig.spec_generator import run_spec_generator
+            await run_spec_generator(
+                project_path=target, tickets=tickets,
+                threads=threads, memory=memory, bus=bus,
+            )
+            continue
+        if rs == ResumeState.GAP_PROMPT:
+            decision = await prompt_gap_decision(threads)
+            if decision == "Q":
+                click.echo("State saved. Resume later with `jig init <name>`.")
+                return
+            await run_po_conversation(
+                project_path=target, tickets=tickets,
+                threads=threads, memory=memory, bus=bus,
+            )
+            continue
+        if rs == ResumeState.BRANCH_PROMPT:
+            choice = await prompt_branch_choice()
+            if choice == BranchChoice.STAY:
+                await run_po_conversation(
+                    project_path=target, tickets=tickets,
+                    threads=threads, memory=memory, bus=bus,
+                )
+                continue
+            if choice == BranchChoice.DIRECT:
+                await create_sa_skipped_marker(
+                    tickets=tickets, threads=threads
+                )
+                continue
+            # SA: create ticket (if needed) and run.
+            await run_sa_conversation(
+                project_path=target, tickets=tickets,
+                threads=threads, memory=memory, bus=bus,
+            )
+            continue
+        if rs == ResumeState.SA_CONVERSATION:
+            await run_sa_conversation(
+                project_path=target, tickets=tickets,
+                threads=threads, memory=memory, bus=bus,
+            )
+            continue
+        if rs == ResumeState.SA_CONFIRM_PROMPT:
+            decision, proposal = await prompt_sa_confirm(threads)
+            assert proposal is not None
+            if decision == ConfirmChoice.NO:
+                click.echo("Scaffold cancelled. State saved.")
+                return
+            if decision == ConfirmChoice.SWAP:
+                # Re-spawn SA; the existing proposal remains in the
+                # thread so SA sees the prior decision.
+                await run_sa_conversation(
+                    project_path=target, tickets=tickets,
+                    threads=threads, memory=memory, bus=bus,
+                )
+                continue
+            # YES: scaffold with SA's proposal.
+            await apply_scaffold(
+                project_path=target,
+                template_name=proposal["template_name"],
+                sa_path=True,
+                config=proposal.get("config", {}),
+                tickets=tickets, threads=threads,
+            )
+            _print_summary(target, template_name=proposal["template_name"])
+            return
+        if rs == ResumeState.DIRECT_TEMPLATE_PICK:
+            tpl = await prompt_direct_template()
+            await apply_scaffold(
+                project_path=target,
+                template_name=tpl,
+                sa_path=False,
+                config=None,
+                tickets=tickets, threads=threads,
+            )
+            _print_summary(target, template_name=tpl)
+            return
+        raise RuntimeError(f"unreachable resume state: {rs}")
+
+
+def _print_already_done(target: Path) -> None:
+    click.echo(
+        f"{target} is already initialized. Next: run `jig start` here."
+    )
+
+
+def _print_summary(target: Path, *, template_name: str) -> None:
+    click.echo(
+        f"\n"
+        f"Brief:        {target}/.jig/spec/project.md\n"
+        f"Spec:         {target}/.jig/spec/project.structured.yaml\n"
+        f"Architecture: {target}/.jig/spec/architecture.yaml\n"
+        f"Template:     {template_name}\n\n"
+        f"Setup log:    jig story brief\n"
+        f"              jig story architecture\n"
+    )
 
 
 async def run_po_conversation(

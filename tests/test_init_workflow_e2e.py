@@ -22,6 +22,9 @@ from jig.init_mcp import (
 )
 from jig.init_workflow import run_init
 from jig.runtime import AgentSpawnContext
+from jig.story import build_story
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 
 Handler = Callable[[AgentSpawnContext], Awaitable[None]]
 
@@ -224,3 +227,70 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False
     assert "template" in arch
+
+
+async def test_story_brief_contains_po_and_specgen_trail(
+    tmp_path: Path, monkeypatch
+):
+    """Smoke test: jig story for the brief and architecture tickets shows
+    the expected handoff, spec_generated, advisory note, sa_skipped, and
+    scaffold_applied trail after a direct-path init.
+    """
+    monkeypatch.chdir(tmp_path)
+    agent = FakeAgent()
+
+    @agent.handle(role="po", ticket_id="brief")
+    async def _po(ctx: AgentSpawnContext) -> None:
+        proj = ctx.worktree_path
+        (proj / ".jig" / "spec" / "project.md").write_text(
+            "# storyproj\n\n## Planned (committed)\n\n### X\nprose\n"
+        )
+        await handle_po_finish_brief(
+            threads=ctx.threads,
+            bus=ctx.bus,
+            project_path=proj,
+            summary="brief drafted",
+            author="po",
+        )
+
+    @agent.handle(role="spec-generator", ticket_id="brief")
+    async def _sg(ctx: AgentSpawnContext) -> None:
+        await handle_spec_publish(
+            threads=ctx.threads,
+            bus=ctx.bus,
+            project_path=ctx.worktree_path,
+            yaml_content="name: storyproj\n",
+            advisory_notes=["watch out for X"],
+            author="spec-generator",
+        )
+
+    answers = iter(["p", "1"])
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
+
+    with patch("jig.init_workflow.run_agent", new=agent.run), \
+            patch("jig.spec_generator.run_agent", new=agent.run):
+        await run_init(name="storyproj", force=False)
+
+    project = tmp_path / "storyproj"
+    store_dir = project / ".jig" / "store"
+    tickets = TicketStore(store_dir / "tickets.jsonl")
+    threads = ThreadStore(store_dir / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+
+    events = await build_story(
+        "brief", project_path=project, threads=threads, tickets=tickets
+    )
+    kinds = [e.kind for e in events]
+    assert "handoff" in kinds
+    assert any("spec_generated" in e.message for e in events)
+    assert any("watch out for X" in e.message for e in events)
+
+    arch_events = await build_story(
+        "architecture",
+        project_path=project,
+        threads=threads,
+        tickets=tickets,
+    )
+    assert any("sa_skipped" in e.message for e in arch_events)
+    assert any("scaffold_applied" in e.message for e in arch_events)

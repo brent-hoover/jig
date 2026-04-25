@@ -5,13 +5,17 @@ from jig import init_workflow as iw_mod
 from jig.agent import RunAgentResult
 from jig.init_workflow import (
     BranchChoice,
+    ConfirmChoice,
     DirState,
     classify_directory,
     create_stub,
     latest_gap_note,
+    latest_scaffold_proposal,
     render_branch_prompt,
     render_gap_prompt,
+    render_sa_confirm_prompt,
     run_po_conversation,
+    run_sa_conversation,
 )
 from jig.models import RoleConfig
 from jig.persistence import save_role
@@ -96,7 +100,11 @@ def test_create_stub_default_brief_content(tmp_path: Path):
     assert brief.startswith("# myproj")
 
 
-async def _bootstrap_init_project(tmp_path: Path):
+async def _bootstrap_init_project(
+    tmp_path: Path,
+    *,
+    roles: tuple[str, ...] = ("po",),
+):
     """Create stub + role yamls + stores for a PO spawn."""
     create_stub(tmp_path, name="p")
     (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
@@ -110,7 +118,8 @@ async def _bootstrap_init_project(tmp_path: Path):
             package_manager="uv",
         ),
     )
-    save_role(tmp_path, RoleConfig(role="po", phase_prompt="po"))
+    for role in roles:
+        save_role(tmp_path, RoleConfig(role=role, phase_prompt=role))
     tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
     threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
     memory = MemoryStore(tmp_path / ".jig" / "store")
@@ -241,3 +250,68 @@ def test_branch_choice_parsing():
     assert BranchChoice.parse("p") == BranchChoice.DIRECT
     assert BranchChoice.parse("s") == BranchChoice.STAY
     assert BranchChoice.parse("garbage") == BranchChoice.SA
+
+
+def test_confirm_choice_parsing():
+    assert ConfirmChoice.parse("") == ConfirmChoice.YES
+    assert ConfirmChoice.parse("Y") == ConfirmChoice.YES
+    assert ConfirmChoice.parse("n") == ConfirmChoice.NO
+    assert ConfirmChoice.parse("swap") == ConfirmChoice.SWAP
+
+
+def test_render_sa_confirm_prompt_shows_rationale():
+    text = render_sa_confirm_prompt(
+        template_name="fastapi",
+        rationale="real-time API, async needs.",
+    )
+    assert "fastapi" in text
+    assert "real-time API, async needs." in text
+    assert "[Y/n/swap]" in text
+
+
+async def test_latest_scaffold_proposal_returns_most_recent(tmp_path: Path):
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
+    await threads.post(Note(
+        ticket_id="architecture", author="sa", text="first",
+        payload={"kind": "sa_propose_scaffold", "template_name": "python",
+                 "rationale": "simple", "config": {}},
+    ))
+    await threads.post(Note(
+        ticket_id="architecture", author="sa", text="second",
+        payload={"kind": "sa_propose_scaffold", "template_name": "fastapi",
+                 "rationale": "async", "config": {}},
+    ))
+    proposal = await latest_scaffold_proposal(threads)
+    assert proposal is not None
+    assert proposal["template_name"] == "fastapi"
+
+
+async def test_run_sa_conversation_creates_arch_ticket_and_spawns(
+    tmp_path: Path, monkeypatch
+):
+    tickets, threads, memory, bus = await _bootstrap_init_project(
+        tmp_path, roles=("sa",),
+    )
+    captured = {}
+
+    async def fake_run_agent(ctx, emitter=None):
+        captured["ctx"] = ctx
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(iw_mod, "run_agent", fake_run_agent)
+
+    await run_sa_conversation(
+        project_path=tmp_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+
+    arch = await tickets.get("architecture")
+    assert arch is not None
+    assert arch.work_type == WorkType.ARCHITECTURE
+    assert captured["ctx"].role == "sa"
+    assert captured["ctx"].ticket.id == "architecture"
+    assert captured["ctx"].worktree_path == tmp_path

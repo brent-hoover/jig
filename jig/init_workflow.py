@@ -214,6 +214,95 @@ async def prompt_branch_choice() -> BranchChoice:
     return BranchChoice.parse(reply)
 
 
+class ConfirmChoice(str, Enum):
+    YES = "yes"
+    NO = "no"
+    SWAP = "swap"
+
+    @classmethod
+    def parse(cls, reply: str) -> "ConfirmChoice":
+        r = reply.strip().lower()
+        if r in ("", "y"):
+            return cls.YES
+        if r == "n":
+            return cls.NO
+        if r == "swap":
+            return cls.SWAP
+        return cls.YES
+
+
+def render_sa_confirm_prompt(*, template_name: str, rationale: str) -> str:
+    return (
+        f"SA proposes: {template_name}\n\n"
+        f"Rationale:\n{rationale}\n\n"
+        "[Y/n/swap]  (Y = accept, n = cancel, swap = re-consult SA)"
+    )
+
+
+async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:
+    """Return the payload of the most recent ``sa_propose_scaffold``
+    Note on the architecture ticket, or ``None`` if none exists.
+    """
+    entries = await threads.for_ticket("architecture")
+    proposals = [
+        e for e in entries
+        if isinstance(e, Note) and e.payload.get("kind") == "sa_propose_scaffold"
+    ]
+    if not proposals:
+        return None
+    return dict(proposals[-1].payload)
+
+
+async def prompt_sa_confirm(
+    threads: ThreadStore,
+) -> tuple[ConfirmChoice, dict | None]:
+    proposal = await latest_scaffold_proposal(threads)
+    if proposal is None:
+        raise RuntimeError("prompt_sa_confirm called with no proposal")
+    click.echo(render_sa_confirm_prompt(
+        template_name=proposal["template_name"],
+        rationale=proposal["rationale"],
+    ))
+    reply = click.prompt("Choice", default="Y", show_default=False)
+    return ConfirmChoice.parse(reply), proposal
+
+
+async def run_sa_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+) -> None:
+    """Create (if needed) the architecture ticket and spawn the SA agent."""
+    arch = await tickets.get("architecture")
+    if arch is None:
+        arch = Ticket(
+            id="architecture",
+            work_type=WorkType.ARCHITECTURE,
+            title="Architecture",
+            created_by="cli",
+        )
+        await tickets.create(arch)
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "sa")
+    ctx = AgentSpawnContext(
+        role="sa",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=arch,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await run_agent(ctx)
+
+
 def _confirm_force(target: Path) -> None:
     reply = click.prompt(
         f"This will wipe {target}/.jig. Type 'force' to continue",

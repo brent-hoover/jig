@@ -182,6 +182,38 @@ async def prompt_gap_decision(threads: ThreadStore) -> str:
     return reply
 
 
+class BranchChoice(str, Enum):
+    SA = "sa"
+    DIRECT = "direct"
+    STAY = "stay"
+
+    @classmethod
+    def parse(cls, reply: str) -> "BranchChoice":
+        r = reply.strip().lower()
+        if r in ("", "y"):
+            return cls.SA
+        if r == "p":
+            return cls.DIRECT
+        if r == "s":
+            return cls.STAY
+        return cls.SA
+
+
+def render_branch_prompt() -> str:
+    return (
+        "Brief accepted. Choose your path:\n"
+        "  [Y] Hand off to SA for architecture + template  (default)\n"
+        "  [p] Pick a template yourself from the list\n"
+        "  [s] Stay on PO — brief needs more work\n"
+    )
+
+
+async def prompt_branch_choice() -> BranchChoice:
+    click.echo(render_branch_prompt())
+    reply = click.prompt("Choice", default="Y", show_default=False)
+    return BranchChoice.parse(reply)
+
+
 def _confirm_force(target: Path) -> None:
     reply = click.prompt(
         f"This will wipe {target}/.jig. Type 'force' to continue",

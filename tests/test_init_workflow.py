@@ -4,10 +4,12 @@ from pathlib import Path
 from jig import init_workflow as iw_mod
 from jig.agent import RunAgentResult
 from jig.init_workflow import (
+    BranchChoice,
     DirState,
     classify_directory,
     create_stub,
     latest_gap_note,
+    render_branch_prompt,
     render_gap_prompt,
     run_po_conversation,
 )
@@ -223,3 +225,19 @@ def test_render_gap_prompt_formats_gaps():
     assert "[Q] Quit" in text
     assert "X" in text
     assert "Y" in text
+
+
+def test_render_branch_prompt_contains_choices():
+    text = render_branch_prompt()
+    assert "[Y]" in text and "SA" in text
+    assert "[p]" in text and "template" in text.lower()
+    assert "[s]" in text and "PO" in text
+
+
+def test_branch_choice_parsing():
+    assert BranchChoice.parse("") == BranchChoice.SA
+    assert BranchChoice.parse("Y") == BranchChoice.SA
+    assert BranchChoice.parse("y") == BranchChoice.SA
+    assert BranchChoice.parse("p") == BranchChoice.DIRECT
+    assert BranchChoice.parse("s") == BranchChoice.STAY
+    assert BranchChoice.parse("garbage") == BranchChoice.SA

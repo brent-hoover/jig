@@ -354,6 +354,126 @@ async def create_sa_skipped_marker(
     )
 
 
+def _apply_template_files(
+    *,
+    template_name: str,
+    dest: Path,
+    project_name: str,
+) -> None:
+    """Copy a project template into dest, substituting 'myproject'
+    with a sanitized project_name. Skips template.yaml metadata.
+    """
+    tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
+    tpl_dir = tpl_root / template_name
+    if not tpl_dir.is_dir():
+        raise KeyError(f"unknown template: {template_name!r}")
+    pkg_name = project_name.replace("-", "_").replace(" ", "_").lower()
+    skip_dirs = {
+        "__pycache__",
+        ".ruff_cache",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".venv",
+        "node_modules",
+    }
+    for src in tpl_dir.rglob("*"):
+        if not src.is_file():
+            continue
+        if src.name == "template.yaml":
+            continue
+        rel = src.relative_to(tpl_dir)
+        if skip_dirs & set(rel.parts):
+            continue
+        rel_renamed = Path(str(rel).replace("myproject", pkg_name))
+        dest_file = dest / rel_renamed
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        raw = src.read_bytes()
+        try:
+            text = raw.decode()
+            dest_file.write_text(text.replace("myproject", pkg_name))
+        except UnicodeDecodeError:
+            dest_file.write_bytes(raw)
+
+
+async def apply_scaffold(
+    *,
+    project_path: Path,
+    template_name: str,
+    sa_path: bool,
+    config: dict | None,
+    tickets: TicketStore,
+    threads: ThreadStore,
+) -> None:
+    """Copy the template, finalize architecture.yaml, update project.yaml,
+    install git hooks (best-effort), and emit scaffold_applied.
+    """
+    md = load_template_metadata(template_name)
+    applied_at = datetime.now(timezone.utc).isoformat()
+
+    # 1. Copy template files.
+    _apply_template_files(
+        template_name=template_name,
+        dest=project_path,
+        project_name=project_path.name,
+    )
+
+    # 2. Finalize architecture.yaml — preserve any SA-authored fields.
+    arch_file = project_path / ".jig" / "spec" / "architecture.yaml"
+    if arch_file.is_file():
+        data = yaml.safe_load(arch_file.read_text()) or {}
+    else:
+        data = {}
+    data["template"] = template_name
+    data["template_applied_at"] = applied_at
+    data["sa_path"] = sa_path
+    data.setdefault("language", md.language)
+    if md.framework is not None:
+        data.setdefault("framework", md.framework)
+    if md.deploy_target is not None:
+        data.setdefault("deploy_target", md.deploy_target)
+    if sa_path and config is not None:
+        data["config"] = config
+    atomic_write_text(arch_file, yaml.safe_dump(data, sort_keys=False))
+
+    # 3. Update project.yaml with template_name and template_applied_at.
+    project_yaml = project_path / ".jig" / "project.yaml"
+    pdata = yaml.safe_load(project_yaml.read_text()) or {}
+    pdata["template_name"] = template_name
+    pdata["template_applied_at"] = applied_at
+    atomic_write_text(project_yaml, yaml.safe_dump(pdata, sort_keys=False))
+
+    # 4. Best-effort install git hooks. If the project isn't a git repo
+    #    or hook install refuses, that's a soft failure — print a warning
+    #    and continue. Hooks are dev-loop parity; scaffold completion
+    #    must not depend on them.
+    from jig.hooks import HookInstallError, install_hooks
+    if (project_path / ".git").exists():
+        try:
+            install_hooks(project_path)
+        except HookInstallError as exc:
+            click.echo(f"Warning: hook install failed: {exc}")
+
+    # 5. Ensure architecture ticket exists, then emit scaffold_applied.
+    arch = await tickets.get("architecture")
+    if arch is None:
+        await tickets.create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+    await threads.post(
+        SystemEvent(
+            ticket_id="architecture",
+            author="cli",
+            event_type="scaffold_applied",
+            content=f"template={template_name}",
+        )
+    )
+
+
 def _confirm_force(target: Path) -> None:
     reply = click.prompt(
         f"This will wipe {target}/.jig. Type 'force' to continue",

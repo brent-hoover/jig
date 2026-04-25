@@ -1,5 +1,6 @@
 """CLI init entry: directory state, stub creation, top-level dispatch."""
 from pathlib import Path
+from unittest.mock import patch
 
 from jig import init_workflow as iw_mod
 from jig.agent import RunAgentResult
@@ -7,6 +8,7 @@ from jig.init_workflow import (
     BranchChoice,
     ConfirmChoice,
     DirState,
+    apply_scaffold,
     classify_directory,
     create_stub,
     create_sa_skipped_marker,
@@ -338,3 +340,162 @@ async def test_create_sa_skipped_marker_creates_ticket_and_event(tmp_path: Path)
     entries = await threads.for_ticket("architecture")
     events = [e for e in entries if isinstance(e, SystemEvent)]
     assert any(e.event_type == "sa_skipped" for e in events)
+
+
+async def test_apply_scaffold_direct_path_writes_architecture_yaml(tmp_path: Path):
+    create_stub(tmp_path / "p", name="p")
+    project = tmp_path / "p"
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+    await create_sa_skipped_marker(tickets=tickets, threads=threads)
+
+    with patch("jig.init_workflow._apply_template_files"):
+        await apply_scaffold(
+            project_path=project,
+            template_name="python",
+            sa_path=False,
+            config=None,
+            tickets=tickets,
+            threads=threads,
+        )
+
+    arch_file = project / ".jig" / "spec" / "architecture.yaml"
+    assert arch_file.is_file()
+    import yaml
+    data = yaml.safe_load(arch_file.read_text())
+    assert data["template"] == "python"
+    assert data["sa_path"] is False
+    assert data["language"] == "python"
+    assert "rationale" not in data
+
+    project_yaml = yaml.safe_load((project / ".jig" / "project.yaml").read_text())
+    assert project_yaml["template_name"] == "python"
+    assert "template_applied_at" in project_yaml
+
+    events = await threads.for_ticket("architecture")
+    assert any(
+        isinstance(e, SystemEvent) and e.event_type == "scaffold_applied"
+        for e in events
+    )
+
+
+async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
+    create_stub(tmp_path / "p", name="p")
+    project = tmp_path / "p"
+    arch_dir = project / ".jig" / "spec"
+    import yaml
+    yaml_text = yaml.safe_dump({
+        "rationale": "fastapi is a good fit",
+        "data_stores": [{"type": "postgres", "purpose": "primary"}],
+    })
+    (arch_dir / "architecture.yaml").write_text(yaml_text)
+
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+    await tickets.create(
+        Ticket(
+            id="architecture",
+            work_type=WorkType.ARCHITECTURE,
+            title="Architecture",
+            created_by="cli",
+        )
+    )
+
+    with patch("jig.init_workflow._apply_template_files"):
+        await apply_scaffold(
+            project_path=project,
+            template_name="fastapi",
+            sa_path=True,
+            config={"port": 8000},
+            tickets=tickets,
+            threads=threads,
+        )
+
+    data = yaml.safe_load((arch_dir / "architecture.yaml").read_text())
+    assert data["rationale"] == "fastapi is a good fit"
+    assert data["sa_path"] is True
+    assert data["template"] == "fastapi"
+    assert data["language"] == "python"
+    assert data["framework"] == "fastapi"
+    assert data["config"] == {"port": 8000}
+    assert data["data_stores"][0]["type"] == "postgres"
+
+
+async def test_apply_scaffold_installs_hooks_by_default(tmp_path: Path):
+    """Hooks are installed when the project is a git repo."""
+    import subprocess
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+    )
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+
+    with patch("jig.init_workflow._apply_template_files"):
+        await apply_scaffold(
+            project_path=project,
+            template_name="python",
+            sa_path=False,
+            config=None,
+            tickets=tickets,
+            threads=threads,
+        )
+
+    from jig.hooks import HOOK_NAMES, _is_jig_managed
+    for name in HOOK_NAMES:
+        assert _is_jig_managed(project / ".git" / "hooks" / name), (
+            f"{name} not installed by default"
+        )
+
+
+async def test_apply_scaffold_warns_and_succeeds_when_hook_install_fails(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """Hook install failure is non-fatal — scaffold must still complete."""
+    import subprocess
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+    )
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+
+    from jig.hooks import HookInstallError
+    import jig.hooks as hooks_mod
+
+    def boom(_path, *, force=False):
+        raise HookInstallError("simulated failure")
+
+    monkeypatch.setattr(hooks_mod, "install_hooks", boom)
+
+    with patch("jig.init_workflow._apply_template_files"):
+        await apply_scaffold(
+            project_path=project,
+            template_name="python",
+            sa_path=False,
+            config=None,
+            tickets=tickets,
+            threads=threads,
+        )
+
+    out = capsys.readouterr().out
+    assert "Warning: hook install failed" in out
+    assert "simulated failure" in out
+    # Scaffold's happy path still completed:
+    assert (project / ".jig" / "spec" / "architecture.yaml").is_file()

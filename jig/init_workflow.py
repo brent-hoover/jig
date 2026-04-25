@@ -15,7 +15,16 @@ from pathlib import Path
 import click
 import yaml
 
+from jig.agent import run_agent
 from jig.atomic import atomic_write_text
+from jig.persistence import load_role
+from jig.project import load_project
+from jig.runtime import AgentSpawnContext, SpawnReason
+from jig.store.bus import MessageBus
+from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
+from jig.ticket import Ticket, WorkType
 
 
 class DirState(str, Enum):
@@ -92,6 +101,46 @@ async def run_init(*, name: str, force: bool) -> None:
     create_stub(target, name=name)
     click.echo(f"Initialized stub at {target}/.jig")
     # Later tasks wire the rest of the flow here.
+
+
+async def run_po_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+) -> None:
+    """Create (if needed) the brief ticket and spawn the PO agent on it.
+
+    The PO agent drives the conversation via its MCP tools; when it
+    calls ``po_finish_brief`` the agent process exits cleanly.
+    """
+    brief = await tickets.get("brief")
+    if brief is None:
+        brief = Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="Project brief",
+            created_by="cli",
+        )
+        await tickets.create(brief)
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "po")
+    ctx = AgentSpawnContext(
+        role="po",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=brief,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await run_agent(ctx)
 
 
 def _confirm_force(target: Path) -> None:

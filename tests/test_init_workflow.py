@@ -1,11 +1,22 @@
 """CLI init entry: directory state, stub creation, top-level dispatch."""
 from pathlib import Path
 
+import pytest
+
 from jig.init_workflow import (
     DirState,
     classify_directory,
     create_stub,
+    run_po_conversation,
 )
+from jig.models import RoleConfig
+from jig.persistence import save_role
+from jig.project import Project, save_project
+from jig.store.bus import MessageBus
+from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
+from jig.ticket import Ticket, WorkType
 
 
 def test_classify_fresh_parent_missing(tmp_path: Path):
@@ -77,3 +88,101 @@ def test_create_stub_default_brief_content(tmp_path: Path):
     create_stub(target, name="myproj")
     brief = (target / ".jig" / "spec" / "project.md").read_text()
     assert brief.startswith("# myproj")
+
+
+async def _bootstrap_init_project(tmp_path: Path):
+    """Create stub + role yamls + stores for a PO spawn."""
+    create_stub(tmp_path, name="p")
+    (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
+    save_project(
+        tmp_path,
+        Project(
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
+        ),
+    )
+    save_role(tmp_path, RoleConfig(role="po", phase_prompt="po"))
+    tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+    memory = MemoryStore(tmp_path / ".jig" / "store")
+    bus = MessageBus(tmp_path / ".jig" / "store" / "messages.jsonl")
+    for s in (tickets, threads, memory, bus):
+        await s.load()
+    return tickets, threads, memory, bus
+
+
+@pytest.mark.asyncio
+async def test_run_po_conversation_creates_brief_ticket_and_spawns(
+    tmp_path: Path, monkeypatch
+):
+    tickets, threads, memory, bus = await _bootstrap_init_project(tmp_path)
+
+    captured: dict = {}
+
+    async def fake_run_agent(ctx, emitter=None):
+        captured["ctx"] = ctx
+        from jig.agent import RunAgentResult
+
+        return RunAgentResult(status="success", final_text="ok")
+
+    from jig import init_workflow as iw_mod
+
+    monkeypatch.setattr(iw_mod, "run_agent", fake_run_agent)
+
+    await run_po_conversation(
+        project_path=tmp_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+
+    brief = await tickets.get("brief")
+    assert brief is not None
+    assert brief.work_type == WorkType.BRIEF
+
+    ctx = captured["ctx"]
+    assert ctx.role == "po"
+    assert ctx.ticket.id == "brief"
+    assert ctx.worktree_path == tmp_path
+
+
+@pytest.mark.asyncio
+async def test_run_po_conversation_is_idempotent_on_existing_brief(
+    tmp_path: Path, monkeypatch
+):
+    tickets, threads, memory, bus = await _bootstrap_init_project(tmp_path)
+    await tickets.create(
+        Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="Project brief",
+            created_by="cli",
+        )
+    )
+
+    captured: dict = {}
+
+    async def fake_run_agent(ctx, emitter=None):
+        captured["ctx"] = ctx
+        from jig.agent import RunAgentResult
+
+        return RunAgentResult(status="success", final_text="ok")
+
+    from jig import init_workflow as iw_mod
+
+    monkeypatch.setattr(iw_mod, "run_agent", fake_run_agent)
+
+    await run_po_conversation(
+        project_path=tmp_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+
+    ctx = captured["ctx"]
+    assert ctx.ticket.id == "brief"

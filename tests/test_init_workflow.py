@@ -26,7 +26,7 @@ from jig.init_workflow import (
 )
 from jig.models import RoleConfig
 from jig.persistence import save_role
-from jig.project import Project, save_project
+from jig.project import Project, load_project, save_project
 from jig.spec_generator import Gap
 from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
@@ -100,6 +100,32 @@ def test_create_stub_idempotent_when_consistent(tmp_path: Path):
     assert first["created_at"] == second["created_at"]
 
 
+def test_create_stub_seeds_config_yaml_with_matching_id(tmp_path: Path):
+    target = tmp_path / "p"
+    create_stub(target, name="p")
+
+    assert (target / ".jig" / "project.yaml").is_file()
+    assert (target / ".jig" / "config.yaml").is_file()
+
+    marker = yaml.safe_load((target / ".jig" / "project.yaml").read_text())
+    project = load_project(target)
+
+    assert marker["id"] == project.id
+    assert project.name == "p"
+    assert project.path == str(target.resolve())
+
+
+def test_create_stub_idempotent_for_config_yaml(tmp_path: Path):
+    target = tmp_path / "p"
+    create_stub(target, name="p")
+    first = load_project(target)
+    create_stub(target, name="p")
+    second = load_project(target)
+
+    assert first.id == second.id
+    assert first.path == second.path
+
+
 def test_create_stub_default_brief_content(tmp_path: Path):
     target = tmp_path / "myproj"
     create_stub(target, name="myproj")
@@ -115,10 +141,12 @@ async def _bootstrap_init_project(
     """Create stub + role yamls + stores for a PO spawn."""
     create_stub(tmp_path, name="p")
     (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
+    # Reuse create_stub's generated id; only override non-default fields.
+    project_id = load_project(tmp_path).id
     save_project(
         tmp_path,
         Project(
-            id="p",
+            id=project_id,
             name="p",
             path=str(tmp_path),
             language="python",

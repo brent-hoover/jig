@@ -7,6 +7,7 @@ Claude agents are launched.
 """
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,8 @@ from jig.init_mcp import (
 from jig.init_workflow import run_init
 from jig.runtime import AgentSpawnContext
 
+Handler = Callable[[AgentSpawnContext], Awaitable[None]]
+
 
 class FakeAgent:
     """Dispatch table keyed on ``(role, ticket_id)``. Each handler
@@ -30,10 +33,12 @@ class FakeAgent:
     """
 
     def __init__(self) -> None:
-        self._handlers: dict = {}
+        self._handlers: dict[tuple[str, str], Handler] = {}
 
-    def handle(self, *, role: str, ticket_id: str):
-        def deco(fn):
+    def handle(
+        self, *, role: str, ticket_id: str
+    ) -> Callable[[Handler], Handler]:
+        def deco(fn: Handler) -> Handler:
             self._handlers[(role, ticket_id)] = fn
             return fn
         return deco
@@ -96,6 +101,8 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
     answers = iter(["Y", "Y"])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
+    # Both modules bind run_agent at import time (`from jig.agent import run_agent`),
+    # so patching one alone leaves the other live. Patch both.
     with patch("jig.init_workflow.run_agent", new=agent.run), \
             patch("jig.spec_generator.run_agent", new=agent.run):
         await run_init(name="proj", force=False)

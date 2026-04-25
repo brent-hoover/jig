@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import click
 import yaml
@@ -400,7 +401,7 @@ async def apply_scaffold(
     project_path: Path,
     template_name: str,
     sa_path: bool,
-    config: dict | None,
+    config: dict[str, Any] | None,
     tickets: TicketStore,
     threads: ThreadStore,
 ) -> None:
@@ -445,13 +446,15 @@ async def apply_scaffold(
     # 4. Best-effort install git hooks. If the project isn't a git repo
     #    or hook install refuses, that's a soft failure — print a warning
     #    and continue. Hooks are dev-loop parity; scaffold completion
-    #    must not depend on them.
+    #    must not depend on them. ``install_hooks`` calls ``_git_common_dir``
+    #    which raises ``RuntimeError`` when ``project_path`` isn't a real
+    #    git repo, so catch both error types here as the single source of
+    #    truth for soft-failure semantics.
     from jig.hooks import HookInstallError, install_hooks
-    if (project_path / ".git").exists():
-        try:
-            install_hooks(project_path)
-        except HookInstallError as exc:
-            click.echo(f"Warning: hook install failed: {exc}")
+    try:
+        install_hooks(project_path)
+    except (HookInstallError, RuntimeError) as exc:
+        click.echo(f"Warning: hook install failed: {exc}")
 
     # 5. Ensure architecture ticket exists, then emit scaffold_applied.
     arch = await tickets.get("architecture")

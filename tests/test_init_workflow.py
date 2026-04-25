@@ -1,6 +1,9 @@
 """CLI init entry: directory state, stub creation, top-level dispatch."""
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
+
+import yaml
 
 from jig import init_workflow as iw_mod
 from jig.agent import RunAgentResult
@@ -363,7 +366,6 @@ async def test_apply_scaffold_direct_path_writes_architecture_yaml(tmp_path: Pat
 
     arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
-    import yaml
     data = yaml.safe_load(arch_file.read_text())
     assert data["template"] == "python"
     assert data["sa_path"] is False
@@ -385,7 +387,6 @@ async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
     create_stub(tmp_path / "p", name="p")
     project = tmp_path / "p"
     arch_dir = project / ".jig" / "spec"
-    import yaml
     yaml_text = yaml.safe_dump({
         "rationale": "fastapi is a good fit",
         "data_stores": [{"type": "postgres", "purpose": "primary"}],
@@ -427,7 +428,6 @@ async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
 
 async def test_apply_scaffold_installs_hooks_by_default(tmp_path: Path):
     """Hooks are installed when the project is a git repo."""
-    import subprocess
     project = tmp_path / "p"
     create_stub(project, name="p")
     subprocess.run(
@@ -462,7 +462,6 @@ async def test_apply_scaffold_warns_and_succeeds_when_hook_install_fails(
     tmp_path: Path, monkeypatch, capsys
 ):
     """Hook install failure is non-fatal — scaffold must still complete."""
-    import subprocess
     project = tmp_path / "p"
     create_stub(project, name="p")
     subprocess.run(

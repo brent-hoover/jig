@@ -638,15 +638,22 @@ async def classify_resume(
         return ResumeState.PO_CONVERSATION
 
     brief_entries = await threads.for_ticket("brief")
-    has_handoff = any(isinstance(e, Handoff) for e in brief_entries)
-    has_spec_gen_event = any(
-        isinstance(e, SystemEvent) and e.event_type == "spec_generated"
-        for e in brief_entries
-    )
-    has_gaps_event = any(
-        isinstance(e, SystemEvent) and e.event_type == "spec_gaps_reported"
-        for e in brief_entries
-    )
+    last_handoff_idx = -1
+    last_gaps_event_idx = -1
+    has_spec_gen_event = False
+    for i, e in enumerate(brief_entries):
+        if isinstance(e, Handoff):
+            last_handoff_idx = i
+        elif isinstance(e, SystemEvent):
+            if e.event_type == "spec_generated":
+                has_spec_gen_event = True
+            elif e.event_type == "spec_gaps_reported":
+                last_gaps_event_idx = i
+    has_handoff = last_handoff_idx >= 0
+    # Gaps are "fresh" only if reported after the most recent handoff. Once
+    # PO re-handoffs after seeing the gap prompt, prior gaps are stale and
+    # we should re-run the spec generator rather than re-prompting.
+    gaps_after_handoff = last_gaps_event_idx > last_handoff_idx
 
     # No Handoff and no spec_generated event: PO is still drafting the
     # brief. The spec_generated check guards a partial-write recovery
@@ -654,7 +661,7 @@ async def classify_resume(
     # treat the brief as done in that case rather than looping back to PO.
     if not has_handoff and not has_spec_gen_event:
         return ResumeState.PO_CONVERSATION
-    if has_gaps_event and not has_spec_gen_event:
+    if gaps_after_handoff and not has_spec_gen_event:
         return ResumeState.GAP_PROMPT
     if not has_spec_gen_event:
         return ResumeState.SPEC_GENERATION

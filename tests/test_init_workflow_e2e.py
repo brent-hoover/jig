@@ -19,12 +19,15 @@ from jig.init_mcp import (
     handle_po_finish_brief,
     handle_sa_propose_scaffold,
     handle_spec_publish,
+    handle_spec_report_gaps,
 )
 from jig.init_workflow import run_init
 from jig.runtime import AgentSpawnContext
+from jig.spec_generator import Gap
 from jig.story import build_story
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from jig.thread import Handoff
 
 Handler = Callable[[AgentSpawnContext], Awaitable[None]]
 
@@ -295,3 +298,86 @@ async def test_story_brief_contains_po_and_specgen_trail(
     arch_kinds = [e.kind for e in arch_events]
     assert "system_event/sa_skipped" in arch_kinds
     assert "system_event/scaffold_applied" in arch_kinds
+
+
+async def test_e2e_resume_after_gap_prompt_picks_R(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Picking R at the gap prompt must re-run PO then re-run the
+    spec-generator — not loop on the stale gap event.
+    """
+    monkeypatch.chdir(tmp_path)
+    agent = FakeAgent()
+
+    po_calls: dict[str, int] = {"n": 0}
+    sg_calls: dict[str, int] = {"n": 0}
+
+    @agent.handle(role="po", ticket_id="brief")
+    async def _po(ctx: AgentSpawnContext) -> None:
+        po_calls["n"] += 1
+        proj = ctx.worktree_path
+        body = (
+            "# gapproj\n\n## Planned (committed)\n\n"
+            f"### X{po_calls['n']}\nprose v{po_calls['n']}\n"
+        )
+        (proj / ".jig" / "spec" / "project.md").write_text(body)
+        await handle_po_finish_brief(
+            threads=ctx.threads,
+            bus=ctx.bus,
+            project_path=proj,
+            summary=f"draft v{po_calls['n']}",
+            author="po",
+        )
+
+    @agent.handle(role="spec-generator", ticket_id="brief")
+    async def _sg(ctx: AgentSpawnContext) -> None:
+        sg_calls["n"] += 1
+        if sg_calls["n"] == 1:
+            await handle_spec_report_gaps(
+                threads=ctx.threads,
+                bus=ctx.bus,
+                gaps=[
+                    Gap(
+                        kind="missing",
+                        location="capabilities",
+                        description="no capability detail",
+                        severity="blocking",
+                    )
+                ],
+                author="spec-generator",
+            )
+            return
+        await handle_spec_publish(
+            threads=ctx.threads,
+            bus=ctx.bus,
+            project_path=ctx.worktree_path,
+            yaml_content="name: gapproj\ncapabilities:\n  X2: {}\n",
+            advisory_notes=[],
+            author="spec-generator",
+        )
+
+    # Sequence: gap-prompt → R, branch → p (direct), template → 1.
+    answers = iter(["R", "p", "1"])
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
+
+    with patch("jig.init_workflow.run_agent", new=agent.run), \
+            patch("jig.spec_generator.run_agent", new=agent.run):
+        await run_init(name="gapproj", force=False)
+
+    project = tmp_path / "gapproj"
+    arch_file = project / ".jig" / "spec" / "architecture.yaml"
+    assert arch_file.is_file()
+    arch = yaml.safe_load(arch_file.read_text())
+    assert arch["sa_path"] is False
+
+    # Brief ticket history must contain TWO Handoff entries — one before
+    # the gap prompt, one after PO re-handed-off post-R. That's the proof
+    # the resume cycle re-ran PO instead of looping on the stale gap.
+    store_dir = project / ".jig" / "store"
+    threads = ThreadStore(store_dir / "comments.jsonl")
+    await threads.load()
+    brief_entries = await threads.for_ticket("brief")
+    handoffs = [e for e in brief_entries if isinstance(e, Handoff)]
+    assert len(handoffs) == 2
+    assert po_calls["n"] == 2
+    assert sg_calls["n"] == 2

@@ -283,7 +283,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
     )
     kinds = [e.kind for e in events]
     assert "handoff" in kinds
-    assert any("spec_generated" in e.message for e in events)
+    assert "system_event/spec_generated" in kinds
     assert any("watch out for X" in e.message for e in events)
 
     arch_events = await build_story(
@@ -292,5 +292,6 @@ async def test_story_brief_contains_po_and_specgen_trail(
         threads=threads,
         tickets=tickets,
     )
-    assert any("sa_skipped" in e.message for e in arch_events)
-    assert any("scaffold_applied" in e.message for e in arch_events)
+    arch_kinds = [e.kind for e in arch_events]
+    assert "system_event/sa_skipped" in arch_kinds
+    assert "system_event/scaffold_applied" in arch_kinds

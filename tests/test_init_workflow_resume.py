@@ -4,7 +4,6 @@ import pytest
 import yaml
 
 from jig.init_workflow import ResumeState, classify_resume, create_stub
-from jig.store.bus import MessageBus
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note, SystemEvent
@@ -16,11 +15,9 @@ async def wired(tmp_path: Path):
     create_stub(tmp_path, name="p")
     tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
     threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
-    bus = MessageBus(tmp_path / ".jig" / "store" / "messages.jsonl")
     await tickets.load()
     await threads.load()
-    await bus.load()
-    return {"path": tmp_path, "tickets": tickets, "threads": threads, "bus": bus}
+    return {"path": tmp_path, "tickets": tickets, "threads": threads}
 
 
 async def test_resume_fresh(wired):

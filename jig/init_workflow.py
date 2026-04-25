@@ -518,6 +518,10 @@ async def classify_resume(
         for e in brief_entries
     )
 
+    # No Handoff and no spec_generated event: PO is still drafting the
+    # brief. The spec_generated check guards a partial-write recovery
+    # case where the Handoff didn't land but the downstream event did —
+    # treat the brief as done in that case rather than looping back to PO.
     if not has_handoff and not has_spec_gen_event:
         return ResumeState.PO_CONVERSATION
     if has_gaps_event and not has_spec_gen_event:
@@ -539,19 +543,16 @@ async def classify_resume(
         isinstance(e, SystemEvent) and e.event_type == "scaffold_applied"
         for e in arch_entries
     )
-    proposal = next(
-        (
-            e for e in arch_entries
-            if isinstance(e, Note) and e.payload.get("kind") == "sa_propose_scaffold"
-        ),
-        None,
+    has_proposal = any(
+        isinstance(e, Note) and e.payload.get("kind") == "sa_propose_scaffold"
+        for e in arch_entries
     )
 
     if has_scaffold_applied:
         return ResumeState.ALREADY_DONE
     if has_sa_skipped:
         return ResumeState.DIRECT_TEMPLATE_PICK
-    if proposal is not None:
+    if has_proposal:
         return ResumeState.SA_CONFIRM_PROMPT
     return ResumeState.SA_CONVERSATION
 

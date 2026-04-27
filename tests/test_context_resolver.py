@@ -535,3 +535,68 @@ class TestResolveContextUri:
             project_path=jig_layout,
         )
         assert out is None
+
+
+# ----- project://spec/... via context resolver --------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_project_spec_capability_via_context_resolver(tmp_path):
+    import yaml
+    from datetime import datetime, timezone
+
+    from jig.context_resolver import _resolve_project  # type: ignore[attr-defined]
+    from jig.spec_schema import (
+        Capability,
+        CapabilityState,
+        StructuredSpec,
+    )
+
+    spec_path = tmp_path / ".jig" / "spec"
+    spec_path.mkdir(parents=True)
+    spec = StructuredSpec(
+        name="x",
+        summary="y",
+        capabilities=[
+            Capability(
+                id="due-dates",
+                title="Due dates",
+                state=CapabilityState.PLANNED,
+                acceptance_criteria=["x"],
+                created_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+                state_changed_at=datetime.now(timezone.utc),
+            ),
+        ],
+        generated_at=datetime.now(timezone.utc),
+    )
+    (spec_path / "project.structured.yaml").write_text(
+        yaml.safe_dump(spec.model_dump(mode="json", by_alias=True))
+    )
+    out = await _resolve_project(
+        body="spec/capabilities/due-dates",
+        ticket=None,
+        parent=None,
+        threads=None,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    assert "due-dates" in out
+    assert "Due dates" in out
+
+
+@pytest.mark.asyncio
+async def test_resolve_project_spec_no_file_returns_friendly_message(tmp_path):
+    """When project.structured.yaml doesn't exist, the resolver should
+    return a graceful message rather than raising an exception."""
+    from jig.context_resolver import _resolve_project  # type: ignore[attr-defined]
+
+    out = await _resolve_project(
+        body="spec/capabilities/due-dates",
+        ticket=None,
+        parent=None,
+        threads=None,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    assert "spec" in out.lower()

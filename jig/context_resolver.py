@@ -24,6 +24,10 @@ import logging
 from pathlib import Path
 from typing import Awaitable, Callable
 
+import yaml
+
+from jig.spec_schema import StructuredSpec
+from jig.spec_uri import SpecUriError, resolve_spec_uri
 from jig.store.threads import ThreadStore
 from jig.thread import entry_content
 from jig.ticket import Ticket
@@ -383,6 +387,21 @@ async def _resolve_project(
     worktree_path: Path,
     project_path: Path,
 ) -> str:
+    # NEW: spec/... routes through the structured-spec resolver.
+    if body == "spec" or body.startswith("spec/") or body.startswith("spec#"):
+        spec_file = project_path / ".jig" / "spec" / "project.structured.yaml"
+        if not spec_file.is_file():
+            return f"# project://{body}\n\n(no project.structured.yaml exists yet)\n"
+        data = yaml.safe_load(spec_file.read_text()) or {}
+        spec = StructuredSpec.model_validate(data)
+        try:
+            out = resolve_spec_uri(f"project://{body}", spec)
+        except SpecUriError as e:
+            return f"# project://{body}\n\n[unresolved: {e}]\n"
+        # Render the structured payload as YAML text for context-bundle injection.
+        return yaml.safe_dump(out["data"], sort_keys=False)
+
+    # EXISTING: file-based project context (unchanged below)
     base = project_path / ".jig" / "context" / "project"
     return _read_context_file(base, body, f"project://{body}")
 

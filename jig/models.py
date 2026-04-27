@@ -33,6 +33,16 @@ class RoleConfig(BaseModel):
     default_context: list[str] = []
     required_context: list[str] = []
     allowed_mcps: list[str] = []
+    # Strict MCP-tool registration mode (Phase init): when True, the
+    # MCP factory in ``jig/mcp_server.py`` only registers tools whose
+    # short name appears in ``allowed_tools``. The default (False)
+    # preserves legacy behavior where a base set (create_ticket,
+    # commit_progress, thread_*, etc.) is registered for every role
+    # regardless of allowed_tools — operational roles (dev/test/pm)
+    # rely on that. Strict mode is enabled on the narrow init roles
+    # (po, sa, spec-generator) so e.g. PO can't grab commit_progress
+    # via ToolSearch and waste turns hunting for a git repo.
+    strict_tools: bool = False
     # Phase 5 Task F (doc 16 §Capability policy). Tool + path + tool-param
     # constraints for agents running this role. ``None`` means "no
     # capability policy declared" — the compiler emits empty rules and

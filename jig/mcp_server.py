@@ -168,20 +168,39 @@ def create_agent_mcp_server(
 
     @tool(
         "ask_question",
-        "Ask the operator a question. Posts question comment(s) and pauses the ticket (needs_info). "
-        "The orchestrator will resume you once the operator answers. "
-        "Use this instead of creating question tickets or manually setting needs_info.",
-        {"ticket_id": str, "question": str, "questions": list},
+        "Ask the operator one or more questions. Pass `questions` as a "
+        "list of strings (one entry per question). Posts blocking Question "
+        "entries on the ticket and flips it to needs_info; the orchestrator "
+        "resumes you once the operator answers. Use this instead of "
+        "creating question tickets or manually setting needs_info.",
+        {"ticket_id": str, "questions": list},
     )
     async def ask_question(args):
         # Operator-pause UX: post blocking Question entries targeted at
         # "any_human", flip the ticket to needs_info, and let the TUI
         # drive the answer flow via the ws_server `answer_questions`
         # command. Typed agent-to-agent Q&A goes through thread_ask.
+        #
+        # Schema accepts only `questions` (a list). An earlier draft
+        # also exposed a singular `question: str`, which Claude
+        # consistently filled with junk like "placeholder" alongside
+        # the real list. Dropping it from the schema removes the
+        # affordance; we still dedupe within the list because models
+        # sometimes repeat the same prompt twice.
         ticket_id = args["ticket_id"]
-        questions: list[str] = list(args.get("questions") or [])
-        if isinstance(args.get("question"), str):
-            questions.append(args["question"])
+        raw = args.get("questions") or []
+        if not isinstance(raw, list):
+            raise ValueError("`questions` must be a list of strings")
+        seen: set[str] = set()
+        questions: list[str] = []
+        for q in raw:
+            if not isinstance(q, str):
+                raise ValueError("each question must be a string")
+            key = q.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            questions.append(q)
         if not questions:
             raise ValueError("at least one question is required")
 
@@ -846,6 +865,7 @@ def create_agent_mcp_server(
         )
         async def po_finish_brief(args):
             entry_id = await init_mcp.handle_po_finish_brief(
+                tickets=tickets,
                 threads=threads,
                 bus=bus,
                 project_path=project_path,
@@ -865,6 +885,7 @@ def create_agent_mcp_server(
         )
         async def spec_publish(args):
             await init_mcp.handle_spec_publish(
+                tickets=tickets,
                 threads=threads,
                 bus=bus,
                 project_path=project_path,
@@ -887,6 +908,7 @@ def create_agent_mcp_server(
         async def spec_report_gaps(args):
             gaps = [_Gap.model_validate(g) for g in args["gaps"]]
             await init_mcp.handle_spec_report_gaps(
+                tickets=tickets,
                 threads=threads,
                 bus=bus,
                 gaps=gaps,
@@ -977,15 +999,34 @@ def create_agent_mcp_server(
 
         all_tools.append(arch_set_field)
 
+    if "arch_list_templates" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_list_templates",
+            "List the scaffold templates available for sa_propose_scaffold. "
+            "Returns name, description, language, framework, and deploy_target "
+            "for each. Call this before proposing a template — names are not "
+            "discoverable from the filesystem.",
+            {},
+        )
+        async def arch_list_templates(args):
+            templates = await init_mcp.handle_arch_list_templates()
+            return {"content": [{"type": "text", "text": json.dumps(templates)}]}
+
+        all_tools.append(arch_list_templates)
+
     if "sa_propose_scaffold" in agent_cfg.allowed_tools:
 
         @tool(
             "sa_propose_scaffold",
-            "Propose a project scaffold template for the orchestrator to apply.",
+            "Propose a project scaffold template for the orchestrator to apply. "
+            "`template_name` must match one of the names returned by "
+            "`arch_list_templates`.",
             {"template_name": str, "rationale": str, "config": dict},
         )
         async def sa_propose_scaffold(args):
             await init_mcp.handle_sa_propose_scaffold(
+                tickets=tickets,
                 threads=threads,
                 bus=bus,
                 template_name=args["template_name"],
@@ -996,6 +1037,16 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": "ok"}]}
 
         all_tools.append(sa_propose_scaffold)
+
+    # Strict-tools mode: drop any tool whose short name isn't in the
+    # role's ``allowed_tools``. Init roles (po, sa, spec-generator)
+    # opt into this so e.g. PO can't reach for commit_progress via
+    # ToolSearch and waste turns trying to commit a non-existent
+    # git repo. Operational roles leave strict_tools=False and keep
+    # the legacy "all base tools always available" behavior.
+    if agent_cfg.strict_tools:
+        allowed = set(agent_cfg.allowed_tools)
+        all_tools = [t for t in all_tools if t.name in allowed]
 
     # Wrap every tool handler so the correlation context is set on
     # each incoming call. MCP tool calls arrive in fresh asyncio tasks

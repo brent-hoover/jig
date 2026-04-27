@@ -186,3 +186,100 @@ async def test_phase_allowlists_enforced_through_mcp_tools(
     await tools_by_name["thread_escalate"].handler(
         {"ticket_id": ticket_id, "reason": "x", "details": "y"}
     )
+
+
+@pytest.mark.asyncio
+async def test_ask_question_dedupes_repeated_entries_in_list(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Models sometimes repeat the same prompt inside ``questions``; the
+    tool dedupes (whitespace-trimmed) so the operator doesn't see the
+    same question twice."""
+    from jig.thread import Question
+    from jig.ticket import Ticket, WorkType
+
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
+    ticket_id = await tickets.create(
+        Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="b",
+            created_by="cli",
+        )
+    )
+    cfg = RoleConfig(role="po", phase_prompt="")
+
+    captured: dict = {}
+    _patch_create_server(monkeypatch, captured)
+
+    mcp_server.create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po",
+        agent_cfg=cfg,
+        worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
+    )
+    tools_by_name = {t.name: t for t in captured["tools"]}
+
+    await tools_by_name["ask_question"].handler(
+        {
+            "ticket_id": ticket_id,
+            "questions": ["What is it?", "What is it?", " What is it? "],
+        }
+    )
+
+    qs = [
+        e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)
+    ]
+    assert len(qs) == 1, f"expected 1 Question after dedupe, got {len(qs)}"
+    assert qs[0].question == "What is it?"
+
+
+@pytest.mark.asyncio
+async def test_ask_question_keeps_distinct_questions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Distinct questions in one call must still all be posted."""
+    from jig.thread import Question
+    from jig.ticket import Ticket, WorkType
+
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
+    ticket_id = await tickets.create(
+        Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="b",
+            created_by="cli",
+        )
+    )
+    cfg = RoleConfig(role="po", phase_prompt="")
+
+    captured: dict = {}
+    _patch_create_server(monkeypatch, captured)
+
+    mcp_server.create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po",
+        agent_cfg=cfg,
+        worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
+    )
+    tools_by_name = {t.name: t for t in captured["tools"]}
+
+    await tools_by_name["ask_question"].handler(
+        {
+            "ticket_id": ticket_id,
+            "questions": ["who?", "what?", "why?"],
+        }
+    )
+
+    qs = [
+        e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)
+    ]
+    assert [q.question for q in qs] == ["who?", "what?", "why?"]

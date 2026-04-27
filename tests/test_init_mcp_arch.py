@@ -144,6 +144,7 @@ async def test_sa_propose_scaffold_records_proposal(wired):
         author="sa",
     )
     await handle_sa_propose_scaffold(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         template_name="fastapi",
@@ -157,22 +158,53 @@ async def test_sa_propose_scaffold_records_proposal(wired):
 
 
 @pytest.mark.asyncio
-async def test_sa_propose_scaffold_unknown_template_raises(wired):
-    with pytest.raises(KeyError):
+async def test_sa_propose_scaffold_unknown_template_lists_valid_names(wired):
+    """SA used to thrash through the filesystem hunting for the template
+    list when its first guess was wrong. The error now tells it what's
+    actually installed so it can self-correct in one turn."""
+    with pytest.raises(KeyError) as exc:
         await handle_sa_propose_scaffold(
+            tickets=wired["tickets"],
             threads=wired["threads"],
             bus=wired["bus"],
-            template_name="does-not-exist",
+            template_name="python-web",
             rationale="r",
             config={},
             author="sa",
         )
+    msg = str(exc.value)
+    assert "python-web" in msg
+    # Real templates that ship with the package — the assertion stays
+    # valid as long as at least one of them is present.
+    assert "fastapi" in msg or "python" in msg
+    assert "arch_list_templates" in msg
+
+
+@pytest.mark.asyncio
+async def test_arch_list_templates_returns_metadata():
+    """SA calls this to discover names + metadata before proposing.
+    Verifies each entry has the expected metadata keys and that at
+    least one shipped template appears."""
+    from jig.init_mcp import handle_arch_list_templates
+
+    templates = await handle_arch_list_templates()
+    assert templates, "expected at least one shipped template"
+    names = {t["name"] for t in templates}
+    assert names & {"fastapi", "python"}, (
+        f"expected shipped templates in {names}"
+    )
+    for t in templates:
+        assert {"name", "description", "language", "framework",
+                "deploy_target"} <= t.keys()
+        assert isinstance(t["name"], str)
+        assert isinstance(t["language"], str)
 
 
 @pytest.mark.asyncio
 async def test_sa_propose_scaffold_empty_rationale_raises(wired):
     with pytest.raises(ValueError, match="rationale"):
         await handle_sa_propose_scaffold(
+            tickets=wired["tickets"],
             threads=wired["threads"],
             bus=wired["bus"],
             template_name="fastapi",

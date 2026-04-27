@@ -99,6 +99,7 @@ async def test_sa_server_exposes_arch_tools_not_brief(
             "arch_get_field",
             "arch_set_field",
             "arch_list_fields",
+            "arch_list_templates",
             "sa_propose_scaffold",
         ],
     )
@@ -118,10 +119,125 @@ async def test_sa_server_exposes_arch_tools_not_brief(
     assert {
         "arch_set_field",
         "arch_get_field",
+        "arch_list_templates",
         "sa_propose_scaffold",
         "spec_get_field",
     } <= names
     assert not any(n.startswith("brief_") for n in names)
+
+
+@pytest.mark.asyncio
+async def test_strict_tools_drops_unlisted_base_tools(
+    tmp_path, stores, monkeypatch
+) -> None:
+    """``strict_tools=True`` makes ``allowed_tools`` authoritative for
+    base tools too — without it PO can call ``commit_progress`` /
+    ``update_ticket`` via ToolSearch and waste turns hunting for a
+    git repo or messing with ticket state it shouldn't touch."""
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(
+        role="po",
+        allowed_tools=[
+            "ask_question",
+            "brief_get_section",
+            "brief_list_sections",
+            "brief_set_section",
+            "po_finish_brief",
+        ],
+        strict_tools=True,
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    names = _tool_names(captured)
+    # Listed PO tools survive.
+    assert {
+        "ask_question",
+        "brief_get_section",
+        "brief_list_sections",
+        "brief_set_section",
+        "po_finish_brief",
+    } == names
+    # The legacy base tools that previously leaked into every role are
+    # gone.
+    for blocked in (
+        "commit_progress",
+        "update_ticket",
+        "create_ticket",
+        "record_learning",
+        "request_context",
+        "thread_handoff",
+        "list_tickets",
+        "read_comments",
+    ):
+        assert blocked not in names, (
+            f"strict_tools failed to drop {blocked!r}: {sorted(names)}"
+        )
+
+
+def test_strict_disallowed_tools_blocks_dangerous_builtins():
+    """Strict-tools roles need their built-in tool surface narrowed —
+    PO/SA were observed reaching for Bash/Glob/Agent under
+    bypassPermissions because allowed_tools alone doesn't gate them.
+    The deny list closes that loop."""
+    from jig.agent import _strict_disallowed_tools
+
+    out = _strict_disallowed_tools(["Read", "ask_question"])
+    # All the exploratory/mutating builtins are denied for a role that
+    # didn't explicitly opt in.
+    for name in ("Bash", "Edit", "Write", "Glob", "Grep", "Agent",
+                 "WebSearch", "WebFetch", "NotebookEdit"):
+        assert name in out, f"{name} should be blocked: {out}"
+    # Read isn't a dangerous builtin so it never appears in the deny
+    # list — being in allowed_tools is irrelevant.
+    assert "Read" not in out
+
+
+def test_strict_disallowed_tools_respects_explicit_optin():
+    """If a strict role names a normally-blocked tool in allowed_tools,
+    drop it from the deny list — operators may want a strict role
+    that can still run a specific Bash tool, etc."""
+    from jig.agent import _strict_disallowed_tools
+
+    out = _strict_disallowed_tools(["Read", "Bash"])
+    assert "Bash" not in out
+    # Other dangerous builtins remain blocked.
+    assert "Glob" in out
+    assert "Edit" in out
+
+
+@pytest.mark.asyncio
+async def test_strict_tools_off_keeps_legacy_base_tools(
+    tmp_path, stores, monkeypatch
+) -> None:
+    """Operational roles (dev, test, pm) leave ``strict_tools=False``
+    and continue to receive the unconditional base toolset."""
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(role="dev", allowed_tools=[])
+    assert cfg.strict_tools is False
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="dev",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    names = _tool_names(captured)
+    assert {"commit_progress", "thread_handoff", "create_ticket"} <= names
 
 
 @pytest.mark.asyncio

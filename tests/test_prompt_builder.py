@@ -599,3 +599,85 @@ def test_evaluator_prompt_without_bundle_still_renders_role_framing() -> None:
     # No crash; structured sections are simply absent.
     assert "## Check results" not in prompt
     assert "## Evaluator bundle" not in prompt
+
+
+def _init_role_cfg(name: str) -> RoleConfig:
+    """Init-role configs carry their own situational instructions in
+    ``phase_prompt``; the generic block must not be appended."""
+    return RoleConfig(role=name, phase_prompt=f"You are {name}.")
+
+
+def test_po_does_not_get_generic_instructions() -> None:
+    """The generic block tells every agent to call ``commit_progress``
+    after work and ``update_ticket(... status=resolved)`` to finish.
+    PO does neither — its handoff is ``po_finish_brief`` — so seeing
+    the generic block confused PO into hunting for a git repo and
+    overriding ticket state. Strip it for init roles."""
+    prompt = build_initial_prompt(
+        role_cfg=_init_role_cfg("po"),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+    )
+    assert "commit_progress" not in prompt
+    assert "update_ticket" not in prompt
+    # Generic "## Instructions" header from _instructions_section is
+    # what the suppression strips; phase prompts may use other
+    # markdown headers, but the literal "## Instructions" header is
+    # the one we're guarding against.
+    assert "## Instructions\n" not in prompt
+
+
+def test_sa_does_not_get_generic_instructions() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_init_role_cfg("sa"),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+    )
+    assert "commit_progress" not in prompt
+    assert "update_ticket" not in prompt
+
+
+def test_spec_generator_does_not_get_generic_instructions() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_init_role_cfg("spec-generator"),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+    )
+    assert "commit_progress" not in prompt
+    assert "update_ticket" not in prompt
+
+
+def test_dev_still_gets_generic_instructions() -> None:
+    """Operational roles haven't migrated — they still need the
+    generic ``commit_progress`` / ``update_ticket`` boilerplate."""
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),  # role="dev"
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+    )
+    assert "commit_progress" in prompt
+    assert "update_ticket" in prompt

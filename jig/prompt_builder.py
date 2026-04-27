@@ -162,11 +162,32 @@ def _ticket_section(
     return "\n".join(parts) + "\n\n"
 
 
+# Roles whose handoff is via a role-specific MCP tool (po_finish_brief,
+# spec_publish/spec_report_gaps, sa_propose_scaffold) rather than the
+# generic commit_progress/update_ticket dance. Their phase_prompt owns
+# all the instructions; rendering the generic block on top would tell
+# them to call commit_progress and update_ticket — which is exactly the
+# thrashing observed in jig init before this fix.
+_INIT_ROLES_WITH_OWN_INSTRUCTIONS: frozenset[str] = frozenset(
+    {"po", "sa", "spec-generator"}
+)
+
+
 def _instructions_section(
     ticket: Ticket,
     reason: SpawnReason,
     evaluator_bundle: dict[str, Any] | None = None,
+    role: str | None = None,
 ) -> str:
+    if role in _INIT_ROLES_WITH_OWN_INSTRUCTIONS and reason not in (
+        SpawnReason.QA_RESPONDER,
+        SpawnReason.EVALUATOR,
+    ):
+        # The role's phase_prompt enumerates tools, files, and the
+        # situational next step. Adding the generic block would
+        # instruct the agent to call commit_progress / update_ticket,
+        # neither of which applies to the init flow.
+        return ""
     if reason == SpawnReason.QA_RESPONDER:
         return (
             "## Instructions\n\n"
@@ -455,6 +476,7 @@ def build_initial_prompt(
             ticket,
             spawn_reason,
             evaluator_bundle=evaluator_bundle,
+            role=role_cfg.role,
         ),
     ]
     return "".join(parts)

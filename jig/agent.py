@@ -99,6 +99,40 @@ def _thinking_config() -> ThinkingConfigAdaptive:
 _LOG_TRUNCATE_BYTES = 32 * 1024
 
 
+# Built-in Claude Code tools that strict-tools roles (PO, SA,
+# spec-generator) should never reach for. These are exploratory or
+# mutating tools that are out of scope for narrow-conversation roles
+# whose entire job is to talk through MCP. ``Read`` and ``ToolSearch``
+# stay allowed: Read is sometimes needed (e.g. PO reading project.md
+# directly), ToolSearch is required to load deferred MCP tool schemas.
+# A role can opt back into one of these by listing it in
+# ``allowed_tools`` — see the agent.py call site.
+_STRICT_DENY_BUILTINS: frozenset[str] = frozenset(
+    {
+        "Bash",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "Glob",
+        "Grep",
+        "Agent",
+        "WebSearch",
+        "WebFetch",
+    }
+)
+
+
+def _strict_disallowed_tools(allowed_tools: list[str]) -> list[str]:
+    """Compute the SDK ``disallowed_tools`` list for a strict-tools role.
+
+    Subtracts whatever the role explicitly lists in ``allowed_tools``
+    from the dangerous-builtin set, so a strict role can opt back into
+    e.g. ``Bash`` by naming it. Returned sorted for determinism in
+    logs and tests.
+    """
+    return sorted(_STRICT_DENY_BUILTINS - set(allowed_tools))
+
+
 @dataclass
 class RunAgentResult:
     status: str  # "success" | "failed" | "blocked" | "needs_info"
@@ -414,9 +448,21 @@ async def run_agent(
         if external:
             _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
 
+        # Strict-tools roles (PO, SA, spec-generator) get a curated
+        # disallow list of dangerous built-ins so e.g. PO can't reach
+        # for Bash/Glob/Agent and start exploring the filesystem.
+        # ``bypassPermissions`` is required because there's no
+        # interactive operator to approve prompts; ``disallowed_tools``
+        # is enforced even under bypass. Anything the role explicitly
+        # lists in ``allowed_tools`` is removed from the deny list so a
+        # role can opt into a built-in by naming it.
+        disallowed: list[str] = []
+        if ctx.role_cfg.strict_tools:
+            disallowed = _strict_disallowed_tools(ctx.role_cfg.allowed_tools)
         options = ClaudeAgentOptions(
             cwd=str(ctx.worktree_path),
             allowed_tools=ctx.role_cfg.allowed_tools,
+            disallowed_tools=disallowed,
             system_prompt=ctx.role_cfg.phase_prompt,
             mcp_servers=mcp_servers,
             permission_mode="bypassPermissions",
@@ -507,6 +553,11 @@ async def run_agent(
             ctx.worktree_path,
         )
         try:
+            # Map ToolUseBlock.id → tool name so we can label
+            # ToolResultBlocks (which only carry the use id, not the name)
+            # when emitting result events for the CLI/TUI.
+            tool_names_by_use_id: dict[str, str] = {}
+
             async for message in query(
                 prompt=_prompt_stream(), options=options, transport=transport
             ):
@@ -514,6 +565,7 @@ async def run_agent(
                     for block in message.content or []:
                         if isinstance(block, ToolUseBlock):
                             detail = _tool_detail(block.name, block.input or {})
+                            tool_names_by_use_id[block.id] = block.name
                             _logger.info("[%s] tool: %s %s", tag, block.name, detail)
                             _logger.debug(
                                 "[%s] tool_input: id=%s %s",
@@ -602,6 +654,20 @@ async def run_agent(
                                     block.tool_use_id,
                                     is_error,
                                     truncated,
+                                )
+                                tool_name = tool_names_by_use_id.get(
+                                    block.tool_use_id, "tool"
+                                )
+                                excerpt = _sanitize_for_tui(raw, limit=200)
+                                await _emit(
+                                    "agent_tool_result",
+                                    {
+                                        "role": ctx.role,
+                                        "ticket_id": ctx.ticket.id,
+                                        "tool": tool_name,
+                                        "is_error": is_error,
+                                        "excerpt": excerpt,
+                                    },
                                 )
                 elif isinstance(message, SystemMessage):
                     _logger.debug("[%s] system: %s", tag, message.subtype)

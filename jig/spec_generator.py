@@ -8,7 +8,7 @@ later task.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
@@ -20,6 +20,9 @@ from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+
+if TYPE_CHECKING:
+    from jig.events import EventEmitter
 
 
 class Gap(BaseModel):
@@ -39,6 +42,7 @@ async def run_spec_generator(
     threads: ThreadStore,
     memory: MemoryStore,
     bus: MessageBus,
+    emitter: "EventEmitter | None" = None,
 ) -> None:
     """Spawn the one-shot spec-generator agent on the brief ticket.
 
@@ -49,6 +53,11 @@ async def run_spec_generator(
     The spec-generator runs against the real project directory (not an
     isolated worktree) because it reads ``.jig/spec/project.md`` and
     writes the structured spec back into the project tree.
+
+    ``emitter`` is forwarded to ``run_agent`` so the init CLI can
+    surface the agent's tool calls and text turns to the operator —
+    without it the spec-generator runs invisibly and the operator
+    can't tell whether it's working or hung.
     """
     brief = await tickets.get("brief")
     if brief is None:
@@ -70,4 +79,4 @@ async def run_spec_generator(
         memory=memory,
         bus=bus,
     )
-    await run_agent(ctx)
+    await run_agent(ctx, emitter=emitter)

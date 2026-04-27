@@ -98,6 +98,7 @@ async def test_brief_set_section_appends_when_missing(wired):
 @pytest.mark.asyncio
 async def test_po_finish_brief_emits_handoff(wired):
     await handle_po_finish_brief(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
@@ -109,6 +110,12 @@ async def test_po_finish_brief_emits_handoff(wired):
     assert len(handoffs) == 1
     assert handoffs[0].phase == "spec-generator"
     assert handoffs[0].summary == "Brief complete."
+    # Brief is now resolved so the PO agent's exit-on-terminal-status
+    # poll fires and the agent loop returns instead of hanging.
+    brief = await wired["tickets"].get("brief")
+    assert brief is not None
+    from jig.ticket import TicketStatus
+    assert brief.status == TicketStatus.RESOLVED
 
 
 @pytest.mark.asyncio
@@ -116,6 +123,7 @@ async def test_po_finish_brief_on_empty_brief_raises(wired):
     wired["brief_path"].write_text("# myproj\n")  # no sections
     with pytest.raises(ValueError, match="empty"):
         await handle_po_finish_brief(
+            tickets=wired["tickets"],
             threads=wired["threads"],
             bus=wired["bus"],
             project_path=wired["project_path"],
@@ -129,6 +137,7 @@ async def test_po_finish_brief_missing_file_raises_filenotfound(wired):
     wired["brief_path"].unlink()
     with pytest.raises(FileNotFoundError):
         await handle_po_finish_brief(
+            tickets=wired["tickets"],
             threads=wired["threads"],
             bus=wired["bus"],
             project_path=wired["project_path"],

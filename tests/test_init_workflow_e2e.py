@@ -67,6 +67,7 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             "# proj\n\nintro\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=proj,
@@ -77,6 +78,7 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
     @agent.handle(role="spec-generator", ticket_id="brief")
     async def _sg(ctx: AgentSpawnContext) -> None:
         await handle_spec_publish(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
@@ -95,6 +97,7 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             author="sa",
         )
         await handle_sa_propose_scaffold(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             template_name="python",
@@ -136,6 +139,7 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
             "# directproj\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=proj,
@@ -146,6 +150,7 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
     @agent.handle(role="spec-generator", ticket_id="brief")
     async def _sg(ctx: AgentSpawnContext) -> None:
         await handle_spec_publish(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
@@ -185,6 +190,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
             "# resumeproj\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=proj,
@@ -195,6 +201,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
     @agent.handle(role="spec-generator", ticket_id="brief")
     async def _sg(ctx: AgentSpawnContext) -> None:
         await handle_spec_publish(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
@@ -249,6 +256,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
             "# storyproj\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=proj,
@@ -259,6 +267,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
     @agent.handle(role="spec-generator", ticket_id="brief")
     async def _sg(ctx: AgentSpawnContext) -> None:
         await handle_spec_publish(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
@@ -322,6 +331,7 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
         )
         (proj / ".jig" / "spec" / "project.md").write_text(body)
         await handle_po_finish_brief(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=proj,
@@ -334,6 +344,7 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
         sg_calls["n"] += 1
         if sg_calls["n"] == 1:
             await handle_spec_report_gaps(
+                tickets=ctx.tickets,
                 threads=ctx.threads,
                 bus=ctx.bus,
                 gaps=[
@@ -348,6 +359,7 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
             )
             return
         await handle_spec_publish(
+            tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,

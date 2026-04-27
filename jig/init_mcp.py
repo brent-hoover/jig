@@ -16,8 +16,10 @@ from jig.atomic import atomic_write_text
 from jig.markdown_sections import get_section, list_sections, set_section
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
-from jig.template_registry import list_templates
+from jig.store.tickets import TicketStore
+from jig.template_registry import list_templates, load_template_metadata
 from jig.thread import Handoff, Note, SystemEvent
+from jig.ticket import TicketStatus
 
 if TYPE_CHECKING:
     from jig.spec_generator import Gap
@@ -135,15 +137,64 @@ async def handle_brief_set_section(
     set_section(_brief_path(project_path), name, markdown)
 
 
+async def _resolve_after_handoff(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    ticket_id: str,
+    author: str,
+) -> None:
+    """Mark a ticket RESOLVED and broadcast it after a handoff handler.
+
+    Init-flow handoffs (po_finish_brief, spec_publish, spec_report_gaps,
+    sa_propose_scaffold) all share the same problem: posting the
+    handoff event alone leaves the ticket in IN_PROGRESS, which is
+    NOT in the agent loop's terminal-status set
+    (``RESOLVED`` / ``BLOCKED`` / ``NEEDS_INFO``). The agent then sits
+    idle indefinitely instead of exiting and yielding to the next
+    init phase. Flipping to RESOLVED + publishing ``ticket_updated``
+    on the ticket topic gives the agent loop both polling and bus
+    paths to notice it's done within one tick.
+    """
+    current = await tickets.get(ticket_id)
+    if current is None or current.status == TicketStatus.RESOLVED:
+        return
+    updated = await tickets.update(ticket_id, status=TicketStatus.RESOLVED)
+    await threads.post(
+        SystemEvent(
+            ticket_id=ticket_id,
+            author=author,
+            event_type="status_change",
+            content=f"status {current.status.value} -> {updated.status.value}",
+        )
+    )
+    await bus.publish(
+        Message(
+            sender=author,
+            to=updated.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "ticket_updated",
+                "ticket_id": ticket_id,
+                "status": updated.status.value,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+
+
 async def handle_po_finish_brief(
     *,
+    tickets: TicketStore,
     threads: ThreadStore,
     bus: MessageBus,
     project_path: Path,
     summary: str,
     author: str,
 ) -> str:
-    """Emit a Handoff on the brief ticket, targeting spec-generator."""
+    """Emit a Handoff on the brief ticket, targeting spec-generator,
+    and mark the brief RESOLVED so the PO agent exits cleanly."""
     path = _brief_path(project_path)
     if not list_sections(path):
         raise ValueError(
@@ -170,11 +221,16 @@ async def handle_po_finish_brief(
             topic="orchestrator",
         )
     )
+    await _resolve_after_handoff(
+        tickets=tickets, threads=threads, bus=bus,
+        ticket_id="brief", author=author,
+    )
     return entry_id
 
 
 async def handle_spec_publish(
     *,
+    tickets: TicketStore,
     threads: ThreadStore,
     bus: MessageBus,
     project_path: Path,
@@ -182,7 +238,8 @@ async def handle_spec_publish(
     advisory_notes: list[str],
     author: str,
 ) -> None:
-    """Write the structured spec and emit spec_generated."""
+    """Write the structured spec, emit spec_generated, and resolve
+    the brief ticket so the spec-generator exits cleanly."""
     try:
         yaml.safe_load(yaml_content)
     except yaml.YAMLError as e:
@@ -214,16 +271,24 @@ async def handle_spec_publish(
             topic="orchestrator",
         )
     )
+    await _resolve_after_handoff(
+        tickets=tickets, threads=threads, bus=bus,
+        ticket_id="brief", author=author,
+    )
 
 
 async def handle_spec_report_gaps(
     *,
+    tickets: TicketStore,
     threads: ThreadStore,
     bus: MessageBus,
     gaps: list[Gap],
     author: str,
 ) -> None:
-    """Post a structured Note and emit spec_gaps_reported."""
+    """Post a structured Note, emit spec_gaps_reported, and resolve
+    the brief ticket so the spec-generator exits cleanly. The init
+    workflow will route to GAP_PROMPT next, prompting the operator
+    to either resume PO (which reactivates the brief) or quit."""
     rendered = "\n".join(
         f"- [{g.severity}] {g.location}: {g.description}" for g in gaps
     )
@@ -251,6 +316,10 @@ async def handle_spec_report_gaps(
             payload={"kind": "spec_gaps_reported", "ticket_id": "brief"},
             topic="orchestrator",
         )
+    )
+    await _resolve_after_handoff(
+        tickets=tickets, threads=threads, bus=bus,
+        ticket_id="brief", author=author,
     )
 
 
@@ -309,8 +378,32 @@ async def handle_arch_set_field(
     )
 
 
+async def handle_arch_list_templates() -> list[dict[str, Any]]:
+    """Enumerate available scaffold templates with metadata.
+
+    SA calls this before ``sa_propose_scaffold`` to learn what's
+    actually installed instead of guessing template names. Each entry
+    is a dict with ``name``, ``description``, ``language``,
+    ``framework``, and ``deploy_target``.
+    """
+    out: list[dict[str, Any]] = []
+    for name in list_templates():
+        md = load_template_metadata(name)
+        out.append(
+            {
+                "name": md.name,
+                "description": md.description,
+                "language": md.language,
+                "framework": md.framework,
+                "deploy_target": md.deploy_target,
+            }
+        )
+    return out
+
+
 async def handle_sa_propose_scaffold(
     *,
+    tickets: TicketStore,
     threads: ThreadStore,
     bus: MessageBus,
     template_name: str,
@@ -320,8 +413,13 @@ async def handle_sa_propose_scaffold(
 ) -> None:
     if not rationale.strip():
         raise ValueError("rationale must not be empty")
-    if template_name not in list_templates():
-        raise KeyError(f"unknown template: {template_name!r}")
+    available = list_templates()
+    if template_name not in available:
+        raise KeyError(
+            f"unknown template: {template_name!r}. "
+            f"Available templates: {available}. "
+            "Call `arch_list_templates` for full metadata."
+        )
     await threads.post(
         Note(
             ticket_id="architecture",
@@ -347,4 +445,8 @@ async def handle_sa_propose_scaffold(
             },
             topic="orchestrator",
         )
+    )
+    await _resolve_after_handoff(
+        tickets=tickets, threads=threads, bus=bus,
+        ticket_id="architecture", author=author,
     )

@@ -35,6 +35,7 @@ async def wired(tmp_path):
 async def test_spec_publish_writes_file_and_emits_event(wired):
     yaml_str = "name: myproj\ncapabilities: {}\n"
     await handle_spec_publish(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
@@ -55,6 +56,7 @@ async def test_spec_publish_writes_file_and_emits_event(wired):
 @pytest.mark.asyncio
 async def test_spec_publish_with_advisory_notes_posts_note(wired):
     await handle_spec_publish(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
@@ -79,6 +81,7 @@ async def test_spec_report_gaps_posts_note_with_payload(wired):
         ),
     ]
     await handle_spec_report_gaps(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         gaps=gaps,
@@ -97,6 +100,7 @@ async def test_spec_report_gaps_posts_note_with_payload(wired):
 @pytest.mark.asyncio
 async def test_spec_publish_with_multiple_advisory_notes_posts_one_note(wired):
     await handle_spec_publish(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
@@ -122,6 +126,7 @@ async def test_spec_report_gaps_preserves_order_and_count(wired):
         Gap(kind="contradiction", location="Planned (committed)", description="Conflicts with Built.", severity="blocking"),
     ]
     await handle_spec_report_gaps(
+        tickets=wired["tickets"],
         threads=wired["threads"],
         bus=wired["bus"],
         gaps=gaps,
@@ -140,6 +145,7 @@ async def test_spec_report_gaps_preserves_order_and_count(wired):
 async def test_spec_publish_rejects_unparseable_yaml(wired):
     with pytest.raises(ValueError, match="parse"):
         await handle_spec_publish(
+            tickets=wired["tickets"],
             threads=wired["threads"],
             bus=wired["bus"],
             project_path=wired["project_path"],

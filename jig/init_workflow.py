@@ -6,8 +6,10 @@ PO/spec-gen/SA are wired in later tasks.
 """
 from __future__ import annotations
 
+import asyncio
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -18,17 +20,19 @@ import yaml
 
 from jig.agent import run_agent
 from jig.atomic import atomic_write_text
+from jig.events import EventEmitter, JigEvent
+from jig.logging_setup import configure_logging
 from jig.persistence import load_role
 from jig.project import Project, load_project, save_project
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.spec_generator import Gap, run_spec_generator
-from jig.store.bus import MessageBus
+from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.template_registry import list_templates, load_template_metadata
-from jig.thread import Handoff, Note, SystemEvent
-from jig.ticket import Ticket, WorkType
+from jig.thread import Answer, Handoff, Note, Question, SystemEvent
+from jig.ticket import Ticket, TicketStatus, WorkType
 
 
 class DirState(str, Enum):
@@ -109,6 +113,8 @@ async def run_init(*, name: str, force: bool) -> None:
         shutil.rmtree(target / ".jig")
 
     create_stub(target, name=name)
+    log_file = configure_logging(target, verbose=False, console=False)
+    click.echo(f"Logging to {log_file}")
     store_dir = target / ".jig" / "store"
     store_dir.mkdir(parents=True, exist_ok=True)
     tickets = TicketStore(store_dir / "tickets.jsonl")
@@ -136,11 +142,19 @@ async def run_init(*, name: str, force: bool) -> None:
                 threads=threads, memory=memory, bus=bus,
             )
             continue
-        if rs == ResumeState.SPEC_GENERATION:
-            await run_spec_generator(
-                project_path=target, tickets=tickets,
-                threads=threads, memory=memory, bus=bus,
+        if rs == ResumeState.NEEDS_ANSWER_BRIEF:
+            await prompt_and_post_answers(
+                tickets=tickets, threads=threads, bus=bus,
+                ticket_id="brief",
             )
+            continue
+        if rs == ResumeState.SPEC_GENERATION:
+            async with _cli_emitter("spec-generator") as emitter:
+                await run_spec_generator(
+                    project_path=target, tickets=tickets,
+                    threads=threads, memory=memory, bus=bus,
+                    emitter=emitter,
+                )
             continue
         if rs == ResumeState.GAP_PROMPT:
             decision = await prompt_gap_decision(threads)
@@ -175,6 +189,12 @@ async def run_init(*, name: str, force: bool) -> None:
             await run_sa_conversation(
                 project_path=target, tickets=tickets,
                 threads=threads, memory=memory, bus=bus,
+            )
+            continue
+        if rs == ResumeState.NEEDS_ANSWER_ARCH:
+            await prompt_and_post_answers(
+                tickets=tickets, threads=threads, bus=bus,
+                ticket_id="architecture",
             )
             continue
         if rs == ResumeState.SA_CONFIRM_PROMPT:
@@ -259,6 +279,11 @@ async def run_po_conversation(
             created_by="cli",
         )
         await tickets.create(brief)
+    # On a respawn after a prior po_finish_brief (e.g. spec gaps came
+    # back), the brief is in RESOLVED — a terminal status that would
+    # make the agent loop exit immediately on its first poll. Reactivate
+    # it so the new PO spawn actually runs.
+    brief = await _reactivate_if_resolved(tickets, brief, author="cli")
     project = load_project(project_path)
     role_cfg = load_role(project_path, "po")
     ctx = AgentSpawnContext(
@@ -274,7 +299,44 @@ async def run_po_conversation(
         memory=memory,
         bus=bus,
     )
-    await run_agent(ctx)
+    await _run_agent_with_cli_output(ctx, role_label="po")
+
+
+async def _run_agent_with_cli_output(
+    ctx: AgentSpawnContext, *, role_label: str
+) -> None:
+    """Spawn ``run_agent(ctx)`` with a CLI-side emitter that streams
+    text/tool/result events to stdout. Used by PO and SA spawn helpers."""
+    async with _cli_emitter(role_label) as emitter:
+        await run_agent(ctx, emitter=emitter)
+
+
+@asynccontextmanager
+async def _cli_emitter(role_label: str):
+    """Context manager that yields an ``EventEmitter`` whose events are
+    streamed to stdout for the duration of the block. Echoes
+    ``[role] starting…`` / ``[role] done.`` so the operator sees the
+    spawn boundaries even if the agent itself emits no text.
+
+    Used by every init-workflow spawn (PO, SA, spec-generator) so each
+    agent's tool calls and heartbeats are visible — without this
+    wrapper a silent agent (e.g. spec-generator on a long Claude API
+    call) looks indistinguishable from a hung process.
+    """
+    emitter = EventEmitter()
+    printer = asyncio.create_task(
+        _drain_emitter_to_stdout(emitter, initial_role=role_label)
+    )
+    click.echo(f"\n[{role_label}] starting…")
+    try:
+        yield emitter
+    finally:
+        printer.cancel()
+        try:
+            await printer
+        except asyncio.CancelledError:
+            pass
+        click.echo(f"[{role_label}] done.")
 
 
 async def latest_gap_note(threads: ThreadStore) -> Note | None:
@@ -417,6 +479,10 @@ async def run_sa_conversation(
             created_by="cli",
         )
         await tickets.create(arch)
+    # Same reactivation logic as PO — after sa_propose_scaffold the
+    # architecture ticket is RESOLVED; a `swap` re-spawn would die
+    # on first poll without this flip.
+    arch = await _reactivate_if_resolved(tickets, arch, author="cli")
     project = load_project(project_path)
     role_cfg = load_role(project_path, "sa")
     ctx = AgentSpawnContext(
@@ -432,7 +498,7 @@ async def run_sa_conversation(
         memory=memory,
         bus=bus,
     )
-    await run_agent(ctx)
+    await _run_agent_with_cli_output(ctx, role_label="sa")
 
 
 def render_template_list(names: list[str]) -> str:
@@ -607,16 +673,227 @@ async def apply_scaffold(
     )
 
 
+async def prompt_and_post_answers(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    ticket_id: str,
+) -> None:
+    """Surface a ticket's open Questions to the operator, collect answers
+    via stdin, persist them as Answer thread entries, and resume the ticket.
+
+    Mirrors ``ws_server._handle_answer_questions`` semantics: one Answer
+    per open Question (oldest-first), bus event per answer, then flip
+    ``needs_info -> in_progress`` with a ``status_change`` SystemEvent
+    and a ``ticket_updated`` bus event.
+    """
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(f"prompt_and_post_answers: missing ticket {ticket_id!r}")
+    open_qs = await _open_questions(threads, ticket_id)
+    if not open_qs:
+        return
+
+    # Question authors are the asking agents (po, sa, …); ticket.assignee
+    # is None at init time so we can't rely on it for the label.
+    askers = sorted({q.author for q in open_qs})
+    role_label = ", ".join(askers) if askers else "agent"
+    click.echo(
+        f"\n{role_label} has {len(open_qs)} question(s) on '{ticket_id}':"
+    )
+    for q in open_qs:
+        click.echo(f"\n  Q ({q.author}): {q.question}")
+        reply = click.prompt("  A", default="", show_default=False)
+        cid = await threads.post(
+            Answer(
+                ticket_id=ticket_id,
+                author="user",
+                question_id=q.id,
+                text=reply,
+            )
+        )
+        await bus.publish(
+            Message(
+                sender="user",
+                to=ticket.assignee or "broadcast",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "comment_posted",
+                    "ticket_id": ticket_id,
+                    "comment_id": cid,
+                    "author": "user",
+                    "content": reply,
+                    "comment_kind": "answer",
+                },
+                topic=f"tickets.{ticket_id}",
+            )
+        )
+
+    updated = await tickets.update(ticket_id, status=TicketStatus.IN_PROGRESS)
+    await threads.post(
+        SystemEvent(
+            ticket_id=ticket_id,
+            author="user",
+            event_type="status_change",
+            content=f"status needs_info -> {updated.status.value}",
+        )
+    )
+    await bus.publish(
+        Message(
+            sender="user",
+            to=updated.assignee or "broadcast",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "ticket_updated",
+                "ticket_id": ticket_id,
+                "status": updated.status.value,
+            },
+            topic=f"tickets.{ticket_id}",
+        )
+    )
+
+
+def _format_event(event: JigEvent) -> str | None:
+    """Render an agent event for a CLI operator. Returns None to skip."""
+    data = event.data or {}
+    role = data.get("role", "?")
+    if event.type == "agent_text":
+        text = (data.get("text") or "").strip()
+        if not text:
+            return None
+        return f"[{role}] {text}"
+    if event.type == "agent_tool":
+        tool = data.get("tool", "?")
+        detail = (data.get("detail") or "").strip()
+        if detail:
+            return f"[{role}] · {tool} {detail}"
+        return f"[{role}] · {tool}"
+    if event.type == "agent_tool_result":
+        tool = data.get("tool", "?")
+        if data.get("is_error"):
+            excerpt = (data.get("excerpt") or "").strip().splitlines()[0:1]
+            err = excerpt[0] if excerpt else ""
+            return f"[{role}]   ✗ {tool}: {err}" if err else f"[{role}]   ✗ {tool}"
+        return f"[{role}]   ✓ {tool}"
+    return None
+
+
+async def _drain_emitter_to_stdout(
+    emitter: EventEmitter,
+    *,
+    heartbeat_seconds: float = 8.0,
+    initial_role: str = "agent",
+) -> None:
+    """Print agent events to stdout until cancelled.
+
+    When no event arrives for ``heartbeat_seconds``, prints a
+    ``still working… (Ns)`` line so the operator knows the agent
+    isn't frozen during a long Claude API call or tool execution.
+    The first such line uses ``initial_role`` since no event has
+    arrived yet to identify the running agent.
+    """
+    queue = emitter.subscribe()
+    last_role = initial_role
+    silence_started: float | None = None
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(
+                    queue.get(), timeout=heartbeat_seconds
+                )
+            except asyncio.TimeoutError:
+                if silence_started is None:
+                    silence_started = loop.time() - heartbeat_seconds
+                elapsed = int(loop.time() - silence_started)
+                click.echo(f"[{last_role}] still working… ({elapsed}s)")
+                continue
+            silence_started = None
+            data = event.data or {}
+            if "role" in data:
+                last_role = data["role"]
+            line = _format_event(event)
+            if line is not None:
+                click.echo(line)
+    finally:
+        try:
+            emitter.unsubscribe(queue)
+        except ValueError:
+            pass
+
+
 class ResumeState(str, Enum):
     PO_CONVERSATION = "po_conversation"
+    NEEDS_ANSWER_BRIEF = "needs_answer_brief"
     SPEC_GENERATION = "spec_generation"
     GAP_PROMPT = "gap_prompt"
     BRANCH_PROMPT = "branch_prompt"
     SA_CONVERSATION = "sa_conversation"
+    NEEDS_ANSWER_ARCH = "needs_answer_arch"
     SA_CONFIRM_PROMPT = "sa_confirm_prompt"
     DIRECT_TEMPLATE_PICK = "direct_template_pick"
     ALREADY_DONE = "already_done"
     BROKEN = "broken"
+
+
+async def _reactivate_if_resolved(
+    tickets: TicketStore, ticket: Ticket, *, author: str
+) -> Ticket:
+    """Flip a ticket back to IN_PROGRESS if it was previously resolved.
+
+    Init handoff handlers (po_finish_brief, sa_propose_scaffold, etc.)
+    leave their ticket in RESOLVED so the agent loop notices it's done
+    and exits. When the workflow respawns the same role (gap-prompt
+    routes back to PO; the SA-confirm `swap` choice respawns SA), the
+    new agent would otherwise see the still-RESOLVED ticket and exit
+    on its first terminal-status poll. The reactivation is internal
+    bookkeeping — no SystemEvent / bus event is posted because the
+    only consumer is the next agent's poll loop.
+    """
+    del author  # reserved for future audit; not used today
+    if ticket.status != TicketStatus.RESOLVED:
+        return ticket
+    return await tickets.update(ticket.id, status=TicketStatus.IN_PROGRESS)
+
+
+async def _open_questions(threads: ThreadStore, ticket_id: str) -> list[Question]:
+    """Return Questions on a ticket that still need a human answer, oldest-first.
+
+    A Question is considered "needs answer" when:
+      * its ``target`` is ``any_human`` (typed agent-to-agent questions
+        from ``thread_ask`` are out of scope for the CLI prompt), AND
+      * the asker hasn't marked it resolved, AND
+      * no ``Answer`` entry references its id.
+
+    The third clause matters because doc-08 says only the asker resolves
+    a Question (``Question.is_resolved`` checks ``resolved_by``). Without
+    it the init loop would re-prompt the user for already-answered
+    questions on every PO/SA respawn.
+    """
+    entries = await threads.for_ticket(ticket_id)
+    answered_ids = {
+        e.question_id for e in entries if isinstance(e, Answer)
+    }
+    open_qs = [
+        e for e in entries
+        if isinstance(e, Question)
+        and e.target == "any_human"
+        and not e.is_resolved()
+        and e.id not in answered_ids
+    ]
+    open_qs.sort(key=lambda q: q.created_at)
+    return open_qs
+
+
+async def _ticket_awaits_answer(
+    tickets: TicketStore, threads: ThreadStore, ticket_id: str
+) -> bool:
+    """True iff ticket exists, is in needs_info, and has open Questions."""
+    t = await tickets.get(ticket_id)
+    if t is None or t.status != TicketStatus.NEEDS_INFO:
+        return False
+    return bool(await _open_questions(threads, ticket_id))
 
 
 async def classify_resume(
@@ -636,6 +913,9 @@ async def classify_resume(
     brief = await tickets.get("brief")
     if brief is None:
         return ResumeState.PO_CONVERSATION
+
+    if await _ticket_awaits_answer(tickets, threads, "brief"):
+        return ResumeState.NEEDS_ANSWER_BRIEF
 
     brief_entries = await threads.for_ticket("brief")
     last_handoff_idx = -1
@@ -691,6 +971,8 @@ async def classify_resume(
         return ResumeState.DIRECT_TEMPLATE_PICK
     if has_proposal:
         return ResumeState.SA_CONFIRM_PROMPT
+    if await _ticket_awaits_answer(tickets, threads, "architecture"):
+        return ResumeState.NEEDS_ANSWER_ARCH
     return ResumeState.SA_CONVERSATION
 
 

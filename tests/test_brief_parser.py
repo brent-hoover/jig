@@ -8,6 +8,7 @@ from jig.brief_parser import (
     AnchorParseError,
     parse_reference,
     ReferenceParseError,
+    split_into_sections,
 )
 
 
@@ -99,3 +100,49 @@ def test_parse_reference_rejects_malformed():
         parse_reference("set-due-date")    # no brackets
     with pytest.raises(ReferenceParseError):
         parse_reference("[]")              # empty
+
+
+# --- section splitter ---
+
+_SAMPLE_BRIEF = """\
+# todoapp
+
+A simple todo list manager.
+
+## Built
+
+(empty)
+
+## Planned (committed)
+
+### Due dates {#due-dates}
+
+Users can give todos due dates.
+
+**Behaviors:**
+- {#set-due-date} Set a date
+
+**Acceptance criteria:**
+- [set-due-date] Date persists
+
+## Non-goals
+
+- {#no-multi-user} Multi-user
+"""
+
+
+def test_split_into_sections_returns_intro_and_section_bodies():
+    parsed = split_into_sections(_SAMPLE_BRIEF)
+    assert parsed.name == "todoapp"
+    assert parsed.summary.strip() == "A simple todo list manager."
+    assert "Built" in parsed.sections
+    assert "Planned (committed)" in parsed.sections
+    assert "Non-goals" in parsed.sections
+    # Section content is the raw body after the H2 heading
+    assert "(empty)" in parsed.sections["Built"]
+    assert "Due dates" in parsed.sections["Planned (committed)"]
+
+
+def test_split_into_sections_rejects_missing_h1():
+    with pytest.raises(ValueError, match="H1"):
+        split_into_sections("## Built\n")

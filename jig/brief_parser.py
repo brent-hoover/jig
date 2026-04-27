@@ -133,3 +133,56 @@ class BriefNonGoal:
     text: str
     rationale: str = ""
     aliases: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ParsedBrief:
+    name: str
+    summary: str
+    sections: dict[str, str]  # section heading text → raw body
+
+
+def split_into_sections(text: str) -> ParsedBrief:
+    """Split brief markdown into intro + sections by H2 heading.
+
+    Returns:
+      ParsedBrief(name, summary, sections={heading: body, ...})
+
+    Raises ValueError on missing H1 or duplicate H2.
+    """
+    lines = text.splitlines()
+    name: str | None = None
+    intro_lines: list[str] = []
+    sections: dict[str, str] = {}
+    current_section: str | None = None
+    current_body: list[str] = []
+
+    def _flush_section() -> None:
+        nonlocal current_body
+        if current_section is not None:
+            if current_section in sections:
+                raise ValueError(
+                    f"duplicate H2 section heading: {current_section!r}"
+                )
+            sections[current_section] = "\n".join(current_body).strip("\n")
+            current_body = []
+
+    for line in lines:
+        if line.startswith("# ") and name is None:
+            name = line[2:].strip()
+            continue
+        if line.startswith("## "):
+            _flush_section()
+            current_section = line[3:].strip()
+            continue
+        if current_section is None:
+            intro_lines.append(line)
+        else:
+            current_body.append(line)
+    _flush_section()
+
+    if name is None:
+        raise ValueError("brief is missing an H1 (project name)")
+
+    summary = "\n".join(intro_lines).strip()
+    return ParsedBrief(name=name, summary=summary, sections=sections)

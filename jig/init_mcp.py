@@ -7,6 +7,7 @@ them in ``@tool`` decorators with role-scoped visibility.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,7 +15,9 @@ import yaml
 from pydantic import ValidationError
 
 from jig.atomic import atomic_write_text
+from jig.brief_parser import BriefParseError, parse_brief
 from jig.markdown_sections import get_section, list_sections, set_section
+from jig.spec_regeneration import regenerate
 from jig.spec_schema import StructuredSpec
 from jig.spec_uri import SpecUriError, resolve_spec_uri
 from jig.store.bus import Message, MessageBus, MessageType
@@ -553,3 +556,77 @@ async def handle_spec_resolve_uri(
         return resolve_spec_uri(uri, spec)
     except SpecUriError as e:
         raise KeyError(str(e)) from e
+
+
+async def handle_spec_generate_from_brief(
+    *, project_path: Path, tickets: TicketStore,
+) -> dict[str, Any]:
+    """Run the full spec-generation pipeline against the current brief
+    and existing structured spec.
+
+    Returns ``{"spec": dict | None, "gaps": [...]}``:
+      - On format violations or removed-from-brief: ``spec=None`` and
+        a list of gap dicts with ``severity="blocking"``.
+      - On success: ``spec`` is the merged StructuredSpec as a dict
+        (ready to pass to ``spec_publish``); ``gaps`` may contain
+        advisory entries for the operator.
+
+    Spec-gen's MCP-callable orchestration entry point — collapses what
+    used to be parse + load_existing + merge + validate into one call.
+    """
+    brief_path = _brief_path(project_path)
+    if not brief_path.is_file():
+        return {
+            "spec": None,
+            "gaps": [{
+                "kind": "missing",
+                "location": str(brief_path),
+                "description": "no project.md found",
+                "severity": "blocking",
+            }],
+        }
+
+    try:
+        parsed_brief = parse_brief(brief_path.read_text())
+    except BriefParseError as e:
+        return {
+            "spec": None,
+            "gaps": [{
+                "kind": "format_error",
+                "location": "project.md",
+                "description": str(e),
+                "severity": "blocking",
+            }],
+        }
+
+    existing = _load_spec(project_path)
+
+    ticket_records = await tickets.list_all()
+
+    def lookup(cap_id: str, aliases: list[str]) -> list[str]:
+        wanted = {f"project://spec/capabilities/{cap_id}"}
+        wanted.update(f"project://spec/capabilities/{a}" for a in aliases)
+        return [t.id for t in ticket_records if t.derived_from in wanted]
+
+    result = regenerate(
+        brief=parsed_brief,
+        existing=existing,
+        ticket_lookup=lookup,
+        now=datetime.now(timezone.utc),
+    )
+
+    spec_dict: dict | None = None
+    if result.spec is not None:
+        spec_dict = result.spec.model_dump(mode="json", by_alias=True)
+
+    gap_dicts = [
+        {
+            "kind": g.kind,
+            "location": g.location,
+            "description": g.description,
+            "severity": g.severity,
+            "suggested_question": g.suggested_question,
+        }
+        for g in result.gaps
+    ]
+    return {"spec": spec_dict, "gaps": gap_dicts}

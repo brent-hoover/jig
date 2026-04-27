@@ -1068,6 +1068,30 @@ def create_agent_mcp_server(
 
         all_tools.append(spec_load_existing)
 
+    if "spec_generate_from_brief" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_generate_from_brief",
+            "Run the full deterministic spec generation pipeline: parse "
+            "the brief, load the existing spec (if any), merge with "
+            "metadata preservation, validate. Returns "
+            "{spec: dict | None, gaps: [...]}. If spec is None, gaps "
+            "contains blocking format errors or removed-from-brief "
+            "issues — call spec_report_gaps with them. If spec is set, "
+            "you may add semantic gaps (contradictions, ambiguities) of "
+            "your own and then call spec_publish or spec_report_gaps. "
+            "Spec-generator only.",
+            {},
+        )
+        async def spec_generate_from_brief(args):
+            out = await init_mcp.handle_spec_generate_from_brief(
+                project_path=project_path,
+                tickets=tickets,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_generate_from_brief)
+
     if "arch_get_field" in agent_cfg.allowed_tools:
 
         @tool(

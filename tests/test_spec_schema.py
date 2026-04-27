@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from jig.spec_schema import Capability, CapabilityState, UserStory, Behavior, NonGoal
+from jig.spec_schema import Capability, CapabilityState, UserStory, Behavior, NonGoal, StructuredSpec
 
 
 def _now() -> datetime:
@@ -168,3 +168,38 @@ def test_capability_archived_does_not_require_ac():
         **_ts(),
     )
     assert c.acceptance_criteria == []
+
+
+def test_structured_spec_minimal_empty():
+    s = StructuredSpec(
+        name="todoapp",
+        summary="A simple todo list manager.",
+        generated_at=_now(),
+    )
+    assert s.capabilities == []
+    assert s.non_goals == []
+    assert s.spec_version == 1
+
+
+def test_structured_spec_round_trips_through_yaml():
+    import yaml
+    s = StructuredSpec(
+        name="x",
+        summary="y",
+        capabilities=[
+            Capability(
+                id="c1",
+                title="Cap 1",
+                state=CapabilityState.BACKLOG,
+                **_ts(),
+            ),
+        ],
+        non_goals=[NonGoal(id="ng1", text="not this")],
+        generated_at=_now(),
+    )
+    dumped = yaml.safe_dump(s.model_dump(mode="json", by_alias=True))
+    parsed = yaml.safe_load(dumped)
+    rebuilt = StructuredSpec.model_validate(parsed)
+    assert rebuilt.name == "x"
+    assert rebuilt.capabilities[0].id == "c1"
+    assert rebuilt.non_goals[0].text == "not this"

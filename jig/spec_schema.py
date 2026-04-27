@@ -130,3 +130,32 @@ class Capability(BaseModel):
             "least one acceptance criterion, either capability-level or via "
             "behaviors"
         )
+
+
+class StructuredSpec(BaseModel):
+    name: str
+    summary: str
+    capabilities: list[Capability] = []
+    non_goals: list[NonGoal] = []
+    generated_at: datetime
+    spec_version: int = 1
+
+    @field_validator("spec_version")
+    @classmethod
+    def _validate_version(cls, v: int) -> int:
+        if v != 1:
+            raise ValueError(f"unsupported spec_version {v} (this code is v1)")
+        return v
+
+    def capability_by_id_or_alias(self, key: str) -> Capability | None:
+        """Look up a capability by its id or any alias. None if no match."""
+        for c in self.capabilities:
+            if c.id == key or key in c.aliases:
+                return c
+        return None
+
+    def non_goal_by_id_or_alias(self, key: str) -> NonGoal | None:
+        for ng in self.non_goals:
+            if ng.id == key or key in ng.aliases:
+                return ng
+        return None

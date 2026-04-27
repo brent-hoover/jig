@@ -86,3 +86,11 @@ def test_non_goal_id_must_be_kebab_slug():
 def test_non_goal_aliases_must_be_kebab_slugs():
     with pytest.raises(ValidationError):
         NonGoal(id="no-x", text="x", aliases=["No Caps"])
+
+
+def test_user_story_serializes_without_alias():
+    """Without by_alias=True, the field name `as_` (not the alias `as`)
+    is what shows up in the dump output. Both paths matter because
+    different consumers may want either form."""
+    s = UserStory(**{"as": "x", "want": "y", "benefit": "z"})
+    assert s.model_dump() == {"as_": "x", "want": "y", "benefit": "z"}

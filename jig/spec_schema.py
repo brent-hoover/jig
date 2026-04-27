@@ -20,10 +20,10 @@ from pydantic import BaseModel, Field, field_validator
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-def _kebab_slug(value: str) -> str:
+def _kebab_slug(value: str, field: str = "id") -> str:
     if not _SLUG_RE.match(value):
         raise ValueError(
-            f"id must be kebab-case (^[a-z0-9][a-z0-9-]*$), got {value!r}"
+            f"{field} must be kebab-case (^[a-z0-9][a-z0-9-]*$), got {value!r}"
         )
     return value
 
@@ -54,6 +54,7 @@ class Behavior(BaseModel):
     id: str
     description: str
     examples: list[str] = []
+    # Required; no default — min_length=1 enforces ≥1 AC.
     acceptance_criteria: list[str] = Field(min_length=1)
 
     @field_validator("id")
@@ -76,6 +77,4 @@ class NonGoal(BaseModel):
     @field_validator("aliases")
     @classmethod
     def _validate_aliases(cls, v: list[str]) -> list[str]:
-        for a in v:
-            _kebab_slug(a)
-        return v
+        return [_kebab_slug(a, "alias") for a in v]

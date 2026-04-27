@@ -1,10 +1,22 @@
 """Tests for jig.spec_schema — CapabilityState, UserStory, Behavior, NonGoal."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from pydantic import ValidationError
 
-from jig.spec_schema import CapabilityState, UserStory, Behavior, NonGoal
+from jig.spec_schema import Capability, CapabilityState, UserStory, Behavior, NonGoal
+
+
+def _now() -> datetime:
+    return datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _ts() -> dict:
+    """Common timestamp kwargs."""
+    n = _now()
+    return {"created_at": n, "last_updated": n, "state_changed_at": n}
 
 
 def test_capability_state_values():
@@ -94,3 +106,65 @@ def test_user_story_serializes_without_alias():
     different consumers may want either form."""
     s = UserStory(**{"as": "x", "want": "y", "benefit": "z"})
     assert s.model_dump() == {"as_": "x", "want": "y", "benefit": "z"}
+
+
+def test_capability_minimal_backlog():
+    """Backlog capability with no behaviors and no AC is valid."""
+    c = Capability(
+        id="due-dates",
+        title="Due dates",
+        state=CapabilityState.BACKLOG,
+        **_ts(),
+    )
+    assert c.behaviors == []
+    assert c.acceptance_criteria == []
+
+
+def test_capability_planned_requires_ac_somewhere():
+    """state=planned with no behaviors AND no capability-level AC is invalid."""
+    with pytest.raises(ValidationError) as exc:
+        Capability(
+            id="due-dates",
+            title="Due dates",
+            state=CapabilityState.PLANNED,
+            **_ts(),
+        )
+    assert "acceptance" in str(exc.value).lower()
+
+
+def test_capability_planned_with_capability_level_ac_is_valid():
+    c = Capability(
+        id="blue-icon",
+        title="Change icon to blue",
+        state=CapabilityState.PLANNED,
+        acceptance_criteria=["Icon's primary color is the brand blue."],
+        **_ts(),
+    )
+    assert c.acceptance_criteria == ["Icon's primary color is the brand blue."]
+
+
+def test_capability_planned_with_behavior_having_ac_is_valid():
+    c = Capability(
+        id="due-dates",
+        title="Due dates",
+        state=CapabilityState.PLANNED,
+        behaviors=[
+            Behavior(
+                id="set-due-date",
+                description="x",
+                acceptance_criteria=["a date can be set"],
+            ),
+        ],
+        **_ts(),
+    )
+    assert len(c.behaviors) == 1
+
+
+def test_capability_archived_does_not_require_ac():
+    c = Capability(
+        id="old-thing",
+        title="Old thing",
+        state=CapabilityState.ARCHIVED,
+        **_ts(),
+    )
+    assert c.acceptance_criteria == []

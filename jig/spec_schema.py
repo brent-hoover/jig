@@ -11,10 +11,10 @@ See ``docs/project-spec-schema/design.md`` for the full design.
 from __future__ import annotations
 
 import re
-from datetime import datetime  # noqa: F401 — available for downstream models
+from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Kebab-case slug: starts with letter or digit, then letters/digits/hyphens.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -78,3 +78,55 @@ class NonGoal(BaseModel):
     @classmethod
     def _validate_aliases(cls, v: list[str]) -> list[str]:
         return [_kebab_slug(a, "alias") for a in v]
+
+
+_AC_REQUIRED_STATES = {
+    CapabilityState.PLANNED,
+    CapabilityState.IN_PROGRESS,
+    CapabilityState.BUILT,
+}
+
+
+class Capability(BaseModel):
+    id: str
+    title: str
+    state: CapabilityState
+    summary: str = ""
+    user_story: UserStory | None = None
+    behaviors: list[Behavior] = []
+    acceptance_criteria: list[str] = []   # capability-level, used when no behaviors
+    excluded: list[str] = []
+    open_questions: list[str] = []
+    tickets: list[str] = []                # rebuilt by spec-gen from ticket store
+    aliases: list[str] = []
+    created_at: datetime
+    last_updated: datetime
+    state_changed_at: datetime
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, v: str) -> str:
+        return _kebab_slug(v)
+
+    @field_validator("aliases")
+    @classmethod
+    def _validate_aliases(cls, v: list[str]) -> list[str]:
+        return [_kebab_slug(a, "alias") for a in v]
+
+    @model_validator(mode="after")
+    def _validate_ac_for_state(self) -> "Capability":
+        """For elaborated states, AC must exist somewhere — capability-level
+        OR every behavior has its own (Pydantic enforces ≥1 per behavior
+        already)."""
+        if self.state not in _AC_REQUIRED_STATES:
+            return self
+        if self.acceptance_criteria:
+            return self
+        if self.behaviors:
+            # Each behavior already has min_length=1 via Behavior schema.
+            return self
+        raise ValueError(
+            f"capability {self.id!r} (state={self.state.value}) requires at "
+            "least one acceptance criterion, either capability-level or via "
+            "behaviors"
+        )

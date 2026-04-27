@@ -403,8 +403,10 @@ Picks the boundaries that keep human authorship in one place (the brief) and mac
 
 ## Open questions
 
-- [ ] Brief parser library choice — hand-rolled markdown walker, or use an existing library (`marko` / `markdown-it-py`) for the heading/list/anchor extraction? Hand-rolled is simpler but more code.
-- [ ] Should `spec_resolve_uri` accept relative URIs (e.g. `capabilities/due-dates`) for ergonomics, or force the full `project://spec/` prefix? (Lean: full prefix only — explicit beats implicit.)
+(None — all resolved during brainstorming. Decisions:)
+
+- **Brief parser:** hand-rolled walker. Switch to a library (`marko` / `markdown-it-py`) only if we hit real problems.
+- **`spec_resolve_uri` URI form:** strict — full `project://spec/...` prefix required, no relative URIs.
 
 ## Change log
 

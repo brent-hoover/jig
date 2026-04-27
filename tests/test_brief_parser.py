@@ -11,6 +11,7 @@ from jig.brief_parser import (
     split_into_sections,
     parse_elaborated_section,
     parse_bullet_section,
+    parse_non_goals_section,
     BriefParseError,
 )
 
@@ -286,3 +287,30 @@ def test_parse_bullet_section_with_aliases():
     body = "- {#deadlines aliases:due-dates} Deadline tracking\n"
     caps = parse_bullet_section(body, section="planned_not_committed")
     assert caps[0].aliases == ["due-dates"]
+
+
+# --- non-goals section parser ---
+
+
+def test_parse_non_goals_extracts_text_and_rationale():
+    body = """\
+- {#no-multi-user} Multi-user / sharing — single-user is the explicit point
+- {#no-mobile} Native mobile app
+"""
+    ng = parse_non_goals_section(body)
+    assert [n.id for n in ng] == ["no-multi-user", "no-mobile"]
+    assert ng[0].text == "Multi-user / sharing"
+    assert ng[0].rationale == "single-user is the explicit point"
+    assert ng[1].rationale == ""
+
+
+def test_parse_non_goals_with_aliases():
+    body = "- {#no-multi-user aliases:no-collab} Multi-user\n"
+    ng = parse_non_goals_section(body)
+    assert ng[0].aliases == ["no-collab"]
+
+
+def test_parse_non_goals_rejects_missing_anchor():
+    body = "- Multi-user\n"
+    with pytest.raises(BriefParseError, match="anchor"):
+        parse_non_goals_section(body)

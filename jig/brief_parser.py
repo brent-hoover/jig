@@ -392,6 +392,57 @@ def parse_bullet_section(body: str, *, section: BriefSection) -> list[BriefCapab
     return out
 
 
+def parse_non_goals_section(body: str) -> list[BriefNonGoal]:
+    """Parse the ``## Non-goals`` body. Each line is
+    ``- {#id} text`` or ``- {#id} text — rationale``.
+    """
+    out: list[BriefNonGoal] = []
+    for raw_line in body.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("- "):
+            raise BriefParseError(
+                f"non-goals section expects '- {{#id}} text' lines, got: "
+                f"{raw_line!r}"
+            )
+        body_text = stripped[2:].strip()
+        # Find the closing brace to extract the full {#...} anchor token,
+        # which may contain a space (e.g. {#x aliases:y,z}).
+        if not body_text.startswith("{#"):
+            raise BriefParseError(
+                f"non-goal bullet missing leading anchor: {raw_line!r}"
+            )
+        end = body_text.find("}")
+        if end == -1:
+            raise BriefParseError(
+                f"non-goal bullet has unterminated anchor: {raw_line!r}"
+            )
+        anchor_text = body_text[: end + 1]
+        rest = body_text[end + 1 :].strip()
+        try:
+            anchor = parse_anchor(anchor_text)
+        except AnchorParseError as e:
+            raise BriefParseError(str(e)) from e
+        if not rest:
+            raise BriefParseError(
+                f"non-goal bullet missing text: {raw_line!r}"
+            )
+        # Split text and rationale on em-dash or " — " (en-dash too).
+        text, rationale = rest, ""
+        for sep in (" — ", " – ", " -- "):
+            if sep in rest:
+                text, rationale = rest.split(sep, 1)
+                break
+        out.append(BriefNonGoal(
+            id=anchor.id,
+            text=text.strip(),
+            rationale=rationale.strip(),
+            aliases=anchor.aliases,
+        ))
+    return out
+
+
 def split_into_sections(text: str) -> ParsedBrief:
     """Split brief markdown into intro + sections by H2 heading.
 

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from jig.atomic import atomic_write_text
 from jig.markdown_sections import get_section, list_sections, set_section
 from jig.spec_schema import StructuredSpec
+from jig.spec_uri import SpecUriError, resolve_spec_uri
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -456,3 +457,99 @@ async def handle_sa_propose_scaffold(
         tickets=tickets, threads=threads, bus=bus,
         ticket_id="architecture", author=author,
     )
+
+
+def _load_spec(project_path: Path) -> StructuredSpec | None:
+    """Load and validate the structured spec; None if absent."""
+    spec_file = _spec_path(project_path)
+    if not spec_file.is_file():
+        return None
+    data = yaml.safe_load(spec_file.read_text()) or {}
+    return StructuredSpec.model_validate(data)
+
+
+async def handle_spec_load_existing(*, project_path: Path) -> dict[str, Any]:
+    """Return the existing structured spec as a dict, or {} if absent.
+
+    Spec-gen calls this at the top of every regen run.
+    """
+    spec = _load_spec(project_path)
+    if spec is None:
+        return {}
+    return spec.model_dump(mode="json", by_alias=True)
+
+
+async def handle_spec_list_capabilities(
+    *, project_path: Path, state: str | None = None,
+) -> list[dict[str, Any]]:
+    spec = _load_spec(project_path)
+    if spec is None:
+        return []
+    out = [
+        {"id": c.id, "title": c.title, "state": c.state.value}
+        for c in spec.capabilities
+        if state is None or c.state.value == state
+    ]
+    return out
+
+
+async def handle_spec_get_capability(
+    *, project_path: Path, id: str,
+) -> dict[str, Any]:
+    spec = _load_spec(project_path)
+    if spec is None:
+        raise KeyError(f"no spec yet; cannot get capability {id!r}")
+    cap = spec.capability_by_id_or_alias(id)
+    if cap is None:
+        raise KeyError(f"capability {id!r} not found")
+    return cap.model_dump(mode="json", by_alias=True)
+
+
+async def handle_spec_get_behavior(
+    *, project_path: Path, capability_id: str, behavior_id: str,
+) -> dict[str, Any]:
+    cap_data = await handle_spec_get_capability(
+        project_path=project_path, id=capability_id,
+    )
+    for b in cap_data.get("behaviors", []):
+        if b["id"] == behavior_id:
+            return b
+    raise KeyError(
+        f"behavior {behavior_id!r} not found in capability {capability_id!r}"
+    )
+
+
+async def handle_spec_list_non_goals(
+    *, project_path: Path,
+) -> list[dict[str, Any]]:
+    spec = _load_spec(project_path)
+    if spec is None:
+        return []
+    return [
+        {"id": n.id, "text": n.text, "rationale": n.rationale}
+        for n in spec.non_goals
+    ]
+
+
+async def handle_spec_get_non_goal(
+    *, project_path: Path, id: str,
+) -> dict[str, Any]:
+    spec = _load_spec(project_path)
+    if spec is None:
+        raise KeyError(f"no spec yet; cannot get non-goal {id!r}")
+    ng = spec.non_goal_by_id_or_alias(id)
+    if ng is None:
+        raise KeyError(f"non-goal {id!r} not found")
+    return ng.model_dump(mode="json")
+
+
+async def handle_spec_resolve_uri(
+    *, project_path: Path, uri: str,
+) -> dict[str, Any]:
+    spec = _load_spec(project_path)
+    if spec is None:
+        raise KeyError(f"no spec yet; cannot resolve {uri!r}")
+    try:
+        return resolve_spec_uri(uri, spec)
+    except SpecUriError as e:
+        raise KeyError(str(e)) from e

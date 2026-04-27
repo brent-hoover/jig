@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from pydantic import ValidationError
 
 from jig.atomic import atomic_write_text
 from jig.markdown_sections import get_section, list_sections, set_section
@@ -247,7 +248,7 @@ async def handle_spec_publish(
         raise ValueError(f"cannot parse spec YAML: {e}") from e
     try:
         StructuredSpec.model_validate(data)
-    except Exception as e:
+    except ValidationError as e:
         raise ValueError(f"spec does not match schema: {e}") from e
     atomic_write_text(_spec_path(project_path), yaml_content)
     if advisory_notes:

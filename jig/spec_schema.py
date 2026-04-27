@@ -16,14 +16,15 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# Kebab-case slug: starts with letter or digit, then letters/digits/hyphens.
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# Kebab-case slug: starts with letter or digit, ends with letter or digit,
+# interior may contain hyphens. Single-char slugs (e.g. "a") are allowed.
+_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
 def _kebab_slug(value: str, field: str = "id") -> str:
     if not _SLUG_RE.match(value):
         raise ValueError(
-            f"{field} must be kebab-case (^[a-z0-9][a-z0-9-]*$), got {value!r}"
+            f"{field} must be kebab-case (^[a-z0-9]([a-z0-9-]*[a-z0-9])?$), got {value!r}"
         )
     return value
 
@@ -155,6 +156,7 @@ class StructuredSpec(BaseModel):
         return None
 
     def non_goal_by_id_or_alias(self, key: str) -> NonGoal | None:
+        """Look up a non-goal by its id or any alias. None if no match."""
         for ng in self.non_goals:
             if ng.id == key or key in ng.aliases:
                 return ng

@@ -203,3 +203,81 @@ def test_structured_spec_round_trips_through_yaml():
     assert rebuilt.name == "x"
     assert rebuilt.capabilities[0].id == "c1"
     assert rebuilt.non_goals[0].text == "not this"
+
+
+def test_behavior_id_rejects_trailing_hyphen():
+    with pytest.raises(ValidationError):
+        Behavior(id="trailing-", description="x", acceptance_criteria=["y"])
+
+
+def test_behavior_id_accepts_single_character():
+    """Single-char slug is valid — bracket case in the regex."""
+    b = Behavior(id="a", description="x", acceptance_criteria=["y"])
+    assert b.id == "a"
+
+
+def test_capability_by_id_or_alias_finds_by_id():
+    spec = StructuredSpec(
+        name="x", summary="y",
+        capabilities=[
+            Capability(id="due-dates", title="t",
+                       state=CapabilityState.BACKLOG, **_ts()),
+        ],
+        generated_at=_now(),
+    )
+    found = spec.capability_by_id_or_alias("due-dates")
+    assert found is not None
+    assert found.id == "due-dates"
+
+
+def test_capability_by_id_or_alias_finds_by_alias():
+    spec = StructuredSpec(
+        name="x", summary="y",
+        capabilities=[
+            Capability(id="deadlines", title="t",
+                       state=CapabilityState.BACKLOG,
+                       aliases=["due-dates"], **_ts()),
+        ],
+        generated_at=_now(),
+    )
+    found = spec.capability_by_id_or_alias("due-dates")
+    assert found is not None
+    assert found.id == "deadlines"
+
+
+def test_capability_by_id_or_alias_returns_none_for_unknown():
+    spec = StructuredSpec(name="x", summary="y", generated_at=_now())
+    assert spec.capability_by_id_or_alias("nope") is None
+
+
+def test_non_goal_by_id_or_alias_finds_by_alias():
+    spec = StructuredSpec(
+        name="x", summary="y",
+        non_goals=[
+            NonGoal(id="no-multi-user", text="multi", aliases=["no-collab"]),
+        ],
+        generated_at=_now(),
+    )
+    found = spec.non_goal_by_id_or_alias("no-collab")
+    assert found is not None
+    assert found.id == "no-multi-user"
+
+
+def test_capability_in_progress_requires_ac():
+    """The validator must enforce all three AC-required states, not
+    just `planned`. Regression coverage."""
+    with pytest.raises(ValidationError):
+        Capability(
+            id="x", title="t",
+            state=CapabilityState.IN_PROGRESS,
+            **_ts(),
+        )
+
+
+def test_capability_built_requires_ac():
+    with pytest.raises(ValidationError):
+        Capability(
+            id="x", title="t",
+            state=CapabilityState.BUILT,
+            **_ts(),
+        )

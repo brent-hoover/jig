@@ -58,7 +58,7 @@ async def test_resume_after_handoff_before_spec(wired):
             tickets=wired["tickets"],
             threads=wired["threads"],
         )
-        == ResumeState.SPEC_GENERATION
+        == ResumeState.BRIEF_APPROVAL
     )
 
 
@@ -393,4 +393,70 @@ async def test_resume_already_done_detected_via_dirstate(wired):
             threads=wired["threads"],
         )
         == ResumeState.ALREADY_DONE
+    )
+
+
+async def test_resume_brief_approval_after_handoff_before_spec(wired):
+    """After PO posts a Handoff, BRIEF_APPROVAL fires until the operator
+    posts a brief_approved SystemEvent."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.BRIEF_APPROVAL
+    )
+
+
+async def test_resume_spec_generation_after_brief_approved(wired):
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief", author="cli",
+            event_type="brief_approved", content="approved",
+        )
+    )
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.SPEC_GENERATION
+    )
+
+
+async def test_resume_brief_approval_again_after_re_handoff(wired):
+    """Operator picked [r]esume PO; PO posted a new Handoff; we should
+    fire BRIEF_APPROVAL again, not skip to SPEC_GENERATION."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    # First round
+    await wired["threads"].post(Handoff(ticket_id="brief", author="po", phase="spec-generator", summary=""))
+    await wired["threads"].post(SystemEvent(
+        ticket_id="brief", author="cli",
+        event_type="brief_approved", content="approved",
+    ))
+    # Second round (operator picked r the first time, PO re-finished)
+    await wired["threads"].post(Handoff(ticket_id="brief", author="po", phase="spec-generator", summary=""))
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.BRIEF_APPROVAL
     )

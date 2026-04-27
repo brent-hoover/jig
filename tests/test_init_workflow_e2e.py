@@ -119,8 +119,8 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             author="sa",
         )
 
-    # Auto-accept prompts: branch=Y (SA), confirm=Y (accept proposal).
-    answers = iter(["Y", "Y"])
+    # Auto-accept prompts: brief_approval=Y, branch=Y (SA), confirm=Y (accept proposal).
+    answers = iter(["Y", "Y", "Y"])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     # Both modules bind run_agent at import time (`from jig.agent import run_agent`),
@@ -172,8 +172,8 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
             author="spec-generator",
         )
 
-    # branch="p" (direct), template pick="1" (first in sorted list).
-    answers = iter(["p", "1"])
+    # brief_approval=Y, branch="p" (direct), template pick="1" (first in sorted list).
+    answers = iter(["Y", "p", "1"])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with patch("jig.init_workflow.run_agent", new=agent.run), \
@@ -223,16 +223,19 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
             author="spec-generator",
         )
 
-    # First run: the only click.prompt call before SA dispatch is at
-    # the BRANCH_PROMPT. Raise KeyboardInterrupt there to simulate Ctrl-C.
-    # Second run: resume from BRANCH_PROMPT, pick direct path + template 1.
+    # First run: brief_approval fires first (call 1 → "Y"), then
+    # BRANCH_PROMPT fires (call 2 → KeyboardInterrupt).
+    # Second run: resumes at BRANCH_PROMPT (brief already approved +
+    # spec already generated), picks direct path + template 1.
     second_answers = iter(["p", "1"])
     call_count = {"n": 0}
 
     def fake_prompt(*a, **kw):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            raise KeyboardInterrupt
+            return "Y"  # brief_approval
+        if call_count["n"] == 2:
+            raise KeyboardInterrupt  # BRANCH_PROMPT
         return next(second_answers)
 
     monkeypatch.setattr("click.prompt", fake_prompt)
@@ -289,7 +292,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
             author="spec-generator",
         )
 
-    answers = iter(["p", "1"])
+    answers = iter(["Y", "p", "1"])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with patch("jig.init_workflow.run_agent", new=agent.run), \
@@ -381,8 +384,8 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
             author="spec-generator",
         )
 
-    # Sequence: gap-prompt → R, branch → p (direct), template → 1.
-    answers = iter(["R", "p", "1"])
+    # Sequence: brief_approval→Y, gap-prompt→R, brief_approval→Y, branch→p (direct), template→1.
+    answers = iter(["Y", "R", "Y", "p", "1"])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with patch("jig.init_workflow.run_agent", new=agent.run), \

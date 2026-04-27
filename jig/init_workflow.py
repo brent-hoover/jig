@@ -148,6 +148,25 @@ async def run_init(*, name: str, force: bool) -> None:
                 ticket_id="brief",
             )
             continue
+        if rs == ResumeState.BRIEF_APPROVAL:
+            decision = await prompt_brief_approval(target)
+            if decision == BriefApprovalChoice.YES:
+                await threads.post(
+                    SystemEvent(
+                        ticket_id="brief", author="cli",
+                        event_type="brief_approved",
+                        content="operator approved brief",
+                    )
+                )
+                continue
+            if decision == BriefApprovalChoice.RESUME:
+                brief = await tickets.get("brief")
+                if brief is not None and brief.status == TicketStatus.RESOLVED:
+                    await tickets.update("brief", status=TicketStatus.IN_PROGRESS)
+                continue
+            # NO
+            click.echo("Brief not approved. State saved.")
+            return
         if rs == ResumeState.SPEC_GENERATION:
             async with _cli_emitter("spec-generator") as emitter:
                 await run_spec_generator(
@@ -374,6 +393,48 @@ async def prompt_gap_decision(threads: ThreadStore) -> str:
     if reply not in ("R", "Q"):
         reply = "R"
     return reply
+
+
+class BriefApprovalChoice(str, Enum):
+    YES = "yes"
+    RESUME = "resume"
+    NO = "no"
+
+    @classmethod
+    def parse(cls, reply: str) -> "BriefApprovalChoice":
+        r = reply.strip().lower()
+        if r in ("", "y"):
+            return cls.YES
+        if r == "r":
+            return cls.RESUME
+        if r == "n":
+            return cls.NO
+        return cls.YES
+
+
+def render_brief_for_approval(project_path: Path) -> str:
+    """Read the brief markdown for approval display. Surrounds it with
+    visual separators so the operator can scan where the brief starts
+    and ends."""
+    brief_path = project_path / ".jig" / "spec" / "project.md"
+    text = brief_path.read_text() if brief_path.is_file() else "(brief is missing)"
+    return (
+        "─── Brief preview ──────────────────────────────────────\n"
+        f"{text.rstrip()}\n"
+        "────────────────────────────────────────────────────────\n"
+    )
+
+
+async def prompt_brief_approval(project_path: Path) -> BriefApprovalChoice:
+    click.echo(render_brief_for_approval(project_path))
+    click.echo(
+        "Approve brief?\n"
+        "  [Y] Hand off to spec-generator   (default)\n"
+        "  [r] Resume PO — more changes needed\n"
+        "  [n] Cancel — exit, state saved\n"
+    )
+    reply = click.prompt("Choice", default="Y", show_default=False)
+    return BriefApprovalChoice.parse(reply)
 
 
 class BranchChoice(str, Enum):
@@ -826,6 +887,7 @@ async def _drain_emitter_to_stdout(
 class ResumeState(str, Enum):
     PO_CONVERSATION = "po_conversation"
     NEEDS_ANSWER_BRIEF = "needs_answer_brief"
+    BRIEF_APPROVAL = "brief_approval"
     SPEC_GENERATION = "spec_generation"
     GAP_PROMPT = "gap_prompt"
     BRANCH_PROMPT = "branch_prompt"
@@ -920,6 +982,7 @@ async def classify_resume(
     brief_entries = await threads.for_ticket("brief")
     last_handoff_idx = -1
     last_gaps_event_idx = -1
+    last_brief_approved_idx = -1
     has_spec_gen_event = False
     for i, e in enumerate(brief_entries):
         if isinstance(e, Handoff):
@@ -929,11 +992,14 @@ async def classify_resume(
                 has_spec_gen_event = True
             elif e.event_type == "spec_gaps_reported":
                 last_gaps_event_idx = i
+            elif e.event_type == "brief_approved":
+                last_brief_approved_idx = i
     has_handoff = last_handoff_idx >= 0
     # Gaps are "fresh" only if reported after the most recent handoff. Once
     # PO re-handoffs after seeing the gap prompt, prior gaps are stale and
     # we should re-run the spec generator rather than re-prompting.
     gaps_after_handoff = last_gaps_event_idx > last_handoff_idx
+    needs_approval = last_handoff_idx > last_brief_approved_idx
 
     # No Handoff and no spec_generated event: PO is still drafting the
     # brief. The spec_generated check guards a partial-write recovery
@@ -943,6 +1009,8 @@ async def classify_resume(
         return ResumeState.PO_CONVERSATION
     if gaps_after_handoff and not has_spec_gen_event:
         return ResumeState.GAP_PROMPT
+    if has_handoff and needs_approval and not has_spec_gen_event:
+        return ResumeState.BRIEF_APPROVAL
     if not has_spec_gen_event:
         return ResumeState.SPEC_GENERATION
 

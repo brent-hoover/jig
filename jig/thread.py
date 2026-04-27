@@ -415,6 +415,7 @@ class SystemEvent(_ThreadEntryBase):
         "spec_gaps_reported",
         "sa_skipped",
         "scaffold_applied",
+        "brief_approved",
     ]
     content: str = ""
     commit_sha: str | None = None

@@ -13,6 +13,8 @@ from jig.brief_parser import (
     parse_bullet_section,
     parse_non_goals_section,
     BriefParseError,
+    parse_brief,
+    ParsedBriefResult,
 )
 
 
@@ -314,3 +316,82 @@ def test_parse_non_goals_rejects_missing_anchor():
     body = "- Multi-user\n"
     with pytest.raises(BriefParseError, match="anchor"):
         parse_non_goals_section(body)
+
+
+# --- top-level parse_brief ---
+
+_FULL_BRIEF = """\
+# todoapp
+
+A simple web-based todo list manager.
+
+## Built
+
+(empty)
+
+## Planned (committed)
+
+### Due dates {#due-dates}
+
+Users can give todos due dates.
+
+**Behaviors:**
+- {#set-due-date} Set a date
+
+**Acceptance criteria:**
+- [set-due-date] Date persists
+
+## Planned (not yet committed)
+
+- {#labels} Labels
+
+## Backlog
+
+- {#mobile-app} Mobile app
+
+## Non-goals
+
+- {#no-multi-user} Multi-user — single-user only
+"""
+
+
+def test_parse_brief_end_to_end():
+    result = parse_brief(_FULL_BRIEF)
+    assert result.name == "todoapp"
+    assert "todo list manager" in result.summary
+    cap_ids = [c.id for c in result.capabilities]
+    assert cap_ids == ["due-dates", "labels", "mobile-app"]
+    assert [c.section for c in result.capabilities] == [
+        "planned_committed",
+        "planned_not_committed",
+        "backlog",
+    ]
+    assert [n.id for n in result.non_goals] == ["no-multi-user"]
+
+
+def test_parse_brief_rejects_duplicate_capability_id():
+    body = """\
+# x
+intro
+
+## Backlog
+
+- {#dup} A
+- {#dup} B
+"""
+    with pytest.raises(BriefParseError, match="duplicate"):
+        parse_brief(body)
+
+
+def test_parse_brief_rejects_alias_collision():
+    body = """\
+# x
+intro
+
+## Backlog
+
+- {#a} thing one
+- {#b aliases:a} thing two
+"""
+    with pytest.raises(BriefParseError, match="alias"):
+        parse_brief(body)

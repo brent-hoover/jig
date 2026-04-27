@@ -443,6 +443,109 @@ def parse_non_goals_section(body: str) -> list[BriefNonGoal]:
     return out
 
 
+@dataclass
+class ParsedBriefResult:
+    name: str
+    summary: str
+    capabilities: list[BriefCapability]
+    non_goals: list[BriefNonGoal]
+
+
+# Map of recognised H2 section names → (parser kind, BriefSection label).
+_SECTION_PARSERS: dict[str, tuple[str, BriefSection | None]] = {
+    "Built":                       ("elaborated", "built"),
+    "Planned (committed)":         ("elaborated", "planned_committed"),
+    "Planned (not yet committed)": ("bullet",     "planned_not_committed"),
+    "Backlog":                     ("bullet",     "backlog"),
+    "Archived":                    ("elaborated", "archived"),
+    "Non-goals":                   ("non_goals",  None),
+}
+
+
+def parse_brief(text: str) -> ParsedBriefResult:
+    """Parse a complete brief markdown into capabilities and non-goals.
+
+    Raises BriefParseError on any format violation: missing anchors,
+    duplicate IDs, alias collisions, AC referencing missing behaviors,
+    etc.
+    """
+    parsed = split_into_sections(text)
+
+    capabilities: list[BriefCapability] = []
+    non_goals: list[BriefNonGoal] = []
+
+    for heading, body in parsed.sections.items():
+        if heading not in _SECTION_PARSERS:
+            # Unknown sections are silently ignored.
+            continue
+        kind, section_label = _SECTION_PARSERS[heading]
+        if not body.strip():
+            continue
+        if kind == "elaborated":
+            capabilities.extend(
+                parse_elaborated_section(body, section=section_label)  # type: ignore[arg-type]
+            )
+        elif kind == "bullet":
+            capabilities.extend(
+                parse_bullet_section(body, section=section_label)  # type: ignore[arg-type]
+            )
+        elif kind == "non_goals":
+            non_goals.extend(parse_non_goals_section(body))
+
+    _check_id_and_alias_uniqueness(capabilities, non_goals)
+
+    return ParsedBriefResult(
+        name=parsed.name,
+        summary=parsed.summary,
+        capabilities=capabilities,
+        non_goals=non_goals,
+    )
+
+
+def _check_id_and_alias_uniqueness(
+    capabilities: list[BriefCapability],
+    non_goals: list[BriefNonGoal],
+) -> None:
+    """Format rules 5/6: IDs unique across the brief; aliases unique
+    and non-colliding with any id.
+
+    Behavior IDs are namespaced per capability (enforced during section
+    parsing), so we don't cross-check them here.
+    """
+    seen_ids: set[str] = set()
+    seen_aliases: set[str] = set()
+
+    def _add_id(scope: str, id_: str) -> None:
+        if id_ in seen_ids:
+            raise BriefParseError(
+                f"duplicate id {id_!r} in {scope} (also defined elsewhere)"
+            )
+        if id_ in seen_aliases:
+            raise BriefParseError(
+                f"id {id_!r} in {scope} collides with an alias declared elsewhere"
+            )
+        seen_ids.add(id_)
+
+    def _add_aliases(scope: str, aliases: list[str]) -> None:
+        for a in aliases:
+            if a in seen_ids:
+                raise BriefParseError(
+                    f"alias {a!r} in {scope} collides with an id declared elsewhere"
+                )
+            if a in seen_aliases:
+                raise BriefParseError(f"duplicate alias {a!r} in {scope}")
+            seen_aliases.add(a)
+
+    for c in capabilities:
+        _add_id(f"capability {c.id!r}", c.id)
+    for ng in non_goals:
+        _add_id(f"non-goal {ng.id!r}", ng.id)
+    for c in capabilities:
+        _add_aliases(f"capability {c.id!r}", c.aliases)
+    for ng in non_goals:
+        _add_aliases(f"non-goal {ng.id!r}", ng.aliases)
+
+
 def split_into_sections(text: str) -> ParsedBrief:
     """Split brief markdown into intro + sections by H2 heading.
 

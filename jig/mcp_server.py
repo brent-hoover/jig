@@ -949,6 +949,125 @@ def create_agent_mcp_server(
 
         all_tools.append(spec_list_fields)
 
+    if "spec_list_capabilities" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_list_capabilities",
+            "List capabilities in the project spec. Optional `state` filter "
+            "('backlog', 'planned', 'in_progress', 'built', 'archived'). "
+            "Returns id, title, state for each — lightweight summary; "
+            "use `spec_get_capability` for full content.",
+            {"state": str},
+        )
+        async def spec_list_capabilities(args):
+            out = await init_mcp.handle_spec_list_capabilities(
+                project_path=project_path,
+                state=args.get("state"),
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_list_capabilities)
+
+    if "spec_get_capability" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_get_capability",
+            "Get a full Capability by id (or alias). Returns id, title, "
+            "state, summary, user_story, behaviors (each with description, "
+            "examples, acceptance_criteria), capability-level "
+            "acceptance_criteria, excluded, open_questions, tickets, aliases.",
+            {"id": str},
+        )
+        async def spec_get_capability(args):
+            out = await init_mcp.handle_spec_get_capability(
+                project_path=project_path, id=args["id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_get_capability)
+
+    if "spec_get_behavior" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_get_behavior",
+            "Get a full Behavior by capability_id + behavior_id.",
+            {"capability_id": str, "behavior_id": str},
+        )
+        async def spec_get_behavior(args):
+            out = await init_mcp.handle_spec_get_behavior(
+                project_path=project_path,
+                capability_id=args["capability_id"],
+                behavior_id=args["behavior_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_get_behavior)
+
+    if "spec_list_non_goals" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_list_non_goals",
+            "List all non-goals from the project spec. Returns id, text, "
+            "rationale for each.",
+            {},
+        )
+        async def spec_list_non_goals(args):
+            out = await init_mcp.handle_spec_list_non_goals(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_list_non_goals)
+
+    if "spec_get_non_goal" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_get_non_goal",
+            "Get a full NonGoal by id (or alias).",
+            {"id": str},
+        )
+        async def spec_get_non_goal(args):
+            out = await init_mcp.handle_spec_get_non_goal(
+                project_path=project_path, id=args["id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_get_non_goal)
+
+    if "spec_resolve_uri" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_resolve_uri",
+            "Resolve a project://spec/... URI to structured data. Supports "
+            "capability ids, behavior fragments (#behavior-id), non-goal "
+            "ids, and state collections (project://spec/state/<state>).",
+            {"uri": str},
+        )
+        async def spec_resolve_uri(args):
+            out = await init_mcp.handle_spec_resolve_uri(
+                project_path=project_path, uri=args["uri"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_resolve_uri)
+
+    if "spec_load_existing" in agent_cfg.allowed_tools:
+
+        @tool(
+            "spec_load_existing",
+            "Read the current structured spec as-is for the regen merge. "
+            "Returns {} if no spec exists yet (first-time generation). "
+            "Spec-generator only.",
+            {},
+        )
+        async def spec_load_existing(args):
+            out = await init_mcp.handle_spec_load_existing(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(spec_load_existing)
+
     if "arch_get_field" in agent_cfg.allowed_tools:
 
         @tool(

@@ -265,3 +265,40 @@ async def test_spec_generator_server_exposes_only_spec_tools(
     assert {"spec_publish", "spec_report_gaps"} <= names
     assert not any(n.startswith("brief_") for n in names)
     assert not any(n.startswith("arch_") for n in names)
+
+
+@pytest.mark.asyncio
+async def test_sa_server_registers_capability_aware_tools(
+    tmp_path, stores, monkeypatch,
+):
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(
+        role="sa",
+        allowed_tools=[
+            "spec_list_capabilities",
+            "spec_get_capability",
+            "spec_get_behavior",
+            "spec_list_non_goals",
+            "spec_get_non_goal",
+            "spec_resolve_uri",
+            "spec_load_existing",
+        ],
+        strict_tools=True,
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets, threads=threads, memory=memory, bus=bus,
+        agent_role="sa", agent_cfg=cfg,
+        worktree_path=tmp_path, project_path=tmp_path,
+    )
+    names = _tool_names(captured)
+    assert {
+        "spec_list_capabilities",
+        "spec_get_capability",
+        "spec_get_behavior",
+        "spec_list_non_goals",
+        "spec_get_non_goal",
+        "spec_resolve_uri",
+        "spec_load_existing",
+    } == names

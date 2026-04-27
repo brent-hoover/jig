@@ -347,6 +347,51 @@ def _split_ac_reference(line: str) -> tuple[str | None, str]:
     return ref_id, rest
 
 
+def parse_bullet_section(body: str, *, section: BriefSection) -> list[BriefCapability]:
+    """Parse Backlog or Planned-not-committed body — flat bullet list."""
+    out: list[BriefCapability] = []
+    for raw_line in body.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("**"):
+            raise BriefParseError(
+                f"bullet section {section!r} cannot contain labelled blocks: "
+                f"{stripped!r}"
+            )
+        if not stripped.startswith("- "):
+            raise BriefParseError(
+                f"bullet section {section!r} expects '- {{#id}} text' lines, "
+                f"got: {raw_line!r}"
+            )
+        body_text = stripped[2:].strip()
+        # Anchor may contain spaces (e.g. aliases), so find the closing '}'.
+        close = body_text.find("}")
+        if close == -1:
+            anchor_text = body_text.split()[0] if body_text else body_text
+            title = body_text[len(anchor_text):].strip()
+        else:
+            anchor_text = body_text[: close + 1]
+            title = body_text[close + 1 :].strip()
+        try:
+            anchor = parse_anchor(anchor_text)
+        except AnchorParseError as e:
+            raise BriefParseError(
+                f"bullet missing leading anchor: {raw_line!r}"
+            ) from e
+        if not title.strip():
+            raise BriefParseError(
+                f"bullet has anchor but no title: {raw_line!r}"
+            )
+        out.append(BriefCapability(
+            id=anchor.id,
+            title=title.strip(),
+            section=section,
+            aliases=anchor.aliases,
+        ))
+    return out
+
+
 def split_into_sections(text: str) -> ParsedBrief:
     """Split brief markdown into intro + sections by H2 heading.
 

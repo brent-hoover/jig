@@ -10,6 +10,7 @@ from jig.brief_parser import (
     ReferenceParseError,
     split_into_sections,
     parse_elaborated_section,
+    parse_bullet_section,
     BriefParseError,
 )
 
@@ -247,3 +248,41 @@ Some prose, no behaviors, no AC block.
 """
     with pytest.raises(BriefParseError, match="acceptance"):
         parse_elaborated_section(body, section="planned_committed")
+
+
+# --- bullet section parser ---
+
+
+def test_parse_bullet_section_extracts_capabilities():
+    body = """\
+- {#mobile-app} Mobile app
+- {#shortcuts} Keyboard shortcuts
+"""
+    caps = parse_bullet_section(body, section="backlog")
+    assert [c.id for c in caps] == ["mobile-app", "shortcuts"]
+    assert caps[0].title == "Mobile app"
+    assert caps[0].section == "backlog"
+    assert caps[0].behaviors == []
+    assert caps[0].capability_acceptance_criteria == []
+
+
+def test_parse_bullet_section_rejects_missing_anchor():
+    body = "- Mobile app\n"
+    with pytest.raises(BriefParseError, match="anchor"):
+        parse_bullet_section(body, section="backlog")
+
+
+def test_parse_bullet_section_rejects_behavior_blocks():
+    body = """\
+- {#x} Some idea
+  **Behaviors:**
+  - {#b} thing
+"""
+    with pytest.raises(BriefParseError, match="bullet section"):
+        parse_bullet_section(body, section="backlog")
+
+
+def test_parse_bullet_section_with_aliases():
+    body = "- {#deadlines aliases:due-dates} Deadline tracking\n"
+    caps = parse_bullet_section(body, section="planned_not_committed")
+    assert caps[0].aliases == ["due-dates"]

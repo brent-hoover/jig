@@ -9,6 +9,8 @@ from jig.brief_parser import (
     parse_reference,
     ReferenceParseError,
     split_into_sections,
+    parse_elaborated_section,
+    BriefParseError,
 )
 
 
@@ -146,3 +148,102 @@ def test_split_into_sections_returns_intro_and_section_bodies():
 def test_split_into_sections_rejects_missing_h1():
     with pytest.raises(ValueError, match="H1"):
         split_into_sections("## Built\n")
+
+
+# --- elaborated section parser ---
+
+_PLANNED_BODY = """\
+### Due dates {#due-dates}
+
+Users can give todos due dates.
+
+**User story:**
+As a busy person, I want due dates so I never miss deadlines.
+
+**Behaviors:**
+- {#set-due-date} Set a date on any todo
+- {#overdue-indicator} Show past-due todos in red
+
+**Acceptance criteria:**
+- [set-due-date] A date can be set
+- [overdue-indicator] Past-due todos display in red
+
+**Excluded:**
+- Recurring dates
+- Reminders
+
+**Open questions:**
+- Time component, or date only?
+
+### Priorities {#priorities}
+
+Three levels: high, medium, low.
+
+**Acceptance criteria:**
+- Default priority is medium
+"""
+
+
+def test_parse_elaborated_section_extracts_capabilities():
+    caps = parse_elaborated_section(_PLANNED_BODY, section="planned_committed")
+    assert len(caps) == 2
+
+    dd = caps[0]
+    assert dd.id == "due-dates"
+    assert dd.title == "Due dates"
+    assert dd.section == "planned_committed"
+    assert "give todos due dates" in dd.summary
+    assert dd.user_story is not None
+    assert dd.user_story.as_ == "busy person"
+    assert [b.id for b in dd.behaviors] == ["set-due-date", "overdue-indicator"]
+    assert dd.behaviors[0].acceptance_criteria == ["A date can be set"]
+    assert dd.behaviors[1].acceptance_criteria == ["Past-due todos display in red"]
+    assert dd.excluded == ["Recurring dates", "Reminders"]
+    assert dd.open_questions == ["Time component, or date only?"]
+    assert dd.capability_acceptance_criteria == []
+
+    pri = caps[1]
+    assert pri.id == "priorities"
+    assert pri.behaviors == []
+    assert pri.capability_acceptance_criteria == ["Default priority is medium"]
+
+
+def test_parse_elaborated_section_handles_aliases_in_anchor():
+    body = (
+        "### Deadlines {#deadlines aliases:due-dates}\n\nProse.\n\n"
+        "**Acceptance criteria:**\n- Deadlines are saved\n"
+    )
+    caps = parse_elaborated_section(body, section="planned_committed")
+    assert caps[0].id == "deadlines"
+    assert caps[0].aliases == ["due-dates"]
+
+
+def test_parse_elaborated_section_rejects_missing_anchor():
+    body = "### Due dates\n\nProse.\n"
+    with pytest.raises(BriefParseError, match="anchor"):
+        parse_elaborated_section(body, section="planned_committed")
+
+
+def test_parse_elaborated_section_rejects_ac_referencing_missing_behavior():
+    body = """\
+### X {#x}
+
+**Behaviors:**
+- {#b1} desc
+
+**Acceptance criteria:**
+- [b1] ok
+- [b-missing] dangling
+"""
+    with pytest.raises(BriefParseError, match="b-missing"):
+        parse_elaborated_section(body, section="planned_committed")
+
+
+def test_parse_elaborated_section_rejects_when_planned_has_no_ac():
+    body = """\
+### X {#x}
+
+Some prose, no behaviors, no AC block.
+"""
+    with pytest.raises(BriefParseError, match="acceptance"):
+        parse_elaborated_section(body, section="planned_committed")

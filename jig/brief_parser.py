@@ -142,6 +142,211 @@ class ParsedBrief:
     sections: dict[str, str]  # section heading text → raw body
 
 
+class BriefParseError(ValueError):
+    """Raised when the brief markdown violates a format rule."""
+
+
+_HEADING_ANCHOR_RE = re.compile(r"^### (.+?)\s+(\{#[^}]+\})\s*$")
+
+
+def parse_elaborated_section(body: str, *, section: BriefSection) -> list[BriefCapability]:
+    """Parse the body of a Built / Planned (committed) / Archived section.
+
+    Each capability is introduced by ``### Title {#id}`` and may contain
+    a summary paragraph plus labelled blocks: ``**User story:**``,
+    ``**Behaviors:**``, ``**Acceptance criteria:**``, ``**Excluded:**``,
+    ``**Open questions:**``.
+    """
+    blocks = _split_on_h3(body)
+    out: list[BriefCapability] = []
+    for raw_block in blocks:
+        out.append(_parse_capability_block(raw_block, section=section))
+    return out
+
+
+def _split_on_h3(body: str) -> list[str]:
+    """Split a section body into sub-blocks at each ``### `` heading.
+
+    Returns each block including its ``### `` line. Empty result if no
+    headings present.
+    """
+    lines = body.splitlines()
+    blocks: list[list[str]] = []
+    current: list[str] | None = None
+    for line in lines:
+        if line.startswith("### "):
+            if current is not None:
+                blocks.append(current)
+            current = [line]
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        blocks.append(current)
+    return ["\n".join(b) for b in blocks]
+
+
+def _parse_capability_block(text: str, *, section: BriefSection) -> BriefCapability:
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("### "):
+        raise BriefParseError(f"capability block missing ### heading: {text[:80]!r}")
+    m = _HEADING_ANCHOR_RE.match(lines[0])
+    if not m:
+        raise BriefParseError(
+            f"capability heading missing trailing {{#anchor}}: {lines[0]!r}"
+        )
+    title = m.group(1).strip()
+    try:
+        anchor = parse_anchor(m.group(2))
+    except AnchorParseError as e:
+        raise BriefParseError(str(e)) from e
+
+    body_lines = lines[1:]
+    blocks = _split_on_labels(body_lines)
+
+    summary = blocks.pop("__intro__", "").strip()
+    user_story = _parse_user_story_block(blocks.pop("User story", None))
+    behaviors = _parse_behavior_block(blocks.pop("Behaviors", None))
+    raw_ac_lines = _parse_bullet_lines(blocks.pop("Acceptance criteria", None))
+    excluded = _parse_bullet_lines(blocks.pop("Excluded", None))
+    open_questions = _parse_bullet_lines(blocks.pop("Open questions", None))
+    if blocks:
+        raise BriefParseError(
+            f"unknown labelled block(s) in capability {anchor.id!r}: "
+            f"{list(blocks.keys())}"
+        )
+
+    behavior_ids = {b.id for b in behaviors}
+    capability_ac: list[str] = []
+    for ac_line in raw_ac_lines:
+        ref, ac_text = _split_ac_reference(ac_line)
+        if ref is None:
+            capability_ac.append(ac_text)
+        else:
+            if ref not in behavior_ids:
+                raise BriefParseError(
+                    f"AC references missing behavior [{ref}] in capability "
+                    f"{anchor.id!r}"
+                )
+            for b in behaviors:
+                if b.id == ref:
+                    b.acceptance_criteria.append(ac_text)
+                    break
+
+    if section in ("planned_committed", "built") and not behaviors:
+        if not capability_ac:
+            raise BriefParseError(
+                f"capability {anchor.id!r} has no behaviors and no "
+                "capability-level acceptance criteria"
+            )
+
+    return BriefCapability(
+        id=anchor.id,
+        title=title,
+        section=section,
+        summary=summary,
+        user_story=user_story,
+        behaviors=behaviors,
+        capability_acceptance_criteria=capability_ac,
+        excluded=excluded,
+        open_questions=open_questions,
+        aliases=anchor.aliases,
+    )
+
+
+_LABEL_RE = re.compile(r"^\*\*(.+?):\*\*\s*$")
+
+
+def _split_on_labels(lines: list[str]) -> dict[str, str]:
+    """Split body lines into labelled blocks. Lines before the first
+    labelled block become the ``__intro__`` block (the summary prose).
+    """
+    blocks: dict[str, list[str]] = {"__intro__": []}
+    current = "__intro__"
+    for line in lines:
+        m = _LABEL_RE.match(line.strip())
+        if m:
+            current = m.group(1).strip()
+            blocks.setdefault(current, [])
+            continue
+        blocks[current].append(line)
+    return {k: "\n".join(v).strip("\n") for k, v in blocks.items()}
+
+
+def _parse_user_story_block(text: str | None) -> BriefUserStory | None:
+    if text is None or not text.strip():
+        return None
+    body = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    pattern = re.compile(
+        r"^As an? (.+?), I want (.+?) so(?: that)? (.+?)\.?$",
+        re.IGNORECASE,
+    )
+    m = pattern.match(body)
+    if not m:
+        raise BriefParseError(
+            "user story must read 'As a X, I want Y so [that] Z.': "
+            f"got {body!r}"
+        )
+    return BriefUserStory(as_=m.group(1).strip(), want=m.group(2).strip(),
+                          benefit=m.group(3).strip())
+
+
+def _parse_behavior_block(text: str | None) -> list[BriefBehavior]:
+    if text is None:
+        return []
+    out: list[BriefBehavior] = []
+    for line in _bullet_lines(text):
+        anchor_text, _, rest = line.partition(" ")
+        try:
+            anchor = parse_anchor(anchor_text)
+        except AnchorParseError as e:
+            raise BriefParseError(
+                f"behavior bullet missing leading {{#id}}: {line!r}"
+            ) from e
+        if not rest.strip():
+            raise BriefParseError(
+                f"behavior bullet has anchor but no description: {line!r}"
+            )
+        out.append(BriefBehavior(id=anchor.id, description=rest.strip()))
+    return out
+
+
+def _parse_bullet_lines(text: str | None) -> list[str]:
+    if text is None:
+        return []
+    return list(_bullet_lines(text))
+
+
+def _bullet_lines(text: str):
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("- "):
+            raise BriefParseError(f"expected bullet line, got: {line!r}")
+        yield stripped[2:].strip()
+
+
+def _split_ac_reference(line: str) -> tuple[str | None, str]:
+    """Split an AC bullet body into (behavior_ref, ac_text).
+
+    AC may start with ``[behavior-id]`` (behavior-level) or have no
+    bracketed prefix (capability-level).
+    """
+    line = line.strip()
+    if not line.startswith("["):
+        return None, line
+    end = line.find("]")
+    if end == -1:
+        raise BriefParseError(f"unterminated [reference] in AC: {line!r}")
+    ref_text = line[: end + 1]
+    rest = line[end + 1 :].strip()
+    try:
+        ref_id = parse_reference(ref_text)
+    except ReferenceParseError as e:
+        raise BriefParseError(str(e)) from e
+    return ref_id, rest
+
+
 def split_into_sections(text: str) -> ParsedBrief:
     """Split brief markdown into intro + sections by H2 heading.
 

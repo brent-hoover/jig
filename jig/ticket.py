@@ -80,6 +80,7 @@ class Ticket(StoreModel):
     title: str
     description: str = ""
     assignee: str | None = None
+    derived_from: str | None = None  # e.g. "project://spec/capabilities/due-dates"
     parent_id: str | None = None
     blocks: list[str] = []
     blocked_by: list[str] = []

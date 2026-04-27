@@ -1,6 +1,7 @@
 """Jig CLI."""
 
 import asyncio
+import readline  # noqa: F401  # side-effect: line editing for click.prompt / input()
 import shutil
 import subprocess
 from pathlib import Path

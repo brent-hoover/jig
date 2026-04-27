@@ -92,8 +92,14 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def configure_logging(project_path: Path, *, verbose: bool = False) -> Path:
-    """Configure root logger + console + file handlers.
+def configure_logging(
+    project_path: Path, *, verbose: bool = False, console: bool = True
+) -> Path:
+    """Configure root logger + optional console + file handlers.
+
+    ``console=False`` is used by ``jig init`` so logger output doesn't
+    interleave with the interactive CLI streaming agent text/answers
+    via ``click.echo`` — the JSONL file remains for post-mortem.
 
     Returns the path to the log file so the caller can echo it.
     """
@@ -101,21 +107,22 @@ def configure_logging(project_path: Path, *, verbose: bool = False) -> Path:
 
     context_filter = LogContextFilter()
 
-    console_fmt = logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s [%(ticket_short)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    console = logging.StreamHandler()
-    console.setLevel(level)
-    console.setFormatter(console_fmt)
-    console.addFilter(context_filter)
-
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     # Clear any handlers from a prior configure call (tests run in
     # the same process).
     root.handlers.clear()
-    root.addHandler(console)
+
+    if console:
+        console_fmt = logging.Formatter(
+            "%(asctime)s %(levelname)-7s %(name)s [%(ticket_short)s] %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        console_handler.setFormatter(console_fmt)
+        console_handler.addFilter(context_filter)
+        root.addHandler(console_handler)
 
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("mcp").setLevel(logging.WARNING)

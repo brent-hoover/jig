@@ -8,6 +8,7 @@ Claude agents are launched.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,6 +31,18 @@ from jig.store.tickets import TicketStore
 from jig.thread import Handoff
 
 Handler = Callable[[AgentSpawnContext], Awaitable[None]]
+
+
+def _valid_spec_yaml(name: str = "myproj", capabilities: str = "[]") -> str:
+    """Minimal schema-valid spec YAML for tests."""
+    return (
+        f"name: {name}\n"
+        "summary: a project\n"
+        f"capabilities: {capabilities}\n"
+        "non_goals: []\n"
+        f"generated_at: '{datetime.now(timezone.utc).isoformat()}'\n"
+        "spec_version: 1\n"
+    )
 
 
 class FakeAgent:
@@ -82,7 +95,7 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
-            yaml_content="name: proj\ncapabilities:\n  X: {}\n",
+            yaml_content=_valid_spec_yaml(name="proj"),
             advisory_notes=[],
             author="spec-generator",
         )
@@ -154,7 +167,7 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
-            yaml_content="name: directproj\n",
+            yaml_content=_valid_spec_yaml(name="directproj"),
             advisory_notes=[],
             author="spec-generator",
         )
@@ -205,7 +218,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
-            yaml_content="name: resumeproj\n",
+            yaml_content=_valid_spec_yaml(name="resumeproj"),
             advisory_notes=[],
             author="spec-generator",
         )
@@ -271,7 +284,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
-            yaml_content="name: storyproj\n",
+            yaml_content=_valid_spec_yaml(name="storyproj"),
             advisory_notes=["watch out for X"],
             author="spec-generator",
         )
@@ -363,7 +376,7 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
             threads=ctx.threads,
             bus=ctx.bus,
             project_path=ctx.worktree_path,
-            yaml_content="name: gapproj\ncapabilities:\n  X2: {}\n",
+            yaml_content=_valid_spec_yaml(name="gapproj"),
             advisory_notes=[],
             author="spec-generator",
         )

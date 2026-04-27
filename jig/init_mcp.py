@@ -14,6 +14,7 @@ import yaml
 
 from jig.atomic import atomic_write_text
 from jig.markdown_sections import get_section, list_sections, set_section
+from jig.spec_schema import StructuredSpec
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -241,9 +242,13 @@ async def handle_spec_publish(
     """Write the structured spec, emit spec_generated, and resolve
     the brief ticket so the spec-generator exits cleanly."""
     try:
-        yaml.safe_load(yaml_content)
+        data = yaml.safe_load(yaml_content)
     except yaml.YAMLError as e:
         raise ValueError(f"cannot parse spec YAML: {e}") from e
+    try:
+        StructuredSpec.model_validate(data)
+    except Exception as e:
+        raise ValueError(f"spec does not match schema: {e}") from e
     atomic_write_text(_spec_path(project_path), yaml_content)
     if advisory_notes:
         await threads.post(

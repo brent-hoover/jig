@@ -1,4 +1,6 @@
 """spec_* MCP tool handlers."""
+from datetime import datetime, timezone
+
 import pytest
 import yaml
 
@@ -9,6 +11,18 @@ from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Note, SystemEvent
 from jig.ticket import Ticket, WorkType
+
+
+def _valid_spec_yaml(name: str = "myproj", capabilities: str = "[]") -> str:
+    """Minimal schema-valid spec YAML for tests."""
+    return (
+        f"name: {name}\n"
+        "summary: a project\n"
+        f"capabilities: {capabilities}\n"
+        "non_goals: []\n"
+        f"generated_at: '{datetime.now(timezone.utc).isoformat()}'\n"
+        "spec_version: 1\n"
+    )
 
 
 @pytest.fixture
@@ -33,7 +47,7 @@ async def wired(tmp_path):
 
 @pytest.mark.asyncio
 async def test_spec_publish_writes_file_and_emits_event(wired):
-    yaml_str = "name: myproj\ncapabilities: {}\n"
+    yaml_str = _valid_spec_yaml(name="myproj")
     await handle_spec_publish(
         tickets=wired["tickets"],
         threads=wired["threads"],
@@ -60,7 +74,7 @@ async def test_spec_publish_with_advisory_notes_posts_note(wired):
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
-        yaml_content="name: x\n",
+        yaml_content=_valid_spec_yaml(name="x"),
         advisory_notes=["consider clarifying X"],
         author="spec-generator",
     )
@@ -104,7 +118,7 @@ async def test_spec_publish_with_multiple_advisory_notes_posts_one_note(wired):
         threads=wired["threads"],
         bus=wired["bus"],
         project_path=wired["project_path"],
-        yaml_content="name: x\n",
+        yaml_content=_valid_spec_yaml(name="x"),
         advisory_notes=["clarify A", "consider B", "tighten C"],
         author="spec-generator",
     )
@@ -163,3 +177,21 @@ async def test_spec_publish_rejects_unparseable_yaml(wired):
     # Atomicity: no bus message published to the orchestrator topic.
     history = await wired["bus"].get_history("orchestrator")
     assert all(m.payload.get("kind") != "spec_generated" for m in history)
+
+
+@pytest.mark.asyncio
+async def test_spec_publish_rejects_schema_invalid_yaml(wired):
+    """A YAML that parses but doesn't match StructuredSpec should raise
+    before writing the file."""
+    with pytest.raises(ValueError, match="schema"):
+        await handle_spec_publish(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            project_path=wired["project_path"],
+            yaml_content="capabilities: not-a-list-but-a-string\n",
+            advisory_notes=[],
+            author="spec-generator",
+        )
+    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+    assert not spec_file.exists()

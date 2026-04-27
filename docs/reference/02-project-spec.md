@@ -1,5 +1,11 @@
 # 02 — Project Spec
 
+> **For the format spec** (brief markdown structure, structured YAML
+> schema, URI scheme, regeneration rules), see
+> [02a — Project Spec Format Reference](./02a-project-spec-format.md).
+> This doc covers the conceptual material — what a project spec is
+> and why.
+
 The top-of-tree artifact describing what the product is. Owned by the PO.
 The root that individual tickets derive from and contribute back to.
 

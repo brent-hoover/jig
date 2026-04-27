@@ -232,11 +232,16 @@ def _parse_capability_block(text: str, *, section: BriefSection) -> BriefCapabil
                     b.acceptance_criteria.append(ac_text)
                     break
 
-    if section in ("planned_committed", "built") and not behaviors:
-        if not capability_ac:
+    if section in ("planned_committed", "built"):
+        has_any_ac = (
+            bool(capability_ac)
+            or any(b.acceptance_criteria for b in behaviors)
+        )
+        if not has_any_ac:
             raise BriefParseError(
-                f"capability {anchor.id!r} has no behaviors and no "
-                "capability-level acceptance criteria"
+                f"capability {anchor.id!r} has no acceptance criteria "
+                "(add behavior-level AC via [behavior-id] bullets or "
+                "capability-level AC)"
             )
 
     return BriefCapability(
@@ -565,7 +570,7 @@ def split_into_sections(text: str) -> ParsedBrief:
         nonlocal current_body
         if current_section is not None:
             if current_section in sections:
-                raise ValueError(
+                raise BriefParseError(
                     f"duplicate H2 section heading: {current_section!r}"
                 )
             sections[current_section] = "\n".join(current_body).strip("\n")
@@ -586,7 +591,7 @@ def split_into_sections(text: str) -> ParsedBrief:
     _flush_section()
 
     if name is None:
-        raise ValueError("brief is missing an H1 (project name)")
+        raise BriefParseError("brief is missing an H1 (project name)")
 
     summary = "\n".join(intro_lines).strip()
     return ParsedBrief(name=name, summary=summary, sections=sections)

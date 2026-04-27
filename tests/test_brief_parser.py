@@ -150,8 +150,26 @@ def test_split_into_sections_returns_intro_and_section_bodies():
 
 
 def test_split_into_sections_rejects_missing_h1():
-    with pytest.raises(ValueError, match="H1"):
+    with pytest.raises(BriefParseError, match="H1"):
         split_into_sections("## Built\n")
+
+
+def test_split_into_sections_rejects_duplicate_h2():
+    body = """\
+# x
+
+intro
+
+## Built
+
+(first)
+
+## Built
+
+(second)
+"""
+    with pytest.raises(BriefParseError, match="duplicate H2"):
+        split_into_sections(body)
 
 
 # --- elaborated section parser ---
@@ -250,6 +268,19 @@ def test_parse_elaborated_section_rejects_when_planned_has_no_ac():
 Some prose, no behaviors, no AC block.
 """
     with pytest.raises(BriefParseError, match="acceptance"):
+        parse_elaborated_section(body, section="planned_committed")
+
+
+def test_parse_elaborated_section_rejects_planned_with_behaviors_but_no_ac():
+    """A planned capability with elaborated behaviors but no AC blocks
+    is a blocking gap — easy author mistake the parser must surface."""
+    body = """\
+### X {#x}
+
+**Behaviors:**
+- {#b1} does something
+"""
+    with pytest.raises(BriefParseError, match="acceptance criteria"):
         parse_elaborated_section(body, section="planned_committed")
 
 
@@ -357,6 +388,7 @@ Users can give todos due dates.
 
 def test_parse_brief_end_to_end():
     result = parse_brief(_FULL_BRIEF)
+    assert isinstance(result, ParsedBriefResult)
     assert result.name == "todoapp"
     assert "todo list manager" in result.summary
     cap_ids = [c.id for c in result.capabilities]

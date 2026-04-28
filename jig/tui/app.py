@@ -31,6 +31,8 @@ class JigApp(App):
         Binding("2", "switch_screen('tickets')", "Tickets", show=False),
         Binding("3", "switch_screen('spec')", "Spec", show=False),
         Binding("4", "switch_screen('events')", "Events", show=False),
+        # Pane-local bindings routed here because ContentTabs holds focus
+        Binding("b", "toggle_board", "List/Board", show=False),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -129,3 +131,14 @@ class JigApp(App):
         from jig.tui.screens.help import HelpScreen
 
         self.push_screen(HelpScreen())
+
+    def action_toggle_board(self) -> None:
+        """Toggle board view on the Tickets pane when it's active."""
+        tabs = self.query_one(TabbedContent)
+        if tabs.active != "tickets-pane":
+            return
+        try:
+            tickets = self.query_one(TicketsScreen)
+            tickets.action_toggle_view()
+        except Exception:
+            pass

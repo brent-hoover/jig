@@ -8,6 +8,7 @@ description, assignee, parent_id, blocked_by, workflow).
 Hotkeys (Tickets pane only):
   j / down       move selection down
   k / up         move selection up
+  b              toggle list / board view
   enter          focus the detail pane (so its bindings respond)
   escape         return focus to the list
 
@@ -24,7 +25,7 @@ from typing import Any
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import ListItem, ListView, Static
@@ -52,6 +53,98 @@ _STATUS_COLOR = {
     "closed": "#444444",
 }
 
+_BOARD_COLUMNS = [
+    ("open", "Open", "#888888"),
+    ("in_progress", "In Progress", "#ffcc00"),
+    ("needs_info", "Needs Info", "#ff00ff"),
+    ("blocked", "Blocked", "#ff8800"),  # also catches merge_conflict
+    ("failed", "Failed", "#cc0000"),
+    ("resolved", "Resolved", "#00cc00"),
+    ("closed", "Closed", "#444444"),
+]
+
+
+class BoardView(ScrollableContainer):
+    """Kanban-style status columns. One column per ticket status."""
+
+    DEFAULT_CSS = """
+    BoardView {
+        width: 1fr;
+        height: 1fr;
+    }
+    BoardView > Horizontal {
+        height: auto;
+    }
+    .board-column {
+        width: 30;
+        margin: 0 1;
+        border: solid $accent;
+        padding: 0 1;
+        height: auto;
+    }
+    .board-column-header {
+        height: 1;
+        text-style: bold;
+    }
+    .board-card {
+        margin: 0 0 1 0;
+    }
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._tickets: list[dict[str, Any]] = []
+
+    def compose(self) -> ComposeResult:
+        with Horizontal():
+            for status_key, label, color in _BOARD_COLUMNS:
+                with Vertical(classes="board-column", id=f"col-{status_key}"):
+                    yield Static(
+                        f"[{color}]{label}[/{color}] [dim](0)[/dim]",
+                        classes="board-column-header",
+                        id=f"hdr-{status_key}",
+                        markup=True,
+                    )
+                    yield Vertical(id=f"cards-{status_key}")
+
+    def update_tickets(self, tickets: list[dict[str, Any]]) -> None:
+        self._tickets = tickets
+        # Re-bucket
+        buckets: dict[str, list[dict[str, Any]]] = {k: [] for k, _, _ in _BOARD_COLUMNS}
+        for t in tickets:
+            status = t.get("status", "open")
+            # Group merge_conflict under "blocked"
+            if status == "merge_conflict":
+                status = "blocked"
+            if status in buckets:
+                buckets[status].append(t)
+        # Repaint each column
+        for status_key, label, color in _BOARD_COLUMNS:
+            try:
+                hdr = self.query_one(f"#hdr-{status_key}", Static)
+                cards = self.query_one(f"#cards-{status_key}", Vertical)
+            except Exception:
+                continue
+            count = len(buckets[status_key])
+            hdr.update(f"[{color}]{label}[/{color}] [dim]({count})[/dim]")
+            # Clear and re-mount cards
+            cards.remove_children()
+            for t in buckets[status_key]:
+                cards.mount(self._build_card(t, color))
+
+    def _build_card(self, t: dict[str, Any], color: str) -> Static:
+        status = t.get("status", "open")
+        icon = _STATUS_ICON.get(status, "•")
+        size = t.get("size", "?")
+        title = t.get("title", "(untitled)")
+        if len(title) > 24:
+            title = title[:21] + "…"
+        return Static(
+            f"[{color}]{icon}[/{color}] [dim][{size}][/dim] {title}",
+            classes="board-card",
+            markup=True,
+        )
+
 
 class TicketsScreen(Screen):
     """Live master/detail of all tickets."""
@@ -61,13 +154,14 @@ class TicketsScreen(Screen):
     BINDINGS = [
         Binding("j", "select_next", "Down", show=False),
         Binding("k", "select_prev", "Up", show=False),
+        Binding("b", "toggle_view", "List/Board"),
     ]
 
     DEFAULT_CSS = """
     TicketsScreen {
         layout: vertical;
     }
-    TicketsScreen > Horizontal {
+    TicketsScreen > #list-mode-row {
         height: 1fr;
     }
     #tickets-list {
@@ -81,26 +175,49 @@ class TicketsScreen(Screen):
     """
 
     tickets: reactive[dict[str, dict[str, Any]]] = reactive({}, recompose=False)
+    view_mode: reactive[str] = reactive("list", recompose=False)
 
     def compose(self) -> ComposeResult:
-        with Horizontal():
+        with Horizontal(id="list-mode-row"):
             yield ListView(id="tickets-list")
             yield Static(
                 "[dim]waiting for tickets…[/dim]",
                 id="tickets-detail",
                 markup=True,
             )
+        yield BoardView(id="board-mode-view")
+
+    def on_mount(self) -> None:
+        # Hide board initially
+        self.query_one("#board-mode-view").display = False
 
     def on_show(self) -> None:
-        # Focus the ListView when the pane becomes visible.
-        try:
-            self.query_one("#tickets-list", ListView).focus()
-        except Exception:
-            pass
+        # Focus the ListView when the pane becomes visible (only in list mode).
+        if self.view_mode == "list":
+            try:
+                self.query_one("#tickets-list", ListView).focus()
+            except Exception:
+                pass
 
     def _on_descendant_focus(self, event: events.DescendantFocus) -> None:
         # Same tab-loop fix as NowScreen.
         event.stop()
+
+    # --- view mode ----------------------------------------------------------
+
+    def watch_view_mode(self, mode: str) -> None:
+        list_row = self.query_one("#list-mode-row")
+        board = self.query_one("#board-mode-view", BoardView)
+        if mode == "list":
+            list_row.display = True
+            board.display = False
+        else:
+            list_row.display = False
+            board.display = True
+            board.update_tickets(list(self.tickets.values()))
+
+    def action_toggle_view(self) -> None:
+        self.view_mode = "board" if self.view_mode == "list" else "list"
 
     # --- daemon event handling ----------------------------------------------
 
@@ -171,6 +288,14 @@ class TicketsScreen(Screen):
 
         # Update detail pane for the (possibly new) selection
         self._update_detail()
+
+        # Keep board in sync if it's visible
+        if self.view_mode == "board":
+            try:
+                board = self.query_one("#board-mode-view", BoardView)
+                board.update_tickets(list(self.tickets.values()))
+            except Exception:
+                pass
 
     def _build_list_item(self, ticket: dict[str, Any]) -> ListItem:
         status = ticket.get("status", "open")

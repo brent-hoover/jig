@@ -74,20 +74,42 @@ class JigApp(App):
 
     async def _handle_daemon_message(self, msg: dict) -> None:
         msg_type = msg.get("type")
-        if msg_type == "event":
-            topic = msg.get("topic")
-            if topic in ("agents", "prompts"):
-                try:
-                    now = self.query_one(NowScreen)
-                except Exception:
-                    return  # not mounted yet
-                await now.handle_daemon_event(msg)
-        elif msg_type == "result":
+        topic = msg.get("topic")
+
+        if msg_type == "result":
             try:
                 now = self.query_one(NowScreen)
             except Exception:
                 return
             await now.handle_command_result(msg)
+            return
+
+        if msg_type == "snapshot":
+            if topic == "tickets":
+                try:
+                    tickets = self.query_one(TicketsScreen)
+                except Exception:
+                    return
+                await tickets.handle_snapshot(msg.get("data"))
+            return
+
+        if msg_type == "event":
+            if topic in ("agents", "prompts"):
+                try:
+                    now = self.query_one(NowScreen)
+                except Exception:
+                    return
+                await now.handle_daemon_event(msg)
+                return
+            if topic == "tickets":
+                try:
+                    tickets = self.query_one(TicketsScreen)
+                except Exception:
+                    return
+                kind = msg.get("kind", "")
+                data = msg.get("data") or {}
+                await tickets.handle_event(kind, data)
+                return
 
     def _on_daemon_state(self, state: ConnectionState) -> None:
         self.daemon_state = state

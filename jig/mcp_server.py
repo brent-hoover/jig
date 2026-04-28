@@ -1181,6 +1181,42 @@ def create_agent_mcp_server(
 
         all_tools.append(sa_propose_scaffold)
 
+    if "recent_events" in agent_cfg.allowed_tools:
+
+        @tool(
+            "recent_events",
+            "Return the most recent N bus messages across all topics, "
+            "oldest-to-newest. Optional kind filter. Returns up to 100.",
+            {"limit": int, "kind": str},
+        )
+        async def recent_events(args):
+            limit = min(int(args.get("limit", 50)), 100)
+            kind = args.get("kind")
+            msgs = await bus.recent(limit=limit, kind=kind)
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps({
+                            "events": [
+                                {
+                                    "id": m.id,
+                                    "timestamp": m.timestamp.isoformat(),
+                                    "topic": m.topic,
+                                    "kind": (m.payload or {}).get("kind"),
+                                    "sender": m.sender,
+                                    "to": m.to,
+                                    "payload": m.payload,
+                                }
+                                for m in msgs
+                            ],
+                        }),
+                    }
+                ],
+            }
+
+        all_tools.append(recent_events)
+
     # Strict-tools mode: drop any tool whose short name isn't in the
     # role's ``allowed_tools``. Init roles (po, sa, spec-generator)
     # opt into this so e.g. PO can't reach for commit_progress via

@@ -192,6 +192,7 @@ class TestDefaultRoles:
             "po",
             "sa",
             "spec-generator",
+            "concierge",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

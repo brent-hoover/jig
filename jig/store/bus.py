@@ -109,6 +109,20 @@ class MessageBus:
         results.sort(key=lambda m: m.timestamp)
         return results[-limit:]
 
+    async def recent(self, limit: int = 100, kind: str | None = None) -> list[Message]:
+        """Return the most recent N messages across all topics, oldest-to-newest.
+
+        When ``kind`` is given, filters to messages whose ``payload.get("kind")``
+        matches. Used by the events-tail snapshot and by the concierge's
+        recent_events tool.
+        """
+        all_msgs = await self._collection.find()
+        msgs = [m for m in all_msgs]
+        if kind is not None:
+            msgs = [m for m in msgs if (m.payload or {}).get("kind") == kind]
+        msgs.sort(key=lambda m: m.timestamp)
+        return msgs[-limit:]
+
     async def add_websocket_listener(
         self, callback: Callable[[Message], Awaitable[None]]
     ) -> None:

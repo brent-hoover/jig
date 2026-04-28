@@ -517,12 +517,8 @@ class WebSocketServer:
         if topic == "events":
             if self._orch is None:
                 return []
-            if not hasattr(self._orch.bus, "recent"):
-                logger.warning(
-                    "snapshot for topic 'events' is empty: missing helper bus.recent"
-                )
-                return []
-            return [m.model_dump(mode="json") for m in self._orch.bus.recent(limit=100)]
+            msgs = await self._orch.bus.recent(limit=100)
+            return [m.model_dump(mode="json") for m in msgs]
         if topic == "threads":
             # Snapshot is per-ticket; subscribers fetch on demand via command.
             return []

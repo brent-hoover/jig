@@ -177,6 +177,11 @@ class NowScreen(Container):
             return
         scrollback.write(f"[cyan]›[/cyan] {line}")
         if line.startswith("/"):
+            # Bare `/` is a command-discovery shortcut — same render as /help
+            if line == "/":
+                await self._dispatch_slash(ParsedSlash(name="help", args=[]))
+                event.input.clear()
+                return
             try:
                 parsed = parse_slash(line)
             except SlashParseError as exc:
@@ -193,13 +198,19 @@ class NowScreen(Container):
         scrollback = self.query_one("#scrollback", RichLog)
         if parsed.name == "help":
             scrollback.write(
-                "[bold]Available commands:[/bold]\n"
-                "  /help    — show this message\n"
-                "  /status  — daemon + agent status\n"
-                "  /init <name> [--force]  — initialize a project\n"
-                "  /ticket new --title <t> --size <s>  — create a ticket\n"
-                "  /ticket update <id> status=<s>      — edit a ticket\n"
-                "  /quit    — quit the TUI\n"
+                "[bold]Available commands[/bold] [dim](submit `/` alone for this list)[/dim]\n"
+                "  /help                                 — show this message\n"
+                "  /status                               — daemon + agent status\n"
+                "  /init <name> [--force]                — initialize a project\n"
+                "  /ticket new --title <t> --size <s>    — create a ticket\n"
+                "  /ticket update <id> <field>=<value>   — edit a ticket\n"
+                "  /concierge <query>                    — ask the concierge agent\n"
+                "  /quit                                 — quit the TUI\n"
+                "\n"
+                "[bold]Per-pane hotkeys[/bold] (also see `?`)\n"
+                "  Tickets:  n=new, e=edit, b=list/board, j/k=nav\n"
+                "  Spec:     r=raw YAML, b=brief, j/k=nav\n"
+                "  Events:   f=filter, F=follow, enter=detail\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."
             )

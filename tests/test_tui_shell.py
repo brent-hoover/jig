@@ -45,6 +45,29 @@ async def test_slash_help_writes_to_scrollback(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_bare_slash_renders_command_list(tmp_path: Path):
+    """Submitting just `/` shortcuts to /help — discovery shortcut."""
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import NowScreen
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        now = app.query_one(NowScreen)
+
+        class FakeEvent:
+            value = "/"
+            input = type("X", (), {"clear": lambda self_: None})()
+
+        await now.on_input_submitted(FakeEvent())  # type: ignore[arg-type]
+        scrollback = app.query_one("#scrollback", RichLog)
+        text = "\n".join(str(line) for line in scrollback.lines)
+        assert "Available commands" in text
+        for cmd in ("/init", "/ticket", "/concierge", "/status", "/quit"):
+            assert cmd in text, f"missing {cmd} in help: {text[:300]}"
+
+
+@pytest.mark.asyncio
 async def test_help_overlay_opens_and_closes(tmp_path: Path):
     from jig.tui.screens.help import HelpScreen
 

@@ -52,10 +52,11 @@ Creates a `.jig/` directory with default agent types (spec, test, dev, review), 
 
 ```bash
 cd /path/to/your/repo
-jig
+jig daemon start              # start the background orchestrator first
+jig                           # then open the TUI
 ```
 
-`jig` (no args) opens a Textual TUI. It auto-starts a background `jig daemon` that hosts the orchestrator + agents + WebSocket server, then connects. Closing the TUI does not stop the daemon — agents in flight finish their work.
+`jig` (no args) opens a Textual TUI that connects to the local daemon. The daemon is a separate background process that hosts the orchestrator + agents + WebSocket server. Closing the TUI does not stop the daemon — agents in flight finish their work. Stop it explicitly with `jig daemon stop` when done.
 
 The TUI has four tabs:
 - **Now** — conversation surface for `/init`, free-text concierge queries, and live agent output

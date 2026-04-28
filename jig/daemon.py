@@ -123,6 +123,9 @@ def daemon_start(
     leave it None.
 
     Raises ``DaemonAlreadyRunning`` if a live daemon already exists.
+    Raises ``RuntimeError`` if the project is not initialized (when
+    not using ``_command_override``) — better than letting the forked
+    child die with the same message buried in daemon.err.
     """
     existing = daemon_status(project_path)
     if existing.running:
@@ -133,6 +136,18 @@ def daemon_start(
     if existing.stale:
         # Clean up the stale PID file so the new daemon can write its own.
         daemon_paths(project_path).pid_file.unlink(missing_ok=True)
+
+    # Pre-flight: confirm this directory is an initialized jig project so
+    # we don't fork a subprocess that will die immediately. Tests using
+    # ``_command_override`` bypass this — they're not exercising the
+    # orchestrator path.
+    if _command_override is None:
+        config_file = project_path / ".jig" / "config.yaml"
+        if not config_file.is_file():
+            raise RuntimeError(
+                f"not a jig project: no .jig/config.yaml at {project_path}. "
+                "Run `jig init <name>` first, or cd into an initialized project."
+            )
 
     paths = daemon_paths(project_path, ensure=True)
     cmd = list(_command_override) if _command_override else [

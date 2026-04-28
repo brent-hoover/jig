@@ -145,7 +145,8 @@ daemon; out of scope for a first dogfood).
 
 ```bash
 cd /tmp/jig-dogfood
-jig            # launches the Textual TUI; auto-starts a daemon if needed
+jig daemon start    # if you didn't start one in Terminal A
+jig                 # launches the Textual TUI and connects to the daemon
 ```
 
 You should see:

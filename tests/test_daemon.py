@@ -82,6 +82,14 @@ def test_daemon_start_raises_when_child_dies_immediately(tmp_path):
     assert "BOOM" in paths.stderr_log.read_text()
 
 
+def test_daemon_start_rejects_uninitialized_project(tmp_path):
+    """Pre-flight: refuse to fork if .jig/config.yaml is absent."""
+    import pytest
+
+    with pytest.raises(RuntimeError, match=r"not a jig project"):
+        daemon_start(tmp_path)
+
+
 def test_daemon_status_surfaces_last_error_for_stale_pid_file(tmp_path):
     """When the PID is dead, status returns the last line of daemon.err."""
     paths = daemon_paths(tmp_path, ensure=True)

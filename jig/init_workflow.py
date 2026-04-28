@@ -265,14 +265,21 @@ def _print_already_done(target: Path) -> None:
 
 
 def _print_summary(target: Path, *, template_name: str) -> None:
+    # The operator may have run `jig init <name>` from a parent directory,
+    # so the project lives at `<cwd>/<target>`, not the cwd itself. The
+    # `jig story` command defaults to `--path .` and would fail there;
+    # surface the right invocation explicitly.
+    target_str = str(target)
+    needs_path = target_str not in (".", "")
+    path_arg = f" --path {target_str}" if needs_path else ""
     click.echo(
         f"\n"
         f"Brief:        {target}/.jig/spec/project.md\n"
         f"Spec:         {target}/.jig/spec/project.structured.yaml\n"
         f"Architecture: {target}/.jig/spec/architecture.yaml\n"
         f"Template:     {template_name}\n\n"
-        f"Setup log:    jig story brief\n"
-        f"              jig story architecture\n"
+        f"Setup log:    jig story brief{path_arg}\n"
+        f"              jig story architecture{path_arg}\n"
     )
 
 

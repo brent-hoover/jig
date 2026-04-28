@@ -526,3 +526,26 @@ async def test_apply_scaffold_warns_and_succeeds_when_hook_install_fails(
     assert "simulated failure" in out
     # Scaffold's happy path still completed:
     assert (project / ".jig" / "spec" / "architecture.yaml").is_file()
+
+
+def test_print_summary_includes_path_when_target_not_cwd(capsys):
+    """`jig story` defaults to --path . — when init was run with a
+    subdirectory target, the suggested commands need --path to point
+    at the actual project."""
+    from jig.init_workflow import _print_summary
+
+    _print_summary(Path("dogfood"), template_name="fastapi")
+    out = capsys.readouterr().out
+    assert "jig story brief --path dogfood" in out
+    assert "jig story architecture --path dogfood" in out
+
+
+def test_print_summary_omits_path_when_target_is_cwd(capsys):
+    """When init was run in-place (`jig init .` style), no --path
+    needed — the bare command works."""
+    from jig.init_workflow import _print_summary
+
+    _print_summary(Path("."), template_name="fastapi")
+    out = capsys.readouterr().out
+    assert "jig story brief\n" in out
+    assert "--path" not in out

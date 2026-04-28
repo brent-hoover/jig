@@ -67,8 +67,20 @@ def test_classify_in_progress_brief_only(tmp_path: Path):
 
 def test_classify_partial_broken(tmp_path: Path):
     (tmp_path / ".jig").mkdir()
-    # project.yaml missing; this is inconsistent.
+    # project.yaml missing AND there's some non-daemon-managed content
+    # → genuinely inconsistent (init crashed mid-flow).
+    (tmp_path / ".jig" / "spec").mkdir()
     assert classify_directory(tmp_path) == DirState.BROKEN
+
+
+def test_classify_daemon_only_jig_is_fresh(tmp_path: Path):
+    """When `jig` (no args) auto-spawns the daemon BEFORE init runs,
+    the daemon creates .jig/run/ and .jig/logs/. classify_directory
+    should treat that as FRESH so /init can proceed normally — not
+    BROKEN as it would for a half-completed init."""
+    (tmp_path / ".jig" / "run").mkdir(parents=True)
+    (tmp_path / ".jig" / "logs").mkdir(parents=True)
+    assert classify_directory(tmp_path) == DirState.FRESH
 
 
 def test_classify_broken_invalid_yaml(tmp_path: Path):

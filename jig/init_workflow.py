@@ -56,6 +56,15 @@ def classify_directory(path: Path) -> DirState:
         return DirState.FRESH
     project_yaml = path / ".jig" / "project.yaml"
     if not project_yaml.is_file():
+        # Distinguish "daemon touched .jig/ but init never ran" (FRESH)
+        # from "init crashed mid-flow" (BROKEN). The former has only
+        # daemon-managed subdirs (run/, logs/); the latter has actual
+        # project state. Now that `jig` (no args) auto-spawns the daemon,
+        # `.jig/run/` and `.jig/logs/` can exist BEFORE init runs.
+        _DAEMON_OWNED = {"run", "logs"}
+        contents = {p.name for p in (path / ".jig").iterdir()}
+        if contents <= _DAEMON_OWNED:
+            return DirState.FRESH
         return DirState.BROKEN
     try:
         data = yaml.safe_load(project_yaml.read_text()) or {}

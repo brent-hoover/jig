@@ -1,0 +1,8 @@
+/* jig/tui/app.tcss */
+Screen {
+    background: $surface;
+}
+
+TabbedContent {
+    height: 1fr;
+}

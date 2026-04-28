@@ -714,6 +714,16 @@ def story(
 # ---------------------------------------------------------------------------
 
 
+@cli.command(name="tui", hidden=True)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tui_cmd(path: Path) -> None:
+    """Launch the Textual TUI (default action when `jig` is invoked
+    with no args via __main__.py)."""
+    from jig.tui.app import JigApp
+
+    JigApp(project_path=path).run()
+
+
 @cli.group(name="daemon")
 def daemon_group() -> None:
     """Manage the background daemon (orchestrator + WebSocket server)."""

@@ -9,6 +9,7 @@ def test_daemon_paths_returns_pid_and_socket_under_jig_run(tmp_path):
     paths = daemon_paths(tmp_path)
     assert paths.pid_file == tmp_path / ".jig" / "run" / "daemon.pid"
     assert paths.socket_addr_file == tmp_path / ".jig" / "run" / "daemon.addr"
+    assert paths.stderr_log == tmp_path / ".jig" / "run" / "daemon.err"
     assert paths.run_dir == tmp_path / ".jig" / "run"
 
 
@@ -59,3 +60,34 @@ def test_daemon_start_writes_pid_file_and_can_be_stopped(tmp_path):
         time.sleep(0.5)
 
     assert daemon_status(tmp_path).running is False
+
+
+def test_daemon_start_raises_when_child_dies_immediately(tmp_path):
+    """If the spawned child exits during the startup-poll window, the
+    function cleans up files and raises with the stderr tail."""
+    import pytest
+
+    # `false` exits immediately with rc=1; bash echoes a marker to stderr.
+    with pytest.raises(RuntimeError, match=r"daemon exited immediately"):
+        daemon_start(
+            tmp_path,
+            _command_override=["bash", "-c", "echo 'BOOM' >&2; exit 7"],
+        )
+    paths = daemon_paths(tmp_path)
+    # Files cleaned up so a retry can write fresh ones
+    assert not paths.pid_file.exists()
+    assert not paths.socket_addr_file.exists()
+    # Stderr was captured
+    assert paths.stderr_log.is_file()
+    assert "BOOM" in paths.stderr_log.read_text()
+
+
+def test_daemon_status_surfaces_last_error_for_stale_pid_file(tmp_path):
+    """When the PID is dead, status returns the last line of daemon.err."""
+    paths = daemon_paths(tmp_path, ensure=True)
+    paths.pid_file.write_text("99999999")
+    paths.stderr_log.write_text("first line\nimportant final error\n")
+    status = daemon_status(tmp_path)
+    assert status.running is False
+    assert status.stale is True
+    assert status.last_error == "important final error"

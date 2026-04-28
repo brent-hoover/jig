@@ -740,6 +740,9 @@ def daemon_start_cmd(path: Path, ws_port: int) -> None:
         result = daemon_start(path, ws_port=ws_port)
     except DaemonAlreadyRunning as exc:
         raise click.ClickException(str(exc))
+    except RuntimeError as exc:
+        # Daemon died on startup; daemon_start surfaces the stderr tail.
+        raise click.ClickException(str(exc))
     click.echo(f"daemon started: pid={result.pid} addr={result.addr}")
 
 
@@ -764,7 +767,13 @@ def daemon_status_cmd(path: Path) -> None:
     status = daemon_status(path)
     if not status.running:
         if status.stale:
-            click.echo("daemon: not running (stale PID file present)")
+            msg = "daemon: not running (stale PID file present)"
+            if status.last_error:
+                msg += f"\n  last error: {status.last_error}"
+            err_path = daemon_paths(path).stderr_log
+            if err_path.is_file():
+                msg += f"\n  full log: {err_path}"
+            click.echo(msg)
         else:
             click.echo("daemon: not running")
         return

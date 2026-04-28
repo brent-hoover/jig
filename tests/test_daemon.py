@@ -83,12 +83,18 @@ def test_daemon_start_raises_when_child_dies_immediately(tmp_path):
     assert "BOOM" in paths.stderr_log.read_text()
 
 
-def test_daemon_start_rejects_uninitialized_project(tmp_path):
-    """Pre-flight: refuse to fork if .jig/config.yaml is absent."""
-    import pytest
-
-    with pytest.raises(RuntimeError, match=r"not a jig project"):
-        daemon_start(tmp_path)
+def test_daemon_start_succeeds_in_uninitialized_directory(tmp_path):
+    """Pre-flight check removed: daemon now starts in unconfigured mode."""
+    started = daemon_start(
+        tmp_path,
+        _command_override=["sleep", "60"],
+    )
+    try:
+        time.sleep(0.5)
+        assert daemon_status(tmp_path).running is True
+        assert daemon_status(tmp_path).pid == started.pid
+    finally:
+        daemon_stop(tmp_path)
 
 
 def test_daemon_status_surfaces_last_error_for_stale_pid_file(tmp_path):

@@ -168,16 +168,6 @@ def daemon_start(
         paths.pid_file.unlink(missing_ok=True)
         paths.container_file.unlink(missing_ok=True)
 
-    # Pre-flight: project must be initialized. Skip in docker mode —
-    # the orchestrator inside the container does its own check.
-    if _command_override is None and not docker:
-        config_file = project_path / ".jig" / "config.yaml"
-        if not config_file.is_file():
-            raise RuntimeError(
-                f"not a jig project: no .jig/config.yaml at {project_path}. "
-                "Run `jig init <name>` first, or cd into an initialized project."
-            )
-
     paths = daemon_paths(project_path, ensure=True)
 
     # ------------------------------------------------------------------ docker

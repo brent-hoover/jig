@@ -11,6 +11,7 @@ The init_workflow callers pass this instance via run_init(prompts=...).
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,8 @@ from jig.init_workflow import (
     render_sa_confirm_prompt,
     render_template_list,
 )
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -56,13 +59,27 @@ class TuiPromptHandler:
 
     async def _round_trip(self, payload: dict[str, Any]) -> str:
         prompt_id, future = self._registry.register()
+        prompt_type = payload.get("prompt_type", "?")
+        _logger.info(
+            "TuiPromptHandler emitting prompt_request id=%s type=%s",
+            prompt_id, prompt_type,
+        )
         await self._emitter.emit(
             JigEvent(
                 type="prompt_request",
                 data={"prompt_id": prompt_id, **payload},
             )
         )
-        return await future
+        _logger.info(
+            "TuiPromptHandler awaiting reply for id=%s type=%s",
+            prompt_id, prompt_type,
+        )
+        reply = await future
+        _logger.info(
+            "TuiPromptHandler got reply for id=%s type=%s reply=%r",
+            prompt_id, prompt_type, reply[:60] if isinstance(reply, str) else reply,
+        )
+        return reply
 
     async def ask_brief_approval(
         self, *, project_path: Path, console: "Console"

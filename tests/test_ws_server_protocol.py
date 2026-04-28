@@ -282,6 +282,59 @@ async def test_command_dispatch_via_wire_protocol(tmp_path):
         await orch.shutdown()
 
 
+def test_prompts_topic_is_valid():
+    from jig.ws_server import _VALID_TOPICS
+    assert "prompts" in _VALID_TOPICS
+
+
+@pytest.mark.asyncio
+async def test_prompt_reply_command_resolves_pending_prompt():
+    """prompt_reply via _dispatch_command resolves a registered Future."""
+    from jig.events import EventEmitter
+    from jig.ws_server import WebSocketServer
+
+    server = WebSocketServer(emitter=EventEmitter(), port=0, orchestrator=None)
+    prompt_id, future = server.prompt_registry.register()
+
+    class FakeWS:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send(self, msg: str) -> None:
+            self.sent.append(msg)
+
+    fake_ws = FakeWS()
+    await server._dispatch_command(
+        fake_ws, "prompt_reply", {"args": [prompt_id, "the answer"]}
+    )
+
+    assert await asyncio.wait_for(future, timeout=1) == "the answer"
+    # Reply envelope wrote ok=True back
+    assert any('"ok": true' in s for s in fake_ws.sent)
+
+
+@pytest.mark.asyncio
+async def test_prompt_reply_unknown_id_returns_error():
+    from jig.events import EventEmitter
+    from jig.ws_server import WebSocketServer
+
+    server = WebSocketServer(emitter=EventEmitter(), port=0, orchestrator=None)
+
+    class FakeWS:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send(self, msg: str) -> None:
+            self.sent.append(msg)
+
+    fake_ws = FakeWS()
+    await server._dispatch_command(
+        fake_ws, "prompt_reply", {"args": ["definitely-not-a-real-id", "x"]}
+    )
+    assert any('"ok": false' in s for s in fake_ws.sent)
+    assert any("no pending prompt" in s for s in fake_ws.sent)
+
+
 @pytest.mark.asyncio
 async def test_legacy_client_still_gets_history_replay(tmp_path):
     """Legacy client sending a bare command receives history replay first."""

@@ -13,6 +13,7 @@ from websockets.asyncio.server import serve, ServerConnection
 from jig.agent import build_agent_prompt
 from jig.events import EventEmitter
 from jig.persistence import list_roles, load_role, load_workflow
+from jig.prompt_registry import PromptRegistry
 from jig.store import Message, MessageType
 from jig.thread import Answer, Note, SystemEvent, ThreadEntry
 from jig.ticket import TicketStatus
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Typed message protocol — Task 1.2
 # ---------------------------------------------------------------------------
 
-_VALID_TOPICS = frozenset({"tickets", "threads", "agents", "spec", "events"})
+_VALID_TOPICS = frozenset({"tickets", "threads", "agents", "spec", "events", "prompts"})
 
 
 def snapshot_envelope(topic: str, data: Any) -> dict:
@@ -76,6 +77,7 @@ class WebSocketServer:
         self._history: list[str] = []
         self._history_replayed: set[ServerConnection] = set()
         self._subscriptions: dict[ServerConnection, set[str]] = {}
+        self.prompt_registry = PromptRegistry()
 
     @property
     def port(self) -> int:
@@ -466,6 +468,8 @@ class WebSocketServer:
                 args=args.get("args", []) if isinstance(args, dict) else [],
                 orch=self._orch,
                 project_path=self._project_path,
+                prompt_registry=self.prompt_registry,
+                emitter=self._emitter,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("command %s failed", name)
@@ -521,6 +525,9 @@ class WebSocketServer:
             return [m.model_dump(mode="json") for m in self._orch.bus.recent(limit=100)]
         if topic == "threads":
             # Snapshot is per-ticket; subscribers fetch on demand via command.
+            return []
+        if topic == "prompts":
+            # No history; subscribers receive only live prompt_request events.
             return []
         raise ValueError(f"unknown topic {topic!r}")
 

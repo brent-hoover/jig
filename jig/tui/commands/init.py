@@ -39,9 +39,28 @@ async def cmd_init(
     console = make_streaming_console(emitter)
     prompts = TuiPromptHandler(emitter=emitter, registry=prompt_registry)
 
+    # Resolve the target as ABSOLUTE relative to the daemon's project_path
+    # so the daemon process's cwd (which can differ from where the operator
+    # launched `jig`) doesn't affect path resolution. run_init uses
+    # Path(name) internally, so passing a fully-resolved string works.
+    if project_path is not None:
+        target_path = (project_path / name).resolve()
+        target_str = str(target_path)
+    else:
+        target_str = name
+
     try:
-        await run_init(name=name, force=force, console=console, prompts=prompts)
+        await run_init(
+            name=target_str, force=force, console=console, prompts=prompts
+        )
     except Exception as exc:  # noqa: BLE001
+        # Log the full traceback to the daemon log so we can debug what
+        # actually failed. The wire envelope only carries str(exc).
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "/init %s failed", name
+        )
         return {"ok": False, "error": f"init failed: {exc}"}
 
     # Init may have just bootstrapped the project. Trigger an orchestrator

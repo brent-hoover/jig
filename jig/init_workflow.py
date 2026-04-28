@@ -114,6 +114,11 @@ async def run_init(
     console = console or _spawn_console()
     prompts = prompts or CliPromptHandler()
     target = Path(name)
+    # Derive the project's branding name from the path's basename so callers
+    # can pass either a bare name ("mydogfood") or a fully resolved path
+    # ("/foo/mydogfood") and get the same project name. The TUI's /init
+    # passes resolved absolute paths so the daemon's cwd doesn't matter.
+    project_name = target.name or name
     ds = classify_directory(target)
     if ds == DirState.ALREADY_DONE and not force:
         raise click.ClickException(
@@ -129,7 +134,7 @@ async def run_init(
             raise click.ClickException("Aborted.")
         shutil.rmtree(target / ".jig")
 
-    create_stub(target, name=name)
+    create_stub(target, name=project_name)
     log_file = configure_logging(target, verbose=False, console=False)
     console.print(f"Logging to {log_file}", markup=False)
     store_dir = target / ".jig" / "store"

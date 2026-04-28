@@ -399,3 +399,34 @@ def test_classify_event_maps_prompt_request_to_prompts_topic():
     assert classified["topic"] == "prompts"
     assert classified["kind"] == "request"
     assert classified["data"]["prompt_id"] == "abc"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_snapshots_survive_unconfigured_orchestrator(tmp_path):
+    """When the orchestrator has no project loaded yet (unconfigured mode),
+    subscribing to topics that depend on stores (tickets, events) must not
+    crash the WS handler with AttributeError on `None.list_all()` etc.
+
+    Regression: the old code blindly called self._orch.tickets.list_all()
+    even when self._orch.tickets was None, causing the daemon to send
+    1011 (internal error) and the TUI to loop in `reconnecting` state.
+    """
+    from jig.events import EventEmitter
+    from jig.orchestrator import Orchestrator
+    from jig.ws_server import WebSocketServer
+
+    emitter = EventEmitter()
+    orch = Orchestrator(project_path=tmp_path, emitter=emitter)
+    await orch.startup()  # unconfigured mode (no .jig/config.yaml here)
+    assert orch.is_configured is False
+    assert orch.tickets is None
+
+    server = WebSocketServer(emitter=emitter, port=0, orchestrator=orch, project_path=tmp_path)
+    # Each of these used to AttributeError; now they return safe empties.
+    assert await server._build_snapshot("tickets") == []
+    assert await server._build_snapshot("events") == []
+    assert await server._build_snapshot("agents") == []
+    assert await server._build_snapshot("threads") == []
+    assert await server._build_snapshot("prompts") == []
+    assert await server._build_snapshot("spec") is None
+    await orch.shutdown()

@@ -484,10 +484,24 @@ class WebSocketServer:
         )
 
     async def _build_snapshot(self, topic: str) -> Any:
-        """Per-topic initial snapshot."""
-        if topic == "tickets":
-            if self._orch is None:
+        """Per-topic initial snapshot.
+
+        When the orchestrator is in unconfigured mode (no project yet —
+        before /init has run), the per-project stores (tickets, bus,
+        threads) are None. Each topic returns the empty equivalent
+        rather than crashing the WS handler with AttributeError.
+        """
+        # Unconfigured orchestrator: no stores loaded yet. Returning empty
+        # equivalents lets the TUI subscribe + survive until /init promotes
+        # the orchestrator to configured mode (cmd_init calls orch.reload()).
+        if self._orch is None or not getattr(self._orch, "is_configured", True):
+            if topic in ("tickets", "agents", "events", "threads", "prompts"):
                 return []
+            if topic == "spec":
+                return None
+            raise ValueError(f"unknown topic {topic!r}")
+
+        if topic == "tickets":
             all_tickets = await self._orch.tickets.list_all()
             return [t.model_dump(mode="json") for t in all_tickets]
         if topic == "spec":
@@ -506,8 +520,6 @@ class WebSocketServer:
             spec = StructuredSpec.model_validate(data)
             return spec.model_dump(mode="json", by_alias=True)
         if topic == "agents":
-            if self._orch is None:
-                return []
             if not hasattr(self._orch, "list_active_agents"):
                 logger.warning(
                     "snapshot for topic 'agents' is empty: missing helper list_active_agents"
@@ -515,8 +527,6 @@ class WebSocketServer:
                 return []
             return await self._orch.list_active_agents()
         if topic == "events":
-            if self._orch is None:
-                return []
             msgs = await self._orch.bus.recent(limit=100)
             return [m.model_dump(mode="json") for m in msgs]
         if topic == "threads":

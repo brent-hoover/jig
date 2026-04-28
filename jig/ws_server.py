@@ -569,10 +569,15 @@ class WebSocketServer:
             return event_envelope("tickets", kind.removeprefix("ticket_"), payload)
         if kind in ("comment_posted",):
             return event_envelope("threads", "posted", payload)
-        if event.type in ("agent_text", "agent_tool", "agent_tool_result", "agent_run"):
+        if event.type in (
+            "agent_text", "agent_tool", "agent_tool_result", "agent_run",
+            "agent_render",   # ConsoleStream output
+        ):
             return event_envelope(
                 "agents", event.type.removeprefix("agent_"), payload
             )
+        if event.type == "prompt_request":  # TuiPromptHandler request
+            return event_envelope("prompts", "request", payload)
         # No typed projection for this event — drop it.
         # A deliberate event-tail will be added in Phase 3 once bus.recent exists.
         return None

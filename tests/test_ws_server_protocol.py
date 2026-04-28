@@ -374,3 +374,28 @@ async def test_legacy_client_still_gets_history_replay(tmp_path):
     finally:
         await server.stop()
         await orch.shutdown()
+
+
+def test_classify_event_maps_agent_render_to_agents_topic():
+    from jig.events import EventEmitter, JigEvent
+    from jig.ws_server import WebSocketServer
+
+    server = WebSocketServer(emitter=EventEmitter(), port=0, orchestrator=None)
+    classified = server._classify_event(
+        JigEvent(type="agent_render", data={"content": "hi"})
+    )
+    assert classified == {"type": "event", "topic": "agents", "kind": "render", "data": {"content": "hi"}}
+
+
+def test_classify_event_maps_prompt_request_to_prompts_topic():
+    from jig.events import EventEmitter, JigEvent
+    from jig.ws_server import WebSocketServer
+
+    server = WebSocketServer(emitter=EventEmitter(), port=0, orchestrator=None)
+    classified = server._classify_event(
+        JigEvent(type="prompt_request", data={"prompt_id": "abc", "prompt_type": "x"})
+    )
+    assert classified["type"] == "event"
+    assert classified["topic"] == "prompts"
+    assert classified["kind"] == "request"
+    assert classified["data"]["prompt_id"] == "abc"

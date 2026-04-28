@@ -66,15 +66,28 @@ class JigApp(App):
             self.client.run_with_reconnect(
                 on_message=self._handle_daemon_message,
                 on_state_change=self._on_daemon_state,
-                topics=["tickets", "spec", "agents", "events"],
+                topics=["tickets", "spec", "agents", "events", "prompts"],
             ),
             exclusive=True,
             name="daemon-client",
         )
 
     async def _handle_daemon_message(self, msg: dict) -> None:
-        # Phase 2.3+ will fan messages out to screens; for now just stash.
-        pass
+        msg_type = msg.get("type")
+        if msg_type == "event":
+            topic = msg.get("topic")
+            if topic in ("agents", "prompts"):
+                try:
+                    now = self.query_one(NowScreen)
+                except Exception:
+                    return  # not mounted yet
+                await now.handle_daemon_event(msg)
+        elif msg_type == "result":
+            try:
+                now = self.query_one(NowScreen)
+            except Exception:
+                return
+            await now.handle_command_result(msg)
 
     def _on_daemon_state(self, state: ConnectionState) -> None:
         self.daemon_state = state

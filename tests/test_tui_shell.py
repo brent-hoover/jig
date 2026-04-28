@@ -23,10 +23,10 @@ async def test_app_composes_with_four_screens(tmp_path: Path):
 async def test_app_switches_screens_via_hotkey(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         tabs = app.query_one("TabbedContent")
         assert tabs.active == "tickets-pane"
-        await pilot.press("1")
+        await pilot.press("ctrl+1")
         assert tabs.active == "now-pane"
 
 
@@ -73,7 +73,8 @@ async def test_help_overlay_opens_and_closes(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("question_mark")
+        # F1 is the always-fire help key (? doesn't pre-empt a focused Input).
+        await pilot.press("f1")
         assert isinstance(app.screen, HelpScreen)
         await pilot.press("escape")
         assert not isinstance(app.screen, HelpScreen)

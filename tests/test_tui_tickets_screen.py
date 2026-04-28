@@ -30,7 +30,7 @@ async def test_tickets_screen_renders_snapshot(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
         # Switch to the Tickets pane so it's mounted/visible
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
 
         await screen.handle_snapshot([
@@ -50,7 +50,7 @@ async def test_tickets_screen_handles_created_event(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
 
         await screen.handle_snapshot([_ticket("a", title="Alpha")])
@@ -67,7 +67,7 @@ async def test_tickets_screen_handles_updated_event(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
 
         await screen.handle_snapshot([_ticket("a", title="Alpha", status="open")])
@@ -83,7 +83,7 @@ async def test_app_routes_tickets_snapshot_to_screen(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         await app._handle_daemon_message({
             "type": "snapshot",
             "topic": "tickets",
@@ -101,7 +101,7 @@ async def test_tickets_detail_shows_selected_ticket(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
 
         await screen.handle_snapshot([
@@ -122,7 +122,7 @@ async def test_tickets_screen_toggles_to_board_view(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
         await screen.handle_snapshot([
             _ticket("a", title="Alpha", status="open"),
@@ -159,7 +159,7 @@ async def test_board_view_groups_merge_conflict_under_blocked(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
         await screen.handle_snapshot([
             _ticket("a", title="A", status="blocked"),
@@ -180,7 +180,7 @@ async def test_board_view_updates_when_tickets_change(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
         await screen.handle_snapshot([])
         await pilot.press("b")
@@ -196,7 +196,7 @@ async def test_board_view_updates_when_tickets_change(tmp_path: Path):
 async def test_b_hotkey_toggles_back_to_list(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         await pilot.press("b")
         await pilot.pause(0.05)
         await pilot.press("b")
@@ -213,7 +213,7 @@ async def test_n_hotkey_pushes_new_ticket_modal(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")  # Tickets pane
+        await pilot.press("ctrl+2")  # Tickets pane
         await pilot.pause(0.05)
         await pilot.press("n")
         await pilot.pause(0.05)
@@ -226,8 +226,12 @@ async def test_n_hotkey_pushes_new_ticket_modal(tmp_path: Path):
 async def test_e_hotkey_does_nothing_with_no_selection(tmp_path: Path):
     """e on Tickets pane with no tickets should not crash."""
     app = JigApp(project_path=tmp_path)
+    # Force the daemon client at an unreachable port so a real daemon
+    # running on the default 9100 (e.g. operator's dogfood project) can't
+    # populate screen.tickets and make this test pass-modal unexpectedly.
+    app.client.addr_provider = lambda: "ws://127.0.0.1:1"
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         await pilot.press("e")
         await pilot.pause(0.05)
         # No modal should be active
@@ -242,7 +246,7 @@ async def test_e_hotkey_pushes_edit_modal_with_selection(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")
+        await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
         await screen.handle_snapshot([_ticket("a", title="Alpha", status="open")])
         await pilot.pause(0.05)

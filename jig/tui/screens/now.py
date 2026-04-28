@@ -44,8 +44,23 @@ class NowScreen(Container):
 
     async def on_mount(self) -> None:
         self.query_one("#scrollback", RichLog).write(
-            "[dim]welcome to jig — try /help[/dim]"
+            "[dim]welcome to jig — type /help or just type to ask the concierge[/dim]"
         )
+        # Focus the input on launch so the operator can immediately type.
+        # The bare digit bindings yield to a focused Input via App.check_action,
+        # so global nav still works; Ctrl+1..4 always-fire for forced jumps.
+        self.query_one("#input", Input).focus()
+
+    def on_show(self) -> None:
+        """Re-focus the input whenever the Now pane becomes visible.
+
+        Without this, switching to another pane and back leaves focus on
+        the tab strip and the operator can't type until they click the input.
+        """
+        try:
+            self.query_one("#input", Input).focus()
+        except Exception:
+            pass
 
     def _on_descendant_focus(self, event: events.DescendantFocus) -> None:
         """Stop DescendantFocus from reaching TabPane.

@@ -27,10 +27,22 @@ class JigApp(App):
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("question_mark", "help", "Help"),
-        Binding("1", "switch_screen('now')", "Now", show=False),
-        Binding("2", "switch_screen('tickets')", "Tickets", show=False),
-        Binding("3", "switch_screen('spec')", "Spec", show=False),
-        Binding("4", "switch_screen('events')", "Events", show=False),
+        # F1 always-fires (terminal doesn't send it as a printable char,
+        # so Input doesn't consume it).
+        Binding("f1", "help", "Help", show=False, priority=True),
+        # Bare digit keys: jump tabs when the focused widget doesn't consume
+        # them (i.e. on Tickets/Spec/Events panes — not when typing in Now).
+        # check_action() gates these to no-op when an Input has focus.
+        Binding("1", "jump_unless_typing('now')", "Now", show=False),
+        Binding("2", "jump_unless_typing('tickets')", "Tickets", show=False),
+        Binding("3", "jump_unless_typing('spec')", "Spec", show=False),
+        Binding("4", "jump_unless_typing('events')", "Events", show=False),
+        # Modifier-prefixed always-fire variants, browser-style — work even
+        # while the Input has focus.
+        Binding("ctrl+1", "switch_screen('now')", "Now", show=False, priority=True),
+        Binding("ctrl+2", "switch_screen('tickets')", "Tickets", show=False, priority=True),
+        Binding("ctrl+3", "switch_screen('spec')", "Spec", show=False, priority=True),
+        Binding("ctrl+4", "switch_screen('events')", "Events", show=False, priority=True),
         # Pane-local bindings routed here because ContentTabs holds focus
         Binding("b", "toggle_board", "List/Board", show=False),
         Binding("n", "new_ticket", "New", show=False),
@@ -154,11 +166,28 @@ class JigApp(App):
         """
         if action == "open_event_detail":
             return True if self._events_pane_active() else False
+        # Bare-digit jump bindings: yield when the focused widget would
+        # consume the digit (Now's Input is focused and the operator is
+        # typing). Returning False makes the key fall through to the
+        # widget. The ctrl+digit variants use action_switch_screen and
+        # are NOT gated — they always fire.
+        if action == "jump_unless_typing":
+            try:
+                focused = self.focused
+            except Exception:
+                focused = None
+            from textual.widgets import Input as _Input
+            if isinstance(focused, _Input):
+                return False
         return super().check_action(action, parameters)
 
     def action_switch_screen(self, screen_id: str) -> None:
         tabs = self.query_one(TabbedContent)
         tabs.active = f"{screen_id}-pane"
+
+    def action_jump_unless_typing(self, screen_id: str) -> None:
+        """Pane jump that yields to a focused Input via check_action()."""
+        self.action_switch_screen(screen_id)
 
     def action_help(self) -> None:
         from jig.tui.screens.help import HelpScreen

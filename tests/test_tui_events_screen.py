@@ -27,7 +27,7 @@ async def test_events_screen_renders_snapshot(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("4")  # Events pane
+        await pilot.press("ctrl+4")  # Events pane
         screen = app.query_one(EventsScreen)
         await screen.handle_snapshot([
             _ev("ticket_created"),
@@ -46,7 +46,7 @@ async def test_f_cycles_filter(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("4")
+        await pilot.press("ctrl+4")
         screen = app.query_one(EventsScreen)
         await screen.handle_snapshot([
             _ev("ticket_created"),
@@ -77,7 +77,7 @@ async def test_F_toggles_follow(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("4")
+        await pilot.press("ctrl+4")
         screen = app.query_one(EventsScreen)
         # follow defaults to True
         assert screen.follow is True
@@ -93,7 +93,7 @@ async def test_enter_opens_event_detail_modal(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("4")
+        await pilot.press("ctrl+4")
         screen = app.query_one(EventsScreen)
         await screen.handle_snapshot([_ev("ticket_created")])
         await pilot.pause(0.05)
@@ -123,7 +123,7 @@ async def test_app_routes_events_snapshot(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("4")
+        await pilot.press("ctrl+4")
         await app._handle_daemon_message({
             "type": "snapshot",
             "topic": "events",

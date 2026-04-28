@@ -39,7 +39,7 @@ async def test_spec_screen_renders_snapshot(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("3")  # Spec pane
+        await pilot.press("ctrl+3")  # Spec pane
         screen = app.query_one(SpecScreen)
         await screen.handle_snapshot(_spec_dump(
             "myproj",
@@ -62,7 +62,7 @@ async def test_spec_screen_handles_null_snapshot(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("3")
+        await pilot.press("ctrl+3")
         screen = app.query_one(SpecScreen)
         await screen.handle_snapshot(None)
         await pilot.pause(0.05)
@@ -75,7 +75,7 @@ async def test_app_routes_spec_snapshot_to_screen(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("3")
+        await pilot.press("ctrl+3")
         await app._handle_daemon_message({
             "type": "snapshot",
             "topic": "spec",
@@ -94,7 +94,7 @@ async def test_r_hotkey_pushes_raw_yaml_modal(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("3")
+        await pilot.press("ctrl+3")
         screen = app.query_one(SpecScreen)
         await screen.handle_snapshot(_spec_dump("p1"))
         await pilot.pause(0.05)
@@ -110,7 +110,7 @@ async def test_b_on_spec_pane_pushes_brief_modal(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("3")
+        await pilot.press("ctrl+3")
         await pilot.press("b")
         await pilot.pause(0.05)
         assert isinstance(app.screen, BriefModal)
@@ -124,7 +124,7 @@ async def test_b_on_tickets_pane_still_toggles_board(tmp_path: Path):
 
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
-        await pilot.press("2")  # Tickets pane
+        await pilot.press("ctrl+2")  # Tickets pane
         await pilot.press("b")
         await pilot.pause(0.05)
         # Should NOT be BriefModal

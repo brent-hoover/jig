@@ -10,10 +10,10 @@ from textual.widgets import Static
 _HELP = """\
 [bold]Global keys[/bold]
 
-  Tab / Shift+Tab   cycle screens
-  1 / 2 / 3 / 4     jump to Now / Tickets / Spec / Events
-  ?                 toggle this help
-  q / Ctrl+C        quit TUI (daemon keeps running)
+  Ctrl+1 / 2 / 3 / 4   jump to Now / Tickets / Spec / Events  (always)
+  1 / 2 / 3 / 4        same, but yields when Now's input has focus
+  ? or F1              toggle this help (F1 works while typing)
+  q / Ctrl+C           quit TUI (daemon keeps running)
 
 [bold]Now screen[/bold]
 

@@ -84,9 +84,26 @@ class Orchestrator:
         self._deadlock_cfg: DeadlockSection = DeadlockSection()
         self._running = False
 
+    @property
+    def is_configured(self) -> bool:
+        """True once stores are loaded and dispatch loops are running."""
+        return self._project is not None and self._running
+
     async def startup(self) -> None:
         try:
-            self._project = load_project(self._project_path)
+            try:
+                self._project = load_project(self._project_path)
+            except FileNotFoundError:
+                # Unconfigured mode: no .jig/config.yaml yet. The WebSocket
+                # server still runs and serves /init so the TUI can bootstrap
+                # a new project. Stores and dispatch loops are skipped until
+                # reload() is called after init completes.
+                _logger.info(
+                    "orchestrator starting in unconfigured mode (no project at %s)",
+                    self._project_path,
+                )
+                self._running = False
+                return
             store_dir = self._project_path / ".jig" / "store"
             store_dir.mkdir(parents=True, exist_ok=True)
             self.tickets = TicketStore(store_dir / "tickets.jsonl")
@@ -127,6 +144,18 @@ class Orchestrator:
         except Exception:
             await self._emergency_reset()
             raise
+
+    async def reload(self) -> None:
+        """Re-run startup after a project has been initialized.
+
+        Called by cmd_init after a successful /init so the daemon
+        transitions from unconfigured to configured mode without restart.
+        Safe to call when already configured — no-ops if stores already
+        loaded for the same project_path.
+        """
+        if self._project is not None and self._running:
+            return  # already configured for this project
+        await self.startup()
 
     async def _emergency_reset(self) -> None:
         self._running = False

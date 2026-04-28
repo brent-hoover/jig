@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-jig = "jig.cli:cli"
+jig = "jig.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["jig*"]

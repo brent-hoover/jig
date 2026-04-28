@@ -72,6 +72,55 @@ def init(name: str, force: bool) -> None:
     asyncio.run(run_init(name=name, force=force))
 
 
+def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> None:
+    """Run the orchestrator + WebSocket server in the foreground until interrupted.
+
+    Called by both ``jig start`` (after the Docker check) and
+    ``jig daemon serve`` (the body the daemon-start fork executes).
+    """
+    jig_dir = path / ".jig"
+    if not jig_dir.is_dir():
+        raise click.ClickException(
+            f"Jig not initialized in {path}. Run 'jig init' first."
+        )
+
+    # Fail-loud catalog validation (Phase 2F). Unknown role / workflow /
+    # check references, malformed YAML, and missing required context
+    # artifacts all surface here before any loop starts.
+    from jig.catalog import CatalogError, validate_catalog
+
+    try:
+        validate_catalog(path)
+    except CatalogError as exc:
+        raise click.ClickException(f"Catalog validation failed: {exc}")
+
+    from jig.logging_setup import configure_logging
+
+    log_file = configure_logging(path, verbose=verbose)
+    click.echo(f"Logging to {log_file}")
+
+    async def run_daemon() -> None:
+        emitter = EventEmitter()
+        orchestrator = Orchestrator(project_path=path, emitter=emitter)
+        ws_server = WebSocketServer(emitter, port=ws_port, orchestrator=orchestrator)
+        await ws_server.start()
+        click.echo(f"WebSocket server listening on ws://127.0.0.1:{ws_server.port}")
+        try:
+            await orchestrator.startup()
+            click.echo("Orchestrator started. Press Ctrl-C to stop.")
+            # Run until cancelled (Ctrl-C triggers CancelledError via asyncio.run).
+            await asyncio.get_running_loop().create_future()
+        finally:
+            await orchestrator.shutdown()
+            await ws_server.stop()
+
+    try:
+        asyncio.run(run_daemon())
+    except KeyboardInterrupt:
+        pass
+    click.echo("Orchestrator stopped.")
+
+
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -115,47 +164,7 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
                 err=True,
             )
 
-    jig_dir = path / ".jig"
-    if not jig_dir.is_dir():
-        raise click.ClickException(
-            f"Jig not initialized in {path}. Run 'jig init' first."
-        )
-
-    # Fail-loud catalog validation (Phase 2F). Unknown role / workflow /
-    # check references, malformed YAML, and missing required context
-    # artifacts all surface here before any loop starts.
-    from jig.catalog import CatalogError, validate_catalog
-
-    try:
-        validate_catalog(path)
-    except CatalogError as exc:
-        raise click.ClickException(f"Catalog validation failed: {exc}")
-
-    from jig.logging_setup import configure_logging
-
-    log_file = configure_logging(path, verbose=verbose)
-    click.echo(f"Logging to {log_file}")
-
-    async def run_daemon() -> None:
-        emitter = EventEmitter()
-        orchestrator = Orchestrator(project_path=path, emitter=emitter)
-        ws_server = WebSocketServer(emitter, port=ws_port, orchestrator=orchestrator)
-        await ws_server.start()
-        click.echo(f"WebSocket server listening on ws://127.0.0.1:{ws_server.port}")
-        try:
-            await orchestrator.startup()
-            click.echo("Orchestrator started. Press Ctrl-C to stop.")
-            # Run until cancelled (Ctrl-C triggers CancelledError via asyncio.run).
-            await asyncio.get_running_loop().create_future()
-        finally:
-            await orchestrator.shutdown()
-            await ws_server.stop()
-
-    try:
-        asyncio.run(run_daemon())
-    except KeyboardInterrupt:
-        pass
-    click.echo("Orchestrator stopped.")
+    _run_orchestrator_loop(path, ws_port, verbose=verbose)
 
 
 @cli.command()
@@ -696,3 +705,66 @@ def story(
             f"(+{elapsed:7.2f}s) [{src_tag}] "
             f"{ev.level:5s} {ev.message}"
         )
+
+
+# ---------------------------------------------------------------------------
+# `jig daemon ...` — manage the background daemon (orchestrator + WebSocket)
+# ---------------------------------------------------------------------------
+
+
+@cli.group(name="daemon")
+def daemon_group() -> None:
+    """Manage the background daemon (orchestrator + WebSocket server)."""
+
+
+@daemon_group.command(name="start")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--ws-port", default=9100, type=int, show_default=True)
+def daemon_start_cmd(path: Path, ws_port: int) -> None:
+    """Start the daemon in the background."""
+    from jig.daemon import DaemonAlreadyRunning, daemon_start
+
+    try:
+        result = daemon_start(path, ws_port=ws_port)
+    except DaemonAlreadyRunning as exc:
+        raise click.ClickException(str(exc))
+    click.echo(f"daemon started: pid={result.pid} addr={result.addr}")
+
+
+@daemon_group.command(name="stop")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def daemon_stop_cmd(path: Path) -> None:
+    """Stop the daemon if running."""
+    from jig.daemon import daemon_stop
+
+    if daemon_stop(path):
+        click.echo("daemon stopped")
+    else:
+        click.echo("no daemon was running")
+
+
+@daemon_group.command(name="status")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def daemon_status_cmd(path: Path) -> None:
+    """Print daemon status (running? pid? addr?)."""
+    from jig.daemon import daemon_paths, daemon_status
+
+    status = daemon_status(path)
+    if not status.running:
+        if status.stale:
+            click.echo("daemon: not running (stale PID file present)")
+        else:
+            click.echo("daemon: not running")
+        return
+    addr_file = daemon_paths(path).socket_addr_file
+    addr = addr_file.read_text().strip() if addr_file.is_file() else "?"
+    click.echo(f"daemon: running pid={status.pid} addr={addr}")
+
+
+@daemon_group.command(name="serve", hidden=True)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--ws-port", default=9100, type=int)
+def daemon_serve_cmd(path: Path, ws_port: int) -> None:
+    """Internal: actually host the orchestrator. Called by daemon_start
+    via the forked subprocess; not for direct user invocation."""
+    _run_orchestrator_loop(path, ws_port)

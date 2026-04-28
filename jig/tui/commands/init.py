@@ -27,10 +27,27 @@ async def cmd_init(
     emitter,
     **_kwargs,
 ) -> dict[str, Any]:
-    if not args:
-        return {"ok": False, "error": "/init requires a project name (e.g. /init dogfood)"}
-    name = args[0]
-    force = "--force" in args[1:]
+    # /init with no name defaults to "this directory" — uses project_path
+    # as the target, with its basename as the project name. This is the
+    # natural flow after `jig create <name>` where the operator is already
+    # inside the new directory.
+    init_in_cwd = not args
+    if init_in_cwd:
+        if project_path is None:
+            return {
+                "ok": False,
+                "error": "/init requires a project name (e.g. /init dogfood)",
+            }
+        name = project_path.resolve().name
+        if not name:
+            return {
+                "ok": False,
+                "error": "/init: cannot infer name from project_path; pass one explicitly",
+            }
+        force = False
+    else:
+        name = args[0]
+        force = "--force" in args[1:]
 
     from jig.init_workflow import run_init
     from jig.tui.console_stream import make_streaming_console
@@ -43,8 +60,14 @@ async def cmd_init(
     # so the daemon process's cwd (which can differ from where the operator
     # launched `jig`) doesn't affect path resolution. run_init uses
     # Path(name) internally, so passing a fully-resolved string works.
+    #
+    # When init_in_cwd is True (no args), the target IS project_path itself.
+    # Otherwise the target is project_path / name (a new sub-project).
     if project_path is not None:
-        target_path = (project_path / name).resolve()
+        if init_in_cwd:
+            target_path = project_path.resolve()
+        else:
+            target_path = (project_path / name).resolve()
         target_str = str(target_path)
     else:
         target_str = name

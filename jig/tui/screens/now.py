@@ -234,7 +234,7 @@ class NowScreen(Container):
                 f"[bold]daemon:[/bold] {self.app.daemon_state.value}\n"
                 "[dim]agent details coming in Phase 3.4[/dim]"
             )
-        elif parsed.name == "quit":
+        elif parsed.name in ("quit", "exit", "q"):
             self.app.exit()
         else:
             # Delegate everything else (including /init, future commands) to

@@ -189,7 +189,7 @@ async def test_already_answered_questions_are_not_reprompted(wired, monkeypatch)
     assert new_round[0].question_id == qids[1]
 
 
-async def test_agent_to_agent_questions_are_skipped(wired, monkeypatch):
+async def test_agent_to_agent_questions_are_skipped(wired, monkeypatch, capsys):
     """`thread_ask` Questions targeted at a role aren't surfaced to the CLI
     operator — only `target == 'any_human'` questions count.
     """
@@ -221,16 +221,7 @@ async def test_agent_to_agent_questions_are_skipped(wired, monkeypatch):
         )
     )
 
-    captured: list[str] = []
-
-    def _record(*args, **kw):
-        # click.prompt's first positional arg is the prompt text.
-        return "ok"
-
-    monkeypatch.setattr(
-        "jig.init_workflow.click.echo", lambda s, *a, **kw: captured.append(s)
-    )
-    monkeypatch.setattr("jig.init_workflow.click.prompt", _record)
+    monkeypatch.setattr("jig.init_workflow.click.prompt", lambda *a, **kw: "ok")
 
     await prompt_and_post_answers(
         tickets=wired["tickets"],
@@ -242,15 +233,18 @@ async def test_agent_to_agent_questions_are_skipped(wired, monkeypatch):
     entries = await wired["threads"].for_ticket("brief")
     answers = [e for e in entries if isinstance(e, Answer)]
     assert len(answers) == 1
-    # The role-targeted question text must not appear in any echoed line.
-    joined = "\n".join(captured)
-    assert "role-targeted" not in joined
-    assert "for the operator" in joined
+    # The any_human question reaches the operator panel; the role-targeted
+    # one stays out of the rendered output entirely. capsys captures
+    # rich's stdout-bound Console output.
+    out = capsys.readouterr().out
+    assert "role-targeted" not in out
+    assert "for the operator" in out
 
 
-async def test_label_uses_question_authors_not_assignee(wired, monkeypatch):
-    """Brief ticket has no assignee at init time; the prompt header should
-    name the asking agent (e.g. 'po'), not fall back to a generic label.
+async def test_label_uses_question_authors_not_assignee(wired, monkeypatch, capsys):
+    """Brief ticket has no assignee at init time; the prompt panel
+    should name the asking agent (e.g. 'po'), not fall back to a
+    generic label.
     """
     await wired["tickets"].create(
         Ticket(
@@ -272,10 +266,6 @@ async def test_label_uses_question_authors_not_assignee(wired, monkeypatch):
         )
     )
 
-    echoes: list[str] = []
-    monkeypatch.setattr(
-        "jig.init_workflow.click.echo", lambda s, *a, **kw: echoes.append(s)
-    )
     monkeypatch.setattr("jig.init_workflow.click.prompt", lambda *a, **kw: "yes")
 
     await prompt_and_post_answers(
@@ -285,9 +275,11 @@ async def test_label_uses_question_authors_not_assignee(wired, monkeypatch):
         ticket_id="brief",
     )
 
-    header = next(s for s in echoes if "question(s) on 'brief'" in s)
-    assert "po has" in header
-    assert "agent has" not in header
+    # The rich Panel title carries the asking author's name. capsys
+    # captures the rendered output; the panel title appears in the
+    # form `po asks` (with surrounding rule chars from rich).
+    out = capsys.readouterr().out
+    assert "po asks" in out
 
 
 async def test_no_open_questions_is_a_noop(wired, monkeypatch):

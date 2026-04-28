@@ -330,32 +330,84 @@ async def _run_agent_with_cli_output(
         await run_agent(ctx, emitter=emitter)
 
 
+def _spawn_console():
+    """Lazily import + cache the rich Console used for spawn UI."""
+    from rich.console import Console
+
+    global _CONSOLE
+    if _CONSOLE is None:
+        _CONSOLE = Console()
+    return _CONSOLE
+
+
+_CONSOLE = None  # type: ignore[var-annotated]
+
+
 @asynccontextmanager
 async def _cli_emitter(role_label: str):
-    """Context manager that yields an ``EventEmitter`` whose events are
-    streamed to stdout for the duration of the block. Echoes
-    ``[role] starting…`` / ``[role] done.`` so the operator sees the
-    spawn boundaries even if the agent itself emits no text.
+    """Context manager that yields an ``EventEmitter`` and runs a rich
+    Status spinner for the spawn duration.
 
-    Used by every init-workflow spawn (PO, SA, spec-generator) so each
-    agent's tool calls and heartbeats are visible — without this
-    wrapper a silent agent (e.g. spec-generator on a long Claude API
-    call) looks indistinguishable from a hung process.
+    Visible UI during a spawn:
+      - A Rule at the start carrying the role name.
+      - A live "thinking…" spinner with elapsed seconds (refreshes in
+        place; doesn't scroll).
+      - Errors only — successful tool calls and agent narrative are
+        hidden as duplicative noise. Errors print above the spinner.
+
+    The spinner stops automatically when the spawn ends; the next
+    structured prompt (question, gap report, branch choice) takes
+    over the screen cleanly.
     """
+    from rich.rule import Rule
+
+    console = _spawn_console()
     emitter = EventEmitter()
-    printer = asyncio.create_task(
-        _drain_emitter_to_stdout(emitter, initial_role=role_label)
-    )
-    click.echo(f"\n[{role_label}] starting…")
+
+    console.print()
+    console.print(Rule(f"[bold cyan]{role_label}[/bold cyan]", style="cyan"))
+
+    status_task = asyncio.create_task(_spawn_status(emitter, role_label, console))
     try:
         yield emitter
     finally:
-        printer.cancel()
+        status_task.cancel()
         try:
-            await printer
+            await status_task
         except asyncio.CancelledError:
             pass
-        click.echo(f"[{role_label}] done.")
+
+
+async def _spawn_status(emitter: EventEmitter, role_label: str, console) -> None:
+    """Run a rich Status spinner for the lifetime of the spawn,
+    updating elapsed time. Surface error events by printing above the
+    spinner; ignore everything else.
+    """
+    queue = emitter.subscribe()
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    try:
+        with console.status(
+            f"[dim]{role_label} is thinking…[/dim]",
+            spinner="dots",
+        ) as status:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    elapsed = int(loop.time() - start)
+                    status.update(
+                        f"[dim]{role_label} is thinking… ({elapsed}s)[/dim]"
+                    )
+                    continue
+                line = _format_event(event)
+                if line is not None:
+                    console.print(line)
+    finally:
+        try:
+            emitter.unsubscribe(queue)
+        except ValueError:
+            pass
 
 
 async def latest_gap_note(threads: ThreadStore) -> Note | None:
@@ -779,16 +831,26 @@ async def prompt_and_post_answers(
     if not open_qs:
         return
 
-    # Question authors are the asking agents (po, sa, …); ticket.assignee
-    # is None at init time so we can't rely on it for the label.
-    askers = sorted({q.author for q in open_qs})
-    role_label = ", ".join(askers) if askers else "agent"
-    click.echo(
-        f"\n{role_label} has {len(open_qs)} question(s) on '{ticket_id}':"
-    )
-    for q in open_qs:
-        click.echo(f"\n  Q ({q.author}): {q.question}")
-        reply = click.prompt("  A", default="", show_default=False)
+    from rich.panel import Panel
+    from rich.text import Text
+
+    console = _spawn_console()
+    for i, q in enumerate(open_qs, start=1):
+        title_suffix = (
+            f" ({i}/{len(open_qs)})" if len(open_qs) > 1 else ""
+        )
+        console.print()
+        console.print(
+            Panel(
+                Text(q.question, style="bold"),
+                title=f"[cyan]{q.author} asks{title_suffix}[/cyan]",
+                title_align="left",
+                border_style="cyan",
+                padding=(0, 2),
+            )
+        )
+        reply = click.prompt(click.style("›", fg="cyan"),
+                             default="", show_default=False)
         cid = await threads.post(
             Answer(
                 ticket_id=ticket_id,
@@ -856,26 +918,26 @@ def _display_tool_name(tool: str) -> str:
 
 
 def _format_event(event: JigEvent) -> str | None:
-    """Render an agent event for a CLI operator. Returns None to skip."""
+    """Render an agent event for a CLI operator. Returns None to skip.
+
+    Default UX: hide everything except errors. The operator sees the
+    spawn boundary, the heartbeat, the question prompts, and the
+    structured CLI prompts (branch, confirm, etc.) — agent narrative
+    is duplicative noise (it often restates the question that's about
+    to be prompted) and tool calls are implementation detail.
+    """
     data = event.data or {}
     role = data.get("role", "?")
     if event.type == "agent_text":
-        text = (data.get("text") or "").strip()
-        if not text:
-            return None
-        return f"[{role}] {text}"
+        # Agent narrative is duplicative — its useful content (questions,
+        # decisions) surfaces through structured CLI prompts. Hide.
+        return None
     if event.type == "agent_tool":
-        # Tool invocations are implementation noise — the agent's text
-        # turns narrate what's happening. The operator doesn't need
-        # `[po] · brief_list_sections` to know PO is reading the brief;
-        # the next text turn says so. Failures still surface via the
-        # tool_result branch below. Heartbeats cover dead air.
+        # Implementation noise — the agent's actions are visible via
+        # the resulting CLI prompts (questions, gap reports, etc.).
         return None
     if event.type == "agent_tool_result":
-        # Suppress success — the call event already showed the tool was
-        # invoked, and the agent's next text turn implicitly confirms it
-        # worked. Only surface failures, where the operator needs to see
-        # what went wrong.
+        # Only surface failures.
         if not data.get("is_error"):
             return None
         tool = data.get("tool", "?")
@@ -885,55 +947,11 @@ def _format_event(event: JigEvent) -> str | None:
         excerpt = (data.get("excerpt") or "").strip().splitlines()[0:1]
         err = excerpt[0] if excerpt else ""
         return (
-            f"[{role}]   ✗ {display_tool}: {err}"
+            f"  ✗ {display_tool} ({role}): {err}"
             if err
-            else f"[{role}]   ✗ {display_tool}"
+            else f"  ✗ {display_tool} ({role})"
         )
     return None
-
-
-async def _drain_emitter_to_stdout(
-    emitter: EventEmitter,
-    *,
-    heartbeat_seconds: float = 8.0,
-    initial_role: str = "agent",
-) -> None:
-    """Print agent events to stdout until cancelled.
-
-    When no event arrives for ``heartbeat_seconds``, prints a
-    ``still working… (Ns)`` line so the operator knows the agent
-    isn't frozen during a long Claude API call or tool execution.
-    The first such line uses ``initial_role`` since no event has
-    arrived yet to identify the running agent.
-    """
-    queue = emitter.subscribe()
-    last_role = initial_role
-    silence_started: float | None = None
-    loop = asyncio.get_event_loop()
-    try:
-        while True:
-            try:
-                event = await asyncio.wait_for(
-                    queue.get(), timeout=heartbeat_seconds
-                )
-            except asyncio.TimeoutError:
-                if silence_started is None:
-                    silence_started = loop.time() - heartbeat_seconds
-                elapsed = int(loop.time() - silence_started)
-                click.echo(f"[{last_role}] still working… ({elapsed}s)")
-                continue
-            silence_started = None
-            data = event.data or {}
-            if "role" in data:
-                last_role = data["role"]
-            line = _format_event(event)
-            if line is not None:
-                click.echo(line)
-    finally:
-        try:
-            emitter.unsubscribe(queue)
-        except ValueError:
-            pass
 
 
 class ResumeState(str, Enum):

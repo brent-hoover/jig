@@ -31,6 +31,7 @@ _HELP = """\
 
   Tickets:  n = new ticket, e = edit selection, b = list / board
   Spec:     r = raw YAML, b = brief preview
+  Events:   f = cycle filter, F = toggle follow, enter = detail
 
 [dim]Press Escape to close.[/dim]
 """

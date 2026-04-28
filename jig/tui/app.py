@@ -36,6 +36,10 @@ class JigApp(App):
         Binding("n", "new_ticket", "New", show=False),
         Binding("e", "edit_ticket", "Edit", show=False),
         Binding("r", "spec_raw_yaml", "Raw YAML", show=False),
+        # Events pane hotkeys
+        Binding("f", "cycle_event_filter", "Filter", show=False),
+        Binding("F", "toggle_event_follow", "Follow", show=False),
+        Binding("enter", "open_event_detail", "Detail", show=False),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -102,6 +106,12 @@ class JigApp(App):
                 except Exception:
                     return
                 await spec.handle_snapshot(msg.get("data"))
+            if topic == "events":
+                try:
+                    ev_screen = self.query_one(EventsScreen)
+                except Exception:
+                    return
+                await ev_screen.handle_snapshot(msg.get("data"))
             return
 
         if msg_type == "event":
@@ -154,6 +164,13 @@ class JigApp(App):
         except Exception:
             return False
         return tabs.active == "spec-pane"
+
+    def _events_pane_active(self) -> bool:
+        try:
+            tabs = self.query_one(TabbedContent)
+        except Exception:
+            return False
+        return tabs.active == "events-pane"
 
     def action_toggle_board(self) -> None:
         """Toggle board view on the Tickets pane, or open brief on Spec pane."""
@@ -232,3 +249,23 @@ class JigApp(App):
             self.run_worker(on_submit_async(tid, changes), exclusive=False)
 
         await self.push_screen(EditTicketModal(ticket=ticket, on_submit=on_submit))
+
+    async def action_cycle_event_filter(self) -> None:
+        if not self._events_pane_active():
+            return
+        await self.query_one(EventsScreen).cycle_filter()
+
+    async def action_toggle_event_follow(self) -> None:
+        if not self._events_pane_active():
+            return
+        await self.query_one(EventsScreen).toggle_follow()
+
+    async def action_open_event_detail(self) -> None:
+        if not self._events_pane_active():
+            return
+        from jig.tui.screens.event_detail_modal import EventDetailModal
+
+        selected = self.query_one(EventsScreen).get_selected_event()
+        if selected is None:
+            return
+        await self.push_screen(EventDetailModal(event=selected))

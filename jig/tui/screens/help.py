@@ -27,6 +27,11 @@ _HELP = """\
   /status   daemon + agent state
   /quit     quit the TUI
 
+[bold]Per-pane hotkeys[/bold]
+
+  Tickets:  n = new ticket, e = edit selection, b = list / board
+  Spec:     r = raw YAML, b = brief preview
+
 [dim]Press Escape to close.[/dim]
 """
 

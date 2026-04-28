@@ -35,6 +35,7 @@ class JigApp(App):
         Binding("b", "toggle_board", "List/Board", show=False),
         Binding("n", "new_ticket", "New", show=False),
         Binding("e", "edit_ticket", "Edit", show=False),
+        Binding("r", "spec_raw_yaml", "Raw YAML", show=False),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -95,6 +96,12 @@ class JigApp(App):
                 except Exception:
                     return
                 await tickets.handle_snapshot(msg.get("data"))
+            if topic == "spec":
+                try:
+                    spec = self.query_one(SpecScreen)
+                except Exception:
+                    return
+                await spec.handle_snapshot(msg.get("data"))
             return
 
         if msg_type == "event":
@@ -141,15 +148,37 @@ class JigApp(App):
             return False
         return tabs.active == "tickets-pane"
 
-    def action_toggle_board(self) -> None:
-        """Toggle board view on the Tickets pane when it's active."""
-        if not self._tickets_pane_active():
-            return
+    def _spec_pane_active(self) -> bool:
         try:
-            tickets = self.query_one(TicketsScreen)
-            tickets.action_toggle_view()
+            tabs = self.query_one(TabbedContent)
         except Exception:
-            pass
+            return False
+        return tabs.active == "spec-pane"
+
+    def action_toggle_board(self) -> None:
+        """Toggle board view on the Tickets pane, or open brief on Spec pane."""
+        if self._tickets_pane_active():
+            try:
+                tickets = self.query_one(TicketsScreen)
+                tickets.action_toggle_view()
+            except Exception:
+                pass
+            return
+        if self._spec_pane_active():
+            self.run_worker(self._show_brief_modal(), exclusive=False)
+
+    async def action_spec_raw_yaml(self) -> None:
+        if not self._spec_pane_active():
+            return
+        from jig.tui.screens.spec_modals import RawYamlModal
+
+        spec = self.query_one(SpecScreen).spec
+        await self.push_screen(RawYamlModal(spec=spec))
+
+    async def _show_brief_modal(self) -> None:
+        from jig.tui.screens.spec_modals import BriefModal
+
+        await self.push_screen(BriefModal(project_path=self.project_path))
 
     async def action_new_ticket(self) -> None:
         """Push NewTicketModal when the Tickets pane is active."""

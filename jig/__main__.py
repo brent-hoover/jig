@@ -20,23 +20,32 @@ def main() -> None:
 
         sys.exit(run_print(args[1]))
     if not args:
-        # No-args mode: auto-start the daemon for cwd if not running, then
-        # launch the TUI. The daemon now tolerates "no project" (orchestrator
-        # starts in unconfigured mode, /init bootstraps).
+        # No-args mode: auto-start the daemon for the project_path if not
+        # running, then launch the TUI. The daemon now tolerates "no project"
+        # (orchestrator starts in unconfigured mode, /init bootstraps).
+        #
+        # Project path resolution priority:
+        #   1. JIG_PROJECT_PATH env var (set by `jig create` before execvp;
+        #      authoritative when present so chdir failures can't divert us)
+        #   2. Path.cwd() — the operator's actual current directory
+        import os
         from pathlib import Path
 
         from jig.daemon import daemon_start, daemon_status
 
-        cwd = Path.cwd()
+        env_path = os.environ.get("JIG_PROJECT_PATH")
+        project_path = Path(env_path).resolve() if env_path else Path.cwd()
+        # Pop the env var so a TUI-spawned subprocess doesn't inherit it.
+        os.environ.pop("JIG_PROJECT_PATH", None)
         try:
-            status = daemon_status(cwd)
+            status = daemon_status(project_path)
             if not status.running:
-                daemon_start(cwd)
+                daemon_start(project_path)
         except Exception as exc:
             print(f"warning: could not auto-start daemon: {exc}", file=sys.stderr)
             # Continue — the TUI will show "daemon: reconnecting" if the
             # operator wants to debug separately.
-        sys.argv = ["jig", "tui"]
+        sys.argv = ["jig", "tui", "--path", str(project_path)]
     cli()
 
 

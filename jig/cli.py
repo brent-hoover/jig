@@ -390,11 +390,12 @@ def create(name: str, no_git: bool) -> None:
             "and run `jig` directly."
         )
     target.mkdir(parents=True)
-    click.echo(f"Created {target.resolve()}")
+    abs_target = target.resolve()
+    click.echo(f"Created {abs_target}")
     if not no_git:
         try:
             subprocess.run(
-                ["git", "init", "-q", str(target)],
+                ["git", "init", "-q", str(abs_target)],
                 check=True,
                 capture_output=True,
             )
@@ -403,10 +404,12 @@ def create(name: str, no_git: bool) -> None:
             click.echo(f"Warning: git init failed (continuing): {exc}", err=True)
     # Chdir + replace this process with `jig` (no args) inside the new dir.
     # __main__:main will see no args, auto-start the daemon, launch the TUI.
-    # _chdir / _execvp are module-level so tests can monkeypatch them
-    # without mutating the global os module (which would break the test
-    # harness's own os.chdir calls).
-    _chdir(target)
+    # We ALSO set JIG_PROJECT_PATH so the new process can recover even if
+    # chdir somehow didn't take. _chdir / _execvp are module-level so
+    # tests can monkeypatch them without mutating the global os module.
+    os.environ["JIG_PROJECT_PATH"] = str(abs_target)
+    _chdir(abs_target)
+    click.echo(f"Launching TUI in {os.getcwd()}")
     _execvp(sys.argv[0], [sys.argv[0]])
 
 

@@ -110,6 +110,14 @@ async def test_enter_on_now_pane_does_not_open_event_modal(tmp_path: Path):
     from jig.tui.screens.event_detail_modal import EventDetailModal
 
     app = JigApp(project_path=tmp_path)
+    # Replace the daemon client's run_with_reconnect with a no-op so the
+    # auto-connect worker doesn't race against any real daemon on 9100.
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    app.client.run_with_reconnect = _noop  # type: ignore[method-assign]
+    app.client.send_command = _noop  # type: ignore[method-assign]
     async with app.run_test() as pilot:
         # Stay on Now pane
         await pilot.press("h", "i", "enter")

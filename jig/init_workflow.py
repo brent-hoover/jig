@@ -13,10 +13,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 import yaml
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 from jig.agent import run_agent
 from jig.atomic import atomic_write_text
@@ -96,8 +99,9 @@ def create_stub(path: Path, *, name: str) -> None:
         atomic_write_text(brief, f"# {name}\n")
 
 
-async def run_init(*, name: str, force: bool) -> None:
+async def run_init(*, name: str, force: bool, console: "Console | None" = None) -> None:
     """Top-level init flow. Dispatches fresh vs resume by classification."""
+    console = console or _spawn_console()
     target = Path(name)
     ds = classify_directory(target)
     if ds == DirState.ALREADY_DONE and not force:
@@ -114,7 +118,7 @@ async def run_init(*, name: str, force: bool) -> None:
 
     create_stub(target, name=name)
     log_file = configure_logging(target, verbose=False, console=False)
-    click.echo(f"Logging to {log_file}")
+    console.print(f"Logging to {log_file}", markup=False)
     store_dir = target / ".jig" / "store"
     store_dir.mkdir(parents=True, exist_ok=True)
     tickets = TicketStore(store_dir / "tickets.jsonl")
@@ -130,7 +134,7 @@ async def run_init(*, name: str, force: bool) -> None:
             project_path=target, tickets=tickets, threads=threads
         )
         if rs == ResumeState.ALREADY_DONE:
-            _print_already_done(target)
+            _print_already_done(target, console=console)
             return
         if rs == ResumeState.BROKEN:
             raise click.ClickException(
@@ -140,16 +144,18 @@ async def run_init(*, name: str, force: bool) -> None:
             await run_po_conversation(
                 project_path=target, tickets=tickets,
                 threads=threads, memory=memory, bus=bus,
+                console=console,
             )
             continue
         if rs == ResumeState.NEEDS_ANSWER_BRIEF:
             await prompt_and_post_answers(
                 tickets=tickets, threads=threads, bus=bus,
                 ticket_id="brief",
+                console=console,
             )
             continue
         if rs == ResumeState.BRIEF_APPROVAL:
-            decision = await prompt_brief_approval(target)
+            decision = await prompt_brief_approval(target, console=console)
             if decision == BriefApprovalChoice.YES:
                 await threads.post(
                     SystemEvent(
@@ -165,10 +171,10 @@ async def run_init(*, name: str, force: bool) -> None:
                     await tickets.update("brief", status=TicketStatus.IN_PROGRESS)
                 continue
             # NO
-            click.echo("Brief not approved. State saved.")
+            console.print("Brief not approved. State saved.", markup=False)
             return
         if rs == ResumeState.SPEC_GENERATION:
-            async with _cli_emitter("spec-generator") as emitter:
+            async with _cli_emitter("spec-generator", console=console) as emitter:
                 await run_spec_generator(
                     project_path=target, tickets=tickets,
                     threads=threads, memory=memory, bus=bus,
@@ -176,21 +182,26 @@ async def run_init(*, name: str, force: bool) -> None:
                 )
             continue
         if rs == ResumeState.GAP_PROMPT:
-            decision = await prompt_gap_decision(threads)
+            decision = await prompt_gap_decision(threads, console=console)
             if decision == "Q":
-                click.echo("State saved. Resume later with `jig init <name>`.")
+                console.print(
+                    "State saved. Resume later with `jig init <name>`.",
+                    markup=False,
+                )
                 return
             await run_po_conversation(
                 project_path=target, tickets=tickets,
                 threads=threads, memory=memory, bus=bus,
+                console=console,
             )
             continue
         if rs == ResumeState.BRANCH_PROMPT:
-            choice = await prompt_branch_choice()
+            choice = await prompt_branch_choice(console=console)
             if choice == BranchChoice.STAY:
                 await run_po_conversation(
                     project_path=target, tickets=tickets,
                     threads=threads, memory=memory, bus=bus,
+                    console=console,
                 )
                 continue
             if choice == BranchChoice.DIRECT:
@@ -202,24 +213,27 @@ async def run_init(*, name: str, force: bool) -> None:
             await run_sa_conversation(
                 project_path=target, tickets=tickets,
                 threads=threads, memory=memory, bus=bus,
+                console=console,
             )
             continue
         if rs == ResumeState.SA_CONVERSATION:
             await run_sa_conversation(
                 project_path=target, tickets=tickets,
                 threads=threads, memory=memory, bus=bus,
+                console=console,
             )
             continue
         if rs == ResumeState.NEEDS_ANSWER_ARCH:
             await prompt_and_post_answers(
                 tickets=tickets, threads=threads, bus=bus,
                 ticket_id="architecture",
+                console=console,
             )
             continue
         if rs == ResumeState.SA_CONFIRM_PROMPT:
-            decision, proposal = await prompt_sa_confirm(threads)
+            decision, proposal = await prompt_sa_confirm(threads, console=console)
             if decision == ConfirmChoice.NO:
-                click.echo("Scaffold cancelled. State saved.")
+                console.print("Scaffold cancelled. State saved.", markup=False)
                 return
             if decision == ConfirmChoice.SWAP:
                 # Re-spawn SA. SA reads the existing proposal from the
@@ -232,6 +246,7 @@ async def run_init(*, name: str, force: bool) -> None:
                 await run_sa_conversation(
                     project_path=target, tickets=tickets,
                     threads=threads, memory=memory, bus=bus,
+                    console=console,
                 )
                 continue
             # YES: scaffold with SA's proposal.
@@ -241,45 +256,53 @@ async def run_init(*, name: str, force: bool) -> None:
                 sa_path=True,
                 config=proposal.get("config", {}),
                 tickets=tickets, threads=threads,
+                console=console,
             )
-            _print_summary(target, template_name=proposal["template_name"])
+            _print_summary(target, template_name=proposal["template_name"], console=console)
             return
         if rs == ResumeState.DIRECT_TEMPLATE_PICK:
-            tpl = await prompt_direct_template()
+            tpl = await prompt_direct_template(console=console)
             await apply_scaffold(
                 project_path=target,
                 template_name=tpl,
                 sa_path=False,
                 config=None,
                 tickets=tickets, threads=threads,
+                console=console,
             )
-            _print_summary(target, template_name=tpl)
+            _print_summary(target, template_name=tpl, console=console)
             return
         raise RuntimeError(f"unreachable resume state: {rs}")
 
 
-def _print_already_done(target: Path) -> None:
-    click.echo(
-        f"{target} is already initialized. Next: run `jig start` here."
+def _print_already_done(target: Path, *, console: "Console | None" = None) -> None:
+    c = console or _spawn_console()
+    c.print(
+        f"{target} is already initialized. Next: run `jig start` here.",
+        markup=False,
     )
 
 
-def _print_summary(target: Path, *, template_name: str) -> None:
+def _print_summary(
+    target: Path, *, template_name: str, console: "Console | None" = None
+) -> None:
     # The operator may have run `jig init <name>` from a parent directory,
     # so the project lives at `<cwd>/<target>`, not the cwd itself. The
     # `jig story` command defaults to `--path .` and would fail there;
     # surface the right invocation explicitly.
+    c = console or _spawn_console()
     target_str = str(target)
     needs_path = target_str not in (".", "")
     path_arg = f" --path {target_str}" if needs_path else ""
-    click.echo(
+    c.print(
         f"\n"
         f"Brief:        {target}/.jig/spec/project.md\n"
         f"Spec:         {target}/.jig/spec/project.structured.yaml\n"
         f"Architecture: {target}/.jig/spec/architecture.yaml\n"
         f"Template:     {template_name}\n\n"
         f"Setup log:    jig story brief{path_arg}\n"
-        f"              jig story architecture{path_arg}\n"
+        f"              jig story architecture{path_arg}\n",
+        markup=False,
     )
 
 
@@ -290,6 +313,7 @@ async def run_po_conversation(
     threads: ThreadStore,
     memory: MemoryStore,
     bus: MessageBus,
+    console: "Console | None" = None,
 ) -> None:
     """Create (if needed) the brief ticket and spawn the PO agent on it.
 
@@ -325,15 +349,15 @@ async def run_po_conversation(
         memory=memory,
         bus=bus,
     )
-    await _run_agent_with_cli_output(ctx, role_label="po")
+    await _run_agent_with_cli_output(ctx, role_label="po", console=console)
 
 
 async def _run_agent_with_cli_output(
-    ctx: AgentSpawnContext, *, role_label: str
+    ctx: AgentSpawnContext, *, role_label: str, console: "Console | None" = None
 ) -> None:
     """Spawn ``run_agent(ctx)`` with a CLI-side emitter that streams
     text/tool/result events to stdout. Used by PO and SA spawn helpers."""
-    async with _cli_emitter(role_label) as emitter:
+    async with _cli_emitter(role_label, console=console) as emitter:
         await run_agent(ctx, emitter=emitter)
 
 
@@ -351,7 +375,7 @@ _CONSOLE = None  # type: ignore[var-annotated]
 
 
 @asynccontextmanager
-async def _cli_emitter(role_label: str):
+async def _cli_emitter(role_label: str, *, console: "Console | None" = None):
     """Context manager that yields an ``EventEmitter`` and runs a rich
     Status spinner for the spawn duration.
 
@@ -368,13 +392,13 @@ async def _cli_emitter(role_label: str):
     """
     from rich.rule import Rule
 
-    console = _spawn_console()
+    c = console or _spawn_console()
     emitter = EventEmitter()
 
-    console.print()
-    console.print(Rule(f"[bold cyan]{role_label}[/bold cyan]", style="cyan"))
+    c.print()
+    c.print(Rule(f"[bold cyan]{role_label}[/bold cyan]", style="cyan"))
 
-    status_task = asyncio.create_task(_spawn_status(emitter, role_label, console))
+    status_task = asyncio.create_task(_spawn_status(emitter, role_label, c))
     try:
         yield emitter
     finally:
@@ -441,13 +465,16 @@ def render_gap_prompt(gaps: list[Gap]) -> str:
     return "\n".join(lines)
 
 
-async def prompt_gap_decision(threads: ThreadStore) -> str:
+async def prompt_gap_decision(
+    threads: ThreadStore, *, console: "Console | None" = None
+) -> str:
     """Display the gap prompt and return the user's decision ('R' or 'Q')."""
+    c = console or _spawn_console()
     note = await latest_gap_note(threads)
     if note is None:
         raise RuntimeError("prompt_gap_decision called with no gap note")
     gaps = [Gap.model_validate(g) for g in note.payload["gaps"]]
-    click.echo(render_gap_prompt(gaps))
+    c.print(render_gap_prompt(gaps), markup=False)
     reply = click.prompt("Choice", default="R", show_default=False).strip().upper()
     if reply not in ("R", "Q"):
         reply = "R"
@@ -507,13 +534,17 @@ def render_brief_for_approval(project_path: Path) -> str:
     )
 
 
-async def prompt_brief_approval(project_path: Path) -> BriefApprovalChoice:
-    click.echo(render_brief_for_approval(project_path))
-    click.echo(
+async def prompt_brief_approval(
+    project_path: Path, *, console: "Console | None" = None
+) -> BriefApprovalChoice:
+    c = console or _spawn_console()
+    c.print(render_brief_for_approval(project_path), markup=False)
+    c.print(
         "Approve brief?\n"
         "  [Y] Hand off to spec-generator   (default)\n"
         "  [r] Resume PO — more changes needed\n"
-        "  [n] Cancel — exit, state saved\n"
+        "  [n] Cancel — exit, state saved\n",
+        markup=False,
     )
     reply = click.prompt("Choice", default="Y", show_default=False)
     return BriefApprovalChoice.parse(reply)
@@ -545,8 +576,9 @@ def render_branch_prompt() -> str:
     )
 
 
-async def prompt_branch_choice() -> BranchChoice:
-    click.echo(render_branch_prompt())
+async def prompt_branch_choice(*, console: "Console | None" = None) -> BranchChoice:
+    c = console or _spawn_console()
+    c.print(render_branch_prompt(), markup=False)
     reply = click.prompt("Choice", default="Y", show_default=False)
     return BranchChoice.parse(reply)
 
@@ -592,14 +624,17 @@ async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:
 
 async def prompt_sa_confirm(
     threads: ThreadStore,
+    *,
+    console: "Console | None" = None,
 ) -> tuple[ConfirmChoice, dict]:
+    c = console or _spawn_console()
     proposal = await latest_scaffold_proposal(threads)
     if proposal is None:
         raise RuntimeError("prompt_sa_confirm called with no proposal")
-    click.echo(render_sa_confirm_prompt(
+    c.print(render_sa_confirm_prompt(
         template_name=proposal["template_name"],
         rationale=proposal["rationale"],
-    ))
+    ), markup=False)
     reply = click.prompt("Choice", default="Y", show_default=False)
     return ConfirmChoice.parse(reply), proposal
 
@@ -611,6 +646,7 @@ async def run_sa_conversation(
     threads: ThreadStore,
     memory: MemoryStore,
     bus: MessageBus,
+    console: "Console | None" = None,
 ) -> None:
     """Create (if needed) the architecture ticket and spawn the SA agent."""
     arch = await tickets.get("architecture")
@@ -641,7 +677,7 @@ async def run_sa_conversation(
         memory=memory,
         bus=bus,
     )
-    await _run_agent_with_cli_output(ctx, role_label="sa")
+    await _run_agent_with_cli_output(ctx, role_label="sa", console=console)
 
 
 def render_template_list(names: list[str]) -> str:
@@ -653,21 +689,22 @@ def render_template_list(names: list[str]) -> str:
     return "\n".join(lines)
 
 
-async def prompt_direct_template() -> str:
+async def prompt_direct_template(*, console: "Console | None" = None) -> str:
+    c = console or _spawn_console()
     names = list_templates()
     while True:
-        click.echo(render_template_list(names))
+        c.print(render_template_list(names), markup=False)
         reply = click.prompt(
             f"Pick (1-{len(names)})", default="1", show_default=False
         ).strip()
         try:
             idx = int(reply)
         except ValueError:
-            click.echo("Please enter a number.")
+            c.print("Please enter a number.", markup=False)
             continue
         if 1 <= idx <= len(names):
             return names[idx - 1]
-        click.echo("Out of range.")
+        c.print("Out of range.", markup=False)
 
 
 async def create_sa_skipped_marker(
@@ -743,6 +780,7 @@ async def apply_scaffold(
     config: dict[str, Any] | None,
     tickets: TicketStore,
     threads: ThreadStore,
+    console: "Console | None" = None,
 ) -> None:
     """Copy the template, finalize architecture.yaml, update project.yaml,
     install git hooks (best-effort), and emit scaffold_applied.
@@ -789,11 +827,12 @@ async def apply_scaffold(
     #    which raises ``RuntimeError`` when ``project_path`` isn't a real
     #    git repo, so catch both error types here as the single source of
     #    truth for soft-failure semantics.
+    c = console or _spawn_console()
     from jig.hooks import HookInstallError, install_hooks
     try:
         install_hooks(project_path)
     except (HookInstallError, RuntimeError) as exc:
-        click.echo(f"Warning: hook install failed: {exc}")
+        c.print(f"Warning: hook install failed: {exc}", markup=False)
 
     # 5. Ensure architecture ticket exists, then emit scaffold_applied.
     arch = await tickets.get("architecture")
@@ -822,6 +861,7 @@ async def prompt_and_post_answers(
     threads: ThreadStore,
     bus: MessageBus,
     ticket_id: str,
+    console: "Console | None" = None,
 ) -> None:
     """Surface a ticket's open Questions to the operator, collect answers
     via stdin, persist them as Answer thread entries, and resume the ticket.
@@ -841,13 +881,13 @@ async def prompt_and_post_answers(
     from rich.panel import Panel
     from rich.text import Text
 
-    console = _spawn_console()
+    c = console or _spawn_console()
     for i, q in enumerate(open_qs, start=1):
         title_suffix = (
             f" ({i}/{len(open_qs)})" if len(open_qs) > 1 else ""
         )
-        console.print()
-        console.print(
+        c.print()
+        c.print(
             Panel(
                 Text(q.question, style="bold"),
                 title=f"[cyan]{q.author} asks{title_suffix}[/cyan]",

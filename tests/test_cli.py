@@ -295,3 +295,51 @@ class TestValidate:
         result = runner.invoke(cli, ["validate", "--path", str(git_jig_project)])
         assert result.exit_code != 0
         assert "no-such-role" in result.output
+
+
+class TestCreate:
+    def test_create_makes_dir_and_git_init(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ) -> None:
+        """`jig create <name>` creates the dir, runs git init, then would
+        execvp. We patch execvp + chdir to avoid replacing the test process."""
+        execvp_calls: list[tuple] = []
+        chdir_calls: list[str] = []
+        monkeypatch.setattr(
+            "jig.cli._execvp", lambda f, a: execvp_calls.append((f, a))
+        )
+        monkeypatch.setattr(
+            "jig.cli._chdir", lambda p: chdir_calls.append(str(p))
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(cli, ["create", "newproj"])
+        assert result.exit_code == 0, result.output
+        target = tmp_path / "newproj"
+        assert target.is_dir()
+        assert (target / ".git").is_dir(), "git init didn't create .git/"
+        # cli passes the relative target Path to chdir; we just verify it
+        # would chdir into the new project (basename match is enough).
+        assert len(chdir_calls) == 1
+        assert Path(chdir_calls[0]).name == "newproj"
+        assert len(execvp_calls) == 1
+
+    def test_create_refuses_when_dir_exists(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "existing").mkdir()
+        result = runner.invoke(cli, ["create", "existing"])
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+    def test_create_no_git_skips_git_init(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr("jig.cli._execvp", lambda *a, **kw: None)
+        monkeypatch.setattr("jig.cli._chdir", lambda *a, **kw: None)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["create", "skipgit", "--no-git"])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "skipgit").is_dir()
+        assert not (tmp_path / "skipgit" / ".git").exists()

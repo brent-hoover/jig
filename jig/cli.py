@@ -1,9 +1,11 @@
 """Jig CLI."""
 
 import asyncio
+import os
 import readline  # noqa: F401  # side-effect: line editing for click.prompt / input()
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import click
@@ -12,6 +14,12 @@ from jig.events import EventEmitter
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
 from jig.worktree import remove_worktree
+
+# Module-level aliases so tests can monkeypatch jig.cli._chdir / _execvp
+# without mutating the global ``os`` module (which would break the test
+# harness's own os.chdir calls).
+_chdir = os.chdir
+_execvp = os.execvp
 
 
 @click.group()
@@ -359,6 +367,47 @@ def build() -> None:
     except subprocess.CalledProcessError:
         raise click.ClickException("Docker build failed. Check output above.")
     click.echo("Done.")
+
+
+@cli.command()
+@click.argument("name")
+@click.option("--no-git", is_flag=True, help="Skip `git init`.")
+def create(name: str, no_git: bool) -> None:
+    """Create a new project directory and launch the TUI inside it.
+
+    Equivalent to: ``mkdir <name> && git init <name> && cd <name> && jig``.
+    Inside the TUI, run ``/init <name>`` to bootstrap the project (PO
+    conversation, brief, spec-gen, scaffold).
+
+    The shell's cwd is unchanged when the TUI exits (subcommands can't
+    mutate the parent shell). To re-attach to an existing project later:
+    ``cd <name> && jig``.
+    """
+    target = Path(name)
+    if target.exists():
+        raise click.ClickException(
+            f"{target} already exists. Pick a different name or `cd` into it "
+            "and run `jig` directly."
+        )
+    target.mkdir(parents=True)
+    click.echo(f"Created {target.resolve()}")
+    if not no_git:
+        try:
+            subprocess.run(
+                ["git", "init", "-q", str(target)],
+                check=True,
+                capture_output=True,
+            )
+            click.echo("Initialized empty Git repository")
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            click.echo(f"Warning: git init failed (continuing): {exc}", err=True)
+    # Chdir + replace this process with `jig` (no args) inside the new dir.
+    # __main__:main will see no args, auto-start the daemon, launch the TUI.
+    # _chdir / _execvp are module-level so tests can monkeypatch them
+    # without mutating the global os module (which would break the test
+    # harness's own os.chdir calls).
+    _chdir(target)
+    _execvp(sys.argv[0], [sys.argv[0]])
 
 
 @cli.group("hooks")

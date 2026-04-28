@@ -13,6 +13,7 @@ dependencies = [
     "claude-agent-sdk>=0.1.58",
     "websockets>=13.0",
     "rich>=13.0",
+    "textual>=0.80",
 ]
 
 [project.scripts]
@@ -36,5 +37,4 @@ asyncio_mode = "auto"
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "textual>=0.80",
 ]

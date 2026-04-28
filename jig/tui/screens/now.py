@@ -66,11 +66,20 @@ class NowScreen(Screen):
         topic = msg.get("topic")
         data = msg.get("data") or {}
         scrollback = self.query_one("#scrollback", RichLog)
-        if topic == "agents" and msg.get("kind") == "render":
-            content = data.get("content", "")
-            if content:
-                scrollback.write(content)
-            return
+        if topic == "agents":
+            kind = msg.get("kind")
+            if kind == "render":
+                content = data.get("content", "")
+                if content:
+                    scrollback.write(content)
+                return
+            if kind == "text":
+                # Concierge / agent narration. Render with a role label.
+                text = data.get("text", "")
+                role = data.get("role", "agent")
+                if text:
+                    scrollback.write(f"[bold]{role}:[/bold] {text}")
+                return
         if topic == "prompts" and msg.get("kind") == "request":
             await self._render_prompt_request(data)
             return
@@ -180,7 +189,9 @@ class NowScreen(Screen):
             else:
                 await self._dispatch_slash(parsed)
         else:
-            scrollback.write("[dim](free-text — concierge coming in Phase 3.4)[/dim]")
+            # Free-text → spawn the concierge with the input as the query.
+            # The agent's text response streams back as agents/text events.
+            await self.app.client.send_command("concierge", {"args": [line]})
         event.input.clear()
 
     async def _dispatch_slash(self, parsed: ParsedSlash) -> None:
@@ -191,7 +202,9 @@ class NowScreen(Screen):
                 "  /help    — show this message\n"
                 "  /status  — daemon + agent status\n"
                 "  /init <name> [--force]  — initialize a project\n"
-                "  /quit    — quit the TUI"
+                "  /quit    — quit the TUI\n"
+                "\n"
+                "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."
             )
         elif parsed.name == "status":
             scrollback.write(

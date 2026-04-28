@@ -131,3 +131,55 @@ async def test_now_renders_agent_render_events_to_scrollback(tmp_path: Path):
         scrollback = app.query_one("#scrollback", RichLog)
         text = "\n".join(str(line) for line in scrollback.lines)
         assert "TEST_RENDERED_LINE" in text
+
+
+@pytest.mark.asyncio
+async def test_now_renders_agent_text_events_to_scrollback(tmp_path: Path):
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import NowScreen
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        now = app.query_one(NowScreen)
+        await now.handle_daemon_event({
+            "type": "event",
+            "topic": "agents",
+            "kind": "text",
+            "data": {"role": "concierge", "text": "Hello operator!"},
+        })
+        scrollback = app.query_one("#scrollback", RichLog)
+        text = "\n".join(str(line) for line in scrollback.lines)
+        assert "concierge" in text and "Hello operator!" in text
+
+
+@pytest.mark.asyncio
+async def test_now_routes_free_text_to_concierge_command(tmp_path: Path):
+    """A free-text submit should send a concierge command, not parse as slash."""
+    from jig.tui.screens.now import NowScreen
+
+    app = JigApp(project_path=tmp_path)
+    sent_commands: list[tuple[str, dict]] = []
+
+    async with app.run_test() as pilot:
+        async def fake_send_command(name, args):
+            sent_commands.append((name, args))
+        app.client.send_command = fake_send_command  # type: ignore[method-assign]
+
+        now = app.query_one(NowScreen)
+
+        class FakeInput:
+            def clear(self):
+                pass
+
+        class FakeEvent:
+            value = "what tickets are open?"
+            input = FakeInput()
+
+        await now.on_input_submitted(FakeEvent())
+        await pilot.pause(0.05)
+
+        assert any(
+            name == "concierge" and args == {"args": ["what tickets are open?"]}
+            for name, args in sent_commands
+        ), f"expected concierge dispatch; got {sent_commands}"

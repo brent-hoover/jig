@@ -28,3 +28,17 @@ async def test_app_switches_screens_via_hotkey(tmp_path: Path):
         assert tabs.active == "tickets-pane"
         await pilot.press("1")
         assert tabs.active == "now-pane"
+
+
+@pytest.mark.asyncio
+async def test_slash_help_writes_to_scrollback(tmp_path: Path):
+    from textual.widgets import RichLog
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test() as pilot:
+        # The Now tab is the default; type /help and press Enter.
+        await pilot.press("slash", "h", "e", "l", "p", "enter")
+        scrollback = app.query_one("#scrollback", RichLog)
+        # RichLog stores rendered Strip objects in `.lines`; flatten to text.
+        text = "\n".join(str(line) for line in scrollback.lines)
+        assert "Available" in text or "help" in text.lower()

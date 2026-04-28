@@ -41,14 +41,17 @@ def test_format_event_tool_no_detail():
     assert out == "[po] · brief_list_sections"
 
 
-def test_format_event_tool_result_success():
+def test_format_event_tool_result_success_is_suppressed():
+    """Successful tool results don't render — the call event already
+    showed the invocation, and the agent's next turn implicitly confirms
+    success. Only failures need to surface."""
     out = _format_event(
         JigEvent(
             "agent_tool_result",
             {"role": "po", "tool": "Bash", "is_error": False, "excerpt": "ok"},
         )
     )
-    assert out == "[po]   ✓ Bash"
+    assert out is None
 
 
 def test_format_event_tool_result_error_with_excerpt():

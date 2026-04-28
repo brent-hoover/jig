@@ -854,12 +854,16 @@ def _format_event(event: JigEvent) -> str | None:
             return f"[{role}] · {tool} {detail}"
         return f"[{role}] · {tool}"
     if event.type == "agent_tool_result":
+        # Suppress success — the call event already showed the tool was
+        # invoked, and the agent's next text turn implicitly confirms it
+        # worked. Only surface failures, where the operator needs to see
+        # what went wrong.
+        if not data.get("is_error"):
+            return None
         tool = data.get("tool", "?")
-        if data.get("is_error"):
-            excerpt = (data.get("excerpt") or "").strip().splitlines()[0:1]
-            err = excerpt[0] if excerpt else ""
-            return f"[{role}]   ✗ {tool}: {err}" if err else f"[{role}]   ✗ {tool}"
-        return f"[{role}]   ✓ {tool}"
+        excerpt = (data.get("excerpt") or "").strip().splitlines()[0:1]
+        err = excerpt[0] if excerpt else ""
+        return f"[{role}]   ✗ {tool}: {err}" if err else f"[{role}]   ✗ {tool}"
     return None
 
 

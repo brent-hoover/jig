@@ -72,9 +72,17 @@ class CliPromptHandler:
     async def ask_brief_approval(
         self, *, project_path: Path, console: "Console"
     ) -> BriefApprovalChoice:
+        from rich.text import Text
+
         from jig.init_workflow import render_brief_for_approval
 
-        console.print(render_brief_for_approval(project_path), markup=False)
+        # render_brief_for_approval returns a string with embedded ANSI codes
+        # (it pre-renders the brief markdown to a StringIO with force_terminal).
+        # Rich's console.print(..., markup=False) writes the ESC bytes
+        # literally instead of re-interpreting them, so we'd see raw codes
+        # like "[4;35m_intro[0m". Text.from_ansi parses the codes back into
+        # styled Rich Text so the operator's terminal renders the styling.
+        console.print(Text.from_ansi(render_brief_for_approval(project_path)))
         console.print(
             "Approve brief?\n"
             "  [Y] Hand off to spec-generator   (default)\n"

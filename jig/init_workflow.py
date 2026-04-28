@@ -838,6 +838,23 @@ async def prompt_and_post_answers(
     )
 
 
+def _display_tool_name(tool: str) -> str:
+    """Strip the ``mcp__<server>__`` prefix for display.
+
+    Operator transcript noise: every jig MCP tool is namespaced as
+    ``mcp__jig__brief_set_section`` etc. The prefix conveys nothing
+    useful at the CLI level — the operator already knows these are
+    jig tools. Show the bare tool name instead.
+    """
+    if tool.startswith("mcp__"):
+        # Format is mcp__<server>__<tool>; strip both prefix segments.
+        rest = tool[len("mcp__"):]
+        sep = rest.find("__")
+        if sep != -1:
+            return rest[sep + 2:]
+    return tool
+
+
 def _format_event(event: JigEvent) -> str | None:
     """Render an agent event for a CLI operator. Returns None to skip."""
     data = event.data or {}
@@ -848,11 +865,12 @@ def _format_event(event: JigEvent) -> str | None:
             return None
         return f"[{role}] {text}"
     if event.type == "agent_tool":
-        tool = data.get("tool", "?")
-        detail = (data.get("detail") or "").strip()
-        if detail:
-            return f"[{role}] · {tool} {detail}"
-        return f"[{role}] · {tool}"
+        # Tool invocations are implementation noise — the agent's text
+        # turns narrate what's happening. The operator doesn't need
+        # `[po] · brief_list_sections` to know PO is reading the brief;
+        # the next text turn says so. Failures still surface via the
+        # tool_result branch below. Heartbeats cover dead air.
+        return None
     if event.type == "agent_tool_result":
         # Suppress success — the call event already showed the tool was
         # invoked, and the agent's next text turn implicitly confirms it
@@ -861,9 +879,16 @@ def _format_event(event: JigEvent) -> str | None:
         if not data.get("is_error"):
             return None
         tool = data.get("tool", "?")
+        if tool == "ToolSearch":
+            return None
+        display_tool = _display_tool_name(tool)
         excerpt = (data.get("excerpt") or "").strip().splitlines()[0:1]
         err = excerpt[0] if excerpt else ""
-        return f"[{role}]   ✗ {tool}: {err}" if err else f"[{role}]   ✗ {tool}"
+        return (
+            f"[{role}]   ✗ {display_tool}: {err}"
+            if err
+            else f"[{role}]   ✗ {display_tool}"
+        )
     return None
 
 

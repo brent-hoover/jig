@@ -21,24 +21,24 @@ def test_format_event_text():
     assert out == "[po] hello"
 
 
-def test_format_event_tool_with_detail():
+def test_format_event_tool_calls_are_suppressed():
+    """Tool invocations are implementation noise — the agent's text
+    turns narrate what's happening. Operator transcript stays focused
+    on the conversation."""
     out = _format_event(
         JigEvent(
             "agent_tool",
             {"role": "po", "tool": "Bash", "detail": "ls -la"},
         )
     )
-    assert out == "[po] · Bash ls -la"
-
-
-def test_format_event_tool_no_detail():
-    out = _format_event(
+    assert out is None
+    out2 = _format_event(
         JigEvent(
             "agent_tool",
-            {"role": "po", "tool": "brief_list_sections"},
+            {"role": "po", "tool": "mcp__jig__brief_list_sections"},
         )
     )
-    assert out == "[po] · brief_list_sections"
+    assert out2 is None
 
 
 def test_format_event_tool_result_success_is_suppressed():
@@ -72,6 +72,37 @@ def test_format_event_tool_result_error_with_excerpt():
 
 def test_format_event_unknown_type_returns_none():
     assert _format_event(JigEvent("agent_thinking", {"role": "po"})) is None
+
+
+def test_format_event_suppresses_toolsearch_errors_too():
+    """ToolSearch is Claude Code's deferred-schema loader — internal
+    plumbing. Even an error in it isn't operator-actionable."""
+    out = _format_event(
+        JigEvent(
+            "agent_tool_result",
+            {"role": "po", "tool": "ToolSearch", "is_error": True,
+             "excerpt": "schema fetch failed"},
+        )
+    )
+    assert out is None
+
+
+def test_format_event_strips_mcp_prefix_in_error_path():
+    """Tool errors that DO surface use the bare tool name, not the
+    namespaced ``mcp__jig__brief_set_section`` form."""
+    out = _format_event(
+        JigEvent(
+            "agent_tool_result",
+            {
+                "role": "po",
+                "tool": "mcp__jig__brief_set_section",
+                "is_error": True,
+                "excerpt": "section not found",
+            },
+        )
+    )
+    assert "brief_set_section" in out
+    assert "mcp__" not in out
 
 
 async def _start_printer(emitter: EventEmitter, *, heartbeat: float) -> asyncio.Task:

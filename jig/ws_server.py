@@ -156,6 +156,18 @@ class WebSocketServer:
                 )
             return
 
+        if msg_type == "command":
+            name = payload.get("name")
+            args = payload.get("args", {})
+            if not name:
+                await self._safe_send(
+                    websocket,
+                    json.dumps({"type": "result", "ok": False, "error": "command name required"}),
+                )
+                return
+            await self._dispatch_command(websocket, name, args)
+            return
+
         # Non-subscribe message from a legacy client: replay history once.
         if websocket not in self._history_replayed:
             self._history_replayed.add(websocket)
@@ -437,6 +449,35 @@ class WebSocketServer:
             result["status"] = ticket.status.value
 
         return result
+
+    async def _dispatch_command(self, websocket, name: str, args: dict) -> None:
+        from jig.tui.commands import get_handler
+
+        handler = get_handler(name)
+        if handler is None:
+            await self._safe_send(
+                websocket,
+                json.dumps({"type": "result", "ok": False,
+                            "error": f"unknown command: {name}"}),
+            )
+            return
+        try:
+            result = await handler(
+                args=args.get("args", []) if isinstance(args, dict) else [],
+                orch=self._orch,
+                project_path=self._project_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("command %s failed", name)
+            await self._safe_send(
+                websocket,
+                json.dumps({"type": "result", "ok": False, "error": str(exc)}),
+            )
+            return
+        await self._safe_send(
+            websocket,
+            json.dumps({"type": "result", **result}),
+        )
 
     async def _build_snapshot(self, topic: str) -> Any:
         """Per-topic initial snapshot."""

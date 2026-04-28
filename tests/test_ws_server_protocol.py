@@ -203,6 +203,86 @@ async def test_typed_subscriber_filtered_by_topic(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_command_dispatch_status_returns_typed_result(tmp_path):
+    """Send {type: command, name: status} → expect {type: result, ok: true, data: ...}
+
+    Uses a fake websocket object to avoid needing a live server for this unit.
+    """
+    from jig.ws_server import WebSocketServer
+    from jig.events import EventEmitter
+
+    class FakeWebSocket:
+        def __init__(self):
+            self.sent: list[str] = []
+
+        async def send(self, msg: str) -> None:
+            self.sent.append(msg)
+
+    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))
+    emitter = EventEmitter()
+    server = WebSocketServer(emitter, port=0, project_path=tmp_path)
+
+    ws = FakeWebSocket()
+    await server._dispatch_command(ws, "status", {"args": []})
+
+    assert len(ws.sent) == 1
+    reply = json.loads(ws.sent[0])
+    assert reply["type"] == "result"
+    assert reply["ok"] is True
+    assert "agents_active" in reply["data"]
+
+
+@pytest.mark.asyncio
+async def test_command_dispatch_unknown_returns_error(tmp_path):
+    """Unknown command name returns {type: result, ok: false, error: ...}."""
+    from jig.ws_server import WebSocketServer
+    from jig.events import EventEmitter
+
+    class FakeWebSocket:
+        def __init__(self):
+            self.sent: list[str] = []
+
+        async def send(self, msg: str) -> None:
+            self.sent.append(msg)
+
+    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))
+    emitter = EventEmitter()
+    server = WebSocketServer(emitter, port=0, project_path=tmp_path)
+
+    ws = FakeWebSocket()
+    await server._dispatch_command(ws, "not-a-real-command", {})
+
+    assert len(ws.sent) == 1
+    reply = json.loads(ws.sent[0])
+    assert reply["type"] == "result"
+    assert reply["ok"] is False
+    assert "unknown command" in reply["error"]
+
+
+@pytest.mark.asyncio
+async def test_command_dispatch_via_wire_protocol(tmp_path):
+    """Full round-trip: send {type: command, name: status} over websocket."""
+    save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+
+    emitter = EventEmitter()
+    server = WebSocketServer(emitter, port=0, orchestrator=orch, project_path=tmp_path)
+    await server.start()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{server.port}") as client:
+            await client.send(json.dumps({"type": "command", "name": "status", "args": []}))
+            raw = await asyncio.wait_for(client.recv(), timeout=2.0)
+            msg = json.loads(raw)
+            assert msg["type"] == "result"
+            assert msg["ok"] is True
+            assert "agents_active" in msg["data"]
+    finally:
+        await server.stop()
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_legacy_client_still_gets_history_replay(tmp_path):
     """Legacy client sending a bare command receives history replay first."""
     save_project(tmp_path, Project(id="p", name="p", path=str(tmp_path)))

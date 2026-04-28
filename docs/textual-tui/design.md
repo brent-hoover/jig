@@ -274,11 +274,11 @@ Five phases. Phase 1 lays groundwork; Phase 2 ships the new TUI shell; Phase 3 m
 - Events third: scrolling log, filter by kind, follow toggle, modal for full event payload.
 - Snapshot + event subscriptions wire each screen's reactive state to the daemon stream.
 
-### Phase 5 — Cutover
+### Phase 5 — Cutover (same PR as Phase 4)
 
-- Dogfood the new TUI for a few days against the existing dogfood project.
-- When stable: delete `tui/` directory, `bun.lock`, `package.json`. Add `textual>=0.80` to `pyproject.toml` (the existing `websockets` dep already covers the wire transport). Update `docs/` to drop the `cd tui && bun install` instructions.
+- Delete `tui/` directory, `bun.lock`, `package.json` in the same commit as the last Phase 4 screen lands. Add `textual>=0.80` to `pyproject.toml` (the existing `websockets` dep already covers the wire transport). Update `docs/` to drop the `cd tui && bun install` instructions.
 - The `Setup log` line now reads `jig --print "/spec brief --path dogfood"` (or similar — exact text per implementation).
+- No deprecation period: sole user, no external timeline. If a Bun-TUI-only feature is missed post-cutover, add it directly to the new TUI; don't keep the old code around.
 
 ## Change log
 

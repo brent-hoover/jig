@@ -3,7 +3,8 @@
 import asyncio
 import json
 import os
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import websockets
 from websockets.asyncio.server import serve, ServerConnection
@@ -26,6 +27,31 @@ if TYPE_CHECKING:
     from jig.orchestrator import Orchestrator
 
 
+# ---------------------------------------------------------------------------
+# Typed message protocol — Task 1.2
+# ---------------------------------------------------------------------------
+
+_VALID_TOPICS = frozenset({"tickets", "threads", "agents", "spec", "events"})
+
+
+def snapshot_envelope(topic: str, data: Any) -> dict:
+    """Build a snapshot message for a topic (sent once per subscribe)."""
+    if topic not in _VALID_TOPICS:
+        raise ValueError(
+            f"unknown topic {topic!r}; expected one of {sorted(_VALID_TOPICS)}"
+        )
+    return {"type": "snapshot", "topic": topic, "data": data}
+
+
+def event_envelope(topic: str, kind: str, data: Any) -> dict:
+    """Build a typed event message (sent per state change)."""
+    if topic not in _VALID_TOPICS:
+        raise ValueError(
+            f"unknown topic {topic!r}; expected one of {sorted(_VALID_TOPICS)}"
+        )
+    return {"type": "event", "topic": topic, "kind": kind, "data": data}
+
+
 class WebSocketServer:
     def __init__(
         self,
@@ -33,11 +59,13 @@ class WebSocketServer:
         host: str = "0.0.0.0" if os.environ.get("JIG_IN_CONTAINER") else "127.0.0.1",
         port: int = 9100,
         orchestrator: "Orchestrator | None" = None,
+        project_path: Path | None = None,
     ) -> None:
         self._emitter = emitter
         self._host = host
         self._port = port
         self._orch = orchestrator
+        self._project_path = project_path
         self._server = None
         self._relay_task = None
         self._clients: set[ServerConnection] = set()
@@ -95,14 +123,35 @@ class WebSocketServer:
             return
 
     async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
-        if self._orch is None:
-            return
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
             await self._safe_send(
                 websocket, json.dumps({"ok": False, "error": "bad json"})
             )
+            return
+
+        # New typed protocol: dispatch on "type" first.
+        msg_type = payload.get("type")
+        if msg_type == "subscribe":
+            topics = payload.get("topics", [])
+            for topic in topics:
+                try:
+                    snapshot = await self._build_snapshot(topic)
+                except ValueError as exc:
+                    await self._safe_send(
+                        websocket,
+                        json.dumps({"type": "error", "topic": topic, "error": str(exc)}),
+                    )
+                    continue
+                await self._safe_send(
+                    websocket, json.dumps(snapshot_envelope(topic, snapshot))
+                )
+            return
+
+        # Legacy path: existing Bun TUI uses bare command keys.
+        # Keep this entire block as-is — do not modify.
+        if self._orch is None:
             return
 
         command = payload.get("command")
@@ -373,9 +422,47 @@ class WebSocketServer:
 
         return result
 
+    async def _build_snapshot(self, topic: str) -> Any:
+        """Per-topic initial snapshot."""
+        if topic == "tickets":
+            if self._orch is None:
+                return []
+            all_tickets = await self._orch.tickets.list_all()
+            return [t.model_dump(mode="json") for t in all_tickets]
+        if topic == "spec":
+            import yaml
+
+            from jig.spec_schema import StructuredSpec
+
+            if self._project_path is None:
+                return None
+            spec_file = (
+                self._project_path / ".jig" / "spec" / "project.structured.yaml"
+            )
+            if not spec_file.is_file():
+                return None
+            data = yaml.safe_load(spec_file.read_text()) or {}
+            spec = StructuredSpec.model_validate(data)
+            return spec.model_dump(mode="json", by_alias=True)
+        if topic == "agents":
+            # list_active_agents may not exist yet — return empty list for now.
+            if self._orch is None or not hasattr(self._orch, "list_active_agents"):
+                return []
+            return await self._orch.list_active_agents()
+        if topic == "events":
+            # Last 100 messages; if bus has no .recent helper, just return [].
+            if self._orch is None or not hasattr(self._orch.bus, "recent"):
+                return []
+            return [m.model_dump(mode="json") for m in self._orch.bus.recent(limit=100)]
+        if topic == "threads":
+            # Snapshot is per-ticket; subscribers fetch on demand via command.
+            return []
+        raise ValueError(f"unknown topic {topic!r}")
+
     async def _relay_events(self) -> None:
         while True:
             event = await self._queue.get()
+            # Existing raw-message broadcast (Bun TUI still listens for it):
             message = event.to_json()
             self._history.append(message)
             for client in list(self._clients):
@@ -383,6 +470,31 @@ class WebSocketServer:
                     await client.send(message)
                 except websockets.ConnectionClosed:
                     self._clients.discard(client)
+            # NEW: also publish as typed event for new TUI clients
+            typed = self._classify_event(event)
+            if typed is not None:
+                typed_msg = json.dumps(typed)
+                for client in list(self._clients):
+                    try:
+                        await client.send(typed_msg)
+                    except websockets.ConnectionClosed:
+                        self._clients.discard(client)
+
+    def _classify_event(self, event: Any) -> dict | None:
+        """Map a bus event to a typed {topic, kind, data} envelope, or None
+        to skip (event has no relevant typed projection)."""
+        payload = event.data or {}
+        kind = payload.get("kind")
+        if kind in ("ticket_updated", "ticket_created"):
+            return event_envelope("tickets", kind.removeprefix("ticket_"), payload)
+        if kind in ("comment_posted",):
+            return event_envelope("threads", "posted", payload)
+        if event.type in ("agent_text", "agent_tool", "agent_tool_result", "agent_run"):
+            return event_envelope(
+                "agents", event.type.removeprefix("agent_"), payload
+            )
+        # Default: surface on `events` topic for the events screen
+        return event_envelope("events", event.type, payload)
 
 
 def _thread_entry_to_wire(entry) -> dict:

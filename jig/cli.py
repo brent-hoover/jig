@@ -102,7 +102,9 @@ def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> N
     async def run_daemon() -> None:
         emitter = EventEmitter()
         orchestrator = Orchestrator(project_path=path, emitter=emitter)
-        ws_server = WebSocketServer(emitter, port=ws_port, orchestrator=orchestrator)
+        ws_server = WebSocketServer(
+            emitter, port=ws_port, orchestrator=orchestrator, project_path=path
+        )
         await ws_server.start()
         click.echo(f"WebSocket server listening on ws://127.0.0.1:{ws_server.port}")
         try:

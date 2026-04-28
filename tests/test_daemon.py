@@ -10,6 +10,7 @@ def test_daemon_paths_returns_pid_and_socket_under_jig_run(tmp_path):
     assert paths.pid_file == tmp_path / ".jig" / "run" / "daemon.pid"
     assert paths.socket_addr_file == tmp_path / ".jig" / "run" / "daemon.addr"
     assert paths.stderr_log == tmp_path / ".jig" / "run" / "daemon.err"
+    assert paths.container_file == tmp_path / ".jig" / "run" / "daemon.container"
     assert paths.run_dir == tmp_path / ".jig" / "run"
 
 
@@ -99,3 +100,83 @@ def test_daemon_status_surfaces_last_error_for_stale_pid_file(tmp_path):
     assert status.running is False
     assert status.stale is True
     assert status.last_error == "important final error"
+
+
+# ---------------------------------------------------------------------------
+# Docker mode tests — all docker CLI calls are mocked; no real Docker needed.
+# ---------------------------------------------------------------------------
+
+
+def test_daemon_status_reports_docker_when_container_file_present(tmp_path, monkeypatch):
+    """When daemon.container exists and container is alive, status reports docker."""
+    paths = daemon_paths(tmp_path, ensure=True)
+    paths.container_file.write_text("abc123def456")
+    monkeypatch.setattr("jig.container.container_alive", lambda cid: True)
+    status = daemon_status(tmp_path)
+    assert status.running is True
+    assert status.kind == "docker"
+    assert status.container_id == "abc123def456"
+
+
+def test_daemon_status_marks_docker_stale_when_container_dead(tmp_path, monkeypatch):
+    paths = daemon_paths(tmp_path, ensure=True)
+    paths.container_file.write_text("dead-container-id")
+    monkeypatch.setattr("jig.container.container_alive", lambda cid: False)
+    status = daemon_status(tmp_path)
+    assert status.running is False
+    assert status.stale is True
+    assert status.container_id == "dead-container-id"
+
+
+def test_daemon_start_docker_writes_container_file(tmp_path, monkeypatch):
+    """When docker=True, daemon_start calls run_detached_container and
+    records the container id."""
+    fake_id = "fake-container-12345"
+    monkeypatch.setattr("jig.container.docker_available", lambda: True)
+    monkeypatch.setattr("jig.container.image_exists", lambda: True)
+    monkeypatch.setattr(
+        "jig.container.run_detached_container",
+        lambda *a, **kw: fake_id,
+    )
+    monkeypatch.setattr("jig.container.container_alive", lambda cid: True)
+
+    result = daemon_start(tmp_path, docker=True)
+    assert result.container_id == fake_id
+    assert (tmp_path / ".jig" / "run" / "daemon.container").read_text() == fake_id
+
+
+def test_daemon_start_docker_raises_when_image_missing(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr("jig.container.docker_available", lambda: True)
+    monkeypatch.setattr("jig.container.image_exists", lambda: False)
+    with pytest.raises(RuntimeError, match=r"jig Docker image not built"):
+        daemon_start(tmp_path, docker=True)
+
+
+def test_daemon_start_docker_raises_when_docker_unavailable(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr("jig.container.docker_available", lambda: False)
+    with pytest.raises(RuntimeError, match=r"docker not available"):
+        daemon_start(tmp_path, docker=True)
+
+
+def test_daemon_stop_docker_calls_docker_stop(tmp_path, monkeypatch):
+    """daemon_stop in docker mode calls docker stop on the container id."""
+    paths = daemon_paths(tmp_path, ensure=True)
+    paths.container_file.write_text("test-container-id")
+    paths.socket_addr_file.write_text("ws://127.0.0.1:9100")
+    monkeypatch.setattr("jig.container.container_alive", lambda cid: True)
+
+    stopped_ids: list[str] = []
+
+    def fake_stop(cid: str, *, timeout: int = 5) -> bool:
+        stopped_ids.append(cid)
+        return True
+
+    monkeypatch.setattr("jig.container.stop_detached_container", fake_stop)
+
+    assert daemon_stop(tmp_path) is True
+    assert "test-container-id" in stopped_ids
+    assert not paths.container_file.exists()

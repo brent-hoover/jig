@@ -732,18 +732,37 @@ def daemon_group() -> None:
 @daemon_group.command(name="start")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option("--ws-port", default=9100, type=int, show_default=True)
-def daemon_start_cmd(path: Path, ws_port: int) -> None:
+@click.option(
+    "--docker/--no-docker",
+    default=None,
+    help=(
+        "Run inside a Docker container (host isolation + bwrap per agent). "
+        "Defaults to auto-detect: docker if available + image built."
+    ),
+)
+def daemon_start_cmd(path: Path, ws_port: int, docker: bool | None) -> None:
     """Start the daemon in the background."""
+    from jig.container import docker_available, image_exists
     from jig.daemon import DaemonAlreadyRunning, daemon_start
 
+    if docker is None:
+        # Auto-detect: prefer docker when available + image built.
+        docker = docker_available() and image_exists()
+
     try:
-        result = daemon_start(path, ws_port=ws_port)
+        result = daemon_start(path, ws_port=ws_port, docker=docker)
     except DaemonAlreadyRunning as exc:
         raise click.ClickException(str(exc))
     except RuntimeError as exc:
-        # Daemon died on startup; daemon_start surfaces the stderr tail.
         raise click.ClickException(str(exc))
-    click.echo(f"daemon started: pid={result.pid} addr={result.addr}")
+
+    if result.container_id:
+        click.echo(
+            f"daemon started (docker): container={result.container_id[:12]} "
+            f"addr={result.addr}"
+        )
+    else:
+        click.echo(f"daemon started: pid={result.pid} addr={result.addr}")
 
 
 @daemon_group.command(name="stop")
@@ -761,13 +780,13 @@ def daemon_stop_cmd(path: Path) -> None:
 @daemon_group.command(name="status")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 def daemon_status_cmd(path: Path) -> None:
-    """Print daemon status (running? pid? addr?)."""
+    """Print daemon status (running? pid/container? addr?)."""
     from jig.daemon import daemon_paths, daemon_status
 
     status = daemon_status(path)
     if not status.running:
         if status.stale:
-            msg = "daemon: not running (stale PID file present)"
+            msg = "daemon: not running (stale state present)"
             if status.last_error:
                 msg += f"\n  last error: {status.last_error}"
             err_path = daemon_paths(path).stderr_log
@@ -779,7 +798,13 @@ def daemon_status_cmd(path: Path) -> None:
         return
     addr_file = daemon_paths(path).socket_addr_file
     addr = addr_file.read_text().strip() if addr_file.is_file() else "?"
-    click.echo(f"daemon: running pid={status.pid} addr={addr}")
+    if status.kind == "docker":
+        click.echo(
+            f"daemon: running (docker) container={status.container_id[:12]} "
+            f"addr={addr}"
+        )
+    else:
+        click.echo(f"daemon: running pid={status.pid} addr={addr}")
 
 
 @daemon_group.command(name="serve", hidden=True)

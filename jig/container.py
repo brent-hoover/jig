@@ -153,3 +153,92 @@ def exec_in_docker(
 
     _logger.info("launching container: %s", " ".join(args))
     os.execvp("docker", args)
+
+
+def run_detached_container(
+    project_path: Path,
+    ws_port: int,
+    *,
+    verbose: bool = False,
+    name: str | None = None,
+) -> str:
+    """Start the jig orchestrator in a detached Docker container.
+
+    Returns the container ID (12-char short or full — whatever
+    ``docker run -d`` prints to stdout). The container exposes the
+    WebSocket port on the host. Use ``stop_detached_container`` to
+    stop it.
+
+    Mounts and auth follow the same pattern as ``exec_in_docker``.
+    The command run inside the container is ``jig daemon serve``
+    (NOT ``jig start`` — we want the orchestrator to run without
+    re-execing into another Docker layer).
+    """
+    image = os.environ.get("JIG_DOCKER_IMAGE", DEFAULT_IMAGE)
+    args = [
+        "docker", "run", "-d", "--rm",
+        "--cap-add", "SYS_ADMIN",
+        "--security-opt", "seccomp=unconfined",
+        "-v", f"{project_path.resolve()}:/project",
+        "-p", f"{ws_port}:{ws_port}",
+    ]
+    if name:
+        args.extend(["--name", name])
+
+    claude_dir = Path.home() / ".claude"
+    if claude_dir.is_dir():
+        args.extend(["-v", f"{claude_dir}:/home/jig/.claude"])
+    claude_json = Path.home() / ".claude.json"
+    if claude_json.is_file():
+        args.extend(["-v", f"{claude_json}:/home/jig/.claude.json"])
+    gitconfig = Path.home() / ".gitconfig"
+    if gitconfig.is_file():
+        args.extend(["-v", f"{gitconfig}:/home/jig/.gitconfig:ro"])
+    ssh_dir = Path.home() / ".ssh"
+    if ssh_dir.is_dir():
+        args.extend(["-v", f"{ssh_dir}:/home/jig/.ssh:ro"])
+
+    auth_token = os.environ.get(_AUTH_ENV_VAR)
+    if auth_token:
+        args.extend(["-e", f"{_AUTH_ENV_VAR}={auth_token}"])
+
+    args.append(image)
+    # Inside the container the orchestrator runs via the daemon-serve
+    # subcommand. --path /project because we mounted the project there.
+    args.extend(["daemon", "serve", "--path", "/project", "--ws-port", str(ws_port)])
+    if verbose:
+        args.append("--verbose")
+
+    _logger.info("starting detached container: %s", " ".join(args))
+    result = subprocess.run(args, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"docker run failed (rc={result.returncode}): {result.stderr.strip()}"
+        )
+    container_id = result.stdout.strip()
+    if not container_id:
+        raise RuntimeError(
+            f"docker run returned no container id; stderr: {result.stderr.strip()}"
+        )
+    return container_id
+
+
+def stop_detached_container(container_id: str, *, timeout: int = 5) -> bool:
+    """Stop a detached jig daemon container. Returns True if it stopped
+    (or wasn't running)."""
+    result = subprocess.run(
+        ["docker", "stop", "-t", str(timeout), container_id],
+        capture_output=True, text=True, check=False,
+    )
+    return result.returncode == 0
+
+
+def container_alive(container_id: str) -> bool:
+    """Return True if the container is currently running."""
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", container_id],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return False
+    return result.stdout.strip().lower() == "true"

@@ -149,6 +149,8 @@ jig daemon start    # if you didn't start one in Terminal A
 jig                 # launches the Textual TUI and connects to the daemon
 ```
 
+For a sandboxed run (host isolation + bwrap per agent) use `jig daemon start --docker`. Requires `jig build` first and a working Docker daemon. `jig daemon start --no-docker` forces host mode even when Docker is available.
+
 You should see:
 - four tabs at the top: `Now · Tickets · Spec · Events`
 - footer showing `daemon: connected` in green

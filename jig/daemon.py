@@ -27,6 +27,7 @@ class DaemonPaths:
     pid_file: Path
     socket_addr_file: Path
     stderr_log: Path
+    container_file: Path  # stores container ID when daemon runs in Docker
 
 
 def daemon_paths(project_path: Path, *, ensure: bool = False) -> DaemonPaths:
@@ -42,6 +43,7 @@ def daemon_paths(project_path: Path, *, ensure: bool = False) -> DaemonPaths:
         pid_file=run_dir / "daemon.pid",
         socket_addr_file=run_dir / "daemon.addr",
         stderr_log=run_dir / "daemon.err",
+        container_file=run_dir / "daemon.container",
     )
 
 
@@ -49,29 +51,49 @@ def daemon_paths(project_path: Path, *, ensure: bool = False) -> DaemonPaths:
 class DaemonStatus:
     running: bool
     pid: int | None = None
-    stale: bool = False  # True when PID file exists but no live process
-    last_error: str | None = None  # tail of daemon.err when stale
+    container_id: str | None = None  # set when running in Docker
+    kind: str | None = None          # "host" or "docker" when running
+    stale: bool = False              # True when state file exists but no live process/container
+    last_error: str | None = None    # tail of daemon.err when stale
 
 
 def daemon_status(project_path: Path) -> DaemonStatus:
-    """Inspect the daemon's run-state via its PID file.
+    """Inspect the daemon's run-state via its PID or container file.
 
-    Returns ``running=True`` only if the PID file exists AND the
-    process is alive. ``stale=True`` indicates a leftover PID file
-    pointing at a dead process — caller should clean it up before
-    starting a new daemon. When stale, ``last_error`` carries the last
-    line of ``daemon.err`` when present.
+    Docker mode takes precedence — its file is only present when
+    started in docker mode.
+
+    Returns ``running=True`` only if the process / container is alive.
+    ``stale=True`` indicates a leftover state file pointing at a dead
+    process or container — caller should clean it up before starting
+    a new daemon.
     """
     paths = daemon_paths(project_path)
-    if not paths.pid_file.is_file():
-        return DaemonStatus(running=False)
-    try:
-        pid = int(paths.pid_file.read_text().strip())
-    except ValueError:
+
+    # Docker mode: container_file present
+    if paths.container_file.is_file():
+        cid = paths.container_file.read_text().strip()
+        if not cid:
+            return DaemonStatus(running=False, stale=True, last_error=_tail_err(paths))
+        from jig.container import container_alive
+        if container_alive(cid):
+            return DaemonStatus(running=True, container_id=cid, kind="docker")
+        return DaemonStatus(
+            running=False, stale=True, container_id=cid,
+            last_error=_tail_err(paths),
+        )
+
+    # Host mode: pid_file present
+    if paths.pid_file.is_file():
+        try:
+            pid = int(paths.pid_file.read_text().strip())
+        except ValueError:
+            return DaemonStatus(running=False, stale=True, last_error=_tail_err(paths))
+        if _process_alive(pid):
+            return DaemonStatus(running=True, pid=pid, kind="host")
         return DaemonStatus(running=False, stale=True, last_error=_tail_err(paths))
-    if _process_alive(pid):
-        return DaemonStatus(running=True, pid=pid)
-    return DaemonStatus(running=False, stale=True, last_error=_tail_err(paths))
+
+    return DaemonStatus(running=False)
 
 
 def _tail_err(paths: DaemonPaths) -> str | None:
@@ -101,6 +123,7 @@ def _process_alive(pid: int) -> bool:
 class DaemonStartResult:
     pid: int
     addr: str  # e.g. "ws://127.0.0.1:9100"
+    container_id: str | None = None
 
 
 class DaemonAlreadyRunning(RuntimeError):
@@ -111,37 +134,43 @@ def daemon_start(
     project_path: Path,
     *,
     ws_port: int = 9100,
+    docker: bool = False,
     _command_override: Sequence[str] | None = None,
 ) -> DaemonStartResult:
     """Fork a background daemon process for this project.
 
-    The daemon runs ``jig daemon serve`` (an internal subcommand that
-    actually hosts the orchestrator). PID + socket address are written
+    In host mode the daemon runs ``jig daemon serve`` as a detached
+    subprocess. In docker mode it launches the orchestrator in a
+    detached container. PID / container ID + socket address are written
     to ``.jig/run/`` so the TUI can find them.
 
     ``_command_override`` is a test-only seam — production callers
-    leave it None.
+    leave it None (only honoured in host mode).
 
     Raises ``DaemonAlreadyRunning`` if a live daemon already exists.
-    Raises ``RuntimeError`` if the project is not initialized (when
-    not using ``_command_override``) — better than letting the forked
-    child die with the same message buried in daemon.err.
+    Raises ``RuntimeError`` if the project is not initialized (host
+    mode only) or if Docker is unavailable / image not built (docker mode).
     """
     existing = daemon_status(project_path)
     if existing.running:
+        pid_or_cid = (
+            f"container={existing.container_id[:12]}"
+            if existing.container_id
+            else f"pid={existing.pid}"
+        )
         raise DaemonAlreadyRunning(
-            f"daemon already running (pid={existing.pid}); use "
+            f"daemon already running ({pid_or_cid}); use "
             "`jig daemon stop` first"
         )
     if existing.stale:
-        # Clean up the stale PID file so the new daemon can write its own.
-        daemon_paths(project_path).pid_file.unlink(missing_ok=True)
+        # Clean up stale state for whichever mode it was.
+        paths = daemon_paths(project_path)
+        paths.pid_file.unlink(missing_ok=True)
+        paths.container_file.unlink(missing_ok=True)
 
-    # Pre-flight: confirm this directory is an initialized jig project so
-    # we don't fork a subprocess that will die immediately. Tests using
-    # ``_command_override`` bypass this — they're not exercising the
-    # orchestrator path.
-    if _command_override is None:
+    # Pre-flight: project must be initialized. Skip in docker mode —
+    # the orchestrator inside the container does its own check.
+    if _command_override is None and not docker:
         config_file = project_path / ".jig" / "config.yaml"
         if not config_file.is_file():
             raise RuntimeError(
@@ -150,6 +179,57 @@ def daemon_start(
             )
 
     paths = daemon_paths(project_path, ensure=True)
+
+    # ------------------------------------------------------------------ docker
+    if docker:
+        from jig.container import (
+            docker_available,
+            image_exists,
+            run_detached_container,
+            container_alive,
+        )
+        if not docker_available():
+            raise RuntimeError(
+                "docker not available on PATH. Install Docker or omit --docker."
+            )
+        if not image_exists():
+            raise RuntimeError(
+                "jig Docker image not built. Run `jig build` first."
+            )
+        try:
+            container_id = run_detached_container(project_path, ws_port, verbose=False)
+        except (RuntimeError, subprocess.CalledProcessError) as exc:
+            raise RuntimeError(f"failed to launch container: {exc}") from exc
+        paths.container_file.write_text(container_id)
+        addr = f"ws://127.0.0.1:{ws_port}"
+        paths.socket_addr_file.write_text(addr)
+        # Brief poll: did the container die immediately?
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if not container_alive(container_id):
+                paths.container_file.unlink(missing_ok=True)
+                paths.socket_addr_file.unlink(missing_ok=True)
+                # Capture container logs for diagnosis.
+                try:
+                    log_result = subprocess.run(
+                        ["docker", "logs", container_id],
+                        capture_output=True, text=True, check=False,
+                    )
+                    err_excerpt = (log_result.stderr or log_result.stdout).strip()
+                    paths.stderr_log.write_text(err_excerpt)
+                except Exception:
+                    err_excerpt = ""
+                tail = ""
+                if err_excerpt:
+                    tail = "\n  " + err_excerpt.splitlines()[-1]
+                raise RuntimeError(
+                    f"container exited immediately (id={container_id[:12]}); "
+                    f"see {paths.stderr_log}{tail}"
+                )
+            time.sleep(0.1)
+        return DaemonStartResult(pid=0, addr=addr, container_id=container_id)
+
+    # ------------------------------------------------------------------- host
     cmd = list(_command_override) if _command_override else [
         "jig", "daemon", "serve",
         "--path", str(project_path),
@@ -197,27 +277,40 @@ def daemon_start(
 
 def daemon_stop(project_path: Path, *, timeout: float = 5.0) -> bool:
     """Stop the daemon if running. Returns True if a running daemon
-    was stopped, False if no daemon was running. Sends SIGTERM, waits
-    up to ``timeout`` seconds, then SIGKILL."""
+    was stopped, False if no daemon was running.
+
+    Host mode: SIGTERM → wait → SIGKILL.
+    Docker mode: ``docker stop``.
+    """
     status = daemon_status(project_path)
-    if not status.running or status.pid is None:
-        # Clean up stale PID file if present.
-        daemon_paths(project_path).pid_file.unlink(missing_ok=True)
+    paths = daemon_paths(project_path)
+
+    if not status.running:
+        # Clean up any stale files from either mode.
+        paths.pid_file.unlink(missing_ok=True)
+        paths.container_file.unlink(missing_ok=True)
         return False
-    try:
-        os.kill(status.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not _process_alive(status.pid):
-            break
-        time.sleep(0.1)
-    else:
+
+    if status.kind == "docker" and status.container_id:
+        from jig.container import stop_detached_container
+        stop_detached_container(status.container_id, timeout=int(timeout))
+    elif status.kind == "host" and status.pid is not None:
         try:
-            os.kill(status.pid, signal.SIGKILL)
+            os.kill(status.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    daemon_paths(project_path).pid_file.unlink(missing_ok=True)
-    daemon_paths(project_path).socket_addr_file.unlink(missing_ok=True)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not _process_alive(status.pid):
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.kill(status.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    paths.pid_file.unlink(missing_ok=True)
+    paths.container_file.unlink(missing_ok=True)
+    paths.socket_addr_file.unlink(missing_ok=True)
     return True

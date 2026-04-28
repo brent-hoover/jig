@@ -52,11 +52,13 @@ Creates a `.jig/` directory with default agent types (spec, test, dev, review), 
 
 ```bash
 cd /path/to/your/repo
-jig daemon start              # start the background orchestrator first
+jig daemon start              # auto-detects Docker if available
 jig                           # then open the TUI
 ```
 
 `jig` (no args) opens a Textual TUI that connects to the local daemon. The daemon is a separate background process that hosts the orchestrator + agents + WebSocket server. Closing the TUI does not stop the daemon — agents in flight finish their work. Stop it explicitly with `jig daemon stop` when done.
+
+`jig daemon start` runs the orchestrator on the host by default. To force isolation in Docker (host isolation + bwrap per agent), use `--docker`. To force host mode even when Docker is available, use `--no-docker`. (The image must be built first via `jig build`.)
 
 The TUI has four tabs:
 - **Now** — conversation surface for `/init`, free-text concierge queries, and live agent output

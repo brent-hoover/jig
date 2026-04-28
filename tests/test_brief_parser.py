@@ -246,6 +246,41 @@ def test_parse_elaborated_section_rejects_missing_anchor():
         parse_elaborated_section(body, section="planned_committed")
 
 
+def test_parse_elaborated_section_skips_horizontal_rules():
+    """PO commonly inserts --- separators between capability sections;
+    they're visual-only and the parser must ignore them rather than
+    failing on the unfamiliar bullet."""
+    body = """\
+### Todo CRUD {#todo-crud}
+
+CRUD on todos.
+
+**Acceptance criteria:**
+- A todo can be created
+
+---
+
+### Due Dates {#due-dates}
+
+Set a due date.
+
+**Acceptance criteria:**
+- A date can be set
+
+***
+
+### Priorities {#priorities}
+
+High/medium/low.
+
+**Acceptance criteria:**
+- Default is medium
+"""
+    caps = parse_elaborated_section(body, section="planned_committed")
+    assert [c.id for c in caps] == ["todo-crud", "due-dates", "priorities"]
+    assert all(c.capability_acceptance_criteria for c in caps)
+
+
 def test_parse_elaborated_section_rejects_ac_referencing_missing_behavior():
     body = """\
 ### X {#x}

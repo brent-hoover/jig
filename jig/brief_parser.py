@@ -200,7 +200,12 @@ def _parse_capability_block(text: str, *, section: BriefSection) -> BriefCapabil
     except AnchorParseError as e:
         raise BriefParseError(str(e)) from e
 
-    body_lines = lines[1:]
+    # Strip horizontal-rule lines (---, ***, ___) — visual formatting
+    # PO might insert between sections; no semantic content for the parser.
+    body_lines = [
+        line for line in lines[1:]
+        if line.strip() not in ("---", "***", "___")
+    ]
     blocks = _split_on_labels(body_lines)
 
     summary = blocks.pop("__intro__", "").strip()

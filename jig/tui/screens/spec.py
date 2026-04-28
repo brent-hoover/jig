@@ -19,9 +19,8 @@ from typing import Any
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Container, Horizontal
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.widgets import Static, Tree
 
 
@@ -34,10 +33,8 @@ _STATE_GROUPS = [
 ]
 
 
-class SpecScreen(Screen):
+class SpecScreen(Container):
     """Live capabilities + non-goals view."""
-
-    AUTO_FOCUS = None
 
     BINDINGS = [
         Binding("j", "select_next", "Down", show=False),
@@ -47,6 +44,7 @@ class SpecScreen(Screen):
     DEFAULT_CSS = """
     SpecScreen {
         layout: vertical;
+        height: 1fr;
     }
     SpecScreen > Horizontal {
         height: 1fr;

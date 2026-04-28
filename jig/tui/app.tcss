@@ -6,3 +6,7 @@ Screen {
 TabbedContent {
     height: 1fr;
 }
+
+TabPane {
+    height: 1fr;
+}

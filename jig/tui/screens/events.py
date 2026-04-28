@@ -19,8 +19,8 @@ from typing import Any
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Container
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.widgets import ListItem, ListView, Static
 
 
@@ -33,10 +33,8 @@ _FILTER_CYCLE = [
 ]
 
 
-class EventsScreen(Screen):
+class EventsScreen(Container):
     """Live (snapshot-driven for v0) bus-event tail."""
-
-    AUTO_FOCUS = None
 
     BINDINGS = [
         Binding("j", "select_next", "Down", show=False),
@@ -46,6 +44,7 @@ class EventsScreen(Screen):
     DEFAULT_CSS = """
     EventsScreen {
         layout: vertical;
+        height: 1fr;
     }
     #events-status {
         height: 1;

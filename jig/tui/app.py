@@ -39,7 +39,10 @@ class JigApp(App):
         # Events pane hotkeys
         Binding("f", "cycle_event_filter", "Filter", show=False),
         Binding("F", "toggle_event_follow", "Follow", show=False),
-        Binding("enter", "open_event_detail", "Detail", show=False),
+        # priority=True so App wins over ListView.select_cursor when events pane
+        # is active; check_action() returns False on other panes so the event
+        # falls through to the focused widget unchanged.
+        Binding("enter", "open_event_detail", "Detail", show=False, priority=True),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -141,6 +144,17 @@ class JigApp(App):
         except Exception:
             return  # mount may not have run yet
         footer.update_daemon_state(new)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Gate open_event_detail so its priority=True binding yields on other panes.
+
+        Returning False causes run_action to return False, which makes _check_bindings
+        continue rather than consuming the key event.  This lets widgets (e.g. Input,
+        ListView) handle 'enter' normally when the events pane is not active.
+        """
+        if action == "open_event_detail":
+            return True if self._events_pane_active() else False
+        return super().check_action(action, parameters)
 
     def action_switch_screen(self, screen_id: str) -> None:
         tabs = self.query_one(TabbedContent)

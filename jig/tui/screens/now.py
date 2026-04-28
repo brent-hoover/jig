@@ -2,29 +2,28 @@ from __future__ import annotations
 
 from textual import events
 from textual.app import ComposeResult
-from textual.screen import Screen
+from textual.containers import Container
 from textual.widgets import Input, RichLog
 
 from jig.tui.slash import ParsedSlash, SlashParseError, parse_slash
 
 
-class NowScreen(Screen):
+class NowScreen(Container):
     """Active-interaction screen — scrolling transcript + input.
 
     Phase 3.3: answering mode (prompt_request) + agent render streaming.
 
-    Note: AUTO_FOCUS is disabled and DescendantFocus is stopped at this
-    level to prevent Textual's TabPane.Focused / TabbedContent._on_tab_pane_focused
-    chain from re-activating the now-pane whenever the Input gains focus.
-    Without this, any focus() call inside this Screen causes TabbedContent
+    Note: DescendantFocus is stopped at this level to prevent Textual's
+    TabPane.Focused / TabbedContent._on_tab_pane_focused chain from
+    re-activating the now-pane whenever the Input gains focus.
+    Without this, any focus() call inside this Container causes TabbedContent
     to switch back to now-pane.
     """
-
-    AUTO_FOCUS = None
 
     DEFAULT_CSS = """
     NowScreen {
         layout: vertical;
+        height: 1fr;
     }
     #scrollback {
         height: 1fr;
@@ -47,10 +46,6 @@ class NowScreen(Screen):
         self.query_one("#scrollback", RichLog).write(
             "[dim]welcome to jig — try /help[/dim]"
         )
-
-    def on_show(self) -> None:
-        """Focus the input when this pane becomes visible."""
-        self.query_one("#input", Input).focus()
 
     def _on_descendant_focus(self, event: events.DescendantFocus) -> None:
         """Stop DescendantFocus from reaching TabPane.

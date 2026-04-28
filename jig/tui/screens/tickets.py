@@ -25,9 +25,8 @@ from typing import Any
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, ScrollableContainer, Vertical
+from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.widgets import ListItem, ListView, Static
 
 
@@ -146,10 +145,8 @@ class BoardView(ScrollableContainer):
         )
 
 
-class TicketsScreen(Screen):
+class TicketsScreen(Container):
     """Live master/detail of all tickets."""
-
-    AUTO_FOCUS = None  # mirror NowScreen — prevent TabPane focus loops
 
     BINDINGS = [
         Binding("j", "select_next", "Down", show=False),
@@ -160,6 +157,7 @@ class TicketsScreen(Screen):
     DEFAULT_CSS = """
     TicketsScreen {
         layout: vertical;
+        height: 1fr;
     }
     TicketsScreen > #list-mode-row {
         height: 1fr;

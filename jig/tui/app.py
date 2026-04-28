@@ -33,6 +33,8 @@ class JigApp(App):
         Binding("4", "switch_screen('events')", "Events", show=False),
         # Pane-local bindings routed here because ContentTabs holds focus
         Binding("b", "toggle_board", "List/Board", show=False),
+        Binding("n", "new_ticket", "New", show=False),
+        Binding("e", "edit_ticket", "Edit", show=False),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -132,13 +134,72 @@ class JigApp(App):
 
         self.push_screen(HelpScreen())
 
+    def _tickets_pane_active(self) -> bool:
+        try:
+            tabs = self.query_one(TabbedContent)
+        except Exception:
+            return False
+        return tabs.active == "tickets-pane"
+
     def action_toggle_board(self) -> None:
         """Toggle board view on the Tickets pane when it's active."""
-        tabs = self.query_one(TabbedContent)
-        if tabs.active != "tickets-pane":
+        if not self._tickets_pane_active():
             return
         try:
             tickets = self.query_one(TicketsScreen)
             tickets.action_toggle_view()
         except Exception:
             pass
+
+    async def action_new_ticket(self) -> None:
+        """Push NewTicketModal when the Tickets pane is active."""
+        if not self._tickets_pane_active():
+            return
+        from jig.tui.screens.ticket_form import NewTicketModal
+
+        async def on_submit_async(data: dict) -> None:
+            flagged: list[str] = []
+            for k in ("title", "type", "size", "assignee", "description"):
+                if k in data and data[k]:
+                    flagged.extend([f"--{k}", data[k]])
+            await self.client.send_command("ticket", {"args": ["new", *flagged]})
+
+        def on_submit(data: dict) -> None:
+            self.run_worker(on_submit_async(data), exclusive=False)
+
+        await self.push_screen(NewTicketModal(on_submit=on_submit))
+
+    async def action_edit_ticket(self) -> None:
+        """Push EditTicketModal for the selected ticket when the Tickets pane is active."""
+        if not self._tickets_pane_active():
+            return
+        from jig.tui.screens.ticket_form import EditTicketModal
+        from textual.widgets import ListView
+
+        try:
+            screen = self.query_one(TicketsScreen)
+        except Exception:
+            return
+        try:
+            list_view = screen.query_one("#tickets-list", ListView)
+        except Exception:
+            return
+        if list_view.index is None or list_view.index >= len(list_view.children):
+            return
+        item = list_view.children[list_view.index]
+        ticket_id = getattr(item, "ticket_id", None)
+        if not ticket_id or ticket_id not in screen.tickets:
+            return
+        ticket = screen.tickets[ticket_id]
+
+        async def on_submit_async(tid: str, changes: dict) -> None:
+            kvs = [f"{k}={v}" for k, v in changes.items()]
+            if kvs:
+                await self.client.send_command(
+                    "ticket", {"args": ["update", tid, *kvs]}
+                )
+
+        def on_submit(tid: str, changes: dict) -> None:
+            self.run_worker(on_submit_async(tid, changes), exclusive=False)
+
+        await self.push_screen(EditTicketModal(ticket=ticket, on_submit=on_submit))

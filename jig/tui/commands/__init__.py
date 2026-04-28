@@ -37,3 +37,4 @@ from jig.tui.commands import status  # noqa: F401, E402
 from jig.tui.commands import prompt_reply  # noqa: F401, E402
 from jig.tui.commands import init  # noqa: F401, E402
 from jig.tui.commands import concierge  # noqa: F401, E402
+from jig.tui.commands import ticket  # noqa: F401, E402

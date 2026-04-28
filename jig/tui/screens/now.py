@@ -202,6 +202,8 @@ class NowScreen(Screen):
                 "  /help    — show this message\n"
                 "  /status  — daemon + agent status\n"
                 "  /init <name> [--force]  — initialize a project\n"
+                "  /ticket new --title <t> --size <s>  — create a ticket\n"
+                "  /ticket update <id> status=<s>      — edit a ticket\n"
                 "  /quit    — quit the TUI\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."

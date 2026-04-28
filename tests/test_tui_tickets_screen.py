@@ -205,3 +205,48 @@ async def test_b_hotkey_toggles_back_to_list(tmp_path: Path):
         board = app.query_one("#board-mode-view")
         assert list_row.display is True
         assert board.display is False
+
+
+@pytest.mark.asyncio
+async def test_n_hotkey_pushes_new_ticket_modal(tmp_path: Path):
+    from jig.tui.screens.ticket_form import NewTicketModal
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("2")  # Tickets pane
+        await pilot.pause(0.05)
+        await pilot.press("n")
+        await pilot.pause(0.05)
+        assert isinstance(app.screen, NewTicketModal)
+        # Cancel out
+        await pilot.press("escape")
+
+
+@pytest.mark.asyncio
+async def test_e_hotkey_does_nothing_with_no_selection(tmp_path: Path):
+    """e on Tickets pane with no tickets should not crash."""
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("2")
+        await pilot.press("e")
+        await pilot.pause(0.05)
+        # No modal should be active
+        from jig.tui.screens.ticket_form import EditTicketModal
+        assert not isinstance(app.screen, EditTicketModal)
+
+
+@pytest.mark.asyncio
+async def test_e_hotkey_pushes_edit_modal_with_selection(tmp_path: Path):
+    from jig.tui.screens.tickets import TicketsScreen
+    from jig.tui.screens.ticket_form import EditTicketModal
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("2")
+        screen = app.query_one(TicketsScreen)
+        await screen.handle_snapshot([_ticket("a", title="Alpha", status="open")])
+        await pilot.pause(0.05)
+        await pilot.press("e")
+        await pilot.pause(0.05)
+        assert isinstance(app.screen, EditTicketModal)
+        await pilot.press("escape")

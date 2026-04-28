@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,6 +26,8 @@ from jig.ticket_mcp import (
 
 if TYPE_CHECKING:
     from jig.orchestrator import Orchestrator
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +74,8 @@ class WebSocketServer:
         self._clients: set[ServerConnection] = set()
         self._queue = emitter.subscribe()
         self._history: list[str] = []
+        self._history_replayed: set[ServerConnection] = set()
+        self._subscriptions: dict[ServerConnection, set[str]] = {}
 
     @property
     def port(self) -> int:
@@ -99,12 +104,8 @@ class WebSocketServer:
         self._emitter.unsubscribe(self._queue)
 
     async def _handle_client(self, websocket: ServerConnection) -> None:
-        # Replay event history to late-joining clients
-        for message in self._history:
-            try:
-                await websocket.send(message)
-            except websockets.ConnectionClosed:
-                return
+        # Do NOT replay history here — legacy clients get it in _handle_incoming
+        # on their first non-subscribe message; typed subscribers never get it.
         self._clients.add(websocket)
         try:
             async for raw in websocket:
@@ -113,6 +114,8 @@ class WebSocketServer:
             pass
         finally:
             self._clients.discard(websocket)
+            self._history_replayed.discard(websocket)
+            self._subscriptions.pop(websocket, None)
 
     async def _safe_send(self, websocket: ServerConnection, message: str) -> None:
         """Send a reply, swallowing ConnectionClosed so a dying client
@@ -135,6 +138,10 @@ class WebSocketServer:
         msg_type = payload.get("type")
         if msg_type == "subscribe":
             topics = payload.get("topics", [])
+            # Track per-client subscriptions for filtered relay.
+            if websocket not in self._subscriptions:
+                self._subscriptions[websocket] = set()
+            self._subscriptions[websocket].update(topics)
             for topic in topics:
                 try:
                     snapshot = await self._build_snapshot(topic)
@@ -148,6 +155,15 @@ class WebSocketServer:
                     websocket, json.dumps(snapshot_envelope(topic, snapshot))
                 )
             return
+
+        # Non-subscribe message from a legacy client: replay history once.
+        if websocket not in self._history_replayed:
+            self._history_replayed.add(websocket)
+            for message in self._history:
+                try:
+                    await websocket.send(message)
+                except websockets.ConnectionClosed:
+                    return
 
         # Legacy path: existing Bun TUI uses bare command keys.
         # Keep this entire block as-is — do not modify.
@@ -445,13 +461,21 @@ class WebSocketServer:
             spec = StructuredSpec.model_validate(data)
             return spec.model_dump(mode="json", by_alias=True)
         if topic == "agents":
-            # list_active_agents may not exist yet — return empty list for now.
-            if self._orch is None or not hasattr(self._orch, "list_active_agents"):
+            if self._orch is None:
+                return []
+            if not hasattr(self._orch, "list_active_agents"):
+                logger.warning(
+                    "snapshot for topic 'agents' is empty: missing helper list_active_agents"
+                )
                 return []
             return await self._orch.list_active_agents()
         if topic == "events":
-            # Last 100 messages; if bus has no .recent helper, just return [].
-            if self._orch is None or not hasattr(self._orch.bus, "recent"):
+            if self._orch is None:
+                return []
+            if not hasattr(self._orch.bus, "recent"):
+                logger.warning(
+                    "snapshot for topic 'events' is empty: missing helper bus.recent"
+                )
                 return []
             return [m.model_dump(mode="json") for m in self._orch.bus.recent(limit=100)]
         if topic == "threads":
@@ -462,19 +486,27 @@ class WebSocketServer:
     async def _relay_events(self) -> None:
         while True:
             event = await self._queue.get()
-            # Existing raw-message broadcast (Bun TUI still listens for it):
+            # Raw broadcast: only to legacy clients (no entry in _subscriptions).
             message = event.to_json()
             self._history.append(message)
             for client in list(self._clients):
+                if client in self._subscriptions:
+                    # Typed subscriber — skip raw frames.
+                    continue
                 try:
                     await client.send(message)
                 except websockets.ConnectionClosed:
                     self._clients.discard(client)
-            # NEW: also publish as typed event for new TUI clients
+            # Typed broadcast: only to subscribers, filtered by topic.
             typed = self._classify_event(event)
             if typed is not None:
                 typed_msg = json.dumps(typed)
+                topic = typed.get("topic")
                 for client in list(self._clients):
+                    if client not in self._subscriptions:
+                        continue
+                    if topic not in self._subscriptions[client]:
+                        continue
                     try:
                         await client.send(typed_msg)
                     except websockets.ConnectionClosed:
@@ -493,8 +525,9 @@ class WebSocketServer:
             return event_envelope(
                 "agents", event.type.removeprefix("agent_"), payload
             )
-        # Default: surface on `events` topic for the events screen
-        return event_envelope("events", event.type, payload)
+        # No typed projection for this event — drop it.
+        # A deliberate event-tail will be added in Phase 3 once bus.recent exists.
+        return None
 
 
 def _thread_entry_to_wire(entry) -> dict:

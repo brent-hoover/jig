@@ -78,21 +78,20 @@ def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> N
     Called by both ``jig start`` (after the Docker check) and
     ``jig daemon serve`` (the body the daemon-start fork executes).
     """
-    jig_dir = path / ".jig"
-    if not jig_dir.is_dir():
-        raise click.ClickException(
-            f"Jig not initialized in {path}. Run 'jig init' first."
-        )
+    # Ensure .jig/ exists so logging and daemon files have a place to live
+    # even when the project hasn't been initialized yet (unconfigured mode).
+    (path / ".jig").mkdir(parents=True, exist_ok=True)
 
-    # Fail-loud catalog validation (Phase 2F). Unknown role / workflow /
-    # check references, malformed YAML, and missing required context
-    # artifacts all surface here before any loop starts.
-    from jig.catalog import CatalogError, validate_catalog
+    # Fail-loud catalog validation (Phase 2F). Only when a project config
+    # exists — unconfigured mode skips this entirely.
+    config_file = path / ".jig" / "config.yaml"
+    if config_file.is_file():
+        from jig.catalog import CatalogError, validate_catalog
 
-    try:
-        validate_catalog(path)
-    except CatalogError as exc:
-        raise click.ClickException(f"Catalog validation failed: {exc}")
+        try:
+            validate_catalog(path)
+        except CatalogError as exc:
+            raise click.ClickException(f"Catalog validation failed: {exc}")
 
     from jig.logging_setup import configure_logging
 

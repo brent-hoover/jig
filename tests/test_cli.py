@@ -79,11 +79,33 @@ class TestStart:
         mock_orch.shutdown.assert_called_once()
         mock_ws.stop.assert_called_once()
 
-    def test_not_initialized(self, runner: CliRunner, tmp_path: Path) -> None:
+    @patch("jig.cli.WebSocketServer")
+    @patch("jig.cli.Orchestrator")
+    def test_starts_in_unconfigured_mode_when_no_jig_dir(
+        self,
+        MockOrchestrator: MagicMock,
+        MockWsServer: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Guard removed: jig start on an uninitialized dir runs in unconfigured mode."""
         (tmp_path / ".git").mkdir()  # git repo but no .jig/
-        result = runner.invoke(cli, ["start", "--path", str(tmp_path), "--no-docker"])
-        assert result.exit_code != 0
-        assert "not initialized" in result.output.lower()
+        mock_orch = MockOrchestrator.return_value
+        mock_orch.startup = AsyncMock(side_effect=KeyboardInterrupt)
+        mock_orch.shutdown = AsyncMock()
+
+        mock_ws = MockWsServer.return_value
+        mock_ws.start = AsyncMock()
+        mock_ws.stop = AsyncMock()
+        mock_ws.port = 0
+
+        result = runner.invoke(
+            cli,
+            ["start", "--path", str(tmp_path), "--ws-port", "0", "--no-docker"],
+        )
+        # Exits cleanly — no longer rejected for missing .jig/
+        assert result.exit_code == 0, result.output
+        MockOrchestrator.assert_called_once()
 
 
 class TestValidate:

@@ -144,19 +144,22 @@ daemon; out of scope for a first dogfood).
 **Terminal B — TUI:**
 
 ```bash
-cd ~/Projects/personal/jig/tui
-bun install                       # first time only
-bun run src/main.tsx              # connects to ws://127.0.0.1:9100 by default
+cd /tmp/jig-dogfood
+jig            # launches the Textual TUI; auto-starts a daemon if needed
 ```
 
 You should see:
-- status bar: `connected` (green) · `0 active · 0 open · 0 done`
-- live-events panel on the left, empty
-- mode indicator `[live]` on the bottom status line
-- hints: `n:new  h/l:panel  ...  q:quit`
+- four tabs at the top: `Now · Tickets · Spec · Events`
+- footer showing `daemon: connected` in green
+- the Now scrollback with `welcome to jig — try /help`
 
-If it shows `reconnecting...` red, the orchestrator isn't up or the port got
-stolen — check Terminal A.
+Press `?` for the in-app key reference. `q` exits the TUI without stopping
+the daemon — the orchestrator keeps running in the background. Stop the
+daemon explicitly with `jig daemon stop` when done.
+
+If the footer shows `daemon: reconnecting` (yellow) or `disconnected`
+(red), the daemon failed to start or got killed — `jig daemon status`
+to inspect; restart with `jig daemon start`.
 
 ## 6. Create the first ticket
 
@@ -204,10 +207,11 @@ worktree. You'll see:
 - `commit_recorded` entries as `commit_progress` fires
 - status flips to `needs_info` if the agent asks a question
 
-**If it lands on `needs_info`:** open the ticket (Tab to ticket view, j/k to
-pick it), press whatever the TUI hint says to answer (currently: open the
-answer modal per `tui/src/answer-form.tsx`). The `answer_questions` path
-flips the ticket back to `in_progress` and the phase resumes. To see what
+**If it lands on `needs_info`:** the operator answers via the Now tab.
+The active question shows up inline as a Panel and Now switches to
+"answering mode" — the next text you submit is sent back as the answer
+via the daemon's prompt round-trip protocol. The `answer_questions`
+path flips the ticket back to `in_progress` and the phase resumes. To see what
 the agent actually asked (with surrounding context), run:
 
 ```bash

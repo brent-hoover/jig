@@ -9,8 +9,7 @@ Multi-agent orchestrator that spawns Claude Code agents across a codebase. Pytho
 ## Project Structure
 
 ```
-jig/                  # Python package — orchestrator, agents, stores, MCP
-tui/                  # TypeScript TUI (Gridland JSX on Bun)
+jig/                  # Python package — orchestrator, agents, stores, MCP, Textual TUI
 tests/                # pytest suite (async)
 templates/            # Project init templates
 Dockerfile            # Container image (Python 3.12 + Node 22 + bwrap)
@@ -42,7 +41,7 @@ Orchestrator subscribes to the `"orchestrator"` bus topic. Agents communicate vi
 - **pydantic v2** for models, **click** for CLI, **pyyaml** for config
 - **claude-agent-sdk** for agent execution (SubprocessCLITransport)
 - **websockets** for TUI connection
-- **Bun + Gridland** for the TUI (TypeScript JSX)
+- **Textual** for the TUI (Python; daemon + client architecture)
 - **Docker + bubblewrap** for sandboxing
 
 ## Commands
@@ -55,8 +54,9 @@ jig build                      # Build Docker image
 jig start                      # Start orchestrator (auto-builds Docker on first run)
 jig start --no-docker          # Run without sandbox
 jig story <ticket-id>          # Print merged thread+log story for a ticket
-cd tui && bun install           # Install TUI deps
-cd tui && bun run src/main.tsx  # Start TUI
+jig                            # Launch the Textual TUI (auto-starts daemon)
+jig daemon start|stop|status   # Control the background daemon directly
+jig --print "/<command>"       # One-shot non-interactive slash command
 ```
 
 ## Conventions

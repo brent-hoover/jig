@@ -46,38 +46,41 @@ jig init
 
 Creates a `.jig/` directory with default agent types (spec, test, dev, review), a default workflow, and project config.
 
-### 3. Install the TUI
-
-```bash
-cd tui && bun install
-```
-
 ## Usage
 
-### Start the orchestrator
+### Launch the TUI
 
 ```bash
 cd /path/to/your/repo
-jig start
+jig
 ```
 
-On first run, jig automatically builds a Docker image and launches the orchestrator inside it. Agents are sandboxed with bubblewrap for per-agent filesystem isolation.
+`jig` (no args) opens a Textual TUI. It auto-starts a background `jig daemon` that hosts the orchestrator + agents + WebSocket server, then connects. Closing the TUI does not stop the daemon — agents in flight finish their work.
 
-To skip Docker (no sandbox, for local development):
+The TUI has four tabs:
+- **Now** — conversation surface for `/init`, free-text concierge queries, and live agent output
+- **Tickets** — list/board of all tickets (`b` toggles, `n` creates, `e` edits)
+- **Spec** — capabilities + non-goals from `.jig/spec/project.structured.yaml`
+- **Events** — bus event tail with filter + follow
+
+Press `?` for the in-app key reference.
+
+### Daemon controls
 
 ```bash
-jig start --no-docker
+jig daemon start    # start the background orchestrator (auto-runs when `jig` launches)
+jig daemon stop     # stop it
+jig daemon status   # check if it's running
 ```
 
-### Monitor with TUI
-
-In a separate terminal:
+### Run a single command non-interactively
 
 ```bash
-cd tui && bun run src/main.tsx
+jig --print "/status"
+jig --print "/ticket new --title foo --size s"
 ```
 
-Connects to `ws://localhost:9100` and displays real-time workflow progress, agent activity, and ticket state.
+CI / scripting escape hatch — runs one slash command against the daemon and exits with text/JSON output.
 
 ### Other commands
 
@@ -91,7 +94,7 @@ jig reset     # Reset project to clean state (destructive)
 ## Architecture
 
 - **Jig Core** (Python) — async orchestrator, agent lifecycle, file-backed message bus, MCP server, WebSocket server
-- **Jig TUI** (TypeScript/Bun via Gridland) — real-time workflow monitoring
+- **Jig TUI** (Python / Textual) — interactive operator surface; runs as a client to the daemon
 
 Agents communicate via a message bus exposed as a local MCP server. Each agent runs in an isolated git worktree. The orchestrator handles all git operations.
 
@@ -137,9 +140,6 @@ uv sync
 
 # Run tests
 uv run pytest tests/ -v
-
-# Install TUI dependencies
-cd tui && bun install
 
 # Build Docker image
 jig build

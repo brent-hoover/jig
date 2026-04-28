@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.0",
     "claude-agent-sdk>=0.1.58",
     "websockets>=13.0",
+    "rich>=13.0",
 ]
 
 [project.scripts]

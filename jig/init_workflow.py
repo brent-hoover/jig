@@ -413,14 +413,37 @@ class BriefApprovalChoice(str, Enum):
 
 
 def render_brief_for_approval(project_path: Path) -> str:
-    """Read the brief markdown for approval display. Surrounds it with
-    visual separators so the operator can scan where the brief starts
-    and ends."""
+    """Read and render the brief markdown for approval display.
+
+    Uses rich to render headings/bullets/bold as styled terminal output;
+    falls back to raw text if the file is missing. Surrounds the
+    rendering with visual separators so the operator can scan where the
+    brief starts and ends.
+    """
     brief_path = project_path / ".jig" / "spec" / "project.md"
-    text = brief_path.read_text() if brief_path.is_file() else "(brief is missing)"
+    if not brief_path.is_file():
+        body = "(brief is missing)"
+    else:
+        from io import StringIO
+
+        from rich.console import Console
+        from rich.markdown import Markdown
+
+        buf = StringIO()
+        # force_terminal=True so ANSI escapes are emitted even when stdout
+        # is captured (e.g. piped or under monkeypatched click.echo);
+        # the operator's terminal interprets them on display.
+        console = Console(
+            file=buf,
+            force_terminal=True,
+            color_system="truecolor",
+            width=100,
+        )
+        console.print(Markdown(brief_path.read_text()))
+        body = buf.getvalue().rstrip()
     return (
         "─── Brief preview ──────────────────────────────────────\n"
-        f"{text.rstrip()}\n"
+        f"{body}\n"
         "────────────────────────────────────────────────────────\n"
     )
 

@@ -9,15 +9,24 @@ from jig.init_workflow import (
 
 
 def test_render_brief_for_approval_includes_section_headers(tmp_path: Path):
+    """Rich-rendered output strips the literal `#` markdown markers but
+    preserves heading text (with ANSI styling). Check the visible text
+    content, not the markdown source."""
     spec_dir = tmp_path / ".jig" / "spec"
     spec_dir.mkdir(parents=True)
     (spec_dir / "project.md").write_text(
-        "# x\n\nintro\n\n## Built\n\n(empty)\n\n## Non-goals\n\n- {#ng} no\n"
+        "# todoapp\n\nintro\n\n## Built\n\n(empty)\n\n## Non-goals\n\n- {#ng} no\n"
     )
     out = render_brief_for_approval(tmp_path)
-    assert "# x" in out
+    assert "todoapp" in out
     assert "Built" in out
     assert "Non-goals" in out
+    assert "Brief preview" in out  # the visual separator label survives
+
+
+def test_render_brief_for_approval_handles_missing_file(tmp_path: Path):
+    out = render_brief_for_approval(tmp_path)
+    assert "missing" in out
 
 
 @pytest.mark.asyncio

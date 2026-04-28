@@ -21,6 +21,8 @@ import yaml
 if TYPE_CHECKING:
     from rich.console import Console
 
+    from jig.init_prompts import PromptHandler
+
 from jig.agent import run_agent
 from jig.atomic import atomic_write_text
 from jig.events import EventEmitter, JigEvent
@@ -99,9 +101,18 @@ def create_stub(path: Path, *, name: str) -> None:
         atomic_write_text(brief, f"# {name}\n")
 
 
-async def run_init(*, name: str, force: bool, console: "Console | None" = None) -> None:
+async def run_init(
+    *,
+    name: str,
+    force: bool,
+    console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
+) -> None:
     """Top-level init flow. Dispatches fresh vs resume by classification."""
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     console = console or _spawn_console()
+    prompts = prompts or CliPromptHandler()
     target = Path(name)
     ds = classify_directory(target)
     if ds == DirState.ALREADY_DONE and not force:
@@ -113,7 +124,9 @@ async def run_init(*, name: str, force: bool, console: "Console | None" = None) 
             f"{target}/.jig is in an inconsistent state. Use --force to reset."
         )
     if force and (target / ".jig").is_dir():
-        _confirm_force(target)
+        confirmed = await prompts.ask_force_confirm(target=target, console=console)
+        if not confirmed:
+            raise click.ClickException("Aborted.")
         shutil.rmtree(target / ".jig")
 
     create_stub(target, name=name)
@@ -152,10 +165,11 @@ async def run_init(*, name: str, force: bool, console: "Console | None" = None) 
                 tickets=tickets, threads=threads, bus=bus,
                 ticket_id="brief",
                 console=console,
+                prompts=prompts,
             )
             continue
         if rs == ResumeState.BRIEF_APPROVAL:
-            decision = await prompt_brief_approval(target, console=console)
+            decision = await prompt_brief_approval(target, console=console, prompts=prompts)
             if decision == BriefApprovalChoice.YES:
                 await threads.post(
                     SystemEvent(
@@ -182,7 +196,7 @@ async def run_init(*, name: str, force: bool, console: "Console | None" = None) 
                 )
             continue
         if rs == ResumeState.GAP_PROMPT:
-            decision = await prompt_gap_decision(threads, console=console)
+            decision = await prompt_gap_decision(threads, console=console, prompts=prompts)
             if decision == "Q":
                 console.print(
                     "State saved. Resume later with `jig init <name>`.",
@@ -196,7 +210,7 @@ async def run_init(*, name: str, force: bool, console: "Console | None" = None) 
             )
             continue
         if rs == ResumeState.BRANCH_PROMPT:
-            choice = await prompt_branch_choice(console=console)
+            choice = await prompt_branch_choice(console=console, prompts=prompts)
             if choice == BranchChoice.STAY:
                 await run_po_conversation(
                     project_path=target, tickets=tickets,
@@ -228,10 +242,11 @@ async def run_init(*, name: str, force: bool, console: "Console | None" = None) 
                 tickets=tickets, threads=threads, bus=bus,
                 ticket_id="architecture",
                 console=console,
+                prompts=prompts,
             )
             continue
         if rs == ResumeState.SA_CONFIRM_PROMPT:
-            decision, proposal = await prompt_sa_confirm(threads, console=console)
+            decision, proposal = await prompt_sa_confirm(threads, console=console, prompts=prompts)
             if decision == ConfirmChoice.NO:
                 console.print("Scaffold cancelled. State saved.", markup=False)
                 return
@@ -261,7 +276,7 @@ async def run_init(*, name: str, force: bool, console: "Console | None" = None) 
             _print_summary(target, template_name=proposal["template_name"], console=console)
             return
         if rs == ResumeState.DIRECT_TEMPLATE_PICK:
-            tpl = await prompt_direct_template(console=console)
+            tpl = await prompt_direct_template(console=console, prompts=prompts)
             await apply_scaffold(
                 project_path=target,
                 template_name=tpl,
@@ -466,19 +481,21 @@ def render_gap_prompt(gaps: list[Gap]) -> str:
 
 
 async def prompt_gap_decision(
-    threads: ThreadStore, *, console: "Console | None" = None
+    threads: ThreadStore,
+    *,
+    console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
 ) -> str:
     """Display the gap prompt and return the user's decision ('R' or 'Q')."""
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     c = console or _spawn_console()
+    p = prompts or CliPromptHandler()
     note = await latest_gap_note(threads)
     if note is None:
         raise RuntimeError("prompt_gap_decision called with no gap note")
     gaps = [Gap.model_validate(g) for g in note.payload["gaps"]]
-    c.print(render_gap_prompt(gaps), markup=False)
-    reply = click.prompt("Choice", default="R", show_default=False).strip().upper()
-    if reply not in ("R", "Q"):
-        reply = "R"
-    return reply
+    return await p.ask_gap_decision(gaps=gaps, console=c)
 
 
 class BriefApprovalChoice(str, Enum):
@@ -535,19 +552,16 @@ def render_brief_for_approval(project_path: Path) -> str:
 
 
 async def prompt_brief_approval(
-    project_path: Path, *, console: "Console | None" = None
+    project_path: Path,
+    *,
+    console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
 ) -> BriefApprovalChoice:
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     c = console or _spawn_console()
-    c.print(render_brief_for_approval(project_path), markup=False)
-    c.print(
-        "Approve brief?\n"
-        "  [Y] Hand off to spec-generator   (default)\n"
-        "  [r] Resume PO — more changes needed\n"
-        "  [n] Cancel — exit, state saved\n",
-        markup=False,
-    )
-    reply = click.prompt("Choice", default="Y", show_default=False)
-    return BriefApprovalChoice.parse(reply)
+    p = prompts or CliPromptHandler()
+    return await p.ask_brief_approval(project_path=project_path, console=c)
 
 
 class BranchChoice(str, Enum):
@@ -576,11 +590,16 @@ def render_branch_prompt() -> str:
     )
 
 
-async def prompt_branch_choice(*, console: "Console | None" = None) -> BranchChoice:
+async def prompt_branch_choice(
+    *,
+    console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
+) -> BranchChoice:
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     c = console or _spawn_console()
-    c.print(render_branch_prompt(), markup=False)
-    reply = click.prompt("Choice", default="Y", show_default=False)
-    return BranchChoice.parse(reply)
+    p = prompts or CliPromptHandler()
+    return await p.ask_branch_choice(console=c)
 
 
 class ConfirmChoice(str, Enum):
@@ -626,17 +645,21 @@ async def prompt_sa_confirm(
     threads: ThreadStore,
     *,
     console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
 ) -> tuple[ConfirmChoice, dict]:
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     c = console or _spawn_console()
+    p = prompts or CliPromptHandler()
     proposal = await latest_scaffold_proposal(threads)
     if proposal is None:
         raise RuntimeError("prompt_sa_confirm called with no proposal")
-    c.print(render_sa_confirm_prompt(
+    choice = await p.ask_sa_confirm(
         template_name=proposal["template_name"],
         rationale=proposal["rationale"],
-    ), markup=False)
-    reply = click.prompt("Choice", default="Y", show_default=False)
-    return ConfirmChoice.parse(reply), proposal
+        console=c,
+    )
+    return choice, proposal
 
 
 async def run_sa_conversation(
@@ -689,22 +712,17 @@ def render_template_list(names: list[str]) -> str:
     return "\n".join(lines)
 
 
-async def prompt_direct_template(*, console: "Console | None" = None) -> str:
+async def prompt_direct_template(
+    *,
+    console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
+) -> str:
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     c = console or _spawn_console()
+    p = prompts or CliPromptHandler()
     names = list_templates()
-    while True:
-        c.print(render_template_list(names), markup=False)
-        reply = click.prompt(
-            f"Pick (1-{len(names)})", default="1", show_default=False
-        ).strip()
-        try:
-            idx = int(reply)
-        except ValueError:
-            c.print("Please enter a number.", markup=False)
-            continue
-        if 1 <= idx <= len(names):
-            return names[idx - 1]
-        c.print("Out of range.", markup=False)
+    return await p.ask_direct_template(template_names=names, console=c)
 
 
 async def create_sa_skipped_marker(
@@ -862,6 +880,7 @@ async def prompt_and_post_answers(
     bus: MessageBus,
     ticket_id: str,
     console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
 ) -> None:
     """Surface a ticket's open Questions to the operator, collect answers
     via stdin, persist them as Answer thread entries, and resume the ticket.
@@ -871,6 +890,8 @@ async def prompt_and_post_answers(
     ``needs_info -> in_progress`` with a ``status_change`` SystemEvent
     and a ``ticket_updated`` bus event.
     """
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
     ticket = await tickets.get(ticket_id)
     if ticket is None:
         raise RuntimeError(f"prompt_and_post_answers: missing ticket {ticket_id!r}")
@@ -878,26 +899,15 @@ async def prompt_and_post_answers(
     if not open_qs:
         return
 
-    from rich.panel import Panel
-    from rich.text import Text
-
     c = console or _spawn_console()
+    p = prompts or CliPromptHandler()
     for i, q in enumerate(open_qs, start=1):
-        title_suffix = (
-            f" ({i}/{len(open_qs)})" if len(open_qs) > 1 else ""
+        reply = await p.ask_question_answer(
+            question=q,
+            index=i,
+            total=len(open_qs),
+            console=c,
         )
-        c.print()
-        c.print(
-            Panel(
-                Text(q.question, style="bold"),
-                title=f"[cyan]{q.author} asks{title_suffix}[/cyan]",
-                title_align="left",
-                border_style="cyan",
-                padding=(0, 2),
-            )
-        )
-        reply = click.prompt(click.style("›", fg="cyan"),
-                             default="", show_default=False)
         cid = await threads.post(
             Answer(
                 ticket_id=ticket_id,
@@ -1161,11 +1171,3 @@ async def classify_resume(
     return ResumeState.SA_CONVERSATION
 
 
-def _confirm_force(target: Path) -> None:
-    reply = click.prompt(
-        f"This will wipe {target}/.jig. Type 'force' to continue",
-        default="",
-        show_default=False,
-    )
-    if reply != "force":
-        raise click.ClickException("Aborted.")

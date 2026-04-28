@@ -64,7 +64,7 @@ async def test_one_question_one_answer(wired, monkeypatch):
 
     answers = iter(["a tool for doing X"])
     monkeypatch.setattr(
-        "jig.init_workflow.click.prompt", lambda *a, **kw: next(answers)
+        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
     )
 
     await prompt_and_post_answers(
@@ -102,7 +102,7 @@ async def test_multiple_questions_each_get_an_answer(wired, monkeypatch):
 
     answers = iter(["users", "thing X", "to solve Y"])
     monkeypatch.setattr(
-        "jig.init_workflow.click.prompt", lambda *a, **kw: next(answers)
+        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
     )
 
     await prompt_and_post_answers(
@@ -126,7 +126,7 @@ async def test_publishes_bus_events(wired, monkeypatch):
 
     answers = iter(["a1"])
     monkeypatch.setattr(
-        "jig.init_workflow.click.prompt", lambda *a, **kw: next(answers)
+        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
     )
 
     received: list[dict] = []
@@ -170,7 +170,7 @@ async def test_already_answered_questions_are_not_reprompted(wired, monkeypatch)
 
     answers = iter(["fresh answer"])
     monkeypatch.setattr(
-        "jig.init_workflow.click.prompt", lambda *a, **kw: next(answers)
+        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
     )
 
     await prompt_and_post_answers(

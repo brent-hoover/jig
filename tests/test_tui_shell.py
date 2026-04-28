@@ -42,3 +42,15 @@ async def test_slash_help_writes_to_scrollback(tmp_path: Path):
         # RichLog stores rendered Strip objects in `.lines`; flatten to text.
         text = "\n".join(str(line) for line in scrollback.lines)
         assert "Available" in text or "help" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_help_overlay_opens_and_closes(tmp_path: Path):
+    from jig.tui.screens.help import HelpScreen
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("question_mark")
+        assert isinstance(app.screen, HelpScreen)
+        await pilot.press("escape")
+        assert not isinstance(app.screen, HelpScreen)

@@ -88,4 +88,6 @@ class JigApp(App):
         tabs.active = f"{screen_id}-pane"
 
     def action_help(self) -> None:
-        self.notify("Help overlay coming in Phase 2.4")
+        from jig.tui.screens.help import HelpScreen
+
+        self.push_screen(HelpScreen())

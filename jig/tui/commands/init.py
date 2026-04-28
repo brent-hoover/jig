@@ -43,4 +43,18 @@ async def cmd_init(
         await run_init(name=name, force=force, console=console, prompts=prompts)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"init failed: {exc}"}
+
+    # Init may have just bootstrapped the project. Trigger an orchestrator
+    # reload so the daemon picks up new config + stores and the TUI's
+    # subsequent snapshots reflect the freshly created state.
+    if orch is not None:
+        try:
+            await orch.reload()
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "orchestrator reload after init failed: %s", exc, exc_info=True
+            )
+
     return {"ok": True, "data": {"name": name}}

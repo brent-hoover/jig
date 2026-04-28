@@ -38,13 +38,16 @@ class JigApp(App):
     def __init__(self, project_path: Path) -> None:
         super().__init__()
         self.project_path = project_path
-        addr_file = daemon_paths(project_path).socket_addr_file
-        addr = (
-            addr_file.read_text().strip()
-            if addr_file.is_file()
-            else "ws://127.0.0.1:9100"
-        )
-        self.client = DaemonClient(url=addr)
+
+        def _resolve_addr() -> str:
+            addr_file = daemon_paths(self.project_path).socket_addr_file
+            return (
+                addr_file.read_text().strip()
+                if addr_file.is_file()
+                else "ws://127.0.0.1:9100"
+            )
+
+        self.client = DaemonClient(addr_provider=_resolve_addr)
 
     def compose(self) -> ComposeResult:
         with TabbedContent(initial="now-pane"):

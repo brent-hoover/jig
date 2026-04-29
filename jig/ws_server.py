@@ -128,6 +128,8 @@ class WebSocketServer:
             return
 
     async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
+        # DIAG: see every incoming message so we can debug command routing.
+        logger.info("ws received: %s", raw[:200])
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
@@ -138,6 +140,7 @@ class WebSocketServer:
 
         # New typed protocol: dispatch on "type" first.
         msg_type = payload.get("type")
+        logger.info("ws dispatch: type=%s name=%s", msg_type, payload.get("name"))
         if msg_type == "subscribe":
             topics = payload.get("topics", [])
             # Track per-client subscriptions for filtered relay.

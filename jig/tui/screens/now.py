@@ -192,10 +192,22 @@ class NowScreen(Container):
                 scrollback.write(f"[cyan]›[/cyan] {line}")
             else:
                 scrollback.write("[cyan]›[/cyan] [dim](empty)[/dim]")
-            # Send prompt_reply via the daemon client
-            await self.app.client.send_command(
-                "prompt_reply", {"args": [prompt_id, line]}
+            # Send prompt_reply via the daemon client — wrap in a visible
+            # try/except so we can see exactly what happens to the send.
+            scrollback.write(
+                f"[dim cyan][debug] about to send_command(prompt_reply, "
+                f"[{prompt_id[:12]}..., {line[:30]}...]) ws={self.app.client._ws is not None}"
+                f"[/dim cyan]"
             )
+            try:
+                await self.app.client.send_command(
+                    "prompt_reply", {"args": [prompt_id, line]}
+                )
+                scrollback.write("[dim green][debug] send_command returned[/dim green]")
+            except Exception as exc:
+                scrollback.write(
+                    f"[red][debug] send_command FAILED:[/red] {type(exc).__name__}: {exc}"
+                )
             event.input.clear()
             return
 

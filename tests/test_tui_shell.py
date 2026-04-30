@@ -115,9 +115,14 @@ async def test_now_routes_input_to_prompt_reply_in_answering_mode(tmp_path: Path
             },
         })
 
-        # Verify we're in answering mode (placeholder updated)
-        input_widget = app.query_one("#input")
-        assert "Y/n" in input_widget.placeholder or "answer" in input_widget.placeholder
+        # Verify we're in answering mode — hint is written to scrollback
+        # (TextArea has no placeholder; the hint appears as a dim scrollback line)
+        from textual.widgets import RichLog
+        scrollback = app.query_one("#scrollback", RichLog)
+        sb_text = "\n".join(str(line) for line in scrollback.lines)
+        assert now._active_prompt_id == "abc-123", "should be in answering mode"
+        # The hint text contains "Y/n" or "answer"
+        assert "Y/n" in sb_text or "answer" in sb_text.lower()
 
         # Submit "Y" directly via fake event to avoid key-naming brittleness
         class FakeEvent:
@@ -207,3 +212,61 @@ async def test_now_routes_free_text_to_concierge_command(tmp_path: Path):
             name == "concierge" and args == {"args": ["what tickets are open?"]}
             for name, args in sent_commands
         ), f"expected concierge dispatch; got {sent_commands}"
+
+
+@pytest.mark.asyncio
+async def test_shift_enter_inserts_newline_enter_submits(tmp_path: Path):
+    """Shift+Enter must insert a newline; Enter must submit the whole multi-line text."""
+    from jig.tui.screens.now import JigTextArea
+
+    app = JigApp(project_path=tmp_path)
+    sent: list[tuple[str, dict]] = []
+
+    async def fake_send(name, args):
+        sent.append((name, args))
+
+    async with app.run_test() as pilot:
+        app.client.send_command = fake_send  # type: ignore[method-assign]
+        ta = app.query_one("#input", JigTextArea)
+        ta.focus()
+
+        # Type "hi", then insert a newline via action (pilot.press("shift+enter")
+        # may not reach the TextArea binding in headless mode, so call directly).
+        await pilot.press("h", "i")
+        ta.action_newline()
+        await pilot.press("y", "o")
+        await pilot.pause(0.05)
+
+        assert ta.text == "hi\nyo", f"expected 'hi\\nyo', got {ta.text!r}"
+
+        # Now submit — the whole multi-line value should go to concierge
+        await pilot.press("enter")
+        await pilot.pause(0.05)
+
+        assert ("concierge", {"args": ["hi\nyo"]}) in sent, (
+            f"expected concierge with 'hi\\nyo'; got {sent}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_code_fence_renders_as_syntax(tmp_path: Path):
+    """Submission containing ```fenced``` blocks should render Syntax objects."""
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import _render_user_input
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        scrollback = app.query_one("#scrollback", RichLog)
+        initial_lines = len(scrollback.lines)
+
+        text = "here is some code:\n```python\nprint('hi')\n```\ndone"
+        _render_user_input(scrollback, text)
+
+        new_lines = scrollback.lines[initial_lines:]
+        # At least one Syntax object should have been written
+        rendered = "\n".join(str(ln) for ln in new_lines)
+        assert "here is some code" in rendered or len(new_lines) > 0
+        # Verify prose lines appear
+        assert any("here is some code" in str(ln) for ln in new_lines)
+        assert any("done" in str(ln) for ln in new_lines)

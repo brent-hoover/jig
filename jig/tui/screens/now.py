@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import re
+
+from rich.syntax import Syntax
 from textual import events
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container
-from textual.suggester import SuggestFromList
-from textual.widgets import Input, RichLog, Static
+from textual.message import Message
+from textual.widgets import RichLog, Static, TextArea
 
 from jig.tui.slash import ParsedSlash, SlashParseError, parse_slash
 
 
 # Authoritative list of slash commands the operator can use. Drives both
-# the inline suggester (ghost-text completion) and the popup list that
-# appears above the input when the user starts typing /.
+# the popup list that appears above the input when the user starts typing /.
+# NOTE: inline Suggester (ghost-text) is not available on TextArea; the popup
+# is the only completion mechanism.
 _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/help", "show the command reference"),
     ("/status", "daemon + agent status"),
@@ -22,6 +27,61 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/quit", "exit the TUI (also /q, /exit)"),
 ]
 _SLASH_COMMAND_NAMES = [name for name, _ in _SLASH_COMMANDS]
+
+
+class JigTextArea(TextArea):
+    """Multi-line input for Now. Enter submits; Shift+Enter inserts a newline.
+
+    TextArea's default is the opposite (Enter inserts a newline, no submit).
+    We override BINDINGS to swap them and emit a custom Submitted message
+    on Enter so NowScreen's handler fires.
+    """
+
+    class Submitted(Message):
+        """Posted when the operator presses Enter (without Shift)."""
+
+        def __init__(self, value: str) -> None:
+            super().__init__()
+            self.value = value
+
+    BINDINGS = [
+        # Override Enter — TextArea's default inserts a newline; we submit.
+        Binding("enter", "submit", "Submit", show=False, priority=True),
+        Binding("shift+enter", "newline", "Newline", show=False),
+    ]
+
+    def action_submit(self) -> None:
+        self.post_message(self.Submitted(self.text))
+
+    def action_newline(self) -> None:
+        self.insert("\n")
+
+
+def _render_user_input(scrollback: RichLog, text: str) -> None:
+    """Write the operator's submission to scrollback, rendering ```fenced```
+    sections as Syntax blocks and the rest as plain text."""
+    # Split on triple-backtick fences. Pattern: ```[lang]\n...code...\n```
+    parts = re.split(r"```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```", text)
+    # parts looks like: [pre, lang1, code1, between, lang2, code2, post]
+    if len(parts) == 1:
+        # No code fences — write line-by-line with the cyan prefix
+        for i, ln in enumerate(text.splitlines() or [""]):
+            prefix = "[cyan]›[/cyan] " if i == 0 else "  "
+            scrollback.write(f"{prefix}{ln}")
+        return
+    first = True
+    for i in range(0, len(parts), 3):
+        prose = parts[i]
+        if prose:
+            for ln in prose.splitlines():
+                prefix = "[cyan]›[/cyan] " if first else "  "
+                scrollback.write(f"{prefix}{ln}")
+                first = False
+        if i + 2 < len(parts):
+            lang = parts[i + 1] or "text"
+            code = parts[i + 2]
+            scrollback.write(Syntax(code, lang, theme="ansi_dark", line_numbers=False))
+            first = False
 
 
 class NowScreen(Container):
@@ -57,7 +117,9 @@ class NowScreen(Container):
         display: block;
     }
     #input {
-        height: 3;
+        height: auto;
+        min-height: 3;
+        max-height: 10;
         dock: bottom;
     }
     """
@@ -68,14 +130,15 @@ class NowScreen(Container):
         # Input history — up/down arrow recall.
         self._history: list[str] = []
         self._history_idx: int | None = None  # None = at the live edit; 0..len-1 = recall
+        self._pending_value: str = ""
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="scrollback", auto_scroll=True, markup=True)
         yield Static("", id="slash-popup", markup=True)
-        yield Input(
+        yield JigTextArea(
             id="input",
-            placeholder="› type a slash command or message",
-            suggester=SuggestFromList(_SLASH_COMMAND_NAMES, case_sensitive=False),
+            # TextArea doesn't support a placeholder; the welcome message
+            # serves as the initial hint.
         )
 
     async def on_mount(self) -> None:
@@ -83,9 +146,7 @@ class NowScreen(Container):
             "[dim]welcome to jig — type /help or just type to ask the concierge[/dim]"
         )
         # Focus the input on launch so the operator can immediately type.
-        # The bare digit bindings yield to a focused Input via App.check_action,
-        # so global nav still works; Ctrl+1..4 always-fire for forced jumps.
-        self.query_one("#input", Input).focus()
+        self.query_one("#input", JigTextArea).focus()
 
     def on_show(self) -> None:
         """Re-focus the input whenever the Now pane becomes visible.
@@ -94,7 +155,7 @@ class NowScreen(Container):
         the tab strip and the operator can't type until they click the input.
         """
         try:
-            self.query_one("#input", Input).focus()
+            self.query_one("#input", JigTextArea).focus()
         except Exception:
             pass
 
@@ -107,61 +168,79 @@ class NowScreen(Container):
         """
         event.stop()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Update the slash-command popup as the operator types."""
-        if event.input.id != "input":
+        if event.text_area.id != "input":
             return
-        self._refresh_slash_popup(event.value)
+        text = event.text_area.text
+        # Slash popup only on single-line input that begins with /
+        if "\n" in text:
+            self._hide_slash_popup()
+            return
+        self._refresh_slash_popup(text)
 
     def on_key(self, event: events.Key) -> None:
         """Handle up/down arrows for input history recall.
 
-        Only fires when the input has focus and has no completion suggestion
-        active (Textual's Input uses up/down for the suggester otherwise).
+        Only intercepts up/down when the cursor is at the boundary of the
+        textarea — at the first line for up, last line for down. This lets
+        multi-line editing work naturally via cursor movement.
         """
         try:
-            inp = self.query_one("#input", Input)
+            ta = self.query_one("#input", JigTextArea)
         except Exception:
             return
-        if not inp.has_focus:
+        if not ta.has_focus:
             return
         if event.key not in ("up", "down"):
             return
         if not self._history:
             return
+
+        row, _col = ta.cursor_location
+        last_row = ta.document.line_count - 1
+
+        if event.key == "up" and row != 0:
+            # Not at first line — let TextArea move cursor up naturally
+            return
+        if event.key == "down" and row != last_row:
+            # Not at last line — let TextArea move cursor down naturally
+            return
+
         # Capture in-progress text once when starting to navigate history,
         # so down-arrow can return to it.
         if self._history_idx is None:
-            self._pending_value = inp.value
+            self._pending_value = ta.text
             self._history_idx = len(self._history)  # one past the last
+
         if event.key == "up":
             if self._history_idx > 0:
                 self._history_idx -= 1
-                inp.value = self._history[self._history_idx]
-                inp.cursor_position = len(inp.value)
+                ta.text = self._history[self._history_idx]
+                ta.move_cursor(ta.document.end, select=False)
             event.stop()
             event.prevent_default()
         elif event.key == "down":
             if self._history_idx < len(self._history) - 1:
                 self._history_idx += 1
-                inp.value = self._history[self._history_idx]
-                inp.cursor_position = len(inp.value)
+                ta.text = self._history[self._history_idx]
+                ta.move_cursor(ta.document.end, select=False)
             else:
                 # Past the end → restore the in-progress text
                 self._history_idx = None
-                inp.value = getattr(self, "_pending_value", "")
-                inp.cursor_position = len(inp.value)
+                ta.text = self._pending_value
+                ta.move_cursor(ta.document.end, select=False)
             event.stop()
             event.prevent_default()
 
-    def _record_history(self, line: str) -> None:
-        """Append ``line`` to history (deduping consecutive identical entries)."""
-        if not line:
+    def _record_history(self, text: str) -> None:
+        """Append ``text`` to history (deduping consecutive identical entries)."""
+        if not text:
             return
-        if self._history and self._history[-1] == line:
+        if self._history and self._history[-1] == text:
             self._history_idx = None
             return
-        self._history.append(line)
+        self._history.append(text)
         # Cap history at 200 entries so it doesn't grow unbounded.
         if len(self._history) > 200:
             del self._history[: len(self._history) - 200]
@@ -258,7 +337,8 @@ class NowScreen(Container):
                 scrollback.write(f"[bold]{question}[/bold]")
 
         hint = self._placeholder_hint(data)
-        self.query_one("#input", Input).placeholder = f"› {hint}"
+        # TextArea doesn't have a placeholder attribute; write the hint to scrollback.
+        scrollback.write(f"[dim]› {hint}[/dim]")
 
     @staticmethod
     def _placeholder_hint(data: dict) -> str:
@@ -292,47 +372,53 @@ class NowScreen(Container):
         else:
             scrollback.write(f"[red]error:[/red] {msg.get('error', 'unknown')}")
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        line = event.value.strip()
+    def _clear_input(self) -> None:
+        """Clear the textarea."""
+        try:
+            ta = self.query_one("#input", JigTextArea)
+            ta.text = ""
+        except Exception:
+            pass
+
+    async def on_jig_text_area_submitted(self, event: JigTextArea.Submitted) -> None:
+        """Handle submission from JigTextArea (Enter key)."""
+        text = event.value.strip()
         scrollback = self.query_one("#scrollback", RichLog)
         self._hide_slash_popup()
-        self._record_history(line)
+        self._record_history(text)
 
         # ANSWERING mode: route to prompt_reply
         if self._active_prompt_id is not None:
             prompt_id = self._active_prompt_id
             self._active_prompt_id = None
-            # Restore default placeholder
-            self.query_one("#input", Input).placeholder = (
-                "› type a slash command or message"
-            )
-            if line:
-                scrollback.write(f"[cyan]›[/cyan] {line}")
+            if text:
+                _render_user_input(scrollback, text)
             else:
                 scrollback.write("[cyan]›[/cyan] [dim](empty)[/dim]")
             try:
                 await self.app.client.send_command(
-                    "prompt_reply", {"args": [prompt_id, line]}
+                    "prompt_reply", {"args": [prompt_id, text]}
                 )
             except Exception as exc:
                 scrollback.write(
                     f"[red]error:[/red] failed to send answer ({exc})"
                 )
-            event.input.clear()
+            self._clear_input()
             return
 
         # IDLE mode: existing slash dispatch
-        if not line:
+        if not text:
+            self._clear_input()
             return
-        scrollback.write(f"[cyan]›[/cyan] {line}")
-        if line.startswith("/"):
+        _render_user_input(scrollback, text)
+        if text.startswith("/"):
             # Bare `/` is a command-discovery shortcut — same render as /help
-            if line == "/":
+            if text == "/":
                 await self._dispatch_slash(ParsedSlash(name="help", args=[]))
-                event.input.clear()
+                self._clear_input()
                 return
             try:
-                parsed = parse_slash(line)
+                parsed = parse_slash(text)
             except SlashParseError as exc:
                 scrollback.write(f"[red]error:[/red] {exc}")
             else:
@@ -340,8 +426,63 @@ class NowScreen(Container):
         else:
             # Free-text → spawn the concierge with the input as the query.
             # The agent's text response streams back as agents/text events.
-            await self.app.client.send_command("concierge", {"args": [line]})
-        event.input.clear()
+            await self.app.client.send_command("concierge", {"args": [text]})
+        self._clear_input()
+
+    # Keep a shim for tests / callers that still use the old Input.Submitted
+    # fake-event pattern. The FakeEvent has a `.value` and `.input.clear()`;
+    # this method matches the old signature so existing tests continue to work.
+    async def on_input_submitted(self, event) -> None:  # type: ignore[override]
+        """Legacy shim: accept FakeEvent objects from tests (Input.Submitted shape)."""
+        text = event.value.strip()
+        scrollback = self.query_one("#scrollback", RichLog)
+        self._hide_slash_popup()
+        self._record_history(text)
+
+        if self._active_prompt_id is not None:
+            prompt_id = self._active_prompt_id
+            self._active_prompt_id = None
+            if text:
+                _render_user_input(scrollback, text)
+            else:
+                scrollback.write("[cyan]›[/cyan] [dim](empty)[/dim]")
+            try:
+                await self.app.client.send_command(
+                    "prompt_reply", {"args": [prompt_id, text]}
+                )
+            except Exception as exc:
+                scrollback.write(
+                    f"[red]error:[/red] failed to send answer ({exc})"
+                )
+            try:
+                event.input.clear()
+            except Exception:
+                pass
+            return
+
+        if not text:
+            return
+        _render_user_input(scrollback, text)
+        if text.startswith("/"):
+            if text == "/":
+                await self._dispatch_slash(ParsedSlash(name="help", args=[]))
+                try:
+                    event.input.clear()
+                except Exception:
+                    pass
+                return
+            try:
+                parsed = parse_slash(text)
+            except SlashParseError as exc:
+                scrollback.write(f"[red]error:[/red] {exc}")
+            else:
+                await self._dispatch_slash(parsed)
+        else:
+            await self.app.client.send_command("concierge", {"args": [text]})
+        try:
+            event.input.clear()
+        except Exception:
+            pass
 
     async def _dispatch_slash(self, parsed: ParsedSlash) -> None:
         scrollback = self.query_one("#scrollback", RichLog)
@@ -362,12 +503,10 @@ class NowScreen(Container):
                 "  Events:   f=filter, F=follow, enter=detail\n"
                 "\n"
                 "[bold]Input editing[/bold]\n"
-                "  Ctrl+A / Ctrl+E       jump to start / end of line\n"
-                "  Ctrl+W / Ctrl+F       delete word left / right\n"
-                "  Ctrl+U / Ctrl+K       delete to start / end of line\n"
-                "  Ctrl+left / right     jump word left / right\n"
+                "  Shift+Enter           insert a newline (multi-line input)\n"
+                "  Enter                 submit\n"
                 "  Up / Down arrows      recall previous / next submission\n"
-                "  Tab or →              accept inline suggestion\n"
+                "                        (moves cursor within multi-line text)\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."
             )

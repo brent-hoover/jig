@@ -176,8 +176,8 @@ class JigApp(App):
                 focused = self.focused
             except Exception:
                 focused = None
-            from textual.widgets import Input as _Input
-            if isinstance(focused, _Input):
+            from textual.widgets import Input as _Input, TextArea as _TextArea
+            if isinstance(focused, (_Input, _TextArea)):
                 return False
         return super().check_action(action, parameters)
 

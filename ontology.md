@@ -1,17 +1,12 @@
----
-title: Textual TUI — Ontology
-type: reference
-status: living
-owner: brent
-created: 2026-04-30
-updated: 2026-04-30
----
+# Ontology
 
-# Textual TUI — Ontology
+Authoritative names for the moving parts of jig. Use these in code
+comments, commit messages, design discussions, and bug reports so
+we're talking about the same things.
 
-Authoritative names for the visual and structural pieces of the jig
-TUI. Use these in code comments, commit messages, design discussions,
-and bug reports so we're talking about the same things.
+This doc is living — add terms as concepts firm up. Sections below
+start with the TUI (the most-touched surface today); daemon /
+orchestrator / agent terms get added as we firm them up.
 
 ## Visual zones
 

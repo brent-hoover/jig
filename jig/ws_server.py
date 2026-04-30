@@ -135,6 +135,12 @@ class WebSocketServer:
 
     async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
         # DIAG: see every incoming message so we can debug command routing.
+        # Use BOTH logger.info (goes to log file via root logger) AND
+        # print to stderr (goes to daemon.err — bypasses logging config
+        # entirely so we can see if the message arrives even when
+        # configure_logging has reconfigured handlers mid-flow).
+        import sys as _sys
+        print(f"WS_RX: {raw[:200]}", file=_sys.stderr, flush=True)
         logger.info("ws received: %s", raw[:200])
         try:
             payload = json.loads(raw)

@@ -1,37 +1,59 @@
 /* jig/tui/app.tcss */
 
-/* Two clear visual zones:
-   1. Chrome (screen + tab strip + pane shell) — true black so the TUI
-      frame is unmistakably distinct from the pane content.
-   2. Pane content — light blue-grey card sitting on top of the black
-      chrome. The user's "terminal area" — kept at the value they
-      approved. */
+/* Three named visual zones, opencode-style:
+
+   FRAME    — true black chrome around the TUI as a whole
+              (Screen, TabbedContent, TabPane, Tabs strip)
+
+   DISPLAY  — the read-only area inside a pane: scrollback / list /
+              tree. Darker than the composer so it reads as
+              "background" the operator's eye scans across.
+
+   COMPOSER — the input area at the bottom of Now (and any future
+              forms). Lighter than the display so it reads as the
+              "active" zone where the operator's attention lives.
+
+   The pane border + a small frame margin separate the pane from the
+   chrome; the contrast between Display and Composer separates the
+   read zone from the type zone within a pane. */
+
 Screen {
     background: #000000;
 }
-
 TabbedContent {
     height: 1fr;
     background: #000000;
 }
-
 TabPane {
     height: 1fr;
     background: #000000;
 }
-
 TabbedContent > Tabs {
     background: #000000;
 }
 
-/* Pane content area: clearly elevated card. */
+/* PANE shell: bordered card the operator interacts with. */
 NowScreen, TicketsScreen, SpecScreen, EventsScreen {
     border: round $accent;
     margin: 1 2;
-    background: #2d3548;
+    background: #1a2030;  /* DISPLAY color — pane defaults to read-zone tone */
 }
 
-/* Inner widgets match the pane bg so nested borders don't fight. */
-RichLog, ListView, Tree, TextArea, Input {
-    background: #2d3548;
+/* DISPLAY widgets: the read zone. */
+RichLog, ListView, Tree {
+    background: #1a2030;
+}
+
+/* COMPOSER widgets: the type zone. Lighter so it stands out. */
+TextArea, Input {
+    background: #3d4862;
+}
+
+/* Composer needs a subtle accent line on its border too, opencode-style. */
+NowScreen TextArea {
+    border-left: tall $accent;
+    border-top: hidden;
+    border-right: hidden;
+    border-bottom: hidden;
+    padding: 0 1;
 }

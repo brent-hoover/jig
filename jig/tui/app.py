@@ -83,7 +83,7 @@ class JigApp(App):
                 yield SpecScreen()
             with TabPane("Events", id="events-pane"):
                 yield EventsScreen()
-        yield JigFooter()
+        yield JigFooter(project_path=self.project_path)
 
     async def on_mount(self) -> None:
         self.run_worker(

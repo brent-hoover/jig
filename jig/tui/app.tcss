@@ -1,12 +1,25 @@
 /* jig/tui/app.tcss */
+
+/* Slightly darker than terminal default so the TUI is visually
+   distinct from the surrounding shell context. Use $boost for the
+   shell so the active panes stand out. */
 Screen {
-    background: $surface;
+    background: $boost;
 }
 
 TabbedContent {
     height: 1fr;
+    background: $surface;
 }
 
 TabPane {
     height: 1fr;
+    background: $surface;
+}
+
+/* Add a subtle border around each pane's content so the active region
+   is visually framed. */
+NowScreen, TicketsScreen, SpecScreen, EventsScreen {
+    border: round $accent-darken-2;
+    margin: 0 1;
 }

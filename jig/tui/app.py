@@ -5,6 +5,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import TabbedContent, TabPane
 
@@ -15,6 +16,7 @@ from jig.tui.screens.now import NowScreen
 from jig.tui.screens.spec import SpecScreen
 from jig.tui.screens.tickets import TicketsScreen
 from jig.tui.widgets.footer import JigFooter
+from jig.tui.widgets.sidebar import Sidebar
 
 
 class JigApp(App):
@@ -55,6 +57,8 @@ class JigApp(App):
         # is active; check_action() returns False on other panes so the event
         # falls through to the focused widget unchanged.
         Binding("enter", "open_event_detail", "Detail", show=False, priority=True),
+        # Sidebar visibility toggle.
+        Binding("ctrl+s", "toggle_sidebar", "Toggle Sidebar", show=False, priority=True),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -74,15 +78,19 @@ class JigApp(App):
         self.client = DaemonClient(addr_provider=_resolve_addr)
 
     def compose(self) -> ComposeResult:
-        with TabbedContent(initial="now-pane"):
-            with TabPane("Now", id="now-pane"):
-                yield NowScreen()
-            with TabPane("Tickets", id="tickets-pane"):
-                yield TicketsScreen()
-            with TabPane("Spec", id="spec-pane"):
-                yield SpecScreen()
-            with TabPane("Events", id="events-pane"):
-                yield EventsScreen()
+        # Layout: tabbed panes on the left, persistent Sidebar on the right,
+        # JigFooter docked at the bottom of the whole app.
+        with Horizontal():
+            with TabbedContent(initial="now-pane"):
+                with TabPane("Now", id="now-pane"):
+                    yield NowScreen()
+                with TabPane("Tickets", id="tickets-pane"):
+                    yield TicketsScreen()
+                with TabPane("Spec", id="spec-pane"):
+                    yield SpecScreen()
+                with TabPane("Events", id="events-pane"):
+                    yield EventsScreen()
+            yield Sidebar()
         yield JigFooter(project_path=self.project_path)
 
     async def on_mount(self) -> None:
@@ -113,8 +121,13 @@ class JigApp(App):
                 try:
                     tickets = self.query_one(TicketsScreen)
                 except Exception:
-                    return
-                await tickets.handle_snapshot(msg.get("data"))
+                    pass
+                else:
+                    await tickets.handle_snapshot(msg.get("data"))
+                # Also feed Sidebar's Queue subzone
+                self._sidebar_safe(
+                    lambda s: s.update_tickets_snapshot(msg.get("data"))
+                )
             if topic == "spec":
                 try:
                     spec = self.query_one(SpecScreen)
@@ -125,8 +138,13 @@ class JigApp(App):
                 try:
                     ev_screen = self.query_one(EventsScreen)
                 except Exception:
-                    return
-                await ev_screen.handle_snapshot(msg.get("data"))
+                    pass
+                else:
+                    await ev_screen.handle_snapshot(msg.get("data"))
+                # Also feed Sidebar's Tail subzone
+                self._sidebar_safe(
+                    lambda s: s.update_events_snapshot(msg.get("data"))
+                )
             return
 
         if msg_type == "event":
@@ -134,18 +152,52 @@ class JigApp(App):
                 try:
                     now = self.query_one(NowScreen)
                 except Exception:
-                    return
-                await now.handle_daemon_event(msg)
+                    pass
+                else:
+                    await now.handle_daemon_event(msg)
+                # agent_thinking events also drive Sidebar's Activity subzone
+                if topic == "agents" and msg.get("kind") == "thinking":
+                    self._sidebar_safe(
+                        lambda s: s.update_thinking(msg.get("data") or {})
+                    )
                 return
             if topic == "tickets":
                 try:
                     tickets = self.query_one(TicketsScreen)
                 except Exception:
-                    return
-                kind = msg.get("kind", "")
-                data = msg.get("data") or {}
-                await tickets.handle_event(kind, data)
+                    pass
+                else:
+                    kind = msg.get("kind", "")
+                    data = msg.get("data") or {}
+                    await tickets.handle_event(kind, data)
+                # Also feed Sidebar's Queue subzone
+                self._sidebar_safe(
+                    lambda s: s.update_ticket_event(
+                        msg.get("kind", ""), msg.get("data") or {}
+                    )
+                )
+                # Tail also picks up ticket-related events
+                self._sidebar_safe(lambda s: s.append_event(msg.get("data") or {}))
                 return
+
+    def _sidebar_safe(self, fn) -> None:
+        """Apply ``fn(sidebar)`` if the Sidebar is mounted; no-op otherwise."""
+        try:
+            sb = self.query_one(Sidebar)
+        except Exception:
+            return
+        try:
+            fn(sb)
+        except Exception:
+            pass
+
+    def action_toggle_sidebar(self) -> None:
+        """Hide / show the right-side Sidebar."""
+        try:
+            sb = self.query_one(Sidebar)
+        except Exception:
+            return
+        sb.display = not sb.display
 
     def _on_daemon_state(self, state: ConnectionState) -> None:
         self.daemon_state = state

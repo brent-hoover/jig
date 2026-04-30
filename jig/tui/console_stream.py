@@ -66,8 +66,11 @@ def make_streaming_console(emitter: "EventEmitter"):
     """Build a rich.Console that ships its output through ``emitter``.
 
     ANSI escape sequences are emitted as part of the content; the
-    TUI's ``RichLog`` (with markup=False) writes them out and the
-    receiving terminal interprets the colors.
+    TUI's ``RichLog`` writes them and the receiving terminal interprets
+    the colors. Width is intentionally narrow so rules / panels fit
+    within the typical TUI Display column even after the right-side
+    Sidebar takes ~36 cols. soft_wrap=True so any overflow wraps
+    cleanly instead of producing visual artifacts.
     """
     from rich.console import Console
 
@@ -75,6 +78,6 @@ def make_streaming_console(emitter: "EventEmitter"):
         file=_StreamFile(emitter),
         force_terminal=True,
         color_system="truecolor",
-        width=120,
+        width=72,
         soft_wrap=True,
     )

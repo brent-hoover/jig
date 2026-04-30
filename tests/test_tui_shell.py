@@ -305,3 +305,62 @@ async def test_thinking_indicator_shows_and_hides(tmp_path: Path):
             "data": {"role": "po", "elapsed": 12, "active": False},
         })
         assert "visible" not in indicator.classes
+
+
+@pytest.mark.asyncio
+async def test_sidebar_mounts_and_receives_data(tmp_path: Path):
+    """Sidebar is part of the layout and gets fed by JigApp's
+    daemon-message fan-out."""
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 40)):
+        sb = app.query_one(Sidebar)
+        assert sb.display is True
+
+        # Tickets snapshot fan-out
+        await app._handle_daemon_message({
+            "type": "snapshot",
+            "topic": "tickets",
+            "data": [
+                {"id": "a", "title": "Brief", "status": "in_progress"},
+                {"id": "b", "title": "Closed thing", "status": "closed"},
+            ],
+        })
+        # Open ticket should be in the queue; closed one filtered out
+        assert "a" in sb._tickets
+
+        # Events snapshot fan-out
+        await app._handle_daemon_message({
+            "type": "snapshot",
+            "topic": "events",
+            "data": [
+                {"timestamp": "2026-04-30T13:42:30Z", "payload": {"kind": "ticket_updated"}},
+            ],
+        })
+        assert len(sb._events) == 1
+
+        # Thinking event fan-out
+        await app._handle_daemon_message({
+            "type": "event",
+            "topic": "agents",
+            "kind": "thinking",
+            "data": {"role": "po", "elapsed": 5, "active": True},
+        })
+        assert "po" in sb._active_agents
+
+
+@pytest.mark.asyncio
+async def test_ctrl_s_toggles_sidebar(tmp_path: Path):
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        sb = app.query_one(Sidebar)
+        assert sb.display is True
+        await pilot.press("ctrl+s")
+        await pilot.pause(0.05)
+        assert sb.display is False
+        await pilot.press("ctrl+s")
+        await pilot.pause(0.05)
+        assert sb.display is True

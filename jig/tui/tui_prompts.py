@@ -60,9 +60,8 @@ class TuiPromptHandler:
     async def _round_trip(self, payload: dict[str, Any]) -> str:
         prompt_id, future = self._registry.register()
         prompt_type = payload.get("prompt_type", "?")
-        _logger.info(
-            "TuiPromptHandler emitting prompt_request id=%s type=%s",
-            prompt_id, prompt_type,
+        _logger.debug(
+            "prompt round-trip start id=%s type=%s", prompt_id, prompt_type,
         )
         await self._emitter.emit(
             JigEvent(
@@ -70,14 +69,9 @@ class TuiPromptHandler:
                 data={"prompt_id": prompt_id, **payload},
             )
         )
-        _logger.info(
-            "TuiPromptHandler awaiting reply for id=%s type=%s",
-            prompt_id, prompt_type,
-        )
         reply = await future
-        _logger.info(
-            "TuiPromptHandler got reply for id=%s type=%s reply=%r",
-            prompt_id, prompt_type, reply[:60] if isinstance(reply, str) else reply,
+        _logger.debug(
+            "prompt round-trip done id=%s type=%s", prompt_id, prompt_type,
         )
         return reply
 

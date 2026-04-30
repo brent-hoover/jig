@@ -108,22 +108,19 @@ class WebSocketServer:
     async def _handle_client(self, websocket: ServerConnection) -> None:
         # Do NOT replay history here — legacy clients get it in _handle_incoming
         # on their first non-subscribe message; typed subscribers never get it.
-        wsid = id(websocket)
-        logger.info("ws client CONNECTED id=%s clients_before=%s", wsid, len(self._clients))
         self._clients.add(websocket)
         try:
             async for raw in websocket:
                 await self._handle_incoming(websocket, raw)
-        except websockets.ConnectionClosed as exc:
-            logger.info("ws client DISCONNECTED id=%s reason=%s", wsid, exc)
+        except websockets.ConnectionClosed:
+            pass
         except Exception:
-            logger.exception("ws client raised id=%s", wsid)
+            logger.exception("ws client coroutine raised")
             raise
         finally:
             self._clients.discard(websocket)
             self._history_replayed.discard(websocket)
             self._subscriptions.pop(websocket, None)
-            logger.info("ws client CLEANED UP id=%s clients_after=%s", wsid, len(self._clients))
 
     async def _safe_send(self, websocket: ServerConnection, message: str) -> None:
         """Send a reply, swallowing ConnectionClosed so a dying client
@@ -134,7 +131,6 @@ class WebSocketServer:
             return
 
     async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
-        logger.info("ws received: %s", raw[:200])
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
@@ -145,7 +141,6 @@ class WebSocketServer:
 
         # New typed protocol: dispatch on "type" first.
         msg_type = payload.get("type")
-        logger.info("ws dispatch: type=%s name=%s", msg_type, payload.get("name"))
         if msg_type == "subscribe":
             topics = payload.get("topics", [])
             # Track per-client subscriptions for filtered relay.

@@ -443,7 +443,7 @@ async def test_long_running_command_does_not_block_subsequent_messages(tmp_path)
     import websockets
     from jig.events import EventEmitter
     from jig.ws_server import WebSocketServer
-    from jig.tui.commands import register, _REGISTRY
+    from jig.tui.commands import _REGISTRY
 
     # Register a command that awaits a future the SECOND command resolves.
     fut: asyncio.Future = asyncio.get_running_loop().create_future()

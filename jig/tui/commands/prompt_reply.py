@@ -18,9 +18,11 @@ async def cmd_prompt_reply(
     if len(args) < 2:
         return {"ok": False, "error": "prompt_reply expects [prompt_id, reply]"}
     prompt_id, reply = args[0], args[1]
-    _logger.info("cmd_prompt_reply received id=%s reply=%r", prompt_id, reply[:60])
     delivered = prompt_registry.deliver(prompt_id, reply)
-    _logger.info("cmd_prompt_reply delivered=%s id=%s", delivered, prompt_id)
+    _logger.debug(
+        "prompt_reply id=%s delivered=%s reply=%r",
+        prompt_id, delivered, reply[:60],
+    )
     if not delivered:
         return {
             "ok": False,

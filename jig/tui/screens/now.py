@@ -99,17 +99,9 @@ class NowScreen(Container):
         scrollback = self.query_one("#scrollback", RichLog)
         prompt_id = data.get("prompt_id")
         prompt_type = data.get("prompt_type", "")
-        scrollback.write(
-            f"[dim cyan][debug] prompt_request received id={prompt_id} "
-            f"type={prompt_type}[/dim cyan]"
-        )
         if not prompt_id:
-            scrollback.write("[red][debug] prompt_id missing — bailing[/red]")
             return  # malformed
         self._active_prompt_id = prompt_id
-        scrollback.write(
-            f"[dim cyan][debug] _active_prompt_id set to {prompt_id}[/dim cyan]"
-        )
 
         if prompt_type == "question_answer":
             from rich.panel import Panel
@@ -175,10 +167,6 @@ class NowScreen(Container):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         line = event.value.strip()
         scrollback = self.query_one("#scrollback", RichLog)
-        scrollback.write(
-            f"[dim cyan][debug] on_input_submitted line={line!r} "
-            f"active_prompt_id={self._active_prompt_id!r}[/dim cyan]"
-        )
 
         # ANSWERING mode: route to prompt_reply
         if self._active_prompt_id is not None:
@@ -192,21 +180,13 @@ class NowScreen(Container):
                 scrollback.write(f"[cyan]›[/cyan] {line}")
             else:
                 scrollback.write("[cyan]›[/cyan] [dim](empty)[/dim]")
-            # Send prompt_reply via the daemon client — wrap in a visible
-            # try/except so we can see exactly what happens to the send.
-            scrollback.write(
-                f"[dim cyan][debug] about to send_command(prompt_reply, "
-                f"[{prompt_id[:12]}..., {line[:30]}...]) ws={self.app.client._ws is not None}"
-                f"[/dim cyan]"
-            )
             try:
                 await self.app.client.send_command(
                     "prompt_reply", {"args": [prompt_id, line]}
                 )
-                scrollback.write("[dim green][debug] send_command returned[/dim green]")
             except Exception as exc:
                 scrollback.write(
-                    f"[red][debug] send_command FAILED:[/red] {type(exc).__name__}: {exc}"
+                    f"[red]error:[/red] failed to send answer ({exc})"
                 )
             event.input.clear()
             return

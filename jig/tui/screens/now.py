@@ -65,6 +65,9 @@ class NowScreen(Container):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._active_prompt_id: str | None = None
+        # Input history — up/down arrow recall.
+        self._history: list[str] = []
+        self._history_idx: int | None = None  # None = at the live edit; 0..len-1 = recall
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="scrollback", auto_scroll=True, markup=True)
@@ -109,6 +112,60 @@ class NowScreen(Container):
         if event.input.id != "input":
             return
         self._refresh_slash_popup(event.value)
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle up/down arrows for input history recall.
+
+        Only fires when the input has focus and has no completion suggestion
+        active (Textual's Input uses up/down for the suggester otherwise).
+        """
+        try:
+            inp = self.query_one("#input", Input)
+        except Exception:
+            return
+        if not inp.has_focus:
+            return
+        if event.key not in ("up", "down"):
+            return
+        if not self._history:
+            return
+        # Capture in-progress text once when starting to navigate history,
+        # so down-arrow can return to it.
+        if self._history_idx is None:
+            self._pending_value = inp.value
+            self._history_idx = len(self._history)  # one past the last
+        if event.key == "up":
+            if self._history_idx > 0:
+                self._history_idx -= 1
+                inp.value = self._history[self._history_idx]
+                inp.cursor_position = len(inp.value)
+            event.stop()
+            event.prevent_default()
+        elif event.key == "down":
+            if self._history_idx < len(self._history) - 1:
+                self._history_idx += 1
+                inp.value = self._history[self._history_idx]
+                inp.cursor_position = len(inp.value)
+            else:
+                # Past the end → restore the in-progress text
+                self._history_idx = None
+                inp.value = getattr(self, "_pending_value", "")
+                inp.cursor_position = len(inp.value)
+            event.stop()
+            event.prevent_default()
+
+    def _record_history(self, line: str) -> None:
+        """Append ``line`` to history (deduping consecutive identical entries)."""
+        if not line:
+            return
+        if self._history and self._history[-1] == line:
+            self._history_idx = None
+            return
+        self._history.append(line)
+        # Cap history at 200 entries so it doesn't grow unbounded.
+        if len(self._history) > 200:
+            del self._history[: len(self._history) - 200]
+        self._history_idx = None
 
     def _refresh_slash_popup(self, value: str) -> None:
         try:
@@ -239,6 +296,7 @@ class NowScreen(Container):
         line = event.value.strip()
         scrollback = self.query_one("#scrollback", RichLog)
         self._hide_slash_popup()
+        self._record_history(line)
 
         # ANSWERING mode: route to prompt_reply
         if self._active_prompt_id is not None:
@@ -302,6 +360,14 @@ class NowScreen(Container):
                 "  Tickets:  n=new, e=edit, b=list/board, j/k=nav\n"
                 "  Spec:     r=raw YAML, b=brief, j/k=nav\n"
                 "  Events:   f=filter, F=follow, enter=detail\n"
+                "\n"
+                "[bold]Input editing[/bold]\n"
+                "  Ctrl+A / Ctrl+E       jump to start / end of line\n"
+                "  Ctrl+W / Ctrl+F       delete word left / right\n"
+                "  Ctrl+U / Ctrl+K       delete to start / end of line\n"
+                "  Ctrl+left / right     jump word left / right\n"
+                "  Up / Down arrows      recall previous / next submission\n"
+                "  Tab or →              accept inline suggestion\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."
             )

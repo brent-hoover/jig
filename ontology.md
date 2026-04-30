@@ -72,10 +72,20 @@ orchestrator / agent terms get added as we firm them up.
 | **Stores** | `TicketStore`, `ThreadStore`, `MemoryStore`, `MessageBus` — JSONL-backed per-project state under `.jig/store/`. |
 | **Spawn context** | `AgentSpawnContext` — the bag of stores + project + role config passed to `run_agent` when spawning a Claude Code subprocess for a ticket. |
 
+## Composer affordances
+
+| Term | What it is |
+|---|---|
+| **Slash popup** | List of slash commands above the Composer when input begins with `/`. Filters as you type. |
+| **Inline suggestion** | Ghost-text completion (Input only — TextArea has no equivalent). |
+| **Answering mode** | Composer state when a `prompt_request` is awaiting; next submit becomes a `prompt_reply`. |
+| **History recall** | Up/Down arrows cycle previous submissions when cursor is at the first/last line of the Composer. |
+| **Clipboard image paste** | `Ctrl+I` reads a PNG from the OS clipboard, saves it to `<project>/.jig/uploads/jig-clip-<UTC>.png`, inserts `[image: <abs path>]` at the cursor. macOS via `osascript`; Linux via `wl-paste` / `xclip`. |
+| **Thinking indicator** | A Static line above the Composer showing `⠹ <role> is thinking… (Ns)` while a daemon-side agent is running. Driven by `agent_thinking{role, elapsed, active}` events. |
+
 ## Things that are NOT in this ontology yet
 
-- Right-side status panels (planned: opencode-style sidebar with agents / tickets / events). When they land, give them a name (e.g. **Sidebar** with subzones **Activity / Queue / Tail**).
-- A "thinking" indicator widget (when we replace the broken inline spinner with a structured live status).
+- TBD as concepts firm up.
 
 ## Change log
 

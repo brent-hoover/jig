@@ -60,8 +60,8 @@ def classify_directory(path: Path) -> DirState:
         # from "init crashed mid-flow" (BROKEN). The former has only
         # daemon-managed subdirs (run/, logs/); the latter has actual
         # project state. Now that `jig` (no args) auto-spawns the daemon,
-        # `.jig/run/` and `.jig/logs/` can exist BEFORE init runs.
-        _DAEMON_OWNED = {"run", "logs"}
+        # `.jig/run/`, `.jig/logs/`, `.jig/uploads/` can exist BEFORE init runs.
+        _DAEMON_OWNED = {"run", "logs", "uploads"}
         contents = {p.name for p in (path / ".jig").iterdir()}
         if contents <= _DAEMON_OWNED:
             return DirState.FRESH

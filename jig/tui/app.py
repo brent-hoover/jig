@@ -59,6 +59,9 @@ class JigApp(App):
         Binding("enter", "open_event_detail", "Detail", show=False, priority=True),
         # Sidebar visibility toggle.
         Binding("ctrl+s", "toggle_sidebar", "Toggle Sidebar", show=False, priority=True),
+        # Paste clipboard image into the focused Composer (saves to
+        # .jig/uploads/ and inserts a [image: PATH] reference).
+        Binding("ctrl+i", "paste_image", "Paste image", show=False, priority=True),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -198,6 +201,53 @@ class JigApp(App):
         except Exception:
             return
         sb.display = not sb.display
+
+    def action_paste_image(self) -> None:
+        """Read an image from the system clipboard, save it under
+        ``.jig/uploads/``, and insert ``[image: <abs path>]`` into the
+        focused TextArea Composer.
+
+        macOS via osascript; Linux via wl-paste / xclip; other platforms
+        unsupported (graceful error notify).
+        """
+        from datetime import datetime
+
+        from textual.widgets import TextArea
+
+        from jig.tui.clipboard import (
+            ClipboardImageError,
+            get_clipboard_image_bytes,
+        )
+
+        focused = self.focused
+        if not isinstance(focused, TextArea):
+            self.notify(
+                "Ctrl+I works in the Now Composer (focus it first)",
+                severity="warning",
+                timeout=3,
+            )
+            return
+        try:
+            data = get_clipboard_image_bytes()
+        except ClipboardImageError as exc:
+            self.notify(f"clipboard: {exc}", severity="warning", timeout=4)
+            return
+
+        # Save under .jig/uploads/jig-<UTC-timestamp>.png
+        uploads = self.project_path / ".jig" / "uploads"
+        uploads.mkdir(parents=True, exist_ok=True)
+        ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        out_path = uploads / f"jig-clip-{ts}.png"
+        out_path.write_bytes(data)
+
+        # Insert "[image: ABS_PATH]" at the cursor position.
+        ref = f"[image: {out_path.resolve()}]"
+        focused.insert(ref)
+        self.notify(
+            f"Saved screenshot → {out_path.name} ({len(data)//1024} KB)",
+            severity="information",
+            timeout=3,
+        )
 
     def _on_daemon_state(self, state: ConnectionState) -> None:
         self.daemon_state = state

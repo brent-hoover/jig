@@ -430,3 +430,61 @@ async def test_subscribe_snapshots_survive_unconfigured_orchestrator(tmp_path):
     assert await server._build_snapshot("prompts") == []
     assert await server._build_snapshot("spec") is None
     await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_long_running_command_does_not_block_subsequent_messages(tmp_path):
+    """Regression: cmd_init blocks awaiting a prompt round-trip that needs
+    a SECOND command (prompt_reply) to come through the same WS connection.
+    If the read loop awaits the dispatch inline, the second command can
+    never be read → deadlock. Read loop must spawn dispatches as tasks.
+    """
+    import asyncio
+    import websockets
+    from jig.events import EventEmitter
+    from jig.ws_server import WebSocketServer
+    from jig.tui.commands import register, _REGISTRY
+
+    # Register a command that awaits a future the SECOND command resolves.
+    fut: asyncio.Future = asyncio.get_running_loop().create_future()
+    second_command_ran = asyncio.Event()
+
+    async def cmd_blocker(*, args, **kwargs):
+        # Block until cmd_unblock runs. If the read loop is serialized,
+        # this deadlocks (cmd_unblock can't run until cmd_blocker returns).
+        await asyncio.wait_for(fut, timeout=2.0)
+        return {"ok": True, "data": "unblocked"}
+
+    async def cmd_unblock(*, args, **kwargs):
+        if not fut.done():
+            fut.set_result(None)
+        second_command_ran.set()
+        return {"ok": True}
+
+    # Patch the registry directly (no @register dance).
+    _REGISTRY["__test_blocker"] = cmd_blocker
+    _REGISTRY["__test_unblock"] = cmd_unblock
+    try:
+        server = WebSocketServer(emitter=EventEmitter(), port=0, orchestrator=None)
+        await server.start()
+        try:
+            port = server.port
+            async with websockets.connect(f"ws://127.0.0.1:{port}") as ws:
+                # Send the blocker first
+                await ws.send(json.dumps(
+                    {"type": "command", "name": "__test_blocker", "args": {}}
+                ))
+                # Give it a moment to enter the await
+                await asyncio.sleep(0.1)
+                # Send the unblocker — read loop MUST process it even though
+                # blocker hasn't returned yet
+                await ws.send(json.dumps(
+                    {"type": "command", "name": "__test_unblock", "args": {}}
+                ))
+                # If the read loop is serialized this never sets
+                await asyncio.wait_for(second_command_ran.wait(), timeout=2.0)
+        finally:
+            await server.stop()
+    finally:
+        _REGISTRY.pop("__test_blocker", None)
+        _REGISTRY.pop("__test_unblock", None)

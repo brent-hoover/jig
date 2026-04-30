@@ -134,13 +134,6 @@ class WebSocketServer:
             return
 
     async def _handle_incoming(self, websocket: ServerConnection, raw: str) -> None:
-        # DIAG: see every incoming message so we can debug command routing.
-        # Use BOTH logger.info (goes to log file via root logger) AND
-        # print to stderr (goes to daemon.err — bypasses logging config
-        # entirely so we can see if the message arrives even when
-        # configure_logging has reconfigured handlers mid-flow).
-        import sys as _sys
-        print(f"WS_RX: {raw[:200]}", file=_sys.stderr, flush=True)
         logger.info("ws received: %s", raw[:200])
         try:
             payload = json.loads(raw)
@@ -182,7 +175,17 @@ class WebSocketServer:
                     json.dumps({"type": "result", "ok": False, "error": "command name required"}),
                 )
                 return
-            await self._dispatch_command(websocket, name, args)
+            # CRITICAL: do NOT await dispatch here. Long-running commands
+            # like /init block on prompt round-trips that need OTHER
+            # commands (prompt_reply) to come through this same read loop.
+            # If we await, we deadlock: cmd_init waits for prompt_reply,
+            # prompt_reply can't run because we haven't returned to read
+            # the next frame. Spawn the dispatch as a background task so
+            # the read loop stays responsive.
+            asyncio.create_task(
+                self._dispatch_command_safe(websocket, name, args),
+                name=f"ws-cmd-{name}",
+            )
             return
 
         # Non-subscribe message from a legacy client: replay history once.
@@ -466,6 +469,15 @@ class WebSocketServer:
             result["status"] = ticket.status.value
 
         return result
+
+    async def _dispatch_command_safe(self, websocket, name: str, args: dict) -> None:
+        """Background-task wrapper around _dispatch_command. Catches
+        anything _dispatch_command itself failed to handle so the task
+        doesn't propagate an unhandled exception into the event loop."""
+        try:
+            await self._dispatch_command(websocket, name, args)
+        except Exception:
+            logger.exception("dispatch task crashed for command %s", name)
 
     async def _dispatch_command(self, websocket, name: str, args: dict) -> None:
         from jig.tui.commands import get_handler

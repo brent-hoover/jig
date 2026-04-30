@@ -1,27 +1,39 @@
 /* jig/tui/app.tcss */
 
-/* The Screen sits on top of the operator's terminal background. We
-   want the active TUI region (panes) to clearly stand apart. Two
-   levels of contrast: Screen is $surface (darker, framing), panes
-   are $panel (markedly lighter — Textual's "elevated surface" tone). */
+/* Two clear visual zones:
+   1. Screen — the chrome around the panes. Stays dark, almost black.
+   2. Panes — the active content area. Visibly brighter so the operator
+      can read where the TUI begins/ends.
+   Explicit hex values for absolute contrast control (Textual's $panel
+   varies by theme; on some dark themes the differential is too small). */
 Screen {
-    background: $surface;
+    background: #0a0d14;
 }
 
 TabbedContent {
     height: 1fr;
-    background: $panel;
+    background: #161b27;
 }
 
 TabPane {
     height: 1fr;
-    background: $panel;
+    background: #161b27;
 }
 
-/* Add a visible border around each pane's content so the active region
-   is clearly framed. */
+/* Pane content area: brighter still, with a clear accent border. */
 NowScreen, TicketsScreen, SpecScreen, EventsScreen {
     border: round $accent;
     margin: 0 1;
-    background: $panel;
+    background: #1c2230;
+}
+
+/* Inner widgets — scrollback, lists, trees — match the pane bg so
+   nested borders don't fight. */
+RichLog, ListView, Tree, TextArea, Input {
+    background: #1c2230;
+}
+
+/* Tab strip should sit on the screen-dark zone, visually separated. */
+TabbedContent > Tabs {
+    background: #0a0d14;
 }

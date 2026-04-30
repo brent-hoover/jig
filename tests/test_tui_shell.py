@@ -270,3 +270,38 @@ async def test_code_fence_renders_as_syntax(tmp_path: Path):
         # Verify prose lines appear
         assert any("here is some code" in str(ln) for ln in new_lines)
         assert any("done" in str(ln) for ln in new_lines)
+
+
+@pytest.mark.asyncio
+async def test_thinking_indicator_shows_and_hides(tmp_path: Path):
+    """agent_thinking events show + update an in-place indicator above the
+    Composer; active=False hides it."""
+    from textual.widgets import Static
+
+    from jig.tui.screens.now import NowScreen
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        now = app.query_one(NowScreen)
+        indicator = app.query_one("#thinking", Static)
+
+        # Hidden by default
+        assert "visible" not in indicator.classes
+
+        # Active → shown
+        await now.handle_daemon_event({
+            "type": "event",
+            "topic": "agents",
+            "kind": "thinking",
+            "data": {"role": "po", "elapsed": 5, "active": True},
+        })
+        assert "visible" in indicator.classes
+
+        # Inactive → hidden
+        await now.handle_daemon_event({
+            "type": "event",
+            "topic": "agents",
+            "kind": "thinking",
+            "data": {"role": "po", "elapsed": 12, "active": False},
+        })
+        assert "visible" not in indicator.classes

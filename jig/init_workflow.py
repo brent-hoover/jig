@@ -439,31 +439,63 @@ async def _cli_emitter(role_label: str, *, console: "Console | None" = None):
 
 
 async def _spawn_status(emitter: EventEmitter, role_label: str, console) -> None:
-    """Run a rich Status spinner for the lifetime of the spawn,
-    updating elapsed time. Surface error events by printing above the
-    spinner; ignore everything else.
+    """Emit a structured ``agent_thinking`` event once per second while a
+    spawn is alive, plus surface real error events to the console.
+
+    The CLI used to render a rich Status spinner here, but in daemon mode
+    the spinner's ``\\r``-overwriting frames hit the streaming Console,
+    became separate ``agent_render`` events on the wire, and got written
+    as new scrollback lines (no in-place update). The TUI now renders the
+    indicator from the structured event — Static widget that updates in
+    place. The CLI path still works because the same event is logged
+    (no visible spinner, but no crash either; init in CLI mode is
+    rarely needed now that the TUI handles it).
     """
     queue = emitter.subscribe()
     loop = asyncio.get_event_loop()
     start = loop.time()
     try:
-        with console.status(
-            f"[dim]{role_label} is thinking…[/dim]",
-            spinner="dots",
-        ) as status:
-            while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    elapsed = int(loop.time() - start)
-                    status.update(
-                        f"[dim]{role_label} is thinking… ({elapsed}s)[/dim]"
+        # Announce we're thinking right away.
+        await emitter.emit(
+            JigEvent(
+                type="agent_thinking",
+                data={"role": role_label, "elapsed": 0, "active": True},
+            )
+        )
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                elapsed = int(loop.time() - start)
+                await emitter.emit(
+                    JigEvent(
+                        type="agent_thinking",
+                        data={
+                            "role": role_label,
+                            "elapsed": elapsed,
+                            "active": True,
+                        },
                     )
-                    continue
-                line = _format_event(event)
-                if line is not None:
-                    console.print(line)
+                )
+                continue
+            # Skip our own emits to avoid a tight loop (emitter broadcasts
+            # to all subscribers, including this one).
+            if event.type == "agent_thinking":
+                continue
+            line = _format_event(event)
+            if line is not None:
+                console.print(line)
     finally:
+        # Spawn ending: tell the TUI to hide the indicator.
+        try:
+            await emitter.emit(
+                JigEvent(
+                    type="agent_thinking",
+                    data={"role": role_label, "elapsed": 0, "active": False},
+                )
+            )
+        except Exception:
+            pass
         try:
             emitter.unsubscribe(queue)
         except ValueError:

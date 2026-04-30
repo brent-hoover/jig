@@ -104,6 +104,17 @@ class NowScreen(Container):
     #scrollback {
         height: 1fr;
     }
+    #thinking {
+        height: 1;
+        dock: bottom;
+        padding: 0 1;
+        color: $accent;
+        background: #1a2030;
+        display: none;
+    }
+    #thinking.visible {
+        display: block;
+    }
     #slash-popup {
         height: auto;
         max-height: 10;
@@ -134,6 +145,9 @@ class NowScreen(Container):
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="scrollback", auto_scroll=True, markup=True)
+        # Thinking indicator (live, in-place updates — replaces the broken
+        # \r-overwriting rich Status spinner).
+        yield Static("", id="thinking", markup=True)
         yield Static("", id="slash-popup", markup=True)
         yield JigTextArea(
             id="input",
@@ -297,9 +311,35 @@ class NowScreen(Container):
                 if text:
                     scrollback.write(f"[bold]{role}:[/bold] {text}")
                 return
+            if kind == "thinking":
+                self._update_thinking_indicator(data)
+                return
         if topic == "prompts" and msg.get("kind") == "request":
             await self._render_prompt_request(data)
             return
+
+    def _update_thinking_indicator(self, data: dict) -> None:
+        """Show / hide / refresh the live thinking indicator above Composer."""
+        try:
+            indicator = self.query_one("#thinking", Static)
+        except Exception:
+            return
+        active = data.get("active", False)
+        if not active:
+            indicator.set_class(False, "visible")
+            indicator.update("")
+            return
+        role = data.get("role", "agent")
+        elapsed = int(data.get("elapsed", 0))
+        # Rotating Braille spinner driven by elapsed seconds — no \r needed
+        # because Static.update replaces the cell content in place.
+        spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        spin = spinners[elapsed % len(spinners)]
+        indicator.update(
+            f"[dim]{spin}[/dim] [bold]{role}[/bold] "
+            f"[dim]is thinking… ({elapsed}s)[/dim]"
+        )
+        indicator.set_class(True, "visible")
 
     async def _render_prompt_request(self, data: dict) -> None:
         """Render a prompt request inline and switch to answering mode."""

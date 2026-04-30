@@ -599,7 +599,8 @@ class WebSocketServer:
             return event_envelope("threads", "posted", payload)
         if event.type in (
             "agent_text", "agent_tool", "agent_tool_result", "agent_run",
-            "agent_render",   # ConsoleStream output
+            "agent_render",    # ConsoleStream output
+            "agent_thinking",  # live thinking indicator (replaces \r spinner)
         ):
             return event_envelope(
                 "agents", event.type.removeprefix("agent_"), payload

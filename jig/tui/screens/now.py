@@ -3,9 +3,25 @@ from __future__ import annotations
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import Input, RichLog
+from textual.suggester import SuggestFromList
+from textual.widgets import Input, RichLog, Static
 
 from jig.tui.slash import ParsedSlash, SlashParseError, parse_slash
+
+
+# Authoritative list of slash commands the operator can use. Drives both
+# the inline suggester (ghost-text completion) and the popup list that
+# appears above the input when the user starts typing /.
+_SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("/help", "show the command reference"),
+    ("/status", "daemon + agent status"),
+    ("/init", "initialize a project (no args = init cwd)"),
+    ("/ticket new", "create a ticket (--title T --size s)"),
+    ("/ticket update", "edit a ticket (<id> field=value)"),
+    ("/concierge", "ask the concierge agent (or just type free text)"),
+    ("/quit", "exit the TUI (also /q, /exit)"),
+]
+_SLASH_COMMAND_NAMES = [name for name, _ in _SLASH_COMMANDS]
 
 
 class NowScreen(Container):
@@ -28,6 +44,18 @@ class NowScreen(Container):
     #scrollback {
         height: 1fr;
     }
+    #slash-popup {
+        height: auto;
+        max-height: 10;
+        dock: bottom;
+        background: $panel;
+        border-top: solid $accent;
+        padding: 0 1;
+        display: none;
+    }
+    #slash-popup.visible {
+        display: block;
+    }
     #input {
         height: 3;
         dock: bottom;
@@ -40,7 +68,12 @@ class NowScreen(Container):
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="scrollback", auto_scroll=True, markup=True)
-        yield Input(id="input", placeholder="› type a slash command or message")
+        yield Static("", id="slash-popup", markup=True)
+        yield Input(
+            id="input",
+            placeholder="› type a slash command or message",
+            suggester=SuggestFromList(_SLASH_COMMAND_NAMES, case_sensitive=False),
+        )
 
     async def on_mount(self) -> None:
         self.query_one("#scrollback", RichLog).write(
@@ -70,6 +103,44 @@ class NowScreen(Container):
         even after the user has switched to another tab.
         """
         event.stop()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Update the slash-command popup as the operator types."""
+        if event.input.id != "input":
+            return
+        self._refresh_slash_popup(event.value)
+
+    def _refresh_slash_popup(self, value: str) -> None:
+        try:
+            popup = self.query_one("#slash-popup", Static)
+        except Exception:
+            return
+        if not value.startswith("/"):
+            popup.set_class(False, "visible")
+            return
+        # Filter commands by prefix-match against the typed value.
+        prefix = value.lower()
+        matches = [
+            (name, desc)
+            for name, desc in _SLASH_COMMANDS
+            if name.lower().startswith(prefix) or prefix == "/"
+        ]
+        if not matches:
+            popup.update(f"[dim]no matches for {value}[/dim]")
+            popup.set_class(True, "visible")
+            return
+        # Render as a column of "  /name — description" lines.
+        lines = ["[bold dim]commands[/bold dim]"]
+        for name, desc in matches[:8]:
+            lines.append(f"  [cyan]{name}[/cyan]  [dim]{desc}[/dim]")
+        popup.update("\n".join(lines))
+        popup.set_class(True, "visible")
+
+    def _hide_slash_popup(self) -> None:
+        try:
+            self.query_one("#slash-popup", Static).set_class(False, "visible")
+        except Exception:
+            pass
 
     async def handle_daemon_event(self, msg: dict) -> None:
         """Fan-in handler called by JigApp when a relevant event arrives."""
@@ -167,6 +238,7 @@ class NowScreen(Container):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         line = event.value.strip()
         scrollback = self.query_one("#scrollback", RichLog)
+        self._hide_slash_popup()
 
         # ANSWERING mode: route to prompt_reply
         if self._active_prompt_id is not None:

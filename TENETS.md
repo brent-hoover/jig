@@ -7,6 +7,15 @@ these. If it can't be justified by them, it's probably not jig's job.
 
 ---
 
+**Glossary** — terms used below: **AC** = Acceptance Criteria,
+the testable one-sentence statement of what "done" means for a
+behavior. **Spec** = the structured projection of the brief
+(`.jig/spec/project.structured.yaml`). **Brief** = the markdown
+authored by the PO agent (`.jig/spec/project.md`). Full ontology
+in `ontology.md`.
+
+---
+
 ## 1. Correctness over speed
 
 Jig is a harness for coding agents optimized for **correct output, not

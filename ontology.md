@@ -72,6 +72,19 @@ orchestrator / agent terms get added as we firm them up.
 | **Stores** | `TicketStore`, `ThreadStore`, `MemoryStore`, `MessageBus` — JSONL-backed per-project state under `.jig/store/`. |
 | **Spawn context** | `AgentSpawnContext` — the bag of stores + project + role config passed to `run_agent` when spawning a Claude Code subprocess for a ticket. |
 
+## Spec terms
+
+| Term | What it is |
+|---|---|
+| **Capability** | One unit of product surface — "users can post a job." Has an id, title, summary, optional user story, behaviors, AC, non-goals, open questions. |
+| **Behavior** | A specific operation under a capability — "set a due date." Each behavior has an id and at least one AC. |
+| **Acceptance Criteria** (**AC**) | One-sentence, testable statement of what "done" means for a behavior — "Natural language inputs 'today', 'tomorrow', and 'next week' are accepted and stored as resolved dates." Referenced by id (`[set-due-date]`) so tests can cite the AC they cover. |
+| **Non-goal** | Something explicitly out of scope. Has an id + rationale. Operator-owned. |
+| **User story** | Optional `As X, I want Y, so that Z` framing on a capability. |
+| **Persona** | An actor who uses the product — customer / merchant / maintainer / etc. (See `docs/multi-level-spec/`.) |
+| **Journey** | A narrative walkthrough of one persona's path through the product. (See `docs/multi-level-spec/`.) |
+| **Module** | A grouping of capabilities. Organizational, not architectural. (See `docs/multi-level-spec/`.) |
+
 ## Composer affordances
 
 | Term | What it is |

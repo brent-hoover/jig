@@ -1,39 +1,37 @@
 /* jig/tui/app.tcss */
 
-/* Three clear visual zones:
-   1. Screen / tab strip — the chrome. Stays dark, almost black.
-   2. Pane shell — mid grey.
-   3. Pane content area — markedly lighter so the active region pops.
-   Explicit hex values for absolute contrast control. */
+/* Two clear visual zones:
+   1. Chrome (screen + tab strip + pane shell) — true black so the TUI
+      frame is unmistakably distinct from the pane content.
+   2. Pane content — light blue-grey card sitting on top of the black
+      chrome. The user's "terminal area" — kept at the value they
+      approved. */
 Screen {
-    background: #0a0d14;
+    background: #000000;
 }
 
 TabbedContent {
     height: 1fr;
-    background: #1a1f2c;
+    background: #000000;
 }
 
 TabPane {
     height: 1fr;
-    background: #1a1f2c;
+    background: #000000;
 }
 
-/* Pane content area: substantially brighter so the active region reads
-   as an elevated card against the screen chrome. */
+TabbedContent > Tabs {
+    background: #000000;
+}
+
+/* Pane content area: clearly elevated card. */
 NowScreen, TicketsScreen, SpecScreen, EventsScreen {
     border: round $accent;
-    margin: 0 1;
+    margin: 1 2;
     background: #2d3548;
 }
 
-/* Inner widgets — scrollback, lists, trees — match the pane bg so
-   nested borders don't fight. */
+/* Inner widgets match the pane bg so nested borders don't fight. */
 RichLog, ListView, Tree, TextArea, Input {
     background: #2d3548;
-}
-
-/* Tab strip should sit on the screen-dark zone, visually separated. */
-TabbedContent > Tabs {
-    background: #0a0d14;
 }

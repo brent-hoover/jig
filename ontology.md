@@ -1,12 +1,10 @@
 # Ontology
 
-Authoritative names for the moving parts of jig. Use these in code
-comments, commit messages, design discussions, and bug reports so
-we're talking about the same things.
+Authoritative names for the moving parts of jig. Use these in code comments, commit messages, design discussions, and
+bug reports so we're talking about the same things.
 
-This doc is living — add terms as concepts firm up. Sections below
-start with the TUI (the most-touched surface today); daemon /
-orchestrator / agent terms get added as we firm them up.
+This doc is living — add terms as concepts firm up. Sections below start with the TUI (the most-touched surface today);
+daemon / orchestrator / agent terms get added as we firm them up.
 
 ## Visual zones
 
@@ -78,12 +76,48 @@ orchestrator / agent terms get added as we firm them up.
 |---|---|
 | **Capability** | One unit of product surface — "users can post a job." Has an id, title, summary, optional user story, behaviors, AC, non-goals, open questions. |
 | **Behavior** | A specific operation under a capability — "set a due date." Each behavior has an id and at least one AC. |
-| **Acceptance Criteria** (**AC**) | One-sentence, testable statement of what "done" means for a behavior — "Natural language inputs 'today', 'tomorrow', and 'next week' are accepted and stored as resolved dates." Referenced by id (`[set-due-date]`) so tests can cite the AC they cover. |
+| **Acceptance Criteria** (**AC**) | One-sentence, testable statement of what "done" means. Two flavors: **behavior AC** (PO-authored, user-visible — "Natural language inputs 'today', 'tomorrow', and 'next week' are accepted and stored as resolved dates"); **integration AC** (SA-authored, system-visible — "Writes to the `orders` collection in the main db, indexed on `user_id`"). Referenced by id (`[set-due-date]`) so tests can cite the AC they cover. |
 | **Non-goal** | Something explicitly out of scope. Has an id + rationale. Operator-owned. |
 | **User story** | Optional `As X, I want Y, so that Z` framing on a capability. |
 | **Persona** | An actor who uses the product — customer / merchant / maintainer / etc. (See `docs/multi-level-spec/`.) |
 | **Journey** | A narrative walkthrough of one persona's path through the product. (See `docs/multi-level-spec/`.) |
-| **Module** | A grouping of capabilities. Organizational, not architectural. (See `docs/multi-level-spec/`.) |
+| **Suite** | A grouping of related capabilities. Operator/PO-owned, organizational. The L2 unit in the multi-level spec. "The catalog suite." (See `docs/multi-level-spec/`.) |
+| **Module** | An implementation unit — service / package / deployment boundary. SA-owned, architectural. A suite's capabilities may be implemented across multiple modules; one module may implement parts of multiple suites. "The ingest-worker module." |
+| **Contract** | An SA-authored constraint at an integration boundary — schemas, API shapes, message envelopes, ownership of collections. Lives in `modules/<m>/contracts.yaml`. The thing code review enforces. |
+
+## PM / Build-plan terms
+
+| Term | What it is |
+|---|---|
+| **Planner PM** | Strategic PM agent. Runs in passes after SA-done. Reads PO + SA artifacts, decomposes capabilities into tickets, produces the build plan. Senior or SA tier. (See `docs/pm-workflow/`.) |
+| **Coordinator PM** | Tactical PM agent. Runs continuously. Dispatches tickets per the plan, routes dev escalations, tracks stalled work. Standard tier; mostly deterministic with thin LLM judgment. |
+| **Build plan** | Living artifact at `.jig/plan/build-plan.yaml`. Organizes work into epics × completeness layers (bones / MVP / final). Owned by Planner PM, updated as work surfaces gaps. |
+| **Epic** | A unit of the build plan — typically a module's worth of work, or a coherent capability cluster. Each epic has its own bones / MVP / final progression. |
+| **Bones** | Build-plan layer 1: the union of all epic tracer bullets. System walking skeleton — every module touched, every contract exercised, single happy path, no edge cases. Bones of *all* epics complete before any epic's MVP begins. |
+| **MVP** | Build-plan layer 2: per-epic minimum useful functionality. Real integrations, critical failure modes handled. |
+| **Final** | Build-plan layer 3: per-epic full coverage. Edge cases, polish, performance, the long tail of AC. |
+| **Tracer bullet** | A ticket type. Deliberately cross-module, deliberately incomplete in scope (one happy path, no error handling). Output is "data flows end-to-end, contracts compose." Distinct from a spike (spikes answer architectural unknowns; tracer bullets validate that *our own pieces* fit together). |
+| **Spike** | A ticket type. Bounded exploration to mitigate a flagged architectural risk. Output is a learning (a comment with findings), not production code. Time-boxed. |
+| **Standard ticket** | A ticket type. Single-capability, full AC, conventional implementation. Most tickets are these. |
+| **Dev tier** | One of `standard | senior | sa`. Determines which agent (model + budget + context cap) implements the ticket. Assigned by Planner PM. |
+| **Reviewer set** | The subset of federated reviewer agents that runs on a given ticket's PR. Default-on subset: contract-compliance, cross-cutting-policy, spec-compliance. Add-ons selected per ticket characteristics. |
+| **Reviewer federation** | Multiple specialized reviewer agents running in parallel per PR (rather than one monolithic reviewer). Each has its own tight focus, narrow context, and tier. |
+| **Severity** | One of `critical | important | notable`. Critical must be fixed; important should be unless rework needed (then consult SA); notable can be deferred. |
+| **DEFERRED queue** | `.jig/plan/deferred.jsonl` — notable-severity items pushed forward from review for later triage. Owned by Coordinator PM; revisited by Planner PM at re-plan time. |
+
+## Visual Design terms
+
+| Term | What it is |
+|---|---|
+| **Visual Designer (VD)** | Agent role parallel to PO / SA / PM. Owns visual artifacts AND frontend architecture (stack, build, component pattern). The architect for the frontend, not just the visual designer. Runs in parallel with SA after PO discovery completes. (See `docs/visual-design/`.) |
+| **Frontend architecture** | VD-owned technical decisions for the UI: stack (HTMX + Alpine + custom CSS by default), build tooling, component pattern, accessibility target. Lives in `.jig/design/frontend.yaml`. SA owns backend architecture; VD owns frontend. |
+| **Wireframe** | Grey-screen SVG describing one screen's structural layout — regions, content placeholders, interactive elements labeled, no styling. Lives in `.jig/design/wireframes/<screen-id>.svg`. |
+| **Screen** | One operator-facing surface in the product. Derived from L1 journeys + L3 capabilities. Each screen gets one wireframe; the union covers every user-visible journey step. |
+| **Screen roster** | `.jig/design/wireframes/screens.yaml` — the canonical list of screens with mappings to journey ids, capability ids, suite. The visual equivalent of L1's capability roster. |
+| **Design system** | Tokens (color / typography / spacing / radius), component spec, brand guidance. Lives in `.jig/design/system/`. Always present — VD applies defaults at the moment discovery starts; operator can replace via Anthropic-provided design tooling, supply their own export, or keep defaults indefinitely. `default` is a permanent valid state, not a placeholder. |
+| **Design tokens** | Named primitive values (`color.primary`, `spacing.md`, `font.base`) referenced by implementation. The lowest-level unit of the design system. |
+| **Visual compliance** | Reviewer agent type in the PM federation. Vision-based diff between an implementation screenshot and the wireframe (plus design-system check at MVP/Final layers). |
+| **Browser index** | Auto-generated `.jig/design/wireframes/index.html` embedding all SVGs for browser viewing. Operator opens locally to review wireframe set or compare against implementation screenshots. |
 
 ## Composer affordances
 

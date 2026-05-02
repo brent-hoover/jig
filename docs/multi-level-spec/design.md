@@ -11,12 +11,18 @@ problem: ./problem.md
 
 ## Summary
 
-Replace the single-brief workflow with a tiered one. Five levels of
-resolution; each level has a verifiable "done" boundary, dedicated
-artifact on disk, and a dedicated PO mode (or, at L3, the existing
-simple-brief PO scoped to one module). Discovery (L1) is journey-
-driven so every capability traces back to a persona's narrative.
-Module work (L3) reuses today's brief format intact.
+Replace the single-brief workflow with a tiered one. Five levels of resolution; each level has a verifiable "done"
+boundary, dedicated artifact on disk, and a dedicated PO mode (or, at L3, the existing simple-brief PO scoped to one
+suite). Discovery (L1) is journey- driven so every capability traces back to a persona's narrative. Suite work (L3)
+reuses today's brief format intact.
+
+> **Term note.** Throughout this doc, **"suite"** is the operator-
+> facing grouping of related capabilities — what the L2 PO and the
+> operator organize together. **"Module"** (when it appears) is
+> reserved for the SA's architectural unit (a service / package /
+> deployment boundary). A suite's capabilities may be implemented
+> across multiple modules; the SA-modules layer is designed in
+> `docs/sa-architecture/`. This doc covers L0–L4 only.
 
 ## Levels of resolution
 
@@ -24,14 +30,12 @@ Module work (L3) reuses today's brief format intact.
 |---|---|---|---|
 | L0 | `.jig/spec/project.md` | Pitch (1 sentence), Problem (1 paragraph), Audience (1 paragraph), product-level Non-goals | Operator confirms; pitch is testable ("does this match what we're building?"). |
 | L1 | `.jig/spec/discovery.md` | Personas (1-line each) + Journeys (narrative, per persona) + Capability roster (flat list, traceable to journeys) | Operator declares "all personas covered." No persona has unresolved journeys. |
-| L2 | `.jig/spec/modules.yaml` | Ordered list of modules: name, summary, list of L1 capability ids assigned to it | Every L1 capability is in exactly one module. Modules are 3-5 capabilities each (soft target). |
-| L3 | `.jig/spec/modules/<m>/brief.md` | The existing simple-brief format, scoped to one module's capabilities. | The existing simple-brief "done" — capabilities elaborated, behaviors + AC where state requires them. |
+| L2 | `.jig/spec/suites.yaml` | Ordered list of suites: name, summary, list of L1 capability ids assigned to it | Every L1 capability is in exactly one suite. Suites are 3-5 capabilities each (soft target). |
+| L3 | `.jig/spec/suites/<s>/brief.md` | The existing simple-brief format, scoped to one suite's capabilities. | The existing simple-brief "done" — capabilities elaborated, behaviors + AC where state requires them. |
 | L4 | Tickets in `.jig/store/tickets.jsonl` | Existing | Existing |
 
-Each level's artifact is ROOM-TO-GROW: incomplete is OK. Operator
-moves to the next level whenever the current one is "done enough for
-now." Resuming work re-reads the artifact and picks up from
-whatever state is there.
+Each level's artifact is ROOM-TO-GROW: incomplete is OK. Operator moves to the next level whenever the current one is
+"done enough for now." Resuming work re-reads the artifact and picks up from whatever state is there.
 
 ## Artifacts on disk
 
@@ -40,12 +44,12 @@ whatever state is there.
   spec/
     project.md                         L0 — pitch / problem / audience / non-goals
     discovery.md                       L1 — personas / journeys / capability roster
-    modules.yaml                       L2 — module list
-    modules/
-      <module-name>/
+    suites.yaml                        L2 — suite list
+    suites/
+      <suite-name>/
         brief.md                       L3 — simple-brief (existing format)
         spec.structured.yaml           L3 — structured projection of brief.md
-    project.structured.yaml            top-level federated spec (small; points at modules)
+    project.structured.yaml            top-level federated spec (small; points at suites)
 ```
 
 The top-level `project.structured.yaml` is a thin federation:
@@ -54,15 +58,15 @@ The top-level `project.structured.yaml` is a thin federation:
 spec_version: 2
 name: jig-search
 summary: hosted search SaaS for ecommerce
-modules:
+suites:
   - id: catalog
     title: Catalog
     summary: ingestion, normalization, delta updates
-    spec_uri: project://spec/modules/catalog/spec
+    spec_uri: project://spec/suites/catalog/spec
   - id: query
     title: Query
     summary: search, autocomplete, faceted results
-    spec_uri: project://spec/modules/query/spec
+    spec_uri: project://spec/suites/query/spec
 non_goals:
   - id: no-cms
     text: We will not build a CMS
@@ -74,9 +78,8 @@ generated_at: 2026-04-30T18:42:00Z
 
 ## L0 — Pitch (mostly existing)
 
-The current `project.md` intro paragraph + the new "Problem statement"
-section + audience + product-level non-goals. PO writes this in a
-short conversation (3-5 turns). Format:
+The current `project.md` intro paragraph + the new "Problem statement" section + audience + product-level non-goals. PO
+writes this in a short conversation (3-5 turns). Format:
 
 ```markdown
 # <project name>
@@ -98,7 +101,7 @@ matters to the audience>
 - ...
 ```
 
-The L0 PO doesn't ask about features or modules. Just shape.
+The L0 PO doesn't ask about features or suites. Just shape.
 
 ## L1 — Discovery (new, the load-bearing piece)
 
@@ -139,30 +142,24 @@ Capabilities implied:
 
 ### Capability roster
 
-A running list at the bottom of `discovery.md`, deduplicated by id,
-sorted by first-mention. Each capability has a `journeys:` list of
-which journey ids surfaced it. This is the input to L2.
+A running list at the bottom of `discovery.md`, deduplicated by id, sorted by first-mention. Each capability has a
+`journeys:` list of which journey ids surfaced it. This is the input to L2.
 
 ### L1 PO behavior
 
-The L1 PO walks the operator through one persona at a time, one
-journey at a time. Pattern per journey:
+The L1 PO walks the operator through one persona at a time, one journey at a time. Pattern per journey:
 
-1. **NARRATIVE** — open-ended question: "When does <persona> first
-   show up? What do they do, then what?" Iterates until the journey
-   reaches a natural endpoint or operator says "stop."
-2. **EXTRACT** — PO drafts a list of capabilities the journey implies
-   (using only verbs from the operator's narrative, no inventing).
-3. **CONFIRM** — shows operator the journey + capabilities. Operator
-   edits names, drops some, adds missing ones.
-4. **APPEND** — PO writes the journey + capability deltas to
-   `discovery.md`.
+1. **NARRATIVE** — open-ended question: "When does <persona> first show up? What do they do, then what?" Iterates until
+   the journey reaches a natural endpoint or operator says "stop."
+2. **EXTRACT** — PO drafts a list of capabilities the journey implies (using only verbs from the operator's narrative,
+   no inventing).
+3. **CONFIRM** — shows operator the journey + capabilities. Operator edits names, drops some, adds missing ones.
+4. **APPEND** — PO writes the journey + capability deltas to `discovery.md`.
 5. **LOOP** — "Another journey for <persona>, or move on?"
 
-When all journeys are walked for one persona, PO confirms persona is
-done and proposes the next persona (suggested defaults: customer,
-merchant, maintainer; operator can reorder/rename/add). When operator
-declares L1 done, PO calls `discovery_finalize` which validates:
+When all journeys are walked for one persona, PO confirms persona is done and proposes the next persona (suggested
+defaults: customer, merchant, maintainer; operator can reorder/rename/add). When operator declares L1 done, PO calls
+`discovery_finalize` which validates:
 - Every persona has at least one journey
 - Every journey extracts at least one capability
 - All capability ids are kebab-case and unique
@@ -260,13 +257,13 @@ allowed_tools:
 strict_tools: true
 ```
 
-## L2 — Module organization (new)
+## L2 — Suite organization (new)
 
-### modules.yaml
+### suites.yaml
 
 ```yaml
 spec_version: 2
-modules:
+suites:
   - id: onboarding
     title: Onboarding
     summary: signup, API key, JS snippet, billing
@@ -290,50 +287,46 @@ crosscutting_non_goals:
   - {#no-cms} ...
 ```
 
-Every L1 capability appears in exactly one module's `capabilities`
-list. Validation: union of all module capabilities == discovery
-roster.
+Every L1 capability appears in exactly one suite's `capabilities` list. Validation: union of all suite capabilities ==
+discovery roster.
 
 ### L2 PO behavior
 
-Reads `discovery.md`. Proposes 4-6 module groupings with
-one-line rationale each. Operator confirms / rearranges. PO writes
-`modules.yaml`.
+Reads `discovery.md`. Proposes 4-6 suite groupings with one-line rationale each. Operator confirms / rearranges. PO
+writes `suites.yaml`.
 
-If the operator's product genuinely has fewer/more modules, PO
-proposes that — soft target of 3-5 capabilities per module is a
-heuristic, not a rule.
+If the operator's product genuinely has fewer/more suites, PO proposes that — soft target of 3-5 capabilities per suite
+is a heuristic, not a rule.
 
 ### L2 PO tools
 
 ```
 discovery_get_capability_roster()           — read flat list from L1
-modules_propose(modules: list)              — show operator proposed grouping; await confirmation
-modules_finalize(modules: list)             — write modules.yaml
-ask_question(ticket_id="modules", ...)
+suites_propose(suites: list)                — show operator proposed grouping; await confirmation
+suites_finalize(suites: list)               — write suites.yaml
+ask_question(ticket_id="suites", ...)
 ```
 
-## L3 — Module brief (existing, scoped to one module)
+## L3 — Suite brief (existing, scoped to one suite)
 
-`jig module init <name>` runs the existing simple-brief PO with two
-adjustments:
+`/suite init <name>` (TUI slash command) runs the existing simple-brief PO with two adjustments:
 
 1. The PO sees the parent context: project.md (L0) + discovery.md (L1)
-   + modules.yaml entry for this module. So the PO knows which
-   capabilities are in scope and what role this module plays.
-2. The brief at `.jig/spec/modules/<m>/brief.md` only enumerates the
-   capabilities listed in `modules.yaml` for that module — adding new
-   capabilities here flags a gap (operator must go back to L1).
+   + suites.yaml entry for this suite. So the PO knows which
+capabilities are in scope and what role this suite plays.
+2. The brief at `.jig/spec/suites/<s>/brief.md` only enumerates the capabilities listed in `suites.yaml` for that suite
+   — adding new capabilities here flags a gap (operator must go back to L1).
 
-Spec-gen / SA / scaffold proceed as today, but produce
-`.jig/spec/modules/<m>/spec.structured.yaml` instead of the project-
-level structured spec.
+Spec-gen / SA / scaffold proceed as today, but produce `.jig/spec/suites/<s>/spec.structured.yaml` instead of the
+project- level structured spec.
 
 ## L4 — Tickets (existing)
 
-Tickets get a `module_id` field so they're scoped. `derived_from:
-project://spec/modules/<m>/capabilities/<c>`. The orchestrator
-already supports this URI shape via the work in `jig/spec_uri.py`.
+Tickets get a `suite_id` field so they're scoped. `derived_from: project://spec/suites/<s>/capabilities/<c>`. The
+orchestrator already supports this URI shape via the work in `jig/spec_uri.py`.
+
+(Tickets may also gain a `module_id` field once the SA-modules layer lands — `suite_id` is the *what* and `module_id` is
+the *where*. Out of scope for this design.)
 
 ## Iteration: adding a journey later
 
@@ -341,16 +334,19 @@ already supports this URI shape via the work in `jig/spec_uri.py`.
 
 1. L1 PO is spawned with the persona id + existing discovery.md.
 2. Walks the new journey, extracts capabilities.
-3. For each new capability, checks: is it already in modules.yaml?
+3. For each new capability, checks: is it already in suites.yaml?
    - If yes, no-op (just adds journey ref to existing capability).
-   - If no, proposes either appending to an existing module (with
-     rationale) OR creating a new module.
+   - If no, proposes either appending to an existing suite (with rationale) OR creating a new suite.
 4. Operator confirms; L1 + L2 artifacts updated.
-5. If the new capability lands in a module whose `brief.md` already
-   exists, the brief is flagged as stale; operator runs `jig module
-   refresh <m>` to incorporate.
+5. If the new capability lands in a suite whose `brief.md` already exists, the brief is flagged as stale; operator runs
+   `/suite refresh <s>` to incorporate.
 
 ## Workflow integration
+
+> **CLI vs TUI surface.** Jig is TUI-first. The CLI surface stays minimal: `jig` (launch TUI), `jig daemon
+> start|stop|status` (daemon lifecycle), `jig build`, `jig story <ticket-id>`, and `jig --print "/<command>"` (one-shot
+> escape hatch for scripts). All workflow operations — suite, journey, plan, etc. — are TUI slash commands. The
+> `--print` escape hatch makes them scriptable when needed without duplicating the surface.
 
 `jig create <name>` continues to launch the TUI. Inside:
 
@@ -359,105 +355,90 @@ already supports this URI shape via the work in `jig/spec_uri.py`.
                           checkpoints between levels (operator must
                           confirm at each transition)
 /init --resume         → resumes wherever the artifacts say we are
-/module list           → shows modules.yaml status (pending vs done)
-/module init <name>    → L3 simple-brief for that module
-/module refresh <name> → re-run module brief incorporating L1 changes
+/suite list            → shows suites.yaml status (pending vs done)
+/suite init <name>     → L3 simple-brief for that suite
+/suite refresh <name>  → re-run suite brief incorporating L1 changes
 /journey add <persona> → L1 add-journey iteration
 /journey list          → show personas + journeys
 ```
 
-The existing `/init <name>` (with project name argument) creates a
-new project AND runs L0+L1+L2. The existing `/init` (no args) inits
-the cwd. Both default to running through L0/L1/L2 — the operator
-can stop early by replying "I'm done for now" to the PO.
+The existing `/init <name>` (with project name argument) creates a new project AND runs L0+L1+L2. The existing `/init`
+(no args) inits the cwd. Both default to running through L0/L1/L2 — the operator can stop early by replying "I'm done
+for now" to the PO.
 
 ## Federated spec generation
 
 `spec-generator` becomes mode-aware:
-- `spec-generator --level project` reads modules.yaml + crosscutting
-  non-goals from project.md, produces project.structured.yaml.
-- `spec-generator --level module --module <id>` reads modules/<id>/brief.md,
-  produces modules/<id>/spec.structured.yaml.
+- `spec-generator --level project` reads suites.yaml + crosscutting non-goals from project.md, produces
+  project.structured.yaml.
+- `spec-generator --level suite --suite <id>` reads suites/<id>/brief.md, produces suites/<id>/spec.structured.yaml.
 
-`/spec` slash commands gain module scope:
-- `/spec capabilities --module catalog` lists capabilities in one module
+`/spec` slash commands gain suite scope:
+- `/spec capabilities --suite catalog` lists capabilities in one suite
 - `/spec capability catalog/normalize-skus` reads one capability's full spec
 
 URI scheme:
-- `project://spec/modules/<m>/capabilities/<c>` — capability in a module
-- `project://spec/modules/<m>` — whole module spec
-- `project://spec/modules` — list of modules
+- `project://spec/suites/<s>/capabilities/<c>` — capability in a suite
+- `project://spec/suites/<s>` — whole suite spec
+- `project://spec/suites` — list of suites
 - `project://spec/discovery/journeys/<j>` — read a discovery journey
 - `project://spec/discovery/personas/<p>` — read a persona
 
 ## Risks
 
-- **PO conversation length at L1.** Walking 3 personas × 2-3 journeys
-  could be 30-50 turns. Token costs add up. Mitigation: each persona
-  is its own PO spawn — operator can break across sessions; PO reads
-  discovery.md state on resume.
-- **Capability id collisions / drift.** L1 generates ids; L3 might want
-  different names. Mitigation: id is the source of truth; L3 cannot
-  rename without going back to L1.
-- **Operator gets stuck mid-journey.** Hard to know what to say next.
-  Mitigation: PO can offer 2-3 "what often comes next" suggestions
-  drawn from common ecommerce/SaaS patterns. (Risk: prejudicing the
-  design. Watch for this.)
-- **L2 grouping is ambiguous.** Operator might disagree with PO's
-  proposal. Mitigation: PO proposes; operator owns the final shape.
-  Multiple iterations supported.
-- **Existing simple-brief workflow.** Backward-compat: a project that
-  has `.jig/spec/project.md` in old format (with `## Built` etc. and
-  enumerated capabilities) keeps working — there's just no L1/L2
-  artifacts. New projects use the multi-level path. Detection: presence
-  of `discovery.md`.
+- **PO conversation length at L1.** Walking 3 personas × 2-3 journeys could be 30-50 turns. Token costs add up.
+  Mitigation: each persona is its own PO spawn — operator can break across sessions; PO reads discovery.md state on
+  resume.
+- **Capability id collisions / drift.** L1 generates ids; L3 might want different names. Mitigation: id is the source of
+  truth; L3 cannot rename without going back to L1.
+- **Operator gets stuck mid-journey.** Hard to know what to say next. Mitigation: PO can offer 2-3 "what often comes
+  next" suggestions drawn from common ecommerce/SaaS patterns. (Risk: prejudicing the design. Watch for this.)
+- **L2 grouping is ambiguous.** Operator might disagree with PO's proposal. Mitigation: PO proposes; operator owns the
+  final shape. Multiple iterations supported.
+- **Existing simple-brief workflow.** Backward-compat: a project that has `.jig/spec/project.md` in old format (with `##
+  Built` etc. and enumerated capabilities) keeps working — there's just no L1/L2 artifacts. New projects use the
+  multi-level path. Detection: presence of `discovery.md`.
 
 ## Out of scope
 
-- Cross-module dependency graph (capability X in module A depends on
-  capability Y in module B). Operator-tracked for now.
-- Time-horizons / versioning (v1 capabilities vs v2). Modules are flat;
-  add a `target_version` field later if needed.
-- Multi-team ownership. Each module gets one assignee at most.
-- Migration of existing projects from monolithic brief to multi-level.
-  Manual for now.
+- Cross-suite dependency graph (capability X in suite A depends on capability Y in suite B). Operator-tracked for now.
+- Time-horizons / versioning (v1 capabilities vs v2). Suites are flat; add a `target_version` field later if needed.
+- Multi-team ownership. Each suite gets one assignee at most.
+- Migration of existing projects from monolithic brief to multi-level. Manual for now.
+- The SA-modules layer (architectural code modules, contracts, integration AC, risk register, spike work). See
+  `docs/sa-architecture/`.
 
 ## Open questions
 
-1. **L1 PO suggestions for "what comes next" mid-journey** — should it
-   propose, or stay strictly Socratic? Current design: stays Socratic
-   by default, but operator can `/journey suggest` to opt in to
-   suggestions for one turn.
-2. **modules.yaml status field** — should `status` track L3 progress
-   (pending / brief_ready / resolved), or is that derivable from disk
-   (does `modules/<m>/brief.md` exist + is the ticket resolved)?
-   Probably derivable — drop the field.
-3. **Crosscutting concerns**: where to express auth / multi-tenancy /
-   observability. Three options from earlier brainstorm — locked in:
-   **dedicated Platform module** (a maintainer-journey-driven module),
-   plus product-level non-goals for things we won't build at all.
-4. **L1 → L2 transition trigger** — does L1 PO automatically hand off
-   to L2 PO on `discovery_finalize`, or does the operator type
-   `/modules organize` separately? Current design: auto-handoff with
-   an "approve to proceed" gate (similar to current brief-approval).
+1. **L1 PO suggestions for "what comes next" mid-journey** — should it propose, or stay strictly Socratic? Current
+   design: stays Socratic by default, but operator can `/journey suggest` to opt in to suggestions for one turn.
+2. **suites.yaml status field** — should `status` track L3 progress (pending / brief_ready / resolved), or is that
+   derivable from disk (does `suites/<s>/brief.md` exist + is the ticket resolved)? Probably derivable — drop the field.
+3. **Crosscutting concerns**: where to express auth / multi-tenancy / observability. Three options from earlier
+   brainstorm — locked in: **dedicated Platform suite** (a maintainer-journey-driven suite), plus product-level
+   non-goals for things we won't build at all.
+4. **L1 → L2 transition trigger** — does L1 PO automatically hand off to L2 PO on `discovery_finalize`, or does the
+   operator type `/suites organize` separately? Current design: auto-handoff with an "approve to proceed" gate (similar
+   to current brief-approval).
 
 ## Implementation phases
 
-1. **Schema** — `discovery.md` parser, `modules.yaml` schema +
-   validators, `project.structured.yaml` v2 schema. New URI shapes in
-   `spec_uri.py`.
-2. **L0 PO** — split the existing init PO into pitch-only + journey-
-   discovery. The pitch-only is mostly the existing intro flow; just
-   shorten its prompt.
-3. **L1 PO + tools** — new role, new MCP tools, new brief parser
-   for journey blocks.
+1. **Schema** — `discovery.md` parser, `suites.yaml` schema + validators, `project.structured.yaml` v2 schema. New URI
+   shapes in `spec_uri.py`.
+2. **L0 PO** — split the existing init PO into pitch-only + journey- discovery. The pitch-only is mostly the existing
+   intro flow; just shorten its prompt.
+3. **L1 PO + tools** — new role, new MCP tools, new brief parser for journey blocks.
 4. **L2 PO + tools** — simpler than L1; reads roster, proposes grouping.
-5. **`jig module init/list/refresh` commands** — extend daemon command
-   surface.
-6. **TUI affordances** — `/journey add`, `/module list`, etc.
+5. **Daemon command handlers** for `suite_init`, `suite_list`, `suite_refresh`, `journey_add`, `journey_list` — wired
+   into the existing daemon command registry so they're invokable as TUI slash commands and (via `jig --print
+   "/<command>"`) from the shell for scripting.
+6. **TUI affordances** — `/journey add`, `/suite list`, etc., plus operator-facing rendering (suite status, journey
+   list, gate confirmations).
 7. **Migration** — backwards-compat detection (old vs new project).
 
 ## Change log
 
-- 2026-04-30: Initial draft (brent + claude). Captures the five-level
-  design, L1 PO sketch, federated structured spec, iteration story.
+- 2026-04-30: Initial draft (brent + claude). Captures the five-level design, L1 PO sketch, federated structured spec,
+  iteration story.
+- 2026-04-30: Renamed L2 concept "module" → "suite" to free up "module" for the SA's architectural unit. No structural
+  changes.

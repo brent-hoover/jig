@@ -10,6 +10,9 @@ if TYPE_CHECKING:
     from jig.events import EventEmitter
 
 from jig.agent import run_agent
+from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
+from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChanged
+from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, load_config
 from jig.deadlock import sweep_blocking_entries
 from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
@@ -72,6 +75,11 @@ class Orchestrator:
         self.memory: MemoryStore | None = None
         self.bus: MessageBus | None = None
         self.check_results: CheckResultsStore | None = None
+        # v2 analytics — append-only event capture for the consumer half
+        # described in docs/analytics/. Initialized in startup once the
+        # store directory exists.
+        self.analytics: AnalyticsStore | None = None
+        self._analytics_emitter: AnalyticsEmitter | None = None
 
         self._running_tickets: dict[str, asyncio.Task] = {}
         self._live_subscribers: dict[tuple[str, str], asyncio.Task] = {}
@@ -113,6 +121,7 @@ class Orchestrator:
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
             self.check_results = CheckResultsStore(store_dir / "check_results.jsonl")
+            self.analytics = AnalyticsStore(store_dir / "analytics.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
                 self.threads.load(),
@@ -120,7 +129,10 @@ class Orchestrator:
                 self.memory.load(),
                 self.bus.load(),
                 self.check_results.load(),
+                self.analytics.load(),
             )
+            self._analytics_emitter = AnalyticsEmitter(self.analytics)
+            self.tickets.set_status_change_callback(self._on_ticket_status_change)
             # Phase 5 Task L: load deadlock thresholds from
             # `.jig/config.yaml`. Missing config (fresh install,
             # tests) falls back to the shipped defaults rather
@@ -156,6 +168,65 @@ class Orchestrator:
         if self._project is not None and self._running:
             return  # already configured for this project
         await self.startup()
+
+    # ---- analytics --------------------------------------------------------
+
+    def _on_ticket_status_change(
+        self, ticket_id: str, from_state: str | None, to_state: str
+    ) -> None:
+        """Status-change callback wired into TicketStore for analytics."""
+        if self._analytics_emitter is None:
+            return
+        self._analytics_emitter.emit_nowait(
+            TicketStateChanged(
+                ticket_id=ticket_id,
+                from_state=from_state,
+                to_state=to_state,
+            )
+        )
+
+    async def _run_agent_with_analytics(
+        self, ctx, *, spawned_by: str = "orchestrator"
+    ):
+        """Wrap run_agent with AgentSpawned/AgentCompleted emission.
+
+        Returns the same ``RunAgentResult`` ``run_agent`` would. Bones
+        scope: model is recorded as ``"default"`` since per-spawn model
+        selection isn't yet plumbed through the orchestrator. Duration is
+        wall-clock from the spawn-emit point.
+        """
+        agent_id = f"{ctx.role}:{ctx.ticket.id[:8]}"
+        emitter = self._analytics_emitter
+        if emitter is not None:
+            emitter.emit_nowait(
+                AgentSpawned(
+                    agent_id=agent_id,
+                    role=ctx.role,
+                    model="default",
+                    ticket_id=ctx.ticket.id,
+                    spawned_by=spawned_by,
+                )
+            )
+        start = time.monotonic()
+        result_status = "failed"
+        try:
+            result = await run_agent(ctx, emitter=self._emitter)
+            result_status = self._map_result_status(result.status)
+            return result
+        finally:
+            if emitter is not None:
+                emitter.emit_nowait(
+                    AgentCompleted(
+                        agent_id=agent_id,
+                        status=result_status,  # type: ignore[arg-type]
+                        duration_ms=int((time.monotonic() - start) * 1000),
+                    )
+                )
+
+    @staticmethod
+    def _map_result_status(s: str) -> str:
+        """Map RunAgentResult.status to AgentCompleted.status Literal."""
+        return {"needs_info": "blocked"}.get(s, s)
 
     async def _emergency_reset(self) -> None:
         self._running = False
@@ -214,6 +285,13 @@ class Orchestrator:
         self._dispatch_task = None
         self._service_task = None
         self._deadlock_task = None
+        # Flush in-flight analytics writes so the tail of the event
+        # stream isn't lost when the loop closes.
+        if self._analytics_emitter is not None:
+            try:
+                await self._analytics_emitter.drain()
+            except Exception:
+                _logger.warning("analytics drain raised at shutdown", exc_info=True)
 
     async def _resume_in_progress(self) -> None:
         if self.tickets is None:
@@ -483,7 +561,7 @@ class Orchestrator:
                         _logger.info(
                             "spawning agent for %s on ticket %s", phase.role, ticket_id
                         )
-                        result = await run_agent(ctx, emitter=self._emitter)
+                        result = await self._run_agent_with_analytics(ctx)
                         _logger.info("agent %s finished: %s", phase.role, result.status)
                     except Exception:
                         _logger.exception(
@@ -1334,7 +1412,7 @@ class Orchestrator:
             checkpoints=self.checkpoints,
             initial_bus_message=initial_event.payload if initial_event else None,
         )
-        task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))
+        task = asyncio.create_task(self._run_agent_with_analytics(ctx))
         self._live_subscribers[(ticket_id, role)] = task
 
         # Log any exception raised inside the run_agent task.
@@ -1469,7 +1547,7 @@ class Orchestrator:
                 "check_results": check_results_payload,
             },
         )
-        task = asyncio.create_task(run_agent(ctx, emitter=self._emitter))
+        task = asyncio.create_task(self._run_agent_with_analytics(ctx))
         self._live_subscribers[(ticket_id, role)] = task
 
         def _cleanup(t: asyncio.Task) -> None:

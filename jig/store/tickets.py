@@ -1,8 +1,14 @@
+import asyncio
+import inspect
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Union
 
 from jig.store.models import TypedCollection
 from jig.ticket import Ticket, TicketStatus, WorkType
+
+StatusChangeCallback = Callable[[str, Union[str, None], str], Union[Awaitable[None], None]]
 
 # All shipped work_types currently participate in the workflow pipeline.
 # Phase 2 will introduce per-work_type workflow selection via config.yaml,
@@ -20,6 +26,18 @@ class TicketStore:
             model=Ticket,
             index_fields=["work_type", "status", "assignee", "parent_id"],
         )
+        self._on_status_change: StatusChangeCallback | None = None
+
+    def set_status_change_callback(self, cb: StatusChangeCallback | None) -> None:
+        """Register a callback fired on every observed status transition.
+
+        Used by the orchestrator to feed ``TicketStateChanged`` analytics
+        events without coupling the store to the analytics schema. The
+        callback receives ``(ticket_id, from_state, to_state)``; sync or
+        async returns are both supported. ``from_state`` is None for the
+        first observed status (initial creation paths).
+        """
+        self._on_status_change = cb
 
     async def load(self) -> None:
         await self._collection.load()
@@ -42,11 +60,29 @@ class TicketStore:
         return await self._collection.get(ticket_id)
 
     async def update(self, ticket_id: str, **fields) -> Ticket:
+        prev_status: str | None = None
+        if self._on_status_change is not None and "status" in fields:
+            prev = await self._collection.get(ticket_id)
+            prev_status = prev.status.value if prev is not None else None
         fields.setdefault("updated_at", datetime.now(timezone.utc))
         await self._collection.update(ticket_id, fields)
         loaded = await self._collection.get(ticket_id)
         assert loaded is not None
+        if self._on_status_change is not None and "status" in fields:
+            new_status = loaded.status.value
+            if new_status != prev_status:
+                self._fire_status_change(ticket_id, prev_status, new_status)
         return loaded
+
+    def _fire_status_change(
+        self, ticket_id: str, from_state: str | None, to_state: str
+    ) -> None:
+        cb = self._on_status_change
+        if cb is None:
+            return
+        result = cb(ticket_id, from_state, to_state)
+        if inspect.isawaitable(result):
+            asyncio.create_task(result)  # type: ignore[arg-type]
 
     async def update_status(self, ticket_id: str, status: TicketStatus) -> Ticket:
         return await self.update(ticket_id, status=status)

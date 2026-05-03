@@ -90,6 +90,20 @@ class Ticket(StoreModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # v2 build-plan extensions. Optional during the v2 build so v1 records
+    # still load; populated by the Planner PM when the build plan owns the
+    # ticket. See docs/pm-workflow/design.md §"Ticket structure (extensions)".
+    suite_id: str | None = None
+    module_id: str | None = None
+    capability_ids: list[str] = []
+    epic_id: str | None = None
+    layer: str | None = None  # bones | mvp | final
+    dev_tier: str | None = None  # standard | senior | sa
+    reviewer_set: list[str] = []
+    context_hints: dict[str, Any] = {}
+    risks_addressed: list[str] = []
+    done_when: str | None = None
+
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_fields(cls, data: Any) -> Any:

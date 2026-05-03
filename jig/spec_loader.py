@@ -10,8 +10,12 @@ L2 / L3 (v2 multi-level):
 - ``.jig/spec/suites/<id>/spec.structured.yaml`` — L3 structured spec
   (same shape as v1 ``StructuredSpec``, scoped to one suite)
 
+SA (v2):
+- ``.jig/spec/architecture.yaml`` — project-level ``Architecture``
+- ``.jig/spec/modules/<m>/contracts.yaml`` — per-module ``ContractsFile``
+
 Thin helpers — no I/O beyond read+parse. Writers live with their authoring
-modules (``po_l0_mcp.py``, ``po_l3_mcp.py``).
+modules (``po_l0_mcp.py``, ``po_l3_mcp.py``, ``sa_mcp.py``).
 """
 from __future__ import annotations
 
@@ -19,11 +23,13 @@ from pathlib import Path
 
 import yaml
 
+from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.po import SuitesIndex
 from jig.spec_schema import StructuredSpec
 
 _SPEC_RELATIVE = Path(".jig") / "spec" / "project.structured.yaml"
 _SUITES_INDEX_RELATIVE = Path(".jig") / "spec" / "suites.yaml"
+_ARCHITECTURE_RELATIVE = Path(".jig") / "spec" / "architecture.yaml"
 
 
 def spec_path(project_root: Path) -> Path:
@@ -79,3 +85,58 @@ def suite_brief_path(project_root: Path, suite_id: str) -> Path:
 def suite_structured_path(project_root: Path, suite_id: str) -> Path:
     """``.jig/spec/suites/<suite_id>/spec.structured.yaml``."""
     return suite_dir(project_root, suite_id) / "spec.structured.yaml"
+
+
+# ---- v2 SA paths ----------------------------------------------------------
+
+
+def architecture_path(project_root: Path) -> Path:
+    """``.jig/spec/architecture.yaml`` — the project-level SA artifact.
+
+    v1 ``init_mcp.handle_arch_set_field`` writes a free-form dict to the
+    same path; v2 ``Architecture`` is a strict Pydantic shape. The v2
+    plan is a clean break (no migration) so the two artifacts don't
+    coexist within a single project — only within the codebase.
+    """
+    return project_root / _ARCHITECTURE_RELATIVE
+
+
+def load_architecture(project_root: Path) -> Architecture:
+    """Load and validate ``architecture.yaml``.
+
+    Raises ``FileNotFoundError`` if absent — the v2 SA writes it from
+    scratch on first spawn, so callers that need to read it (reviewers,
+    PM planner, etc.) treat absence as "SA hasn't run yet" rather than
+    silently defaulting to an empty arch.
+    """
+    src = architecture_path(project_root)
+    if not src.is_file():
+        raise FileNotFoundError(f"architecture.yaml not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return Architecture.model_validate(data)
+
+
+def module_dir(project_root: Path, module_id: str) -> Path:
+    """``.jig/spec/modules/<module_id>/`` — the per-module artifact dir."""
+    return project_root / ".jig" / "spec" / "modules" / module_id
+
+
+def module_contracts_path(project_root: Path, module_id: str) -> Path:
+    """``.jig/spec/modules/<module_id>/contracts.yaml``."""
+    return module_dir(project_root, module_id) / "contracts.yaml"
+
+
+def load_module_contracts(project_root: Path, module_id: str) -> ContractsFile:
+    """Load and validate one module's ``contracts.yaml``.
+
+    Raises ``FileNotFoundError`` if absent. Same rationale as
+    ``load_architecture``: callers that need it treat absence as
+    "module not authored yet" rather than silent default.
+    """
+    src = module_contracts_path(project_root, module_id)
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"contracts.yaml for module {module_id!r} not found at {src}"
+        )
+    data = yaml.safe_load(src.read_text()) or {}
+    return ContractsFile.model_validate(data)

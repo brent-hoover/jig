@@ -12,6 +12,7 @@ from jig import (
     init_mcp,
     po_l0_mcp,
     po_l3_mcp,
+    sa_mcp,
     thread_mcp,
     ticket_mcp,
 )
@@ -954,6 +955,38 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(l3_finalize)
+
+    if "sa_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "sa_finalize",
+            "Write the v2 SA bones artifacts: ``architecture.yaml`` "
+            "(project-level: data stores, modules, intent) and "
+            "``modules/<module-id>/contracts.yaml`` (per-module: owned "
+            "collections, integration AC). ``architecture`` is a dict "
+            "matching the ``Architecture`` schema; must have at least "
+            "one ``data_stores`` entry and one ``modules`` entry "
+            "(each module needs ``intent``). ``module_contracts`` is a "
+            "dict matching ``ContractsFile``; its ``module`` must "
+            "reference a module id from ``architecture`` and must have "
+            "at least one ``owns`` entry and one ``integration_ac`` "
+            "entry. Hands off to PM. Call exactly once when the "
+            "architecture is ready.",
+            {"architecture": dict, "module_contracts": dict},
+        )
+        async def sa_finalize(args):
+            entry_id = await sa_mcp.handle_sa_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                architecture=args["architecture"],
+                module_contracts=args["module_contracts"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(sa_finalize)
 
     if "spec_publish" in agent_cfg.allowed_tools:
 

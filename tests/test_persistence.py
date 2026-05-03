@@ -193,6 +193,7 @@ class TestDefaultRoles:
             "po-l0",
             "po-l3",
             "sa",
+            "sa-v2",
             "spec-generator",
             "concierge",
         }

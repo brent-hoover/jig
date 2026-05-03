@@ -274,14 +274,14 @@ Service isolation joins the existing stack as the third layer:
 All three are required for safe parallel dispatch. Docker keeps the host clean; bwrap keeps agents from seeing each
 other's worktrees; service namespacing keeps them from seeing each other's data.
 
-## Sequencing relative to jig 2.0
+## Sequencing relative to jig v2
 
 | Phase | What lands | What it enables |
 |---|---|---|
-| **2.0 v1 (sequential dispatch)** | Provisioning hooks, single-agent default, manifest derivation | Reliable single-agent runs against derived dev services |
-| **2.0 v1.5 (when needed)** | Namespace isolation primitives for the common services (Postgres, NATS, Redis, S3-compat) | Two agents can run safely without collision |
-| **2.0 v2 (parallel dispatch)** | Orchestrator schedules N agents concurrently; provisioning + cleanup hooks fire per agent | Federated reviewer + adversarial pairing patterns actually run in parallel |
-| **2.x** | Per-agent ephemeral support; external-API fixture-recording infra | Edge cases and external-API testing |
+| **v2 phase 1 (sequential dispatch)** | Provisioning hooks, single-agent default, manifest derivation | Reliable single-agent runs against derived dev services |
+| **v2 phase 2 (when needed)** | Namespace isolation primitives for the common services (Postgres, NATS, Redis, S3-compat) | Two agents can run safely without collision |
+| **v2 phase 3 (parallel dispatch)** | Orchestrator schedules N agents concurrently; provisioning + cleanup hooks fire per agent | Federated reviewer + adversarial pairing patterns actually run in parallel |
+| **v2.x** | Per-agent ephemeral support; external-API fixture-recording infra | Edge cases and external-API testing |
 
 The sequencing matters: parallel dispatch is assumed by the agent-leverage and PM workflow designs (federated reviewer,
 adversarial pairing). Without service isolation landed, parallel dispatch produces silent corruption. So service

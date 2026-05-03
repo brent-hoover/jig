@@ -24,12 +24,12 @@ do that humans literally cannot:
 - Re-derivation from scratch as a sanity check
 
 This doc captures six commitments — discrete features that exploit those capabilities — that should land alongside or
-shortly after the 2.0 baseline. Not moonshots; commitments. None individually super-hard; together they substantially
+shortly after the v2 baseline. Not moonshots; commitments. None individually super-hard; together they substantially
 change what jig is *for*.
 
 ## Problem
 
-The 2.0 design as captured in the other docs ships a system that's better than yet-another-agent-harness in the
+The v2 design as captured in the other docs ships a system that's better than yet-another-agent-harness in the
 *coherence* dimension (bones-first, contracts, federated review, multi-level spec). It does not yet ship a system that's
 better in the *leverage* dimension — exploiting agent capabilities humans don't have. Without these features, we ship a
 faithful translation of human dev practice. With them, we ship something agents can do that human teams cannot.
@@ -80,7 +80,7 @@ Powers retrospectives, heuristic mining, contract amendment cascades, and the ev
 density per step; specifically flags `simplest_solution` fields that look like restatements of the actual proposal
 rather than genuine simpler alternatives.
 
-**When:** During 2.0 build, alongside the schemas it attaches to. The cheapest high-value addition — and arguably more
+**When:** During v2 build, alongside the schemas it attaches to. The cheapest high-value addition — and arguably more
 valuable than originally framed because it shapes the *quality of agent thinking*, not just the artifact contents.
 
 ### 2. Synthetic operator simulation (workflow testing infra)
@@ -100,7 +100,12 @@ metrics for which workflow paths got exercised.
 explicit "realism budget" — keep a queue of real-world operator behaviors that surprised the simulator and grow the
 simulator to cover them. Track simulator-vs-real divergence as a metric.
 
-**When:** Parallel with 2.0 build, not after. Built early so workflow design choices get tested as we make them.
+**When:** Parallel with v2 build, not after. Built early so workflow design choices get tested as we make them.
+
+**Full design**: see `docs/synthetic-operator/`. The summary above is the intent; the design doc covers the scenario
+YAML format, persona library (initial 5: methodical, fast-and-shippy, scope-creeper, ambivalent, hostile), driver,
+assertion framework, coverage metrics, realism budget tracking, CI tiering (smoke / full / nightly), and analytics
+tagging via `simulator: true` event field.
 
 ### 3. Quartermaster agent
 
@@ -187,16 +192,51 @@ warrants attention, not an operational gatekeeper firing on every transition.
 
 That's the qualitative shift. Everything else is incremental; this is what makes jig a different *kind* of tool.
 
-## Sequencing
+## Sequencing — explicit v2 / v2.x split
 
-| Item | When | Dependency |
+Worked through during 2026-05-03 working session. We have a lot to ship in v2 already; defer anything that isn't solving
+a problem we know exists.
+
+| Item | Ship in | Why |
 |---|---|---|
-| 1 — Intent layer | During 2.0 build | None — ride along with schema work |
-| 2 — Synthetic operator | Parallel with 2.0 build | None — testing infra; built independently |
-| 3 — Quartermaster | After analytics wiring lands | Event stream populated |
-| 4 — Adversarial pairing (periodic) | After basic dev/review loop runs | Baseline to A/B against |
-| 5 — Ensemble decisions | After operator-override telemetry exists | Data on which decisions to ensemble |
-| 6 — Translation renderers | Opportunistic | Per-renderer cost-justified individually |
+| **1 — Intent layer** | **v2** | Cheap (schema fields + prompts); high cognitive-scaffolding value; locks spec/contract/ticket schemas. Building it later means reworking the schemas, which is expensive. |
+| **2 — Synthetic operator simulator** | **v2 (parallel with build)** | Quality multiplier on every workflow design choice; deferring it costs us more than building it. Must land while v2 design is still mutable. |
+| **3 — Quartermaster** | **v2 (after analytics wiring)** | Inverts the operator-as-bottleneck assumption — single biggest UX shift toward agent-as-strategic-partner. Requires analytics events flowing first. |
+| **4 — Adversarial pairing** | **defer to v2.x** | Hypothesis is "skeptic catches things review can't" — but we don't yet have data on what review misses. Building speculatively risks shipping a feature that solves a problem we don't have. v2 captures the data needed to design the skeptic later (see "v2 prerequisites for deferred items" below). |
+| **5 — Ensemble decisions** | **defer to v2.x** | Most expensive item (3-5× cost on flagged decisions). Needs operator-override telemetry to know *which* decisions to ensemble; without that, we'd guess wrong. v2 already captures `OperatorOverride` events; that corpus drives the eventual design. |
+| **6 — Translation renderers — Pydantic-from-data-contract** | **v2 (one renderer)** | We're already using Pydantic everywhere; generating Pydantic models from `data` contracts eliminates manual contract-to-code sync. High value, low cost, immediate use. |
+| **6 — Translation renderers — others (OpenAPI, SQL DDL, GraphQL SDL, sequence diagrams)** | **defer to v2.x** | Each opportunistic — pays for itself when synchronization cost it eliminates exceeds build cost. Wait for the specific synchronization pain to materialize before building. |
+
+**v2 ships: items 1, 2, 3, and 6 (Pydantic renderer only).** **v2.x defers: items 4, 5, and the additional renderers.**
+
+### v2 prerequisites for deferred items
+
+Two items deferred to v2.x require analytics events captured *from v2 day one* so the data exists when we eventually
+design them. Without these events, we'd wait an additional corpus-accumulation cycle in v2.x. Cheap to add now;
+expensive to retrofit.
+
+For **adversarial pairing (item 4)**:
+- `BugDiscoveredPostMerge` — fires when a bug surfaces in already-merged code (tracer-bullet integration failure,
+  dependent ticket, operator flag). Carries pointer to originating ticket + reviewer set + failure category (structural
+  / semantic / novel). Without this event, we can't measure escape rate; can't characterize what review misses; can't
+  design skeptic to fill specific gaps.
+- `BoundedFixLoopExhausted` — fires when a ticket hits the 3-cycle review→fix cap. Carries which reviewers kept
+  flagging, comment categories that recurred, dev agent's stated reason. Without this, we can't measure cycle saturation
+  patterns or where mid-work intervention would help.
+
+For **ensemble decision-making (item 5)**:
+- `OperatorOverride` (already captured) — every override is a vote about agent judgment; corpus tells us which decision
+  points get overridden most, which are the candidates for ensemble.
+- `AutoEscalationTriggered` (already captured) — Coordinator force-escalations indicate decisions where the dev agent
+  didn't catch its own blocking; ensemble at those points might catch it earlier.
+
+**Revisit triggers for the deferred items:**
+- *Adversarial pairing* — after 1-2 medium projects ship through v2 with the two new events accumulating; characterize
+  what review actually misses; design skeptic to target those specific failure modes.
+- *Ensemble decisions* — after `OperatorOverride` corpus shows clear patterns of agent-judgment failure at specific
+  decision points; design ensembles for those points only, not as a generic mechanism.
+- *Additional renderers* — when a project hits real synchronization pain on a specific format (operator complains about
+  hand-syncing OpenAPI to contracts, or SQL DDL drifting from schemas); build that renderer at that point.
 
 ## Non-goals (in this doc)
 
@@ -236,3 +276,17 @@ gets designed when each item starts.
   fields let agents fill thinly. The simplest-solution step specifically catches the most common agent failure — jumping
   to elegant-engineering answers and skipping simplification. Generalizes to SA contracts, PM sizing, risk evaluation,
   spike outputs, design docs (see updated `docs/_templates/problem.md`).
+- 2026-05-03: Worked through each commitment to decide v2 vs v2.x. **v2 ships 1, 2, 3, and 6 (Pydantic renderer only).**
+  **v2.x defers 4 (adversarial pairing), 5 (ensemble decisions), and the additional renderers.** Reasoning: v2 already
+  has a lot to ship; defer anything that isn't solving a problem we know exists. Adversarial pairing was the marginal
+  call — the periodic-checkpoint flavor is small enough to ship speculatively, but we don't yet have data on what the
+  federated reviewer misses, so building the skeptic now risks targeting wrong failure modes. Defer + capture the data
+  needed to design it later.
+
+**v2 prerequisites for the deferred items**: two new analytics events captured from v2 day one so the data accumulates
+for v2.x design — `BugDiscoveredPostMerge` (escape-rate measurement for adversarial-pairing design) and
+`BoundedFixLoopExhausted` (cycle-saturation patterns). Cheap to add now; expensive to retrofit. Both landed in
+`jig/analytics/events.py` as part of this resolution. Total event types: 32.
+
+Sequencing table rewritten with explicit "Ship in" column (v2 / v2.x); revisit triggers per deferred item named
+explicitly.

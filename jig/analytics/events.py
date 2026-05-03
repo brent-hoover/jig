@@ -75,6 +75,14 @@ class _EventBase(StoreModel):
     correlation_id: str | None = None
     parent_event_id: str | None = None
 
+    # True when emitted from a synthetic-operator simulator run (per
+    # docs/synthetic-operator/design.md). Consumer queries filter to
+    # ``simulator=False`` by default; simulator events live in their own
+    # logical corpus so they don't pollute real-project analytics.
+    # The EventEmitter sets this based on the JIG_SIMULATOR env var or
+    # an explicit ``simulator_mode`` constructor argument.
+    simulator: bool = False
+
 
 # ---- Ticket state transitions ---------------------------------------------
 
@@ -198,6 +206,97 @@ class ReviewCommentResolved(_EventBase):
     ]
 
 
+class PerCommitCheckFailed(_EventBase):
+    """A per-commit mechanical reviewer flagged a contract violation.
+
+    Distinct from ``ReviewCommentPosted`` because per-commit checks
+    run at a different cadence (every commit, not end-of-ticket) and
+    only ever fire mechanical reviewers (contract-compliance,
+    cross-cutting-policy, spec-compliance against integration AC).
+    Per-commit failure rate is a tier-calibration signal independent
+    of end-of-ticket review noise.
+
+    Per-commit *passes* don't emit events — only failures, to keep
+    the volume tractable.
+    """
+
+    kind: Literal["per_commit_check_failed"] = "per_commit_check_failed"
+    ticket_id: str
+    agent_id: str
+    commit_sha: str
+    reviewer_role: Literal[
+        "contract_compliance",
+        "cross_cutting_policy",
+        "spec_compliance",
+    ]
+    violation_category: str  # short structured tag (ownership, schema_mismatch, missing_emit, ...)
+    contract_uri: str | None = None  # for contract-compliance violations
+    severity: Literal["critical", "important", "notable"]
+    auto_applied: bool  # True if a confidence-1.0 fix landed automatically
+
+
+class BugDiscoveredPostMerge(_EventBase):
+    """A bug surfaced in already-merged code, after the federated reviewer passed.
+
+    Fires when a tracer-bullet integration test, dependent ticket, or
+    operator flag reveals a bug in code the reviewer federation
+    approved. The pointer back to the originating ticket and the
+    reviewer set that ran tells us what review missed.
+
+    Captured from v2 day one specifically because the
+    adversarial-pairing design (deferred to v2.x — see
+    ``docs/agent-leverage/problem.md``) needs this corpus to know
+    which failure modes the skeptic should target. Without this
+    event, we can't measure escape rate; designing the skeptic
+    speculatively without it risks building for failure modes that
+    don't matter.
+    """
+
+    kind: Literal["bug_discovered_post_merge"] = "bug_discovered_post_merge"
+    originating_ticket_id: str
+    originating_commit_sha: str | None = None
+    discovered_by: Literal[
+        "tracer_bullet_integration",
+        "dependent_ticket",
+        "operator_flag",
+        "post_merge_test",
+        "production_use",
+    ]
+    discovered_at_ticket_id: str | None = None  # the ticket that surfaced it, if applicable
+    failure_category: Literal[
+        "structural",  # better contracts would have caught (SA design problem)
+        "semantic",  # tests pass + contracts hold but output is wrong (skeptic candidate)
+        "novel",  # genuinely surprising; nothing reasonable would catch
+    ]
+    reviewer_set_at_merge: list[str]  # which reviewers ran on the originating ticket
+    severity: Literal["critical", "important", "notable"]
+
+
+class BoundedFixLoopExhausted(_EventBase):
+    """A ticket hit the 3-cycle review→fix cap and escalated.
+
+    Fires when bounded-fix-loops cap is reached; carries the
+    structured trace of what kept getting flagged and why the dev
+    agent couldn't address it. Captured from v2 day one for the same
+    reason as BugDiscoveredPostMerge — the adversarial-pairing
+    design needs the corpus to characterize where review-loop
+    convergence breaks down.
+    """
+
+    kind: Literal["bounded_fix_loop_exhausted"] = "bounded_fix_loop_exhausted"
+    ticket_id: str
+    cycles_attempted: int  # always >= 3 at trigger; field captured for future cap changes
+    recurring_comment_categories: list[str]  # which comment types kept flagging
+    reviewer_roles_involved: list[str]  # which reviewer agents kept finding things
+    dev_agent_stated_reason: str | None = None  # short structured reason category
+    escalation_outcome: Literal[
+        "operator_overrode",  # operator declared "this is fine"
+        "contract_amended",  # SA changed the contract
+        "ticket_resplit",  # Planner PM resplit
+        "still_open",  # operator action pending
+    ]
+
+
 # ---- Escalations ----------------------------------------------------------
 
 
@@ -209,6 +308,33 @@ class EscalationRouted(_EventBase):
     to_target: Literal["sa", "operator", "planner_pm"]
     reason_category: str  # contract_gap | risk_materialized | scope_question | ...
     ticket_id: str | None = None
+
+
+class AutoEscalationTriggered(_EventBase):
+    """The Coordinator PM force-escalated a dev agent on an auto-threshold trip.
+
+    Distinct from ``EscalationRouted`` because the dev agent didn't ask
+    to be escalated — the Coordinator's auto-thresholds tripped and
+    pulled them. Captures which threshold tripped and the metric value
+    so calibration can detect false-escalation patterns and tune the
+    thresholds. See ``docs/pm-workflow/design.md`` "Auto-escalation
+    thresholds" section.
+    """
+
+    kind: Literal["auto_escalation_triggered"] = "auto_escalation_triggered"
+    ticket_id: str
+    agent_id: str
+    from_tier: Literal["standard", "senior", "sa"]
+    to_tier: Literal["senior", "sa", "operator"]  # operator when already at sa tier
+    trip_signal: Literal[
+        "repeated_same_failure",  # 3+ consecutive PerCommitCheckFailed on same contract URI
+        "tool_call_flailing",  # success rate < 50% over last 10 calls
+        "no_commit_drift",  # no commit in last 30 turns
+        "out_of_budget",  # turns > 2x tier-expected envelope for the ticket S/M/L
+        "forced_reflection_no_progress",  # agent reported "no progress" twice in a row
+    ]
+    trip_metric_value: float | None = None  # e.g. success_rate=0.4 for tool_call_flailing
+    turns_at_trip: int
 
 
 class EscalationResolved(_EventBase):
@@ -309,6 +435,41 @@ class LayerStatusChanged(_EventBase):
     layer: Literal["bones", "mvp", "final"]
     from_status: Literal["not_started", "in_progress", "done"] | None = None
     to_status: Literal["not_started", "in_progress", "done"]
+
+
+class BonesPromotedIncomplete(_EventBase):
+    """Operator promoted MVP work on epics while at least one epic's bones is still running.
+
+    Strict bones-first ordering is the default; this event fires when
+    the operator overrides via ``/plan unblock`` (with or without an
+    SA ``cascade_risk_low: true`` flag suggesting it's safe). Captured
+    so the consequences are visible later if the still-running bones
+    forces a contract change that affects already-built MVP work.
+    See ``docs/pm-workflow/design.md`` "Bones-first ordering" section.
+    """
+
+    kind: Literal["bones_promoted_incomplete"] = "bones_promoted_incomplete"
+    promoted_epic_ids: list[str]  # the epics whose MVP is being unblocked
+    still_running_bones_epic_ids: list[str]  # the epics whose bones is still in flight
+    sa_marked_cascade_risk_low: list[str]  # subset of still-running flagged by SA as low risk
+    operator_rationale_category: str | None = None  # short tag if operator provided one
+
+
+class EstimationCalibrationUpdated(_EventBase):
+    """The analytics layer recomputed per-tier per-S/M/L estimation bands.
+
+    Fires periodically (every N completed tickets per project) so
+    Planner PM can read the latest calibration when sizing new tickets.
+    Bands derived from observed turn / tool-call distributions on
+    completed tickets; tokens used for cost forecasting only.
+    See ``docs/pm-workflow/design.md`` "Estimation calibration" section.
+    """
+
+    kind: Literal["estimation_calibration_updated"] = "estimation_calibration_updated"
+    sample_size: int  # how many completed tickets fed this recalibration
+    bands: dict[str, dict[str, dict[str, list[float]]]]
+    # Shape: {tier: {S/M/L: {turns: [low, high], tool_calls: [low, high]}}}
+    # Captured as nested dict because the band structure is uniform across tiers.
 
 
 # ---- Operator actions -----------------------------------------------------
@@ -503,13 +664,19 @@ AnalyticsEvent = Annotated[
         ContextFetched,
         ReviewCommentPosted,
         ReviewCommentResolved,
+        PerCommitCheckFailed,
+        BugDiscoveredPostMerge,
+        BoundedFixLoopExhausted,
         EscalationRouted,
+        AutoEscalationTriggered,
         EscalationResolved,
         ContractAmended,
         ContractViolationDetected,
         RiskStatusChanged,
         PlanRevised,
         LayerStatusChanged,
+        BonesPromotedIncomplete,
+        EstimationCalibrationUpdated,
         OperatorOverride,
         OperatorGateConfirmed,
         DevEnvironmentProvisioned,

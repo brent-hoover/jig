@@ -16,7 +16,7 @@ Today most of these are emitted as bus events but with inconsistent structure an
 design for what gets captured, in what shape, with what fields.
 
 This is a problem with an asymmetric cost profile: **capture decisions can't be retrofitted.** Every event we don't emit
-in v1 is a permanent gap in the historical record. Consumers (dashboards, calibration loops, retrospective
+in v2 is a permanent gap in the historical record. Consumers (dashboards, calibration loops, retrospective
 summarization, the eventual heuristics layer) can be built later from data already captured; they cannot be built from
 data we forgot to record.
 
@@ -24,7 +24,7 @@ data we forgot to record.
 
 Analytics infrastructure has two halves with very different urgency:
 
-**The capture half** is urgent and v1 scope. Without it, every later analysis is bottlenecked on retrofitting telemetry
+**The capture half** is urgent and v2 scope. Without it, every later analysis is bottlenecked on retrofitting telemetry
 into running systems and waiting months for new data. Schema choices we make now compound for the life of every project
 running on jig.
 
@@ -74,23 +74,23 @@ the *structured handles* on what happened.
 | **Agent lifecycle** | Per-spawn + per-completion | Role, model, tier, ticket/context, tokens in/out, duration, status, parent agent (if any). |
 | **Tool calls** | Per-call | Agent, tool name, arguments digest, result status, duration. (Arguments stored as digest/hash; full content linked.) |
 | **Context fetches** | Per-fetch | Agent, what was fetched (URI), why (auto-injected vs pull), result size. |
-| **Review events** | Per-comment | Reviewer agent, ticket, file/line, type, severity, contract_uri, confidence, accepted/rejected, auto-applied. |
-| **Escalations** | Per-escalation | From-agent, to-target (SA/operator), reason category, ticket, resolution outcome, duration to resolve. |
+| **Review events** | Per-comment (end-of-ticket) + per-commit-failure + per-post-merge-bug + per-fix-loop-exhaustion | End-of-ticket: reviewer agent, ticket, file/line, type, severity, contract_uri, confidence, accepted/rejected, auto-applied. Per-commit: only emitted on failure (pass would dominate volume) — ticket, agent, commit_sha, reviewer_role (mechanical only: contract_compliance / cross_cutting_policy / spec_compliance), violation_category, severity, auto_applied flag. Two cadences are tracked separately because per-commit-failure rate is a tier-calibration signal independent of end-of-ticket noise. Plus two corpus-building events captured from v2 day one for the deferred adversarial-pairing design (`docs/agent-leverage/`): `BugDiscoveredPostMerge` (originating ticket, reviewer set at merge, failure category: structural / semantic / novel) and `BoundedFixLoopExhausted` (cycles attempted, recurring comment categories, reviewer roles involved, escalation outcome). |
+| **Escalations** | Per-escalation + per-auto-trigger | Voluntary: from-agent, to-target, reason category, ticket, resolution. Auto-triggered (Coordinator force-escalation): trip signal (repeated_same_failure / tool_call_flailing / no_commit_drift / out_of_budget / forced_reflection_no_progress), trip metric value, turns at trip, from/to tier. Auto-triggers tracked separately so calibration can detect false-escalation patterns. |
 | **Contract events** | Per-amendment + per-violation-detected | Contract URI, old/new revision, source (ticket/spike/SA-delta), operator confirmed. Violations: contract URI, ticket, severity, resolution. |
 | **Risk events** | Per-status-change | Risk id, transition (logged → spike-proposed → mitigated/accepted/impossible), spike ticket if any, operator confirmed. |
-| **Plan events** | Per-revision | Build plan revision number, trigger (PO delta / SA delta / ticket gap / operator), summary of what changed. |
+| **Plan events** | Per-revision + per-layer-transition + per-bones-promotion + per-calibration-update | Build plan revision (revision number, trigger, summary). Layer status changes (epic / layer / from / to). Bones-promoted-incomplete (operator override of strict bones-first; promoted epics + still-running bones + SA `cascade_risk_low` flagged subset). Estimation calibration updated (sample size, per-tier per-S/M/L band recomputation). See `docs/pm-workflow/design.md`. |
 | **Operator actions** | Per-action | Override (with from→to), manual edit, gate confirmation/rejection, retro initiation. The most signal-rich category — every override is a vote about agent judgment. |
 | **Dev environment events** | Per-service-per-agent + per-orphan | Provisioned (service, namespace, strategy, setup duration), provisioning failed (failure phase, error category), cleaned (disposition: dropped/archived/kept), orphan detected (age, last associated ticket). See `docs/dev-environment/`. |
 | **Visual design events** | Per-wireframe + per-design-system + per-visual-compliance-flag | Wireframe added/revised/approved (screen id, suite, journey/capability ids, revision); design system imported (source: claude_design / operator_supplied / default; token + component counts); visual_compliance failed (divergence category: layout / component_misuse / token_violation / state_coverage_gap / accessibility, severity). See `docs/visual-design/`. |
 
-## What we'd consume this for (eventually — NOT v1)
+## What we'd consume this for (eventually — NOT v2)
 
 - **Tier calibration** — under-tiered (always escalate) vs over-tiered (never flag) reviewers. Same for dev tiers.
 - **Bones-first validation** — does it actually reduce later integration churn? Need before/after captured to know.
 - **Cost-per-tier reporting** — validate that tiering saves money. If 80% of tickets ended up SA-tier, the design
   failed.
 - **Re-plan trigger surfacing** — Coordinator PM detecting patterns ("tickets in module X always escalate"). Some
-  v1-relevant; richer analysis is later.
+  v2-relevant; richer analysis is later.
 - **Operator-override telemetry** — every override is gold for tuning. SA over-tiered? Reviewer too noisy? Contract too
   strict?
 - **Estimation calibration** — historical S/M/L vs actual cycles → tighter estimates over time.
@@ -99,7 +99,7 @@ the *structured handles* on what happened.
 - **Cross-project tool improvement** — patterns across projects suggest changes to jig defaults, role prompts,
   templates.
 
-## What's in scope for v1
+## What's in scope for v2
 
 **Required:**
 
@@ -108,7 +108,7 @@ the *structured handles* on what happened.
 - Async write path with backpressure handling so agent operations are never blocked by analytics capture.
 - Privacy filter: secrets and PII never written; content references stored as URIs to other artifacts (tickets,
   comments, contracts), not embedded.
-- Every existing and new feature in v1 declares the events it emits. Adding events without schema entries is a
+- Every existing and new feature in v2 declares the events it emits. Adding events without schema entries is a
   development-time error.
 
 **Lightweight consumer (only what Coordinator PM already needs):**
@@ -116,7 +116,7 @@ the *structured handles* on what happened.
 - Pattern detection for stalled tickets (already in PM workflow doc).
 - Re-plan triggers based on escalation frequency, contract amendment frequency, bones-non-convergence.
 
-**Out of v1:**
+**Out of v2:**
 
 - Dashboards / TUI views beyond what's already designed.
 - Cost reports.
@@ -135,7 +135,7 @@ the *structured handles* on what happened.
 
 **Retention:**
 - Append-only with rotation. Events don't get deleted; older logs get rotated and compressed.
-- Never auto-purge — historical data is the asset. If storage becomes a real concern (it won't in v1), design a
+- Never auto-purge — historical data is the asset. If storage becomes a real concern (it won't in v2), design a
   cold-storage tier.
 
 **Schema evolution:**
@@ -167,7 +167,7 @@ exists to answer it.** Specific likely triggers:
 
 Each of those becomes a candidate consumer design with real data behind it.
 
-## Implementation status (v1 in progress)
+## Implementation status (v2 in progress)
 
 **Landed (`jig/analytics/`):**
 
@@ -183,7 +183,7 @@ Each of those becomes a candidate consumer design with real data behind it.
 - Round-trip tested: schema serializes through Pydantic alias path, reloads through discriminator, persists and reads
   back through the store, both emit modes work.
 
-**Still owed for v1:**
+**Still owed for v2:**
 
 - **Wiring emission throughout the codebase** — bus message emit sites in `orchestrator.py`, `init_workflow.py`,
   `check_runner.py`, `handoff_gate.py`, `init_mcp.py`, `ws_server.py`, etc. need to also emit typed analytics events.
@@ -214,11 +214,11 @@ Each of those becomes a candidate consumer design with real data behind it.
 
 ## Change log
 
-- 2026-05-01: Initial capture (brent + claude). Locks fine-grained capture for every category; commits v1 to schema +
+- 2026-05-01: Initial capture (brent + claude). Locks fine-grained capture for every category; commits v2 to schema +
   persistence + async + privacy filter; defers all rich consumers; specifies categories and the eventual consumer
   use-cases as guideposts.
-- 2026-05-01: v1 schema + persistence + emitter landed in `jig/analytics/`. Wiring emission throughout the rest of the
-  codebase is the remaining v1 work.
+- 2026-05-01: v2 schema + persistence + emitter landed in `jig/analytics/`. Wiring emission throughout the rest of the
+  codebase is the remaining v2 work.
 - 2026-05-01: Added Dev environment events category (4 new event types: `DevEnvironmentProvisioned`,
   `DevEnvironmentProvisioningFailed`, `DevEnvironmentCleaned`, `DevEnvironmentOrphanDetected`) per
   `docs/dev-environment/design.md`. Per-service-per-agent granularity for provision/cleanup, per-orphan for the periodic
@@ -227,3 +227,28 @@ Each of those becomes a candidate consumer design with real data behind it.
   `WireframeApproved`, `DesignSystemImported`, `VisualComplianceFailed`) per `docs/visual-design/design.md`.
   Per-wireframe + per-design-system + per-visual-compliance-flag granularity. `VisualComplianceFailed` complements the
   generic `ReviewCommentPosted` so analytics can slice visual divergence specifically.
+- 2026-05-03: Added `PerCommitCheckFailed` event for the per-commit cadence of the two-cadence reviewer model (resolved
+  during the SA Q4 working session — see `docs/sa-architecture/design.md` and `docs/pm-workflow/design.md`). Distinct
+  from `ReviewCommentPosted` because per-commit checks fire at a different cadence (every commit, not end-of-ticket) and
+  only run mechanical reviewers (contract_compliance, cross_cutting_policy, spec_compliance). Pass cases don't emit
+  events to keep volume tractable; only failures. Per-commit-failure rate is a tier-calibration signal independent of
+  end-of-ticket review noise.
+- 2026-05-03: Added 3 PM-workflow event types from the open-questions resolution session (see
+  `docs/pm-workflow/design.md`): `AutoEscalationTriggered` (Coordinator forced-escalation with trip signal + metric
+  value), `BonesPromotedIncomplete` (operator override of strict bones-first ordering), and
+  `EstimationCalibrationUpdated` (analytics layer recomputed per-tier per-S/M/L bands; Planner reads on next pass).
+  Total event types: 30. Updated Escalations row to reflect both voluntary and auto-triggered shapes; updated Plan
+  events row to cover layer transitions, bones promotions, and calibration updates.
+- 2026-05-03: Added 2 corpus-building event types from the agent-leverage v2/v2.x split (see
+  `docs/agent-leverage/problem.md`): `BugDiscoveredPostMerge` (post-merge bug surfaces; carries originating ticket
+  + reviewer set + failure category) and `BoundedFixLoopExhausted` (3-cycle review→fix cap reached; carries
+recurring comment categories + reviewer roles involved + escalation outcome). Both captured from v2 day one even though
+the consumer (adversarial-pairing design) is deferred to v2.x — without these events, the v2.x design would wait an
+additional corpus-accumulation cycle. Cheap to add now; expensive to retrofit. Total event types:
+  32. Updated Review events row to reflect the two new shapes.
+- 2026-05-03: Added `simulator: bool` field to the event base class for the synthetic-operator simulator (see
+  `docs/synthetic-operator/design.md`). EventEmitter respects `JIG_SIMULATOR=true` env var or `simulator_mode=True`
+  constructor arg and stamps every emitted event accordingly. Consumer queries (analytics views, dashboards, calibration
+  loops, retrospective summarization) filter to `simulator=False` by default; simulator events live in their own logical
+  corpus so they don't pollute real-project analytics. Tested end-to-end: real / explicit-simulator / env-driven all
+  produce correctly-tagged events. No new event types; this is a base-class field addition.

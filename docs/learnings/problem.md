@@ -64,9 +64,9 @@ The right time to design heuristics:
 - When operators report "I keep teaching the agents the same lesson across projects" — that's the empirical signal that
   the heuristics infrastructure would pay off.
 
-## What lands in v1 anyway (raw material capture)
+## What lands in v2 anyway (raw material capture)
 
-The pieces of this conversation that should land in v1 without waiting for the full heuristics design — they cost
+The pieces of this conversation that should land in v2 without waiting for the full heuristics design — they cost
 nothing now and they preserve the data we'll need to design the system later:
 
 - **Structured rationale on reviewer comments.** Senior reviewer agents' comments include the WHY (not just the WHAT) —
@@ -92,7 +92,7 @@ docs in this directory tree.
 ## Risks of letting this slide too long
 
 - **Raw material rots.** If reviewer rationales aren't captured structurally from day one, recovering them later is
-  impossible. The v1 capture work is non-negotiable even if the heuristics consumer is deferred.
+  impossible. The v2 capture work is non-negotiable even if the heuristics consumer is deferred.
 - **Operators teach the same lesson repeatedly.** This is exactly the friction point that justifies the system.
   Tolerable for 3 projects; intolerable past that.
 - **The "yet another agent harness" risk.** If jig ships and doesn't have a real story for accumulated judgment, it
@@ -102,5 +102,5 @@ docs in this directory tree.
 ## Change log
 
 - 2026-05-01: Placeholder created (brent + claude). Articulates the facts vs heuristics distinction; defers heuristics
-  design with explicit revisit trigger; specifies the v1 capture work that preserves raw material for the eventual
+  design with explicit revisit trigger; specifies the v2 capture work that preserves raw material for the eventual
   design.

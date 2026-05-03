@@ -72,6 +72,10 @@ daemon / orchestrator / agent terms get added as we firm them up.
 
 ## Spec terms
 
+(This document — `ontology.md` at the repo root — is **jig's own** vocabulary: terms used across jig's design, code, and
+prompts. Each user project also gets its own `.jig/spec/ontology.md` capturing the *operator's* domain vocabulary as it
+emerges during PO discovery. See "Project ontology" below.)
+
 | Term | What it is |
 |---|---|
 | **Capability** | One unit of product surface — "users can post a job." Has an id, title, summary, optional user story, behaviors, AC, non-goals, open questions. |
@@ -111,13 +115,42 @@ daemon / orchestrator / agent terms get added as we firm them up.
 |---|---|
 | **Visual Designer (VD)** | Agent role parallel to PO / SA / PM. Owns visual artifacts AND frontend architecture (stack, build, component pattern). The architect for the frontend, not just the visual designer. Runs in parallel with SA after PO discovery completes. (See `docs/visual-design/`.) |
 | **Frontend architecture** | VD-owned technical decisions for the UI: stack (HTMX + Alpine + custom CSS by default), build tooling, component pattern, accessibility target. Lives in `.jig/design/frontend.yaml`. SA owns backend architecture; VD owns frontend. |
-| **Wireframe** | Grey-screen SVG describing one screen's structural layout — regions, content placeholders, interactive elements labeled, no styling. Lives in `.jig/design/wireframes/<screen-id>.svg`. |
+| **Wireframe** | Grey-styled HTML describing one screen's structural layout — semantic elements, region markers, affordance labels, no real styling beyond the shared `wireframe.css`. Lives in `.jig/design/wireframes/<screen-id>.html` with a sidecar `<screen-id>.notes.md` for behaviors / states / cross-references. The HTML wireframe is also the starting code for the bones-layer implementation — additive transition, not throw-away. |
 | **Screen** | One operator-facing surface in the product. Derived from L1 journeys + L3 capabilities. Each screen gets one wireframe; the union covers every user-visible journey step. |
 | **Screen roster** | `.jig/design/wireframes/screens.yaml` — the canonical list of screens with mappings to journey ids, capability ids, suite. The visual equivalent of L1's capability roster. |
 | **Design system** | Tokens (color / typography / spacing / radius), component spec, brand guidance. Lives in `.jig/design/system/`. Always present — VD applies defaults at the moment discovery starts; operator can replace via Anthropic-provided design tooling, supply their own export, or keep defaults indefinitely. `default` is a permanent valid state, not a placeholder. |
 | **Design tokens** | Named primitive values (`color.primary`, `spacing.md`, `font.base`) referenced by implementation. The lowest-level unit of the design system. |
 | **Visual compliance** | Reviewer agent type in the PM federation. Vision-based diff between an implementation screenshot and the wireframe (plus design-system check at MVP/Final layers). |
-| **Browser index** | Auto-generated `.jig/design/wireframes/index.html` embedding all SVGs for browser viewing. Operator opens locally to review wireframe set or compare against implementation screenshots. |
+| **Browser index** | Auto-generated `.jig/design/wireframes/index.html` listing each per-screen wireframe HTML via `<iframe>` embed with state-toggle controls. Operator opens locally to review wireframe set or compare against implementation screenshots. |
+| **wireframe.css** | Single project-level stylesheet that grey-box styles every wireframe. Generated once at VD discovery start; agents don't edit it. Bones-layer implementation removes this stylesheet and links the design system's real CSS — same HTML structure, real visual. |
+| **wireframe-HTML linter** | Deterministic Python module enforcing the constrained wireframe vocabulary — allowed elements, no inline `style=`, no real color hexes, required `data-wireframe-region` on layout containers, etc. Runs on every wireframe save and as part of the per-commit reviewer cadence on `.jig/design/wireframes/*.html`. |
+
+## Project ontology
+
+| Term | What it is |
+|---|---|
+| **Project ontology** | Per-project file at `.jig/spec/ontology.md` capturing the *operator's* domain vocabulary — the terms used by people who actually use the product. Distinct from this file (jig's own vocabulary). Captured by L1 PO during journey walks; read by every subsequent agent (PO continuing, SA, VD, PM, dev) so terminology stays consistent across the project's artifacts and code. Operator can edit directly. |
+| **Domain term** | One entry in the project ontology. The operator's word for a concept ("blocker," "standup," "shopping cart"), with a short definition derived from how the operator used it, plus a back-reference to the journey where it was first surfaced. |
+
+## Synthetic operator simulator
+
+| Term | What it is |
+|---|---|
+| **Synthetic operator** | Agent role (`synthetic-operator`) that drives jig's daemon end-to-end as if a human operator were using it. Used by the simulator to validate v2 workflow design choices through scripted scenarios. Lightweight (small model, narrow tools, persona-driven). See `docs/synthetic-operator/`. |
+| **Scenario** | YAML script describing a project shape + persona + sequence of operator turns + assertions. Lives in `docs/synthetic-operator/scenarios/{smoke,full,nightly}/`. Played end-to-end by the simulator driver against a fresh isolated daemon. |
+| **Persona** (simulator) | A behavior profile loaded as the synthetic-operator agent's system prompt. Initial 5: methodical, fast-and-shippy, scope-creeper, ambivalent, hostile. Each has structured response patterns + gate-confirmation policy + override probability + avoid-behaviors. |
+| **Realism budget** | Discipline tracking real-operator behaviors the simulator wouldn't have produced. Logged via `/realism log` slash command; periodically reviewed; gaps trigger persona-library extensions or new scenarios. Realism-divergence metric tracks simulator-vs-reality drift over time. |
+| **Coverage tag** | Free-form string on a scenario naming the workflow path it exercises (`po-l1-five-phase-conversation`, `sa-cascade-confirmed-impossible`, etc.). Aggregate coverage report identifies workflow paths that no scenario tests. |
+| **Simulator mode** (analytics) | When the EventEmitter runs with `JIG_SIMULATOR=true` (or `simulator_mode=True`), every emitted event carries `simulator: true`. Consumer queries filter to `simulator=False` by default; simulator events live in their own logical corpus so they don't pollute real-project analytics. |
+
+## URI scheme
+
+| Term | What it is |
+|---|---|
+| **`project://` URI** | Stable address for any artifact or sub-element in a jig project. Multi-authority: `project://spec/...` (PO output), `project://arch/...` (SA contracts), `project://design/...` (VD wireframes + system), `project://plan/...` (PM build plan), `project://store/...` (runtime state). See `docs/uri-scheme/`. |
+| **Authority** (URI) | The first segment after `project://` — names the namespace. One of `spec` / `arch` / `design` / `plan` / `store`. Each has its own per-authority resolver. |
+| **Path-style fragment** | `#a/b/c` after a URI; resolves as nested-key lookup into the YAML/JSON content. New for v2 (sub-contract anchoring). Example: `project://arch/modules/catalog-ingest/contracts#owns/products/write_access`. Distinct from anchor-style fragments (`#single-id`) which match `{#anchor}` definitions in markdown sources. |
+| **Revision pin** (URI) | `@revision:N` between path and fragment. Resolves to the historical version of the artifact at that revision via the artifact's `change_log`. Used in cascade audit trails, ticket `implements_against` references, reviewer comments — anywhere a stable reference to a specific revision matters. |
 
 ## Composer affordances
 

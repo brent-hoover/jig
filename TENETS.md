@@ -15,7 +15,7 @@ Coding agents are good at small, well-scoped tasks and bad at big ones. Left to 
 project, an agent will produce a plausible-looking pile of code that doesn't actually do what the app is supposed to do.
 Jig's job is to keep the agent on the small-task side of that line, while still ending up with software where the pieces
 fit together. **Correctness — does the app actually do what it's supposed to do — is the bar.** Everything below is in
- the service of that.
+the service of that.
 
 2. Make Humans better at what they do well
 Projects often require more thought than most people think. The second goal is to make humans better at what they do
@@ -71,8 +71,8 @@ Anti-patterns:
 ## 2. Exact context, no more
 
 Agents perform best when given **exactly the context they need to do their task — and no more.** Extra context dilutes
-attention, increases hallucination risk, and makes it likely the agent solves a different problem than the one in
-front of it.
+attention, increases hallucination risk, and makes it likely the agent solves a different problem than the one in front
+of it.
 
 Implications:
 
@@ -103,7 +103,8 @@ Implications:
   what done looks like.
 - **Non-goals are first-class** — the spec captures "we will not build X" so agents can refuse scope drift instead of
   helpfully building it.
-- **AC (acceptance criteria) are first-class citizens** — every behavior has at least one AC; AC is what "done" tests against.
+- **AC (acceptance criteria) are first-class citizens** — every behavior has at least one AC; AC is what "done" tests
+  against.
 - Workflow phases gate handoffs explicitly (no implicit "if it looks done, move on").
 - Hard constraints are stated as constraints ("No functionality outside a journey"), not guidelines.
 
@@ -146,6 +147,10 @@ Implications:
 - **Pydantic models** are the canonical shape — never trust raw YAML or markdown without validating through the schema.
 - The same vocabulary appears across the codebase (`Capability`, `Behavior`, `Persona`, `Journey`, `Suite`, `Module`,
   `Contract`) and across role prompts. Synonyms are bugs.
+- **Each project has its own ubiquitous language too** — the operator's domain vocabulary, captured during PO discovery
+  in `.jig/spec/ontology.md` and read by every subsequent agent (PO continuing, SA, VD, PM, dev). When the operator says
+  "blocker" we use "blocker" — not "obstacle," not "impediment," not "issue." Same discipline as jig's own vocabulary,
+  just scoped to the project.
 
 Anti-patterns:
 
@@ -153,6 +158,8 @@ Anti-patterns:
 - Making up new words for old concepts.
 - "The model will infer the structure from context" — no, give it the structure explicitly.
 - Mixing rendering markdown with semantic markdown without anchors.
+- Inventing terminology the operator didn't use ("early-warning intervention surface" instead of the operator's
+  "looks-off signals"). The agent that does this once trains every other agent on the project to use the wrong word.
 
 ---
 

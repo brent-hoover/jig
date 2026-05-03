@@ -50,7 +50,7 @@ If that floor works for any of the categories below, complexity gets earned by n
 ## Complications considered
 
 - **Scale**: number of scenarios × number of personas × number of project shapes can explode. Forces: scenario library
-  design, coverage metrics, parallelism. Probably matters once we have >5 scenarios; not at v1.
+  design, coverage metrics, parallelism. Probably matters once we have >5 scenarios; not at v2.
 - **Concurrency**: multiple test agents running against the same project state. Forces: isolation per run (sandbox,
   fresh worktree, separate event store). Real but solvable with the existing sandbox primitives.
 - **Failure modes**: test agent itself misbehaves (false positives, false negatives, hallucinates a failure that didn't
@@ -62,14 +62,14 @@ If that floor works for any of the categories below, complexity gets earned by n
 
 These overlap in implementation but solve distinct problems:
 
-| Kind | What it tests | When it runs |
-|---|---|---|
-| **Workflow simulation** | The PO/SA/PM/dev/review workflow itself, end-to-end, with synthetic operators | Pre-ship: validates workflow design before real-operator pain |
-| **Pre-code spec testing** | Spec internal consistency: do contracts compose? Do AC contradict? Are journeys covered by capabilities? | After PO/SA pass, before tickets dispatch |
-| **Property inference** | Agent reads spec + AC, infers invariants ("if ticket resolved → must have merged commit"), generates tests for them | Continuous; tests live alongside code |
-| **Adversarial fuzzing** | Hostile operator simulator tries to break the orchestrator with malformed inputs, contradictions, edge cases | CI; nightly; pre-release |
-| **Living regression suite** | Past failure scenarios automatically replayed | On every commit; bugs literally don't repeat |
-| **Test-as-spec-feedback** | Test-generator agent flags "I can't write a test for this AC because it's ambiguous" | During PO authoring; surfaces spec gaps before SA |
+| Kind                        | What it tests                                                                                                       | When it runs                                                  |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
+| **Workflow simulation**     | The PO/SA/PM/dev/review workflow itself, end-to-end, with synthetic operators                                       | Pre-ship: validates workflow design before real-operator pain |
+| **Pre-code spec testing**   | Spec internal consistency: do contracts compose? Do AC contradict? Are journeys covered by capabilities?            | After PO/SA pass, before tickets dispatch                     |
+| **Property inference**      | Agent reads spec + AC, infers invariants ("if ticket resolved → must have merged commit"), generates tests for them | Continuous; tests live alongside code                         |
+| **Adversarial fuzzing**     | Hostile operator simulator tries to break the orchestrator with malformed inputs, contradictions, edge cases        | CI; nightly; pre-release                                      |
+| **Living regression suite** | Past failure scenarios automatically replayed                                                                       | On every commit; bugs literally don't repeat                  |
+| **Test-as-spec-feedback**   | Test-generator agent flags "I can't write a test for this AC because it's ambiguous"                                | During PO authoring; surfaces spec gaps before SA             |
 
 The last one is the kicker: **testing as a discovery loop, not just a verification activity.** Same shape as the
 PO/SA/PM discovery loops; different layer. The act of trying to write a test for an under-specified contract surfaces
@@ -100,9 +100,9 @@ Same reasoning as `docs/learnings/`:
 - The other five kinds (pre-code spec testing, property inference, adversarial fuzzing, regression suite, test-as-
   feedback) each have non-trivial design questions of their own that benefit from real data.
 
-## What lands in v1 anyway (raw material capture)
+## What lands in v2 anyway (raw material capture)
 
-- **Synthetic operator simulator** (per agent-leverage doc) — the one commitment from this category that ships with 2.0.
+- **Synthetic operator simulator** (per agent-leverage doc) — the one commitment from this category that ships with v2.
   Built early as testing infrastructure for the workflow design itself.
 - **AC have stable URIs** — already in the spec design. Means future tests can cite them without retrofit.
 - **Contract URIs are addressable at sub-contract granularity** — already an SA design commitment. Means future tests
@@ -112,7 +112,7 @@ Same reasoning as `docs/learnings/`:
 
 ## When to revisit
 
-Trigger: **synthetic operator simulator has run against the v1 workflow for a meaningful corpus (10+ project
+Trigger: **synthetic operator simulator has run against the v2 workflow for a meaningful corpus (10+ project
 lifecycles), AND at least one operational gap surfaces that one of the other five kinds would catch.** Whichever
 specific kind earns its way in first dictates the design priority.
 
@@ -122,7 +122,7 @@ specific kind earns its way in first dictates the design priority.
 - Must respect tenet 2 — test agents have bounded context, same as dev/reviewer agents.
 - Must not make the operator's life worse — test failures should surface in TUI in the same way as other agent outputs.
 
-## Requirements (for the v1 simulator only)
+## Requirements (for the v2 simulator only)
 
 - Multiple operator personas (3-5 to start).
 - Scripted scenario library, growable.
@@ -160,5 +160,5 @@ specific kind earns its way in first dictates the design priority.
 ## Change log
 
 - 2026-05-01: Initial placeholder (brent + claude). Names six kinds of agent-driven testing, frames the agent-first
-  framework opportunity, defers full design pending data from v1 synthetic operator. Commits raw-material capture (AC
+  framework opportunity, defers full design pending data from v2 synthetic operator. Commits raw-material capture (AC
   URIs, contract URIs, test analytics events) so the eventual design has data to work from.

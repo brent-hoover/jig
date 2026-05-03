@@ -67,10 +67,10 @@ cascades downward.
 
 ## Levels of resolution within SA
 
-| Level | Artifact | What's there | "Done" means |
-|---|---|---|---|
-| SA-project | `.jig/arch/architecture.yaml` | Cross-cutting tech decisions (data stores, message bus, auth model), module list, cross-module contracts (shared shapes, events), cross-cutting policies, risk register | Operator confirms; covers everything that crosses module boundaries. |
-| SA-module | `.jig/arch/modules/<m>/contracts.yaml` | Module-internal contracts: which collections it owns, which APIs it exposes, integration AC on its capabilities | Operator confirms per module; "done enough" allowed (open questions tracked). |
+| Level      | Artifact                               | What's there                                                                                                                                                            | "Done" means                                                                  |
+|------------|----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| SA-project | `.jig/arch/architecture.yaml`          | Cross-cutting tech decisions (data stores, message bus, auth model), module list, cross-module contracts (shared shapes, events), cross-cutting policies, risk register | Operator confirms; covers everything that crosses module boundaries.          |
+| SA-module  | `.jig/arch/modules/<m>/contracts.yaml` | Module-internal contracts: which collections it owns, which APIs it exposes, integration AC on its capabilities                                                         | Operator confirms per module; "done enough" allowed (open questions tracked). |
 
 (SA-suite is not a level — suites are PO concepts. SA reads suites to know which capabilities a module implements.)
 
@@ -150,21 +150,33 @@ risks:
     text: Unknown if SEORank API is fast enough for our batch sizes.
     impact: high          # blocks categorization MVP if too slow
     likelihood: medium
-    status: spike-proposed
+    status: spike_proposed
     spike_ticket: spike-seorank-latency
     accepted_if: null
+    dependent_contracts:                    # required for status >= spike_proposed
+      - project://arch/modules/categorization/contracts#integration_ac/propose-categories
+      - project://arch/modules/categorization/contracts#external_dependencies/seorank-api
+    cascade_breaking_likely: false          # if confirmed slow, async-batch is a non-breaking workaround
   - id: r-shopify-delta
     text: Unclear whether Shopify's API supports clean delta sync of catalog changes.
     impact: medium
     likelihood: medium
-    status: spike-proposed
+    status: spike_proposed
     spike_ticket: spike-shopify-delta
+    dependent_contracts:
+      - project://arch/modules/catalog-ingest/contracts#external_dependencies/shopify-api
+      - project://arch/modules/catalog-ingest/contracts#integration_ac/shopify-connect
+      - project://arch/modules/categorization/contracts#integration_ac/dedupe-categories
+    cascade_breaking_likely: true           # if delta impossible, full re-fetch reshapes ingestion + dedup
   - id: r-multi-tenancy
     text: Architecture choice — single-instance multi-tenant vs per-customer instance.
     impact: high
     likelihood: high
     status: open           # not a spike; needs operator decision
     blocking: [api-shape, db-schema]
+    # `open` status doesn't require dependent_contracts — they don't exist yet because the
+    # decision blocks contract authoring. Once decided, status moves to mitigated and contracts
+    # land; if reopened later, dependent_contracts becomes required.
 
 open_questions:
   - id: q-event-bus-choice
@@ -244,17 +256,17 @@ Contracts come in several shapes; the SA decides which apply at each integration
 already exists, the SA references it rather than reinventing** — our `contracts.yaml` is the index, the actual schemas
 live in OpenAPI / Protobuf / SQL DDL / etc. where appropriate.
 
-| Type | What it constrains | Common formats | Example |
-|---|---|---|---|
-| **Shape / data** | Structure of a record, payload, file, message body, db row, config | JSON Schema, Pydantic, Protobuf, Avro, SQL DDL | `product-shape`, event payloads, `oauth_tokens` table |
-| **Interface (network API)** | Request/response of a REST / RPC / GraphQL endpoint | OpenAPI, gRPC `.proto`, GraphQL SDL | `POST /catalog/ingest` body + response |
-| **Code-level interface** | Function signatures, Protocol/interface types, plugin hooks, public exports | Language-native (Python `Protocol`, TS interface, Go interface, Java interface), SemVer | `ProductNormalizer` Protocol; plugin registration hook |
-| **Lifecycle / event** | When events fire, who consumes, ordering, retention | CloudEvents, Kafka schemas, custom YAML | `catalog-ingested-event` after batch completes |
-| **Behavioral** | Preconditions, postconditions, invariants, side-effects (Design by Contract) | YAML rules; sometimes language-native (Python `assert`, `pydantic` validators, contract libs) | "Either every product persists AND batch=completed, or none persist AND batch=failed" |
-| **Ownership / authority** | Who can write / read a resource; what each module is permitted to do | SA-authored YAML | `products` owned by `catalog-ingest`; `categorization` reads only |
-| **External dependency** | Constraints imposed by something outside our control | Reference upstream docs | Shopify rate limit, SEORank SLA, customer CSV format |
-| **CLI / process boundary** | Flags, arguments, exit codes, stdout shape | click decorators, man-page style YAML | `jig story <ticket>` exit codes + stdout JSON |
-| **Cross-cutting policy** | System-wide rules with machine-checkable predicates | SA-authored YAML with `applies_when` predicate | "All PII encrypted at rest"; "No hardcoded secrets" |
+| Type                        | What it constrains                                                           | Common formats                                                                                | Example                                                                               |
+|-----------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| **Shape / data**            | Structure of a record, payload, file, message body, db row, config           | JSON Schema, Pydantic, Protobuf, Avro, SQL DDL                                                | `product-shape`, event payloads, `oauth_tokens` table                                 |
+| **Interface (network API)** | Request/response of a REST / RPC / GraphQL endpoint                          | OpenAPI, gRPC `.proto`, GraphQL SDL                                                           | `POST /catalog/ingest` body + response                                                |
+| **Code-level interface**    | Function signatures, Protocol/interface types, plugin hooks, public exports  | Language-native (Python `Protocol`, TS interface, Go interface, Java interface), SemVer       | `ProductNormalizer` Protocol; plugin registration hook                                |
+| **Lifecycle / event**       | When events fire, who consumes, ordering, retention                          | CloudEvents, Kafka schemas, custom YAML                                                       | `catalog-ingested-event` after batch completes                                        |
+| **Behavioral**              | Preconditions, postconditions, invariants, side-effects (Design by Contract) | YAML rules; sometimes language-native (Python `assert`, `pydantic` validators, contract libs) | "Either every product persists AND batch=completed, or none persist AND batch=failed" |
+| **Ownership / authority**   | Who can write / read a resource; what each module is permitted to do         | SA-authored YAML                                                                              | `products` owned by `catalog-ingest`; `categorization` reads only                     |
+| **External dependency**     | Constraints imposed by something outside our control                         | Reference upstream docs                                                                       | Shopify rate limit, SEORank SLA, customer CSV format                                  |
+| **CLI / process boundary**  | Flags, arguments, exit codes, stdout shape                                   | click decorators, man-page style YAML                                                         | `jig story <ticket>` exit codes + stdout JSON                                         |
+| **Cross-cutting policy**    | System-wide rules with machine-checkable predicates                          | SA-authored YAML with `applies_when` predicate                                                | "All PII encrypted at rest"; "No hardcoded secrets"                                   |
 
 **Behavioral contracts get their own section below** — they're the highest-leverage type for agent dev because they
 constrain *what must be true* without prescribing *how*. Most of the rest are shape declarations; behavioral contracts
@@ -537,10 +549,10 @@ postcondition language. "What happens on partial failure?" becomes the postcondi
 
 Two flavors of AC, distinguished by author and scope:
 
-| Layer | Author | Scope | Example |
-|---|---|---|---|
-| Behavior AC | PO | What the user / capability does | "Natural language inputs 'today', 'tomorrow' are accepted as resolved dates" |
-| Integration AC | SA | How the capability integrates with the rest of the system | "Writes to `products` collection; emits `catalog-ingested-event` on completion" |
+| Layer          | Author | Scope                                                     | Example                                                                         |
+|----------------|--------|-----------------------------------------------------------|---------------------------------------------------------------------------------|
+| Behavior AC    | PO     | What the user / capability does                           | "Natural language inputs 'today', 'tomorrow' are accepted as resolved dates"    |
+| Integration AC | SA     | How the capability integrates with the rest of the system | "Writes to `products` collection; emits `catalog-ingested-event` on completion" |
 
 A behavior may have only behavior AC if it's pure logic. Most behaviors that touch state, external systems, or other
 modules will have both. Both contribute to "done"; both are checked in review.
@@ -621,7 +633,11 @@ For each module, the SA agent MUST address each of these categories — concrete
 - **Performance budget** — latency, throughput, load expectations (if any).
 - **Events emitted / consumed** — what does it publish, what does it subscribe to?
 - **Idempotency / ordering guarantees** — re-running OK? Order matters?
-- **Risks** — what's uncertain enough that a spike would reduce the risk before committing?
+- **Risks** — what's uncertain enough that a spike would reduce the risk before committing? **For each risk logged, the
+  SA MUST also declare `dependent_contracts`**: the URIs of contracts, integration AC, and capabilities whose shape
+  depends on how this risk resolves. Without these declarations the cascade workflow (see "Cascade after
+  confirmed-impossible spike" above) can't enumerate what changes when a spike confirms an assumption is wrong. This is
+  non-optional for risks with status >= `spike_proposed`.
 
 The checklist is the contract between the SA agent and itself. Without it, agents default to terse and miss things; with
 it, they over-specify by construction. Tenet 4 in action: the checklist-shaped artifact reads to the agent as a
@@ -710,16 +726,135 @@ SA discovery isn't ever globally complete; it completes-for-now at each gate. Tw
 
 Both paths produce contract revisions, tracked in change_log.
 
+## Cascade after confirmed-impossible spike
+
+The trickiest iteration scenario: a spike returns `confirmed_impossible`. The risk wasn't mitigated; it was confirmed
+real. Architectural assumptions that depended on the spike's hypothetical resolution are now wrong, and contracts that
+encoded those assumptions have to change. This is the worst-case cascade and worth designing concretely because graceful
+handling separates "the architecture survives a hard finding" from "the architecture quietly drifts because nobody
+traced the implications."
+
+### Concrete example
+
+`r-shopify-delta` flagged: "Unclear whether Shopify's API supports clean delta sync." Spike runs. Finding: **Shopify's
+API does NOT expose reliable delta sync — full re-fetch required every poll.** Affected things:
+
+- `catalog-ingest` module owned the assumption that `fetch_products(shop, since_cursor)` returned only changed records.
+  That contract is now wrong.
+- `shopify-connect` capability's integration AC said "polls for delta updates every 6 hours." That AC is now wrong.
+- `categorization` module was sized assuming it'd see only changed products. Without delta semantics, every poll
+  re-emits every product, multiplying categorization cost.
+- Build plan tickets for `shopify-connect`, `normalize-skus`, and `dedupe-categories` were estimated against the delta
+  assumption. Sizing is now wrong.
+
+### The cascade workflow
+
+```
+1. SPIKE COMPLETES
+   - Spike ticket resolves with structured finding output
+   - Coordinator PM emits: spike-completed event, with finding summary
+   - Risk-status-changed event fires: r-shopify-delta from
+     spike_in_progress → confirmed_impossible
+
+2. SA DELTA PASS FIRES (auto-triggered by confirmed_impossible)
+   - SA agent reads:
+     * The spike's structured finding output
+     * The risk's `dependent_contracts` field (set when risk was logged)
+     * Each dependent contract's full text + change history
+   - SA produces a CASCADE PROPOSAL — a single structured artifact
+     enumerating every change in one batch:
+       * Contracts to amend (with diffs)
+       * Contracts to revise as breaking changes (with rationale)
+       * New contracts needed (with sketches)
+       * Integration AC to rewrite (per affected capability)
+       * Risks to log (the cascade may surface NEW risks — e.g.,
+         "if we re-ingest everything, dedup performance becomes the
+         new risk")
+       * Build-plan tickets to flag as stale (the PM will re-plan
+         these)
+
+3. OPERATOR CONFIRMS THE CASCADE IN ONE BATCH
+   - Operator sees the full proposal as a single confirmation screen
+     (not N individual confirmations — that overwhelms)
+   - Operator can: accept all, reject all, or accept-with-edits
+     (operator amends specific items; everything else accepts as-is)
+   - On accept: SA writes all amendments transactionally — either
+     all land or none land. No partial cascade state.
+   - On reject: nothing changes; the risk stays `confirmed_impossible`
+     but contracts stay as they were. Operator owns the consequences.
+
+4. PM RE-PLAN FIRES (auto-triggered by cascade-accepted event)
+   - Planner PM reads the amended contracts + the list of stale
+     tickets
+   - For each stale ticket:
+       * Already merged → marked as `needs_rework` if the contract
+         change is breaking; logged as known-debt if non-breaking
+       * In flight → dev agent gets a structured `contract_changed`
+         event; can either continue with old contract (and re-do
+         later) or pause and pick up new contract (operator decides
+         the policy per-project, default = pause)
+       * Not started → context-injection refreshes on next dispatch;
+         no extra action needed
+   - Planner PM emits the updated build plan; operator confirms
+
+5. AUDIT TRAIL
+   - The cascade proposal artifact is preserved at
+     `.jig/arch/cascades/<risk-id>-<timestamp>.yaml` so the operator
+     can later answer "why did the auth contract change in
+     revision 7?" — answer: "spike r-shopify-delta confirmed
+     impossible; cascade #3 amended dependent contracts."
+```
+
+### Risk schema requires `dependent_contracts`
+
+For the cascade to work, risks have to declare their dependents up front. The risk schema in `architecture.yaml` gains a
+required field:
+
+```yaml
+risks:
+  - id: r-shopify-delta
+    text: Unclear whether Shopify's API supports clean delta sync of catalog changes.
+    impact: medium
+    likelihood: medium
+    status: spike_proposed
+    spike_ticket: spike-shopify-delta
+    dependent_contracts:                    # required for any risk with status >= spike_proposed
+      - project://arch/modules/catalog-ingest/contracts#external_dependencies/shopify-api
+      - project://arch/modules/catalog-ingest/contracts#integration_ac/shopify-connect
+      - project://arch/modules/categorization/contracts#integration_ac/dedupe-categories
+    cascade_breaking_likely: true           # SA's hint to PM about re-plan severity
+```
+
+Without `dependent_contracts`, the SA delta pass can't produce a complete cascade proposal — it'd have to scan every
+contract in the project for transitive dependence on the risk, which is both expensive and unreliable. The declaration
+discipline at risk-logging time pays off at cascade time.
+
+### Failure modes and mitigations
+
+- **Operator rejects the cascade but accepts the spike finding** — contracts stay as they were even though we know
+  they're wrong. Mitigation: rejected cascades emit a `cascade_rejected` analytics event with the operator's reason
+  (structured category required); reviewer agents flag affected tickets at PR time as "depends on a known-wrong
+  contract." Forces conscious risk acceptance rather than silent drift.
+- **Cascade proposal is huge** — affecting 10+ contracts, dozens of integration AC, multiple modules. Mitigation:
+  cascade proposal supports staging — operator can accept the contract-amendment portion now and defer the build-plan
+  re-plan to a later session. Same transactional discipline within each stage.
+- **Spike outcome is "depends" rather than "impossible"** — e.g., "delta works for shop sizes < 10K SKUs, fails above."
+  Mitigation: this isn't `confirmed_impossible`; it's a refinement. Risk status becomes `mitigated_with_constraints` (a
+  new state); contracts gain new constraint clauses; cascade is proportionally smaller.
+- **Multiple spikes return concurrently with cascading findings** — two impossible findings whose cascades touch
+  overlapping contracts. Mitigation: serialize at the SA level — only one cascade proposal in flight at a time; second
+  cascade waits for first to land or be rejected. Avoids merge conflicts in contract amendments.
+
 ## Contract consumption by dev agents
 
 Contracts are useful only if the dev agent actually has them in context when implementing. Three-tier injection model
 (orthogonal to the three-tier dev/reviewer tiering — see PM workflow):
 
-| Tier | What | Why |
-|---|---|---|
-| **Always-injected** | Cross-cutting policies (PII, secrets, no-direct-cross-module-db, etc.) | Universal, cheap, high cost-of-miss. Every dev agent needs to know these without thinking to ask. |
-| **Auto-injected when ticket touches** | Module's `contracts.yaml` + shared contracts referenced by the capability's integration AC | The integration AC are the natural relevance signal — SA decided what mattered for this capability at AC-write time. |
-| **Pull on demand** | Anything else — other modules' contracts, change_log, risk register, spike outputs | Dev agent uses MCP tools (`get_contract(uri)`, `list_contracts(filter)`) to fetch when it realizes mid-work it needs more. |
+| Tier                                  | What                                                                                       | Why                                                                                                                        |
+|---------------------------------------|--------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| **Always-injected**                   | Cross-cutting policies (PII, secrets, no-direct-cross-module-db, etc.)                     | Universal, cheap, high cost-of-miss. Every dev agent needs to know these without thinking to ask.                          |
+| **Auto-injected when ticket touches** | Module's `contracts.yaml` + shared contracts referenced by the capability's integration AC | The integration AC are the natural relevance signal — SA decided what mattered for this capability at AC-write time.       |
+| **Pull on demand**                    | Anything else — other modules' contracts, change_log, risk register, spike outputs         | Dev agent uses MCP tools (`get_contract(uri)`, `list_contracts(filter)`) to fetch when it realizes mid-work it needs more. |
 
 The integration AC mechanism is load-bearing: it's how SA's decisions about relevance propagate to dev agent context
 without manual configuration on every ticket. Cross-cutting policies escape this because they apply universally.
@@ -778,38 +913,84 @@ What this design needs to commit to from the SA side:
 - Cross-organization contracts (e.g., shared contracts across multiple jig projects). Not relevant at our scope.
 - Visualization tools (ER diagrams, sequence diagrams from contracts). Useful, downstream.
 
+## Resolved decisions
+
+Locked during 2026-05-03 working session:
+
+1. **architecture.yaml schema — separate files referenced via URIs.** Shared contracts live in
+   `.jig/arch/contracts/shared/<name>.yaml` and architecture.yaml points at them via `_ref` fields. Inlining doesn't
+   survive a 4-suite project. Separate files also let SA contracts compose cleanly with the renderer commitments in
+   `agent-leverage/` (one shape → Pydantic + SQL DDL + OpenAPI from one source).
+
+2. **Contract reference / inheritance — yes, with sub-contract URI anchoring.** A module's contract can reference
+   project-level shapes via `project://arch/contracts/shared/<name>`; integration AC can cite specific clauses via
+   `project://arch/modules/<m>/contracts#owns/<resource>/write_access`. Already committed in the code-review section;
+   this confirms the URI scheme extension lands as part of v2.
+
+3. **No SA-suite intermediate level.** SA stays at two levels (project + module). Adding SA-suite would mean SA reads
+   the same content as L3 PO from a different angle without a clear payoff. Suites are operator-organizational; SA
+   thinks in modules.
+
+4. **Reviewer agent runs at two cadences:**
+   - **Light per-commit reviewer** — mechanical contract checks only (ownership, schema-mismatch, cross-cutting policy
+     violations). Deterministic, cheap, fires within seconds of `git commit`. Catches "you wrote to the wrong
+     collection" before the dev agent compounds the mistake.
+   - **Full reviewer federation at end-of-ticket** — judgment-flavored reviewers (pattern conformance, error handling,
+     visual compliance, architectural review) plus the mechanical re-run. Fires before the ticket resolves; operator
+     sees the unified comment set on the PR.
+
+Two cadences mean dev agents get fast feedback on mechanical issues without paying for the whole federation on every
+commit. The full design lives in `docs/pm-workflow/design.md`; this entry confirms the SA side commits to
+per-commit-friendly contract validation (i.e., contracts have to be checkable in single-digit seconds, not just
+bulk-evaluable at end of ticket).
+
+5. **Cross-cutting policy enforcement — field-level tagging in shared shapes.** Mark fields explicitly:
+
+```yaml # .jig/arch/contracts/shared/oauth-tokens.yaml
+   - id: oauth-tokens-shape type: data fields:
+       - { name: customer_id, type: string }
+       - { name: provider, type: string }
+       - { name: access_token, type: string, pii: true, encrypt_at_rest: true }
+       - { name: refresh_token, type: string, pii: true, encrypt_at_rest: true }
+       - { name: expires_at, type: timestamp }
+```
+
+Cross-cutting policies declare a predicate over field tags (`applies_to_fields_with: { tag: pii }`). Reviewer agent
+walks the diff, looks at any field touched, checks the field's tags against the active cross-cutting policies. Tenet 4
+in action — the structure is the contract; tagging is the enforcement primitive.
+
+Tags reserved for cross-cutting use: `pii`, `secret`, `audit_relevant`, `tenant_scoped`, `encrypt_at_rest`.
+Project-specific tags allowed (`hipaa`, `gdpr_subject`); they need a corresponding cross-cutting policy that references
+them.
+
+7. **Spike tickets — same store, type tag, indexed.** Spikes use the same `.jig/store/tickets.jsonl` as regular tickets,
+   distinguished by `type: spike`. The ticket store gets `type` added to its index so `list spikes` / `list
+   tracer-bullets` queries are O(matches) not O(stream). Same primitive PM uses for tracer-bullet vs standard.
+
+9. **SA at L0 — concrete floor for trivial projects.** The SA agent's first action is the triviality check:
+
+   - **Trivial project criteria** (all of): single suite OR single capability, no cross-cutting concerns flagged by PO
+     discovery, no external dependencies beyond stdlib, no multi-tenancy, no auth.
+   - **Trivial output**: `architecture.yaml` with one `data_store` (sqlite or "none"), one `module` (the project),
+     `cross_cutting_policies: [secrets-via-env]` only, empty `risks`, empty `shared_contracts`. About 20 lines.
+   - **Operator confirmation**: single yes/no — "trivial project, minimal SA pass; confirm or expand?" If expand, SA
+     proceeds to the full discovery loop.
+
+This is the scale-down exit referenced in `docs/pm-workflow/design.md`'s "two exits" pattern, made concrete for the SA
+case.
+
 ## Open questions
 
-1. **architecture.yaml schema vs many small contract files.** Should `architecture.yaml` inline shared contracts, or
-   point at separate files (`contracts/shared/product.yaml`)? Inlining is simpler; separate files scale better.
-   Tentative: separate files with `_ref` URIs from architecture.yaml.
+The genuinely-open ones, post-working-session:
 
-2. **Contract reference / inheritance.** Can a module's contract reference a project-level shape? (e.g. integration AC:
-   "Conforms to `project://arch/contracts/shared/product`.") Yes, presumably — but the URI scheme needs extending.
+6. **Operator UX for SA confirmations** (deferred to TUI design phase). SA produces a lot of detail (per-module
+   checklists × N modules). Operator needs a way to review without drowning. **Working rule for now:** confirmation
+   screens collapse `default` / `N/A` / unchanged-from-previous-pass entries; surface only (a) entries marked as
+   complications, (b) entries the SA flagged as uncertain, (c) entries the operator hasn't seen before. Real design
+   waits for a TUI prototype that exists to be tested.
 
-3. **SA-suite intermediate level?** Currently SA has SA-project and SA-module. Does it need an SA-suite intermediate
-   (per- suite architectural overview, before drilling into modules)? Probably not — suites are operator-organizational
-   and SA's job is to think about modules.
-
-4. **Reviewer agent runs when?** Per-commit? End of ticket? On PR merge? Probably end-of-ticket (before resolve), but
-   has implications for dev agent feedback loops.
-
-5. **Cross-cutting policy enforcement scope.** "All PII encrypted at rest" — does the reviewer scan every diff for PII
-   handling, or only flag when fields tagged as PII appear? If the latter, we need a way to mark fields as PII in the
-   shared contracts.
-
-6. **Operator UX for SA confirmations.** SA produces lots of detail (per-module checklists × N modules). Operator needs
-   a way to review without drowning. TUI design: collapse "default" / "N/A" answers; surface only the meaningful ones.
-
-7. **Spike ticket lifecycle.** Are spike tickets in the same `tickets.jsonl` as regular tickets, or in a separate
-   stream? Separate type-tag (`spike: true`) probably enough; same store. But SA needs a way to query "which spikes are
-   in flight" without a full scan.
-
-8. **What happens when a spike says "this is impossible"?** The risk doesn't get mitigated; it gets confirmed. The
-   contracts that depended on it have to change. Cascade handling needs to be defined.
-
-9. **SA at L0 — how minimal can it be?** For a todo app the answer might be: SA writes "data_store: sqlite, single
-   module" and exits. Need a clear floor that doesn't cost the operator a long confirmation cycle for a trivial app.
+8. **Spike-confirmed-impossible cascade.** When a spike returns `confirmed_impossible`, dependent contracts have to
+   change. Designed in the new "Cascade after confirmed-impossible spike" section below.
 
 ## Implementation phases
 
@@ -854,3 +1035,11 @@ Not yet planned in detail. Rough order:
 - 2026-05-01: Clarified SA/VD scope split — SA owns *backend* technical shape; VD owns *frontend* technical shape AND
   visual shape. Frontend stack choice belongs to VD. SA may still have opinions where backend and frontend connect
   (e.g., SSR vs JSON), but the frontend technology is VD's call.
+- 2026-05-03: Worked through the open questions. Locked Q1 (separate contract files via `_ref`), Q2 (yes, sub-contract
+  URI anchoring), Q3 (no SA-suite intermediate level), Q5 (field-level PII tagging with reserved tag set), Q7 (same
+  store, type tag, indexed by type), Q9 (concrete trivial-project floor — single suite + single module + ~20 lines).
+  Refined Q4 — reviewer runs at two cadences (light per-commit mechanical + full federation end-of-ticket). Q6 (operator
+  UX) deferred to TUI design phase with a working rule. Q8 (impossible-spike cascade) designed in detail — new "Cascade
+  after confirmed-impossible spike" section covers the 5-step workflow, required `dependent_contracts` field on risks,
+  transactional confirmation, audit trail at `.jig/arch/cascades/<risk-id>-<timestamp>.yaml`, and four named failure
+  modes with mitigations.

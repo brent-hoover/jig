@@ -1,152 +1,28 @@
 # Jig
 
-Agent harness that orchestrates multiple Claude Code agents across a codebase.
+> A device that holds a piece of work in a fixed position and guides the tool operating on it, 
+used to ensure accuracy and repeatability across many identical parts.
 
-## Prerequisites
+## Why Jig Exists
 
-- [Docker](https://docs.docker.com/get-docker/) (agents run inside a sandboxed container)
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- [Bun](https://bun.sh/) (for the TUI)
-- A Claude subscription — jig uses OAuth, not API keys
+Agents can make quick work of focused tasks. Bite-sized chunks of well described and well spec'd tasks
+are what an agent is good at. What it's bad at is understanding the "big picture". Why does this app exist?
+What tradeoffs can we make? etc. Jig is designed to help agents understand the "big picture" 
+by providing a framework for breaking down complex tasks into smaller, more manageable pieces. And
+using it's own spec-langauge to describe the tasks and their dependencies, 
+making it easier for agents to reason about the overall task and make informed decisions.\
 
-## Installation
+## What Jig seeks to do
 
-```bash
-uv tool install --from . jig
-```
+Covered more in TENETS.md but here quickly our goals are:
 
-Or editable for development:
+1. Make agents better at what they already do well
+2. Make humans better at what <they> do well
 
-```bash
-uv tool install --editable .
-```
+## How we hope to achieve that
 
-## Setup
-
-### 1. Generate an auth token
-
-Jig needs a long-lived OAuth token to authenticate Claude Code agents inside Docker.
-
-```bash
-claude setup-token
-```
-
-Export the token in your shell (e.g. in `~/.zshenv` or a secrets file):
-
-```bash
-export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-...'
-```
-
-### 2. Initialize a project
-
-```bash
-cd /path/to/your/repo
-jig init
-```
-
-Creates a `.jig/` directory with default agent types (spec, test, dev, review), a default workflow, and project config.
-
-## Usage
-
-### Launch the TUI
-
-```bash
-cd /path/to/your/repo
-jig daemon start              # auto-detects Docker if available
-jig                           # then open the TUI
-```
-
-`jig` (no args) opens a Textual TUI that connects to the local daemon. The daemon is a separate background process that hosts the orchestrator + agents + WebSocket server. Closing the TUI does not stop the daemon — agents in flight finish their work. Stop it explicitly with `jig daemon stop` when done.
-
-`jig daemon start` runs the orchestrator on the host by default. To force isolation in Docker (host isolation + bwrap per agent), use `--docker`. To force host mode even when Docker is available, use `--no-docker`. (The image must be built first via `jig build`.)
-
-The TUI has four tabs:
-- **Now** — conversation surface for `/init`, free-text concierge queries, and live agent output
-- **Tickets** — list/board of all tickets (`b` toggles, `n` creates, `e` edits)
-- **Spec** — capabilities + non-goals from `.jig/spec/project.structured.yaml`
-- **Events** — bus event tail with filter + follow
-
-Press `?` for the in-app key reference.
-
-### Daemon controls
-
-```bash
-jig daemon start    # start the background orchestrator (auto-runs when `jig` launches)
-jig daemon stop     # stop it
-jig daemon status   # check if it's running
-```
-
-### Run a single command non-interactively
-
-```bash
-jig --print "/status"
-jig --print "/ticket new --title foo --size s"
-```
-
-CI / scripting escape hatch — runs one slash command against the daemon and exits with text/JSON output.
-
-### Other commands
-
-```bash
-jig build     # Build or rebuild the Docker image
-jig sync      # Sync new default agent types/workflows from installed jig version
-jig validate --ticket-id <id>  # Clean up worktrees after verifying output
-jig reset     # Reset project to clean state (destructive)
-```
-
-## Architecture
-
-- **Jig Core** (Python) — async orchestrator, agent lifecycle, file-backed message bus, MCP server, WebSocket server
-- **Jig TUI** (Python / Textual) — interactive operator surface; runs as a client to the daemon
-
-Agents communicate via a message bus exposed as a local MCP server. Each agent runs in an isolated git worktree. The orchestrator handles all git operations.
-
-### Sandboxing
-
-Jig uses a two-layer isolation model:
-
-| Layer | Tool | Purpose |
-|-------|------|---------|
-| Outer | Docker | Isolates jig from the host. Provides Linux for bubblewrap. Reproducible toolchain. |
-| Inner | Bubblewrap | Isolates each agent from other agents. Restricts filesystem to the agent's worktree. |
-
-When `jig start` runs on the host, it re-execs itself inside Docker with the project directory volume-mounted at `/project`. Inside the container, each agent subprocess is wrapped in bubblewrap:
-
-- **`/workspace`** (rw) — the agent's git worktree
-- **`/`** (ro) — full container filesystem for system libs and binaries
-- **`/tmp`** (tmpfs) — isolated temp directory
-- **PID namespace** unshared — agents can't see other processes
-
-The orchestrator itself runs outside bubblewrap and handles all git operations, ticket state, and inter-agent communication.
-
-### Container details
-
-The Docker image includes Python 3.12, Node.js 22, bubblewrap, Claude Code CLI, ruff, and gh. Build manually with `jig build` or let `jig start` auto-build on first run. Override the image name with `JIG_DOCKER_IMAGE` env var.
-
-Volume mounts:
-
-| Host | Container | Mode |
-|------|-----------|------|
-| Project directory | `/project` | rw |
-| `~/.claude/` | `/home/jig/.claude` | rw |
-| `~/.claude.json` | `/home/jig/.claude.json` | rw |
-| `~/.gitconfig` | `/home/jig/.gitconfig` | ro |
-| `~/.ssh/` | `/home/jig/.ssh` | ro |
-
-Auth is passed via `CLAUDE_CODE_OAUTH_TOKEN` env var (not volume-mounted — macOS Keychain tokens can't be shared with Linux containers).
-
-## Development
-
-```bash
-# Install Python dependencies
-uv sync
-
-# Run tests
-uv run pytest tests/ -v
-
-# Build Docker image
-jig build
-
-# Run without Docker (no sandbox)
-jig start --no-docker
-```
+1. Bite-sized work, coherent whole: focused tickets with proper context driven by larger project and architectural plans
+2. Exact context, no more, no less: dedicated context layer that assembles the knowledge agents need to know
+3. Clear instructions and boundaries: Well-constructed tickets with specs and validation steps and concurrent-review 
+4. Structured, consistent language: Using YAMl-based specs so agents see it as a contract, not a suggestion
+5. Both sides earn their best thinking through structure: We walk the human through the whole process of planning their app, and then unleash the agents

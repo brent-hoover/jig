@@ -48,7 +48,7 @@ did.
 concurrency. Operator runs `docker-compose up` once at project start; the orchestrator dispatches tickets serially
 against those services; each agent's tests run in a fresh schema/topic the agent creates and tears down.
 
-That works for v1 of jig with one operator running modest projects. It also genuinely matches what a single dev does on
+That works for v2 of jig with one operator running modest projects. It also genuinely matches what a single dev does on
 their own machine — one schema, one bus, sequential work.
 
 It does NOT support parallel dispatch. The moment the orchestrator wants to run two agents at once (federated review,
@@ -58,11 +58,11 @@ tracer-bullet of multiple modules in parallel, adversarial pairing), the simples
 
 - **Scale**: at a single-operator, single-project scope, shared services hold up fine until concurrency is introduced.
   Forces: namespace-isolation primitive (per-agent schema/topic prefix) when parallel dispatch enters scope. N/A as long
-  as single-agent dispatch is the v1 stance.
+  as single-agent dispatch is the v2 stance.
 - **Concurrency**: this is the load-bearing complication. The moment two agents touch shared services simultaneously,
   state corruption becomes invisible and tests become unreliable. Forces: per-agent namespacing (Postgres schema, topic
   prefix, key prefix), or per-agent ephemeral instances for services that don't namespace. **The agent-leverage and PM
-  workflow designs both assume parallel dispatch is the goal — so concurrency is not deferrable in 2.0.**
+  workflow designs both assume parallel dispatch is the goal — so concurrency is not deferrable in v2.**
 - **Failure modes**: namespace cleanup fails → resource leak (orphan schemas accumulate). Service crashes mid-agent →
   agent's test results unreliable. Forces: cleanup-on-completion (with debug-keep override), health-check at spawn,
   structured failure events. Tolerable because failure is observable; not silent.
@@ -152,5 +152,5 @@ Other complications worth naming:
 
 - 2026-05-01: Initial capture (brent + claude). Names service isolation as the missing third leg of the existing
   bwrap+Docker isolation stack. Frames the simple-vs-complex tradeoff (single-agent dispatch is simple but blocks
-  parallelism). Establishes the requirement that this is not deferrable for 2.0 because parallel dispatch is assumed
-  across multiple other 2.0 designs.
+  parallelism). Establishes the requirement that this is not deferrable for v2 because parallel dispatch is assumed
+  across multiple other v2 designs.

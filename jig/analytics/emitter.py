@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from jig.analytics.events import AnalyticsEvent
 from jig.analytics.store import AnalyticsStore
@@ -41,15 +42,37 @@ class EventEmitter:
     they can be awaited at shutdown — without that, in-flight
     writes get cancelled when the event loop closes and we lose
     the tail of the stream.
+
+    Simulator mode: when ``simulator_mode=True`` (or env
+    ``JIG_SIMULATOR=true``), every event emitted gets its
+    ``simulator`` field flipped to ``True`` before persistence so
+    consumer queries can filter the simulator corpus out of real
+    analytics. See ``docs/synthetic-operator/design.md``.
     """
 
-    def __init__(self, store: AnalyticsStore) -> None:
+    def __init__(
+        self,
+        store: AnalyticsStore,
+        *,
+        simulator_mode: bool | None = None,
+    ) -> None:
         self._store = store
         self._pending: set[asyncio.Task[None]] = set()
+        self._simulator_mode = (
+            simulator_mode
+            if simulator_mode is not None
+            else os.environ.get("JIG_SIMULATOR") == "true"
+        )
+
+    def _tag(self, event: AnalyticsEvent) -> AnalyticsEvent:
+        """Stamp the simulator flag on events when in simulator mode."""
+        if self._simulator_mode and not event.simulator:
+            return event.model_copy(update={"simulator": True})
+        return event
 
     async def emit(self, event: AnalyticsEvent) -> str:
         """Persist an event synchronously. Returns the event id."""
-        return await self._store.append(event)
+        return await self._store.append(self._tag(event))
 
     def emit_nowait(self, event: AnalyticsEvent) -> None:
         """Fire-and-forget persistence. Returns immediately.
@@ -57,7 +80,7 @@ class EventEmitter:
         The caller doesn't get the event id back — if you need it,
         use ``emit`` instead. Most callers don't.
         """
-        task = asyncio.create_task(self._emit_logged(event))
+        task = asyncio.create_task(self._emit_logged(self._tag(event)))
         self._pending.add(task)
         task.add_done_callback(self._pending.discard)
 

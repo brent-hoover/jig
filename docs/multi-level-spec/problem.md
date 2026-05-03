@@ -60,8 +60,8 @@ Two related symptoms appear when the project is bigger than that:
 
 - Enterprise scale (50+ capabilities, multi-team org charts).
 - Replacing the simple-brief format. The existing format keeps working at L3 (suite level).
-- Cross-suite dependency tracking. Out of scope for v1.
-- Multi-version planning (v1 vs v2). Out of scope for v1.
+- Cross-suite dependency tracking. Out of scope for v2.
+- Multi-version planning (v2 vs v2). Out of scope for v2.
 
 ## Success criteria
 

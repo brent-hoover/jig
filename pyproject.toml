@@ -28,6 +28,9 @@ include = ["jig*"]
 # executable no-extension scripts so Claude Code can invoke them as
 # ``/jig/bin/check-bash`` etc. after bwrap bind-mounts the directory.
 "jig.bin" = ["check-bash", "check-write", "check-path", "_hooklib.py"]
+# Synthetic operator persona YAMLs (Track H3, bones). bones ships only
+# methodical; MVP/Final extend with the rest.
+"jig.sim.personas" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

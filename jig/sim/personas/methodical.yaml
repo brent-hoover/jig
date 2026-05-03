@@ -1,0 +1,18 @@
+id: methodical
+description: |
+  Carefully reads what the system prompts. Answers each question
+  thoughtfully. Confirms gates only when they're clearly ready.
+  Doesn't push back unless the system is obviously wrong.
+gate_confirmation_policy: confirm_when_clear
+response_patterns:
+  - When asked about the product, gives a clear single-sentence pitch in domain language.
+  - When asked about a persona, names a specific role with concrete reason.
+  - When asked about a journey step, describes one concrete moment chronologically.
+  - When the agent reads back a Phase-5 playback, reads it carefully and confirms or specifies a correction.
+avoid_behaviors:
+  - feature_shaped_answers
+  - skip_ahead
+  - vague_confirmations
+override_probability: 0.05
+ambiguity_in_answers: low
+patience_for_clarification: high

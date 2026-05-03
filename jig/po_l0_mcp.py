@@ -18,12 +18,12 @@ import yaml
 from pydantic import ValidationError
 
 from jig.atomic import atomic_write_text
+from jig.handoff_resolve import resolve_after_handoff as _resolve_after_handoff
 from jig.schemas.po import ProductNonGoal, Project
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Handoff, SystemEvent
-from jig.ticket import TicketStatus
+from jig.thread import Handoff
 
 L0_TICKET_ID = "project"
 
@@ -97,42 +97,6 @@ def _coerce_non_goals(raw: list[Any]) -> list[ProductNonGoal]:
         except ValidationError as e:
             raise ValueError(f"invalid non_goal entry: {e}") from e
     return out
-
-
-async def _resolve_after_handoff(
-    *,
-    tickets: TicketStore,
-    threads: ThreadStore,
-    bus: MessageBus,
-    ticket_id: str,
-    author: str,
-) -> None:
-    """Mark ticket RESOLVED + broadcast — same pattern as init_mcp."""
-    current = await tickets.get(ticket_id)
-    if current is None or current.status == TicketStatus.RESOLVED:
-        return
-    updated = await tickets.update(ticket_id, status=TicketStatus.RESOLVED)
-    await threads.post(
-        SystemEvent(
-            ticket_id=ticket_id,
-            author=author,
-            event_type="status_change",
-            content=f"status {current.status.value} -> {updated.status.value}",
-        )
-    )
-    await bus.publish(
-        Message(
-            sender=author,
-            to=updated.assignee or "broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload={
-                "kind": "ticket_updated",
-                "ticket_id": ticket_id,
-                "status": updated.status.value,
-            },
-            topic=f"tickets.{ticket_id}",
-        )
-    )
 
 
 async def handle_l0_finalize(

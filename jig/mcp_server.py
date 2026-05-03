@@ -7,7 +7,14 @@ from typing import Any
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-from jig import checkpoint_mcp, init_mcp, po_l0_mcp, thread_mcp, ticket_mcp
+from jig import (
+    checkpoint_mcp,
+    init_mcp,
+    po_l0_mcp,
+    po_l3_mcp,
+    thread_mcp,
+    ticket_mcp,
+)
 from jig.logging_setup import (
     _agent_id_var,
     _phase_var,
@@ -910,6 +917,43 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(l0_finalize)
+
+    if "l3_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "l3_finalize",
+            "Commit the L3 brief for one suite. Writes both "
+            ".jig/spec/suites/<suite_id>/brief.md (markdown form) and "
+            ".jig/spec/suites/<suite_id>/spec.structured.yaml "
+            "(structured projection). The ``capabilities`` list contains "
+            "dicts shaped like the StructuredSpec.Capability schema "
+            "(id, title, state, summary, user_story?, behaviors?, "
+            "acceptance_criteria?, excluded?, open_questions?, aliases?); "
+            "every id MUST appear in suites.yaml under this suite. "
+            "Optional ``non_goals`` is a list of {id, text, rationale?}. "
+            "Hands off to SA. Call exactly once when the brief is ready.",
+            {
+                "suite_id": str,
+                "intro": str,
+                "capabilities": list,
+                "non_goals": list,
+            },
+        )
+        async def l3_finalize(args):
+            entry_id = await po_l3_mcp.handle_l3_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                suite_id=args["suite_id"],
+                intro=args["intro"],
+                capabilities=args.get("capabilities", []),
+                non_goals=args.get("non_goals", []),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(l3_finalize)
 
     if "spec_publish" in agent_cfg.allowed_tools:
 

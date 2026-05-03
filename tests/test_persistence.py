@@ -191,6 +191,7 @@ class TestDefaultRoles:
             "user",
             "po",
             "po-l0",
+            "po-l3",
             "sa",
             "spec-generator",
             "concierge",

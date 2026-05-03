@@ -14,8 +14,13 @@ SA (v2):
 - ``.jig/spec/architecture.yaml`` — project-level ``Architecture``
 - ``.jig/spec/modules/<m>/contracts.yaml`` — per-module ``ContractsFile``
 
+PM (v2):
+- ``.jig/plan/build-plan.yaml`` — project-level ``BuildPlan`` (Track F1)
+
 Thin helpers — no I/O beyond read+parse. Writers live with their authoring
-modules (``po_l0_mcp.py``, ``po_l3_mcp.py``, ``sa_mcp.py``).
+modules (``po_l0_mcp.py``, ``po_l3_mcp.py``, ``sa_mcp.py``); the build-plan
+writer is co-located here because Track F bones has no PM agent yet — the
+synthetic operator calls ``write_build_plan`` directly.
 """
 from __future__ import annotations
 
@@ -23,13 +28,16 @@ from pathlib import Path
 
 import yaml
 
+from jig.atomic import atomic_write_text
 from jig.schemas.arch import Architecture, ContractsFile
+from jig.schemas.plan import BuildPlan
 from jig.schemas.po import SuitesIndex
 from jig.spec_schema import StructuredSpec
 
 _SPEC_RELATIVE = Path(".jig") / "spec" / "project.structured.yaml"
 _SUITES_INDEX_RELATIVE = Path(".jig") / "spec" / "suites.yaml"
 _ARCHITECTURE_RELATIVE = Path(".jig") / "spec" / "architecture.yaml"
+_BUILD_PLAN_RELATIVE = Path(".jig") / "plan" / "build-plan.yaml"
 
 
 def spec_path(project_root: Path) -> Path:
@@ -140,3 +148,42 @@ def load_module_contracts(project_root: Path, module_id: str) -> ContractsFile:
         )
     data = yaml.safe_load(src.read_text()) or {}
     return ContractsFile.model_validate(data)
+
+
+# ---- v2 PM paths ----------------------------------------------------------
+
+
+def build_plan_path(project_root: Path) -> Path:
+    """``.jig/plan/build-plan.yaml`` — the PM's living build plan.
+
+    Track F bones: the synthetic operator hand-writes this file via
+    ``write_build_plan`` since the Planner agent (F2) hasn't landed yet.
+    The Coordinator (F4) reads it to materialize tickets into the store.
+    """
+    return project_root / _BUILD_PLAN_RELATIVE
+
+
+def load_build_plan(project_root: Path) -> BuildPlan:
+    """Load and validate ``build-plan.yaml``.
+
+    Raises ``FileNotFoundError`` if absent — the Coordinator treats
+    absence as "no plan yet" via try/except rather than silently
+    defaulting to an empty plan, mirroring ``load_architecture``.
+    """
+    src = build_plan_path(project_root)
+    if not src.is_file():
+        raise FileNotFoundError(f"build-plan.yaml not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return BuildPlan.model_validate(data)
+
+
+def write_build_plan(project_root: Path, plan: BuildPlan) -> None:
+    """Atomically write ``plan`` to ``.jig/plan/build-plan.yaml``.
+
+    Track F1 bones: deterministic key order via ``sort_keys=False`` so
+    diffs across writes stay readable for the synthetic operator
+    iterating on a scenario. Bones is a one-shot writer with no
+    merge/amend logic — the Planner agent (F2) gets that in MVP.
+    """
+    payload = yaml.safe_dump(plan.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(build_plan_path(project_root), payload)

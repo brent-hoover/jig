@@ -19,7 +19,7 @@ from jig.brief_parser import BriefParseError, parse_brief
 from jig.markdown_sections import get_section, list_sections, set_section
 from jig.spec_regeneration import regenerate
 from jig.spec_schema import StructuredSpec
-from jig.spec_uri import SpecUriError, resolve_spec_uri
+from jig.uri import ProjectUriError, resolve_spec_uri
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -554,7 +554,7 @@ async def handle_spec_resolve_uri(
         raise KeyError(f"no spec yet; cannot resolve {uri!r}")
     try:
         return resolve_spec_uri(uri, spec)
-    except SpecUriError as e:
+    except ProjectUriError as e:
         raise KeyError(str(e)) from e
 
 

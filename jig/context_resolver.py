@@ -27,7 +27,7 @@ from typing import Awaitable, Callable
 import yaml
 
 from jig.spec_schema import StructuredSpec
-from jig.spec_uri import SpecUriError, resolve_spec_uri
+from jig.uri import ProjectUriError, resolve_spec_uri
 from jig.store.threads import ThreadStore
 from jig.thread import entry_content
 from jig.ticket import Ticket
@@ -396,7 +396,7 @@ async def _resolve_project(
         spec = StructuredSpec.model_validate(data)
         try:
             out = resolve_spec_uri(f"project://{body}", spec)
-        except SpecUriError as e:
+        except ProjectUriError as e:
             return f"# project://{body}\n\n[unresolved: {e}]\n"
         # Render the structured payload as YAML text for context-bundle injection.
         return yaml.safe_dump(out["data"], sort_keys=False)

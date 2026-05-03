@@ -7,7 +7,7 @@ from typing import Any
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
-from jig import checkpoint_mcp, init_mcp, thread_mcp, ticket_mcp
+from jig import checkpoint_mcp, init_mcp, po_l0_mcp, thread_mcp, ticket_mcp
 from jig.logging_setup import (
     _agent_id_var,
     _phase_var,
@@ -875,6 +875,41 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(po_finish_brief)
+
+    if "l0_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "l0_finalize",
+            "Capture the L0 pitch + problem + audience + product-level "
+            "non-goals and finalize the project. Writes both "
+            ".jig/spec/project.md (markdown form) and "
+            ".jig/spec/project.structured.yaml (Pydantic dump). "
+            "Hands off to the L1 PO. Call this exactly once when the "
+            "operator has confirmed all four fields.",
+            {
+                "name": str,
+                "pitch": str,
+                "problem": str,
+                "audience": str,
+                "non_goals": list,
+            },
+        )
+        async def l0_finalize(args):
+            entry_id = await po_l0_mcp.handle_l0_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                name=args["name"],
+                pitch=args["pitch"],
+                problem=args["problem"],
+                audience=args["audience"],
+                non_goals=args.get("non_goals", []),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(l0_finalize)
 
     if "spec_publish" in agent_cfg.allowed_tools:
 

@@ -190,6 +190,7 @@ class TestDefaultRoles:
             "pm",
             "user",
             "po",
+            "po-l0",
             "sa",
             "spec-generator",
             "concierge",

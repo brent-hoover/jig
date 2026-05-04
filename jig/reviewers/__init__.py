@@ -6,41 +6,33 @@ error handling, test adequacy, security, performance, architectural,
 visual compliance). See ``docs/pm-workflow/design.md`` §"Reviewer
 federation — selection logic" for the full taxonomy.
 
-Bones scope (this package, this commit) ships **only** Track G2 — a
-mechanical, end-of-ticket **contract-compliance** reviewer. No LLM, no
-per-commit cadence, no lead-reviewer dedup, no auto-apply. Per the
-design: mechanical reviewers are deterministic checks with confidence
-1.0 and are the only reviewers that can run in the per-commit latency
-budget; this module ships the deterministic core that the per-commit
-cadence (G3) and the rest of the federation (G6/G7) compose with later.
+Currently shipped (mechanical, deterministic, no LLM):
 
-Public surface for bones:
+- ``ContractComplianceReviewer`` — bones contract-compliance (Track G2).
+- ``IntentComplianceReviewer`` — intent-layer enforcement (Track I MVP).
 
-- ``ReviewerComment`` — structured comment shape per design
-  §"Comment structure (machine-first)".
-- ``ContractComplianceReviewer.review`` — the bones reviewer.
-- ``should_run_for_bones`` — bones dispatch helper. Defaults
-  contract-compliance ON for any ``layer == "bones"`` ticket whose
-  ``reviewer_set`` is empty (per Track F's handoff note).
+Additional mechanical reviewers (cross-cutting-policy, spec-compliance)
+and the two-cadence dispatcher land in subsequent Track G MVP commits.
 
 The synthetic operator (Track H) invokes the reviewer explicitly after
-the dev agent completes; this package does NOT wire into the
-orchestrator's per-ticket lifecycle. That integration is an MVP
-concern (Track G3 — two-cadence integration).
+the dev agent completes; this package does NOT yet wire into the
+orchestrator's per-commit hook (separate G MVP follow-on).
 """
 from __future__ import annotations
 
-from jig.reviewers.bones_dispatch import (
-    BONES_REVIEWER_ID,
-    INTENT_REVIEWER_ID,
-    should_run_for_bones,
-)
 from jig.reviewers.comment import (
     BonesCommentType,
     ReviewerComment,
+    ReviewerCommentType,
     Severity,
 )
 from jig.reviewers.contract_compliance import ContractComplianceReviewer
+from jig.reviewers.dispatch import (
+    BONES_REVIEWER_ID,
+    INTENT_REVIEWER_ID,
+    select_reviewers_for_ticket,
+    should_run_for_bones,
+)
 from jig.reviewers.intent_compliance import (
     IntentCommentType,
     IntentComplianceReviewer,
@@ -55,7 +47,9 @@ __all__ = [
     "IntentCommentType",
     "IntentComplianceReviewer",
     "ReviewerComment",
+    "ReviewerCommentType",
     "Severity",
     "review_intent",
+    "select_reviewers_for_ticket",
     "should_run_for_bones",
 ]

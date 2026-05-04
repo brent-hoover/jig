@@ -18,13 +18,13 @@ import yaml
 
 from jig.intent import Intent
 from jig.reviewers import (
-    BonesCommentType,
+    BONES_REVIEWER_ID,
     ContractComplianceReviewer,
     ReviewerComment,
+    ReviewerCommentType,
     Severity,
-    should_run_for_bones,
+    select_reviewers_for_ticket,
 )
-from jig.reviewers.bones_dispatch import BONES_REVIEWER_ID
 from jig.reviewers.contract_compliance import _significant_tokens
 from jig.schemas.arch import (
     ContractsFile,
@@ -229,7 +229,7 @@ async def test_review_flags_empty_diff_as_critical(tmp_path: Path):
 
     assert len(comments) == 1
     c = comments[0]
-    assert c.type == BonesCommentType.EMPTY_DIFF.value
+    assert c.type == ReviewerCommentType.EMPTY_DIFF.value
     assert c.severity == Severity.CRITICAL.value
     assert c.reviewer == BONES_REVIEWER_ID
     assert c.confidence == 1.0
@@ -250,7 +250,7 @@ async def test_review_flags_missing_worktree_as_empty_diff(tmp_path: Path):
     comments = await reviewer.review(_ticket(), project_root)
 
     assert len(comments) == 1
-    assert comments[0].type == BonesCommentType.EMPTY_DIFF.value
+    assert comments[0].type == ReviewerCommentType.EMPTY_DIFF.value
 
 
 # ---- AC-reference miss ---------------------------------------------------
@@ -280,7 +280,7 @@ async def test_review_flags_missing_ac_reference(tmp_path: Path):
 
     assert len(comments) == 1
     c = comments[0]
-    assert c.type == BonesCommentType.INTEGRATION_AC_NOT_REFERENCED.value
+    assert c.type == ReviewerCommentType.INTEGRATION_AC_NOT_REFERENCED.value
     assert c.severity == Severity.IMPORTANT.value
     assert c.contract_uri is not None
     assert "shopify-connect" in c.contract_uri
@@ -311,7 +311,7 @@ async def test_review_flags_only_unreferenced_acs_among_many(tmp_path: Path):
     comments = await reviewer.review(_ticket(), project_root)
 
     assert len(comments) == 1
-    assert comments[0].type == BonesCommentType.INTEGRATION_AC_NOT_REFERENCED.value
+    assert comments[0].type == ReviewerCommentType.INTEGRATION_AC_NOT_REFERENCED.value
     # Comment text quotes the missing AC, not the satisfied one
     assert "Webhook" in comments[0].prose
 
@@ -372,7 +372,7 @@ async def test_review_handles_missing_contracts_file(tmp_path: Path):
 
     assert len(comments) == 1
     c = comments[0]
-    assert c.type == BonesCommentType.CONTRACT_VIOLATION.value
+    assert c.type == ReviewerCommentType.CONTRACT_VIOLATION.value
     assert c.severity == Severity.NOTABLE.value
     assert c.contract_uri is not None
     assert "catalog-ingest" in c.contract_uri
@@ -390,7 +390,7 @@ async def test_review_handles_ticket_without_module_id(tmp_path: Path):
     comments = await reviewer.review(ticket, project_root)
 
     assert len(comments) == 1
-    assert comments[0].type == BonesCommentType.CONTRACT_VIOLATION.value
+    assert comments[0].type == ReviewerCommentType.CONTRACT_VIOLATION.value
     assert comments[0].severity == Severity.NOTABLE.value
 
 
@@ -424,34 +424,34 @@ async def test_review_honors_explicit_worktree_and_base_ref(tmp_path: Path):
 # ---- bones dispatch ------------------------------------------------------
 
 
-def test_should_run_for_bones_defaults_for_bones_layer_empty_set():
+def test_select_reviewers_for_ticket_defaults_for_bones_layer_empty_set():
     t = _ticket(layer="bones", reviewer_set=[])
-    assert should_run_for_bones(t) == [BONES_REVIEWER_ID]
+    assert select_reviewers_for_ticket(t) == [BONES_REVIEWER_ID]
 
 
-def test_should_run_for_bones_returns_empty_for_non_bones_empty_set():
+def test_select_reviewers_for_ticket_returns_empty_for_non_bones_empty_set():
     """MVP/final tickets with empty reviewer_set get the Track-I-MVP defaults
     (contract-compliance + intent-compliance), not nothing — see
     bones_dispatch._MVP_FINAL_DEFAULTS. Tickets with no layer at all still
     return empty (we can't pick defaults without knowing the layer).
     """
     t = _ticket(layer=None, reviewer_set=[])
-    assert should_run_for_bones(t) == []
+    assert select_reviewers_for_ticket(t) == []
 
 
-def test_should_run_for_bones_honors_explicit_reviewer_set():
+def test_select_reviewers_for_ticket_honors_explicit_reviewer_set():
     t = _ticket(layer="bones", reviewer_set=["contract-compliance", "spec-compliance"])
-    assert should_run_for_bones(t) == ["contract-compliance", "spec-compliance"]
+    assert select_reviewers_for_ticket(t) == ["contract-compliance", "spec-compliance"]
 
 
-def test_should_run_for_bones_honors_explicit_set_on_non_bones():
+def test_select_reviewers_for_ticket_honors_explicit_set_on_non_bones():
     t = _ticket(layer="final", reviewer_set=["pattern-conformance"])
-    assert should_run_for_bones(t) == ["pattern-conformance"]
+    assert select_reviewers_for_ticket(t) == ["pattern-conformance"]
 
 
-def test_should_run_for_bones_returns_empty_when_layer_unset():
+def test_select_reviewers_for_ticket_returns_empty_when_layer_unset():
     t = _ticket(layer=None, reviewer_set=[])
-    assert should_run_for_bones(t) == []
+    assert select_reviewers_for_ticket(t) == []
 
 
 # ---- comment serialization ----------------------------------------------
@@ -460,7 +460,7 @@ def test_should_run_for_bones_returns_empty_when_layer_unset():
 def test_reviewer_comment_round_trips_through_json():
     """Synthetic operator may persist comments via JSON; round-trip preserves shape."""
     c = ReviewerComment(
-        type=BonesCommentType.INTEGRATION_AC_NOT_REFERENCED,
+        type=ReviewerCommentType.INTEGRATION_AC_NOT_REFERENCED,
         severity=Severity.IMPORTANT,
         reviewer=BONES_REVIEWER_ID,
         prose="AC text not referenced",
@@ -470,7 +470,7 @@ def test_reviewer_comment_round_trips_through_json():
     )
     payload = c.model_dump(mode="json")
     restored = ReviewerComment.model_validate(payload)
-    assert restored.type == BonesCommentType.INTEGRATION_AC_NOT_REFERENCED.value
+    assert restored.type == ReviewerCommentType.INTEGRATION_AC_NOT_REFERENCED.value
     assert restored.severity == Severity.IMPORTANT.value
     assert restored.line == 42
     assert restored.confidence == 1.0
@@ -482,7 +482,7 @@ def test_reviewer_comment_rejects_unknown_fields():
     with pytest.raises(Exception):
         ReviewerComment.model_validate(
             {
-                "type": BonesCommentType.EMPTY_DIFF.value,
+                "type": ReviewerCommentType.EMPTY_DIFF.value,
                 "severity": Severity.CRITICAL.value,
                 "reviewer": "contract-compliance",
                 "prose": "x",
@@ -494,7 +494,7 @@ def test_reviewer_comment_rejects_unknown_fields():
 def test_reviewer_comment_clamps_confidence_to_unit_interval():
     with pytest.raises(Exception):
         ReviewerComment(
-            type=BonesCommentType.EMPTY_DIFF,
+            type=ReviewerCommentType.EMPTY_DIFF,
             severity=Severity.CRITICAL,
             reviewer=BONES_REVIEWER_ID,
             prose="x",

@@ -37,12 +37,12 @@ import re
 import subprocess
 from pathlib import Path
 
-from jig.reviewers.bones_dispatch import BONES_REVIEWER_ID
 from jig.reviewers.comment import (
-    BonesCommentType,
     ReviewerComment,
+    ReviewerCommentType,
     Severity,
 )
+from jig.reviewers.dispatch import BONES_REVIEWER_ID
 from jig.spec_loader import load_module_contracts
 from jig.ticket import Ticket
 
@@ -225,7 +225,7 @@ class ContractComplianceReviewer:
         if not diff.strip():
             comments.append(
                 ReviewerComment(
-                    type=BonesCommentType.EMPTY_DIFF,
+                    type=ReviewerCommentType.EMPTY_DIFF,
                     severity=Severity.CRITICAL,
                     reviewer=self.reviewer_id,
                     prose=(
@@ -252,7 +252,7 @@ class ContractComplianceReviewer:
         if ticket.module_id is None:
             comments.append(
                 ReviewerComment(
-                    type=BonesCommentType.CONTRACT_VIOLATION,
+                    type=ReviewerCommentType.CONTRACT_VIOLATION,
                     severity=Severity.NOTABLE,
                     reviewer=self.reviewer_id,
                     prose=(
@@ -272,7 +272,7 @@ class ContractComplianceReviewer:
         except FileNotFoundError:
             comments.append(
                 ReviewerComment(
-                    type=BonesCommentType.CONTRACT_VIOLATION,
+                    type=ReviewerCommentType.CONTRACT_VIOLATION,
                     severity=Severity.NOTABLE,
                     reviewer=self.reviewer_id,
                     prose=(
@@ -307,7 +307,7 @@ class ContractComplianceReviewer:
                 if must_tokens.isdisjoint(diff_tokens):
                     comments.append(
                         ReviewerComment(
-                            type=BonesCommentType.INTEGRATION_AC_NOT_REFERENCED,
+                            type=ReviewerCommentType.INTEGRATION_AC_NOT_REFERENCED,
                             severity=Severity.IMPORTANT,
                             reviewer=self.reviewer_id,
                             prose=(

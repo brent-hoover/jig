@@ -1,12 +1,11 @@
-"""Structured reviewer comment — bones-scope subset of the v2 schema.
+"""Structured reviewer comment — federation-wide schema.
 
 The full schema (per ``docs/pm-workflow/design.md`` §"Comment structure
 (machine-first)") includes the mechanical types (``contract-violation``,
 ``cross-cutting-policy-violation``, ``spec-violation``) and the judgment
 types (``pattern-divergence``, ``error-handling``, ``test-adequacy``,
-``code-clarity``). Bones ships only the three types the contract-
-compliance reviewer can produce; the union grows incrementally as
-each new reviewer lands.
+``code-clarity``). The enum grows as each new reviewer lands; entries
+that have shipped are listed below.
 
 For bones we model the comment as a Pydantic v2 ``BaseModel`` with
 ``confidence`` defaulting to ``1.0`` (mechanical reviewers always
@@ -47,13 +46,21 @@ class Severity(str, Enum):
     NOTABLE = "notable"
 
 
-class BonesCommentType(str, Enum):
-    """The subset of comment types the bones contract-compliance reviewer emits.
+class ReviewerCommentType(str, Enum):
+    """The subset of comment types currently emitted across the federation.
 
-    Full taxonomy lands incrementally with the rest of the federation —
-    see ``docs/pm-workflow/design.md`` §"Comment structure". Keeping
-    this enum bones-scoped makes it impossible to forget to extend it
-    when MVP reviewers ship.
+    Full taxonomy lands incrementally — see
+    ``docs/pm-workflow/design.md`` §"Comment structure". Adding a new
+    reviewer means adding its comment-type enum entries here so the
+    union stays exhaustive and ``extra="forbid"`` validation catches
+    typos in operator-authored fixtures.
+
+    Currently shipped:
+
+    * Mechanical contract-compliance (Track G2 bones) — empty-diff,
+      integration-ac-not-referenced, contract-violation.
+    * Mechanical intent-compliance (Track I MVP) — three intent-layer
+      finding kinds.
     """
 
     EMPTY_DIFF = "empty-diff"
@@ -65,6 +72,13 @@ class BonesCommentType(str, Enum):
     INTENT_TOO_SHORT = "intent-too-short"
     INTENT_BOILERPLATE_RESTATEMENT = "intent-boilerplate-restatement"
     INTENT_COMPLICATIONS_SKIPPED = "intent-complications-skipped"
+
+
+# Backward-compatible alias. The bones-era name keeps working for the
+# small handful of external callers that imported it; new code should
+# use ``ReviewerCommentType``. Removed in a future cleanup once all
+# call sites have migrated.
+BonesCommentType = ReviewerCommentType
 
 
 class ReviewerComment(BaseModel):
@@ -79,7 +93,7 @@ class ReviewerComment(BaseModel):
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
-    type: BonesCommentType
+    type: ReviewerCommentType
     severity: Severity
     reviewer: str = Field(
         ...,
@@ -138,5 +152,6 @@ class ReviewerComment(BaseModel):
 __all__ = [
     "BonesCommentType",
     "ReviewerComment",
+    "ReviewerCommentType",
     "Severity",
 ]

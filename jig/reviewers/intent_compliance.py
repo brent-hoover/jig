@@ -49,16 +49,12 @@ from pydantic import BaseModel
 
 from jig.intent import ComplicationsConsidered, Intent
 from jig.reviewers.comment import (
-    BonesCommentType,
     ReviewerComment,
+    ReviewerCommentType,
     Severity,
 )
 from jig.reviewers.contract_compliance import _significant_tokens
-
-# The reviewer id appears in ReviewerComment.reviewer and in the
-# bones_dispatch table. Imported by name elsewhere to keep renames
-# to one edit.
-INTENT_REVIEWER_ID = "intent-compliance"
+from jig.reviewers.dispatch import INTENT_REVIEWER_ID
 
 # Minimum length on the intent prose fields. Twenty characters is
 # the floor that catches the obvious thin-fill cases ("x", "todo",
@@ -75,10 +71,10 @@ _MIN_PROSE_LEN = 20
 _RESTATEMENT_OVERLAP_THRESHOLD = 0.5
 
 # Re-export under a domain-specific name so callers reading the
-# intent-reviewer code don't have to know about BonesCommentType.
-# Comment-type taxonomy growth across reviewers eventually needs a
-# proper rename — see comment.py.
-IntentCommentType = BonesCommentType
+# intent-reviewer code don't have to know the federation-wide enum
+# name. The two are the same enum — just two import-site spellings
+# for readability.
+IntentCommentType = ReviewerCommentType
 
 
 def _contract_uri(kind: str, artifact_id: str) -> str:
@@ -104,7 +100,7 @@ def _check_length(intent: Intent, kind: str, artifact_id: str) -> list[ReviewerC
     if len(intent.problem.strip()) < _MIN_PROSE_LEN:
         out.append(
             ReviewerComment(
-                type=BonesCommentType.INTENT_TOO_SHORT,
+                type=ReviewerCommentType.INTENT_TOO_SHORT,
                 severity=Severity.IMPORTANT,
                 reviewer=INTENT_REVIEWER_ID,
                 prose=(
@@ -120,7 +116,7 @@ def _check_length(intent: Intent, kind: str, artifact_id: str) -> list[ReviewerC
     if len(intent.simplest_solution.strip()) < _MIN_PROSE_LEN:
         out.append(
             ReviewerComment(
-                type=BonesCommentType.INTENT_TOO_SHORT,
+                type=ReviewerCommentType.INTENT_TOO_SHORT,
                 severity=Severity.IMPORTANT,
                 reviewer=INTENT_REVIEWER_ID,
                 prose=(
@@ -158,7 +154,7 @@ def _check_boilerplate(intent: Intent, kind: str, artifact_id: str) -> list[Revi
     if overlap > _RESTATEMENT_OVERLAP_THRESHOLD:
         return [
             ReviewerComment(
-                type=BonesCommentType.INTENT_BOILERPLATE_RESTATEMENT,
+                type=ReviewerCommentType.INTENT_BOILERPLATE_RESTATEMENT,
                 severity=Severity.IMPORTANT,
                 reviewer=INTENT_REVIEWER_ID,
                 prose=(
@@ -204,7 +200,7 @@ def _check_complications(intent: Intent, kind: str, artifact_id: str) -> list[Re
         return []
     return [
         ReviewerComment(
-            type=BonesCommentType.INTENT_COMPLICATIONS_SKIPPED,
+            type=ReviewerCommentType.INTENT_COMPLICATIONS_SKIPPED,
             severity=Severity.IMPORTANT,
             reviewer=INTENT_REVIEWER_ID,
             prose=(

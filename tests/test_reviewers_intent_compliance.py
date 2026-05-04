@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from jig.intent import ComplicationsConsidered, Intent
-from jig.reviewers.bones_dispatch import BONES_REVIEWER_ID, should_run_for_bones
+from jig.reviewers.dispatch import BONES_REVIEWER_ID, select_reviewers_for_ticket
 from jig.reviewers.comment import Severity
 from jig.reviewers.intent_compliance import (
     INTENT_REVIEWER_ID,
@@ -355,26 +355,26 @@ def test_mvp_layer_default_includes_intent_reviewer():
     MVP layer is where intent enforcement starts firing.
     """
     t = _ticket(layer="mvp", reviewer_set=[])
-    ids = should_run_for_bones(t)
+    ids = select_reviewers_for_ticket(t)
     assert INTENT_REVIEWER_ID in ids
     assert BONES_REVIEWER_ID in ids
 
 
 def test_final_layer_default_includes_intent_reviewer():
     t = _ticket(layer="final", reviewer_set=[])
-    ids = should_run_for_bones(t)
+    ids = select_reviewers_for_ticket(t)
     assert INTENT_REVIEWER_ID in ids
 
 
 def test_bones_layer_does_not_default_intent_reviewer():
     """Bones budget keeps just contract-compliance — see Track G2."""
     t = _ticket(layer="bones", reviewer_set=[])
-    ids = should_run_for_bones(t)
+    ids = select_reviewers_for_ticket(t)
     assert ids == [BONES_REVIEWER_ID]
 
 
 def test_explicit_reviewer_set_still_honored():
     """If the planner authored a reviewer_set, it wins (even on MVP)."""
     t = _ticket(layer="mvp", reviewer_set=["spec-compliance"])
-    ids = should_run_for_bones(t)
+    ids = select_reviewers_for_ticket(t)
     assert ids == ["spec-compliance"]

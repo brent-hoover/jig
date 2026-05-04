@@ -810,7 +810,7 @@ async def _handle_run_reviewer(
     """Invoke the contract-compliance reviewer; cache comments on ctx.
 
     Bones ships only contract-compliance (Track G2). The reviewer-set
-    selection logic in ``jig.reviewers.bones_dispatch.should_run_for_bones``
+    selection logic in ``jig.reviewers.dispatch.select_reviewers_for_ticket``
     will, MVP, return additional reviewers; for bones we pin to the
     one reviewer the bones scenario gates on.
     """

@@ -17,6 +17,7 @@ from jig import (
     po_l3_mcp,
     po_ontology_mcp,
     quartermaster,
+    sa_incremental_mcp,
     sa_mcp,
     thread_mcp,
     ticket_mcp,
@@ -1384,6 +1385,253 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(sa_finalize)
+
+    # ---- v2 SA MVP incremental authoring (Track C MVP) -------------------
+    # The MVP SA walks modules + integration boundaries one by one,
+    # accumulating contracts as it goes. Each upsert is idempotent
+    # (re-set with the same id replaces the entry) so the agent can
+    # iterate freely. ``arch_finalize`` re-validates + hands off to PM
+    # via the same path the bones one-shot uses. See
+    # ``docs/sa-architecture/design.md`` §"SA workflow — discovery loop".
+
+    if "arch_set_module" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_module",
+            "Upsert one Module entry into architecture.yaml. ``module`` "
+            "is a dict matching the ``Module`` schema (id, title, "
+            "summary, implements_capabilities, owns, tier_hint, "
+            "requires_tracer_bullet, n_a_categories, intent). "
+            "Idempotent — re-setting the same id replaces the entry. "
+            "Returns the module id for use in subsequent module_set_* calls.",
+            {"module": dict},
+        )
+        async def arch_set_module(args):
+            mid = await sa_incremental_mcp.handle_arch_set_module(
+                project_path=project_path,
+                module=args["module"],
+            )
+            return {"content": [{"type": "text", "text": mid}]}
+
+        all_tools.append(arch_set_module)
+
+    if "arch_set_data_store" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_data_store",
+            "Upsert one DataStore entry. ``data_store`` is a dict "
+            "matching the ``DataStore`` schema (id, kind, rationale?, "
+            "accessed_by). Idempotent on id.",
+            {"data_store": dict},
+        )
+        async def arch_set_data_store(args):
+            sid = await sa_incremental_mcp.handle_arch_set_data_store(
+                project_path=project_path,
+                data_store=args["data_store"],
+            )
+            return {"content": [{"type": "text", "text": sid}]}
+
+        all_tools.append(arch_set_data_store)
+
+    if "arch_set_shared_contract" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_shared_contract",
+            "Upsert one SharedContract. ``shared_contract`` is a dict "
+            "matching the schema (id, type, description?, schema_ref?, "
+            "payload_ref?, publisher?, subscribers?). Idempotent on id.",
+            {"shared_contract": dict},
+        )
+        async def arch_set_shared_contract(args):
+            sid = await sa_incremental_mcp.handle_arch_set_shared_contract(
+                project_path=project_path,
+                shared_contract=args["shared_contract"],
+            )
+            return {"content": [{"type": "text", "text": sid}]}
+
+        all_tools.append(arch_set_shared_contract)
+
+    if "arch_set_cross_cutting_policy" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_cross_cutting_policy",
+            "Upsert one CrossCuttingPolicy. ``policy`` is a dict "
+            "matching the schema (id, polarity, rule, "
+            "auto_generates_integration_ac?). Idempotent on id.",
+            {"policy": dict},
+        )
+        async def arch_set_cross_cutting_policy(args):
+            pid = await sa_incremental_mcp.handle_arch_set_cross_cutting_policy(
+                project_path=project_path,
+                policy=args["policy"],
+            )
+            return {"content": [{"type": "text", "text": pid}]}
+
+        all_tools.append(arch_set_cross_cutting_policy)
+
+    if "arch_set_open_question" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_open_question",
+            "Upsert one architecture-level OpenQuestion. ``open_question`` "
+            "is a dict (id, text, blocking?). Idempotent on id. Use "
+            "module_set_open_question for module-scoped questions.",
+            {"open_question": dict},
+        )
+        async def arch_set_open_question(args):
+            qid = await sa_incremental_mcp.handle_arch_set_open_question(
+                project_path=project_path,
+                open_question=args["open_question"],
+            )
+            return {"content": [{"type": "text", "text": qid}]}
+
+        all_tools.append(arch_set_open_question)
+
+    if "module_set_owned_collection" in agent_cfg.allowed_tools:
+
+        @tool(
+            "module_set_owned_collection",
+            "Upsert one OwnedCollection on a module's contracts.yaml. "
+            "``owned_collection`` is a dict (collection, db, schema_ref?, "
+            "write_access, read_access). Keyed by ``collection`` name. "
+            "Idempotent.",
+            {"module_id": str, "owned_collection": dict},
+        )
+        async def module_set_owned_collection(args):
+            cid = await sa_incremental_mcp.handle_module_set_owned_collection(
+                project_path=project_path,
+                module_id=args["module_id"],
+                owned_collection=args["owned_collection"],
+            )
+            return {"content": [{"type": "text", "text": cid}]}
+
+        all_tools.append(module_set_owned_collection)
+
+    if "module_set_external_dependency" in agent_cfg.allowed_tools:
+
+        @tool(
+            "module_set_external_dependency",
+            "Upsert one ExternalDependency on a module's contracts.yaml. "
+            "``external_dependency`` is a dict (id, kind, rate_limit?, "
+            "auth?, failure_mode?, max_size?). Idempotent on id.",
+            {"module_id": str, "external_dependency": dict},
+        )
+        async def module_set_external_dependency(args):
+            did = await sa_incremental_mcp.handle_module_set_external_dependency(
+                project_path=project_path,
+                module_id=args["module_id"],
+                external_dependency=args["external_dependency"],
+            )
+            return {"content": [{"type": "text", "text": did}]}
+
+        all_tools.append(module_set_external_dependency)
+
+    if "module_set_integration_ac" in agent_cfg.allowed_tools:
+
+        @tool(
+            "module_set_integration_ac",
+            "Upsert one capability's integration-AC list on a module. "
+            "``integration_ac`` is a dict (capability, must). Keyed by "
+            "``capability``. Idempotent — re-setting replaces the full "
+            "MUST list for that capability.",
+            {"module_id": str, "integration_ac": dict},
+        )
+        async def module_set_integration_ac(args):
+            cid = await sa_incremental_mcp.handle_module_set_integration_ac(
+                project_path=project_path,
+                module_id=args["module_id"],
+                integration_ac=args["integration_ac"],
+            )
+            return {"content": [{"type": "text", "text": cid}]}
+
+        all_tools.append(module_set_integration_ac)
+
+    if "module_set_behavioral_contract" in agent_cfg.allowed_tools:
+
+        @tool(
+            "module_set_behavioral_contract",
+            "Upsert one BehavioralContract on a module. "
+            "``behavioral_contract`` is a dict matching the schema "
+            "(id, applies_to?, scope?, precondition?, postcondition?, "
+            "invariant?, side_effects?, side_effect_required?, "
+            "enforcement?, intent). Returns ``{id, warnings}`` so the "
+            "agent sees authoring-quality issues before finalize. "
+            "Idempotent on id.",
+            {"module_id": str, "behavioral_contract": dict},
+        )
+        async def module_set_behavioral_contract(args):
+            result = await sa_incremental_mcp.handle_module_set_behavioral_contract(
+                project_path=project_path,
+                module_id=args["module_id"],
+                behavioral_contract=args["behavioral_contract"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(module_set_behavioral_contract)
+
+    if "module_set_data_contract" in agent_cfg.allowed_tools:
+
+        @tool(
+            "module_set_data_contract",
+            "Upsert one DataContract on a module. ``data_contract`` is "
+            "a dict (id, type, description?, schema_ref?, fields?, "
+            "intent). Idempotent on id.",
+            {"module_id": str, "data_contract": dict},
+        )
+        async def module_set_data_contract(args):
+            did = await sa_incremental_mcp.handle_module_set_data_contract(
+                project_path=project_path,
+                module_id=args["module_id"],
+                data_contract=args["data_contract"],
+            )
+            return {"content": [{"type": "text", "text": did}]}
+
+        all_tools.append(module_set_data_contract)
+
+    if "module_set_open_question" in agent_cfg.allowed_tools:
+
+        @tool(
+            "module_set_open_question",
+            "Upsert one module-scoped OpenQuestion. ``open_question`` "
+            "is a dict (id, text, blocking?). Idempotent on id.",
+            {"module_id": str, "open_question": dict},
+        )
+        async def module_set_open_question(args):
+            qid = await sa_incremental_mcp.handle_module_set_open_question(
+                project_path=project_path,
+                module_id=args["module_id"],
+                open_question=args["open_question"],
+            )
+            return {"content": [{"type": "text", "text": qid}]}
+
+        all_tools.append(module_set_open_question)
+
+    if "arch_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_finalize",
+            "Finalize the incrementally-authored architecture + per-"
+            "module contracts. Re-validates against the schemas, runs "
+            "the SA checklist on each module (raises on unmet "
+            "categories without ``n_a_categories`` exemption), surfaces "
+            "behavioral-contract authoring warnings as a Note on the "
+            "architecture ticket, posts the same Handoff the bones path "
+            "posts (phase=PM), resolves the architecture ticket. Call "
+            "exactly once when all modules + contracts are authored.",
+            {"summary": str},
+        )
+        async def arch_finalize(args):
+            entry_id = await sa_incremental_mcp.handle_arch_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                summary=args["summary"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(arch_finalize)
 
     if "plan_finalize" in agent_cfg.allowed_tools:
 

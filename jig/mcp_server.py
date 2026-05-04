@@ -13,6 +13,7 @@ from jig import (
     planner_pm_mcp,
     po_l0_mcp,
     po_l1_mcp,
+    po_l2_mcp,
     po_l3_mcp,
     quartermaster,
     sa_mcp,
@@ -1191,6 +1192,37 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(discovery_finalize)
+
+    if "l2_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "l2_finalize",
+            "Author the L2 suite organization at .jig/spec/suites.yaml "
+            "and hand off to the L3 PO. ``suites`` is a list of dicts "
+            "matching the Suite schema (id, title, summary, "
+            "capabilities). Optional ``crosscutting_non_goals`` is a "
+            "list of {id, text, rationale?}. Validation: every L1 "
+            "capability must appear in exactly one suite — the "
+            "validator surfaces a friendly diff (missing / extras / "
+            "duplicates) when not. Soft target of 3-5 capabilities per "
+            "suite — outside that range surfaces a warning in the "
+            "handoff summary but does not reject. Call exactly once "
+            "when the operator has confirmed the grouping.",
+            {"suites": list, "crosscutting_non_goals": list},
+        )
+        async def l2_finalize(args):
+            entry_id = await po_l2_mcp.handle_l2_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                suites=args.get("suites", []),
+                crosscutting_non_goals=args.get("crosscutting_non_goals", []),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(l2_finalize)
 
     if "l3_finalize" in agent_cfg.allowed_tools:
 

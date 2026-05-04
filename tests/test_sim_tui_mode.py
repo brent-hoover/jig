@@ -1,6 +1,6 @@
 """TUI-driving mode hook (Track H Final stub).
 
-Per ``docs/synthetic-operator/design.md`` §"Driver options", scenarios
+Per ``docs/v2.0/synthetic-operator/design.md`` §"Driver options", scenarios
 can opt into routing step invocations through a TUI driver adapter.
 For Final scope this is a stub — the adapter records intended TUI
 interactions to ``.jig/sim/tui-trace.jsonl`` and dispatches to the

@@ -7,7 +7,7 @@ the ``AnalyticsEvent`` discriminated union via ``parse_event``.
 Loading the full stream into memory is acceptable in v1 because
 event volume is bounded by project scope. Once corpora grow
 across many projects (or once we ship the consumer half from
-``docs/analytics/problem.md``), expect a streaming read API to
+``docs/v2.0/analytics/problem.md``), expect a streaming read API to
 land alongside this.
 """
 

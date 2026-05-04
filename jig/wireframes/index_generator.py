@@ -1,6 +1,6 @@
 """Browser-viewable ``index.html`` generator for the wireframes dir.
 
-Per ``docs/visual-design/design.md`` §"Browser-based viewing": jig
+Per ``docs/v2.0/visual-design/design.md`` §"Browser-based viewing": jig
 generates a static ``index.html`` that embeds each per-screen wireframe
 HTML via ``<iframe>``, with state-toggle controls (``loading`` / ``empty``
 / ``populated``) keyed off the URL hash so vanilla JS can show/hide

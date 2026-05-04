@@ -5,7 +5,7 @@ sequence: problem → simplest_solution → complications_considered. Every
 artifact authored by an agent fills the sequence, which forces the agent to
 articulate the simplest baseline before earning any complexity.
 
-See ``docs/agent-leverage/problem.md`` §1 — every complication in the
+See ``docs/v2.0/agent-leverage/problem.md`` §1 — every complication in the
 proposed solution must be earned by an explicit complication entry.
 """
 from __future__ import annotations

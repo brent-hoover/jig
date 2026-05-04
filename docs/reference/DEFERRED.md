@@ -19,7 +19,7 @@ task.
   here's when it landed."
 * New defers go at the top of their section, most recent first.
 * For planned per-phase scoping, see the plan itself:
-  `docs/implementation-plan.md` → `### Explicitly deferred out of
+  `docs/v2.0/implementation-plan.md` → `### Explicitly deferred out of
   Phase N`.
 
 ---

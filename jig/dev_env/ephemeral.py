@@ -1,6 +1,6 @@
 """Per-agent ephemeral provisioners + inspection helpers (Track E Final).
 
-Per ``docs/dev-environment/design.md`` §"Provisioning strategies", the
+Per ``docs/v2.0/dev-environment/design.md`` §"Provisioning strategies", the
 ``per_agent_ephemeral`` strategy is the strong-isolation escape hatch
 for services that don't namespace cleanly across processes. Final scope
 ships two concrete implementations:

@@ -80,7 +80,7 @@ Three kinds of shipped artifact:
   word; kept alongside for discoverability and packaging simplicity.
 
 Historical note: the earlier code used `agent_types/` and a root-level
-`templates/` directory. Phase 1 of `docs/implementation-plan.md`
+`templates/` directory. Phase 1 of `docs/v2.0/implementation-plan.md`
 renamed them to `roles/` and `jig/defaults/project_templates/`
 respectively. Kept here only to help readers navigating older branches.
 

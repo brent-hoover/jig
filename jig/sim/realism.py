@@ -1,6 +1,6 @@
 """Realism budget logging (Track H MVP follow-on).
 
-Per ``docs/synthetic-operator/design.md`` §"Realism budget", the
+Per ``docs/v2.0/synthetic-operator/design.md`` §"Realism budget", the
 realism budget tracks real-operator behaviors that surprised the
 simulator — things a real human did that no scripted persona would
 have produced. Each gap is logged structured-ly so the operator can

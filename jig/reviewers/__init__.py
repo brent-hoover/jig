@@ -3,7 +3,7 @@
 The full design splits review into eight federated agents (contract
 compliance, cross-cutting policy, spec compliance, pattern conformance,
 error handling, test adequacy, security, performance, architectural,
-visual compliance). See ``docs/pm-workflow/design.md`` §"Reviewer
+visual compliance). See ``docs/v2.0/pm-workflow/design.md`` §"Reviewer
 federation — selection logic" for the full taxonomy.
 
 Currently shipped (mechanical, deterministic, no LLM):

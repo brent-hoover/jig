@@ -7,7 +7,7 @@ any failure short-circuits provisioning to "no env vars added" and
 logs the cause; the agent still runs (matches the design's "fail-fast
 at HEALTH-CHECK" but for MVP scope without the reachability probe).
 
-Per ``docs/dev-environment/design.md`` §"Connection injection — env
+Per ``docs/v2.0/dev-environment/design.md`` §"Connection injection — env
 vars": each provisioned service contributes one env var named
 ``JIG_DEV_<SERVICE_ID_UPPER>_URL``. Service IDs are sanitized to
 ``[A-Z0-9_]`` so the env-var name is always valid.
@@ -152,7 +152,7 @@ def build_fixture_env(
 ) -> dict[str, str]:
     """Return ``{JIG_FIXTURE_MODE: <mode>}`` for the agent's spawn env.
 
-    Per ``docs/dev-environment/design.md`` §"External-API recorded
+    Per ``docs/v2.0/dev-environment/design.md`` §"External-API recorded
     fixtures": SPIKE work_type → ``record_new`` (the spike's job is to
     grow the fixture corpus); everything else → ``replay_only``.
     Per-spawn ``override`` (e.g. an ``arch_propose_spike`` carrying

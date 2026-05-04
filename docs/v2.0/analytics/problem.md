@@ -74,14 +74,14 @@ the *structured handles* on what happened.
 | **Agent lifecycle** | Per-spawn + per-completion | Role, model, tier, ticket/context, tokens in/out, duration, status, parent agent (if any). |
 | **Tool calls** | Per-call | Agent, tool name, arguments digest, result status, duration. (Arguments stored as digest/hash; full content linked.) |
 | **Context fetches** | Per-fetch | Agent, what was fetched (URI), why (auto-injected vs pull), result size. |
-| **Review events** | Per-comment (end-of-ticket) + per-commit-failure + per-post-merge-bug + per-fix-loop-exhaustion | End-of-ticket: reviewer agent, ticket, file/line, type, severity, contract_uri, confidence, accepted/rejected, auto-applied. Per-commit: only emitted on failure (pass would dominate volume) — ticket, agent, commit_sha, reviewer_role (mechanical only: contract_compliance / cross_cutting_policy / spec_compliance), violation_category, severity, auto_applied flag. Two cadences are tracked separately because per-commit-failure rate is a tier-calibration signal independent of end-of-ticket noise. Plus two corpus-building events captured from v2 day one for the deferred adversarial-pairing design (`docs/agent-leverage/`): `BugDiscoveredPostMerge` (originating ticket, reviewer set at merge, failure category: structural / semantic / novel) and `BoundedFixLoopExhausted` (cycles attempted, recurring comment categories, reviewer roles involved, escalation outcome). |
+| **Review events** | Per-comment (end-of-ticket) + per-commit-failure + per-post-merge-bug + per-fix-loop-exhaustion | End-of-ticket: reviewer agent, ticket, file/line, type, severity, contract_uri, confidence, accepted/rejected, auto-applied. Per-commit: only emitted on failure (pass would dominate volume) — ticket, agent, commit_sha, reviewer_role (mechanical only: contract_compliance / cross_cutting_policy / spec_compliance), violation_category, severity, auto_applied flag. Two cadences are tracked separately because per-commit-failure rate is a tier-calibration signal independent of end-of-ticket noise. Plus two corpus-building events captured from v2 day one for the deferred adversarial-pairing design (`docs/v2.0/agent-leverage/`): `BugDiscoveredPostMerge` (originating ticket, reviewer set at merge, failure category: structural / semantic / novel) and `BoundedFixLoopExhausted` (cycles attempted, recurring comment categories, reviewer roles involved, escalation outcome). |
 | **Escalations** | Per-escalation + per-auto-trigger | Voluntary: from-agent, to-target, reason category, ticket, resolution. Auto-triggered (Coordinator force-escalation): trip signal (repeated_same_failure / tool_call_flailing / no_commit_drift / out_of_budget / forced_reflection_no_progress), trip metric value, turns at trip, from/to tier. Auto-triggers tracked separately so calibration can detect false-escalation patterns. |
 | **Contract events** | Per-amendment + per-violation-detected | Contract URI, old/new revision, source (ticket/spike/SA-delta), operator confirmed. Violations: contract URI, ticket, severity, resolution. |
 | **Risk events** | Per-status-change | Risk id, transition (logged → spike-proposed → mitigated/accepted/impossible), spike ticket if any, operator confirmed. |
-| **Plan events** | Per-revision + per-layer-transition + per-bones-promotion + per-calibration-update | Build plan revision (revision number, trigger, summary). Layer status changes (epic / layer / from / to). Bones-promoted-incomplete (operator override of strict bones-first; promoted epics + still-running bones + SA `cascade_risk_low` flagged subset). Estimation calibration updated (sample size, per-tier per-S/M/L band recomputation). See `docs/pm-workflow/design.md`. |
+| **Plan events** | Per-revision + per-layer-transition + per-bones-promotion + per-calibration-update | Build plan revision (revision number, trigger, summary). Layer status changes (epic / layer / from / to). Bones-promoted-incomplete (operator override of strict bones-first; promoted epics + still-running bones + SA `cascade_risk_low` flagged subset). Estimation calibration updated (sample size, per-tier per-S/M/L band recomputation). See `docs/v2.0/pm-workflow/design.md`. |
 | **Operator actions** | Per-action | Override (with from→to), manual edit, gate confirmation/rejection, retro initiation. The most signal-rich category — every override is a vote about agent judgment. |
-| **Dev environment events** | Per-service-per-agent + per-orphan | Provisioned (service, namespace, strategy, setup duration), provisioning failed (failure phase, error category), cleaned (disposition: dropped/archived/kept), orphan detected (age, last associated ticket). See `docs/dev-environment/`. |
-| **Visual design events** | Per-wireframe + per-design-system + per-visual-compliance-flag | Wireframe added/revised/approved (screen id, suite, journey/capability ids, revision); design system imported (source: claude_design / operator_supplied / default; token + component counts); visual_compliance failed (divergence category: layout / component_misuse / token_violation / state_coverage_gap / accessibility, severity). See `docs/visual-design/`. |
+| **Dev environment events** | Per-service-per-agent + per-orphan | Provisioned (service, namespace, strategy, setup duration), provisioning failed (failure phase, error category), cleaned (disposition: dropped/archived/kept), orphan detected (age, last associated ticket). See `docs/v2.0/dev-environment/`. |
+| **Visual design events** | Per-wireframe + per-design-system + per-visual-compliance-flag | Wireframe added/revised/approved (screen id, suite, journey/capability ids, revision); design system imported (source: claude_design / operator_supplied / default; token + component counts); visual_compliance failed (divergence category: layout / component_misuse / token_violation / state_coverage_gap / accessibility, severity). See `docs/v2.0/visual-design/`. |
 
 ## What we'd consume this for (eventually — NOT v2)
 
@@ -95,7 +95,7 @@ the *structured handles* on what happened.
   strict?
 - **Estimation calibration** — historical S/M/L vs actual cycles → tighter estimates over time.
 - **Retrospective input** — milestone retros consume metrics rather than reading raw history.
-- **Heuristics mining** — recurring reviewer rationales become candidate heuristics (see `docs/learnings/`).
+- **Heuristics mining** — recurring reviewer rationales become candidate heuristics (see `docs/v2.0/learnings/`).
 - **Cross-project tool improvement** — patterns across projects suggest changes to jig defaults, role prompts,
   templates.
 
@@ -221,33 +221,33 @@ Each of those becomes a candidate consumer design with real data behind it.
   codebase is the remaining v2 work.
 - 2026-05-01: Added Dev environment events category (4 new event types: `DevEnvironmentProvisioned`,
   `DevEnvironmentProvisioningFailed`, `DevEnvironmentCleaned`, `DevEnvironmentOrphanDetected`) per
-  `docs/dev-environment/design.md`. Per-service-per-agent granularity for provision/cleanup, per-orphan for the periodic
+  `docs/v2.0/dev-environment/design.md`. Per-service-per-agent granularity for provision/cleanup, per-orphan for the periodic
   sweep. Required for mechanically detecting orphan accumulation and provisioning failures.
 - 2026-05-01: Added Visual design events category (5 new event types: `WireframeAdded`, `WireframeRevised`,
-  `WireframeApproved`, `DesignSystemImported`, `VisualComplianceFailed`) per `docs/visual-design/design.md`.
+  `WireframeApproved`, `DesignSystemImported`, `VisualComplianceFailed`) per `docs/v2.0/visual-design/design.md`.
   Per-wireframe + per-design-system + per-visual-compliance-flag granularity. `VisualComplianceFailed` complements the
   generic `ReviewCommentPosted` so analytics can slice visual divergence specifically.
 - 2026-05-03: Added `PerCommitCheckFailed` event for the per-commit cadence of the two-cadence reviewer model (resolved
-  during the SA Q4 working session — see `docs/sa-architecture/design.md` and `docs/pm-workflow/design.md`). Distinct
+  during the SA Q4 working session — see `docs/v2.0/sa-architecture/design.md` and `docs/v2.0/pm-workflow/design.md`). Distinct
   from `ReviewCommentPosted` because per-commit checks fire at a different cadence (every commit, not end-of-ticket) and
   only run mechanical reviewers (contract_compliance, cross_cutting_policy, spec_compliance). Pass cases don't emit
   events to keep volume tractable; only failures. Per-commit-failure rate is a tier-calibration signal independent of
   end-of-ticket review noise.
 - 2026-05-03: Added 3 PM-workflow event types from the open-questions resolution session (see
-  `docs/pm-workflow/design.md`): `AutoEscalationTriggered` (Coordinator forced-escalation with trip signal + metric
+  `docs/v2.0/pm-workflow/design.md`): `AutoEscalationTriggered` (Coordinator forced-escalation with trip signal + metric
   value), `BonesPromotedIncomplete` (operator override of strict bones-first ordering), and
   `EstimationCalibrationUpdated` (analytics layer recomputed per-tier per-S/M/L bands; Planner reads on next pass).
   Total event types: 30. Updated Escalations row to reflect both voluntary and auto-triggered shapes; updated Plan
   events row to cover layer transitions, bones promotions, and calibration updates.
 - 2026-05-03: Added 2 corpus-building event types from the agent-leverage v2/v2.x split (see
-  `docs/agent-leverage/problem.md`): `BugDiscoveredPostMerge` (post-merge bug surfaces; carries originating ticket
+  `docs/v2.0/agent-leverage/problem.md`): `BugDiscoveredPostMerge` (post-merge bug surfaces; carries originating ticket
   + reviewer set + failure category) and `BoundedFixLoopExhausted` (3-cycle review→fix cap reached; carries
 recurring comment categories + reviewer roles involved + escalation outcome). Both captured from v2 day one even though
 the consumer (adversarial-pairing design) is deferred to v2.x — without these events, the v2.x design would wait an
 additional corpus-accumulation cycle. Cheap to add now; expensive to retrofit. Total event types:
   32. Updated Review events row to reflect the two new shapes.
 - 2026-05-03: Added `simulator: bool` field to the event base class for the synthetic-operator simulator (see
-  `docs/synthetic-operator/design.md`). EventEmitter respects `JIG_SIMULATOR=true` env var or `simulator_mode=True`
+  `docs/v2.0/synthetic-operator/design.md`). EventEmitter respects `JIG_SIMULATOR=true` env var or `simulator_mode=True`
   constructor arg and stamps every emitted event accordingly. Consumer queries (analytics views, dashboards, calibration
   loops, retrospective summarization) filter to `simulator=False` by default; simulator events live in their own logical
   corpus so they don't pollute real-project analytics. Tested end-to-end: real / explicit-simulator / env-driven all

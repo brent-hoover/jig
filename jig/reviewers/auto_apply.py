@@ -1,6 +1,6 @@
 """Auto-apply path for confidence-1.0 mechanical reviewer comments.
 
-Per ``docs/pm-workflow/design.md`` section "Auto-apply path": when a
+Per ``docs/v2.0/pm-workflow/design.md`` section "Auto-apply path": when a
 mechanical reviewer comment carries ``confidence: 1.0`` AND populates
 ``suggested_diff``, the orchestrator applies the diff directly and
 skips the dev-agent fix cycle for that comment. The dev agent's

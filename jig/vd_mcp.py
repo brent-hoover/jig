@@ -1,6 +1,6 @@
 """VD MCP tool handlers (Track D MVP).
 
-Per ``docs/visual-design/design.md`` §"MCP tool surface for VD agents":
+Per ``docs/v2.0/visual-design/design.md`` §"MCP tool surface for VD agents":
 the VD agent edits HTML directly via Read/Write/Edit; the MCP surface
 provides thin wrappers for incremental upserts (wireframes, tokens,
 components), the linter, the per-screen notes, the finalize handoff,
@@ -95,7 +95,7 @@ __all__ = [
 # resolve_after_handoff has something concrete to flip.
 VD_TICKET_ID = "frontend"
 # Phase the Handoff routes to. PM is the next stop in the v2 lifecycle
-# per docs/visual-design/design.md §"Sequencing relative to PO / SA / PM".
+# per docs/v2.0/visual-design/design.md §"Sequencing relative to PO / SA / PM".
 VD_NEXT_PHASE = "pm"
 
 

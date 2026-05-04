@@ -4,7 +4,7 @@ The bones SA path (``jig.sa_mcp``) exposes a single one-shot
 ``sa_finalize`` that takes a complete ``Architecture`` +
 ``ContractsFile`` payload. That works for a one-module tracer-bullet
 project but doesn't support the design's discovery-loop per
-``docs/sa-architecture/design.md`` §"SA workflow — discovery loop":
+``docs/v2.0/sa-architecture/design.md`` §"SA workflow — discovery loop":
 the SA walks modules + integration boundaries one by one, accumulating
 contracts as the operator confirms each piece. The MVP path lands the
 incremental authoring surface alongside the bones one-shot — the
@@ -126,7 +126,7 @@ __all__ = [
 # branch enumerates; ``confirmed_impossible`` is the cascade trigger.
 _SPIKE_OUTCOME_STATUSES: dict[str, RiskStatus] = {
     "mitigated": RiskStatus.MITIGATED,
-    # Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    # Track C Final per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes
     # and mitigations" mitigation #3: spikes that return "depends on
     # constraint X" land here rather than in confirmed_impossible. The
     # cascade fires conditionally — the constraint is captured on the
@@ -163,7 +163,7 @@ _RISK_URI_PREFIX = "project://arch/risks/"
 
 # Status values >= ``spike_proposed`` trigger the cascade-prep gates
 # (dependent_contracts + intent required) per
-# ``docs/sa-architecture/design.md`` §"Risk schema requires
+# ``docs/v2.0/sa-architecture/design.md`` §"Risk schema requires
 # `dependent_contracts`". ``OPEN`` is the noted-but-uncommitted state
 # that escapes the gate so the SA can capture nascent risks without
 # pre-committing to the dependency map.
@@ -308,7 +308,7 @@ async def handle_arch_set_open_question(
 def _validate_risk_cascade_prep(risk: Risk) -> None:
     """Enforce dependent_contracts + intent on risks past ``open``.
 
-    Per ``docs/sa-architecture/design.md`` §"Risk schema requires
+    Per ``docs/v2.0/sa-architecture/design.md`` §"Risk schema requires
     ``dependent_contracts``": once a risk transitions past ``open``
     the cascade workflow needs the dependents declared up front, and
     every authored v2 artifact carries an intent layer. Both gates
@@ -341,7 +341,7 @@ async def handle_arch_set_risk(
 
     Mirrors the other ``arch_set_*`` upserts (keyed on ``id``,
     idempotent on re-set, accumulating across new ids). Adds two
-    gates per ``docs/sa-architecture/design.md`` §"Risk identification
+    gates per ``docs/v2.0/sa-architecture/design.md`` §"Risk identification
     and spikes": once a risk passes ``open``, both ``dependent_contracts``
     and ``intent`` must be set so the cascade workflow has what it needs
     to enumerate impact when a spike confirms an assumption is wrong.
@@ -531,7 +531,7 @@ async def handle_arch_complete_spike(
        contract, post a Handoff on the architecture ticket targeting
        phase ``operator-cascade-confirm``, emit ``RiskStatusChanged``
        carrying the cascade path. MVP scope per
-       ``docs/implementation/v2-plan.md`` Track C: operator manually
+       ``docs/v2.0/implementation/v2-plan.md`` Track C: operator manually
        edits the YAML and re-runs SA; full transactional confirmation
        lands in Final.
 
@@ -707,7 +707,7 @@ def _resolve_dependent_shape(
     contract URIs (``project://arch/modules/<m>/contracts#...``)
     return None and the operator reads the contract source directly.
     Full URI resolution lands as the URI authority resolvers mature
-    (out of MVP scope per ``docs/implementation/v2-plan.md``).
+    (out of MVP scope per ``docs/v2.0/implementation/v2-plan.md``).
     """
     if not uri.startswith("project://arch/modules/"):
         return None
@@ -853,7 +853,7 @@ def _write_cascade_proposal(
 ) -> Path:
     """Atomically write a cascade-proposal YAML for ``risk``; return its path.
 
-    Per ``docs/sa-architecture/design.md`` §"The cascade workflow" step
+    Per ``docs/v2.0/sa-architecture/design.md`` §"The cascade workflow" step
     5 (audit trail) plus Track C Final §"Failure modes and mitigations":
 
     - Mitigation #4: scans existing cascades for dependent_contracts
@@ -940,7 +940,7 @@ async def handle_arch_reject_cascade(
 ) -> CascadeAuditEntry:
     """Reject a cascade proposal; record the action in the audit log.
 
-    Mitigation #1 per ``docs/sa-architecture/design.md`` §"Failure modes
+    Mitigation #1 per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes
     and mitigations". The proposal's ``state`` flips to ``rejected`` and
     ``rejected_reason`` is stamped so the cascade YAML carries the
     decision inline; the JSONL audit entry is the cross-project signal
@@ -1128,7 +1128,7 @@ async def handle_arch_set_cascade_risk_low(
 ) -> str:
     """Mark a Module's ``cascade_risk_low`` flag with operator/SA rationale.
 
-    Per ``docs/pm-workflow/design.md`` §"Bones-first ordering" /
+    Per ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering" /
     ``cascade_risk_low`` flag. PM Coordinator reads this when deciding
     whether to allow MVP promotion despite a still-running bones layer
     on a sibling epic; a True flag with rationale is the SA's signal

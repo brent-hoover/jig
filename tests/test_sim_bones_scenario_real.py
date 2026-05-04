@@ -24,7 +24,7 @@ To run the FULL real-mode invocation against the real Claude API
         --real --yes
 
 Bones cost target: < $1, runtime < 10 min
-(see ``docs/implementation/v2-plan.md`` §"Milestones / gates").
+(see ``docs/v2.0/implementation/v2-plan.md`` §"Milestones / gates").
 """
 from __future__ import annotations
 

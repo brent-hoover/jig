@@ -1,6 +1,6 @@
 """Quartermaster — on-demand operator briefing (Track I MVP).
 
-Per ``docs/agent-leverage/problem.md`` §3: continuous background agent
+Per ``docs/v2.0/agent-leverage/problem.md`` §3: continuous background agent
 reading the analytics event stream. MVP scope: deterministic
 aggregation only (no LLM); operator invokes on demand. Three
 deliverables tested here: aggregation, markdown formatter, MCP handler.

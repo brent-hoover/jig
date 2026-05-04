@@ -288,7 +288,7 @@ Add-ons (selected per ticket characteristics):
 - **Performance review** — when ticket has a perf budget in integration AC; tier: senior.
 - **Visual compliance** — when ticket implements UI (has `visual_references.wireframes` set); tier: senior. Vision-based
   diff between implementation screenshot and the wireframe; design-system token / component check at MVP/Final layers;
-  accessibility check at Final layer. See `docs/visual-design/design.md` for the visual reviewer mechanics.
+  accessibility check at Final layer. See `docs/v2.0/visual-design/design.md` for the visual reviewer mechanics.
 
 Each reviewer runs in parallel on PR completion. Comments are merged by either the orchestrator (mechanical dedup) or a
 thin **lead-reviewer** agent (semantic dedup, conflict resolution). The dev agent receives the unified, structured
@@ -297,7 +297,7 @@ comment set.
 ### Two-cadence review
 
 The federation runs at two cadences (resolved during the SA open-questions session — see
-`docs/sa-architecture/design.md`):
+`docs/v2.0/sa-architecture/design.md`):
 
 - **Per-commit (light)** — fires within seconds of `git commit`. Runs **only the mechanical reviewers**
   (contract-compliance, cross-cutting-policy, spec-compliance against integration AC). These are deterministic checks

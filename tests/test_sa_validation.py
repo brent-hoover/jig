@@ -1,7 +1,7 @@
 """Behavioral-contract authoring quality + module checklist (Track C MVP commit 3).
 
 Both validators are mechanical (no LLM): per
-``docs/sa-architecture/design.md`` §"Behavioral contracts" and
+``docs/v2.0/sa-architecture/design.md`` §"Behavioral contracts" and
 §"The SA checklist". They return data (warnings list / missing-set);
 callers decide whether to raise or surface inline.
 """

@@ -1,6 +1,6 @@
 """Per-agent namespace provisioning hooks (Track E MVP deliverable 3).
 
-Per ``docs/dev-environment/design.md`` §"Agent spawn lifecycle (with
+Per ``docs/v2.0/dev-environment/design.md`` §"Agent spawn lifecycle (with
 provisioning)": before each agent spawn, the orchestrator provisions
 the per-service namespace (Postgres CREATE SCHEMA, NATS subject
 prefix, etc.) and hands the resulting connection-string map to the
@@ -230,7 +230,7 @@ class S3BucketPrefixProvisioner(NamespaceProvisioner):
 class OperatorSuppliedProvisioner:
     """Block 2 (Important 10) — passthrough for operator-managed services.
 
-    Per ``docs/dev-environment/design.md`` §"Provisioning strategies"
+    Per ``docs/v2.0/dev-environment/design.md`` §"Provisioning strategies"
     operator_supplied means the operator has provisioned the service
     out-of-band (e.g. a hosted Postgres or vendor-hosted queue) and
     supplied a connection string template that already names the right
@@ -526,7 +526,7 @@ async def cleanup_agent_namespace(
     Best-effort: each per-service cleanup runs inside its own
     try/except; failures are logged but not re-raised (the orchestrator
     is already in the "agent finished" path and shouldn't crash on
-    cleanup errors per ``docs/dev-environment/design.md`` §"Cleanup
+    cleanup errors per ``docs/v2.0/dev-environment/design.md`` §"Cleanup
     discipline" failure mode 1).
 
     See :func:`provision_agent_namespace` for the ``project_root`` /

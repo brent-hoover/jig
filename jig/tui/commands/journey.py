@@ -1,6 +1,6 @@
 """``/journey`` slash command — append + list captured journeys.
 
-Per ``docs/multi-level-spec/design.md`` §"Workflow integration" Track B
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Workflow integration" Track B
 Final scope: the operator can extend the discovery doc post-author by
 adding a journey under an existing persona.
 

@@ -2,7 +2,7 @@
 
 The L0 PO captures pitch + problem + audience + product-level non-goals
 in a 3-5 turn conversation, then calls ``l0_finalize`` to write both
-``project.md`` (markdown form per ``docs/multi-level-spec/design.md``
+``project.md`` (markdown form per ``docs/v2.0/multi-level-spec/design.md``
 §"L0 — Pitch") and ``project.structured.yaml`` (Pydantic dump of
 ``jig.schemas.po.Project``).
 

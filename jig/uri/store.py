@@ -1,7 +1,7 @@
 """Resolver for ``project://store/...`` URIs (runtime JSONL stores).
 
 Stub for v2 bones — raises ``UnimplementedAuthorityError``. Wired up
-alongside the JSONL store readers. See ``docs/uri-scheme/design.md``
+alongside the JSONL store readers. See ``docs/v2.0/uri-scheme/design.md``
 §"`project://store/...`".
 """
 from __future__ import annotations

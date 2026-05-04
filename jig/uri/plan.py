@@ -1,7 +1,7 @@
 """Resolver for ``project://plan/...`` URIs (PM output).
 
 Stub for v2 bones — raises ``UnimplementedAuthorityError``. Wired up in
-Track F as ``build-plan.yaml`` lands. See ``docs/uri-scheme/design.md``
+Track F as ``build-plan.yaml`` lands. See ``docs/v2.0/uri-scheme/design.md``
 §"`project://plan/...`".
 """
 from __future__ import annotations

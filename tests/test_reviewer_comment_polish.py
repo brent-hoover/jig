@@ -1,6 +1,6 @@
 """Structured-comment + suggested-diff polish (Track G Final).
 
-Per ``docs/pm-workflow/design.md`` §"Comment structure (machine-first)":
+Per ``docs/v2.0/pm-workflow/design.md`` §"Comment structure (machine-first)":
 
 - Optional ``evidence: list[Evidence]`` field on ``ReviewerComment``.
 - Optional ``auto_apply_after: int | None`` field.

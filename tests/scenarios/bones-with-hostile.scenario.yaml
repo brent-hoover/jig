@@ -2,7 +2,7 @@ spec_version: 1
 id: bones-with-hostile
 description: |
   Hostile persona walk through the bones spine. Per
-  ``docs/synthetic-operator/design.md`` §"Persona library", the
+  ``docs/v2.0/synthetic-operator/design.md`` §"Persona library", the
   hostile persona provides ambiguous/contradictory inputs, refuses
   gates initially, and asks tangent questions.
 

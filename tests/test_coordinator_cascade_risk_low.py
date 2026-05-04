@@ -1,6 +1,6 @@
 """Coordinator bones-first override via ``cascade_risk_low`` (Track C Final).
 
-Per ``docs/pm-workflow/design.md`` §"Bones-first ordering":
+Per ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering":
 - Strict bones-first is the default.
 - Per-epic operator override (``/plan unblock``) is operator-driven
   and lives outside the Coordinator.

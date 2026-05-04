@@ -1,6 +1,6 @@
 """Structured reviewer comment — federation-wide schema.
 
-The full schema (per ``docs/pm-workflow/design.md`` §"Comment structure
+The full schema (per ``docs/v2.0/pm-workflow/design.md`` §"Comment structure
 (machine-first)") includes the mechanical types (``contract-violation``,
 ``cross-cutting-policy-violation``, ``spec-violation``) and the judgment
 types (``pattern-divergence``, ``error-handling``, ``test-adequacy``,
@@ -65,7 +65,7 @@ class ReviewerCommentType(str, Enum):
     """The subset of comment types currently emitted across the federation.
 
     Full taxonomy lands incrementally — see
-    ``docs/pm-workflow/design.md`` §"Comment structure". Adding a new
+    ``docs/v2.0/pm-workflow/design.md`` §"Comment structure". Adding a new
     reviewer means adding its comment-type enum entries here so the
     union stays exhaustive and ``extra="forbid"`` validation catches
     typos in operator-authored fixtures.

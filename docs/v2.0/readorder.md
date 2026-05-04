@@ -13,34 +13,34 @@ Foundations (read first):
   ┌─────┬──────────────────────────────────┬──────────────────────────────────────────────┬────────┐
   │  #  │               Path               │                     What                     │  Time  │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 3   │ docs/multi-level-spec/problem.md │ Why we need multi-level spec (the BDUF       │ 5 min  │
+  │ 3   │ docs/v2.0/multi-level-spec/problem.md │ Why we need multi-level spec (the BDUF       │ 5 min  │
   │     │                                  │ problem at the spec layer)                   │        │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 4   │ docs/multi-level-spec/design.md  │ PO workflow (L0-L4), suites, journey-driven  │ 15-20  │
+  │ 4   │ docs/v2.0/multi-level-spec/design.md  │ PO workflow (L0-L4), suites, journey-driven  │ 15-20  │
   │     │                                  │ discovery                                    │ min    │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 5   │ docs/sa-architecture/problem.md  │ Why SA contracts (coherence under            │ 5 min  │
+  │ 5   │ docs/v2.0/sa-architecture/problem.md  │ Why SA contracts (coherence under            │ 5 min  │
   │     │                                  │ decomposition)                               │        │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 6   │ docs/sa-architecture/design.md   │ SA design — contracts, behavioral DbC,       │ 25-30  │
+  │ 6   │ docs/v2.0/sa-architecture/design.md   │ SA design — contracts, behavioral DbC,       │ 25-30  │
   │     │                                  │ risks, spikes, what-a-normal-pass-produces   │ min    │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 7   │ docs/visual-design/problem.md    │ Why visual design matters; what we missed    │ 5 min  │
+  │ 7   │ docs/v2.0/visual-design/problem.md    │ Why visual design matters; what we missed    │ 5 min  │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 8   │ docs/visual-design/design.md     │ VD role, wireframes (SVG), design system,    │ 20 min │
+  │ 8   │ docs/v2.0/visual-design/design.md     │ VD role, wireframes (SVG), design system,    │ 20 min │
   │     │                                  │ browser viewing                              │        │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 9   │ docs/pm-workflow/problem.md      │ Why we need a PM layer (BDUF problem at      │ 5 min  │
+  │ 9   │ docs/v2.0/pm-workflow/problem.md      │ Why we need a PM layer (BDUF problem at      │ 5 min  │
   │     │                                  │ execution)                                   │        │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
   │     │                                  │ Planner+Coordinator, build plan,             │ 25-30  │
-  │ 10  │ docs/pm-workflow/design.md       │ bones/MVP/final, federated reviewers,        │ min    │
+  │ 10  │ docs/v2.0/pm-workflow/design.md       │ bones/MVP/final, federated reviewers,        │ min    │
   │     │                                  │ tiering                                      │        │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 11  │ docs/dev-environment/problem.md  │ Why service isolation (the third leg of      │ 5 min  │
+  │ 11  │ docs/v2.0/dev-environment/problem.md  │ Why service isolation (the third leg of      │ 5 min  │
   │     │                                  │ isolation)                                   │        │
   ├─────┼──────────────────────────────────┼──────────────────────────────────────────────┼────────┤
-  │ 12  │ docs/dev-environment/design.md   │ Provisioning strategies, lifecycle hooks,    │ 15-20  │
+  │ 12  │ docs/v2.0/dev-environment/design.md   │ Provisioning strategies, lifecycle hooks,    │ 15-20  │
   │     │                                  │ namespace isolation                          │ min    │
   └─────┴──────────────────────────────────┴──────────────────────────────────────────────┴────────┘
 
@@ -49,11 +49,11 @@ Foundations (read first):
   ┌─────┬────────────────────────────────┬──────────────────────────────────────────────────┬──────┐
   │  #  │              Path              │                       What                       │ Time │
   ├─────┼────────────────────────────────┼──────────────────────────────────────────────────┼──────┤
-  │ 13  │ docs/analytics/problem.md      │ Event capture — fine for everything; 25 event    │ 10   │
+  │ 13  │ docs/v2.0/analytics/problem.md      │ Event capture — fine for everything; 25 event    │ 10   │
   │     │                                │ types now in code                                │ min  │
   ├─────┼────────────────────────────────┼──────────────────────────────────────────────────┼──────┤
   │     │                                │ Six 2.0+ commitments (intent layer, synthetic    │ 12   │
-  │ 14  │ docs/agent-leverage/problem.md │ operator, quartermaster, adversarial pairing,    │ min  │
+  │ 14  │ docs/v2.0/agent-leverage/problem.md │ operator, quartermaster, adversarial pairing,    │ min  │
   │     │                                │ ensemble, renderers)                             │      │
   └─────┴────────────────────────────────┴──────────────────────────────────────────────────┴──────┘
 
@@ -62,14 +62,14 @@ Foundations (read first):
   ┌─────┬───────────────────────────────┬───────────────────────────────────────────────────┬──────┐
   │  #  │             Path              │                       What                        │ Time │
   ├─────┼───────────────────────────────┼───────────────────────────────────────────────────┼──────┤
-  │ 15  │ docs/learnings/problem.md     │ Facts vs heuristics; heuristics deferred until    │ 5    │
+  │ 15  │ docs/v2.0/learnings/problem.md     │ Facts vs heuristics; heuristics deferred until    │ 5    │
   │     │                               │ corpus exists                                     │ min  │
   │  #  │             Path              │                       What                        │ Time │
   ├─────┼───────────────────────────────┼───────────────────────────────────────────────────┼──────┤
-  │ 15  │ docs/learnings/problem.md     │ Facts vs heuristics; heuristics deferred until    │ 5    │
+  │ 15  │ docs/v2.0/learnings/problem.md     │ Facts vs heuristics; heuristics deferred until    │ 5    │
   │     │                               │ corpus exists                                     │ min  │
   ├─────┼───────────────────────────────┼───────────────────────────────────────────────────┼──────┤
-  │ 16  │ docs/agent-testing/problem.md │ Six kinds of agent-driven testing; deferred       │ 5    │
+  │ 16  │ docs/v2.0/agent-testing/problem.md │ Six kinds of agent-driven testing; deferred       │ 5    │
   │     │                               │ behind v1 simulator                               │ min  │
   └─────┴───────────────────────────────┴───────────────────────────────────────────────────┴──────┘
 

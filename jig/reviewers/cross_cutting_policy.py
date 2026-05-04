@@ -1,6 +1,6 @@
 """CrossCuttingPolicyReviewer — MVP-scope mechanical universal-rule check (Track G MVP).
 
-Per ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+Per ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
 logic": "cross-cutting-policy — does it violate any universal rule
 (PII, secrets, no-direct-cross-module-db)?"
 

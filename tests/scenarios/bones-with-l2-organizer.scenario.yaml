@@ -8,7 +8,7 @@ description: |
   handoff that downstream phases (L3, SA, Planner, Coordinator,
   Dev, Reviewer) can read past, end-to-end.
 
-  Per ``docs/implementation/v2-plan.md`` Track B MVP scope: L2 suite
+  Per ``docs/v2.0/implementation/v2-plan.md`` Track B MVP scope: L2 suite
   organizer agent. The MVP one-shot ``l2_finalize`` is the smallest
   piece of that scope that swaps cleanly into the bones spine — manual
   L2 hand-write retired in favor of the agent path.

@@ -19,7 +19,7 @@ what the product does, not how the system is built. It says nothing about db sch
 resources, event flow, auth, or any of the other things that have to agree across modules for the system to actually
 work.
 
-The multi-level spec design (`docs/multi-level-spec/`) covers **suite** (operator-facing functional grouping) but
+The multi-level spec design (`docs/v2.0/multi-level-spec/`) covers **suite** (operator-facing functional grouping) but
 explicitly defers **module** (SA-owned architectural unit) and **contract** (SA-authored integration constraint) to a
 separate design — this one.
 

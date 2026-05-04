@@ -105,7 +105,7 @@ class Orchestrator:
         self.bus: MessageBus | None = None
         self.check_results: CheckResultsStore | None = None
         # v2 analytics — append-only event capture for the consumer half
-        # described in docs/analytics/. Initialized in startup once the
+        # described in docs/v2.0/analytics/. Initialized in startup once the
         # store directory exists.
         self.analytics: AnalyticsStore | None = None
         self._analytics_emitter: AnalyticsEmitter | None = None
@@ -301,7 +301,7 @@ class Orchestrator:
             ticket_id=ctx.ticket.id,
         )
         # Block 2 — also stamp ``JIG_FIXTURE_MODE`` per
-        # ``docs/dev-environment/design.md`` §"External-API recorded
+        # ``docs/v2.0/dev-environment/design.md`` §"External-API recorded
         # fixtures": SPIKE tickets default to ``record_new`` (the
         # spike's job is to grow the fixture corpus); everything else
         # defaults to ``replay_only``. Merged into the same extra_env
@@ -494,7 +494,7 @@ class Orchestrator:
     ) -> None:
         """Run the review federation as a **gate** on ticket resolution.
 
-        Per ``docs/pm-workflow/design.md`` §"Severity tiers and
+        Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and
         disposition", the federation is not an observation hook — its
         outcome determines whether the ticket actually resolves:
 
@@ -1320,7 +1320,7 @@ class Orchestrator:
         _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
 
         # Review-federation gate — runs as a **gate** on resolution per
-        # ``docs/pm-workflow/design.md`` §"Severity tiers and disposition".
+        # ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition".
         # When enabled, ``_run_review_federation`` may roll the ticket
         # back to FAILED (critical comments / federation crash) or
         # BLOCKED (important comments). Notable comments on a clean

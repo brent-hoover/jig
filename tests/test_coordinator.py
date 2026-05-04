@@ -97,7 +97,7 @@ async def test_materialize_creates_bones_ticket(tmp_path: Path, store: TicketSto
 async def test_materialize_populates_v2_extension_fields(
     tmp_path: Path, store: TicketStore
 ):
-    """Per ``docs/pm-workflow/design.md`` §"Ticket structure (extensions)"."""
+    """Per ``docs/v2.0/pm-workflow/design.md`` §"Ticket structure (extensions)"."""
     write_build_plan(
         tmp_path,
         _plan(

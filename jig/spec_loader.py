@@ -217,7 +217,7 @@ def save_module_contracts(
 
 
 def cascades_dir(project_root: Path) -> Path:
-    """``.jig/arch/cascades/`` — per ``docs/sa-architecture/design.md``.
+    """``.jig/arch/cascades/`` — per ``docs/v2.0/sa-architecture/design.md``.
 
     Each ``confirmed_impossible`` spike emits one cascade-proposal YAML
     here named ``<risk-id>-<timestamp>.yaml``. Operator hand-edits the
@@ -250,7 +250,7 @@ def cascade_proposal_path(
 def cascade_audit_path(project_root: Path) -> Path:
     """``.jig/arch/cascades/audit.jsonl`` — per-action append-only log.
 
-    Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    Track C Final per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes
     and mitigations" mitigation #1: every operator-facing cascade action
     (proposed, staged, stage-approved, rejected, holding) lands here so
     cross-project analytics can scan for rejection patterns and audit-
@@ -497,7 +497,7 @@ def save_ontology(
 def frontend_spec_path(project_root: Path) -> Path:
     """``.jig/spec/frontend.yaml`` — VD's top-level frontend declaration.
 
-    Per ``docs/visual-design/design.md`` §"Frontend architecture (VD
+    Per ``docs/v2.0/visual-design/design.md`` §"Frontend architecture (VD
     owns this)": one file per project, set once at VD discovery start
     (defaults applied immediately so a freshly-initialized project has
     a valid spec without operator interaction), modified rarely.
@@ -632,7 +632,7 @@ def save_brand(project_root: Path, brand: Brand) -> None:
 def generated_contracts_dir(project_root: Path) -> Path:
     """``.jig/generated/contracts/`` — Pydantic-from-DataContract output dir.
 
-    Per ``docs/agent-leverage/problem.md`` §6: rendered artifacts
+    Per ``docs/v2.0/agent-leverage/problem.md`` §6: rendered artifacts
     live under ``.jig/generated/`` so the operator can inspect them
     without confusing them with hand-written code under ``src/``.
     The Track I Final SA hook writes one file per data contract

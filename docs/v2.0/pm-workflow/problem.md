@@ -10,8 +10,8 @@ created: 2026-05-01
 
 ## Context
 
-The multi-level spec (`docs/multi-level-spec/`) defines how a product gets specified — pitch, discovery, suites, suite
-briefs. The SA design (`docs/sa-architecture/`) defines how the architecture gets specified — modules, contracts,
+The multi-level spec (`docs/v2.0/multi-level-spec/`) defines how a product gets specified — pitch, discovery, suites, suite
+briefs. The SA design (`docs/v2.0/sa-architecture/`) defines how the architecture gets specified — modules, contracts,
 integration AC, risks. Together they produce a fully described system: what to build (PO) and how it fits together (SA).
 
 Neither tells you how to actually *do* the work. Today, ticket creation in jig is light: the brief becomes a flat list

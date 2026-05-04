@@ -1,6 +1,6 @@
 """Severity-tier disposition policy (Track G Final).
 
-Per ``docs/pm-workflow/design.md`` §"Severity tiers and disposition",
+Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition",
 each reviewer comment maps to a disposition based on its severity:
 
 - ``critical`` → block: ticket cannot resolve until addressed; the

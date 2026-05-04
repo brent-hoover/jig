@@ -1,6 +1,6 @@
 """Canonical wireframe.css generator.
 
-Per ``docs/visual-design/design.md`` §"The wireframe.css — static
+Per ``docs/v2.0/visual-design/design.md`` §"The wireframe.css — static
 utility layer + greyscale tokens": one hand-curated stylesheet (~200-300
 lines) covering the most-used Tailwind-shaped utility names, with
 implementations driven by CSS custom properties. Wireframes use the

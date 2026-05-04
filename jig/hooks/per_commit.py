@@ -1,6 +1,6 @@
 """Per-commit reviewer hook installer (Track G MVP follow-on).
 
-Per ``docs/pm-workflow/design.md`` section "Two-cadence review":
+Per ``docs/v2.0/pm-workflow/design.md`` section "Two-cadence review":
 the per-commit cadence fires within seconds of ``git commit``,
 running the mechanical reviewer subset (contract-compliance,
 cross-cutting-policy, spec-compliance) so the dev agent gets a

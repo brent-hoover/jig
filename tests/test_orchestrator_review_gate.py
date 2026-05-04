@@ -1,6 +1,6 @@
 """Review-federation gate tests (Track G Final → Hardening).
 
-Per ``docs/pm-workflow/design.md`` §"Severity tiers and disposition",
+Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition",
 the orchestrator's review-federation pass is a **gate**, not an
 observation hook:
 

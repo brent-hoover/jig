@@ -1,6 +1,6 @@
 """Bounded review-fix loop tracker.
 
-Per ``docs/pm-workflow/design.md`` section "Bounded fix loops": the
+Per ``docs/v2.0/pm-workflow/design.md`` section "Bounded fix loops": the
 review-fix iteration is capped at 3 cycles. After 3 cycles where the
 same comment category keeps recurring, the ticket stalls and the
 operator gets escalation via ``BoundedFixLoopExhausted`` analytics.

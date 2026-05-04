@@ -7,7 +7,7 @@ description: |
   path produces a valid build plan that the Coordinator can pick up
   and dispatch through the rest of the bones spine.
 
-  Per ``docs/implementation/v2-plan.md`` Track F MVP scope:
+  Per ``docs/v2.0/implementation/v2-plan.md`` Track F MVP scope:
   Planner PM agent (discovery loop). The MVP one-shot finalize is the
   smallest piece of that scope that swaps cleanly with the bones
   ``write_build_plan`` step.

@@ -32,7 +32,7 @@ __all__ = [
 
 
 # Conservative bones list — the canonical set from
-# ``docs/synthetic-operator/design.md`` §"Persona library". Locked in a
+# ``docs/v2.0/synthetic-operator/design.md`` §"Persona library". Locked in a
 # Literal so a typo in YAML loads to a ValidationError rather than a
 # silent default.
 GateConfirmationPolicy = Literal[

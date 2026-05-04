@@ -31,11 +31,11 @@ L3 Suite briefs  (PO)  — behaviors, behavior AC per suite
    ─────────  operator declares PO "done for now"  ─────────
 SA Architecture  (SA)  ─┐  parallel; both consume PO
 VD Discovery     (VD)  ─┤  artifacts; neither blocks the
-                        │  other (see docs/visual-design/)
+                        │  other (see docs/v2.0/visual-design/)
    ─────────  operator declares SA + VD "done for now"  ─────────
 Spike tickets    (dev) — bounded exploration to mitigate risks
 SA delta + VD delta    — fold spike learnings back in
-   ─────────  Planner PM fires (see docs/pm-workflow/)  ─────────
+   ─────────  Planner PM fires (see docs/v2.0/pm-workflow/)  ─────────
 Build plan       (PM)  — epics × bones/MVP/final layers,
                          tracer-bullet vs standard tickets,
                          dev tier + reviewer set per ticket;
@@ -655,7 +655,7 @@ documenting things that aren't actually integration concerns).
 - **A `dev_provisioning` block on every data store** declaring how it gets provisioned for dev agents (strategy defaults
   to `shared_with_namespace`; SA picks `per_agent_ephemeral` only when the service doesn't namespace cleanly; operator
   can override to `operator_supplied`). Required even for trivial projects so the orchestrator knows whether to spin up
-  anything at agent spawn — see `docs/dev-environment/`.
+  anything at agent spawn — see `docs/v2.0/dev-environment/`.
 - **3–7 cross-cutting policies** — typically pii-encrypted-at-rest, secrets-via-env, no-direct-cross-module-db, plus
   project-specific ones (audit-on-tenant-action, structured-error-envelope, trace-id-propagation, multi-tenant-
   isolation). Note: small projects (CLI tools, single-suite apps) skip most of these.
@@ -869,7 +869,7 @@ the third is implementation, PM workflow).
 
 The detailed design — federated reviewer agents per concern, severity tiers (critical/important/notable), structured
 comments with URI citations, auto-apply for mechanical fixes, bounded fix loops, reviewer-self-check — lives in
-`docs/pm-workflow/design.md`.
+`docs/v2.0/pm-workflow/design.md`.
 
 What this design needs to commit to from the SA side:
 
@@ -940,7 +940,7 @@ Locked during 2026-05-03 working session:
      sees the unified comment set on the PR.
 
 Two cadences mean dev agents get fast feedback on mechanical issues without paying for the whole federation on every
-commit. The full design lives in `docs/pm-workflow/design.md`; this entry confirms the SA side commits to
+commit. The full design lives in `docs/v2.0/pm-workflow/design.md`; this entry confirms the SA side commits to
 per-commit-friendly contract validation (i.e., contracts have to be checkable in single-digit seconds, not just
 bulk-evaluable at end of ticket).
 
@@ -976,7 +976,7 @@ them.
    - **Operator confirmation**: single yes/no — "trivial project, minimal SA pass; confirm or expand?" If expand, SA
      proceeds to the full discovery loop.
 
-This is the scale-down exit referenced in `docs/pm-workflow/design.md`'s "two exits" pattern, made concrete for the SA
+This is the scale-down exit referenced in `docs/v2.0/pm-workflow/design.md`'s "two exits" pattern, made concrete for the SA
 case.
 
 ## Open questions
@@ -1029,7 +1029,7 @@ Not yet planned in detail. Rough order:
   multi-tenant isolation, idempotent retry, audit-on-action.
 - 2026-05-01: Added "What a normal SA pass produces" section with sizing guidelines per project and per module, plus
   quality signals to flag under-/over-specification at confirmation time.
-- 2026-05-01: Cross-referenced `docs/dev-environment/`. Added `dev_provisioning` block as a required field on every
+- 2026-05-01: Cross-referenced `docs/v2.0/dev-environment/`. Added `dev_provisioning` block as a required field on every
   `data_store` (and applicable `external_dependencies`) in the "What a normal SA pass produces" sizing guidance, plus a
   quality signal flagging missing dev_provisioning blocks.
 - 2026-05-01: Clarified SA/VD scope split — SA owns *backend* technical shape; VD owns *frontend* technical shape AND

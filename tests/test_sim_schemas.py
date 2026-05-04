@@ -1,11 +1,11 @@
 """Pydantic schemas for the synthetic operator (Track H1+H3+H4, bones).
 
-Bones scope per ``docs/implementation/v2-plan.md`` Track H row:
+Bones scope per ``docs/v2.0/implementation/v2-plan.md`` Track H row:
 - H1 scenario schema (subset)
 - H3 methodical persona schema
 - H4 the 4-5 assertion kinds the bones scenario needs
 
-The full scenario format from ``docs/synthetic-operator/design.md`` is a
+The full scenario format from ``docs/v2.0/synthetic-operator/design.md`` is a
 superset (policy-driven turns, coverage_tags, realism budget, etc.). The
 bones subset captures only what the bones scenario actually needs;
 extension fields land alongside the workflows that need them.

@@ -3,7 +3,7 @@ id: bones-with-cascade
 description: |
   Extends ``bones-with-mvp-sa`` with a risk + spike workflow that
   resolves to ``confirmed_impossible``, triggering the cascade-after-
-  impossible-spike workflow per ``docs/sa-architecture/design.md``
+  impossible-spike workflow per ``docs/v2.0/sa-architecture/design.md``
   §"Cascade after confirmed-impossible spike".
 
   The cascade branch writes a cascade-proposal artifact under
@@ -12,7 +12,7 @@ description: |
   phase ``operator-cascade-confirm``. Final assertions verify both
   artifacts landed.
 
-  Per ``docs/implementation/v2-plan.md`` Track C MVP scope: the
+  Per ``docs/v2.0/implementation/v2-plan.md`` Track C MVP scope: the
   operator-confirm UX is NOT built — they hand-edit the cascade YAML
   and re-run SA. Full transactional confirmation lands in Final.
 

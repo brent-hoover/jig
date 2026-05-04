@@ -1,7 +1,7 @@
 """Injectable vision-provider Protocol for visual-compliance Final scope.
 
-Per ``docs/visual-design/design.md`` §"Visual compliance reviewer" and
-``docs/implementation/v2-plan.md`` §"Final scope" Track D row, the
+Per ``docs/v2.0/visual-design/design.md`` §"Visual compliance reviewer" and
+``docs/v2.0/implementation/v2-plan.md`` §"Final scope" Track D row, the
 Final-layer visual reviewer compares an implementation screenshot to the
 authored wireframe via a vision-capable LLM.
 

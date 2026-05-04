@@ -137,7 +137,7 @@ Other complications:
   we didn't think of. Both required. Real-operator data feeds the realism budget; simulator catches regressions and
   pre-validates designs before the real-operator pain.
 - **Generating scenarios from text descriptions.** Hand-curated initial library; LLM-generation is v2.x (eventually
-  agent-driven testing as a whole — see `docs/agent-testing/`).
+  agent-driven testing as a whole — see `docs/v2.0/agent-testing/`).
 - **Performance / load testing.** Simulator focuses on correctness of workflow + interactions, not throughput or latency
   under load.
 - **Simulating multi-operator collaboration.** Single-operator assumption per simulator run (matches v2 design's

@@ -144,7 +144,7 @@ The fragment grammar uses the loaded YAML's keys as path segments. Numeric segme
 | `project://store/checkpoints/<id>` | A checkpoint from `.jig/store/checkpoints.jsonl` |
 
 Future additions when the relevant features land:
-- `project://learnings/...` (when the learnings layer ships in v2.x — see `docs/learnings/`).
+- `project://learnings/...` (when the learnings layer ships in v2.x — see `docs/v2.0/learnings/`).
 
 ## Fragment grammar
 

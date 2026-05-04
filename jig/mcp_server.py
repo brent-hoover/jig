@@ -940,7 +940,7 @@ def create_agent_mcp_server(
 
     # ---- L1 PO MCP tools (Track B MVP) ------------------------------------
     # The L1 Discovery PO drives the 5-phase journey-walk per
-    # docs/multi-level-spec/design.md §"L1 PO behavior". Authoring
+    # docs/v2.0/multi-level-spec/design.md §"L1 PO behavior". Authoring
     # tools render to .jig/spec/discovery.md + per-journey playbacks;
     # state-tracking tools update .jig/spec/discovery.state.yaml so
     # mid-walk pauses + daemon restarts can resume cleanly.
@@ -1212,7 +1212,7 @@ def create_agent_mcp_server(
     # The L1 PO is the primary author — terms surface during journey
     # walks; downstream agents (SA / VD / PM / dev / reviewer) read the
     # same file so terminology stays consistent across the project's
-    # artifacts and code. See docs/multi-level-spec/design.md
+    # artifacts and code. See docs/v2.0/multi-level-spec/design.md
     # §"Project ontology — capturing the operator's domain vocabulary".
 
     if "ontology_stash_term" in agent_cfg.allowed_tools:
@@ -1500,7 +1500,7 @@ def create_agent_mcp_server(
     # (re-set with the same id replaces the entry) so the agent can
     # iterate freely. ``arch_finalize`` re-validates + hands off to PM
     # via the same path the bones one-shot uses. See
-    # ``docs/sa-architecture/design.md`` §"SA workflow — discovery loop".
+    # ``docs/v2.0/sa-architecture/design.md`` §"SA workflow — discovery loop".
 
     if "arch_set_module" in agent_cfg.allowed_tools:
 
@@ -1749,7 +1749,7 @@ def create_agent_mcp_server(
         @tool(
             "arch_set_cascade_risk_low",
             "Mark a Module's ``cascade_risk_low`` flag. Per "
-            "docs/pm-workflow/design.md §'Bones-first ordering': when "
+            "docs/v2.0/pm-workflow/design.md §'Bones-first ordering': when "
             "True, PM Coordinator may suggest MVP promotion on "
             "unblocked epics even if blocked epics' bones touch this "
             "module. ``rationale`` is required when ``low=True`` so "
@@ -1963,7 +1963,7 @@ def create_agent_mcp_server(
         all_tools.append(arch_finalize)
 
     # ---- v2 VD MVP — wireframes + design system + frontend.yaml ----------
-    # Per docs/visual-design/design.md the VD agent edits HTML directly via
+    # Per docs/v2.0/visual-design/design.md the VD agent edits HTML directly via
     # Read/Write/Edit and uses these MCP wrappers for incremental upserts +
     # the linter + the finalize handoff. Each upsert is idempotent on its
     # natural id; vd_finalize is the one-shot atomic write + handoff.

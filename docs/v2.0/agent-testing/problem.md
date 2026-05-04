@@ -18,7 +18,7 @@ Agents change every one of those assumptions. They can write tests at scale, inf
 read structured failure reports better than prose. The opportunity is not "make agents do what testers do today,
 faster"; it's "build a testing discipline that exploits what agents can do that humans can't."
 
-The agent-leverage doc (`docs/agent-leverage/problem.md`) names synthetic operator simulation as one commitment. This
+The agent-leverage doc (`docs/v2.0/agent-leverage/problem.md`) names synthetic operator simulation as one commitment. This
 doc names the broader category and defers the full design.
 
 ## Problem
@@ -91,7 +91,7 @@ This is its own design space, deferred but flagged.
 
 ## Why deferred
 
-Same reasoning as `docs/learnings/`:
+Same reasoning as `docs/v2.0/learnings/`:
 
 - The simple workflow-simulation slice (synthetic operator from agent-leverage) needs to ship first to inform what the
   broader framework should look like.

@@ -1,7 +1,7 @@
 """Multi-authority project URI scheme.
 
 Parses and dispatches ``project://<authority>/<path>[@revision:<n>][#<fragment>]``.
-Authorities: spec, arch, design, plan, store. See ``docs/uri-scheme/design.md``.
+Authorities: spec, arch, design, plan, store. See ``docs/v2.0/uri-scheme/design.md``.
 
 For v2 bones, only the ``spec`` authority resolves; others parse cleanly but raise
 ``UnimplementedAuthorityError`` at resolve time. They are wired up as their owning

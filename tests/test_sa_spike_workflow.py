@@ -1,6 +1,6 @@
 """Spike workflow MCP handlers (Track C MVP follow-on commit 2).
 
-Per ``docs/sa-architecture/design.md`` §"Risk identification and spikes":
+Per ``docs/v2.0/sa-architecture/design.md`` §"Risk identification and spikes":
 a spike is a ``work_type: SPIKE`` ticket whose narrow scope is to verify
 whether a risky architectural assumption holds. ``arch_propose_spike``
 creates the spike ticket, links it to the risk, transitions risk status

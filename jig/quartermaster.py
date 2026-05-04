@@ -1,6 +1,6 @@
 """Quartermaster — on-demand operator briefing.
 
-Per ``docs/agent-leverage/problem.md`` §3: a continuous background
+Per ``docs/v2.0/agent-leverage/problem.md`` §3: a continuous background
 agent that reads the analytics event stream and produces periodic
 operator-facing briefings ("this week: 12 tickets completed, auth
 module showing repeated escalations, here are 3 things I think need

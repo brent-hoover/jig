@@ -1,6 +1,6 @@
 """Project ontology operator-edit affordances (Track B Final).
 
-Per ``docs/multi-level-spec/design.md`` §"Project ontology":
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Project ontology":
 
 - ``ontology_edit_term`` replaces an existing term's definition +
   examples; raises on missing terms (operators expect "edit" to fail

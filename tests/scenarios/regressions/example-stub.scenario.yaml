@@ -2,7 +2,7 @@
 # Description: example regression scenario seeded by Track H Final to claim the
 #   regression-scenarios coverage tag and demonstrate the convention. Real
 #   regression scenarios scaffolded via ``jig sim regression new`` go alongside.
-# Per docs/synthetic-operator/design.md §"Failure-mode regression scenarios":
+# Per docs/v2.0/synthetic-operator/design.md §"Failure-mode regression scenarios":
 #   every bug lands with one regression scenario that would have caught it.
 # This particular file is intentionally a near-trivial scenario — the
 # walking-skeleton spine — so the regression-scenarios coverage tag has at

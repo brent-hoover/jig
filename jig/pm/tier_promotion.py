@@ -1,6 +1,6 @@
 """Mid-work tier promotion mechanics (Track F Final).
 
-Per ``docs/pm-workflow/design.md`` §"Auto-escalation thresholds":
+Per ``docs/v2.0/pm-workflow/design.md`` §"Auto-escalation thresholds":
 
 > When auto-escalation fires, the dev agent is force-escalated
 > regardless of whether it asked for help — pulled from the ticket,

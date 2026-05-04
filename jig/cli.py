@@ -1692,7 +1692,7 @@ def pm_plan_unblock(
     Records an entry in ``.jig/plan/overrides.jsonl`` and emits a
     ``BonesPromotedIncomplete`` analytics event so the consequences
     are visible later if the still-running bones forces a contract
-    change. Per docs/pm-workflow/design.md §"Bones-first ordering".
+    change. Per docs/v2.0/pm-workflow/design.md §"Bones-first ordering".
     """
     from jig.analytics.emitter import EventEmitter
     from jig.analytics.store import AnalyticsStore

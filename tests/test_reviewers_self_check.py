@@ -1,6 +1,6 @@
 """Reviewer self-check gate (Track G Final).
 
-Per ``docs/pm-workflow/design.md`` §"Reviewer self-check before
+Per ``docs/v2.0/pm-workflow/design.md`` §"Reviewer self-check before
 posting", every reviewer agent reviews its own output before
 publishing. Final ships the deterministic mechanical gate that the
 ``reviewer_post_comment`` MCP tool runs before persistence; the

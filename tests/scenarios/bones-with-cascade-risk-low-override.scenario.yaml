@@ -1,7 +1,7 @@
 spec_version: 1
 id: bones-with-cascade-risk-low-override
 description: |
-  Track C Final mitigation per ``docs/pm-workflow/design.md``
+  Track C Final mitigation per ``docs/v2.0/pm-workflow/design.md``
   §"Bones-first ordering" — Coordinator allows MVP promotion on
   unblocked epics when blocked epics' bones touch only modules SA
   flagged ``cascade_risk_low=true``.

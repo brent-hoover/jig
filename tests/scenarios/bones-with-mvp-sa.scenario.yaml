@@ -9,7 +9,7 @@ description: |
   contracts that the rest of the spine (Planner, Coordinator, Dev,
   Reviewer) can read past, end-to-end.
 
-  Per ``docs/implementation/v2-plan.md`` Track C MVP scope: full SA
+  Per ``docs/v2.0/implementation/v2-plan.md`` Track C MVP scope: full SA
   discovery loop with checklist enforcement + behavioral contracts
   framework. The two-module shape exercises both single-module
   scoping and multi-module accumulation; one of the modules carries a

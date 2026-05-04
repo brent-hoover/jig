@@ -13,7 +13,7 @@ here so L3 can validate against it.
 
 L1 schemas (Persona / Journey / CapabilityRosterEntry / DiscoveryDoc /
 DiscoveryState) back the L1 PO discovery conversation — see
-``docs/multi-level-spec/design.md`` §"L1 — Discovery". The L1 PO writes
+``docs/v2.0/multi-level-spec/design.md`` §"L1 — Discovery". The L1 PO writes
 ``discovery.md`` (rendered from ``DiscoveryDoc``) and tracks in-flight
 state in ``discovery.state.yaml`` (``DiscoveryState``); per-journey
 playbacks land under ``.jig/spec/discovery/playbacks/``.

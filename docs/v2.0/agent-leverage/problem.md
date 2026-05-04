@@ -102,7 +102,7 @@ simulator to cover them. Track simulator-vs-real divergence as a metric.
 
 **When:** Parallel with v2 build, not after. Built early so workflow design choices get tested as we make them.
 
-**Full design**: see `docs/synthetic-operator/`. The summary above is the intent; the design doc covers the scenario
+**Full design**: see `docs/v2.0/synthetic-operator/`. The summary above is the intent; the design doc covers the scenario
 YAML format, persona library (initial 5: methodical, fast-and-shippy, scope-creeper, ambivalent, hostile), driver,
 assertion framework, coverage metrics, realism budget tracking, CI tiering (smoke / full / nightly), and analytics
 tagging via `simulator: true` event field.

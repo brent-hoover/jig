@@ -1410,7 +1410,7 @@ _REAL_MODE_DEV_ROLE = "dev"
 _REAL_MODE_POLL_INTERVAL_S = 0.25
 # Hard cap so a stuck agent can't hang the simulator forever. The
 # bones runtime budget is "under 10 minutes" per
-# docs/implementation/v2-plan.md; 15 minutes gives margin without
+# docs/v2.0/implementation/v2-plan.md; 15 minutes gives margin without
 # hiding pathological slowness.
 _REAL_MODE_TIMEOUT_S = 15 * 60
 

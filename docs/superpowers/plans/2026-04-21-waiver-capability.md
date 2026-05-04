@@ -47,7 +47,7 @@
 |------|----------------|
 | `docs/08-threads.md` | Update `thread_waive` MCP-tool description: authorization now references `capabilities.waivers.can_waive`, not `config.waiver_authority`. |
 | `docs/16-policy-and-enforcement.md` | Add a short section on waiver capability shape (token mapping for waiveable events). |
-| `docs/implementation-plan.md` | Check the four Task H boxes; strike the migration line; update Phase 4 prose calling out the retirement. |
+| `docs/v2.0/implementation-plan.md` | Check the four Task H boxes; strike the migration line; update Phase 4 prose calling out the retirement. |
 
 ---
 
@@ -2237,7 +2237,7 @@ git commit -m "style: ruff format + remove dead imports after waiver retirement"
 **Files:**
 - Modify: `docs/08-threads.md`
 - Modify: `docs/16-policy-and-enforcement.md`
-- Modify: `docs/implementation-plan.md`
+- Modify: `docs/v2.0/implementation-plan.md`
 
 - [ ] **Step 1: Update `docs/08-threads.md`**
 
@@ -2285,9 +2285,9 @@ not in the sandbox — the hook scripts ignore the `waivers` block in
 artefact, not for sandbox-side gating).
 ```
 
-- [ ] **Step 3: Update `docs/implementation-plan.md`**
+- [ ] **Step 3: Update `docs/v2.0/implementation-plan.md`**
 
-Run: `grep -n "Task H\|waiver_authority\|waiver-capability" docs/implementation-plan.md`
+Run: `grep -n "Task H\|waiver_authority\|waiver-capability" docs/v2.0/implementation-plan.md`
 
 Find the Task H section (around lines 1521-1538) and:
 
@@ -2322,7 +2322,7 @@ Also find and update the standalone prose references noted in the earlier grep o
 Exact replacements for each are: find the old prose, apply the strikethrough or replacement as described. Use:
 
 ```bash
-grep -n "waiver_authority\|waive.*capability\|waiver authority" docs/implementation-plan.md
+grep -n "waiver_authority\|waive.*capability\|waiver authority" docs/v2.0/implementation-plan.md
 ```
 
 to locate each one.
@@ -2330,7 +2330,7 @@ to locate each one.
 - [ ] **Step 4: Commit docs**
 
 ```bash
-git add docs/08-threads.md docs/16-policy-and-enforcement.md docs/implementation-plan.md
+git add docs/08-threads.md docs/16-policy-and-enforcement.md docs/v2.0/implementation-plan.md
 git commit -m "docs(phase5h): retire waiver_authority, document waivers capability"
 ```
 

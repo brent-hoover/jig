@@ -2,7 +2,7 @@ spec_version: 1
 id: bones-with-calibration
 description: |
   Track F Final estimation calibration loop. Per
-  ``docs/pm-workflow/design.md`` §"Estimation calibration": once the
+  ``docs/v2.0/pm-workflow/design.md`` §"Estimation calibration": once the
   project has run a handful of tickets, observed cycles feed back
   into Planner PM's estimation prompts via per-size envelopes.
 

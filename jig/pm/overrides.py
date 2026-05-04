@@ -1,6 +1,6 @@
 """Bones-first override audit (Track F Final).
 
-Per ``docs/pm-workflow/design.md`` §"Bones-first ordering and operator
+Per ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering and operator
 override":
 
 > Slash command: ``/plan unblock <epic-mvp>`` allows MVP work to start

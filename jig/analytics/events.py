@@ -1,6 +1,6 @@
 """Typed analytics event models for jig.
 
-Per ``docs/analytics/problem.md``: capture decisions can't be
+Per ``docs/v2.0/analytics/problem.md``: capture decisions can't be
 retrofitted, so this schema is locked from v1 onward. Additive
 changes only; any breaking change requires bumping
 ``EVENT_VERSION`` and writing a migration on the consumer side.
@@ -14,7 +14,7 @@ to store the content in another artifact (thread, mcp log, file)
 and reference it from the event.
 
 Event taxonomy mirrors the categories in
-``docs/analytics/problem.md``:
+``docs/v2.0/analytics/problem.md``:
 
 * Ticket state transitions
 * Agent lifecycle (spawn, completion)
@@ -76,7 +76,7 @@ class _EventBase(StoreModel):
     parent_event_id: str | None = None
 
     # True when emitted from a synthetic-operator simulator run (per
-    # docs/synthetic-operator/design.md). Consumer queries filter to
+    # docs/v2.0/synthetic-operator/design.md). Consumer queries filter to
     # ``simulator=False`` by default; simulator events live in their own
     # logical corpus so they don't pollute real-project analytics.
     # The EventEmitter sets this based on the JIG_SIMULATOR env var or
@@ -172,7 +172,7 @@ class ContextFetched(_EventBase):
 class ReviewCommentPosted(_EventBase):
     """A reviewer agent posted a structured comment.
 
-    See ``docs/pm-workflow/design.md`` for the comment schema. The
+    See ``docs/v2.0/pm-workflow/design.md`` for the comment schema. The
     event captures the structured handles; the full prose / suggested
     diff lives in the comment record itself, addressable by
     ``comment_id``.
@@ -245,7 +245,7 @@ class BugDiscoveredPostMerge(_EventBase):
 
     Captured from v2 day one specifically because the
     adversarial-pairing design (deferred to v2.x — see
-    ``docs/agent-leverage/problem.md``) needs this corpus to know
+    ``docs/v2.0/agent-leverage/problem.md``) needs this corpus to know
     which failure modes the skeptic should target. Without this
     event, we can't measure escape rate; designing the skeptic
     speculatively without it risks building for failure modes that
@@ -317,7 +317,7 @@ class AutoEscalationTriggered(_EventBase):
     to be escalated — the Coordinator's auto-thresholds tripped and
     pulled them. Captures which threshold tripped and the metric value
     so calibration can detect false-escalation patterns and tune the
-    thresholds. See ``docs/pm-workflow/design.md`` "Auto-escalation
+    thresholds. See ``docs/v2.0/pm-workflow/design.md`` "Auto-escalation
     thresholds" section.
     """
 
@@ -453,7 +453,7 @@ class BonesPromotedIncomplete(_EventBase):
     SA ``cascade_risk_low: true`` flag suggesting it's safe). Captured
     so the consequences are visible later if the still-running bones
     forces a contract change that affects already-built MVP work.
-    See ``docs/pm-workflow/design.md`` "Bones-first ordering" section.
+    See ``docs/v2.0/pm-workflow/design.md`` "Bones-first ordering" section.
     """
 
     kind: Literal["bones_promoted_incomplete"] = "bones_promoted_incomplete"
@@ -470,7 +470,7 @@ class EstimationCalibrationUpdated(_EventBase):
     Planner PM can read the latest calibration when sizing new tickets.
     Bands derived from observed turn / tool-call distributions on
     completed tickets; tokens used for cost forecasting only.
-    See ``docs/pm-workflow/design.md`` "Estimation calibration" section.
+    See ``docs/v2.0/pm-workflow/design.md`` "Estimation calibration" section.
     """
 
     kind: Literal["estimation_calibration_updated"] = "estimation_calibration_updated"
@@ -509,7 +509,7 @@ class OperatorGateConfirmed(_EventBase):
 
 # ---- Dev environment events -----------------------------------------------
 #
-# Per docs/dev-environment/design.md: the orchestrator's agent spawn
+# Per docs/v2.0/dev-environment/design.md: the orchestrator's agent spawn
 # lifecycle gains RESOLVE → PROVISION → HEALTH-CHECK → CLEANUP steps.
 # Each provisioned namespace (per service per agent) emits one event
 # at provision time and one at cleanup time. Orphan detection emits
@@ -584,7 +584,7 @@ class DevEnvironmentOrphanDetected(_EventBase):
 
 # ---- Visual Design events -------------------------------------------------
 #
-# Per docs/visual-design/design.md: VD authors wireframes (one SVG per
+# Per docs/v2.0/visual-design/design.md: VD authors wireframes (one SVG per
 # screen) and optionally a design system. Per-screen + per-system events
 # capture VD work; visual_compliance reviewer comments fire as ordinary
 # review events.

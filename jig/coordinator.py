@@ -31,7 +31,7 @@ Track C Final adds the bones-first override path on
 for the un-blocked epics. The strict bones-first default still wins
 when blocked epics touch any non-low-risk module.
 
-See ``docs/pm-workflow/design.md`` §"Roles" for the Planner/Coordinator
+See ``docs/v2.0/pm-workflow/design.md`` §"Roles" for the Planner/Coordinator
 distinction, §"The three completeness layers" for the bones/mvp/final
 ordering rules, and §"DEFERRED queue triage" for the deferred-queue flow.
 """
@@ -347,7 +347,7 @@ class Coordinator:
         the un-done bones layers all touch modules with
         ``cascade_risk_low=true``, returns ``"mvp"`` instead of
         ``"bones"`` so unblocked epics can advance per
-        ``docs/pm-workflow/design.md`` §"Bones-first ordering".
+        ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering".
         """
         if plan.ordering_rule == OrderingRule.BONES_FIRST:
             for layer_name in _LAYER_ORDER:
@@ -383,7 +383,7 @@ class Coordinator:
     def _cascade_risk_low_override_allows_mvp(self, plan: BuildPlan) -> bool:
         """True when blocked-bones epics touch only cascade_risk_low modules.
 
-        Per ``docs/pm-workflow/design.md`` §"Bones-first ordering":
+        Per ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering":
         the strict default holds unless every still-blocked bones epic
         touches modules the SA flagged ``cascade_risk_low=true``. Then
         the un-blocked epics can promote to MVP without losing the
@@ -661,7 +661,7 @@ class Coordinator:
     ) -> Ticket:
         """Construct a ``Ticket`` from build-plan epic context.
 
-        Per ``docs/pm-workflow/design.md`` §"Ticket structure (extensions)"
+        Per ``docs/v2.0/pm-workflow/design.md`` §"Ticket structure (extensions)"
         the v2 ticket carries ``epic_id``, ``suite_id``, ``module_id``,
         ``layer``, ``dev_tier``, ``risks_addressed``. Materialized tickets
         get the bones-era defaults (``standard`` dev_tier, single-module

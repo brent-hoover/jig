@@ -1,7 +1,7 @@
 """Bones-with-cascade scenario end-to-end (Track C MVP follow-on, mock mode).
 
 Exercises the cascade-after-confirmed-impossible-spike workflow per
-``docs/sa-architecture/design.md`` §"Cascade after confirmed-impossible
+``docs/v2.0/sa-architecture/design.md`` §"Cascade after confirmed-impossible
 spike". The scenario completes a spike with ``confirmed_impossible``
 which triggers cascade-proposal generation; this test verifies the
 artifact landed under ``.jig/arch/cascades/`` and that the architecture

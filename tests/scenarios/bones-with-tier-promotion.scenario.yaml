@@ -2,7 +2,7 @@ spec_version: 1
 id: bones-with-tier-promotion
 description: |
   Track F Final mid-work tier promotion. Per
-  ``docs/pm-workflow/design.md`` §"Auto-escalation thresholds":
+  ``docs/v2.0/pm-workflow/design.md`` §"Auto-escalation thresholds":
   when a ticket's auto-escalation signals trip (3+ failed per-commit
   checks on the same contract URI), the orchestrator promotes the
   ticket's dev_tier so the next dispatch picks up at the higher rung.

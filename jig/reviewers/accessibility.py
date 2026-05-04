@@ -1,7 +1,7 @@
 """AccessibilityReviewer — Track D Final WCAG AA mechanical checks.
 
-Per ``docs/visual-design/design.md`` §"Accessibility (WCAG AA)" and
-``docs/pm-workflow/design.md`` §"Reviewer federation": a Final-layer
+Per ``docs/v2.0/visual-design/design.md`` §"Accessibility (WCAG AA)" and
+``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation": a Final-layer
 mechanical reviewer that audits each authored wireframe against a
 deterministic subset of WCAG AA rules. No LLM, no vision — the parser
 is regex-based for the same reasons the wireframe linter is (small

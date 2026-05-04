@@ -55,7 +55,7 @@ class StepKind(str, Enum):
     INVOKE_L2_FINALIZE = "invoke_l2_finalize"
 
     # Manual writes for stages bones doesn't run via agents (per
-    # ``docs/implementation/v2-plan.md`` Bones scope: L1/L2 + SA
+    # ``docs/v2.0/implementation/v2-plan.md`` Bones scope: L1/L2 + SA
     # artifacts hand-written by the operator).
     WRITE_SUITES_YAML = "write_suites_yaml"
     WRITE_ARCHITECTURE = "write_architecture"

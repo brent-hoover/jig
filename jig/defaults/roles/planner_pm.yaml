@@ -66,7 +66,7 @@ phase_prompt: >
   ## How to layer the work
 
 
-  Per ``docs/pm-workflow/design.md`` §"The three completeness layers":
+  Per ``docs/v2.0/pm-workflow/design.md`` §"The three completeness layers":
 
 
   - **Bones** — per-epic tracer bullet. ONE happy-path slice through
@@ -94,7 +94,7 @@ phase_prompt: >
   ## Ticket fields you set per ticket
 
 
-  Per ``docs/pm-workflow/design.md`` §"Ticket structure (extensions)"
+  Per ``docs/v2.0/pm-workflow/design.md`` §"Ticket structure (extensions)"
   every ticket the build plan owns carries (in the ticket store, not in
   the plan body):
 

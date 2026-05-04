@@ -1,6 +1,6 @@
 # dev_provisioning examples — strategy × kind matrix
 #
-# Per docs/dev-environment/design.md §"Provisioning strategies":
+# Per docs/v2.0/dev-environment/design.md §"Provisioning strategies":
 # every data_store / external_dependency in architecture.yaml that
 # wants per-agent isolation declares one of the strategies below.
 #

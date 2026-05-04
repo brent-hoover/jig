@@ -3,7 +3,7 @@
 Bones scope: ``Architecture``, ``Module``, ``ContractsFile``,
 ``BehavioralContract``, ``DataContract``, ``Risk``, ``ChangeLogEntry``.
 The full contract-type union (event, api, schema, error, perf, security,
-process — see ``docs/sa-architecture/design.md`` §"Contract types") lands
+process — see ``docs/v2.0/sa-architecture/design.md`` §"Contract types") lands
 incrementally; bones uses the two flavors (data + behavioral) the bones
 scenario exercises.
 """
@@ -79,7 +79,7 @@ class RiskStatus(str, Enum):
     SPIKE_PROPOSED = "spike_proposed"
     SPIKE_RUNNING = "spike_running"
     MITIGATED = "mitigated"
-    # Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    # Track C Final per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes
     # and mitigations" mitigation #3: a spike that returns "depends on
     # operator constraint X" rather than impossible/mitigated transitions
     # the risk to this state. The cascade fires conditionally on the
@@ -119,7 +119,7 @@ class DevProvisioning(BaseModel):
     Declares the isolation strategy + cleanup policy + connection-string
     template used by the orchestrator's per-agent provisioning hooks.
     Three strategies cover virtually every case (per
-    ``docs/dev-environment/design.md`` §"Provisioning strategies"):
+    ``docs/v2.0/dev-environment/design.md`` §"Provisioning strategies"):
 
     - ``shared_namespaced`` — one shared service instance, per-agent
       namespace prefix (Postgres CREATE SCHEMA, NATS subject prefix,
@@ -306,7 +306,7 @@ class Module(BaseModel):
     cascade_risk_low: bool = Field(
         default=False,
         description=(
-            "SA-suggested hint per ``docs/pm-workflow/design.md`` "
+            "SA-suggested hint per ``docs/v2.0/pm-workflow/design.md`` "
             "§'Bones-first ordering' / cascade_risk_low flag: when "
             "True, even if this module's bones doesn't converge "
             "cleanly, promoting it to MVP is unlikely to cascade "
@@ -445,7 +445,7 @@ class DataContract(BaseModel):
 class BehavioralContract(BaseModel):
     """Design-by-Contract: precondition / postcondition / invariant / side-effect.
 
-    The highest-leverage contract type per ``docs/sa-architecture/design.md``
+    The highest-leverage contract type per ``docs/v2.0/sa-architecture/design.md``
     §"Behavioral contracts". Postconditions translate directly to test
     assertions; invariants to static checks; side-effects to "did the diff
     include the required call?" — all mechanically reviewable.
@@ -554,7 +554,7 @@ class CascadeContractDisposition(BaseModel):
 class CascadeStage(BaseModel):
     """One stage of a (potentially staged) cascade proposal.
 
-    Per ``docs/sa-architecture/design.md`` §"Failure modes and
+    Per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes and
     mitigations" failure mode #2 — when a cascade affects N+ contracts,
     the operator gets a per-stage approval flow instead of one
     overwhelming all-or-nothing screen. Each stage is a sub-batch with
@@ -638,7 +638,7 @@ class CascadeProposal(BaseModel):
     """One cascade-after-confirmed-impossible proposal artifact.
 
     Persisted to ``.jig/arch/cascades/<risk-id>-<timestamp>.yaml`` per
-    ``docs/sa-architecture/design.md`` §"The cascade workflow" step 5
+    ``docs/v2.0/sa-architecture/design.md`` §"The cascade workflow" step 5
     (audit trail). Final scope adds ``state`` + optional ``stages`` +
     ``holding_for`` + ``constraint`` to track the four failure-mode
     mitigations on the artifact itself; the JSONL audit log carries

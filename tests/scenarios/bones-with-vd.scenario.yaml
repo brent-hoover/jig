@@ -9,7 +9,7 @@ description: |
   the spine end-to-end and that visual_compliance passes when the
   dev's diff references the wireframe.
 
-  Per ``docs/visual-design/design.md`` §"VD discovery loop": the VD
+  Per ``docs/v2.0/visual-design/design.md`` §"VD discovery loop": the VD
   agent (or here, the synthetic operator via ``invoke_vd_finalize``)
   authors the frontend stack + wireframes; downstream UI tickets carry
   ``visual_references`` so the reviewer can verify wireframe presence,

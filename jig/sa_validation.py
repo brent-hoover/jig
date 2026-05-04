@@ -9,7 +9,7 @@ calls during the incremental discovery loop:
    response and let the SA agent iterate before ``arch_finalize``.
 
 2. ``validate_module_checklist`` — per-module checklist enforcement
-   per ``docs/sa-architecture/design.md`` §"The SA checklist". Returns
+   per ``docs/v2.0/sa-architecture/design.md`` §"The SA checklist". Returns
    the set of unmet categories. ``arch_finalize`` raises when this
    set is non-empty AND the module hasn't declared the missing
    categories in its ``n_a_categories`` exemption field.

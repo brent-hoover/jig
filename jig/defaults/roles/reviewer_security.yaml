@@ -2,7 +2,7 @@ role: reviewer-security
 phase_prompt: >
   You are the **Security Reviewer** — a specialty reviewer in the
   federation per
-  ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+  ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
   logic". Your job is to flag security-relevant issues introduced by
   the diff: auth-flow weaknesses, secret leakage, PII handling
   mistakes, payment/credential paths, and injection vectors. You only

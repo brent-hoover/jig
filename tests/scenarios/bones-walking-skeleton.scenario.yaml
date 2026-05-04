@@ -7,7 +7,7 @@ description: |
   PO L0/L3, manual L1/L2/SA artifacts, build-plan + Coordinator,
   contract-compliance reviewer, analytics tagging.
 
-  Per ``docs/implementation/v2-plan.md`` Bones success criteria:
+  Per ``docs/v2.0/implementation/v2-plan.md`` Bones success criteria:
   - Operator manually walks past L1/L2/L3 with minimal one-suite/
     one-capability content.
   - Operator manually writes a 5-line architecture.yaml + 5-line

@@ -1,6 +1,6 @@
 """VD output schemas — ``.jig/spec/frontend.yaml`` + supporting types.
 
-Per ``docs/visual-design/design.md`` §"Frontend architecture (VD owns
+Per ``docs/v2.0/visual-design/design.md`` §"Frontend architecture (VD owns
 this)": the frontend stack is part of VD's deliverable. The default
 minimal stack is HTMX + Alpine + custom utility CSS with no JS bundler;
 operators override per-project for React / Vue / Svelte / etc.
@@ -96,7 +96,7 @@ class FrontendSpec(BaseModel):
       this allowlist.
     - ``intent`` — the disciplined intent sequence. Required (every v2
       artifact past the early-capture state carries an intent layer per
-      ``docs/agent-leverage/problem.md`` §1).
+      ``docs/v2.0/agent-leverage/problem.md`` §1).
     - ``generated_at`` — UTC timestamp; refreshed by the writer on
       every save so ``jig story`` can surface "spec last touched at X".
     """

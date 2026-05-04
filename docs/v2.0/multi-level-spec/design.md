@@ -22,7 +22,7 @@ reuses today's brief format intact.
 > reserved for the SA's architectural unit (a service / package /
 > deployment boundary). A suite's capabilities may be implemented
 > across multiple modules; the SA-modules layer is designed in
-> `docs/sa-architecture/`. This doc covers L0–L4 only.
+> `docs/v2.0/sa-architecture/`. This doc covers L0–L4 only.
 
 ## Levels of resolution
 
@@ -772,7 +772,7 @@ URI scheme:
 - Migration from any prior jig format. Confirmed 2026-05-03: clean break, no migration tooling, no backward-compat
   detection. v2 is the format from day one.
 - The SA-modules layer (architectural code modules, contracts, integration AC, risk register, spike work). See
-  `docs/sa-architecture/`.
+  `docs/v2.0/sa-architecture/`.
 
 ## Open questions
 

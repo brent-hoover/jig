@@ -1,6 +1,6 @@
 """External-API recorded fixtures (Track E Final).
 
-Per ``docs/dev-environment/design.md`` §"External-API recorded fixtures":
+Per ``docs/v2.0/dev-environment/design.md`` §"External-API recorded fixtures":
 default ``replay_only`` mode + phase-gated ``record_new`` mode for
 Shopify-style external dependencies. Final scope ships:
 

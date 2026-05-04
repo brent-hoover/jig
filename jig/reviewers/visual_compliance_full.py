@@ -2,8 +2,8 @@
 
 Wraps the MVP ``VisualComplianceReviewer`` (existence + linter +
 reference-token check) and adds the vision-based screenshot diff
-described in ``docs/visual-design/design.md`` §"Visual compliance
-reviewer" + ``docs/implementation/v2-plan.md`` Track D Final row.
+described in ``docs/v2.0/visual-design/design.md`` §"Visual compliance
+reviewer" + ``docs/v2.0/implementation/v2-plan.md`` Track D Final row.
 
 The Final-layer flow per visual reference:
 

@@ -8,7 +8,7 @@ description: |
   branch is exercised by ``bones-with-cascade.scenario.yaml`` so this
   scenario stays focused on the spike-without-cascade path.
 
-  Per ``docs/sa-architecture/design.md`` §"Risk identification and
+  Per ``docs/v2.0/sa-architecture/design.md`` §"Risk identification and
   spikes": this is the common case — most spikes confirm the
   assumption holds; only a minority surface as confirmed_impossible.
 

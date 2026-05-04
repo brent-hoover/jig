@@ -17,17 +17,17 @@ track-decomposed sequence of work.
 **Design corpus this plan synthesizes:**
 
 - `TENETS.md`, `ontology.md` — principles + vocabulary
-- `docs/multi-level-spec/` — PO discovery (L0–L4)
-- `docs/sa-architecture/` — SA contracts, risks, spikes, cascade
-- `docs/visual-design/` — VD frontend arch + design system + wireframes
-- `docs/pm-workflow/` — Planner + Coordinator, build plan, federated reviewers
-- `docs/dev-environment/` — service isolation + provisioning
-- `docs/analytics/` — event capture (schema in `jig/analytics/`)
-- `docs/agent-leverage/` — six commitments with v2/v2.x split
-- `docs/synthetic-operator/` — workflow validation via simulator
-- `docs/uri-scheme/` — multi-authority URI extension
-- `docs/learnings/` (deferred), `docs/agent-testing/` (deferred placeholder)
-- `docs/implementation/gap-analysis.md` — current jig vs v2 designs
+- `docs/v2.0/multi-level-spec/` — PO discovery (L0–L4)
+- `docs/v2.0/sa-architecture/` — SA contracts, risks, spikes, cascade
+- `docs/v2.0/visual-design/` — VD frontend arch + design system + wireframes
+- `docs/v2.0/pm-workflow/` — Planner + Coordinator, build plan, federated reviewers
+- `docs/v2.0/dev-environment/` — service isolation + provisioning
+- `docs/v2.0/analytics/` — event capture (schema in `jig/analytics/`)
+- `docs/v2.0/agent-leverage/` — six commitments with v2/v2.x split
+- `docs/v2.0/synthetic-operator/` — workflow validation via simulator
+- `docs/v2.0/uri-scheme/` — multi-authority URI extension
+- `docs/v2.0/learnings/` (deferred), `docs/v2.0/agent-testing/` (deferred placeholder)
+- `docs/v2.0/implementation/gap-analysis.md` — current jig vs v2 designs
 
 **No migration.** Confirmed 2026-05-03: clean break, no v1→v2 tooling, no backward-compat detection. v2 is the format
 from day one.
@@ -189,10 +189,10 @@ v2 work decomposes into 9 concurrent tracks. Each has its own internal sequence;
 
 | #  | Deliverable                                                                                            | Files / docs                                              |
 |----|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
-| A1 | Multi-authority URI scheme (`jig/uri/`)                                                                | `docs/uri-scheme/design.md` §Implementation phases        |
+| A1 | Multi-authority URI scheme (`jig/uri/`)                                                                | `docs/v2.0/uri-scheme/design.md` §Implementation phases        |
 | A2 | Pydantic schemas for v2 artifact types (PO, SA, VD, PM, dev_provisioning)                              | each design doc has the schema sketches                   |
-| A3 | Intent-layer fields baked into all v2 schemas (problem / simplest_solution / complications_considered) | `docs/agent-leverage/problem.md` item 1                   |
-| A4 | Analytics wiring throughout existing emit sites (already-shipped event types from `jig/analytics/`)    | `docs/analytics/problem.md` "What's still owed for v1 v2" |
+| A3 | Intent-layer fields baked into all v2 schemas (problem / simplest_solution / complications_considered) | `docs/v2.0/agent-leverage/problem.md` item 1                   |
+| A4 | Analytics wiring throughout existing emit sites (already-shipped event types from `jig/analytics/`)    | `docs/v2.0/analytics/problem.md` "What's still owed for v1 v2" |
 
 **Blocks:** every other track depends on A1, A2 directly. A3 lands during the schema work. A4 enables the quartermaster.
 
@@ -553,7 +553,7 @@ literal parallel work. The dependency graph still tells you what to build first.
 
 ## Out of scope for v2 (deferred to v2.x)
 
-Per `docs/agent-leverage/problem.md` v2/v2.x split + design-doc deferred sections:
+Per `docs/v2.0/agent-leverage/problem.md` v2/v2.x split + design-doc deferred sections:
 
 - **Adversarial pairing (skeptic shadow)** — defer to v2.x; v2 captures `BugDiscoveredPostMerge` +
   `BoundedFixLoopExhausted` corpus events so the design lands informed by real escape data.
@@ -561,8 +561,8 @@ Per `docs/agent-leverage/problem.md` v2/v2.x split + design-doc deferred section
   events.
 - **Additional translation renderers** (OpenAPI, SQL DDL, GraphQL SDL, sequence diagrams) — defer; build per renderer
   when project pain materializes.
-- **Heuristics layer** (`docs/learnings/`) — defer to v2.x; revisit trigger is 3+ medium projects shipped.
-- **Full agent-driven testing framework** beyond the synthetic operator (`docs/agent-testing/`) — defer; revisit trigger
+- **Heuristics layer** (`docs/v2.0/learnings/`) — defer to v2.x; revisit trigger is 3+ medium projects shipped.
+- **Full agent-driven testing framework** beyond the synthetic operator (`docs/v2.0/agent-testing/`) — defer; revisit trigger
   is the synthetic operator running for a meaningful corpus and a specific kind earning its way in.
 - **Continuous-shadow adversarial pairing** (the second flavor of item 4) — defer behind periodic-checkpoint.
 - **Full reviewer self-check loop** at scale — basic version in v2; full version in v2.x.

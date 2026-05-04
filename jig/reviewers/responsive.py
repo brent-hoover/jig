@@ -1,6 +1,6 @@
 """ResponsiveDesignReviewer — Track D Final mechanical responsive checks.
 
-Per ``docs/visual-design/design.md`` §"Responsive design enforcement":
+Per ``docs/v2.0/visual-design/design.md`` §"Responsive design enforcement":
 a Final-layer mechanical reviewer that audits each authored wireframe
 for the markers of a responsive layout. No LLM, no vision.
 

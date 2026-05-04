@@ -6,7 +6,7 @@ namespace to provision per agent on which service. Operators never edit
 the manifest directly; ``derive_manifest`` re-projects it from the
 architecture every time it changes.
 
-Per ``docs/dev-environment/design.md`` §"The dev environment manifest
+Per ``docs/v2.0/dev-environment/design.md`` §"The dev environment manifest
 (derived)":
 
     .jig/dev/manifest.yaml — generated, not hand-authored

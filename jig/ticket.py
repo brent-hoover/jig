@@ -9,7 +9,7 @@ from jig.schemas._validators import validate_kebab_id, validate_tz_aware
 from jig.store.models import StoreModel
 
 # v2 build-plan fields carry a small literal vocabulary the schemas team
-# explicitly enumerates (see ``docs/pm-workflow/design.md`` §"Layer model"
+# explicitly enumerates (see ``docs/v2.0/pm-workflow/design.md`` §"Layer model"
 # and §"Dev tier"). We keep the allowed sets as module-level frozensets
 # so the validator and downstream consumers can share one source of truth.
 _ALLOWED_LAYERS = frozenset({"bones", "mvp", "final"})
@@ -53,7 +53,7 @@ class Size(str, Enum):
 
 
 # Mapping from the pre-doc-03 `type` values to the new `work_type`.
-# See docs/implementation-plan.md Phase 1 Task B.
+# See docs/v2.0/implementation-plan.md Phase 1 Task B.
 _LEGACY_TYPE_MIGRATION: dict[str, str] = {
     "feature": "feature",
     "bug": "bugfix",
@@ -101,7 +101,7 @@ class Ticket(StoreModel):
 
     # v2 build-plan extensions. Optional during the v2 build so v1 records
     # still load; populated by the Planner PM when the build plan owns the
-    # ticket. See docs/pm-workflow/design.md §"Ticket structure (extensions)".
+    # ticket. See docs/v2.0/pm-workflow/design.md §"Ticket structure (extensions)".
     suite_id: str | None = None
     module_id: str | None = None
     capability_ids: list[str] = []
@@ -122,14 +122,14 @@ class Ticket(StoreModel):
     visual_references: list[str] = []
 
     # Set when the Coordinator defers this ticket via the DEFERRED queue
-    # (per docs/pm-workflow/design.md §"DEFERRED queue triage"). The
+    # (per docs/v2.0/pm-workflow/design.md §"DEFERRED queue triage"). The
     # ticket itself stays in the store; this stamp lets downstream views
     # filter "currently deferred" without needing to consult the queue.
     deferred_at: datetime | None = None
 
     # v2 Track G Final — set when this ticket amends an existing
     # behavioral / data contract as part of its work (per
-    # ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+    # ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
     # logic"). When populated, the dispatch logic auto-selects
     # ``reviewer-architectural`` so the SA-tier reviewer can verify
     # the amendment was deliberate. The string is a short rationale
@@ -140,7 +140,7 @@ class Ticket(StoreModel):
 
     # v2 Hardening — structured reason set when the ticket lands in a
     # non-OK terminal state driven by the review-federation gate (per
-    # ``docs/pm-workflow/design.md`` §"Severity tiers and disposition").
+    # ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition").
     # Known values:
     #   ``"reviewer-critical"``  — federation found one or more critical
     #                              comments; ticket FAILED.

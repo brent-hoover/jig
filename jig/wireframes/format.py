@@ -1,6 +1,6 @@
 """Wireframe metadata schema + extraction from HTML comments.
 
-Per ``docs/visual-design/design.md`` §"Wireframe → bones continuity":
+Per ``docs/v2.0/visual-design/design.md`` §"Wireframe → bones continuity":
 each ``<screen-id>.html`` carries metadata in a leading HTML comment so
 the linker / index generator can build the screen roster without
 parsing the body. Format::

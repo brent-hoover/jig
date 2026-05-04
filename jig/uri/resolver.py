@@ -9,7 +9,7 @@ Two paths exist:
 - ``resolve_spec_uri(uri, spec)`` — re-exported from ``jig.uri.spec``; takes
   a pre-loaded ``StructuredSpec`` (preserves the v1 caller pattern).
 
-See ``docs/uri-scheme/design.md`` §"Resolution mechanics".
+See ``docs/v2.0/uri-scheme/design.md`` §"Resolution mechanics".
 """
 from __future__ import annotations
 

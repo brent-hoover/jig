@@ -1,6 +1,6 @@
 """SpecComplianceReviewer — MVP-scope mechanical spec-compliance check (Track G MVP).
 
-Per ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+Per ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
 logic": "spec-compliance — does it satisfy the behavior AC and
 integration AC the ticket cites?"
 

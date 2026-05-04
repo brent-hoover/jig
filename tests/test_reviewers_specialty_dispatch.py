@@ -1,6 +1,6 @@
 """Specialty-reviewer auto-selection (Track G Final).
 
-Per ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+Per ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
 logic", three specialty reviewers join the federation when the
 ticket's characteristics call for them:
 

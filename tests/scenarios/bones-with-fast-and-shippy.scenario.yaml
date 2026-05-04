@@ -2,7 +2,7 @@ spec_version: 1
 id: bones-with-fast-and-shippy
 description: |
   Same shape as ``bones-with-planner`` but driven by the
-  fast-and-shippy persona. Per ``docs/synthetic-operator/design.md``
+  fast-and-shippy persona. Per ``docs/v2.0/synthetic-operator/design.md``
   §"Persona library", fast-and-shippy accepts gates without scrutiny,
   pushes for MVP minimums, and willingly defers complications.
 

@@ -1,6 +1,6 @@
 """TUI slash commands for the multi-level PO (Track B Final).
 
-Per ``docs/multi-level-spec/design.md`` §"Workflow integration": the
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Workflow integration": the
 operator can drive the L1 / L2 / L3 PO from the TUI via slash
 commands. Tests cover dispatch parsing + the daemon-side handler
 behavior with mocked stores.

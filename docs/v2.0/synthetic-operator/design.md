@@ -22,7 +22,7 @@ Built parallel with the v2 implementation so workflow design choices get A/B tes
 ## Components
 
 ```
-docs/synthetic-operator/scenarios/             ← scenario library (in-repo)
+docs/v2.0/synthetic-operator/scenarios/             ← scenario library (in-repo)
   smoke/
     po-l1-happy-path.scenario.yaml
     sa-cascade-confirmed-impossible.scenario.yaml
@@ -63,7 +63,7 @@ jig/synthetic_operator/                        ← driver + persona library + as
 YAML script. Self-describing; reviewable; diffable in PRs.
 
 ```yaml
-# docs/synthetic-operator/scenarios/smoke/po-l1-happy-path.scenario.yaml
+# docs/v2.0/synthetic-operator/scenarios/smoke/po-l1-happy-path.scenario.yaml
 spec_version: 1
 id: po-l1-happy-path
 description: |
@@ -506,7 +506,7 @@ regression scenario passes when the bug is reintroduced (literal "this should fa
 
 ```bash
 # Run one scenario
-jig sim run docs/synthetic-operator/scenarios/smoke/po-l1-happy-path.scenario.yaml
+jig sim run docs/v2.0/synthetic-operator/scenarios/smoke/po-l1-happy-path.scenario.yaml
 
 # Run all smoke scenarios in parallel (with isolation)
 jig sim run-tier smoke
@@ -545,7 +545,7 @@ operations. Inside the TUI, `/sim` slash commands mirror the CLI.
 
 ## Out of scope
 
-- LLM-generated scenarios from project archetypes (v2.x; full agent-driven testing in `docs/agent-testing/`).
+- LLM-generated scenarios from project archetypes (v2.x; full agent-driven testing in `docs/v2.0/agent-testing/`).
 - Simulating non-operator failure modes (network, LLM API outages, disk-full). Resilience testing is separate.
 - Multi-operator collaboration scenarios.
 - Replacing pytest unit tests for code-level correctness.

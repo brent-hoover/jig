@@ -1,6 +1,6 @@
 """VD design-system schemas — tokens / components / brand.
 
-Per ``docs/visual-design/design.md`` §"Design system integration": the
+Per ``docs/v2.0/visual-design/design.md`` §"Design system integration": the
 design system is **always present** — VD applies a minimal default at
 discovery start so wireframes have something to render against. The
 ``default`` source is a permanent valid state, not a placeholder; a

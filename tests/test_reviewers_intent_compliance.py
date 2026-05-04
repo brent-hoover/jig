@@ -1,6 +1,6 @@
 """Intent-layer enforcement reviewer (Track I MVP).
 
-Per ``docs/agent-leverage/problem.md`` §1: a mechanical reviewer that
+Per ``docs/v2.0/agent-leverage/problem.md`` §1: a mechanical reviewer that
 flags thin/boilerplate ``Intent`` blocks on authored artifacts. Three
 deterministic checks (length, boilerplate-restatement, empty
 complications) — no LLM. Cousin of ``ContractComplianceReviewer``: same

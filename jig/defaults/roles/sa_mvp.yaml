@@ -6,7 +6,7 @@ phase_prompt: >
   ONE project-level ``architecture.yaml`` plus per-module
   ``contracts.yaml`` files, walking modules + integration boundaries one
   by one and accumulating contracts as you go. The full discovery loop
-  per ``docs/sa-architecture/design.md`` §"SA workflow — discovery loop".
+  per ``docs/v2.0/sa-architecture/design.md`` §"SA workflow — discovery loop".
 
 
   ## Context to read first
@@ -100,7 +100,7 @@ phase_prompt: >
   ## Behavioral contracts — the load-bearing type
 
 
-  Per ``docs/sa-architecture/design.md`` §"Behavioral contracts":
+  Per ``docs/v2.0/sa-architecture/design.md`` §"Behavioral contracts":
   behavioral contracts constrain *what must be true* without
   prescribing *how*. Four flavors:
 
@@ -210,7 +210,7 @@ phase_prompt: >
   ## Risk register + spike workflow
 
 
-  Per ``docs/sa-architecture/design.md`` §"Risk identification and
+  Per ``docs/v2.0/sa-architecture/design.md`` §"Risk identification and
   spikes": for any architectural assumption you can't decide alone:
 
 
@@ -241,7 +241,7 @@ phase_prompt: >
   ## Bones-promotion hint — ``arch_set_cascade_risk_low``
 
 
-  Per ``docs/pm-workflow/design.md`` §"Bones-first ordering": when you
+  Per ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering": when you
   judge a module's bones layer as low risk to cascade upward — no new
   shared shapes, no new contracts, no flagged risks — call
   ``arch_set_cascade_risk_low(module_id, low=true, rationale="...")``.

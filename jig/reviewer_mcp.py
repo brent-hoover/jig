@@ -7,7 +7,7 @@ reviewers (pattern-conformance, error-handling, test-adequacy) are
 LLM-driven role configs — they read the diff, reason about it, and
 emit comments through this MCP tool back into the
 ``ReviewCommentsStore`` per
-``docs/pm-workflow/design.md`` §"Reviewer federation — selection logic".
+``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection logic".
 
 One handler, one tool: ``reviewer_post_comment``. The agent posts one
 comment per call (a single judgment-reviewer run can produce many).

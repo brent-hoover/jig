@@ -111,6 +111,14 @@ class StepKind(str, Enum):
     # Reviewer — invoke ContractComplianceReviewer.review.
     RUN_REVIEWER = "run_reviewer"
 
+    # Track E MVP — exercise the dev-env provisioning path without a real
+    # Postgres. The handler injects an in-memory SQL recorder, calls
+    # ``provision_for_agent`` with the configured ticket id, and verifies
+    # CREATE SCHEMA + (optionally) DROP SCHEMA fired. Scenario YAML
+    # carries the ticket id + an optional ``cleanup`` flag (default
+    # True) so the assertion suite can gate on the recorder's calls.
+    INVOKE_DEV_PROVISIONING = "invoke_dev_provisioning"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

@@ -192,6 +192,10 @@ class DriverContext:
     emitter: EventEmitter
     reviewer_comments: dict[str, list[ReviewerComment]] = field(default_factory=dict)
     cost_usd: float = 0.0
+    # Track E MVP — captured SQL fired by dev-provisioning steps. Tests
+    # introspect this list; production drivers leave it empty.
+    dev_provisioning_sql: list[str] = field(default_factory=list)
+    dev_provisioning_env_vars: dict[str, str] = field(default_factory=dict)
 
 
 # ---- step handler signature ---------------------------------------------
@@ -248,6 +252,9 @@ class Driver:
             StepKind.TRIAGE_DEFERRED.value: _handle_triage_deferred,
             StepKind.MOCK_DEV_COMMIT.value: dev_handler,
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
+            StepKind.INVOKE_DEV_PROVISIONING.value: (
+                _handle_invoke_dev_provisioning
+            ),
         }
 
     @property
@@ -1169,6 +1176,76 @@ async def _aggregate_agent_cost(ctx: DriverContext) -> float:
         (getattr(e, "cost_estimate_usd", None) or 0.0)
         for e in events
     )
+
+
+async def _handle_invoke_dev_provisioning(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Exercise the dev-env provisioning happy path with an in-memory SQL recorder.
+
+    Scenario YAML shape::
+
+        kind: invoke_dev_provisioning
+        params:
+          ticket_id: tb-catalog-ingest
+          cleanup: true        # optional; default true (drop on success)
+          success: true        # optional; default true
+
+    The handler reads ``.jig/dev/manifest.yaml``, builds a
+    ``ProvisioningRegistry`` with an in-memory SQL recorder, runs
+    ``provision_for_agent`` and (if cleanup=True) ``cleanup_for_agent``.
+    Captured SQL + the env-var map are stamped on ``ctx`` so
+    scenario-level assertions can introspect.
+    """
+    from jig.dev_env.manifest import derive_manifest
+    from jig.dev_env.orchestrator_hook import (
+        cleanup_for_agent,
+        provision_for_agent,
+    )
+    from jig.dev_env.provisioning import ProvisioningRegistry
+    from jig.spec_loader import (
+        dev_manifest_path,
+        load_architecture,
+        save_dev_manifest,
+    )
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError("invoke_dev_provisioning: params.ticket_id is required")
+    do_cleanup = bool(step.params.get("cleanup", True))
+    success = bool(step.params.get("success", True))
+    agent_id = step.params.get("agent_id") or "sim-dev"
+
+    # Auto-derive the manifest on first call so a scenario only needs
+    # the architecture step (with dev_provisioning blocks) before
+    # invoking this step. Real operators would do this via
+    # ``jig dev manifest`` or the ``dev_derive_manifest`` MCP tool.
+    if not dev_manifest_path(ctx.project_root).is_file():
+        arch = load_architecture(ctx.project_root)
+        save_dev_manifest(ctx.project_root, derive_manifest(arch))
+
+    captured_sql: list[str] = []
+
+    async def _recorder(sql: str) -> None:
+        captured_sql.append(sql)
+
+    registry = ProvisioningRegistry(postgres_sql_executor=_recorder)
+    env_map = await provision_for_agent(
+        ctx.project_root,
+        agent_id=agent_id,
+        ticket_id=ticket_id,
+        registry=registry,
+    )
+    if do_cleanup:
+        await cleanup_for_agent(
+            ctx.project_root,
+            agent_id=agent_id,
+            ticket_id=ticket_id,
+            success=success,
+            registry=registry,
+        )
+    ctx.dev_provisioning_sql = captured_sql
+    ctx.dev_provisioning_env_vars = env_map
 
 
 async def _handle_run_reviewer(

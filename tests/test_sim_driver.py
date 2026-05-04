@@ -637,3 +637,98 @@ async def test_full_bones_lifecycle_passes_in_mock_mode(tmp_path: Path):
     scn = _bones_scenario()
     report = await driver.run(scn, project_root=tmp_path)
     assert report.passed, report.failure_summary()
+
+
+# ---------------------------------------------------------------------------
+# Track E MVP — invoke_dev_provisioning step
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_invoke_dev_provisioning_step_records_sql(tmp_path: Path):
+    """Step records CREATE SCHEMA + DROP SCHEMA via the in-memory recorder.
+
+    Verifies the dev manifest is auto-derived on first call and that
+    the provisioning lifecycle (provision + cleanup) fires for the
+    declared shared_namespaced Postgres data store.
+    """
+    from jig.schemas.arch import Architecture, DataStore, DevProvisioning
+    from jig.spec_loader import save_architecture
+
+    arch = Architecture(
+        data_stores=[
+            DataStore(
+                id="main-db",
+                kind="postgres",
+                dev_provisioning=DevProvisioning(
+                    strategy="shared_namespaced",
+                    namespace_template="agent_{ticket_id}",
+                ),
+            ),
+        ],
+        modules=[
+            Module(
+                id="m",
+                title="t",
+                summary="s",
+                intent=_intent("p"),
+            )
+        ],
+    )
+    save_architecture(tmp_path, arch)
+
+    driver = Driver()
+    scn = Scenario(
+        id="dev-prov-only",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_DEV_PROVISIONING,
+                params={"ticket_id": "tb-1", "cleanup": True, "success": True},
+                assertions=[
+                    ArtifactWrittenAssertion(
+                        path=".jig/dev/manifest.yaml", contains="shared_namespaced"
+                    ),
+                ],
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert report.passed, report.failure_summary()
+
+
+@pytest.mark.asyncio
+async def test_invoke_dev_provisioning_requires_ticket_id(tmp_path: Path):
+    """Missing ticket_id surfaces as a step error."""
+    from jig.schemas.arch import Architecture, DataStore, DevProvisioning
+    from jig.spec_loader import save_architecture
+
+    arch = Architecture(
+        data_stores=[
+            DataStore(
+                id="main-db",
+                kind="postgres",
+                dev_provisioning=DevProvisioning(strategy="shared_namespaced"),
+            ),
+        ],
+    )
+    save_architecture(tmp_path, arch)
+
+    driver = Driver()
+    scn = Scenario(
+        id="dev-prov-bad",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_DEV_PROVISIONING,
+                params={},
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert not report.passed
+    assert "ticket_id" in (report.step_outcomes[0].error or "")

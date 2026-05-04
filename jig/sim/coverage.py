@@ -65,6 +65,8 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "reviewer-cross-cutting-policy",
     "reviewer-spec-compliance",
     "reviewer-intent-compliance",
+    # Track E MVP — dev-environment provisioning happy-path coverage.
+    "dev-provisioning",
 })
 
 

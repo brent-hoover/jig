@@ -94,6 +94,11 @@ def _risk(intent: Intent | None = None) -> Risk:
         impact=RiskImpact.MEDIUM,
         likelihood=RiskLikelihood.LOW,
         status=RiskStatus.SPIKE_PROPOSED,
+        # Schema-level invariant (Block A.1): risks past ``open`` must
+        # declare the dependent_contracts the cascade workflow inspects.
+        dependent_contracts=[
+            "project://arch/modules/catalog-ingest/contracts#data_contracts/dedup-key",
+        ],
         intent=intent or _good_intent(),
     )
 

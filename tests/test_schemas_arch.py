@@ -479,3 +479,152 @@ def test_change_log_entry_rejects_revision_zero():
 def test_change_log_entry_rejects_negative_revision():
     with pytest.raises(ValidationError, match="revision"):
         ChangeLogEntry(revision=-1, date=date(2026, 5, 1), summary="x")
+
+
+# ---- Risk: schema-level conditional invariants ----------------------------
+#
+# Before Block A.1 the cascade-prep gates lived in ``jig.sa_incremental_mcp``
+# and only fired on the upsert path; constructing a Risk directly let an
+# invalid combination land in the architecture. The schema-level
+# ``model_validator`` mirrors the same rule on every construction path.
+
+
+_VALID_DEP_URI = "project://arch/modules/m/contracts#owns/products"
+
+
+def _spike_proposed_kwargs() -> dict:
+    return dict(
+        id="r-x",
+        text="x",
+        impact=RiskImpact.MEDIUM,
+        likelihood=RiskLikelihood.MEDIUM,
+        status=RiskStatus.SPIKE_PROPOSED,
+        dependent_contracts=[_VALID_DEP_URI],
+        intent=_intent(),
+    )
+
+
+def test_risk_spike_proposed_happy_path():
+    r = Risk(**_spike_proposed_kwargs())
+    assert r.dependent_contracts == [_VALID_DEP_URI]
+    assert r.intent is not None
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        RiskStatus.SPIKE_PROPOSED,
+        RiskStatus.SPIKE_RUNNING,
+        RiskStatus.MITIGATED,
+        RiskStatus.MITIGATED_WITH_CONSTRAINTS,
+        RiskStatus.ACCEPTED,
+        RiskStatus.CONFIRMED_IMPOSSIBLE,
+    ],
+)
+def test_risk_post_open_status_requires_dependent_contracts(status):
+    kwargs = _spike_proposed_kwargs() | {
+        "status": status,
+        "dependent_contracts": [],
+    }
+    with pytest.raises(ValidationError, match="dependent_contracts"):
+        Risk(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        RiskStatus.SPIKE_PROPOSED,
+        RiskStatus.SPIKE_RUNNING,
+        RiskStatus.MITIGATED,
+        RiskStatus.MITIGATED_WITH_CONSTRAINTS,
+        RiskStatus.ACCEPTED,
+        RiskStatus.CONFIRMED_IMPOSSIBLE,
+    ],
+)
+def test_risk_post_open_status_requires_intent(status):
+    kwargs = _spike_proposed_kwargs() | {"status": status, "intent": None}
+    with pytest.raises(ValidationError, match="intent"):
+        Risk(**kwargs)
+
+
+def test_risk_open_allows_no_dependents_and_no_intent():
+    """``OPEN`` is the early-capture state — both gates must stay off."""
+    r = Risk(
+        id="r-open",
+        text="x",
+        impact=RiskImpact.LOW,
+        likelihood=RiskLikelihood.LOW,
+        status=RiskStatus.OPEN,
+    )
+    assert r.dependent_contracts == []
+    assert r.intent is None
+
+
+# ---- Module: cascade_risk_low_rationale conditional invariant ------------
+#
+# When the SA flips the ``cascade_risk_low`` hint to True, the rationale
+# must be substantive enough for the PM coordinator (and audit trail)
+# to read; a bare boolean toggle defeats that purpose. The minimum
+# floor (>= 10 chars after strip) keeps "ok" / "n/a" out of the artifact.
+
+
+def test_module_cascade_risk_low_false_does_not_require_rationale():
+    m = Module(
+        id="m",
+        title="t",
+        summary="s",
+        intent=_intent(),
+    )
+    assert m.cascade_risk_low is False
+    assert m.cascade_risk_low_rationale is None
+
+
+def test_module_cascade_risk_low_true_with_rationale_accepted():
+    m = Module(
+        id="m",
+        title="t",
+        summary="s",
+        intent=_intent(),
+        cascade_risk_low=True,
+        cascade_risk_low_rationale=(
+            "no shared shapes, no new contracts, internal-only"
+        ),
+    )
+    assert m.cascade_risk_low is True
+
+
+def test_module_cascade_risk_low_true_without_rationale_rejected():
+    with pytest.raises(ValidationError, match="cascade_risk_low_rationale"):
+        Module(
+            id="m",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            cascade_risk_low=True,
+        )
+
+
+def test_module_cascade_risk_low_true_with_short_rationale_rejected():
+    """Single-token / "ok" prose defeats the audit trail's purpose."""
+    with pytest.raises(ValidationError, match="cascade_risk_low_rationale"):
+        Module(
+            id="m",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            cascade_risk_low=True,
+            cascade_risk_low_rationale="ok",
+        )
+
+
+def test_module_cascade_risk_low_true_with_whitespace_rationale_rejected():
+    """The 10-char floor applies after stripping leading/trailing ws."""
+    with pytest.raises(ValidationError, match="cascade_risk_low_rationale"):
+        Module(
+            id="m",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            cascade_risk_low=True,
+            cascade_risk_low_rationale="    ok    ",
+        )

@@ -335,7 +335,9 @@ async def test_arch_set_cascade_risk_low_false_clears_rationale(tmp_path: Path):
         project_path=tmp_path,
         module_id="m-x",
         low=True,
-        rationale="seed",
+        # >= 10 chars so the schema-level invariant (Block A.1)
+        # accepts the rationale.
+        rationale="seed-rationale-text",
     )
     await handle_arch_set_cascade_risk_low(
         project_path=tmp_path,

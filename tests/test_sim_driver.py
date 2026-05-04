@@ -1184,6 +1184,9 @@ async def test_risk_status_passes_when_match(tmp_path: Path):
                     impact=RiskImpact.MEDIUM,
                     likelihood=RiskLikelihood.MEDIUM,
                     status=RiskStatus.SPIKE_PROPOSED,
+                    dependent_contracts=[
+                        "project://arch/modules/m/contracts#owns/x",
+                    ],
                     intent=_intent_obj(),
                 )
             ]

@@ -13,13 +13,31 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.intent import Intent
 from jig.schemas._validators import (
     validate_kebab_id,
     validate_project_uri_shape,
     validate_tz_aware,
+)
+
+
+# Risk status values >= ``spike_proposed`` trigger the cascade-prep gates
+# (``dependent_contracts`` + ``intent`` required) per
+# ``docs/v2.0/sa-architecture/design.md`` §"Risk schema requires
+# ``dependent_contracts``". ``OPEN`` is the noted-but-uncommitted state
+# that escapes the gate so the SA can capture nascent risks without
+# pre-committing to the dependency map.
+_RISK_CASCADE_PREP_STATUSES: frozenset[str] = frozenset(
+    {
+        "spike_proposed",
+        "spike_running",
+        "mitigated",
+        "mitigated_with_constraints",
+        "accepted",
+        "confirmed_impossible",
+    }
 )
 
 __all__ = [
@@ -273,6 +291,44 @@ class Risk(BaseModel):
             validate_project_uri_shape(entry)
         return v
 
+    @model_validator(mode="after")
+    def _enforce_cascade_prep_invariants(self) -> Risk:
+        """Once a risk transitions past ``open``, the cascade workflow
+        needs ``dependent_contracts`` + ``intent`` declared up front.
+
+        Mirrors the v2 SA design's "Risk schema requires
+        ``dependent_contracts``" rule, hoisted from the upsert handler
+        in ``jig.sa_incremental_mcp`` to the schema layer so any
+        construction path (YAML load, unit-test fixture, MCP arg
+        coercion) fails the same way at the same boundary. ``OPEN``
+        skips this check so an SA can capture nascent risks without
+        pre-committing to the dependency map.
+        """
+        # Compare against the string value so the gate works whether
+        # ``status`` arrives as the enum or its raw string form.
+        status_value = (
+            self.status.value
+            if isinstance(self.status, RiskStatus)
+            else str(self.status)
+        )
+        if status_value not in _RISK_CASCADE_PREP_STATUSES:
+            return self
+        if not self.dependent_contracts:
+            raise ValueError(
+                f"Risk.dependent_contracts must be non-empty when "
+                f"status is {status_value!r} (>= spike_proposed). The "
+                "cascade workflow needs the dependents enumerated up "
+                "front so a confirmed-impossible spike can amend them."
+            )
+        if self.intent is None:
+            raise ValueError(
+                f"Risk.intent must be set when status is "
+                f"{status_value!r} (>= spike_proposed). Every v2 "
+                "artifact past the early-capture state carries an "
+                "intent layer; risks aren't an exception."
+            )
+        return self
+
 
 class Module(BaseModel):
     """A module entry in architecture.yaml."""
@@ -330,6 +386,30 @@ class Module(BaseModel):
     @classmethod
     def _kebab_id(cls, v: str) -> str:
         return validate_kebab_id(v, "Module.id")
+
+    @model_validator(mode="after")
+    def _enforce_cascade_risk_low_rationale(self) -> Module:
+        """When ``cascade_risk_low=True``, the operator (and the audit
+        trail) need to see the SA's reasoning rather than a bare boolean.
+
+        The minimum-prose floor (>= 10 chars) is small but enough to
+        keep "ok" / "n/a" / single-token prose out of the artifact —
+        the rationale exists so PM coordinators reading the cascade
+        risk override can audit it later, and a one-word rationale
+        defeats that purpose.
+        """
+        if not self.cascade_risk_low:
+            return self
+        rationale = self.cascade_risk_low_rationale
+        if rationale is None or len(rationale.strip()) < 10:
+            raise ValueError(
+                "Module.cascade_risk_low_rationale must be a non-empty "
+                "string (>= 10 chars) when cascade_risk_low is True. "
+                "The PM coordinator reads this when deciding whether "
+                "to honor the SA's override; bare booleans defeat the "
+                "audit trail."
+            )
+        return self
 
 
 class Architecture(BaseModel):

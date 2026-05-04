@@ -92,6 +92,9 @@ async def test_run_agent_with_analytics_emits_spawn_and_complete(
         class _FakeResult:
             status = "success"
             final_text = "ok"
+            total_cost_usd = 0.0234
+            tokens_in = 1234
+            tokens_out = 567
 
         async def _fake_run_agent(ctx, emitter=None):
             await asyncio.sleep(0)
@@ -129,6 +132,12 @@ async def test_run_agent_with_analytics_emits_spawn_and_complete(
         assert s.model == "default"
         assert c.status == "success"
         assert c.duration_ms >= 0
+        # Cost + token fields propagate from RunAgentResult into the
+        # AgentCompleted event so the simulator's cost_under_budget
+        # assertion has real numbers to gate on.
+        assert c.cost_estimate_usd == 0.0234
+        assert c.tokens_in == 1234
+        assert c.tokens_out == 567
     finally:
         await orch.shutdown()
 
@@ -146,6 +155,9 @@ async def test_run_agent_status_mapping_needs_info_to_blocked(
         class _FakeResult:
             status = "needs_info"
             final_text = ""
+            total_cost_usd = None
+            tokens_in = None
+            tokens_out = None
 
         async def _fake_run_agent(ctx, emitter=None):
             return _FakeResult()

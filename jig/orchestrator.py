@@ -209,9 +209,15 @@ class Orchestrator:
             )
         start = time.monotonic()
         result_status = "failed"
+        cost_usd: float | None = None
+        tokens_in: int | None = None
+        tokens_out: int | None = None
         try:
             result = await run_agent(ctx, emitter=self._emitter)
             result_status = self._map_result_status(result.status)
+            cost_usd = result.total_cost_usd
+            tokens_in = result.tokens_in
+            tokens_out = result.tokens_out
             return result
         finally:
             if emitter is not None:
@@ -220,6 +226,9 @@ class Orchestrator:
                         agent_id=agent_id,
                         status=result_status,  # type: ignore[arg-type]
                         duration_ms=int((time.monotonic() - start) * 1000),
+                        cost_estimate_usd=cost_usd,
+                        tokens_in=tokens_in,
+                        tokens_out=tokens_out,
                     )
                 )
 

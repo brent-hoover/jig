@@ -238,7 +238,14 @@ class Driver:
         report = ScenarioReport(scenario_id=scenario.id)
         async with _isolated_run(project_root) as ctx:
             for step in scenario.steps:
-                outcome = StepOutcome(kind=step.kind)
+                # Surface the actual handler name in real mode so the
+                # report doesn't lie ("mock_dev_commit" PASS during a
+                # real-mode run is misleading). Mode-aware label only;
+                # the YAML kind stays the same.
+                display_kind = step.kind
+                if self._real_mode and step.kind == StepKind.MOCK_DEV_COMMIT.value:
+                    display_kind = "real_dev_dispatch"
+                outcome = StepOutcome(kind=display_kind)
                 handler = self._handlers.get(step.kind)
                 if handler is None:
                     outcome.error = f"no handler registered for kind {step.kind!r}"

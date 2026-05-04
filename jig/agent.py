@@ -137,6 +137,9 @@ def _strict_disallowed_tools(allowed_tools: list[str]) -> list[str]:
 class RunAgentResult:
     status: str  # "success" | "failed" | "blocked" | "needs_info"
     final_text: str
+    total_cost_usd: float | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
 
 
 async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
@@ -526,6 +529,9 @@ async def run_agent(
                     _logger.warning("emitter.emit raised; continuing", exc_info=True)
 
         final_text = ""
+        cost_usd: float | None = None
+        tokens_in: int | None = None
+        tokens_out: int | None = None
         # Short ticket prefix for log lines: first 8 chars of UUID
         tid = ctx.ticket.id[:8]
         tag = f"{ctx.role}:{tid}"
@@ -673,11 +679,16 @@ async def run_agent(
                     _logger.debug("[%s] system: %s", tag, message.subtype)
                 elif isinstance(message, ResultMessage):
                     final_text = message.result or ""
+                    cost_usd = message.total_cost_usd
+                    usage = message.usage or {}
+                    tokens_in = usage.get("input_tokens")
+                    tokens_out = usage.get("output_tokens")
                     _logger.info(
-                        "[%s] completed: %s turns, %.1fs",
+                        "[%s] completed: %s turns, %.1fs, $%.4f",
                         tag,
                         message.num_turns,
                         (message.duration_ms or 0) / 1000,
+                        cost_usd or 0.0,
                     )
                     # Post an agent_run SystemEvent so the story view
                     # gets per-spawn timing without having to parse logs.
@@ -725,7 +736,13 @@ async def run_agent(
         status = "success"
         if current is not None:
             status = _status_to_result(current.status)
-        return RunAgentResult(status=status, final_text=final_text)
+        return RunAgentResult(
+            status=status,
+            final_text=final_text,
+            total_cost_usd=cost_usd,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
     finally:
         _ticket_id_var.reset(_tid_token)
         _phase_var.reset(_phase_token)

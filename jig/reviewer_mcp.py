@@ -11,10 +11,12 @@ emit comments through this MCP tool back into the
 
 One handler, one tool: ``reviewer_post_comment``. The agent posts one
 comment per call (a single judgment-reviewer run can produce many).
-The handler validates the payload as a ``ReviewerComment``, persists
-to the store, and returns the assigned id so the agent can reference
-it on subsequent calls (e.g. follow-up comments threaded on the same
-file/line).
+The handler validates the payload as a ``ReviewerComment``, runs the
+self-check gate (Track G Final, see ``jig.reviewers.self_check``), and
+on pass persists to the store and returns the assigned id. On a
+self-check drop, the handler raises ``SelfCheckDropped`` so the
+reviewer agent's tool call gets a clear "this got filtered" signal it
+can incorporate into its next decision.
 
 Why one tool instead of "post a batch"? The Claude Agent SDK reports
 each tool call individually for tracing / cost attribution; one-comment-
@@ -31,7 +33,26 @@ from typing import Any
 from pydantic import ValidationError
 
 from jig.reviewers.comment import ReviewerComment
+from jig.reviewers.self_check import (
+    SelfCheckResult,
+    validate_comment_for_self_check,
+)
 from jig.store.review_comments import ReviewCommentsStore
+
+
+class SelfCheckDropped(ValueError):
+    """Raised when ``handle_reviewer_post_comment`` drops a comment.
+
+    Subclasses ``ValueError`` so existing callers that catch validation
+    failures keep working; the ``result`` attribute carries the
+    structured ``SelfCheckResult`` so analytics / tests can introspect.
+    """
+
+    def __init__(self, result: SelfCheckResult) -> None:
+        self.result = result
+        super().__init__(
+            f"reviewer_post_comment dropped by self-check: {result.reason}"
+        )
 
 
 def _store_path(project_path: Path) -> Path:
@@ -60,6 +81,12 @@ async def handle_reviewer_post_comment(
     payload when both are present so the LLM can target a different
     ticket when the operator's prompt asks for it (rare, but supported
     for the future cross-ticket pattern-conformance pass).
+
+    The deterministic self-check gate (Track G Final) runs after schema
+    validation but before persistence. A dropped comment raises
+    ``SelfCheckDropped`` carrying the structured ``SelfCheckResult`` so
+    the reviewer agent can refine and retry — operator never sees
+    low-signal noise.
     """
     payload = dict(args)
     payload.setdefault("reviewer", reviewer_role)
@@ -76,6 +103,10 @@ async def handle_reviewer_post_comment(
             f"{exc.errors()}"
         ) from exc
 
+    self_check = validate_comment_for_self_check(comment)
+    if not self_check.should_post:
+        raise SelfCheckDropped(self_check)
+
     store_path = _store_path(project_path)
     store_path.parent.mkdir(parents=True, exist_ok=True)
     store = ReviewCommentsStore(store_path)
@@ -83,4 +114,4 @@ async def handle_reviewer_post_comment(
     return await store.append(comment)
 
 
-__all__ = ["handle_reviewer_post_comment"]
+__all__ = ["SelfCheckDropped", "handle_reviewer_post_comment"]

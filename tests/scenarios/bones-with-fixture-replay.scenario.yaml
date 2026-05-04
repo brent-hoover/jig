@@ -8,10 +8,16 @@ description: |
   the replayed body matches the recording — REPLAY_ONLY with no
   backing client is the safest possible test of the cassette path.
 
+  Block 2 extends the scenario with two ``invoke_fixture_env`` probes
+  that pin the JIG_FIXTURE_MODE the orchestrator's spawn path now
+  injects into ``ctx.extra_env``: a feature ticket defaults to
+  ``replay_only`` and a SPIKE ticket defaults to ``record_new``.
+
 persona: methodical
 estimated_cost_usd_max: 1.0
 coverage_tags:
   - fixtures-replay
+  - fixture-mode-spawn-env
 
 steps:
   - kind: invoke_fixture_replay
@@ -28,6 +34,28 @@ steps:
       - kind: artifact_written
         path: .jig/dev/fixtures/shopify-api.jsonl
         contains: shopify-api
+
+  # Block 2 — verify the fixture-mode env that ``_run_agent_with_analytics``
+  # now stamps onto ctx.extra_env for each spawned agent.
+  - kind: invoke_fixture_env
+    params:
+      ticket_id: tb-feature-fixture
+      work_type: feature
+    assertions:
+      - kind: env_var_set
+        name: JIG_FIXTURE_MODE
+        value: replay_only
+        source: fixture_env
+
+  - kind: invoke_fixture_env
+    params:
+      ticket_id: tb-spike-fixture
+      work_type: spike
+    assertions:
+      - kind: env_var_set
+        name: JIG_FIXTURE_MODE
+        value: record_new
+        source: fixture_env
 
 final_assertions:
   - kind: cost_under_budget

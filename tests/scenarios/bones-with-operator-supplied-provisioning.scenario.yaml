@@ -1,0 +1,36 @@
+spec_version: 1
+id: bones-with-operator-supplied-provisioning
+description: |
+  Block 2 — exercises the operator_supplied provisioning strategy.
+  Operators pre-provision the service out-of-band (e.g. a hosted
+  Postgres / vendor-hosted queue) and supply a connection string
+  template that the orchestrator surfaces verbatim in the agent's
+  env-var map. No per-agent namespacing, no provision step, no cleanup
+  step — the operator owns the lifecycle.
+
+  Pre-Block-2 the dispatcher silently dropped operator_supplied
+  services, leaving agents without their env vars; this scenario pins
+  the post-fix contract.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - operator-supplied-provisioning
+
+steps:
+  - kind: invoke_operator_supplied_provisioning
+    params:
+      ticket_id: tb-operator-supplied
+      service_id: vendor-queue
+      kind: nats
+      connection_string_template: nats://operator.example.com:4222
+      cleanup: true
+    assertions:
+      - kind: env_var_set
+        name: _url
+        value: nats://operator.example.com:4222
+        source: operator_supplied
+
+final_assertions:
+  - kind: cost_under_budget
+    usd: 1.0

@@ -78,6 +78,7 @@ from jig.sim.assertions import (
     AnalyticsEventEmittedAssertion,
     ArtifactWrittenAssertion,
     CostUnderBudgetAssertion,
+    EnvVarSetAssertion,
     ReviewerReturnedNoCriticalAssertion,
     TicketStatusAssertion,
 )
@@ -286,6 +287,14 @@ class DriverContext:
     last_ontology_remove_rewritten: list[str] = field(default_factory=list)
     last_ontology_remove_orphan_count: int = 0
     last_ontology_reference_count: int = 0
+    # Block 2 — captured outputs from the new fixture-mode + operator-
+    # supplied sim steps. ``last_fixture_env`` carries the env-var map
+    # ``build_fixture_env`` produced for the synthesised ticket so a
+    # scenario assertion can verify the JIG_FIXTURE_MODE entry matches
+    # the work-type's default. ``last_operator_supplied_url`` carries
+    # the connection string the operator-supplied passthrough returned.
+    last_fixture_env: dict[str, str] = field(default_factory=dict)
+    last_operator_supplied_url: str | None = None
 
 
 # ---- step handler signature ---------------------------------------------
@@ -462,6 +471,10 @@ class Driver:
                 _handle_invoke_discovery_resume
             ),
             StepKind.INVOKE_ONTOLOGY_EDIT.value: _handle_invoke_ontology_edit,
+            StepKind.INVOKE_FIXTURE_ENV.value: _handle_invoke_fixture_env,
+            StepKind.INVOKE_OPERATOR_SUPPLIED.value: (
+                _handle_invoke_operator_supplied_provisioning
+            ),
         }
 
     @property
@@ -2054,6 +2067,8 @@ async def _evaluate_assertion(
         return _check_reviewer_no_critical(ctx, assertion)
     if isinstance(assertion, CostUnderBudgetAssertion):
         return _check_cost_under_budget(ctx, assertion)
+    if isinstance(assertion, EnvVarSetAssertion):
+        return _check_env_var_set(ctx, assertion)
     return AssertionResult(
         kind=type(assertion).__name__,
         passed=False,
@@ -2189,6 +2204,55 @@ def _check_cost_under_budget(
         kind=a.kind,
         passed=True,
         detail=f"cost {ctx.cost_usd:.4f} < budget {a.usd:.4f}",
+    )
+
+
+def _check_env_var_set(
+    ctx: DriverContext, a: EnvVarSetAssertion
+) -> AssertionResult:
+    """Check that the most recent step's stamped env-var map contains
+    ``a.name`` with the optionally-required ``a.value``.
+
+    Block 2 — feeds the JIG_FIXTURE_MODE + operator_supplied URL
+    coverage assertions without coupling to live process env.
+    """
+    if a.source == "fixture_env":
+        env_map = ctx.last_fixture_env
+        source_label = "ctx.last_fixture_env"
+    elif a.source == "operator_supplied":
+        env_map = (
+            {"_url": ctx.last_operator_supplied_url}
+            if ctx.last_operator_supplied_url is not None
+            else {}
+        )
+        source_label = "ctx.last_operator_supplied_url"
+    else:  # pragma: no cover — Pydantic Literal narrows this
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"unknown source {a.source!r}",
+        )
+
+    actual = env_map.get(a.name)
+    if actual is None:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"env var {a.name!r} not set in {source_label} "
+                f"(present keys: {sorted(env_map)})"
+            ),
+        )
+    if a.value is not None and actual != a.value:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"env var {a.name!r} = {actual!r}, expected {a.value!r}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind, passed=True, detail=f"{a.name}={actual} OK",
     )
 
 
@@ -2892,3 +2956,131 @@ async def _handle_invoke_ontology_edit(
 
     raise ValueError(f"invoke_ontology_edit: unknown action {action!r}")
 
+
+# ---- Block 2 — fixture-mode + operator-supplied sim handlers -------------
+
+
+async def _handle_invoke_fixture_env(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Verify ``build_fixture_env`` produces the expected env-var map.
+
+    Scenario YAML shape::
+
+        kind: invoke_fixture_env
+        params:
+          ticket_id: tb-fixture-mode
+          work_type: feature   # or "spike" — drives the default mode
+          override: null       # optional FixtureMode value override
+        assertions:
+          - kind: env_var_set
+            name: JIG_FIXTURE_MODE
+            value: replay_only
+
+    Builds a synthetic Ticket with the requested work_type, calls
+    ``build_fixture_env``, stamps the result on
+    ``ctx.last_fixture_env`` so a follow-up assertion can introspect.
+    """
+    from jig.dev_env.orchestrator_hook import build_fixture_env
+    from jig.ticket import Ticket, WorkType
+
+    ticket_id = step.params.get("ticket_id") or "tb-fixture-env"
+    work_type_raw = step.params.get("work_type") or "feature"
+    try:
+        work_type = WorkType(work_type_raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"invoke_fixture_env: unknown work_type {work_type_raw!r}; "
+            f"expected one of {[m.value for m in WorkType]}"
+        ) from exc
+
+    ticket = Ticket(
+        id=ticket_id,
+        work_type=work_type,
+        title="fixture-env probe",
+        created_by="sim",
+    )
+    ctx.last_fixture_env = build_fixture_env(
+        ticket, override=step.params.get("override"),
+    )
+
+
+async def _handle_invoke_operator_supplied_provisioning(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Exercise the operator_supplied provisioning passthrough.
+
+    Scenario YAML shape::
+
+        kind: invoke_operator_supplied_provisioning
+        params:
+          ticket_id: tb-operator-supplied
+          service_id: vendor-queue                                    # optional
+          kind: nats                                                  # optional
+          connection_string_template: nats://operator.example.com     # required
+          cleanup: true                                               # optional
+
+    Builds a one-service manifest in-memory with strategy=
+    operator_supplied, runs ``provision_agent_namespace``, asserts the
+    operator-authored connection string surfaces verbatim in the
+    env-var map, and runs cleanup (always a no-op for operator_supplied).
+    Stamps ``ctx.last_operator_supplied_url`` for assertion introspection.
+    """
+    from jig.dev_env.provisioning import (
+        ProvisioningRegistry,
+        cleanup_agent_namespace,
+        provision_agent_namespace,
+    )
+    from jig.schemas.dev_env import DevManifest, ManifestService
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_operator_supplied_provisioning: params.ticket_id is required"
+        )
+    template = step.params.get("connection_string_template")
+    if not template:
+        raise ValueError(
+            "invoke_operator_supplied_provisioning: "
+            "params.connection_string_template is required"
+        )
+    service_id = step.params.get("service_id") or "vendor-queue"
+    service_kind = step.params.get("kind") or "nats"
+    do_cleanup = bool(step.params.get("cleanup", True))
+    agent_id = step.params.get("agent_id") or "sim-dev"
+
+    manifest = DevManifest(
+        services=[
+            ManifestService(
+                id=service_id,
+                kind=service_kind,
+                strategy="operator_supplied",
+                namespace_template="agent_{ticket_id}",
+            ),
+        ],
+        connection_string_templates={service_id: template},
+    )
+    registry = ProvisioningRegistry(project_root=ctx.project_root)
+    url_map = await provision_agent_namespace(
+        manifest,
+        agent_id=agent_id,
+        ticket_id=ticket_id,
+        registry=registry,
+    )
+    url = url_map.get(service_id)
+    if not url:
+        raise AssertionError(
+            "invoke_operator_supplied_provisioning: provisioner returned "
+            f"no URL for service={service_id!r}"
+        )
+    ctx.last_operator_supplied_url = url
+
+    if do_cleanup:
+        # Operator owns the lifecycle — cleanup is intentionally a no-op.
+        await cleanup_agent_namespace(
+            manifest,
+            agent_id=agent_id,
+            ticket_id=ticket_id,
+            success=True,
+            registry=registry,
+        )

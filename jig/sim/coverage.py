@@ -131,6 +131,13 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "discovery-resume",
     "ontology-edit",
     "tui-slash-commands",
+    # Block 2 (real-mode integration) — operator_supplied provisioning
+    # passthrough + JIG_FIXTURE_MODE spawn-env injection. The first
+    # closes the inert third-strategy branch in dev-env provisioning;
+    # the second pins the orchestrator's real-mode wiring of
+    # ``build_fixture_env`` into ``ctx.extra_env``.
+    "operator-supplied-provisioning",
+    "fixture-mode-spawn-env",
 })
 
 

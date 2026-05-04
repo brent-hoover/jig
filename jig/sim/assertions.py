@@ -34,6 +34,7 @@ __all__ = [
     "ArtifactWrittenAssertion",
     "AssertionKind",
     "CostUnderBudgetAssertion",
+    "EnvVarSetAssertion",
     "ReviewerReturnedNoCriticalAssertion",
     "ScenarioAssertion",
     "ScenarioAssertionUnion",
@@ -49,6 +50,10 @@ class AssertionKind(str, Enum):
     TICKET_STATUS = "ticket_status"
     REVIEWER_RETURNED_NO_CRITICAL = "reviewer_returned_no_critical"
     COST_UNDER_BUDGET = "cost_under_budget"
+    # Block 2 — verify a sim step stamped an env-var entry on the
+    # driver context (used to gate JIG_FIXTURE_MODE-style spawn-env
+    # checks without coupling assertions to live process env).
+    ENV_VAR_SET = "env_var_set"
 
 
 class _AssertionBase(BaseModel):
@@ -116,6 +121,30 @@ class ReviewerReturnedNoCriticalAssertion(_AssertionBase):
     reviewer_id: str = Field(..., min_length=1)
 
 
+class EnvVarSetAssertion(_AssertionBase):
+    """One env-var entry from the most recent sim step matches.
+
+    Block 2 covers ``JIG_FIXTURE_MODE`` spawn-env checks and the
+    operator-supplied connection string surfacing — both stamp their
+    output on the driver context so the assertion can introspect
+    without depending on live process environment.
+
+    ``source`` selects which ctx field to read:
+
+    - ``fixture_env`` (default) → ``ctx.last_fixture_env``
+    - ``operator_supplied`` → returns the single
+      ``{"_url": ctx.last_operator_supplied_url}`` view, so the
+      assertion can match the URL with ``name="_url"``.
+    """
+
+    kind: Literal[AssertionKind.ENV_VAR_SET.value] = (
+        AssertionKind.ENV_VAR_SET.value
+    )
+    name: str = Field(..., min_length=1)
+    value: str | None = None
+    source: Literal["fixture_env", "operator_supplied"] = "fixture_env"
+
+
 class CostUnderBudgetAssertion(_AssertionBase):
     """Total scenario cost stayed under ``usd``.
 
@@ -141,6 +170,7 @@ ScenarioAssertionUnion = Annotated[
         TicketStatusAssertion,
         ReviewerReturnedNoCriticalAssertion,
         CostUnderBudgetAssertion,
+        EnvVarSetAssertion,
     ],
     Field(discriminator="kind"),
 ]

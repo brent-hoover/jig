@@ -240,6 +240,21 @@ class StepKind(str, Enum):
     # replacement; the handler stamps the result on the driver context.
     INVOKE_ONTOLOGY_EDIT = "invoke_ontology_edit"
 
+    # Block 2 — verify the fixture-mode env var built for a ticket
+    # matches the expected mode. ``params.work_type`` (spike | feature)
+    # drives the Ticket synthesised for ``build_fixture_env``; the
+    # handler stamps ``ctx.last_fixture_env`` so a follow-up
+    # ``env_var_set`` assertion can introspect.
+    INVOKE_FIXTURE_ENV = "invoke_fixture_env"
+
+    # Block 2 — exercise operator_supplied provisioning end-to-end.
+    # Builds a one-service manifest in-memory with strategy=
+    # operator_supplied, runs ``provision_agent_namespace``, asserts
+    # the operator-authored connection string template surfaces verbatim
+    # in the env-var map, and verifies cleanup is a no-op. Stamps
+    # ``ctx.last_operator_supplied_url`` for assertion introspection.
+    INVOKE_OPERATOR_SUPPLIED = "invoke_operator_supplied_provisioning"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

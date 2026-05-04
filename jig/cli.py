@@ -1781,3 +1781,28 @@ def pm_overrides_list(path: Path) -> None:
             f"[{row.recorded_at.isoformat()}] {row.epic_id} by {row.actor}{cri}: "
             f"{row.rationale or '(no rationale)'}"
         )
+
+
+@pm_group.command("view")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def pm_view_cmd(path: Path) -> None:
+    """Print the cycle view (epics × layers + Coordinator state + envelopes)."""
+    from jig.coordinator import Coordinator
+    from jig.pm.cycle_view import build_cycle_view, format_cycle_view
+    from jig.store.tickets import TicketStore
+
+    async def _run() -> None:
+        store_dir = path / ".jig" / "store"
+        tickets = TicketStore(store_dir / "tickets.jsonl")
+        if (store_dir / "tickets.jsonl").is_file():
+            await tickets.load()
+        coord = Coordinator(tickets=tickets, project_root=path)
+        view = await build_cycle_view(coord, path)
+        click.echo(format_cycle_view(view))
+
+    asyncio.run(_run())

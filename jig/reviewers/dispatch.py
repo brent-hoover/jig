@@ -22,9 +22,29 @@ Defaults policy (for ``select_reviewers_for_ticket``):
   spec). Judgment reviewers join in a later G MVP follow-on.
 - Empty ``reviewer_set`` with ``layer`` unset → empty list (we can't
   tell what defaults apply without the layer).
+
+Specialty reviewer auto-selection (Track G Final, per design
+§"Reviewer federation — selection logic"):
+
+- ``reviewer-security`` joins when the ticket has any of the labels
+  ``touches-auth`` / ``touches-pii`` / ``touches-secrets`` /
+  ``touches-payments`` OR the ticket's module has tier_hint=SA in
+  ``architecture.yaml``.
+- ``reviewer-performance`` joins when the ticket has the
+  ``perf-budget`` label OR the linked integration AC carries
+  perf-budget keywords (``latency`` / ``throughput`` / ``p99`` /
+  ``under N ms`` / ``requests per``).
+- ``reviewer-architectural`` joins when the ticket has the
+  ``touches-contract`` label OR ``dev_tier == "sa"`` OR
+  ``contract_amendment`` is populated.
+
+These auto-selections fire on top of any planner-authored
+``reviewer_set`` (additive, never subtractive) so a planner can't
+accidentally suppress security/perf/arch coverage by omission.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -43,6 +63,35 @@ SPEC_COMPLIANCE_REVIEWER_ID = "spec-compliance"
 # non-empty visual_references). Tier: senior per design; MVP ships the
 # basic mechanical version (no vision), Final adds screenshot diff.
 VISUAL_COMPLIANCE_REVIEWER_ID = "visual-compliance"
+
+# Track G Final — specialty reviewers auto-selected by ticket
+# characteristics (labels, dev_tier, module tier_hint, AC text).
+# Each is an LLM-driven judgment reviewer; the role configs live in
+# ``jig/defaults/roles/reviewer_<name>.yaml``.
+SECURITY_REVIEWER_ID = "reviewer-security"
+PERFORMANCE_REVIEWER_ID = "reviewer-performance"
+ARCHITECTURAL_REVIEWER_ID = "reviewer-architectural"
+
+# Labels that trigger specialty-reviewer auto-selection. Sets so
+# membership tests stay O(1) for the common case (a ticket usually
+# has 0–3 labels).
+_SECURITY_LABELS: frozenset[str] = frozenset({
+    "touches-auth",
+    "touches-pii",
+    "touches-secrets",
+    "touches-payments",
+})
+_PERFORMANCE_LABELS: frozenset[str] = frozenset({"perf-budget"})
+_ARCHITECTURAL_LABELS: frozenset[str] = frozenset({"touches-contract"})
+
+# Perf-budget AC keyword regex. Matches the design's enumerated
+# triggers: latency, throughput, p99, under-N-ms phrasing, or
+# requests-per phrasing. Case-insensitive; whole-word boundaries on
+# the named keywords so "delaying" doesn't match "lay" etc.
+_PERF_AC_RE: re.Pattern[str] = re.compile(
+    r"\b(?:latency|throughput|p99|p95|under\s+\d+\s*ms|requests?\s+per)\b",
+    re.IGNORECASE,
+)
 
 # Mechanical reviewer ids — the per-commit-cadence-eligible set per
 # design §"Two-cadence review". These are the deterministic checks
@@ -82,7 +131,11 @@ _MVP_FINAL_DEFAULTS: list[str] = [
 ]
 
 
-def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
+def select_reviewers_for_ticket(
+    ticket: Ticket,
+    *,
+    project_root: Path | None = None,
+) -> list[str]:
     """Return the reviewer ids to run on ``ticket``.
 
     Branches:
@@ -100,6 +153,21 @@ def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
     - ``layer`` unset and empty reviewer_set → empty list. The
       Coordinator materializes tickets with ``layer="bones"``; a
       missing layer means we can't tell what defaults apply.
+
+    Specialty reviewer auto-selection (Track G Final) runs on top of
+    whichever branch fired above, additive only:
+
+    - Security: labels touch auth/PII/secrets/payments OR module is
+      SA-tier in architecture.yaml.
+    - Performance: ``perf-budget`` label OR linked integration AC
+      contains perf-budget keywords.
+    - Architectural: ``touches-contract`` label OR ``dev_tier == "sa"``
+      OR ``contract_amendment`` populated.
+
+    ``project_root`` is optional — when omitted the dispatch falls back
+    to ticket-only signals (labels + dev_tier + contract_amendment).
+    Passing the project root unlocks the architecture.yaml + contracts
+    lookups (module tier_hint + AC text scan).
     """
     selected: list[str]
     if ticket.reviewer_set:
@@ -109,7 +177,10 @@ def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
     elif ticket.layer in ("mvp", "final"):
         selected = list(_MVP_FINAL_DEFAULTS)
     else:
-        return []
+        # Layer unset → don't apply MVP/final defaults, but still let
+        # specialty reviewers fire (a SA-tier amendment ticket should
+        # always be reviewed even if its layer is missing).
+        selected = []
 
     # Visual-compliance is gated on the presence of visual_references —
     # not on a planner opt-in. UI tickets get the reviewer regardless of
@@ -120,7 +191,139 @@ def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
         and VISUAL_COMPLIANCE_REVIEWER_ID not in selected
     ):
         selected.append(VISUAL_COMPLIANCE_REVIEWER_ID)
+
+    # Specialty reviewer auto-selection (Track G Final). Each helper
+    # returns True iff the reviewer should fire; we append in
+    # selection order so the markdown rendering reads predictably.
+    if SECURITY_REVIEWER_ID not in selected and _needs_security_review(
+        ticket, project_root
+    ):
+        selected.append(SECURITY_REVIEWER_ID)
+    if PERFORMANCE_REVIEWER_ID not in selected and _needs_performance_review(
+        ticket, project_root
+    ):
+        selected.append(PERFORMANCE_REVIEWER_ID)
+    if ARCHITECTURAL_REVIEWER_ID not in selected and _needs_architectural_review(
+        ticket
+    ):
+        selected.append(ARCHITECTURAL_REVIEWER_ID)
+
+    # Specialty reviewers fired on a layer-unset ticket should not
+    # promote the ticket to "no reviewers when none asked for one";
+    # the empty-list branch above already returned []. But if any
+    # specialty reviewer was added we now have a meaningful list, so
+    # return it. If still empty (no defaults, no specialties), preserve
+    # the bones-era contract: return [] so callers see "nothing to run".
     return selected
+
+
+def _needs_security_review(
+    ticket: Ticket, project_root: Path | None
+) -> bool:
+    """True iff ``ticket`` should pull in the security reviewer.
+
+    Triggers: any of the security labels OR the ticket's module is
+    SA-tier in architecture.yaml. The architecture lookup is
+    short-circuited when ``project_root`` is None.
+    """
+    if any(label in _SECURITY_LABELS for label in ticket.labels):
+        return True
+    if project_root is not None and ticket.module_id is not None:
+        if _module_tier_hint(project_root, ticket.module_id) == "sa":
+            return True
+    return False
+
+
+def _needs_performance_review(
+    ticket: Ticket, project_root: Path | None
+) -> bool:
+    """True iff ``ticket`` should pull in the performance reviewer.
+
+    Triggers: ``perf-budget`` label OR linked integration AC contains
+    perf-budget keywords. The AC scan is short-circuited when
+    ``project_root`` is None or the ticket has no module_id.
+    """
+    if any(label in _PERFORMANCE_LABELS for label in ticket.labels):
+        return True
+    if project_root is None or ticket.module_id is None:
+        return False
+    return _integration_ac_mentions_perf(
+        project_root, ticket.module_id, ticket.capability_ids
+    )
+
+
+def _needs_architectural_review(ticket: Ticket) -> bool:
+    """True iff ``ticket`` should pull in the architectural reviewer.
+
+    Triggers: ``touches-contract`` label OR ``dev_tier == "sa"`` OR
+    ``contract_amendment`` populated. No project_root needed — every
+    signal lives on the ticket itself.
+    """
+    if any(label in _ARCHITECTURAL_LABELS for label in ticket.labels):
+        return True
+    if ticket.dev_tier == "sa":
+        return True
+    if ticket.contract_amendment:
+        return True
+    return False
+
+
+def _module_tier_hint(project_root: Path, module_id: str) -> str | None:
+    """Return ``architecture.yaml``'s tier_hint for ``module_id``, or None.
+
+    Lazy / forgiving: returns None when the architecture file is
+    missing, malformed, or the module isn't declared. Specialty
+    selection should fail open (not over-trigger) when the
+    architecture lookup is uncertain.
+    """
+    # Local import to keep dispatch.py importable in contexts that
+    # don't load the full schema surface.
+    from jig.spec_loader import load_architecture
+
+    try:
+        arch = load_architecture(project_root)
+    except (FileNotFoundError, ValueError):
+        return None
+    for module in arch.modules:
+        if module.id == module_id:
+            return module.tier_hint.value
+    return None
+
+
+def _integration_ac_mentions_perf(
+    project_root: Path,
+    module_id: str,
+    capability_ids: list[str],
+) -> bool:
+    """True iff any integration-AC ``must`` text matches ``_PERF_AC_RE``.
+
+    Scopes the scan to the ticket's claimed capabilities when set;
+    falls back to scanning every AC when ``capability_ids`` is empty
+    (a senior dev ticket without explicit scoping still benefits from
+    the perf reviewer).
+    """
+    from jig.spec_loader import module_contracts_path
+    from jig.schemas.arch import ContractsFile
+    import yaml
+
+    contracts_path = module_contracts_path(project_root, module_id)
+    if not contracts_path.is_file():
+        return False
+    try:
+        contracts = ContractsFile.model_validate(
+            yaml.safe_load(contracts_path.read_text()) or {}
+        )
+    except (ValueError, yaml.YAMLError):
+        return False
+
+    cap_set = set(capability_ids)
+    for ac in contracts.integration_ac:
+        if cap_set and ac.capability not in cap_set:
+            continue
+        for must_text in ac.must:
+            if _PERF_AC_RE.search(must_text):
+                return True
+    return False
 
 
 # Backward-compatible alias. The bones-era name keeps working for the
@@ -276,9 +479,12 @@ def _tag_cadence(
 
 
 __all__ = [
+    "ARCHITECTURAL_REVIEWER_ID",
     "BONES_REVIEWER_ID",
     "CROSS_CUTTING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
+    "PERFORMANCE_REVIEWER_ID",
+    "SECURITY_REVIEWER_ID",
     "SPEC_COMPLIANCE_REVIEWER_ID",
     "VISUAL_COMPLIANCE_REVIEWER_ID",
     "dispatch_for_cadence",

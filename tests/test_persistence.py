@@ -205,6 +205,12 @@ class TestDefaultRoles:
             "reviewer-pattern-conformance",
             "reviewer-error-handling",
             "reviewer-test-adequacy",
+            # Track G Final specialty reviewers — LLM-driven, gated
+            # by ticket characteristics in
+            # ``jig.reviewers.dispatch.select_reviewers_for_ticket``.
+            "reviewer-security",
+            "reviewer-performance",
+            "reviewer-architectural",
             # Track D MVP — VD (Visual Designer / frontend architect).
             "vd",
         }

@@ -118,6 +118,17 @@ class Ticket(StoreModel):
     # filter "currently deferred" without needing to consult the queue.
     deferred_at: datetime | None = None
 
+    # v2 Track G Final — set when this ticket amends an existing
+    # behavioral / data contract as part of its work (per
+    # ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+    # logic"). When populated, the dispatch logic auto-selects
+    # ``reviewer-architectural`` so the SA-tier reviewer can verify
+    # the amendment was deliberate. The string is a short rationale
+    # (e.g. ``"adds optional retry-policy field to ingest-batch-atomicity"``);
+    # the SA reviewer reads it for context. ``None`` means "no contract
+    # amendment in this ticket".
+    contract_amendment: str | None = None
+
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_fields(cls, data: Any) -> Any:

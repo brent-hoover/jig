@@ -36,9 +36,12 @@ from jig.reviewers.comment import (
 from jig.reviewers.contract_compliance import ContractComplianceReviewer
 from jig.reviewers.cross_cutting_policy import CrossCuttingPolicyReviewer
 from jig.reviewers.dispatch import (
+    ARCHITECTURAL_REVIEWER_ID,
     BONES_REVIEWER_ID,
     CROSS_CUTTING_REVIEWER_ID,
     INTENT_REVIEWER_ID,
+    PERFORMANCE_REVIEWER_ID,
+    SECURITY_REVIEWER_ID,
     SPEC_COMPLIANCE_REVIEWER_ID,
     dispatch_for_cadence,
     select_reviewers_for_ticket,
@@ -56,6 +59,7 @@ from jig.reviewers.visual_compliance import (
 )
 
 __all__ = [
+    "ARCHITECTURAL_REVIEWER_ID",
     "BONES_REVIEWER_ID",
     "BonesCommentType",
     "CROSS_CUTTING_REVIEWER_ID",
@@ -64,8 +68,10 @@ __all__ = [
     "INTENT_REVIEWER_ID",
     "IntentCommentType",
     "IntentComplianceReviewer",
+    "PERFORMANCE_REVIEWER_ID",
     "ReviewerComment",
     "ReviewerCommentType",
+    "SECURITY_REVIEWER_ID",
     "SPEC_COMPLIANCE_REVIEWER_ID",
     "Severity",
     "SpecComplianceReviewer",

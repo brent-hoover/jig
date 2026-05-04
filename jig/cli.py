@@ -471,6 +471,69 @@ def render_pydantic(module_id: str, contract_id: str, path: Path) -> None:
         raise click.ClickException(str(exc))
 
 
+@cli.group("quartermaster")
+def quartermaster_group() -> None:
+    """Quartermaster briefing + feedback loop (Track I)."""
+
+
+@quartermaster_group.command("feedback")
+@click.argument("briefing_id")
+@click.option(
+    "--useful/--not-useful",
+    default=None,
+    required=True,
+    help="Mark the briefing useful or not-useful.",
+)
+@click.option(
+    "--noisy-pattern",
+    "noisy_patterns",
+    multiple=True,
+    help=(
+        "One or more pattern ids to flag as noisy. Repeat the flag "
+        "to tag multiple patterns. Only applies to --not-useful."
+    ),
+)
+@click.option(
+    "--note",
+    default=None,
+    help="Free-form prose attached to the feedback row.",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def quartermaster_feedback(
+    briefing_id: str,
+    useful: bool,
+    noisy_patterns: tuple[str, ...],
+    note: str | None,
+    path: Path,
+) -> None:
+    """Record operator feedback on a quartermaster briefing.
+
+    Each --not-useful invocation that names a pattern raises that
+    pattern's threshold by 1 (capped at 2x default). After 30 days
+    of no feedback the calibration drifts back toward defaults.
+    """
+    from jig.quartermaster import record_feedback
+
+    try:
+        row_id = asyncio.run(
+            record_feedback(
+                path,
+                briefing_id=briefing_id,
+                useful=useful,
+                not_useful_pattern_ids=list(noisy_patterns),
+                note=note,
+            )
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+    click.echo(f"recorded feedback {row_id} on briefing {briefing_id}")
+
+
 @cli.group("hooks")
 def hooks_group() -> None:
     """Manage human-side git hooks (pre-commit, pre-push, commit-msg)."""

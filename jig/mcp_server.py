@@ -1984,6 +1984,39 @@ def create_agent_mcp_server(
 
         all_tools.append(quartermaster_briefing)
 
+    if "record_feedback" in agent_cfg.allowed_tools:
+
+        @tool(
+            "record_feedback",
+            "Record operator feedback on a quartermaster briefing. "
+            "``briefing_id`` is the id printed at the top of the "
+            "briefing. ``useful=true`` flags the briefing as on-target "
+            "(no calibration change). ``useful=false`` raises the "
+            "thresholds of every pattern named in "
+            "``not_useful_pattern_ids`` by 1 (capped at 2x default). "
+            "``not_useful_pattern_ids`` must contain only canonical "
+            "pattern ids (module_repeated_escalations, "
+            "reviewer_repeating_comment_type, tickets_stalled). "
+            "Returns the new feedback row id.",
+            {
+                "briefing_id": str,
+                "useful": bool,
+                "not_useful_pattern_ids": list,
+                "note": str,
+            },
+        )
+        async def record_feedback_tool(args):
+            row_id = await quartermaster.handle_record_feedback(
+                project_path=project_path,
+                briefing_id=args["briefing_id"],
+                useful=bool(args["useful"]),
+                not_useful_pattern_ids=args.get("not_useful_pattern_ids") or [],
+                note=args.get("note") or None,
+            )
+            return {"content": [{"type": "text", "text": row_id}]}
+
+        all_tools.append(record_feedback_tool)
+
     if "spec_publish" in agent_cfg.allowed_tools:
 
         @tool(

@@ -216,8 +216,46 @@ def test_safe_resolve_within_allows_filename_with_dot_in_last_segment(
     assert result == target.resolve()
 
 
-def test_safe_resolve_within_rejects_dotted_directory_segment(tmp_path: Path) -> None:
-    # Only the last segment may contain dots (filenames). Intermediate
-    # segments must pass the strict per-segment validator.
+def test_safe_resolve_within_allows_dotted_directory_segment(tmp_path: Path) -> None:
+    # safe_resolve_within is for agent-facing paths into real source.
+    # Real source has dots in directory names (``my.app/foo.py``,
+    # ``site-packages/...``), so the looser rule allows interior dots
+    # while still rejecting leading dots (hidden files) and ``..``
+    # (traversal).
+    target = tmp_path / "weird.dir" / "foo.py"
+    target.parent.mkdir()
+    target.write_text("x")
+    assert safe_resolve_within(tmp_path, "weird.dir/foo.py") == target.resolve()
+
+
+def test_safe_resolve_within_allows_uppercase_in_filename(tmp_path: Path) -> None:
+    # Real source trees contain README.md, Cargo.toml, Dockerfile.
+    # Agent reads of these must not be blocked.
+    target = tmp_path / "README.md"
+    target.write_text("hi")
+    assert safe_resolve_within(tmp_path, "README.md") == target.resolve()
+
+
+def test_safe_resolve_within_rejects_hidden_file_segment(tmp_path: Path) -> None:
+    # Agents must not be able to read .env, .git, etc.
     with pytest.raises(ValueError):
-        safe_resolve_within(tmp_path, "weird.dir/foo.py")
+        safe_resolve_within(tmp_path, ".env")
+    with pytest.raises(ValueError):
+        safe_resolve_within(tmp_path, "src/.git/config")
+
+
+def test_safe_resolve_within_rejects_dotdot_segment(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        safe_resolve_within(tmp_path, "..")
+    with pytest.raises(ValueError):
+        safe_resolve_within(tmp_path, "src/../etc")
+
+
+def test_safe_resolve_within_rejects_backslash(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        safe_resolve_within(tmp_path, "src\\..\\etc")
+
+
+def test_safe_resolve_within_rejects_nul_byte(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        safe_resolve_within(tmp_path, "src/foo\x00.py")

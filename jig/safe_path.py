@@ -123,26 +123,53 @@ def safe_join(root: Path, *segments: str) -> Path:
 
 
 def safe_resolve_within(root: Path, relative: str) -> Path:
-    """Resolve a multi-segment ``relative`` path under ``root`` with containment.
+    """Resolve an agent-supplied ``relative`` path under ``root`` with containment.
 
-    Use this for agent-supplied paths like ``"src/foo/bar.py"`` —
-    each ``/``-split segment is validated, and the last segment may
-    be a dotted filename. The resolved final path must remain under
-    ``root``, which rejects symlink-based escapes.
+    Use this for agent-facing path arguments like ``"src/foo/bar.py"``
+    or ``"README.md"`` — paths the agent passes via MCP that point
+    into existing source. The rules are deliberately looser than
+    ``safe_join`` because real source trees contain uppercase
+    filenames (``README.md``, ``Cargo.toml``, ``Dockerfile``) and we
+    don't want to gratuitously block legitimate reads.
+
+    Rejected:
+    - empty input
+    - absolute paths (leading ``/`` or ``\\``)
+    - any segment that is ``.`` or ``..`` (traversal)
+    - any segment containing ``\\`` (Windows-style traversal)
+    - any segment with NUL bytes
+    - empty intermediate segments (``foo//bar``)
+    - leading-dot segments other than the conventional ``..`` reject
+      above (so ``.env`` and ``.git`` cannot be opened by an agent;
+      hidden state is operator-managed, not agent-touchable)
+
+    The final containment check (``resolve().relative_to(root)``)
+    catches symlink escapes that survive the per-segment rules.
     """
-    if not relative:
-        raise ValueError("relative path must be non-empty")
-    # Reject absolute paths up front for a clearer error.
+    if not isinstance(relative, str) or not relative:
+        raise ValueError("relative path must be a non-empty string")
     if relative.startswith("/") or relative.startswith("\\"):
         raise ValueError(f"relative path {relative!r} must not be absolute")
+    if "\x00" in relative:
+        raise ValueError("relative path contains NUL byte")
     parts = relative.split("/")
-    if any(not p for p in parts):
-        raise ValueError(f"relative path {relative!r} contains empty segments")
-    # All but the last segment: strict per-segment validator.
-    for seg in parts[:-1]:
-        validate_safe_path_segment(seg, "path segment")
-    # Last segment: filename rules (dots permitted).
-    validate_safe_filename(parts[-1], "filename")
+    for part in parts:
+        if not part:
+            raise ValueError(
+                f"relative path {relative!r} contains empty segments"
+            )
+        if part in {".", ".."}:
+            raise ValueError(
+                f"relative path {relative!r} contains traversal segment"
+            )
+        if "\\" in part:
+            raise ValueError(
+                f"relative path {relative!r} contains backslash"
+            )
+        if part.startswith("."):
+            raise ValueError(
+                f"relative path {relative!r} has hidden-file segment {part!r}"
+            )
 
     root_resolved = root.resolve()
     candidate = root.joinpath(*parts)

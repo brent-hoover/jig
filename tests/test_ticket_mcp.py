@@ -395,3 +395,95 @@ async def test_request_context_missing_file(tmp_path: Path) -> None:
         args={"path": "nope.txt"},
     )
     assert "not found" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Path traversal containment — Block 1 critical 1.
+# An agent that supplies "../" or absolute or symlink-escaping paths
+# must not be able to read host files outside the worktree.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_context_rejects_dotdot_traversal(tmp_path: Path) -> None:
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("PWNED")
+
+    result = await handle_request_context(
+        worktree_path=work,
+        args={"path": "../secret.txt"},
+    )
+    assert "PWNED" not in result
+    assert "Invalid path" in result
+
+
+@pytest.mark.asyncio
+async def test_request_context_rejects_absolute_path(tmp_path: Path) -> None:
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+
+    result = await handle_request_context(
+        worktree_path=work,
+        args={"path": "/etc/passwd"},
+    )
+    assert "Invalid path" in result
+
+
+@pytest.mark.asyncio
+async def test_request_context_rejects_symlink_escape(tmp_path: Path) -> None:
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("LEAKED")
+    # Symlink lives inside the worktree but points outside — the
+    # per-segment validator can't see this, only the resolve()
+    # containment check catches it.
+    (work / "escape").symlink_to(outside)
+
+    result = await handle_request_context(
+        worktree_path=work,
+        args={"path": "escape/secret.txt"},
+    )
+    assert "LEAKED" not in result
+    assert "Invalid path" in result
+
+
+@pytest.mark.asyncio
+async def test_request_context_rejects_hidden_file(tmp_path: Path) -> None:
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / ".env").write_text("SECRET=123")
+
+    result = await handle_request_context(
+        worktree_path=work,
+        args={"path": ".env"},
+    )
+    assert "SECRET" not in result
+    assert "Invalid path" in result
+
+
+@pytest.mark.asyncio
+async def test_request_context_allows_uppercase_filename(tmp_path: Path) -> None:
+    """Real source trees have README.md / Cargo.toml — must not block these."""
+    from jig.ticket_mcp import handle_request_context
+
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "README.md").write_text("ok")
+
+    result = await handle_request_context(
+        worktree_path=work,
+        args={"path": "README.md"},
+    )
+    assert result == "ok"

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jig.models import RoleConfig
+from jig.safe_path import safe_resolve_within
 from jig.store import Message, MessageBus, MessageType
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
@@ -533,13 +534,24 @@ async def handle_request_context(
     worktree_path: Path,
     args: dict,
 ) -> str:
-    target = worktree_path / args["path"]
+    """Read a file under the agent's worktree.
+
+    The agent supplies ``args["path"]`` over MCP. Without containment
+    a malicious agent could read arbitrary host files via ``../``
+    traversal, absolute paths, or symlinks pointing outside the
+    worktree. ``safe_resolve_within`` enforces all three.
+    """
+    requested = args["path"]
+    try:
+        target = safe_resolve_within(worktree_path, requested)
+    except ValueError as exc:
+        return f"Invalid path {requested!r}: {exc}"
     if not target.is_file():
-        return f"File not found: {args['path']}"
+        return f"File not found: {requested}"
     try:
         return target.read_text()
     except Exception as exc:
-        return f"Error reading {args['path']}: {exc}"
+        return f"Error reading {requested}: {exc}"
 
 
 # Maps package_manager values to their add-dependency commands.

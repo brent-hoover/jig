@@ -23,7 +23,7 @@ from jig.dev_env.orchestrator_hook import (
 )
 from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
 from jig.project import Project, load_project
-from jig.thread import Handoff, SystemEvent
+from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.checkpoints import CheckpointStore
@@ -40,6 +40,29 @@ _logger = logging.getLogger(__name__)
 # healthy project. Tests that want fast iteration create tight
 # sweeps by calling ``sweep_blocking_entries`` directly.
 DEADLOCK_SWEEP_INTERVAL_S = 60.0
+
+
+def _summarize_critical_note(comments: list) -> str:
+    """Compose a short Note body summarising a batch of critical comments.
+
+    Used by the review-federation gate when one or more critical
+    reviewer comments flip the ticket to FAILED. The Note carries the
+    operator-facing summary (reviewer ids + count); the full comment
+    bodies live in the ``ReviewCommentsStore``. Keep it scannable —
+    triage UX reads this in a list.
+    """
+    if not comments:
+        return "Review federation found no critical comments."
+    by_reviewer: dict[str, int] = {}
+    for c in comments:
+        by_reviewer[c.reviewer] = by_reviewer.get(c.reviewer, 0) + 1
+    parts = [f"{count} from {reviewer}" for reviewer, count in by_reviewer.items()]
+    return (
+        f"Review federation flagged {len(comments)} critical comment(s); "
+        f"ticket marked FAILED with reason `reviewer-critical`. "
+        f"Sources: {'; '.join(parts)}. Operator addresses the comments "
+        f"(see ReviewCommentsStore) and re-runs the federation."
+    )
 
 
 class DependencyMergeError(RuntimeError):
@@ -469,41 +492,168 @@ class Orchestrator:
     async def _run_review_federation(
         self, ticket_id: str, ticket
     ) -> None:
-        """Block 3 (Important 1) — fire ``dispatch_with_llm_spawn``.
+        """Run the review federation as a **gate** on ticket resolution.
 
-        Best-effort federation hook. Runs the in-process mechanical
-        reviewers AND spawns each LLM specialty reviewer via
-        ``spawn_review_agent_for_id``. Gated by
-        ``orchestrator.run_review_federation`` in ``.jig/config.yaml``;
-        the flag defaults False so test/CI runs don't auto-fire LLM
-        reviewers.
+        Per ``docs/pm-workflow/design.md`` §"Severity tiers and
+        disposition", the federation is not an observation hook — its
+        outcome determines whether the ticket actually resolves:
 
-        Failures are logged and swallowed so a misbehaving reviewer
-        agent can't block the ticket-resolved path. Real-mode
-        operator visibility comes through the analytics
-        ``AgentCompleted`` events emitted by the spawn helper.
+        * ``critical`` comments → ticket FAILED with reason
+          ``reviewer-critical``; a Note summarizing the criticals lands
+          on the thread.
+        * ``important`` comments → ticket BLOCKED with reason
+          ``reviewer-important``; a ``Handoff(phase="sa-consult")`` is
+          posted per important comment so the SA reviewer can engage
+          via the orchestrator's existing dispatch path.
+        * ``notable`` comments only (no critical / important) → ticket
+          RESOLVED but deferred via the Coordinator (DEFERRED queue).
+        * No blocking comments → ticket RESOLVED as today.
+
+        This method is invoked from ``_on_ticket_completed`` while the
+        ticket is in RESOLVED state (post-merge) and rolls the status
+        back to FAILED / BLOCKED when blocking comments fire. The same
+        observable contract applies whether you read the gate as
+        "transition to RESOLVED only on federation pass" or "RESOLVED,
+        then roll back on blocking comments".
+
+        Crash policy: if ``dispatch_with_llm_spawn`` raises (transient
+        SDK / network error during a reviewer agent spawn), retry
+        once after a 2-second delay. If the retry also fails, mark
+        the ticket FAILED with reason ``federation-error`` and emit a
+        Note describing the failure — a misbehaving federation must
+        never silently pass a ticket the operator expected gated.
         """
         from jig.reviewers import dispatch_with_llm_spawn
+        from jig.reviewers.disposition import apply_severity_disposition
 
+        worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
+        worktree_arg = worktree_path if worktree_path.exists() else None
+
+        # ---- run dispatch with single-retry policy --------------------
         try:
-            worktree_path = (
-                self._project_path / ".jig" / "worktrees" / ticket_id
-            )
-            await dispatch_with_llm_spawn(
+            by_reviewer = await dispatch_with_llm_spawn(
                 ticket,
                 self._project_path,
                 "end_of_ticket",
                 self,
-                worktree_path=(
-                    worktree_path if worktree_path.exists() else None
-                ),
+                worktree_path=worktree_arg,
             )
         except Exception:
             _logger.warning(
-                "review federation raised for ticket %s; continuing",
+                "review federation raised for ticket %s; retrying once after 2s",
                 ticket_id,
                 exc_info=True,
             )
+            try:
+                await asyncio.sleep(2.0)
+                by_reviewer = await dispatch_with_llm_spawn(
+                    ticket,
+                    self._project_path,
+                    "end_of_ticket",
+                    self,
+                    worktree_path=worktree_arg,
+                )
+            except Exception:
+                _logger.error(
+                    "review federation retry failed for ticket %s; "
+                    "marking FAILED with federation-error",
+                    ticket_id,
+                    exc_info=True,
+                )
+                await self._fail_with_federation_error(ticket_id)
+                return
+
+        # ---- flatten comments + apply severity disposition ------------
+        comments: list = []
+        for value in by_reviewer.values():
+            if isinstance(value, list):
+                comments.extend(value)
+
+        if not comments:
+            # Clean federation pass — nothing more to do; the ticket
+            # stays RESOLVED as the caller already set it.
+            return
+
+        if self.tickets is None or self.threads is None:
+            # Defensive — federation can't run without stores; treat as
+            # a no-op rather than tripping an AttributeError.
+            return
+
+        # The notable→DEFERRED branch only fires when the ticket is
+        # actually resolving; criticals (→FAILED) and importants
+        # (→BLOCKED) take precedence and the notables on the same
+        # ticket should NOT land in the deferred queue. Pass a
+        # coordinator only when no higher-severity comments are
+        # present so ``apply_severity_disposition`` skips the defer
+        # call cleanly without re-implementing the precedence rule.
+        from jig.reviewers.comment import Severity as _Severity
+
+        has_higher_severity = any(
+            c.severity in (_Severity.CRITICAL.value, _Severity.IMPORTANT.value)
+            for c in comments
+        )
+        coord_arg: object | None = (
+            None if has_higher_severity else self.coordinator
+        )
+
+        result = await apply_severity_disposition(
+            comments,
+            ticket,
+            self.tickets,
+            coord_arg,
+            threads=self.threads,
+        )
+
+        # ---- post-disposition status + reason fixup -------------------
+        # ``apply_severity_disposition`` flips the ticket to FAILED for
+        # criticals and posts the SA-consult Handoffs for importants,
+        # but doesn't manage the BLOCKED-on-important transition or
+        # the structured ``block_reason`` field — that's the
+        # orchestrator's job since the disposition function is
+        # ticket-store-agnostic by design.
+        if result.blocked_by:
+            await self.tickets.update(ticket_id, block_reason="reviewer-critical")
+            await self.threads.post(
+                Note(
+                    ticket_id=ticket_id,
+                    author="orchestrator",
+                    text=_summarize_critical_note(result.blocked_by),
+                )
+            )
+        elif result.consulted_sa:
+            # Important comments → BLOCKED (re-using BLOCKED + a
+            # structured reason rather than a new TicketStatus).
+            await self._update_ticket_status(ticket_id, TicketStatus.BLOCKED)
+            await self.tickets.update(
+                ticket_id, block_reason="reviewer-important"
+            )
+        # Notable-only path: ticket stays RESOLVED, the Coordinator
+        # already deferred it inside apply_severity_disposition.
+
+    async def _fail_with_federation_error(self, ticket_id: str) -> None:
+        """Mark a ticket FAILED + emit a federation-error Note.
+
+        Called when ``dispatch_with_llm_spawn`` crashes both on the
+        initial try and the single retry. Sets ``block_reason`` to
+        ``federation-error`` so the operator UX can distinguish a
+        gated-by-error ticket from a gated-by-finding ticket.
+        """
+        if self.tickets is None or self.threads is None:
+            return
+        await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+        await self.tickets.update(ticket_id, block_reason="federation-error")
+        await self.threads.post(
+            Note(
+                ticket_id=ticket_id,
+                author="orchestrator",
+                text=(
+                    "Review federation crashed twice (initial + 1 retry). "
+                    "Ticket marked FAILED with reason `federation-error`. "
+                    "Inspect orchestrator logs for the underlying exception "
+                    "and re-run after addressing the root cause."
+                ),
+            )
+        )
 
     async def spawn_review_agent_for_id(
         self,
@@ -1169,14 +1319,38 @@ class Orchestrator:
         await self._update_ticket_status(ticket_id, TicketStatus.RESOLVED)
         _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
 
-        # Block 3 (Important 1) — opt-in review-federation hook. When
-        # ``orchestrator.run_review_federation`` is True in
-        # ``.jig/config.yaml``, fire the federation-execution path
-        # against the just-resolved ticket so LLM specialty reviewers
-        # actually run end-to-end. Default off so tests/CI don't burn
-        # tokens; operators flip on per-project.
+        # Review-federation gate — runs as a **gate** on resolution per
+        # ``docs/pm-workflow/design.md`` §"Severity tiers and disposition".
+        # When enabled, ``_run_review_federation`` may roll the ticket
+        # back to FAILED (critical comments / federation crash) or
+        # BLOCKED (important comments). Notable comments on a clean
+        # ticket leave the status RESOLVED but defer via the
+        # Coordinator. Flag-off preserves the legacy passive behavior
+        # — federation never runs.
         if self._orchestrator_cfg.run_review_federation:
             await self._run_review_federation(ticket_id, ticket)
+
+        # Re-load the ticket so we route the post-resolve cleanup off
+        # the gate's actual outcome rather than the pre-gate optimism.
+        if self.tickets is not None:
+            post_gate = await self.tickets.get(ticket_id)
+            if post_gate is not None and post_gate.status in (
+                TicketStatus.FAILED,
+                TicketStatus.BLOCKED,
+            ):
+                # Gate fired — defer to the failure path so the
+                # ticket_failed event lands and cleanup runs the
+                # blocked/failed branch. Worktree + branch are
+                # preserved so the operator can address the comments
+                # and re-run the federation.
+                if post_gate.status == TicketStatus.FAILED:
+                    await self._on_ticket_failed(ticket_id, ticket)
+                else:
+                    # BLOCKED — same observable cleanup; no merge
+                    # rollback (the dev branch is already merged).
+                    self._running_tickets.pop(ticket_id, None)
+                    await self._start_ready_tickets()
+                return
 
         if self._emitter is not None:
             from jig.events import JigEvent

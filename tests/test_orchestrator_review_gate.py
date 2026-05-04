@@ -39,6 +39,7 @@ from jig.reviewers.comment import (
     ReviewerCommentType,
     Severity,
 )
+from jig.store import MessageBus
 from jig.store.tickets import TicketStore
 from jig.store.threads import ThreadStore
 from jig.thread import Handoff
@@ -81,8 +82,10 @@ async def _make_orch(
     orch = Orchestrator(project_path=tmp_path)
     orch.tickets = TicketStore(store_dir / "tickets.jsonl")
     orch.threads = ThreadStore(store_dir / "comments.jsonl")
+    orch.bus = MessageBus(store_dir / "messages.jsonl")
     await orch.tickets.load()
     await orch.threads.load()
+    await orch.bus.load()
     orch._orchestrator_cfg = OrchestratorSection(  # type: ignore[attr-defined]
         run_review_federation=run_federation,
     )

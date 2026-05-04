@@ -119,11 +119,11 @@ class Orchestrator:
         # so shutdown/emergency_reset can read them without a second
         # config parse.
         self._deadlock_cfg: DeadlockSection = DeadlockSection()
-        # Block 3 (Important 1) — orchestrator-level runtime knobs.
-        # ``run_review_federation`` opts in to invoking
-        # ``dispatch_with_llm_spawn`` after a ticket resolves; default
-        # off so test/CI runs don't auto-fire LLM reviewers and burn
-        # tokens. Operator flips on per-project via .jig/config.yaml.
+        # Orchestrator-level runtime knobs. ``run_review_federation``
+        # gates ticket resolution on the federation pass per design;
+        # default ``True`` so the gate ships on every project unless
+        # the operator explicitly opts out via ``.jig/config.yaml``.
+        # See ``OrchestratorSection`` for full semantics.
         self._orchestrator_cfg: OrchestratorSection = OrchestratorSection()
         # Lazy-constructed Coordinator wired to the orchestrator's
         # stores. Built on first access via the ``coordinator``

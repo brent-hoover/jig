@@ -101,17 +101,29 @@ class EscalationSection(BaseModel):
 class OrchestratorSection(BaseModel):
     """Orchestrator-level runtime knobs.
 
-    Block 3 (Important 1): ``run_review_federation`` opts the
-    orchestrator into invoking ``dispatch_with_llm_spawn`` after a
-    ticket reaches a non-failed terminal status. Default is False
-    so test/CI runs don't auto-fire LLM reviewers and burn tokens —
-    operators flip the flag on per-project once they're ready to
-    run real review-federation passes.
+    ``run_review_federation`` controls the review-federation gate per
+    ``docs/pm-workflow/design.md`` §"Severity tiers and disposition".
+    When ``True`` (the default), the orchestrator runs
+    ``dispatch_with_llm_spawn`` against every ticket that reaches the
+    post-merge RESOLVED state and routes the returned reviewer
+    comments through ``apply_severity_disposition`` — critical
+    comments mark the ticket FAILED, important comments mark it
+    BLOCKED with an SA-consult Handoff, notables defer the ticket via
+    the Coordinator. The federation **gates** ticket resolution; this
+    is the design's specified behavior.
+
+    Operators who want the legacy passive (observation-only) model
+    explicitly opt out per-project by setting ``run_review_federation:
+    false`` in ``.jig/config.yaml``. The flag-off path skips the
+    federation call entirely and leaves the ticket RESOLVED — useful
+    for tests/CI that don't want to spend LLM tokens on review and
+    for projects in early scaffolding where the federation hasn't
+    been calibrated yet.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    run_review_federation: bool = False
+    run_review_federation: bool = True
 
 
 class DeadlockSection(BaseModel):

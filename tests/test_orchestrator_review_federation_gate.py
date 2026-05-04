@@ -74,16 +74,21 @@ def _ticket() -> Ticket:
 
 
 class TestRunReviewFederationDefaults:
-    def test_default_false_when_no_config(self, tmp_path: Path) -> None:
-        """Fresh orchestrator (no config file) gates federation off."""
+    """The flag defaults ``True`` per the v2 design — review federation
+    is the gate; operators opt out per-project for legacy passive
+    behavior. The defaults pinned here keep the contract honest with
+    ``OrchestratorSection`` so a future flip is loud."""
+
+    def test_default_true_when_no_config(self, tmp_path: Path) -> None:
+        """Fresh orchestrator (no config file) defaults to gate-on."""
         orch = Orchestrator(project_path=tmp_path)
         # Inspect via private member — the field is intentionally
         # private so production callers don't depend on it.
         cfg = orch._orchestrator_cfg  # type: ignore[attr-defined]
-        assert cfg.run_review_federation is False
+        assert cfg.run_review_federation is True
 
-    def test_default_false_when_flag_omitted(self, tmp_path: Path) -> None:
-        """Config file without the flag stays default-off."""
+    def test_default_true_when_flag_omitted(self, tmp_path: Path) -> None:
+        """Config file without the flag inherits the gate-on default."""
         cfg_dir = tmp_path / ".jig"
         cfg_dir.mkdir()
         # Write a minimal config that doesn't set the orchestrator section.
@@ -101,10 +106,18 @@ class TestRunReviewFederationDefaults:
         from jig.config import load_config
 
         loaded = load_config(tmp_path)
+        assert loaded.orchestrator.run_review_federation is True
+
+    def test_explicit_opt_out_loads(self, tmp_path: Path) -> None:
+        """Operator-set opt-out round-trips through config."""
+        _seed_project(tmp_path, run_federation=False)
+        from jig.config import load_config
+
+        loaded = load_config(tmp_path)
         assert loaded.orchestrator.run_review_federation is False
 
     def test_explicit_opt_in_loads(self, tmp_path: Path) -> None:
-        """Operator-set flag round-trips through config."""
+        """Operator-set opt-in (mirrors default) round-trips."""
         _seed_project(tmp_path, run_federation=True)
         from jig.config import load_config
 

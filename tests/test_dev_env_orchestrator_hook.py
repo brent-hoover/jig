@@ -336,7 +336,9 @@ async def test_run_agent_with_analytics_archives_on_failure(
 async def test_orchestrator_skips_dev_env_when_no_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No manifest means no env-var map; provisioning is a clean no-op."""
+    """No manifest means no JIG_DEV_*_URL entries; provisioning is a clean
+    no-op. ``JIG_FIXTURE_MODE`` is always set per Block 2 (the fixture-mode
+    safety contract is independent of dev-service provisioning)."""
     _save_project(tmp_path)  # no manifest seeded
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
@@ -371,6 +373,9 @@ async def test_orchestrator_skips_dev_env_when_no_manifest(
                 self.ticket = t
 
         await orch._run_agent_with_analytics(_FakeCtx(ticket))
-        assert captured["extra_env"] == {}
+        assert not any(
+            k.startswith("JIG_DEV_") for k in captured["extra_env"]
+        )
+        assert captured["extra_env"].get("JIG_FIXTURE_MODE") == "replay_only"
     finally:
         await orch.shutdown()

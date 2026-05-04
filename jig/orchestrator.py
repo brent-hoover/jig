@@ -15,7 +15,11 @@ from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChange
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, load_config
 from jig.deadlock import sweep_blocking_entries
-from jig.dev_env.orchestrator_hook import cleanup_for_agent, provision_for_agent
+from jig.dev_env.orchestrator_hook import (
+    build_fixture_env,
+    cleanup_for_agent,
+    provision_for_agent,
+)
 from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
 from jig.project import Project, load_project
 from jig.thread import Handoff, SystemEvent
@@ -226,9 +230,17 @@ class Orchestrator:
             agent_id=agent_id,
             ticket_id=ctx.ticket.id,
         )
-        if env_map:
+        # Block 2 — also stamp ``JIG_FIXTURE_MODE`` per
+        # ``docs/dev-environment/design.md`` §"External-API recorded
+        # fixtures": SPIKE tickets default to ``record_new`` (the
+        # spike's job is to grow the fixture corpus); everything else
+        # defaults to ``replay_only``. Merged into the same extra_env
+        # map so it doesn't clobber the per-service URLs.
+        fixture_env = build_fixture_env(ctx.ticket)
+        merged_env = {**env_map, **fixture_env}
+        if merged_env:
             existing = dict(getattr(ctx, "extra_env", None) or {})
-            existing.update(env_map)
+            existing.update(merged_env)
             try:
                 ctx.extra_env = existing
             except AttributeError:

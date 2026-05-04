@@ -234,7 +234,7 @@ def test_phase_section_absent_when_phase_none() -> None:
 
 def _handoff_entry(
     *,
-    ticket_id: str = "T1",
+    ticket_id: str = "t1",
     phase: str = "implement",
     author: str = "dev",
     summary: str = "",
@@ -254,7 +254,7 @@ def _handoff_entry(
 def _eval_ticket() -> Ticket:
     # Match the id expected by the handoff entry helper above.
     return Ticket(
-        id="T1",
+        id="t1",
         work_type=WorkType.FEATURE,
         title="add the thing",
         created_by="orchestrator",
@@ -416,7 +416,7 @@ def test_evaluator_prompt_surfaces_check_failure_audit_with_waivers() -> None:
     """
     handoff = _handoff_entry()
     failure = SystemEvent(
-        ticket_id="T1",
+        ticket_id="t1",
         author="harness",
         event_type="check_failure",
         check_name="integration-tests",
@@ -426,7 +426,7 @@ def test_evaluator_prompt_surfaces_check_failure_audit_with_waivers() -> None:
         waived=True,
     )
     waiver = Waiver(
-        ticket_id="T1",
+        ticket_id="t1",
         author="sa",
         check_failure_id=failure.id,
         justification="flaky in CI; tracked as TKT-99",
@@ -454,13 +454,13 @@ def test_evaluator_prompt_surfaces_check_failure_audit_with_waivers() -> None:
 def test_evaluator_prompt_surfaces_objection_waivers() -> None:
     handoff = _handoff_entry()
     objection = Objection(
-        ticket_id="T1",
+        ticket_id="t1",
         author="reviewer",
         target_artifact="src/foo.py",
         text="race condition on startup",
     )
     waiver = Waiver(
-        ticket_id="T1",
+        ticket_id="t1",
         author="sa",
         objection_id=objection.id,
         justification="accepted risk; tracked downstream",
@@ -493,7 +493,7 @@ def test_evaluator_prompt_surfaces_promoted_deferred_items() -> None:
         item="rewrite auth",
         reason="out of scope",
         status="promoted",
-        promoted_ticket_id="TKT-42",
+        promoted_ticket_id="tkt-42",
     )
     open_item = DeferredItem(
         item="tune cache TTL",
@@ -514,7 +514,7 @@ def test_evaluator_prompt_surfaces_promoted_deferred_items() -> None:
         evaluator_bundle={"handoff_id": handoff.id},
     )
     # Promoted item shows the child ticket id.
-    assert "TKT-42" in prompt
+    assert "tkt-42" in prompt
     assert "rewrite auth" in prompt
     # Open item appears but without a child ticket id.
     assert "tune cache TTL" in prompt
@@ -531,20 +531,20 @@ def test_evaluator_prompt_labels_helper_drafts() -> None:
     """
     handoff = _handoff_entry()
     proposal = Proposal(
-        ticket_id="T1",
+        ticket_id="t1",
         author="dev",
         target="ticket://spec.behaviors",
         rationale="tighten the retry policy",
     )
     helper_note = Note(
-        ticket_id="T1",
+        ticket_id="t1",
         author="pm",  # the helper role name
         text="Suggest retrying up to 3 times with jitter.",
         responds_to=proposal.id,
     )
     # A plain note (no responds_to) must NOT be labeled as a helper draft.
     plain_note = Note(
-        ticket_id="T1",
+        ticket_id="t1",
         author="dev",
         text="FYI: dependency bumped.",
     )

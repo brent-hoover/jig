@@ -141,7 +141,7 @@ async def test_legacy_jsonl_records_load(tmp_path: Path) -> None:
         json.dumps(
             {
                 "_op": "insert",
-                "_id": "T-legacy",
+                "_id": "t-legacy",
                 "type": "bug",
                 "title": "old",
                 "status": "open",
@@ -155,7 +155,7 @@ async def test_legacy_jsonl_records_load(tmp_path: Path) -> None:
 
     store = TicketStore(path)
     await store.load()
-    loaded = await store.get("T-legacy")
+    loaded = await store.get("t-legacy")
     assert loaded is not None
     assert loaded.work_type == WorkType.BUGFIX
     assert loaded.size == Size.M

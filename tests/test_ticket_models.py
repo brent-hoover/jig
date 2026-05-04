@@ -109,3 +109,67 @@ def test_ticket_legacy_bug_keeps_default_workflow() -> None:
     t = Ticket(type="bug", title="b", created_by="u")
     assert t.work_type == WorkType.BUGFIX
     assert t.workflow == "default"
+
+
+# ---------------------------------------------------------------------------
+# Ticket.id is path-safe — Block 1 critical 2.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ticket_id",
+    [
+        "tb-001",
+        "t_007",
+        "spike-r-shopify-delta",
+        "ticket-007",
+        "1abc",
+    ],
+)
+def test_ticket_id_accepts_canonical_shapes(ticket_id: str) -> None:
+    t = Ticket(
+        id=ticket_id,
+        work_type=WorkType.FEATURE,
+        title="t",
+        created_by="u",
+    )
+    assert t.id == ticket_id
+
+
+@pytest.mark.parametrize(
+    "ticket_id",
+    [
+        "../etc/passwd",
+        "..",
+        "TB-001",  # uppercase
+        "tb 001",  # space
+        "-leading-dash",
+        ".hidden",
+        "tb.001",  # dot in id
+        "tb/001",  # slash
+        "tb\\001",  # backslash
+        "",  # empty string
+        "x" * 101,  # over the cap
+    ],
+)
+def test_ticket_id_rejects_unsafe_inputs(ticket_id: str) -> None:
+    with pytest.raises(ValidationError):
+        Ticket(
+            id=ticket_id,
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+        )
+
+
+def test_ticket_id_validation_error_names_field() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Ticket(
+            id="../escape",
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+        )
+    # The validator's ValueError.message should mention "Ticket.id"
+    # so operators can trace which field rejected the input.
+    assert "Ticket.id" in str(exc_info.value)

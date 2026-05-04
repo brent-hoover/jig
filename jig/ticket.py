@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
+from jig.safe_path import validate_safe_path_segment
 from jig.store.models import StoreModel
 
 
@@ -128,6 +129,21 @@ class Ticket(StoreModel):
     # the SA reviewer reads it for context. ``None`` means "no contract
     # amendment in this ticket".
     contract_amendment: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id_is_path_safe(cls, value: str) -> str:
+        """Ticket ids land in worktree paths and git refs.
+
+        ``jig/worktree.py`` builds ``.jig/worktrees/<ticket_id>`` and
+        the branch name ``jig/<ticket_id>`` directly from this field.
+        A malicious or malformed id (``../etc``, ``with space``,
+        ``-flag``) could escape the worktree root or produce a
+        dangerous git ref. Validate at construction so every Ticket
+        instance is safe by the time it reaches a path helper —
+        defense in depth complementing the per-helper validation.
+        """
+        return validate_safe_path_segment(value, "Ticket.id")
 
     @model_validator(mode="before")
     @classmethod

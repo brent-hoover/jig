@@ -39,7 +39,7 @@ def jig_layout(tmp_path: Path) -> Path:
 @pytest.fixture
 def ticket() -> Ticket:
     return Ticket(
-        id="T-001",
+        id="t-001",
         work_type=WorkType.FEATURE,
         title="Add widget",
         description="Build the widget.",

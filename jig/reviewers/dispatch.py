@@ -63,6 +63,11 @@ SPEC_COMPLIANCE_REVIEWER_ID = "spec-compliance"
 # non-empty visual_references). Tier: senior per design; MVP ships the
 # basic mechanical version (no vision), Final adds screenshot diff.
 VISUAL_COMPLIANCE_REVIEWER_ID = "visual-compliance"
+# Track D Final — accessibility (WCAG AA mechanical). Default-on for
+# Final-layer tickets that carry a non-empty visual_references list.
+# Mechanical: no LLM. Responsive-design lands alongside (separate
+# constant + dispatch branch in the same Track D Final scope).
+ACCESSIBILITY_REVIEWER_ID = "accessibility"
 
 # Track G Final — specialty reviewers auto-selected by ticket
 # characteristics (labels, dev_tier, module tier_hint, AC text).
@@ -110,6 +115,10 @@ _MECHANICAL_REVIEWER_IDS: list[str] = [
     # itself no-ops when the ticket has no visual_references, so non-UI
     # tickets pay no cost.
     VISUAL_COMPLIANCE_REVIEWER_ID,
+    # Track D Final — accessibility reviewer is mechanical too, so it
+    # rides per-commit alongside visual-compliance at no extra LLM
+    # cost. No-ops on non-UI tickets.
+    ACCESSIBILITY_REVIEWER_ID,
 ]
 
 # Bones layer default-on set. Cross-cutting policies are universal rules
@@ -191,6 +200,16 @@ def select_reviewers_for_ticket(
         and VISUAL_COMPLIANCE_REVIEWER_ID not in selected
     ):
         selected.append(VISUAL_COMPLIANCE_REVIEWER_ID)
+
+    # Track D Final — accessibility reviewer rides the same gating
+    # signal as visual-compliance (non-empty visual_references).
+    # Mechanical, bounded cost. No-ops when wireframes are missing —
+    # visual-compliance already emits the critical there.
+    if (
+        ticket.visual_references
+        and ACCESSIBILITY_REVIEWER_ID not in selected
+    ):
+        selected.append(ACCESSIBILITY_REVIEWER_ID)
 
     # Specialty reviewer auto-selection (Track G Final). Each helper
     # returns True iff the reviewer should fire; we append in
@@ -439,6 +458,17 @@ async def dispatch_for_cadence(
         )
         out[VISUAL_COMPLIANCE_REVIEWER_ID] = _tag_cadence(comments, cadence)
 
+    if ACCESSIBILITY_REVIEWER_ID in reviewer_ids:
+        from jig.reviewers.accessibility import AccessibilityReviewer
+
+        comments = await AccessibilityReviewer().review(
+            ticket,
+            project_root,
+            worktree_path=worktree_path,
+            base_ref=base_ref,
+        )
+        out[ACCESSIBILITY_REVIEWER_ID] = _tag_cadence(comments, cadence)
+
     if INTENT_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
         # Intent reviewer runs against authored artifacts (Modules,
         # Contracts, etc.), not against a worktree diff. Final
@@ -479,6 +509,7 @@ def _tag_cadence(
 
 
 __all__ = [
+    "ACCESSIBILITY_REVIEWER_ID",
     "ARCHITECTURAL_REVIEWER_ID",
     "BONES_REVIEWER_ID",
     "CROSS_CUTTING_REVIEWER_ID",

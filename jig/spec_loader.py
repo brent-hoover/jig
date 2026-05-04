@@ -32,6 +32,7 @@ import yaml
 from jig.atomic import atomic_write_text
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.dev_env import DevManifest
+from jig.schemas.frontend import FrontendSpec
 from jig.schemas.plan import BuildPlan
 from jig.schemas.po import (
     DiscoveryDoc,
@@ -49,6 +50,7 @@ _DISCOVERY_MD_RELATIVE = Path(".jig") / "spec" / "discovery.md"
 _DISCOVERY_STATE_RELATIVE = Path(".jig") / "spec" / "discovery.state.yaml"
 _ONTOLOGY_RELATIVE = Path(".jig") / "spec" / "ontology.md"
 _DEV_MANIFEST_RELATIVE = Path(".jig") / "dev" / "manifest.yaml"
+_FRONTEND_SPEC_RELATIVE = Path(".jig") / "spec" / "frontend.yaml"
 
 
 def spec_path(project_root: Path) -> Path:
@@ -440,3 +442,45 @@ def save_ontology(
     from jig.po_ontology_mcp import render_ontology_md
     md = render_ontology_md(ontology, project_name=project_name)
     atomic_write_text(ontology_path(project_root), md)
+
+
+# ---- v2 VD paths (Track D MVP) -------------------------------------------
+
+
+def frontend_spec_path(project_root: Path) -> Path:
+    """``.jig/spec/frontend.yaml`` — VD's top-level frontend declaration.
+
+    Per ``docs/visual-design/design.md`` §"Frontend architecture (VD
+    owns this)": one file per project, set once at VD discovery start
+    (defaults applied immediately so a freshly-initialized project has
+    a valid spec without operator interaction), modified rarely.
+    """
+    return project_root / _FRONTEND_SPEC_RELATIVE
+
+
+def load_frontend_spec(project_root: Path) -> FrontendSpec:
+    """Load and validate ``frontend.yaml``.
+
+    Raises ``FileNotFoundError`` if absent — callers (the VD agent on
+    re-spawn, the per-ticket reference resolver) treat absence as "VD
+    hasn't run yet" rather than silently defaulting to the minimal
+    stack. The defaults live on the schema; the absent-on-disk case is
+    a real signal.
+    """
+    src = frontend_spec_path(project_root)
+    if not src.is_file():
+        raise FileNotFoundError(f"frontend spec not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return FrontendSpec.model_validate(data)
+
+
+def save_frontend_spec(project_root: Path, spec: FrontendSpec) -> None:
+    """Atomically write ``spec`` to ``.jig/spec/frontend.yaml``.
+
+    ``sort_keys=False`` mirrors the other v2 writers so the operator
+    inspecting the file mid-VD-walk sees a stable field order across
+    saves. The parent dir is created on demand so the first save
+    against a fresh project doesn't fail on a missing ``.jig/spec/``.
+    """
+    payload = yaml.safe_dump(spec.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(frontend_spec_path(project_root), payload)

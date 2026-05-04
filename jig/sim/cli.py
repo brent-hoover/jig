@@ -407,6 +407,207 @@ def realism_list(project_root: Path) -> None:
         )
 
 
+# ---- regression scenario CLI (Track H Final) ----------------------------
+
+
+# Default location for scaffolded regression scenarios. Lives under
+# tests/scenarios/regressions/ per design.md §"Failure-mode regression
+# scenarios" — the convention is "regression scenarios live in their
+# own subdirectory; CI fails if any regression scenario passes when
+# the bug is reintroduced."
+_REGRESSIONS_SUBDIR = "regressions"
+
+
+def _regressions_dir(scenarios_root: Path) -> Path:
+    return scenarios_root / _REGRESSIONS_SUBDIR
+
+
+def _regression_template(
+    *, bug_id: str, description: str, persona: str
+) -> dict:
+    """Minimal scenario YAML payload for a brand-new regression scenario.
+
+    Operators edit this in place after scaffolding — the steps list is
+    intentionally near-empty so the scenario fails loud until the
+    operator authors the bug-reproducing payload.
+    """
+    return {
+        "spec_version": 1,
+        "id": f"regression-{bug_id}",
+        "description": description,
+        "persona": persona,
+        "estimated_cost_usd_max": 0.0,
+        "tier": "smoke",
+        "coverage_tags": [
+            "regression-scenarios",
+        ],
+        "steps": [],
+        "final_assertions": [],
+    }
+
+
+@sim.group(name="regression")
+def regression() -> None:
+    """Regression scenario discipline (Track H Final).
+
+    Per ``docs/synthetic-operator/design.md`` §"Failure-mode regression
+    scenarios", every bug fix lands with a regression scenario that
+    would have caught it. This command group scaffolds + lists those.
+    """
+
+
+@regression.command(name="new")
+@click.option(
+    "--bug-id",
+    required=True,
+    help="Short id for the bug (e.g. 'cascade-overlap'). Becomes the filename.",
+)
+@click.option(
+    "--description",
+    required=True,
+    help="One-line description of the bug + what the regression scenario covers.",
+)
+@click.option(
+    "--persona",
+    default="methodical",
+    help="Persona the regression scenario uses. Defaults to methodical.",
+)
+@click.option(
+    "--from-scenario",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Optional path to an existing scenario to clone. The bug-id + "
+        "description override the cloned id + description; coverage_tags "
+        "get a regression-{bug-id} marker appended."
+    ),
+)
+@click.option(
+    "--scenarios",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Scenario library root. Defaults to the in-tree library. The "
+        "regression file lands at <root>/regressions/<bug-id>.scenario.yaml."
+    ),
+)
+@click.option(
+    "--realism-gap-id",
+    default=None,
+    help=(
+        "Optional id of the realism-gap that originated this regression. "
+        "Recorded in the scaffolded YAML's header comment block."
+    ),
+)
+def regression_new(
+    bug_id: str,
+    description: str,
+    persona: str,
+    from_scenario: Path | None,
+    scenarios: Path | None,
+    realism_gap_id: str | None,
+) -> None:
+    """Scaffold a new regression scenario YAML at <root>/regressions/<bug-id>.
+
+    Inherits structure from ``--from-scenario`` if given, otherwise
+    starts from a minimal template. Tags ``regression-{bug-id}``
+    automatically; includes a header comment block with the bug id +
+    description + (optional) realism-gap reference.
+    """
+    import yaml as yaml_mod
+
+    src_root = scenarios if scenarios is not None else _DEFAULT_SCENARIO_DIR
+    out_dir = _regressions_dir(src_root)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{bug_id}.scenario.yaml"
+    if out_path.exists():
+        click.echo(
+            f"refused to overwrite existing scenario at {out_path}", err=True
+        )
+        sys.exit(1)
+
+    if from_scenario is not None:
+        # Cloning preserves the structure of an existing scenario; we
+        # patch id + description and append the regression coverage tag.
+        loaded = load_scenario(from_scenario)
+        payload = loaded.model_dump(mode="json")
+        payload["id"] = f"regression-{bug_id}"
+        payload["description"] = description
+        regression_tag = "regression-scenarios"
+        existing_tags = list(payload.get("coverage_tags") or [])
+        if regression_tag not in existing_tags:
+            existing_tags.append(regression_tag)
+        payload["coverage_tags"] = existing_tags
+    else:
+        payload = _regression_template(
+            bug_id=bug_id, description=description, persona=persona
+        )
+
+    header_lines = [
+        f"# Regression scenario for bug: {bug_id}",
+        f"# Description: {description}",
+    ]
+    if realism_gap_id:
+        header_lines.append(f"# Originating realism-gap: {realism_gap_id}")
+    header_lines.append(
+        "# Per docs/synthetic-operator/design.md §'Failure-mode regression "
+        "scenarios':"
+    )
+    header_lines.append(
+        "#   every bug lands with one regression scenario that would have "
+        "caught it."
+    )
+    header_lines.append("")
+
+    body = yaml_mod.safe_dump(payload, sort_keys=False)
+    out_path.write_text("\n".join(header_lines) + body)
+
+    click.echo(f"scaffolded regression scenario at {out_path}")
+
+
+@regression.command(name="list")
+@click.option(
+    "--scenarios",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Scenario library root. Defaults to the in-tree library. Lists "
+        "every *.scenario.yaml under <root>/regressions/."
+    ),
+)
+def regression_list(scenarios: Path | None) -> None:
+    """List every regression scenario with its bug id + status."""
+    src_root = scenarios if scenarios is not None else _DEFAULT_SCENARIO_DIR
+    rdir = _regressions_dir(src_root)
+    if not rdir.is_dir():
+        click.echo("(no regressions/ directory found; nothing to list)")
+        return
+    files = sorted(rdir.rglob("*.scenario.yaml"))
+    if not files:
+        click.echo("(no regression scenarios found)")
+        return
+    for path in files:
+        try:
+            scn = load_scenario(path)
+        except Exception as e:
+            click.echo(
+                f"  {path.name}: ERROR ({type(e).__name__}: {e})", err=True
+            )
+            continue
+        # Bug id is whatever follows "regression-" in the scenario id; if
+        # the operator renamed they get the literal id.
+        bug_id = (
+            scn.id.removeprefix("regression-")
+            if scn.id.startswith("regression-")
+            else scn.id
+        )
+        # Status heuristic: "scaffold" when steps list is empty; "ready"
+        # otherwise. Keeps the list useful without re-running the
+        # scenarios.
+        status = "scaffold" if not scn.steps else "ready"
+        click.echo(f"  {bug_id} [{status}]: {scn.description.splitlines()[0]}")
+
+
 def _confirm_real_mode(estimated_cost_usd_max: float, *, assume_yes: bool) -> bool:
     """Prompt the operator before kicking off real-mode.
 

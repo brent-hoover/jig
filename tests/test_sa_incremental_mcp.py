@@ -94,6 +94,13 @@ def _module_dict(module_id: str = "catalog-ingest") -> dict:
         "owns": ["products"],
         "tier_hint": "standard",
         "requires_tracer_bullet": False,
+        # The MVP checklist (commit 3) requires every category to be
+        # addressed or explicitly N/A'd. The minimal-author helper
+        # below exercises the happy path without being verbose; mark
+        # the categories we don't author here as N/A so the finalize
+        # gate doesn't false-flag the upsert/finalize plumbing tests.
+        # Per-category enforcement gets its own dedicated tests.
+        "n_a_categories": ["behavioral_contracts", "external_dependencies"],
         "intent": _intent_dict(),
     }
 
@@ -504,6 +511,14 @@ async def test_arch_finalize_lists_every_authored_module_in_handoff(wired):
                 "collection": f"{mid}-collection",
                 "db": "main-db",
                 "write_access": ["self"],
+            },
+        )
+        await handle_module_set_integration_ac(
+            project_path=wired["project_path"],
+            module_id=mid,
+            integration_ac={
+                "capability": "shopify-connect",
+                "must": ["Lands in collection"],
             },
         )
     await handle_arch_finalize(

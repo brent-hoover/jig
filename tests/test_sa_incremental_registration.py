@@ -92,6 +92,32 @@ async def test_sa_mvp_role_exposes_all_incremental_tools(
     assert not missing, f"missing tools on sa-mvp server: {sorted(missing)!r}"
 
 
+def test_sa_mvp_role_config_loads(tmp_path):
+    """The shipped sa_mvp.yaml is well-formed and grants the MVP toolset."""
+    from jig.persistence import load_role
+
+    cfg = load_role(tmp_path, "sa_mvp")
+    assert cfg.role == "sa-mvp"
+    assert cfg.strict_tools is True
+    # Every incremental tool listed in allowed_tools.
+    granted = set(cfg.allowed_tools)
+    missing = _INCREMENTAL_TOOLS - granted
+    assert not missing, f"sa_mvp.yaml missing tools: {sorted(missing)!r}"
+    # Read + ask_question — the SA's two non-authoring tools.
+    assert "Read" in granted
+    assert "ask_question" in granted
+    # MVP role must not see the bones one-shot or v1 paths.
+    for forbidden in (
+        "sa_finalize",
+        "arch_set_field",
+        "sa_propose_scaffold",
+        "l0_finalize",
+        "l3_finalize",
+        "spec_publish",
+    ):
+        assert forbidden not in granted
+
+
 @pytest.mark.asyncio
 async def test_incremental_tools_not_registered_when_not_allowed(
     tmp_path, stores, monkeypatch

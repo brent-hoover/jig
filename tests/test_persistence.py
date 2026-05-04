@@ -196,6 +196,7 @@ class TestDefaultRoles:
             "po-l3",
             "sa",
             "sa-v2",
+            "sa-mvp",
             "planner-pm",
             "spec-generator",
             "concierge",

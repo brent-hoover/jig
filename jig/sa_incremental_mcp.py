@@ -48,6 +48,10 @@ from pydantic import ValidationError
 
 from jig.handoff_resolve import resolve_after_handoff
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
+from jig.sa_validation import (
+    validate_behavioral_contract,
+    validate_module_checklist,
+)
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
@@ -71,7 +75,7 @@ from jig.spec_loader import (
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
-from jig.thread import Handoff
+from jig.thread import Handoff, Note
 
 
 __all__ = [
@@ -284,20 +288,8 @@ async def handle_module_set_behavioral_contract(
         cf.behavioral_contracts, bc
     )
     save_module_contracts(project_path, module_id, cf)
-    warnings = _validate_bc_warnings(bc)
+    warnings = validate_behavioral_contract(bc)
     return {"id": bc.id, "warnings": warnings}
-
-
-def _validate_bc_warnings(bc: BehavioralContract) -> list[str]:
-    """Stub — replaced by ``jig.sa_validation`` import in Track C MVP commit 3.
-
-    Intentionally returns an empty list here so the handler's response
-    shape (``{"id": ..., "warnings": []}``) is fixed from the first
-    commit. Commit 3 swaps this body for a delegating call into
-    ``jig.sa_validation.validate_behavioral_contract``.
-    """
-    _ = bc  # silence unused-arg lint until commit 3 lands.
-    return []
 
 
 async def handle_module_set_data_contract(
@@ -409,11 +401,42 @@ async def handle_arch_finalize(
     }
     _validate_module_link(arch, set(contracts_by_module.keys()))
 
-    # Checklist enforcement + behavioral-contract authoring warnings
-    # both land in Track C MVP commit 3 (jig.sa_validation). Commit 2
-    # ships the finalize plumbing so the upsert handlers have a real
-    # exit path; commit 3 wires the validators into both this finalize
-    # and the per-tool ``module_set_behavioral_contract`` upsert.
+    # Checklist enforcement — raise on the first module with unmet
+    # categories (aggregating across modules would be friendlier, but
+    # MVP YAGNI: operator fixes one and re-finalizes). Modules without
+    # an authored contracts.yaml still get checked — the checklist
+    # treats absent contracts as "everything missing".
+    for m in arch.modules:
+        cf = contracts_by_module.get(m.id)
+        missing = validate_module_checklist(m, cf)
+        if missing:
+            raise ValueError(
+                f"module {m.id!r} unmet checklist categories: "
+                f"{sorted(missing)!r}. Either author them, or add to "
+                "the module's ``n_a_categories`` field to declare them "
+                "intentionally not applicable."
+            )
+
+    # Behavioral-contract authoring warnings — advisory only, posted
+    # as a Note on the architecture ticket so the operator can see
+    # them via ``jig story architecture``. Empty warning list = no
+    # Note (avoids cluttering the thread with empty advisories).
+    bc_warnings: list[str] = []
+    for mid, cf in contracts_by_module.items():
+        for bc in cf.behavioral_contracts:
+            for w in validate_behavioral_contract(bc):
+                bc_warnings.append(f"[{mid}/{bc.id}] {w}")
+    if bc_warnings:
+        await threads.post(
+            Note(
+                ticket_id=SA_TICKET_ID,
+                author=author,
+                text=(
+                    "Behavioral-contract authoring warnings:\n- "
+                    + "\n- ".join(bc_warnings)
+                ),
+            )
+        )
 
     handoff = Handoff(
         ticket_id=SA_TICKET_ID,

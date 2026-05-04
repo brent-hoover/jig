@@ -173,6 +173,76 @@ def run(scenario: Path, real: bool, yes: bool) -> None:
             sys.exit(1)
 
 
+# Tier ordering: a higher-tier run also runs every lower-tier
+# scenario. ``smoke`` ⊂ ``full`` ⊂ ``nightly``. The list ordering
+# determines what ``run-tier <tier>`` executes (every tier whose index
+# is ≤ the requested tier's index).
+_TIER_ORDER: tuple[str, ...] = ("smoke", "full", "nightly")
+
+
+def _scenarios_for_tier(scenarios: list[Scenario], tier: str) -> list[Scenario]:
+    """Filter the library to scenarios at or below ``tier``."""
+    if tier not in _TIER_ORDER:
+        raise ValueError(
+            f"unknown tier {tier!r}; expected one of {_TIER_ORDER!r}"
+        )
+    cutoff = _TIER_ORDER.index(tier)
+    allowed = set(_TIER_ORDER[: cutoff + 1])
+    return [s for s in scenarios if s.tier in allowed]
+
+
+@sim.command(name="run-tier")
+@click.argument("tier", type=click.Choice(list(_TIER_ORDER)))
+@click.option(
+    "--scenarios",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help=(
+        "Path to a scenario file or directory. Defaults to the in-tree "
+        "scenario library (tests/scenarios/)."
+    ),
+)
+def run_tier(tier: str, scenarios: Path | None) -> None:
+    """Run every scenario at the given tier (or below).
+
+    Tier ordering: ``smoke`` ⊂ ``full`` ⊂ ``nightly``. ``run-tier full``
+    executes every smoke + full scenario; ``run-tier nightly`` runs
+    all three. All runs are mock-mode (no LLM cost) — real-mode
+    requires the explicit ``jig sim run --real`` invocation.
+
+    Exits 1 if any scenario fails.
+    """
+    src = scenarios if scenarios is not None else _DEFAULT_SCENARIO_DIR
+    library = _load_scenario_library(src)
+    selected = _scenarios_for_tier(library, tier)
+    if not selected:
+        click.echo(f"No scenarios at tier {tier!r}; nothing to run.")
+        return
+
+    click.echo(f"Running {len(selected)} scenario(s) at tier {tier!r}\n")
+    failed: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="jig-sim-tier-") as tmp_root:
+        for scn in selected:
+            click.echo(f"--- {scn.id} (tier={scn.tier})")
+            # Per-scenario tmp dir so cross-scenario state doesn't bleed.
+            scn_root = Path(tmp_root) / scn.id
+            scn_root.mkdir(parents=True, exist_ok=True)
+            _seed_repo(scn_root)
+            driver = Driver()
+            report = asyncio.run(driver.run(scn, project_root=scn_root))
+            if report.passed:
+                click.echo(f"    PASS ({len(report.step_outcomes)} steps)")
+            else:
+                failed.append(scn.id)
+                click.echo("    FAIL")
+                click.echo(report.failure_summary())
+
+    click.echo(f"\nTier {tier!r}: {len(selected) - len(failed)}/{len(selected)} passed")
+    if failed:
+        click.echo(f"Failed: {', '.join(failed)}")
+        sys.exit(1)
+
+
 @sim.command(name="coverage")
 @click.option(
     "--scenarios",

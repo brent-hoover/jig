@@ -23,6 +23,9 @@ from jig.store.threads import ThreadStore
 from jig.thread import Handoff
 
 
+pytestmark = pytest.mark.sim_smoke
+
+
 SCENARIO_PATH = (
     Path(__file__).parent
     / "scenarios"

@@ -23,6 +23,11 @@ from jig.sim.driver import Driver
 from jig.sim.scenario import load_scenario
 
 
+# Module-level marker — every test in this file runs as part of the
+# smoke tier (see pyproject.toml [tool.pytest.ini_options].markers).
+pytestmark = pytest.mark.sim_smoke
+
+
 SCENARIO_PATH = (
     Path(__file__).parent / "scenarios" / "bones-walking-skeleton.scenario.yaml"
 )

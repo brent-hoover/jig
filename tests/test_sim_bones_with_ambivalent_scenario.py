@@ -16,6 +16,9 @@ from jig.sim.driver import Driver
 from jig.sim.scenario import load_scenario
 
 
+pytestmark = pytest.mark.sim_smoke
+
+
 SCENARIO_PATH = (
     Path(__file__).parent
     / "scenarios"

@@ -52,6 +52,21 @@ from jig.po_l1_mcp import L1_TICKET_ID, handle_discovery_finalize
 from jig.po_l2_mcp import L2_TICKET_ID, handle_l2_finalize
 from jig.po_l3_mcp import handle_l3_finalize
 from jig.reviewers import ContractComplianceReviewer, ReviewerComment
+from jig.sa_incremental_mcp import (
+    handle_arch_finalize,
+    handle_arch_set_cross_cutting_policy,
+    handle_arch_set_data_store,
+    handle_arch_set_module,
+    handle_arch_set_open_question,
+    handle_arch_set_shared_contract,
+    handle_module_set_behavioral_contract,
+    handle_module_set_data_contract,
+    handle_module_set_external_dependency,
+    handle_module_set_integration_ac,
+    handle_module_set_open_question,
+    handle_module_set_owned_collection,
+)
+from jig.sa_mcp import SA_TICKET_ID
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.plan import BuildPlan
 from jig.schemas.po import SuitesIndex
@@ -221,6 +236,7 @@ class Driver:
             StepKind.WRITE_ARCHITECTURE.value: _handle_write_architecture,
             StepKind.WRITE_MODULE_CONTRACTS.value: _handle_write_module_contracts,
             StepKind.WRITE_BUILD_PLAN.value: _handle_write_build_plan,
+            StepKind.INVOKE_SA_INCREMENTAL.value: _handle_invoke_sa_incremental,
             StepKind.INVOKE_PLAN_FINALIZE.value: _handle_invoke_plan_finalize,
             StepKind.MATERIALIZE_TICKETS.value: _handle_materialize_tickets,
             StepKind.MOCK_DEV_COMMIT.value: dev_handler,
@@ -522,6 +538,123 @@ async def _handle_write_build_plan(
     raw = step.params["plan"]
     plan = raw if isinstance(raw, BuildPlan) else BuildPlan.model_validate(raw)
     write_build_plan(ctx.project_root, plan)
+
+
+# Dispatch table mapping ``calls[*].tool`` to the matching incremental
+# handler. Lives at module scope so the handler can stay flat — each
+# entry is a thin wrapper that pulls the right kwargs out of the
+# scenario YAML payload. New incremental upserts land here when the
+# MCP layer adds them.
+_SA_INCREMENTAL_HANDLERS = {
+    "arch_set_module": lambda *, project_path, params: handle_arch_set_module(
+        project_path=project_path, module=params["module"]
+    ),
+    "arch_set_data_store": lambda *, project_path, params: handle_arch_set_data_store(
+        project_path=project_path, data_store=params["data_store"]
+    ),
+    "arch_set_shared_contract": lambda *, project_path, params: handle_arch_set_shared_contract(
+        project_path=project_path, shared_contract=params["shared_contract"]
+    ),
+    "arch_set_cross_cutting_policy": lambda *, project_path, params: handle_arch_set_cross_cutting_policy(
+        project_path=project_path, policy=params["policy"]
+    ),
+    "arch_set_open_question": lambda *, project_path, params: handle_arch_set_open_question(
+        project_path=project_path, open_question=params["open_question"]
+    ),
+    "module_set_owned_collection": lambda *, project_path, params: handle_module_set_owned_collection(
+        project_path=project_path,
+        module_id=params["module_id"],
+        owned_collection=params["owned_collection"],
+    ),
+    "module_set_external_dependency": lambda *, project_path, params: handle_module_set_external_dependency(
+        project_path=project_path,
+        module_id=params["module_id"],
+        external_dependency=params["external_dependency"],
+    ),
+    "module_set_integration_ac": lambda *, project_path, params: handle_module_set_integration_ac(
+        project_path=project_path,
+        module_id=params["module_id"],
+        integration_ac=params["integration_ac"],
+    ),
+    "module_set_behavioral_contract": lambda *, project_path, params: handle_module_set_behavioral_contract(
+        project_path=project_path,
+        module_id=params["module_id"],
+        behavioral_contract=params["behavioral_contract"],
+    ),
+    "module_set_data_contract": lambda *, project_path, params: handle_module_set_data_contract(
+        project_path=project_path,
+        module_id=params["module_id"],
+        data_contract=params["data_contract"],
+    ),
+    "module_set_open_question": lambda *, project_path, params: handle_module_set_open_question(
+        project_path=project_path,
+        module_id=params["module_id"],
+        open_question=params["open_question"],
+    ),
+}
+
+
+async def _handle_invoke_sa_incremental(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Drive a sequence of SA upsert calls + a final ``arch_finalize``.
+
+    Scenario YAML shape::
+
+        kind: invoke_sa_incremental
+        params:
+          calls:
+            - tool: arch_set_module
+              params: { module: { ... } }
+            - tool: module_set_owned_collection
+              params: { module_id: ..., owned_collection: { ... } }
+            ...
+          finalize:
+            summary: "MVP-SA finalize"
+            author: sa-mvp           # optional; defaults to sa-mvp
+
+    Auto-creates the architecture ticket if missing (mirrors the L0 /
+    L1 / L2 / L3 / planner finalize patterns — the finalize handler
+    expects its ticket to exist or ``resolve_after_handoff`` no-ops
+    silently).
+    """
+    if await ctx.tickets.get(SA_TICKET_ID) is None:
+        await ctx.tickets.create(
+            Ticket(
+                id=SA_TICKET_ID,
+                work_type=WorkType.BRIEF,
+                title="SA — architecture",
+                created_by="sim-driver",
+            )
+        )
+
+    calls = step.params.get("calls") or []
+    for entry in calls:
+        tool_name = entry["tool"]
+        handler = _SA_INCREMENTAL_HANDLERS.get(tool_name)
+        if handler is None:
+            raise ValueError(
+                f"invoke_sa_incremental: unknown tool {tool_name!r}; "
+                f"known: {sorted(_SA_INCREMENTAL_HANDLERS)!r}"
+            )
+        await handler(
+            project_path=ctx.project_root, params=entry.get("params", {})
+        )
+
+    finalize = dict(step.params.get("finalize") or {})
+    finalize.setdefault("author", "sa-mvp")
+    if "summary" not in finalize:
+        raise ValueError(
+            "invoke_sa_incremental: finalize.summary is required"
+        )
+    await handle_arch_finalize(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        summary=finalize["summary"],
+        author=finalize["author"],
+    )
 
 
 async def _handle_invoke_plan_finalize(

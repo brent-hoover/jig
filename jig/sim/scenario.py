@@ -63,6 +63,15 @@ class StepKind(str, Enum):
     WRITE_MODULE_CONTRACTS = "write_module_contracts"
     WRITE_BUILD_PLAN = "write_build_plan"
 
+    # MVP-tier SA: drive a sequence of incremental upsert calls plus a
+    # final ``arch_finalize`` against ``jig.sa_incremental_mcp``. Bones
+    # scenarios use ``write_architecture`` + ``write_module_contracts``
+    # (operator hand-write); MVP scenarios swap in this step to exercise
+    # the SA discovery-loop authoring path without a real LLM. The
+    # scripted-call sequence lives in scenario YAML so the test author
+    # controls the exact ordering an operator would hand-walk through.
+    INVOKE_SA_INCREMENTAL = "invoke_sa_incremental"
+
     # MVP-tier Planner: invoke the v2 plan_finalize handler. Bones
     # scenarios use ``write_build_plan`` (operator hand-write); MVP
     # scenarios swap in this step to exercise the agent path.

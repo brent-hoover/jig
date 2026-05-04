@@ -1,0 +1,374 @@
+spec_version: 1
+id: bones-with-mvp-sa
+description: |
+  The bones-with-l2-organizer scenario, with the operator-hand-write
+  ``write_architecture`` + ``write_module_contracts`` steps replaced
+  by an ``invoke_sa_incremental`` step that walks two modules through
+  the v2 SA discovery loop (Track C MVP). Validates that the
+  incremental SA authoring path produces a valid architecture +
+  contracts that the rest of the spine (Planner, Coordinator, Dev,
+  Reviewer) can read past, end-to-end.
+
+  Per ``docs/implementation/v2-plan.md`` Track C MVP scope: full SA
+  discovery loop with checklist enforcement + behavioral contracts
+  framework. The two-module shape exercises both single-module
+  scoping and multi-module accumulation; one of the modules carries a
+  behavioral contract so the validator + Note posting paths fire.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-mvp-sa
+      pitch: a tracer-bullet project that exercises the v2 SA MVP discovery loop
+      problem: |
+        We need a single happy-path scenario that proves the SA MVP
+        incremental authoring path lands a valid architecture +
+        per-module contracts that downstream phases can read past.
+      audience: |
+        Internal jig developers validating that the SA MVP slice
+        composes with the rest of the v2 spine.
+      non_goals:
+        - id: no-edge-cases
+          text: This scenario does not cover edge cases or failure modes
+          rationale: bones tracer; MVP scenarios cover those
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-mvp-sa
+
+  # ---- L1 PO --------------------------------------------------------
+  - kind: invoke_l1_finalize
+    params:
+      project_name: bones-with-mvp-sa
+      intro: |
+        Discovery walk for the bones-with-mvp-sa scenario.
+      personas:
+        - id: merchant
+          description: The buyer who integrates jig into their ecommerce site
+      journeys:
+        - id: j-merchant-onboarding
+          persona_id: merchant
+          title: Merchant onboarding
+          narrative: |
+            Merchant signs up, authorizes their Shopify store, and
+            confirms the catalog has been pulled into the products
+            collection.
+          capability_ids:
+            - shopify-connect
+      capability_roster:
+        - id: shopify-connect
+          description: Connect Shopify store via OAuth
+          journey_ids:
+            - j-merchant-onboarding
+      author: po-l1
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/discovery.md
+        contains: j-merchant-onboarding
+      - kind: ticket_status
+        ticket_id: discovery
+        status: resolved
+
+  # ---- L2 PO --------------------------------------------------------
+  - kind: invoke_l2_finalize
+    params:
+      suites:
+        - id: catalog
+          title: Catalog
+          summary: ingestion of catalog data into the local store
+          capabilities:
+            - shopify-connect
+      crosscutting_non_goals: []
+      author: po-l2
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: shopify-connect
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite: pull catalog data from Shopify and
+        normalize into our products collection.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store; we pull the
+            catalog and normalize into the products collection.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake from settings
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+            - id: pull-catalog
+              description: After OAuth completes we pull the catalog
+              acceptance_criteria:
+                - Catalog rows appear in the products collection
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  # ---- SA MVP (incremental discovery loop, 2 modules) ------------------
+  - kind: invoke_sa_incremental
+    params:
+      calls:
+        # Project-level: data store
+        - tool: arch_set_data_store
+          params:
+            data_store:
+              id: main-db
+              kind: sqlite
+              rationale: bones — single-process file-backed
+              accessed_by: [catalog-ingest, categorization]
+
+        # Module 1: catalog-ingest (carries a behavioral contract)
+        - tool: arch_set_module
+          params:
+            module:
+              id: catalog-ingest
+              title: Catalog Ingest
+              summary: |
+                Pulls catalog data from Shopify and normalizes into the
+                products collection.
+              implements_capabilities:
+                - shopify-connect
+              owns:
+                - products
+              tier_hint: standard
+              requires_tracer_bullet: true
+              # external_dependencies authored below; behavioral
+              # contract authored below (so this module addresses every
+              # checklist category — no n_a_categories needed).
+              n_a_categories: []
+              intent:
+                problem: |
+                  Bones MVP needs a module that owns the products
+                  collection so the contract-compliance reviewer has a
+                  diff to check against and the SA-MVP discovery loop
+                  has a real walking target.
+                simplest_solution: |
+                  One module that handles Shopify ingest and writes to
+                  a single owned collection.
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
+        - tool: module_set_owned_collection
+          params:
+            module_id: catalog-ingest
+            owned_collection:
+              collection: products
+              db: main-db
+              write_access: [self]
+              read_access: [categorization]
+
+        - tool: module_set_external_dependency
+          params:
+            module_id: catalog-ingest
+            external_dependency:
+              id: shopify-api
+              kind: external_http
+              rate_limit: 2 req/sec per shop
+              auth: oauth2 token per shop
+              failure_mode: exponential backoff, 3 retries, then fail batch
+
+        - tool: module_set_integration_ac
+          params:
+            module_id: catalog-ingest
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - Shopify catalog data flows into the products collection
+                - catalog-ingested event published with normalized payload
+
+        - tool: module_set_behavioral_contract
+          params:
+            module_id: catalog-ingest
+            behavioral_contract:
+              id: ingest-batch-atomicity
+              applies_to:
+                module: catalog-ingest
+                capability: shopify-connect
+              precondition: |
+                batch_id refers to an in-progress row in ingestion_runs
+                with status='in_progress'.
+              postcondition: |
+                Either every product in the batch is persisted to the
+                products collection AND batch.status='completed', or no
+                products from this batch are persisted AND
+                batch.status='failed'. No partial state is permitted.
+              invariant: |
+                batch.status transitions are forward-only:
+                queued → in_progress → completed | failed.
+              side_effects:
+                - Writes to the products collection
+                - Updates ingestion_runs.status
+              intent:
+                problem: |
+                  Partial-batch persistence creates inconsistency
+                  between products and ingestion_runs that downstream
+                  consumers cannot detect or recover from.
+                simplest_solution: |
+                  Wrap the batch insert + status update in one
+                  transaction; rollback on any insert failure.
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
+        # Module 2: categorization — CRUD-only; no behavioral contracts
+        # is legitimate here (pure read + emit), so it declares the
+        # category N/A rather than authoring an empty list.
+        - tool: arch_set_module
+          params:
+            module:
+              id: categorization
+              title: Categorization
+              summary: |
+                Reads products and emits proposed categories. CRUD-only
+                — no behavioral invariants worth stating beyond the
+                read/emit contract.
+              implements_capabilities: []
+              owns: []
+              tier_hint: standard
+              requires_tracer_bullet: false
+              n_a_categories:
+                - behavioral_contracts
+                - external_dependencies
+                - ownership
+              intent:
+                problem: |
+                  Downstream consumers need category proposals derived
+                  from the normalized catalog without writing back to
+                  the products collection.
+                simplest_solution: |
+                  Read products, hash the title, look up category from
+                  a static mapping, emit one proposal event per row.
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
+        - tool: module_set_integration_ac
+          params:
+            module_id: categorization
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - Reads from the products collection only
+                - Never writes back to products
+
+      finalize:
+        summary: SA-MVP bones — 2 modules, 1 behavioral contract
+        author: sa-mvp
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: catalog-ingest
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: categorization
+      - kind: artifact_written
+        path: .jig/spec/modules/catalog-ingest/contracts.yaml
+        contains: ingest-batch-atomicity
+      - kind: ticket_status
+        ticket_id: architecture
+        status: resolved
+
+  # ---- Planner PM (v2 agent path) ---------------------------------------
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-mvp-sa
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the bones spine end-to-end with the SA MVP
+                authoring path producing a multi-module architecture
+                + behavioral contract before the planner fires.
+              simplest_solution: |
+                One epic, one bones ticket, one capability, one
+                integration AC.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/build-plan.yaml
+        contains: tb-catalog-ingest
+      - kind: ticket_status
+        ticket_id: plan
+        status: resolved
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  # ---- Dev (mock in CI; real-mode CLI replaces with a Claude agent) -----
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  # ---- Reviewer ----------------------------------------------------
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+# ---- final assertions: spine cohesion + analytics + cost ---------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: analytics_event_emitted
+    event_kind: ticket_state_changed
+    field_constraints:
+      ticket_id: tb-catalog-ingest
+      to_state: resolved
+  - kind: cost_under_budget
+    usd: 1.0

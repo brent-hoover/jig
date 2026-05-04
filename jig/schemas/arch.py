@@ -235,7 +235,13 @@ class IntegrationAcceptance(BaseModel):
 
 
 class DataContract(BaseModel):
-    """A data shape contract (vs behavioral). Often references an OpenAPI/SQL/Pydantic schema."""
+    """A data shape contract (vs behavioral). Often references an OpenAPI/SQL/Pydantic schema.
+
+    ``fields`` (Track I MVP) carries an inline {field_name: type_str} mapping
+    so the Pydantic-from-data-contract renderer has something to render
+    against without resolving ``schema_ref``. URI-based field resolution
+    lands when the URI scheme matures.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -243,6 +249,16 @@ class DataContract(BaseModel):
     type: Literal["data"] = "data"
     description: str | None = None
     schema_ref: str | None = None
+    fields: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Inline {field_name: type_str} map — type_str is a simple "
+            'Python type expression like "str", "int", "list[str]", or '
+            '"int | None". Used by the Pydantic renderer (Track I MVP); '
+            "kept optional so legacy contracts that only carry a "
+            "``schema_ref`` continue to validate."
+        ),
+    )
     intent: Intent
 
 

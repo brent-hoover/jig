@@ -413,6 +413,64 @@ def create(name: str, no_git: bool) -> None:
     _execvp(sys.argv[0], [sys.argv[0]])
 
 
+# ---------------------------------------------------------------------------
+# `jig render ...` — translation renderers (Track I MVP §6).
+#
+# One source (a typed contract) → many derived views. MVP ships
+# Pydantic-from-data-contract; OpenAPI / SQL DDL / etc. land
+# opportunistically. The rendered output goes to stdout so the operator
+# can pipe it to a file or paste it into an editor — we deliberately
+# don't write into the source tree, since the operator owns where the
+# generated code lives in their codebase.
+# ---------------------------------------------------------------------------
+
+
+@cli.group("render")
+def render_group() -> None:
+    """Render typed contracts into derived views (Track I MVP)."""
+
+
+@render_group.command("pydantic")
+@click.argument("module_id")
+@click.argument("contract_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def render_pydantic(module_id: str, contract_id: str, path: Path) -> None:
+    """Render a DataContract as a Pydantic class to stdout.
+
+    Looks up ``contract_id`` inside the module's contracts.yaml and
+    emits a self-contained Pydantic class source. The DataContract must
+    have an inline ``fields`` payload (URI-based schema resolution
+    lands later).
+    """
+    from jig.renderers.pydantic_from_data_contract import (
+        render_pydantic_from_data_contract,
+    )
+    from jig.spec_loader import load_module_contracts
+
+    try:
+        contracts = load_module_contracts(path, module_id)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc))
+    contract = next(
+        (c for c in contracts.data_contracts if c.id == contract_id),
+        None,
+    )
+    if contract is None:
+        raise click.ClickException(
+            f"DataContract {contract_id!r} not found in module {module_id!r} "
+            f"(known: {[c.id for c in contracts.data_contracts]})"
+        )
+    try:
+        click.echo(render_pydantic_from_data_contract(contract))
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+
+
 @cli.group("hooks")
 def hooks_group() -> None:
     """Manage human-side git hooks (pre-commit, pre-push, commit-msg)."""

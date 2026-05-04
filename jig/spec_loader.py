@@ -24,6 +24,7 @@ synthetic operator calls ``write_build_plan`` directly.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -31,13 +32,15 @@ import yaml
 from jig.atomic import atomic_write_text
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.plan import BuildPlan
-from jig.schemas.po import SuitesIndex
+from jig.schemas.po import DiscoveryDoc, DiscoveryState, SuitesIndex
 from jig.spec_schema import StructuredSpec
 
 _SPEC_RELATIVE = Path(".jig") / "spec" / "project.structured.yaml"
 _SUITES_INDEX_RELATIVE = Path(".jig") / "spec" / "suites.yaml"
 _ARCHITECTURE_RELATIVE = Path(".jig") / "spec" / "architecture.yaml"
 _BUILD_PLAN_RELATIVE = Path(".jig") / "plan" / "build-plan.yaml"
+_DISCOVERY_MD_RELATIVE = Path(".jig") / "spec" / "discovery.md"
+_DISCOVERY_STATE_RELATIVE = Path(".jig") / "spec" / "discovery.state.yaml"
 
 
 def spec_path(project_root: Path) -> Path:
@@ -187,3 +190,89 @@ def write_build_plan(project_root: Path, plan: BuildPlan) -> None:
     """
     payload = yaml.safe_dump(plan.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(build_plan_path(project_root), payload)
+
+
+# ---- v2 L1 PO paths -------------------------------------------------------
+
+
+def discovery_path(project_root: Path) -> Path:
+    """``.jig/spec/discovery.md`` — committed L1 personas / journeys / roster.
+
+    Per design.md §"L1 — Discovery". The L1 PO writes this only at
+    Phase-5 commit time (and at ``discovery_finalize``); in-flight
+    state lives in ``discovery.state.yaml``.
+    """
+    return project_root / _DISCOVERY_MD_RELATIVE
+
+
+def discovery_state_path(project_root: Path) -> Path:
+    """``.jig/spec/discovery.state.yaml`` — L1 in-flight conversation state.
+
+    Rewritten after every meaningful operator turn so the L1 PO can
+    resume mid-walk after a daemon restart or operator pause.
+    """
+    return project_root / _DISCOVERY_STATE_RELATIVE
+
+
+def discovery_playback_path(project_root: Path, journey_id: str) -> Path:
+    """``.jig/spec/discovery/playbacks/<journey_id>.md``.
+
+    The audit trail of the Phase-5 playback the L1 PO read back to the
+    operator before committing the journey to ``discovery.md``.
+    """
+    return (
+        project_root
+        / ".jig" / "spec" / "discovery" / "playbacks" / f"{journey_id}.md"
+    )
+
+
+def load_discovery(project_root: Path) -> DiscoveryDoc:
+    """Load and validate ``discovery.md``'s structured projection.
+
+    ``discovery.md`` is markdown; bones doesn't ship a parser yet (the
+    full L1 brief parser is a later track). For now this is a thin
+    helper that rebuilds a ``DiscoveryDoc`` from a sibling YAML cache
+    when present. Raises ``FileNotFoundError`` if neither is on disk.
+
+    Out-of-scope-for-bones: parsing the markdown back into a doc. The
+    L1 PO writes the doc once per finalize and downstream readers go
+    through the markdown directly (or wait for the parser).
+    """
+    # Bones-scope: there's no markdown-back-to-doc parser yet. Reading
+    # the cached YAML projection is what the synthetic operator and
+    # downstream tests need; markdown reads stay raw-text.
+    cache = project_root / ".jig" / "spec" / "discovery.structured.yaml"
+    if not cache.is_file():
+        raise FileNotFoundError(
+            f"discovery cache not found at {cache} "
+            "(write_discovery_doc has not been called yet)"
+        )
+    data = yaml.safe_load(cache.read_text()) or {}
+    return DiscoveryDoc.model_validate(data)
+
+
+def load_discovery_state(project_root: Path) -> DiscoveryState:
+    """Load and validate ``discovery.state.yaml``.
+
+    Raises ``FileNotFoundError`` if absent — the L1 PO calls this on
+    resume; absence means "no prior session" rather than an empty default
+    so callers can branch cleanly. (The state file is created lazily on
+    the first ``save_discovery_state`` call, not at session start.)
+    """
+    src = discovery_state_path(project_root)
+    if not src.is_file():
+        raise FileNotFoundError(f"discovery state not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return DiscoveryState.model_validate(data)
+
+
+def save_discovery_state(project_root: Path, state: DiscoveryState) -> None:
+    """Atomically write ``state`` to ``.jig/spec/discovery.state.yaml``.
+
+    Refreshes ``updated_at`` on every save so a stale state file is
+    visible at a glance. ``sort_keys=False`` keeps the YAML readable
+    for the operator who may inspect it between sessions.
+    """
+    state.updated_at = datetime.now(timezone.utc)
+    payload = yaml.safe_dump(state.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(discovery_state_path(project_root), payload)

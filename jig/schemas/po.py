@@ -1,7 +1,4 @@
-"""PO output schemas — L0 Project + L2 SuitesIndex + L3 SuiteBriefStructured.
-
-L1 (discovery) schemas are out of bones scope; they land with the L1
-PO conversation work in Track B.
+"""PO output schemas — L0 Project + L1 Discovery + L2 SuitesIndex + L3 SuiteBriefStructured.
 
 L3 reuses ``jig.spec_schema.StructuredSpec`` shape — the structured
 projection of a single suite brief is the same shape as the v1 monolithic
@@ -13,12 +10,20 @@ the schema.
 suite's capability allowlist. The L2 PO authoring side is out of bones
 scope (synthetic operator hand-writes ``suites.yaml``); the schema lives
 here so L3 can validate against it.
+
+L1 schemas (Persona / Journey / CapabilityRosterEntry / DiscoveryDoc /
+DiscoveryState) back the L1 PO discovery conversation — see
+``docs/multi-level-spec/design.md`` §"L1 — Discovery". The L1 PO writes
+``discovery.md`` (rendered from ``DiscoveryDoc``) and tracks in-flight
+state in ``discovery.state.yaml`` (``DiscoveryState``); per-journey
+playbacks land under ``.jig/spec/discovery/playbacks/``.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.spec_schema import StructuredSpec
 
@@ -28,7 +33,33 @@ __all__ = [
     "Suite",
     "SuitesIndex",
     "StructuredSpec",
+    "Persona",
+    "Journey",
+    "CapabilityRosterEntry",
+    "DiscoveryDoc",
+    "DiscoveryPhase",
+    "DiscoveryStatus",
+    "PendingCapability",
+    "DiscoveryState",
 ]
+
+
+_KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def _validate_kebab(value: str, field: str) -> str:
+    """Reject non-kebab ids — the design's brief-format rule for L1.
+
+    Used by Persona / Journey / CapabilityRosterEntry id fields. Centralized
+    so each schema doesn't re-implement the regex (and so the error text
+    stays uniform across artifacts).
+    """
+    if not _KEBAB_RE.fullmatch(value):
+        raise ValueError(
+            f"{field} {value!r} must be kebab-case "
+            "(lowercase letters, digits, single dashes between segments)"
+        )
+    return value
 
 
 class ProductNonGoal(BaseModel):
@@ -120,3 +151,255 @@ class SuitesIndex(BaseModel):
             if s.id == suite_id:
                 return s
         return None
+
+
+# ---- L1 Discovery ---------------------------------------------------------
+
+
+class Persona(BaseModel):
+    """One persona row in the L1 discovery doc.
+
+    Per design.md §"L1 — Discovery": a one-line description plus a
+    kebab-case id used as the anchor (``{#merchant}``) the journeys
+    reference. The L1 PO captures personas during Phase 1 and 2 of
+    the journey-walk.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="kebab-case persona id")
+    description: str = Field(
+        ...,
+        min_length=1,
+        description="One-line persona description in the operator's vocabulary.",
+    )
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "Persona.id")
+
+
+class Journey(BaseModel):
+    """One journey block in the L1 discovery doc.
+
+    Per design.md §"L1 — Discovery": a journey is a narrative tied to
+    one persona, plus the list of capability ids it implies. The L1 PO
+    commits one journey per Phase-5 playback. Journey ids start with
+    ``j-`` and contain a persona keyword (e.g. ``j-merchant-onboarding``);
+    the kebab-case rule covers everything after the prefix.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="kebab-case journey id; convention starts with 'j-'")
+    persona_id: str = Field(..., description="The Persona.id this journey belongs to.")
+    title: str = Field(
+        ...,
+        min_length=1,
+        description="Short title in the operator's words (heading text).",
+    )
+    narrative: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Free-prose paragraph(s) describing the journey step by step in "
+            "the operator's vocabulary."
+        ),
+    )
+    capability_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Kebab-case capability ids implied by this journey. Every entry "
+            "should also appear in the doc's ``capability_roster`` with this "
+            "journey id in its ``journeys`` list — the renderer + finalize "
+            "validator enforce that round-trip."
+        ),
+    )
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "Journey.id")
+
+    @field_validator("persona_id")
+    @classmethod
+    def _kebab_persona(cls, v: str) -> str:
+        return _validate_kebab(v, "Journey.persona_id")
+
+    @field_validator("capability_ids")
+    @classmethod
+    def _kebab_capability_ids(cls, v: list[str]) -> list[str]:
+        for c in v:
+            _validate_kebab(c, "Journey.capability_ids[]")
+        return v
+
+
+class CapabilityRosterEntry(BaseModel):
+    """One capability row in the L1 discovery roster.
+
+    Per design.md §"Capability roster": a deduplicated, sorted-by-first-
+    mention list at the bottom of ``discovery.md``. Each entry tracks
+    which journey ids surfaced it so L2 can group capabilities by shared
+    journey context.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="kebab-case capability id")
+    description: str = Field(
+        ...,
+        min_length=1,
+        description="One-line capability description in the operator's verbs.",
+    )
+    journey_ids: list[str] = Field(
+        default_factory=list,
+        description="Journey ids that surfaced this capability.",
+    )
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "CapabilityRosterEntry.id")
+
+    @field_validator("journey_ids")
+    @classmethod
+    def _kebab_journey_ids(cls, v: list[str]) -> list[str]:
+        for j in v:
+            _validate_kebab(j, "CapabilityRosterEntry.journey_ids[]")
+        return v
+
+
+class DiscoveryDoc(BaseModel):
+    """L1 — the synthesized discovery document.
+
+    Rendered to ``.jig/spec/discovery.md`` (committed history) at
+    ``discovery_finalize`` time. The on-disk markdown also contains an
+    intro paragraph above ``## Personas`` (captured separately via
+    ``discovery_set_intro``); the schema models everything below it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_version: int = 1
+    project_name: str = Field(..., min_length=1)
+    intro: str = Field(
+        default="",
+        description=(
+            "Optional preface paragraph rendered above '## Personas'. "
+            "Empty string skips the preface — the headings still render."
+        ),
+    )
+    personas: list[Persona] = Field(default_factory=list)
+    journeys: list[Journey] = Field(default_factory=list)
+    capability_roster: list[CapabilityRosterEntry] = Field(default_factory=list)
+    generated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+# ---- L1 in-flight conversation state --------------------------------------
+
+
+class DiscoveryPhase(BaseModel):
+    """Pointer to the current spot in the 5-phase walk.
+
+    Phases 1-5 mirror design.md §"L1 PO behavior". ``step`` is the
+    sub-step index within Phase 3 (Walk); other phases set it to 0.
+    persona_id / journey_id are nullable for Phase 1 (frame) which runs
+    before the first persona is locked in.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    persona_id: str | None = None
+    journey_id: str | None = None
+    phase: int = Field(..., ge=1, le=5)
+    step: int = Field(default=0, ge=0)
+
+
+class PendingCapability(BaseModel):
+    """A capability the L1 PO extracted mid-walk but hasn't committed yet.
+
+    Stashed during Phase 3/4 so an interrupted session doesn't lose the
+    operator-confirmed extraction. ``discovery_add_capability`` (Phase 5)
+    promotes these to roster entries and clears the stash.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="kebab-case capability id")
+    description: str = Field(..., min_length=1)
+    journey_id: str = Field(..., description="The journey this surfaced from.")
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "PendingCapability.id")
+
+    @field_validator("journey_id")
+    @classmethod
+    def _kebab_journey(cls, v: str) -> str:
+        return _validate_kebab(v, "PendingCapability.journey_id")
+
+
+class DiscoveryStatus:
+    """Allowed values for ``DiscoveryState.status``.
+
+    A class rather than ``Enum`` so the YAML round-trip stays plain
+    strings (the rest of the v2 PO schemas follow the same pattern —
+    string literals on disk, validation via ``Literal``).
+    """
+
+    IN_PROGRESS = "in_progress"
+    FINALIZED = "finalized"
+
+
+class DiscoveryState(BaseModel):
+    """L1 in-flight conversation state — ``.jig/spec/discovery.state.yaml``.
+
+    Per design.md §"L1 conversation state and resume": rewritten after
+    every meaningful operator turn so the L1 PO can resume mid-walk after
+    a daemon restart or operator pause. The in-flight state is distinct
+    from the committed ``discovery.md`` — the latter only gains entries
+    at Phase-5 commit time.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_version: int = 1
+    status: str = Field(
+        default=DiscoveryStatus.IN_PROGRESS,
+        description="One of 'in_progress' | 'finalized'.",
+    )
+    current: DiscoveryPhase | None = Field(
+        default=None,
+        description="Current position in the 5-phase walk; None pre-Phase-1.",
+    )
+    next_question: str | None = Field(
+        default=None,
+        description=(
+            "The exact question the L1 PO is about to ask, captured before "
+            "the ``ask_question`` call so resume can replay it without "
+            "re-deriving (and possibly drifting)."
+        ),
+    )
+    phases_completed_this_journey: list[int] = Field(default_factory=list)
+    journeys_completed_this_persona: list[str] = Field(default_factory=list)
+    personas_completed: list[str] = Field(default_factory=list)
+    personas_pending: list[str] = Field(default_factory=list)
+    pending_capabilities: list[PendingCapability] = Field(default_factory=list)
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, v: str) -> str:
+        allowed = {DiscoveryStatus.IN_PROGRESS, DiscoveryStatus.FINALIZED}
+        if v not in allowed:
+            raise ValueError(
+                f"DiscoveryState.status must be one of {sorted(allowed)!r}, "
+                f"got {v!r}"
+            )
+        return v

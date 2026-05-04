@@ -31,6 +31,7 @@ import yaml
 
 from jig.atomic import atomic_write_text
 from jig.schemas.arch import Architecture, ContractsFile
+from jig.schemas.dev_env import DevManifest
 from jig.schemas.plan import BuildPlan
 from jig.schemas.po import (
     DiscoveryDoc,
@@ -47,6 +48,7 @@ _BUILD_PLAN_RELATIVE = Path(".jig") / "plan" / "build-plan.yaml"
 _DISCOVERY_MD_RELATIVE = Path(".jig") / "spec" / "discovery.md"
 _DISCOVERY_STATE_RELATIVE = Path(".jig") / "spec" / "discovery.state.yaml"
 _ONTOLOGY_RELATIVE = Path(".jig") / "spec" / "ontology.md"
+_DEV_MANIFEST_RELATIVE = Path(".jig") / "dev" / "manifest.yaml"
 
 
 def spec_path(project_root: Path) -> Path:
@@ -249,6 +251,45 @@ def write_build_plan(project_root: Path, plan: BuildPlan) -> None:
     """
     payload = yaml.safe_dump(plan.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(build_plan_path(project_root), payload)
+
+
+# ---- v2 dev-environment paths (Track E MVP) ------------------------------
+
+
+def dev_manifest_path(project_root: Path) -> Path:
+    """``.jig/dev/manifest.yaml`` — derived dev-environment manifest.
+
+    Generated artifact (not hand-edited). Re-projected from
+    ``architecture.yaml`` whenever the architecture changes; the
+    ``dev_derive_manifest`` MCP tool / ``jig dev manifest`` CLI
+    re-runs the derivation.
+    """
+    return project_root / _DEV_MANIFEST_RELATIVE
+
+
+def load_dev_manifest(project_root: Path) -> DevManifest:
+    """Load and validate ``manifest.yaml``.
+
+    Raises ``FileNotFoundError`` if absent — callers (orchestrator's
+    per-agent provisioning hook, the orphan tracker) treat absence as
+    "no dev provisioning declared yet" rather than silently defaulting
+    to an empty manifest. Same shape contract as ``load_architecture``.
+    """
+    src = dev_manifest_path(project_root)
+    if not src.is_file():
+        raise FileNotFoundError(f"dev manifest not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return DevManifest.model_validate(data)
+
+
+def save_dev_manifest(project_root: Path, manifest: DevManifest) -> None:
+    """Atomically write ``manifest`` to ``.jig/dev/manifest.yaml``.
+
+    The parent dir is created on demand so the first save against a
+    fresh project doesn't fail on a missing ``.jig/dev/``.
+    """
+    payload = yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(dev_manifest_path(project_root), payload)
 
 
 # ---- v2 L1 PO paths -------------------------------------------------------

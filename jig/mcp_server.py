@@ -1728,6 +1728,29 @@ def create_agent_mcp_server(
 
         all_tools.append(arch_finalize)
 
+    if "dev_derive_manifest" in agent_cfg.allowed_tools:
+        from jig import dev_env_mcp
+
+        @tool(
+            "dev_derive_manifest",
+            "Re-derive the dev-environment manifest from the current "
+            "``architecture.yaml``. Walks ``data_stores``, projects each "
+            "store with a ``dev_provisioning`` block into a "
+            "``ManifestService`` entry, writes "
+            "``.jig/dev/manifest.yaml`` atomically. Idempotent — call "
+            "after every architecture change. Returns the absolute path "
+            "of the written manifest. Raises if "
+            "``architecture.yaml`` is absent (run SA first).",
+            {},
+        )
+        async def dev_derive_manifest(args):
+            path = await dev_env_mcp.handle_dev_derive_manifest(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": path}]}
+
+        all_tools.append(dev_derive_manifest)
+
     if "plan_finalize" in agent_cfg.allowed_tools:
 
         @tool(

@@ -1,0 +1,21 @@
+id: ambivalent
+description: |
+  Doesn't have strong opinions. Gives vague answers; doesn't read
+  briefings carefully; needs prompting. Confirms gates passively
+  without engaging deeply. Tests the workflow when the operator
+  provides minimal signal.
+gate_confirmation_policy: confirm_passively
+response_patterns:
+  - Says "sure" / "yeah, I guess" / "whatever sounds good" to most prompts.
+  - Defers to agent suggestions for personas, capabilities, contracts.
+  - When asked a clarifying question, gives a non-committal answer that often forces the agent to ask again.
+  - Confirms playbacks without much engagement.
+avoid_behaviors:
+  - specific_disagreement
+  - decisive_commitments
+override_probability: 0.02
+ambiguity_in_answers: high
+patience_for_clarification: low
+gate_acceptance_probability: 0.85
+clarification_request_probability: 0.6
+prefers_short_rationale: true

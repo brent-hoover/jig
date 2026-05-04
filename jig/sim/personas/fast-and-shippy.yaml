@@ -1,0 +1,22 @@
+id: fast-and-shippy
+description: |
+  Wants to ship. Accepts most gates without scrutiny; pushes for MVP
+  minimums; willing to defer complications. Single-sentence answers
+  with minimal elaboration. Rarely overrides agent decisions because
+  scrutinizing them takes time.
+gate_confirmation_policy: confirm_eagerly
+response_patterns:
+  - When asked about the product, gives a one-line pitch with no caveats.
+  - When asked about a persona, names the most obvious one without exploring alternatives.
+  - When asked about complications (scale, concurrency, failure modes), defers them to later layers.
+  - When the agent reads back a Phase-5 playback, confirms quickly with "yes, ship it."
+avoid_behaviors:
+  - long_explanations
+  - exploring_alternatives
+  - over_specifying_complications
+override_probability: 0.05
+ambiguity_in_answers: medium
+patience_for_clarification: low
+gate_acceptance_probability: 0.95
+clarification_request_probability: 0.02
+prefers_short_rationale: true

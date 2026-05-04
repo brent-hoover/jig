@@ -1,18 +1,19 @@
-"""Synthetic operator persona schema (Track H3, bones).
+"""Synthetic operator persona schema (Track H3 bones + H7 MVP).
 
-Bones ships only ``methodical``. The full persona library
-(fast-and-shippy, scope-creeper, ambivalent, hostile) lands in MVP
-(Track H7). The schema's defaults assume the methodical baseline so
-authoring a new persona only requires the fields that diverge.
+Bones shipped only ``methodical``. MVP (Track H follow-on) added
+``fast-and-shippy`` and ``ambivalent``. ``scope-creeper`` and
+``hostile`` land in Final. The schema's defaults assume the
+methodical baseline so authoring a new persona only requires the
+fields that diverge.
 
 A persona is a structured behavior profile, not a vibe — the driver
 loads it as system-prompt context for the synthetic-operator LLM
-(eventually; bones doesn't actually invoke the LLM for the operator
-side because every step is fully scripted).
+(eventually; bones + MVP scope is fully scripted; policy-driven
+turns are Final).
 
 Persona files live at ``jig/sim/personas/<id>.yaml`` and ship with the
 package. Operators authoring custom personas point ``load_persona``
-at any path; only the bones ``methodical`` is shipped.
+at any path.
 """
 from __future__ import annotations
 
@@ -69,6 +70,29 @@ class Persona(BaseModel):
     patience_for_clarification: Literal[
         "very_low", "low", "medium", "high"
     ] = "high"
+
+    # MVP (Track H follow-on) — explicit probability fields for the two
+    # behaviors that distinguish fast-and-shippy + ambivalent from
+    # methodical. Defaults preserve methodical's profile so existing
+    # YAMLs validate unchanged.
+    #
+    # ``gate_acceptance_probability``: how often the persona accepts a
+    # gate without scrutiny. fast-and-shippy is high (0.9+); methodical
+    # mid (~0.5); ambivalent high but for the wrong reason (~0.85).
+    #
+    # ``clarification_request_probability``: how often the persona
+    # asks the agent to clarify before answering. methodical is low
+    # (~0.05); ambivalent is high (~0.6) because vague answers
+    # frequently force the agent to ask.
+    #
+    # ``prefers_short_rationale``: when true, persona's rationale text
+    # in scripted scenarios is terse. fast-and-shippy true; methodical
+    # false; ambivalent true.
+    gate_acceptance_probability: float = Field(default=0.5, ge=0.0, le=1.0)
+    clarification_request_probability: float = Field(
+        default=0.05, ge=0.0, le=1.0
+    )
+    prefers_short_rationale: bool = False
 
 
 def persona_path(persona_id: str) -> Path:

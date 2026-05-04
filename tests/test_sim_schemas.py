@@ -163,6 +163,45 @@ def test_persona_path_unknown_id_raises():
         persona_path("nonexistent-persona")
 
 
+def test_fast_and_shippy_persona_yaml_ships_with_package():
+    """fast-and-shippy persona — high gate acceptance, low override."""
+    p = load_persona(persona_path("fast-and-shippy"))
+    assert p.id == "fast-and-shippy"
+    assert p.gate_confirmation_policy == "confirm_eagerly"
+    # Behavioral profile contract: high gate acceptance, low override,
+    # short rationale.
+    assert p.gate_acceptance_probability >= 0.8
+    assert p.override_probability <= 0.1
+    assert p.prefers_short_rationale is True
+
+
+def test_ambivalent_persona_yaml_ships_with_package():
+    """ambivalent persona — high clarification need, vague answers."""
+    p = load_persona(persona_path("ambivalent"))
+    assert p.id == "ambivalent"
+    assert p.gate_confirmation_policy == "confirm_passively"
+    # Behavioral profile contract: high ambiguity + clarification rate,
+    # very low decisiveness (low override).
+    assert p.ambiguity_in_answers == "high"
+    assert p.clarification_request_probability >= 0.5
+    assert p.override_probability <= 0.05
+
+
+def test_persona_new_fields_default_for_methodical():
+    """Backward compat: methodical YAML (no new fields) loads cleanly.
+
+    The MVP-added fields (gate_acceptance_probability,
+    clarification_request_probability, prefers_short_rationale) all
+    default to methodical-friendly values so legacy persona YAMLs
+    don't need bumping.
+    """
+    p = load_persona(persona_path("methodical"))
+    # methodical YAML doesn't set these — defaults apply.
+    assert 0.0 <= p.gate_acceptance_probability <= 1.0
+    assert 0.0 <= p.clarification_request_probability <= 1.0
+    assert p.prefers_short_rationale is False
+
+
 # ---- scenario steps -----------------------------------------------------
 
 

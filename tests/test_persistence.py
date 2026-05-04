@@ -201,6 +201,10 @@ class TestDefaultRoles:
             "spec-generator",
             "concierge",
             "quartermaster",
+            # Track G MVP follow-on judgment reviewers — LLM-driven.
+            "reviewer-pattern-conformance",
+            "reviewer-error-handling",
+            "reviewer-test-adequacy",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

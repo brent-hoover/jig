@@ -17,6 +17,7 @@ from jig import (
     po_l3_mcp,
     po_ontology_mcp,
     quartermaster,
+    reviewer_mcp,
     sa_incremental_mcp,
     sa_mcp,
     thread_mcp,
@@ -2119,6 +2120,52 @@ def create_agent_mcp_server(
             }
 
         all_tools.append(recent_events)
+
+    if "reviewer_post_comment" in agent_cfg.allowed_tools:
+
+        @tool(
+            "reviewer_post_comment",
+            "Post one structured reviewer comment to the review_comments "
+            "store. Use this for every finding — judgment reviewers (you) "
+            "MUST set ``confidence`` < 1.0 to mark the comment as "
+            "judgment (mechanical reviewers reserve 1.0). Required: "
+            "``type`` (one of the ReviewerCommentType enum values), "
+            "``severity`` (critical | important | notable), ``prose`` "
+            "(WHY this is flagged — not just WHAT). Optional: "
+            "``contract_uri``, ``file``, ``line``, ``suggested_diff`` "
+            "(populate when you can pinpoint the fix). The MCP factory "
+            "stamps ``reviewer``, ``ticket_id``, and ``cycle`` from your "
+            "agent context — do not pass them yourself unless you need "
+            "to override.",
+            {
+                "type": str,
+                "severity": str,
+                "prose": str,
+                "confidence": float,
+                "contract_uri": str,
+                "file": str,
+                "line": int,
+                "suggested_diff": str,
+                "cadence": str,
+                "ticket_id": str,
+                "cycle": int,
+                "reviewer": str,
+            },
+        )
+        async def reviewer_post_comment(args):
+            # Drop any unset / sentinel-empty optional fields so the
+            # downstream Pydantic validator doesn't reject empty
+            # strings as values for typed fields like ``line``.
+            cleaned = {k: v for k, v in args.items() if v not in ("", None)}
+            cid = await reviewer_mcp.handle_reviewer_post_comment(
+                project_path=project_path,
+                reviewer_role=agent_role,
+                args=cleaned,
+                ticket_id=ticket_id or None,
+            )
+            return {"content": [{"type": "text", "text": cid}]}
+
+        all_tools.append(reviewer_post_comment)
 
     # Strict-tools mode: drop any tool whose short name isn't in the
     # role's ``allowed_tools``. Init roles (po, sa, spec-generator)

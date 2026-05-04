@@ -66,6 +66,10 @@ class ReviewerCommentType(str, Enum):
       violation + missing-positive-policy reference.
     * Mechanical spec-compliance (Track G MVP) — behavior-AC reference
       miss + ticket cites a capability that doesn't exist in the spec.
+    * Judgment reviewers (Track G MVP follow-on) — pattern-divergence,
+      error-handling, test-adequacy. LLM-driven via the
+      ``reviewer_post_comment`` MCP tool; ``code-clarity`` reserved for
+      a later judgment reviewer not in this MVP.
     """
 
     EMPTY_DIFF = "empty-diff"
@@ -85,6 +89,12 @@ class ReviewerCommentType(str, Enum):
     # against the suite's structured spec, plus capability-id sanity.
     BEHAVIOR_AC_NOT_REFERENCED = "behavior-ac-not-referenced"
     CAPABILITY_NOT_FOUND_IN_SPEC = "capability-not-found-in-spec"
+    # Judgment reviewers (Track G MVP follow-on). One per role; the
+    # comment-type maps 1:1 to the reviewer that produces it. Confidence
+    # < 1.0 by convention.
+    PATTERN_DIVERGENCE = "pattern-divergence"
+    ERROR_HANDLING = "error-handling"
+    TEST_ADEQUACY = "test-adequacy"
 
 
 # Backward-compatible alias. The bones-era name keeps working for the

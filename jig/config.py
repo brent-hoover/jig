@@ -98,6 +98,22 @@ class EscalationSection(BaseModel):
     default_human: str = ""
 
 
+class OrchestratorSection(BaseModel):
+    """Orchestrator-level runtime knobs.
+
+    Block 3 (Important 1): ``run_review_federation`` opts the
+    orchestrator into invoking ``dispatch_with_llm_spawn`` after a
+    ticket reaches a non-failed terminal status. Default is False
+    so test/CI runs don't auto-fire LLM reviewers and burn tokens —
+    operators flip the flag on per-project once they're ready to
+    run real review-federation passes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_review_federation: bool = False
+
+
 class DeadlockSection(BaseModel):
     """Age-based deadlock auto-resolution thresholds (Phase 5 Task L).
 
@@ -130,6 +146,9 @@ class Config(BaseModel):
     roles: RolesSection = Field(default_factory=RolesSection)
     escalation: EscalationSection = Field(default_factory=EscalationSection)
     deadlock: DeadlockSection = Field(default_factory=DeadlockSection)
+    orchestrator: OrchestratorSection = Field(
+        default_factory=OrchestratorSection,
+    )
     # Phase 3G self-certification policy per doc 04.
     #   "warn"    — allow but record "self_approval_with_justification"
     #               (shipped default — solo devs need the escape hatch).
@@ -257,6 +276,7 @@ __all__ = [
     "Config",
     "DeadlockSection",
     "EscalationSection",
+    "OrchestratorSection",
     "OwnershipSection",
     "RoleAssignment",
     "RolesSection",

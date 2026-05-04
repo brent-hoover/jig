@@ -13,7 +13,7 @@ from jig.agent import run_agent
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
 from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChanged
 from jig.analytics.store import AnalyticsStore
-from jig.config import DeadlockSection, load_config
+from jig.config import DeadlockSection, OrchestratorSection, load_config
 from jig.deadlock import sweep_blocking_entries
 from jig.dev_env.orchestrator_hook import (
     build_fixture_env,
@@ -95,6 +95,12 @@ class Orchestrator:
         # so shutdown/emergency_reset can read them without a second
         # config parse.
         self._deadlock_cfg: DeadlockSection = DeadlockSection()
+        # Block 3 (Important 1) — orchestrator-level runtime knobs.
+        # ``run_review_federation`` opts in to invoking
+        # ``dispatch_with_llm_spawn`` after a ticket resolves; default
+        # off so test/CI runs don't auto-fire LLM reviewers and burn
+        # tokens. Operator flips on per-project via .jig/config.yaml.
+        self._orchestrator_cfg: OrchestratorSection = OrchestratorSection()
         self._running = False
 
     @property
@@ -143,15 +149,19 @@ class Orchestrator:
             # tests) falls back to the shipped defaults rather
             # than failing startup.
             try:
-                self._deadlock_cfg = load_config(self._project_path).deadlock
+                cfg = load_config(self._project_path)
+                self._deadlock_cfg = cfg.deadlock
+                self._orchestrator_cfg = cfg.orchestrator
             except FileNotFoundError:
                 self._deadlock_cfg = DeadlockSection()
+                self._orchestrator_cfg = OrchestratorSection()
             except Exception:
                 _logger.warning(
                     "could not load deadlock config; using defaults",
                     exc_info=True,
                 )
                 self._deadlock_cfg = DeadlockSection()
+                self._orchestrator_cfg = OrchestratorSection()
             self._running = True
             await self._resume_in_progress()
             await self._start_ready_tickets()
@@ -418,6 +428,45 @@ class Orchestrator:
     def _map_result_status(s: str) -> str:
         """Map RunAgentResult.status to AgentCompleted.status Literal."""
         return {"needs_info": "blocked"}.get(s, s)
+
+    async def _run_review_federation(
+        self, ticket_id: str, ticket
+    ) -> None:
+        """Block 3 (Important 1) — fire ``dispatch_with_llm_spawn``.
+
+        Best-effort federation hook. Runs the in-process mechanical
+        reviewers AND spawns each LLM specialty reviewer via
+        ``spawn_review_agent_for_id``. Gated by
+        ``orchestrator.run_review_federation`` in ``.jig/config.yaml``;
+        the flag defaults False so test/CI runs don't auto-fire LLM
+        reviewers.
+
+        Failures are logged and swallowed so a misbehaving reviewer
+        agent can't block the ticket-resolved path. Real-mode
+        operator visibility comes through the analytics
+        ``AgentCompleted`` events emitted by the spawn helper.
+        """
+        from jig.reviewers import dispatch_with_llm_spawn
+
+        try:
+            worktree_path = (
+                self._project_path / ".jig" / "worktrees" / ticket_id
+            )
+            await dispatch_with_llm_spawn(
+                ticket,
+                self._project_path,
+                "end_of_ticket",
+                self,
+                worktree_path=(
+                    worktree_path if worktree_path.exists() else None
+                ),
+            )
+        except Exception:
+            _logger.warning(
+                "review federation raised for ticket %s; continuing",
+                ticket_id,
+                exc_info=True,
+            )
 
     async def spawn_review_agent_for_id(
         self,
@@ -1082,6 +1131,15 @@ class Orchestrator:
 
         await self._update_ticket_status(ticket_id, TicketStatus.RESOLVED)
         _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
+
+        # Block 3 (Important 1) — opt-in review-federation hook. When
+        # ``orchestrator.run_review_federation`` is True in
+        # ``.jig/config.yaml``, fire the federation-execution path
+        # against the just-resolved ticket so LLM specialty reviewers
+        # actually run end-to-end. Default off so tests/CI don't burn
+        # tokens; operators flip on per-project.
+        if self._orchestrator_cfg.run_review_federation:
+            await self._run_review_federation(ticket_id, ticket)
 
         if self._emitter is not None:
             from jig.events import JigEvent

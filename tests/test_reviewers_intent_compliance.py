@@ -384,3 +384,327 @@ def test_explicit_reviewer_set_still_honored():
     t = _ticket(layer="mvp", reviewer_set=["spec-compliance"])
     ids = select_reviewers_for_ticket(t)
     assert ids == ["spec-compliance"]
+
+
+# ---- Final-scope: citation density --------------------------------------
+
+
+def test_flags_complications_without_citations():
+    """All four canonical fields filled but with abstract prose
+    containing no concrete references → INTENT_NO_CITATIONS.
+    """
+    intent = Intent(
+        problem=_good_intent().problem,
+        simplest_solution=_good_intent().simplest_solution,
+        complications_considered=ComplicationsConsidered(
+            scale="lots more",
+            concurrency="some race",
+            failure_modes="oops happens",
+            cross_cutting="might apply",
+        ),
+    )
+    comments = review_intent(intent, kind="Module", artifact_id="m-1")
+    types = {c.type for c in comments}
+    assert IntentCommentType.INTENT_NO_CITATIONS.value in types
+
+
+def test_passes_when_complications_carry_concrete_references():
+    """Even one citation-shaped token in the complications prose
+    satisfies the citation-density check.
+    """
+    intent = Intent(
+        problem=_good_intent().problem,
+        simplest_solution=_good_intent().simplest_solution,
+        complications_considered=ComplicationsConsidered(
+            scale="needs covering index on `dedup_key`",
+            concurrency="see catalog-ingest module",
+            failure_modes="none — N/A",
+            cross_cutting="none — N/A",
+        ),
+    )
+    comments = review_intent(intent, kind="Module", artifact_id="m-1")
+    types = {c.type for c in comments}
+    assert IntentCommentType.INTENT_NO_CITATIONS.value not in types
+
+
+def test_no_citation_check_when_all_fields_explicit_none():
+    """``none — N/A`` everywhere → empty-complications/citation checks
+    BOTH skip (the operator explicitly said no complications apply).
+    """
+    intent = Intent(
+        problem=_good_intent().problem,
+        simplest_solution=_good_intent().simplest_solution,
+        complications_considered=ComplicationsConsidered(
+            scale="none — N/A",
+            concurrency="none — N/A",
+            failure_modes="none — N/A",
+            cross_cutting="none — N/A",
+        ),
+    )
+    comments = review_intent(intent, kind="Module", artifact_id="m-1")
+    types = {c.type for c in comments}
+    assert IntentCommentType.INTENT_NO_CITATIONS.value not in types
+
+
+def test_citation_check_recognizes_project_uri():
+    intent = Intent(
+        problem=_good_intent().problem,
+        simplest_solution=_good_intent().simplest_solution,
+        complications_considered=ComplicationsConsidered(
+            scale="see project://arch/modules/catalog-ingest/contracts",
+            concurrency=None,
+            failure_modes=None,
+            cross_cutting=None,
+        ),
+    )
+    comments = review_intent(intent, kind="Module", artifact_id="m-1")
+    assert all(
+        c.type != IntentCommentType.INTENT_NO_CITATIONS.value for c in comments
+    )
+
+
+def test_citation_check_recognizes_file_path():
+    intent = Intent(
+        problem=_good_intent().problem,
+        simplest_solution=_good_intent().simplest_solution,
+        complications_considered=ComplicationsConsidered(
+            scale="see jig/quartermaster.py for the pattern",
+            concurrency=None,
+            failure_modes=None,
+            cross_cutting=None,
+        ),
+    )
+    comments = review_intent(intent, kind="Module", artifact_id="m-1")
+    assert all(
+        c.type != IntentCommentType.INTENT_NO_CITATIONS.value for c in comments
+    )
+
+
+# ---- Final-scope: cross-artifact uniqueness -----------------------------
+
+
+@pytest.mark.asyncio
+async def test_flags_duplicate_intent_across_artifacts():
+    """Two artifacts with identical (problem, simplest_solution) tuples
+    each get a duplicate-intent comment (except the first, which is the
+    "original" the duplicates point at).
+    """
+    same = _good_intent()
+    a = _module(intent=same)
+    b = _data_contract(intent=same)
+    reviewer = IntentComplianceReviewer()
+    comments = await reviewer.review_artifacts([a, b])
+    types = [c.type for c in comments]
+    assert (
+        IntentCommentType.INTENT_DUPLICATE_ACROSS_ARTIFACTS.value in types
+    )
+
+
+@pytest.mark.asyncio
+async def test_uniqueness_normalizes_whitespace_and_case():
+    """Differences in whitespace and case do NOT save a duplicate."""
+    intent_a = Intent(
+        problem="The problem statement is HERE  with  extra spaces.",
+        simplest_solution="Do the simplest thing possible.",
+        complications_considered=ComplicationsConsidered(
+            scale="none — N/A",
+            concurrency="none — N/A",
+            failure_modes="none — N/A",
+            cross_cutting="none — N/A",
+        ),
+    )
+    intent_b = Intent(
+        problem="the problem statement is here with extra spaces.",
+        simplest_solution="do the simplest thing possible.",
+        complications_considered=ComplicationsConsidered(
+            scale="none — N/A",
+            concurrency="none — N/A",
+            failure_modes="none — N/A",
+            cross_cutting="none — N/A",
+        ),
+    )
+    a = _module(intent=intent_a)
+    b = _data_contract(intent=intent_b)
+    reviewer = IntentComplianceReviewer()
+    comments = await reviewer.review_artifacts([a, b])
+    assert any(
+        c.type == IntentCommentType.INTENT_DUPLICATE_ACROSS_ARTIFACTS.value
+        for c in comments
+    )
+
+
+@pytest.mark.asyncio
+async def test_uniqueness_does_not_flag_distinct_artifacts():
+    """Distinct (problem, simplest_solution) tuples never trigger the
+    uniqueness check even when artifacts are otherwise similar."""
+    a = _module()
+    distinct = Intent(
+        problem=(
+            "Frontend authentication needs a token-refresh hook so the "
+            "user stays logged in across long-running sessions."
+        ),
+        simplest_solution=(
+            "On 401 from the API, call /auth/refresh once and retry the "
+            "original request before bubbling the error."
+        ),
+        complications_considered=ComplicationsConsidered(
+            scale="none — N/A",
+            concurrency="multiple in-flight 401s should refresh once",
+            failure_modes="refresh failure forces logout",
+            cross_cutting="csrf token needs refresh too",
+        ),
+    )
+    b = _data_contract(intent=distinct)
+    reviewer = IntentComplianceReviewer()
+    comments = await reviewer.review_artifacts([a, b])
+    assert all(
+        c.type != IntentCommentType.INTENT_DUPLICATE_ACROSS_ARTIFACTS.value
+        for c in comments
+    )
+
+
+# ---- Final-scope: project-wide review_project pass ----------------------
+
+
+@pytest.mark.asyncio
+async def test_review_project_walks_arch_modules_and_contracts(tmp_path):
+    """``review_project`` loads architecture.yaml + per-module
+    contracts.yaml + the build plan + frontend spec and runs the full
+    intent pass across every Intent-bearing artifact."""
+    from pathlib import Path
+
+    import yaml as yaml_mod
+
+    from jig.schemas.arch import (
+        Architecture,
+        BehavioralContract,
+        ContractsFile,
+        Module as ArchModule,
+        TierHint as ArchTierHint,
+    )
+
+    project_root: Path = tmp_path
+    (project_root / ".jig" / "spec" / "modules" / "m1").mkdir(parents=True)
+
+    bad_intent = _good_intent().model_copy(update={"problem": "x"})
+    arch = Architecture(
+        modules=[
+            ArchModule(
+                id="m1",
+                title="m1",
+                summary="m1 summary",
+                tier_hint=ArchTierHint.STANDARD,
+                intent=bad_intent,
+            )
+        ],
+    )
+    (project_root / ".jig" / "spec" / "architecture.yaml").write_text(
+        yaml_mod.safe_dump(arch.model_dump(mode="json"), sort_keys=False)
+    )
+    bc = BehavioralContract(
+        id="bc-1",
+        scope="every-call",
+        precondition="incoming",
+        postcondition="outgoing",
+        intent=_good_intent(),
+    )
+    cf = ContractsFile(
+        spec_version=1,
+        module="m1",
+        behavioral_contracts=[bc],
+    )
+    (
+        project_root / ".jig" / "spec" / "modules" / "m1" / "contracts.yaml"
+    ).write_text(yaml_mod.safe_dump(cf.model_dump(mode="json"), sort_keys=False))
+
+    reviewer = IntentComplianceReviewer()
+    by_uri = await reviewer.review_project(project_root)
+    # The bad module's URI carries comments; the BC's URI may not.
+    assert any("m1" in uri for uri in by_uri)
+    # All comments are tagged with the intent reviewer.
+    for comments in by_uri.values():
+        for c in comments:
+            assert c.reviewer == INTENT_REVIEWER_ID
+
+
+@pytest.mark.asyncio
+async def test_review_project_handles_no_artifacts(tmp_path):
+    """Empty project root → empty mapping; no exceptions raised."""
+    reviewer = IntentComplianceReviewer()
+    by_uri = await reviewer.review_project(tmp_path)
+    assert by_uri == {}
+
+
+@pytest.mark.asyncio
+async def test_review_project_includes_uniqueness_check(tmp_path):
+    """The project-wide pass routes through ``review_artifacts`` so the
+    cross-artifact uniqueness check fires across files."""
+    from pathlib import Path
+
+    import yaml as yaml_mod
+
+    from jig.schemas.arch import (
+        Architecture,
+        Module as ArchModule,
+        TierHint as ArchTierHint,
+    )
+
+    project_root: Path = tmp_path
+    (project_root / ".jig" / "spec").mkdir(parents=True)
+
+    same = _good_intent()
+    arch = Architecture(
+        modules=[
+            ArchModule(
+                id="m1",
+                title="m1",
+                summary="m1 summary",
+                tier_hint=ArchTierHint.STANDARD,
+                intent=same,
+            ),
+            ArchModule(
+                id="m2",
+                title="m2",
+                summary="m2 summary",
+                tier_hint=ArchTierHint.STANDARD,
+                intent=same,
+            ),
+        ]
+    )
+    (project_root / ".jig" / "spec" / "architecture.yaml").write_text(
+        yaml_mod.safe_dump(arch.model_dump(mode="json"), sort_keys=False)
+    )
+
+    reviewer = IntentComplianceReviewer()
+    by_uri = await reviewer.review_project(project_root)
+    flat = [c for cs in by_uri.values() for c in cs]
+    assert any(
+        c.type == IntentCommentType.INTENT_DUPLICATE_ACROSS_ARTIFACTS.value
+        for c in flat
+    )
+
+
+# ---- FrontendSpec is intent-bearing -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reviewer_handles_frontend_spec():
+    """FrontendSpec is intent-bearing in Final scope; the reviewer must
+    walk it without raising and without flagging a good intent."""
+    from jig.schemas.frontend import FrontendSpec
+
+    fs = FrontendSpec(intent=_good_intent())
+    reviewer = IntentComplianceReviewer()
+    comments = await reviewer.review_artifacts([fs])
+    assert comments == []
+
+
+@pytest.mark.asyncio
+async def test_reviewer_flags_bad_frontend_spec_intent():
+    from jig.schemas.frontend import FrontendSpec
+
+    fs = FrontendSpec(intent=_good_intent().model_copy(update={"problem": "x"}))
+    reviewer = IntentComplianceReviewer()
+    comments = await reviewer.review_artifacts([fs])
+    types = {c.type for c in comments}
+    assert IntentCommentType.INTENT_TOO_SHORT.value in types

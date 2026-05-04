@@ -238,13 +238,21 @@ async def dispatch_for_cadence(
 
     if INTENT_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
         # Intent reviewer runs against authored artifacts (Modules,
-        # Contracts, etc.), not against a worktree diff. It's
-        # end-of-ticket only and the artifact load happens in the
-        # synthetic operator's existing intent-reviewer path. We
-        # surface the empty list here so callers can see the
-        # reviewer was selected without us running it incorrectly
-        # against a diff it can't read.
-        out[INTENT_REVIEWER_ID] = []
+        # Contracts, etc.), not against a worktree diff. Final
+        # scope wires the project-wide intent pass here: load every
+        # authored v2 artifact off disk and run the per-artifact +
+        # cross-artifact uniqueness checks. The pass is cheap and
+        # deterministic so end-of-ticket cadence is the right home;
+        # per-commit stays mechanical-only because the pass crosses
+        # files and would amortize poorly across many commits.
+        from jig.reviewers.intent_compliance import IntentComplianceReviewer
+
+        reviewer = IntentComplianceReviewer()
+        by_uri = await reviewer.review_project(project_root)
+        flat: list[ReviewerComment] = []
+        for comments in by_uri.values():
+            flat.extend(comments)
+        out[INTENT_REVIEWER_ID] = _tag_cadence(flat, cadence)
 
     return out
 

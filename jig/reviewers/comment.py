@@ -81,6 +81,15 @@ class ReviewerCommentType(str, Enum):
     INTENT_TOO_SHORT = "intent-too-short"
     INTENT_BOILERPLATE_RESTATEMENT = "intent-boilerplate-restatement"
     INTENT_COMPLICATIONS_SKIPPED = "intent-complications-skipped"
+    # Intent-layer enforcement Final scope (Track I Final). Two
+    # additional check kinds: ``intent-no-citations`` flags
+    # complications_considered prose that's all four short and
+    # contains no concrete file/identifier/ticket references;
+    # ``intent-duplicate-across-artifacts`` flags two artifacts
+    # carrying identical (problem, simplest_solution) prose pairs
+    # (the agent copy-pasted boilerplate across artifacts).
+    INTENT_NO_CITATIONS = "intent-no-citations"
+    INTENT_DUPLICATE_ACROSS_ARTIFACTS = "intent-duplicate-across-artifacts"
     # Cross-cutting policy (Track G MVP). Universal rules from
     # ``Architecture.cross_cutting_policies``.
     CROSS_CUTTING_POLICY_VIOLATION = "cross-cutting-policy-violation"

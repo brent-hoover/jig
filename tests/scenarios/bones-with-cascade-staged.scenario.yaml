@@ -1,0 +1,180 @@
+spec_version: 1
+id: bones-with-cascade-staged
+description: |
+  Extends ``bones-with-cascade`` with the operator splitting the
+  cascade into stages and approving each — Track C Final mitigation #2
+  per ``docs/sa-architecture/design.md`` §"Failure modes and
+  mitigations". The cascade resolves only when every stage is in.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l1
+  - po-l2
+  - po-l3
+  - sa-incremental
+  - sa-risks
+  - sa-cascade
+  - cascade-staged
+  - cascade-mitigated-with-constraints
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-cascade-staged
+      pitch: cascade-staged scenario
+      problem: |
+        Verify the cascade-staging mitigation.
+      audience: |
+        jig devs validating Track C Final mitigation #2.
+      non_goals: []
+      author: po-l0
+
+  - kind: invoke_l1_finalize
+    params:
+      project_name: bones-with-cascade-staged
+      intro: |
+        Discovery walk for cascade-staged.
+      personas:
+        - id: merchant
+          description: The buyer integrating jig
+      journeys:
+        - id: j-merchant-onboarding
+          persona_id: merchant
+          title: Merchant onboarding
+          narrative: |
+            Merchant signs up.
+          capability_ids:
+            - shopify-connect
+      capability_roster:
+        - id: shopify-connect
+          description: Connect Shopify store
+          journey_ids:
+            - j-merchant-onboarding
+      author: po-l1
+
+  - kind: invoke_l2_finalize
+    params:
+      suites:
+        - id: catalog
+          title: Catalog
+          summary: catalog ingestion
+          capabilities:
+            - shopify-connect
+      crosscutting_non_goals: []
+      author: po-l2
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify
+          state: planned
+          summary: |
+            OAuth + catalog pull.
+          behaviors:
+            - id: begin-oauth
+              description: OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify
+      non_goals: []
+      author: po-l3
+
+  - kind: invoke_sa_incremental
+    params:
+      calls:
+        - tool: arch_set_data_store
+          params:
+            data_store:
+              id: main-db
+              kind: sqlite
+              accessed_by: [catalog-ingest]
+        - tool: arch_set_module
+          params:
+            module:
+              id: catalog-ingest
+              title: Catalog Ingest
+              summary: |
+                Catalog pull.
+              implements_capabilities:
+                - shopify-connect
+              owns:
+                - products
+              tier_hint: standard
+              requires_tracer_bullet: true
+              n_a_categories:
+                - behavioral_contracts
+                - external_dependencies
+              intent:
+                problem: catalog ingest
+                simplest_solution: pull
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+        - tool: module_set_owned_collection
+          params:
+            module_id: catalog-ingest
+            owned_collection:
+              collection: products
+              db: main-db
+              write_access: [self]
+        - tool: module_set_integration_ac
+          params:
+            module_id: catalog-ingest
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - Shopify catalog data flows into products
+      finalize:
+        summary: SA-MVP bones for cascade-staged
+        author: sa-mvp
+
+  # ---- Confirmed-impossible spike — produces a 4-contract cascade ---
+  - kind: invoke_risk_and_spike
+    params:
+      risk:
+        id: r-cross-shape
+        text: Cross-cutting shape may be wrong.
+        impact: medium
+        likelihood: medium
+        status: open
+      propose:
+        summary: |
+          Spike to validate the cross-cutting shape.
+        dependent_contracts:
+          - project://arch/modules/catalog-ingest/contracts#integration_ac/shopify-connect
+          - project://arch/modules/catalog-ingest/contracts#external_dependencies/shopify-api
+          - project://arch/modules/catalog-ingest/contracts#owned_collections/products
+          - project://arch/modules/catalog-ingest/contracts#open_questions/q-shape
+      complete:
+        finding: |
+          The cross-cutting shape applies only when shop_size < 10K SKUs;
+          contracts gain a constraint clause rather than full reshape.
+        status: mitigated_with_constraints
+        constraint: shop_size < 10000
+      author: sa-mvp
+
+  # ---- Operator stages the cascade and approves every stage ---------
+  - kind: invoke_cascade_stage
+    params:
+      risk_id: r-cross-shape
+      chunk_size: 2  # 4 contracts → 2 stages
+      actor: operator
+      approve_all: true
+
+# ---- final assertions ----------------------------------------------------
+final_assertions:
+  - kind: artifact_written
+    path: .jig/arch/cascades/audit.jsonl
+    contains: stage_approved
+  - kind: artifact_written
+    path: .jig/arch/cascades/audit.jsonl
+    contains: resolved
+  - kind: cost_under_budget
+    usd: 1.0

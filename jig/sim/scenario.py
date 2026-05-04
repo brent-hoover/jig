@@ -172,6 +172,19 @@ class StepKind(str, Enum):
     # the deferred-queue / FAILED-status / Handoff side-effects.
     INVOKE_SEVERITY_DISPOSITION = "invoke_severity_disposition"
 
+    # Track C Final — exercise the cascade-failure-mode-mitigation
+    # handlers. ``cascade_id`` is resolved off the most recent
+    # cascade proposal on disk so the scenario YAML doesn't have to
+    # know the exact timestamp the writer stamped on the artifact.
+    INVOKE_CASCADE_REJECT = "invoke_cascade_reject"
+    INVOKE_CASCADE_STAGE = "invoke_cascade_stage"
+
+    # Track C Final — exercise the cascade_risk_low Coordinator
+    # override. Sets the SA-suggested flag on the named module(s)
+    # then reads ``next_layer_ready`` to verify the promotion fires.
+    # Mock-mode safe (no LLM).
+    INVOKE_CASCADE_RISK_LOW = "invoke_cascade_risk_low"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

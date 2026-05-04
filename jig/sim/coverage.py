@@ -51,6 +51,15 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "sa-spike-mitigated",
     "sa-spike-confirmed-impossible",
     "sa-cascade",
+    # Track C Final — cascade failure-mode mitigations + Coordinator
+    # bones-first override per docs/sa-architecture/design.md
+    # §"Failure modes and mitigations" + docs/pm-workflow/design.md
+    # §"Bones-first ordering".
+    "cascade-rejected",
+    "cascade-staged",
+    "cascade-risk-low-override",
+    "cascade-mitigated-with-constraints",
+    "cascade-concurrent-hold",
     # PM — Planner agent, Coordinator (bones one-shot, MVP cycle-aware,
     # multi-layer dispatch, DEFERRED queue).
     "pm-planner",

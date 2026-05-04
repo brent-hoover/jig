@@ -221,6 +221,17 @@ class DriverContext:
     last_ephemeral_url: str | None = None
     last_ephemeral_path: str | None = None
     last_fixture_response: dict | None = None
+    # Track C Final — captured outputs from cascade-mitigation steps.
+    # ``last_cascade_id`` carries the id of the cascade most recently
+    # acted on; ``last_cascade_action`` names the action ("rejected",
+    # "staged", "resolved"); ``last_cascade_stage_count`` records how
+    # many stages were produced. ``last_next_layer`` carries the name
+    # the Coordinator returned from the override handler so a
+    # scenario can introspect.
+    last_cascade_id: str | None = None
+    last_cascade_action: str | None = None
+    last_cascade_stage_count: int = 0
+    last_next_layer: str | None = None
 
 
 # ---- step handler signature ---------------------------------------------
@@ -295,6 +306,15 @@ class Driver:
             ),
             StepKind.INVOKE_SEVERITY_DISPOSITION.value: (
                 _handle_invoke_severity_disposition
+            ),
+            StepKind.INVOKE_CASCADE_REJECT.value: (
+                _handle_invoke_cascade_reject
+            ),
+            StepKind.INVOKE_CASCADE_STAGE.value: (
+                _handle_invoke_cascade_stage
+            ),
+            StepKind.INVOKE_CASCADE_RISK_LOW.value: (
+                _handle_invoke_cascade_risk_low
             ),
         }
 
@@ -802,6 +822,11 @@ async def _handle_invoke_risk_and_spike(
         # Pass the driver's emitter so the cascade branch can fire its
         # RiskStatusChanged event into the per-run analytics store.
         emitter=ctx.emitter,
+        # Track C Final mitigation #3: when status is
+        # ``mitigated_with_constraints`` the scenario YAML must
+        # supply a ``constraint`` clause; the SA helper raises
+        # without it. ``constraint`` is None for the other outcomes.
+        constraint=complete.get("constraint"),
     )
 
 
@@ -1579,6 +1604,184 @@ async def _handle_invoke_severity_disposition(
     ctx.last_disposition_blocked = len(result.blocked_by)
     ctx.last_disposition_consulted_sa = len(result.consulted_sa)
     ctx.last_disposition_deferred = len(result.deferred)
+
+
+async def _handle_invoke_cascade_reject(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Reject the most recent cascade proposal.
+
+    Scenario YAML shape::
+
+        kind: invoke_cascade_reject
+        params:
+          risk_id: r-shopify-delta   # required
+          reason: not_relevant       # required
+          actor: operator            # optional; defaults to "operator"
+
+    Discovers the cascade artifact via glob over ``.jig/arch/cascades/``
+    so the YAML doesn't have to know the writer-stamped timestamp.
+    Stamps ``last_cascade_id`` + ``last_cascade_action`` on the driver
+    context for assertion-time introspection.
+    """
+    from jig.sa_incremental_mcp import handle_arch_reject_cascade
+    from jig.spec_loader import cascades_dir
+
+    risk_id = step.params.get("risk_id")
+    reason = step.params.get("reason")
+    if not risk_id or not reason:
+        raise ValueError(
+            "invoke_cascade_reject: params.risk_id and params.reason "
+            "are required"
+        )
+    actor = step.params.get("actor") or "operator"
+    cascade_id = _resolve_latest_cascade_id(
+        cascades_dir(ctx.project_root), risk_id
+    )
+    entry = await handle_arch_reject_cascade(
+        project_path=ctx.project_root,
+        cascade_id=cascade_id,
+        reason=reason,
+        actor=actor,
+    )
+    ctx.last_cascade_id = cascade_id
+    ctx.last_cascade_action = entry.action
+
+
+async def _handle_invoke_cascade_stage(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Stage the most recent cascade and approve every produced stage.
+
+    Scenario YAML shape::
+
+        kind: invoke_cascade_stage
+        params:
+          risk_id: r-shopify-delta   # required
+          chunk_size: 1              # optional; defaults to 5
+          actor: operator            # optional; defaults to "operator"
+          approve_all: true          # optional; defaults to true
+
+    Mock-mode driver — exercises the staged → stage_approved → resolved
+    transition. ``approve_all=false`` leaves the cascade in ``staged``
+    so a scenario can verify the partial-approval state. Stamps
+    ``last_cascade_id`` and ``last_cascade_stage_count`` on the driver
+    context.
+    """
+    from jig.sa_incremental_mcp import (
+        handle_arch_approve_cascade_stage,
+        handle_arch_stage_cascade,
+    )
+    from jig.spec_loader import cascades_dir
+
+    risk_id = step.params.get("risk_id")
+    if not risk_id:
+        raise ValueError(
+            "invoke_cascade_stage: params.risk_id is required"
+        )
+    actor = step.params.get("actor") or "operator"
+    chunk_size = int(step.params.get("chunk_size", 5))
+    approve_all = bool(step.params.get("approve_all", True))
+
+    cascade_id = _resolve_latest_cascade_id(
+        cascades_dir(ctx.project_root), risk_id
+    )
+    stages = await handle_arch_stage_cascade(
+        project_path=ctx.project_root,
+        cascade_id=cascade_id,
+        actor=actor,
+        chunk_size=chunk_size,
+    )
+    ctx.last_cascade_id = cascade_id
+    ctx.last_cascade_stage_count = len(stages)
+    if approve_all:
+        for s in stages:
+            await handle_arch_approve_cascade_stage(
+                project_path=ctx.project_root,
+                cascade_id=cascade_id,
+                stage_id=s.stage_id,
+                actor=actor,
+            )
+        ctx.last_cascade_action = "resolved"
+    else:
+        ctx.last_cascade_action = "staged"
+
+
+async def _handle_invoke_cascade_risk_low(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Set ``cascade_risk_low`` on the named module(s) and read the
+    Coordinator's ``next_layer_ready`` to verify the override fires.
+
+    Scenario YAML shape::
+
+        kind: invoke_cascade_risk_low
+        params:
+          modules:
+            - id: m-categorization
+              rationale: standalone CRUD; no shared shapes
+          # The plan must already exist on disk (build via
+          # ``write_build_plan`` upstream); the handler reloads it
+          # before introspecting.
+          expected_next_layer: mvp   # optional assertion shorthand
+
+    The handler stamps the resolved next-layer name on the driver
+    context as ``last_next_layer`` so assertions can introspect; if
+    ``expected_next_layer`` is given, mismatches raise so the scenario
+    fails loud.
+    """
+    from jig.coordinator import Coordinator
+    from jig.sa_incremental_mcp import handle_arch_set_cascade_risk_low
+    from jig.spec_loader import load_build_plan
+
+    modules = step.params.get("modules") or []
+    if not modules:
+        raise ValueError(
+            "invoke_cascade_risk_low: params.modules is required (list "
+            "of {id, rationale} dicts)"
+        )
+    for m in modules:
+        mid = m.get("id")
+        rationale = m.get("rationale") or ""
+        if not mid:
+            raise ValueError(
+                "invoke_cascade_risk_low: each modules[] entry needs an id"
+            )
+        await handle_arch_set_cascade_risk_low(
+            project_path=ctx.project_root,
+            module_id=mid,
+            low=True,
+            rationale=rationale,
+        )
+
+    # Re-read the plan and ask the Coordinator what's next.
+    plan = load_build_plan(ctx.project_root)
+    coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
+    next_layer = coord.next_layer_ready(plan)
+    ctx.last_next_layer = next_layer
+
+    expected = step.params.get("expected_next_layer")
+    if expected is not None and expected != next_layer:
+        raise AssertionError(
+            f"invoke_cascade_risk_low: expected next_layer="
+            f"{expected!r}, got {next_layer!r}"
+        )
+
+
+def _resolve_latest_cascade_id(cdir: Path, risk_id: str) -> str:
+    """Find the most recent cascade artifact for ``risk_id``; return its id.
+
+    Sort by filename — the timestamp suffix is monotonic so the lex-
+    sort gives chronological order. Raises FileNotFoundError when no
+    matching artifact exists so a scenario step that runs out-of-order
+    fails loud rather than silently passing nothing through.
+    """
+    matches = sorted(cdir.glob(f"{risk_id}-*.yaml"))
+    if not matches:
+        raise FileNotFoundError(
+            f"no cascade artifact for risk {risk_id!r} under {cdir}"
+        )
+    return matches[-1].stem
 
 
 async def _handle_run_reviewer(

@@ -1,0 +1,297 @@
+spec_version: 1
+id: bones-with-cascade-risk-low-override
+description: |
+  Track C Final mitigation per ``docs/pm-workflow/design.md``
+  §"Bones-first ordering" — Coordinator allows MVP promotion on
+  unblocked epics when blocked epics' bones touch only modules SA
+  flagged ``cascade_risk_low=true``.
+
+  Two epics, two modules:
+    - epic-1 / module-a — bones resolves first.
+    - epic-2 / module-b — bones stays in-progress, but SA flags
+      module-b as cascade_risk_low.
+  Strict bones-first would block MVP; the override allows MVP for
+  the un-blocked epic. The ``invoke_cascade_risk_low`` step asserts
+  the Coordinator returned ``mvp`` from ``next_layer_ready``.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-multi-layer
+  - dev-mock
+  - reviewer-contract-compliance
+  - cascade-risk-low-override
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-cascade-risk-low-override
+      pitch: cascade_risk_low override scenario
+      problem: |
+        Verify the cascade_risk_low Coordinator override.
+      audience: |
+        jig devs validating Track C Final.
+      non_goals: []
+      author: po-l0
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog ingestion
+            capabilities:
+              - shopify-connect
+          - id: categorization
+            title: Categorization
+            summary: standalone categorization CRUD
+            capabilities:
+              - dedupe-categories
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify
+          state: planned
+          summary: |
+            OAuth + catalog pull.
+          behaviors:
+            - id: begin-oauth
+              description: OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify
+      non_goals: []
+      author: po-l3
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: categorization
+      intro: |
+        Standalone categorization suite (no shared shapes with catalog).
+      capabilities:
+        - id: dedupe-categories
+          title: Dedupe categories
+          state: planned
+          summary: |
+            CRUD over the categories collection.
+          behaviors:
+            - id: dedupe
+              description: Dedupe categories
+              acceptance_criteria:
+                - Categories list contains no duplicates
+      non_goals: []
+      author: po-l3
+
+  # SA bones (operator hand-write) — two modules, both standalone.
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Pulls catalog data from Shopify and normalizes.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: catalog ingest
+              simplest_solution: pull
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+          - id: categorization
+            title: Categorization
+            summary: |
+              Standalone categorization module.
+            implements_capabilities:
+              - dedupe-categories
+            owns:
+              - categories
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: dedup
+              simplest_solution: CRUD
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Shopify catalog data flows into the products collection
+              - catalog-ingested event published with normalized payload
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: categorization
+      contracts:
+        spec_version: 1
+        module: categorization
+        owns:
+          - collection: categories
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: dedupe-categories
+            must:
+              - Categories list contains no duplicates
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  # PM (operator hand-writes a multi-epic build plan) — both epics
+  # have a bones layer + an mvp layer.
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-cascade-risk-low-override
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets:
+                  - t-catalog-mvp
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: catalog
+              simplest_solution: pull
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+          - id: categorization
+            title: Categorization
+            suite: categorization
+            modules:
+              - categorization
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-categorization
+              mvp:
+                status: not_started
+                tickets:
+                  - t-categorization-mvp
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: dedup
+              simplest_solution: CRUD
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  # Cycle 1: materialize bones across both epics.
+  - kind: invoke_coordinator_cycle
+
+  # Resolve epic-1's bones (catalog-ingest); leave epic-2's in-flight.
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: resolved
+
+  # Refresh layer statuses; epic-1's bones now done, epic-2's in-progress.
+  - kind: invoke_coordinator_cycle
+
+  # SA flags categorization as cascade_risk_low + verifies the
+  # Coordinator promotes MVP for the unblocked epic.
+  - kind: invoke_cascade_risk_low
+    params:
+      modules:
+        - id: categorization
+          rationale: |
+            Standalone CRUD module — no shared shapes; unblocked epics
+            can promote MVP without cascade exposure.
+      expected_next_layer: mvp
+
+# ---- final assertions ----------------------------------------------------
+final_assertions:
+  - kind: artifact_written
+    path: .jig/spec/architecture.yaml
+    contains: cascade_risk_low
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

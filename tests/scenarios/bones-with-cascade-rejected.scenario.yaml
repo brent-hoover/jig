@@ -1,0 +1,220 @@
+spec_version: 1
+id: bones-with-cascade-rejected
+description: |
+  Extends ``bones-with-cascade`` with the operator rejecting the
+  cascade proposal — Track C Final mitigation #1 per
+  ``docs/sa-architecture/design.md`` §"Failure modes and mitigations".
+
+  The operator's rejection lands as a structured ``rejected`` row in
+  ``.jig/arch/cascades/audit.jsonl`` so cross-project analytics can
+  flag rejection patterns. The cascade YAML's state flips to
+  ``rejected`` with the operator's reason captured inline.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l1
+  - po-l2
+  - po-l3
+  - sa-incremental
+  - sa-risks
+  - sa-spike-confirmed-impossible
+  - sa-cascade
+  - cascade-rejected
+  - cascade-concurrent-hold
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-cascade-rejected
+      pitch: cascade-rejected scenario
+      problem: |
+        Verify the rejected-cascade audit-flagging mitigation.
+      audience: |
+        jig devs validating Track C Final mitigation #1.
+      non_goals: []
+      author: po-l0
+
+  # ---- L1 PO --------------------------------------------------------
+  - kind: invoke_l1_finalize
+    params:
+      project_name: bones-with-cascade-rejected
+      intro: |
+        Discovery walk for cascade-rejected.
+      personas:
+        - id: merchant
+          description: The buyer integrating jig
+      journeys:
+        - id: j-merchant-onboarding
+          persona_id: merchant
+          title: Merchant onboarding
+          narrative: |
+            Merchant signs up, authorizes their Shopify store.
+          capability_ids:
+            - shopify-connect
+      capability_roster:
+        - id: shopify-connect
+          description: Connect Shopify store via OAuth
+          journey_ids:
+            - j-merchant-onboarding
+      author: po-l1
+
+  # ---- L2 PO --------------------------------------------------------
+  - kind: invoke_l2_finalize
+    params:
+      suites:
+        - id: catalog
+          title: Catalog
+          summary: ingestion of catalog data into the local store
+          capabilities:
+            - shopify-connect
+      crosscutting_non_goals: []
+      author: po-l2
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store; we pull the catalog.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake from settings
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+
+  # ---- SA MVP ------------------------------------------------------
+  - kind: invoke_sa_incremental
+    params:
+      calls:
+        - tool: arch_set_data_store
+          params:
+            data_store:
+              id: main-db
+              kind: sqlite
+              rationale: bones — file-backed
+              accessed_by: [catalog-ingest]
+        - tool: arch_set_module
+          params:
+            module:
+              id: catalog-ingest
+              title: Catalog Ingest
+              summary: |
+                Pulls catalog data from Shopify and normalizes.
+              implements_capabilities:
+                - shopify-connect
+              owns:
+                - products
+              tier_hint: standard
+              requires_tracer_bullet: true
+              n_a_categories:
+                - behavioral_contracts
+              intent:
+                problem: bones MVP catalog ingest
+                simplest_solution: one module, one collection
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+        - tool: module_set_owned_collection
+          params:
+            module_id: catalog-ingest
+            owned_collection:
+              collection: products
+              db: main-db
+              write_access: [self]
+        - tool: module_set_external_dependency
+          params:
+            module_id: catalog-ingest
+            external_dependency:
+              id: shopify-api
+              kind: external_http
+        - tool: module_set_integration_ac
+          params:
+            module_id: catalog-ingest
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - Shopify catalog data flows into the products collection
+      finalize:
+        summary: SA-MVP bones for cascade-rejected scenario
+        author: sa-mvp
+
+  # ---- Confirmed-impossible spike: writes the cascade ---------------
+  - kind: invoke_risk_and_spike
+    params:
+      risk:
+        id: r-shopify-delta
+        text: Unclear whether Shopify supports clean delta sync.
+        impact: medium
+        likelihood: medium
+        status: open
+      propose:
+        summary: |
+          Try Shopify's products endpoint with since_id.
+        dependent_contracts:
+          - project://arch/modules/catalog-ingest/contracts#external_dependencies/shopify-api
+          - project://arch/modules/catalog-ingest/contracts#integration_ac/shopify-connect
+      complete:
+        finding: |
+          Shopify does not expose reliable delta sync.
+        status: confirmed_impossible
+      author: sa-mvp
+
+  # ---- 2nd risk + spike — dependent_contracts overlap with the
+  # first cascade, exercising the concurrent-cascade hold mitigation
+  # (#4). The second cascade lands in ``holding`` state with
+  # ``holding_for`` referencing the first cascade.
+  - kind: invoke_risk_and_spike
+    params:
+      risk:
+        id: r-shopify-delta-2
+        text: Follow-on assumption that depends on the same contracts.
+        impact: medium
+        likelihood: medium
+        status: open
+      propose:
+        summary: |
+          A second spike whose dependents overlap the first.
+        dependent_contracts:
+          - project://arch/modules/catalog-ingest/contracts#external_dependencies/shopify-api
+      complete:
+        finding: |
+          Second confirmed-impossible — overlaps first cascade.
+        status: confirmed_impossible
+      author: sa-mvp
+
+  # ---- Operator rejects the FIRST cascade ----------------------------
+  - kind: invoke_cascade_reject
+    params:
+      risk_id: r-shopify-delta
+      reason: contract_already_rewritten
+      actor: operator
+
+# ---- final assertions ----------------------------------------------------
+final_assertions:
+  - kind: artifact_written
+    path: .jig/arch/cascades/audit.jsonl
+    contains: rejected
+  - kind: artifact_written
+    path: .jig/arch/cascades/audit.jsonl
+    contains: holding
+  - kind: ticket_status
+    ticket_id: spike-r-shopify-delta
+    status: resolved
+  - kind: ticket_status
+    ticket_id: spike-r-shopify-delta-2
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

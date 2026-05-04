@@ -590,3 +590,48 @@ def save_brand(project_root: Path, brand: Brand) -> None:
     """Atomically write ``brand.yaml``."""
     payload = yaml.safe_dump(brand.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(brand_path(project_root), payload)
+
+
+def wireframes_dir(project_root: Path) -> Path:
+    """``.jig/spec/wireframes/`` — VD's per-screen HTML wireframes dir."""
+    return project_root / ".jig" / "spec" / "wireframes"
+
+
+def wireframe_path(project_root: Path, screen_id: str) -> Path:
+    """``.jig/spec/wireframes/<screen_id>.html`` — one per screen."""
+    return wireframes_dir(project_root) / f"{screen_id}.html"
+
+
+def wireframe_css_path(project_root: Path) -> Path:
+    """``.jig/spec/wireframes/wireframe.css`` — the shared utility layer."""
+    return wireframes_dir(project_root) / "wireframe.css"
+
+
+def wireframe_notes_path(project_root: Path, screen_id: str) -> Path:
+    """``.jig/spec/wireframes/<screen_id>.notes.md`` — operator notes per screen.
+
+    Sidecar markdown carrying interaction notes, state descriptions,
+    and cross-references — separate from the structural HTML so the
+    operator can hand-edit prose without touching markup. Per
+    design.md §"Per-screen notes (sidecar markdown, retained)".
+    """
+    return wireframes_dir(project_root) / f"{screen_id}.notes.md"
+
+
+def load_wireframe(project_root: Path, screen_id: str) -> str:
+    """Load a wireframe's HTML content; raise ``FileNotFoundError`` if absent."""
+    src = wireframe_path(project_root, screen_id)
+    if not src.is_file():
+        raise FileNotFoundError(f"wireframe {screen_id!r} not found at {src}")
+    return src.read_text()
+
+
+def save_wireframe(project_root: Path, screen_id: str, html: str) -> None:
+    """Atomically write a wireframe's HTML content.
+
+    The parent dir is created on demand. ``html`` is written verbatim
+    (no schema enforcement here — the linter does that at the MCP tool
+    boundary so the caller sees structured violations rather than a
+    file-write rejection).
+    """
+    atomic_write_text(wireframe_path(project_root, screen_id), html)

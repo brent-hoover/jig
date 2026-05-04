@@ -32,6 +32,16 @@ import yaml
 from jig.atomic import atomic_write_text
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.dev_env import DevManifest
+from jig.schemas.design_system import (
+    DEFAULT_BRAND,
+    DEFAULT_COMPONENTS,
+    DEFAULT_DESIGN_SYSTEM,
+    DEFAULT_TOKENS,
+    Brand,
+    ComponentLibrary,
+    DesignSystem,
+    Tokens,
+)
 from jig.schemas.frontend import FrontendSpec
 from jig.schemas.plan import BuildPlan
 from jig.schemas.po import (
@@ -484,3 +494,99 @@ def save_frontend_spec(project_root: Path, spec: FrontendSpec) -> None:
     """
     payload = yaml.safe_dump(spec.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(frontend_spec_path(project_root), payload)
+
+
+def system_dir(project_root: Path) -> Path:
+    """``.jig/spec/system/`` — the VD design-system artifact dir.
+
+    Holds ``tokens.yaml``, ``components.yaml``, and ``brand.yaml``.
+    Per design.md the design system is always present — when the dir
+    or any of the three artifacts is absent, the loaders below return
+    the shipped defaults rather than raising. This matches the
+    "default is a permanent valid state" rule.
+    """
+    return project_root / ".jig" / "spec" / "system"
+
+
+def tokens_path(project_root: Path) -> Path:
+    """``.jig/spec/system/tokens.yaml`` — design-token list."""
+    return system_dir(project_root) / "tokens.yaml"
+
+
+def components_path(project_root: Path) -> Path:
+    """``.jig/spec/system/components.yaml`` — component library."""
+    return system_dir(project_root) / "components.yaml"
+
+
+def brand_path(project_root: Path) -> Path:
+    """``.jig/spec/system/brand.yaml`` — brand voice + tone + logo refs."""
+    return system_dir(project_root) / "brand.yaml"
+
+
+def load_tokens(project_root: Path) -> Tokens:
+    """Load ``tokens.yaml`` or return the shipped default set.
+
+    Absent file returns ``DEFAULT_TOKENS`` rather than raising so the
+    "default is a permanent valid state" rule from design.md holds at
+    the loader boundary. Callers that need to distinguish "operator
+    customized" from "running on defaults" check ``tokens.source``.
+    """
+    src = tokens_path(project_root)
+    if not src.is_file():
+        return DEFAULT_TOKENS
+    data = yaml.safe_load(src.read_text()) or {}
+    return Tokens.model_validate(data)
+
+
+def load_components(project_root: Path) -> ComponentLibrary:
+    """Load ``components.yaml`` or return the shipped default set."""
+    src = components_path(project_root)
+    if not src.is_file():
+        return DEFAULT_COMPONENTS
+    data = yaml.safe_load(src.read_text()) or {}
+    return ComponentLibrary.model_validate(data)
+
+
+def load_brand(project_root: Path) -> Brand:
+    """Load ``brand.yaml`` or return the shipped default brand."""
+    src = brand_path(project_root)
+    if not src.is_file():
+        return DEFAULT_BRAND
+    data = yaml.safe_load(src.read_text()) or {}
+    return Brand.model_validate(data)
+
+
+def load_design_system(project_root: Path) -> DesignSystem:
+    """Load the full design system (tokens + components + brand).
+
+    Convenience for callers that want all three at once (per-ticket
+    reference resolver, visual_compliance reviewer). Returns
+    ``DEFAULT_DESIGN_SYSTEM`` when none of the three files exist; mixed
+    states (one file present, two absent) build the aggregate from
+    whatever's on disk + defaults for the rest.
+    """
+    if not system_dir(project_root).is_dir():
+        return DEFAULT_DESIGN_SYSTEM
+    return DesignSystem(
+        tokens=load_tokens(project_root),
+        components=load_components(project_root),
+        brand=load_brand(project_root),
+    )
+
+
+def save_tokens(project_root: Path, tokens: Tokens) -> None:
+    """Atomically write ``tokens.yaml``."""
+    payload = yaml.safe_dump(tokens.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(tokens_path(project_root), payload)
+
+
+def save_components(project_root: Path, components: ComponentLibrary) -> None:
+    """Atomically write ``components.yaml``."""
+    payload = yaml.safe_dump(components.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(components_path(project_root), payload)
+
+
+def save_brand(project_root: Path, brand: Brand) -> None:
+    """Atomically write ``brand.yaml``."""
+    payload = yaml.safe_dump(brand.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(brand_path(project_root), payload)

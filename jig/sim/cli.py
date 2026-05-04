@@ -35,6 +35,7 @@ import click
 
 from jig.sim.coverage import compute_coverage, format_coverage
 from jig.sim.driver import Driver, ScenarioReport
+from jig.sim.realism import RealismGap, list_gaps, log_gap
 from jig.sim.scenario import Scenario, load_scenario
 
 __all__ = ["sim"]
@@ -195,6 +196,87 @@ def coverage(scenarios: Path | None) -> None:
     library = _load_scenario_library(src)
     report = compute_coverage(library)
     click.echo(format_coverage(report))
+
+
+@sim.group(name="realism")
+def realism() -> None:
+    """Realism-budget logging surface (MVP: log + list)."""
+
+
+@realism.command(name="log")
+@click.argument("description")
+@click.option(
+    "--kind",
+    default="general",
+    help=(
+        "Short label categorizing the gap (e.g. 'ambiguous-confirmation'). "
+        "Free-form for MVP; Final formalizes a taxonomy."
+    ),
+)
+@click.option(
+    "--persona",
+    default=None,
+    help=(
+        "Optional id of the existing persona whose profile should grow "
+        "to cover this behavior. Triage tooling reads this hint."
+    ),
+)
+@click.option(
+    "--source",
+    type=click.Choice(["operator", "real-run"]),
+    default="operator",
+    help="Where the gap was observed.",
+)
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=Path.cwd,
+    help=(
+        "Project root the gap is logged under. Defaults to CWD; gaps "
+        "land at <root>/.jig/sim/realism-gaps.jsonl."
+    ),
+)
+def realism_log(
+    description: str,
+    kind: str,
+    persona: str | None,
+    source: str,
+    project_root: Path,
+) -> None:
+    """Log one realism gap to ``.jig/sim/realism-gaps.jsonl``."""
+    gap = RealismGap(
+        kind=kind,
+        description=description,
+        source=source,  # type: ignore[arg-type]
+        persona_to_extend=persona,
+    )
+    gap_id = asyncio.run(log_gap(project_root, gap))
+    click.echo(f"logged gap {gap_id} ({kind}) at {gap.observed_at.isoformat()}")
+
+
+@realism.command(name="list")
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=Path.cwd,
+    help="Project root to read gaps from. Defaults to CWD.",
+)
+def realism_list(project_root: Path) -> None:
+    """Print every logged realism gap, chronologically."""
+    gaps = asyncio.run(list_gaps(project_root))
+    if not gaps:
+        click.echo("(no realism gaps logged)")
+        return
+    for gap in gaps:
+        persona = (
+            f" → extend persona '{gap.persona_to_extend}'"
+            if gap.persona_to_extend
+            else ""
+        )
+        click.echo(
+            f"[{gap.observed_at.isoformat()}] ({gap.source}/{gap.kind}){persona}: "
+            f"{gap.description}"
+        )
 
 
 def _confirm_real_mode(estimated_cost_usd_max: float, *, assume_yes: bool) -> bool:

@@ -1,27 +1,15 @@
 spec_version: 1
-id: bones-with-specialty-reviewers
+id: bones-with-important-disposition
 description: |
-  Extends bones-with-mvp-sa with a tracer-bullet ticket carrying
-  ``labels: ["touches-auth"]``. The scenario verifies BOTH that
-  ``reviewer-security`` is selected by ``select_reviewers_for_ticket``
-  AND that the federation actually executes — Block 3 closes the
-  Important #1 gap from the v2 code review where the specialty
-  reviewer was selected but never spawned.
-
-  Two-phase verification:
-
-  1. ``invoke_specialty_reviewer`` confirms selection (pre-Block-3
-     coverage).
-  2. ``invoke_federation_execution`` runs ``dispatch_with_llm_spawn``
-     against a mocked orchestrator that injects a canned comment via
-     ``reviewer_post_comment``-equivalent direct-store writes. The
-     follow-up ``review_comment_in_store`` assertion verifies the
-     security reviewer's comment actually landed in the
-     ReviewCommentsStore — proves the federation EXECUTED, not just
-     selected.
-
-  Mock-mode only — real LLM spawn is operator-driven. The test
-  exercises the spawn-and-wait flow without burning tokens.
+  Exercises the important→BLOCKED branch of the severity-tier
+  disposition policy. The bones spine runs through to a resolved
+  ticket, then a synthesized important-severity reviewer comment
+  routes through ``apply_severity_disposition`` and posts a
+  ``Handoff(phase="sa-consult")`` on the ticket. Since the existing
+  disposition function leaves the ticket status alone (the
+  orchestrator's gate flips to BLOCKED in production), this scenario
+  pins the SA-consult handoff side effect — the Handoff being on the
+  thread is the durable signal that the SA reviewer needs to engage.
 
 persona: methodical
 estimated_cost_usd_max: 1.0
@@ -32,30 +20,31 @@ coverage_tags:
   - pm-coordinator-bones
   - dev-mock
   - reviewer-contract-compliance
-  - reviewer-security
+  - severity-disposition
+  - comment-self-check
   - review-federation-gate
 
 steps:
   # ---- L0 PO --------------------------------------------------------
   - kind: invoke_l0_finalize
     params:
-      name: bones-with-specialty-reviewers
-      pitch: a tracer-bullet project that exercises the security specialty reviewer
+      name: bones-with-important-disposition
+      pitch: a tracer-bullet project that exercises important→BLOCKED
       problem: |
-        We need to verify that a ticket carrying a security-flavored
-        label (touches-auth) pulls in the reviewer-security agent via
-        the Track G Final dispatch selection logic.
+        We need to verify the severity-tier disposition policy posts
+        an SA-consult Handoff for important-severity comments without
+        clobbering the ticket status outside of the orchestrator's
+        gate path.
       audience: |
-        Internal jig developers validating that specialty-reviewer
-        auto-selection composes with the rest of the spine.
+        Internal jig developers validating the review-federation
+        gate's important branch.
       non_goals: []
       author: po-l0
     assertions:
       - kind: artifact_written
         path: .jig/spec/project.md
-        contains: bones-with-specialty-reviewers
+        contains: bones-with-important-disposition
 
-  # ---- skip L1/L2 with hand-write ----------------------------------
   - kind: write_suites_yaml
     params:
       suites_index:
@@ -91,7 +80,6 @@ steps:
         path: .jig/spec/suites/catalog/brief.md
         contains: shopify-connect
 
-  # ---- SA MVP (one module, security-flavored AC) -------------------
   - kind: invoke_sa_incremental
     params:
       calls:
@@ -109,8 +97,7 @@ steps:
               id: catalog-ingest
               title: Catalog Ingest
               summary: |
-                Pulls catalog data from Shopify and normalizes into the
-                products collection.
+                Pulls catalog data and writes to the products collection.
               implements_capabilities:
                 - shopify-connect
               owns:
@@ -119,14 +106,12 @@ steps:
               requires_tracer_bullet: true
               n_a_categories:
                 - behavioral_contracts
+                - external_dependencies
               intent:
                 problem: |
-                  Bones MVP needs a module that owns the products
-                  collection so the contract-compliance reviewer has a
-                  diff to check against.
+                  Bones MVP needs a writable owned collection.
                 simplest_solution: |
-                  One module that handles Shopify ingest and writes to
-                  one owned collection.
+                  One module, one owned collection, one happy path.
                 complications_considered:
                   scale: null
                   concurrency: null
@@ -142,39 +127,27 @@ steps:
               write_access: [self]
               read_access: []
 
-        - tool: module_set_external_dependency
-          params:
-            module_id: catalog-ingest
-            external_dependency:
-              id: shopify-api
-              kind: external_http
-              rate_limit: 2 req/sec per shop
-              auth: oauth2 token per shop
-              failure_mode: exponential backoff, then fail batch
-
         - tool: module_set_integration_ac
           params:
             module_id: catalog-ingest
             integration_ac:
               capability: shopify-connect
               must:
-                - Shopify OAuth token validated against secret
                 - catalog flows into products collection
 
       finalize:
-        summary: SA-MVP — one module, security-flavored AC
+        summary: SA-MVP — one module
         author: sa-mvp
     assertions:
       - kind: artifact_written
         path: .jig/spec/architecture.yaml
         contains: catalog-ingest
 
-  # ---- Build plan w/ a security-flavored ticket --------------------
   - kind: write_build_plan
     params:
       plan:
         spec_version: 1
-        project: bones-with-specialty-reviewers
+        project: bones-with-important-disposition
         revision: 1
         ordering_rule: bones_first
         epics:
@@ -197,10 +170,9 @@ steps:
             risks_addressed: []
             intent:
               problem: |
-                Validate the bones spine + verify dispatch pulls in
-                the security reviewer for a touches-auth ticket.
+                Validate the spine + exercise important→BLOCKED routing.
               simplest_solution: |
-                One epic, one bones ticket carrying touches-auth.
+                One epic, one bones ticket; one important comment.
               complications_considered:
                 scale: null
                 concurrency: null
@@ -209,24 +181,12 @@ steps:
         stalled: []
         open_questions: []
 
-  # ---- Materialize and patch labels onto the ticket ---------------
   - kind: materialize_tickets
-    params:
-      labels_by_ticket:
-        tb-catalog-ingest:
-          - touches-auth
     assertions:
       - kind: ticket_status
         ticket_id: tb-catalog-ingest
         status: open
 
-  # ---- Specialty-reviewer dispatch verification --------------------
-  - kind: invoke_specialty_reviewer
-    params:
-      ticket_id: tb-catalog-ingest
-      expected_reviewer: reviewer-security
-
-  # ---- Spine continuation: dev + reviewer --------------------------
   - kind: mock_dev_commit
     params:
       ticket_id: tb-catalog-ingest
@@ -238,35 +198,24 @@ steps:
       - kind: reviewer_returned_no_critical
         reviewer_id: contract-compliance
 
-  # ---- Federation EXECUTION verification (Block 3) -----------------
-  # Drives ``dispatch_with_llm_spawn`` against a mocked orchestrator
-  # that injects a canned reviewer-security comment. Verifies the
-  # comment actually lands in the ReviewCommentsStore — proves the
-  # federation EXECUTED, not just selected.
-  - kind: invoke_federation_execution
+  # ---- Synthesize an important comment + route via disposition -----
+  - kind: invoke_severity_disposition
     params:
       ticket_id: tb-catalog-ingest
-      inject_comments:
-        - reviewer: reviewer-security
+      comments:
+        - severity: important
+          reviewer: reviewer-architectural
           type: pattern-divergence
-          severity: important
-          prose: |
-            Federation-execution check: reviewer-security ran end-to-end
-            against the spawn-and-wait flow. Production would surface a
-            real finding here (e.g. "OAuth secret read without scope
-            check on path X"); the simulator injects a deterministic
-            canned comment so the assertion can pin spawn-execution.
-          file: ingest.py
-          line: 5
           confidence: 0.85
-    assertions:
-      - kind: review_comment_in_store
-        ticket_id: tb-catalog-ingest
-        reviewer_id: reviewer-security
-        contains: Federation-execution check
-        severity: important
+          file: jig/integrate.py
+          prose: |
+            Module crosses an architectural boundary the contract names
+            as off-limits — the integration touches the products
+            collection from a non-owning module. Important because the
+            fix is a refactor that the SA should weigh against the
+            roadmap.
 
-# ---- final assertions ---------------------------------------------
+# ---- final assertions: ticket stays resolved + sa-consult handoff -
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest

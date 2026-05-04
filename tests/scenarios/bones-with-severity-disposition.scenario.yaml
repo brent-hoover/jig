@@ -21,6 +21,7 @@ coverage_tags:
   - reviewer-contract-compliance
   - severity-disposition
   - comment-self-check
+  - review-federation-gate
 
 steps:
   # ---- L0 PO --------------------------------------------------------

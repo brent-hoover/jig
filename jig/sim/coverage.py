@@ -110,6 +110,12 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "reviewer-architectural",
     "severity-disposition",
     "comment-self-check",
+    # Hardening — review federation runs as a **gate** on ticket
+    # resolution per docs/pm-workflow/design.md §"Severity tiers and
+    # disposition". Scenarios claiming this tag exercise at least one
+    # disposition branch (critical→FAILED, important→BLOCKED+Handoff,
+    # notable→RESOLVED+DEFERRED, or no-comments→RESOLVED).
+    "review-federation-gate",
     # Track H Final — synthetic operator final scope: two new personas,
     # policy-driven turns, coverage threshold, regression-scenario
     # discipline, and TUI-driving mode.

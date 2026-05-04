@@ -261,6 +261,12 @@ class Orchestrator:
                         tokens_out=tokens_out,
                     )
                 )
+            # Track F Final — check for mid-work tier promotion.
+            # Best-effort: swallows exceptions so analytics drift
+            # can't kill a ticket dispatch.
+            await self._maybe_promote_tier_after_blocked(
+                ctx, agent_id=agent_id, result_status=result_status,
+            )
             # Track E MVP — best-effort cleanup. ``success`` is keyed
             # off the mapped status (anything besides "success" goes
             # through the failure path so the operator can inspect
@@ -273,6 +279,62 @@ class Orchestrator:
                 ticket_id=ctx.ticket.id,
                 success=result_status == "success",
             )
+
+    async def _maybe_promote_tier_after_blocked(
+        self, ctx, *, agent_id: str, result_status: str,
+    ) -> None:
+        """Track F Final — auto-promote the ticket's tier on BLOCKED + signal.
+
+        Conservative semantics per the v2-plan F Final note: we wait
+        for the run to finish (no mid-stream kill) and persist the new
+        tier so the next dispatch picks it up at the higher tier.
+
+        No-op when:
+        - Status is not BLOCKED (mapped from ``needs_info``).
+        - The ticket is no longer in the OPEN/IN_PROGRESS lane (a
+          status callback may have flipped it elsewhere).
+        - No escalation signals tripped.
+        - The current tier has no rung above it on the promotion ladder.
+        """
+        if result_status != "blocked":
+            return
+        if self.tickets is None or self.analytics is None:
+            return
+        try:
+            ticket = await self.tickets.get(ctx.ticket.id)
+            if ticket is None:
+                return
+            if ticket.status not in (TicketStatus.OPEN, TicketStatus.IN_PROGRESS):
+                return
+            from jig.auto_escalation import check_escalation_signals
+            from jig.pm.tier_promotion import (
+                decide_promotion,
+                promote_ticket_tier,
+            )
+
+            signals = await check_escalation_signals(
+                ctx.ticket.id, self.analytics
+            )
+            current_tier = ticket.dev_tier or "standard"
+            target = decide_promotion(signals, current_tier)
+            if target is None:
+                return
+            await promote_ticket_tier(
+                self.tickets,
+                ctx.ticket.id,
+                target,
+                reason=signals[0].detail or signals[0].kind,
+                signal=signals[0],
+                emitter=self._analytics_emitter,
+                agent_id=agent_id,
+            )
+        except Exception:
+            _logger.warning(
+                "tier-promotion check failed for ticket %s",
+                ctx.ticket.id,
+                exc_info=True,
+            )
+
 
     @staticmethod
     def _map_result_status(s: str) -> str:

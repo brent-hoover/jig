@@ -985,6 +985,83 @@ def dev_orphans_purge_cmd(confirm: bool, path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# `jig serve` — local HTTP server for the wireframes index (Track D MVP)
+# ---------------------------------------------------------------------------
+
+
+@cli.command(name="serve")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+@click.option(
+    "--port",
+    default=8765,
+    type=int,
+    show_default=True,
+    help="HTTP port to listen on.",
+)
+@click.option(
+    "--regenerate/--no-regenerate",
+    default=True,
+    show_default=True,
+    help="Regenerate index.html before serving.",
+)
+def serve_cmd(path: Path, port: int, regenerate: bool) -> None:
+    """Serve the wireframes dir on localhost so the operator can review.
+
+    Walks ``.jig/spec/wireframes/``, regenerates ``index.html`` (so the
+    operator picks up wireframes added since the last serve), then
+    starts ``python -m http.server`` rooted at the wireframes dir.
+    The operator opens ``http://localhost:<port>/index.html`` in their
+    browser.
+
+    The default port (8765) is the design's suggested value;
+    ``--port`` overrides for the rare case the operator already has
+    something on it. ``--no-regenerate`` skips the index re-write —
+    useful when an operator wants to inspect a previously-generated
+    index without the regeneration noise.
+    """
+    import http.server
+    import socketserver
+
+    from jig.spec_loader import wireframes_dir
+    from jig.wireframes.index_generator import generate_index
+
+    target = wireframes_dir(path)
+    if not target.is_dir():
+        raise click.ClickException(
+            f"wireframes dir not found at {target}; run VD discovery first"
+        )
+
+    if regenerate:
+        index_html = generate_index(target)
+        (target / "index.html").write_text(index_html)
+        click.echo(f"Regenerated {target / 'index.html'}")
+
+    handler = http.server.SimpleHTTPRequestHandler
+
+    # ``directory=`` keyword on SimpleHTTPRequestHandler is the cleanest
+    # way to root the server at the wireframes dir without chdir'ing
+    # the whole process.
+    class WireframesHandler(handler):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(target), **kwargs)
+
+    click.echo(
+        f"Serving {target} at http://localhost:{port}/index.html "
+        "(Ctrl-C to stop)"
+    )
+    with socketserver.TCPServer(("", port), WireframesHandler) as httpd:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            click.echo("\nshutting down")
+
+
+# ---------------------------------------------------------------------------
 # `jig daemon ...` — manage the background daemon (orchestrator + WebSocket)
 # ---------------------------------------------------------------------------
 

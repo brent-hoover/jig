@@ -23,15 +23,21 @@ from jig.wireframes.format import (
     extract_meta,
     render_meta_comment,
 )
+from jig.wireframes.index_generator import (
+    DEFAULT_STATE_OPTIONS,
+    generate_index,
+)
 from jig.wireframes.linter import LintError, LintSeverity, lint_wireframe
 from jig.wireframes.wireframe_css import WIREFRAME_CSS, generate_wireframe_css
 
 __all__ = [
+    "DEFAULT_STATE_OPTIONS",
     "LintError",
     "LintSeverity",
     "WIREFRAME_CSS",
     "WireframeMeta",
     "extract_meta",
+    "generate_index",
     "generate_wireframe_css",
     "lint_wireframe",
     "render_meta_comment",

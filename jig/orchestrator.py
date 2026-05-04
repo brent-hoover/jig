@@ -419,6 +419,96 @@ class Orchestrator:
         """Map RunAgentResult.status to AgentCompleted.status Literal."""
         return {"needs_info": "blocked"}.get(s, s)
 
+    async def spawn_review_agent_for_id(
+        self,
+        *,
+        reviewer_id: str,
+        ticket,
+        role_file: str,
+        project_root: Path,
+        worktree_path: Path | None = None,
+    ) -> None:
+        """Spawn one LLM-driven federation reviewer (Block 3).
+
+        Federation-execution helper consumed by
+        ``jig.reviewers.dispatch.dispatch_with_llm_spawn``. Loads the
+        reviewer role config, builds an ``AgentSpawnContext`` rooted at
+        the ticket's worktree, and runs the agent through the same
+        ``_run_agent_with_analytics`` path used for phase agents. The
+        reviewer agent posts comments back via the
+        ``reviewer_post_comment`` MCP tool; the dispatcher reads them
+        from the ``ReviewCommentsStore`` after this call returns.
+
+        Best-effort — a missing role config or worktree is logged and
+        swallowed so a single misconfigured reviewer can't block the
+        rest of the federation. Real-mode failure is operator-visible
+        through the analytics ``AgentCompleted`` event.
+        """
+        from jig.persistence import load_role
+        from jig.runtime import AgentSpawnContext, SpawnReason
+
+        if (
+            self.tickets is None
+            or self.threads is None
+            or self.memory is None
+            or self.bus is None
+            or self._project is None
+        ):
+            _logger.warning(
+                "spawn_review_agent_for_id: orchestrator not started; "
+                "skipping spawn for %s on %s",
+                reviewer_id,
+                ticket.id,
+            )
+            return
+
+        try:
+            role_cfg = load_role(self._project_path, role_file)
+        except FileNotFoundError:
+            _logger.warning(
+                "spawn_review_agent_for_id: role config %r not found; "
+                "skipping reviewer %s",
+                role_file,
+                reviewer_id,
+            )
+            return
+
+        if worktree_path is None:
+            worktree_path = (
+                self._project_path / ".jig" / "worktrees" / ticket.id
+            )
+
+        ctx = AgentSpawnContext(
+            role=reviewer_id,
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.QA_RESPONDER,
+            ticket=ticket,
+            parent=None,
+            worktree_path=worktree_path,
+            project=self._project,
+            tickets=self.tickets,
+            threads=self.threads,
+            memory=self.memory,
+            bus=self.bus,
+            checkpoints=self.checkpoints,
+            initial_bus_message={
+                "kind": "review_federation_spawn",
+                "ticket_id": ticket.id,
+                "reviewer_id": reviewer_id,
+                "project_root": str(project_root),
+            },
+        )
+        try:
+            await self._run_agent_with_analytics(ctx)
+        except Exception:
+            _logger.warning(
+                "spawn_review_agent_for_id: reviewer %s spawn failed for "
+                "ticket %s",
+                reviewer_id,
+                ticket.id,
+                exc_info=True,
+            )
+
     async def _emergency_reset(self) -> None:
         self._running = False
         for task in (self._dispatch_task, self._service_task, self._deadlock_task):

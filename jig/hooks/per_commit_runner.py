@@ -101,6 +101,13 @@ async def _run_per_commit_review(ticket_id: str, *, cwd: Path) -> int:
 
     critical_count = 0
     for reviewer_id, comments in by_reviewer.items():
+        # Block 3 design contract: per-commit cadence runs
+        # mechanical-only (single-digit-second budget). LLM-spawn
+        # pendings only ever appear at end_of_ticket cadence; if one
+        # somehow shows up here it's a routing bug and we skip it
+        # rather than crash the post-commit hook.
+        if not isinstance(comments, list):
+            continue
         for comment in comments:
             stamped = comment.model_copy(update={"ticket_id": ticket_id})
             await review_store.append(stamped)

@@ -46,10 +46,15 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from jig.reviewers.comment import ReviewerComment
 from jig.ticket import Ticket
+
+if TYPE_CHECKING:  # pragma: no cover — typing-only
+    from jig.orchestrator import Orchestrator
 
 # Reviewer ids. The constants live here (rather than in the per-reviewer
 # modules) so the dispatch table can reference them without a circular
@@ -76,6 +81,105 @@ RESPONSIVE_REVIEWER_ID = "responsive-design"
 SECURITY_REVIEWER_ID = "reviewer-security"
 PERFORMANCE_REVIEWER_ID = "reviewer-performance"
 ARCHITECTURAL_REVIEWER_ID = "reviewer-architectural"
+
+# Track G MVP follow-on — judgment reviewers (LLM-driven). Role configs
+# live in ``jig/defaults/roles/reviewer_<name>.yaml``.
+PATTERN_CONFORMANCE_REVIEWER_ID = "reviewer-pattern-conformance"
+ERROR_HANDLING_REVIEWER_ID = "reviewer-error-handling"
+TEST_ADEQUACY_REVIEWER_ID = "reviewer-test-adequacy"
+
+# LLM-driven reviewer ids — the federation members that are *spawned as
+# agents* via the orchestrator rather than executed in-process by a
+# Python reviewer class. Block 3 (Important 1): ``dispatch_for_cadence``
+# returns ``LlmReviewerPending`` records for these so the federation
+# stops "selecting without dispatching", and ``dispatch_with_llm_spawn``
+# is the federation-execution entry point.
+#
+# These ids match the ``role`` field on the corresponding YAML role
+# configs (``jig/defaults/roles/reviewer_*.yaml``); the orchestrator
+# loads each by walking its file-id (``reviewer_security``) and uses
+# the role config to spawn the agent.
+_LLM_REVIEWER_IDS: frozenset[str] = frozenset({
+    SECURITY_REVIEWER_ID,
+    PERFORMANCE_REVIEWER_ID,
+    ARCHITECTURAL_REVIEWER_ID,
+    PATTERN_CONFORMANCE_REVIEWER_ID,
+    ERROR_HANDLING_REVIEWER_ID,
+    TEST_ADEQUACY_REVIEWER_ID,
+})
+
+# Map reviewer id → role-config file id (the ``load_role`` lookup
+# ``handle_<role>_yaml`` shape). Defined as a function so the mapping
+# stays in lockstep with the role-config filenames; new judgment
+# reviewers add an entry here + drop a yaml under
+# ``jig/defaults/roles/``.
+_REVIEWER_ID_TO_ROLE_FILE: dict[str, str] = {
+    SECURITY_REVIEWER_ID: "reviewer_security",
+    PERFORMANCE_REVIEWER_ID: "reviewer_performance",
+    ARCHITECTURAL_REVIEWER_ID: "reviewer_architectural",
+    PATTERN_CONFORMANCE_REVIEWER_ID: "reviewer_pattern_conformance",
+    ERROR_HANDLING_REVIEWER_ID: "reviewer_error_handling",
+    TEST_ADEQUACY_REVIEWER_ID: "reviewer_test_adequacy",
+}
+
+
+class LlmReviewerPending(BaseModel):
+    """A federation reviewer queued for orchestrator spawn (Block 3).
+
+    The mechanical reviewers run in-process and return comments
+    synchronously through ``dispatch_for_cadence``. The judgment /
+    specialty reviewers (security, performance, architectural,
+    pattern-conformance, error-handling, test-adequacy) are LLM-driven
+    role configs — they need to be spawned as agents via the
+    orchestrator's normal dispatch path.
+
+    ``dispatch_for_cadence`` returns one of these per LLM reviewer id
+    instead of a comment list. ``dispatch_with_llm_spawn`` consumes
+    these records: spawns each agent, waits for completion, then reads
+    the ``ReviewCommentsStore`` for the comments the agents posted via
+    the ``reviewer_post_comment`` MCP tool.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reviewer_id: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Reviewer id (e.g. ``reviewer-security``). Matches the "
+            "``role`` field of the corresponding role-config YAML."
+        ),
+    )
+    ticket_id: str = Field(
+        ...,
+        min_length=1,
+        description="Ticket the reviewer was selected for.",
+    )
+    role_config_path: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Role-config file id used by ``load_role`` — e.g. "
+            "``reviewer_security`` for ``reviewer_security.yaml``."
+        ),
+    )
+    project_root: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Absolute project root path (stringified) — orchestrator "
+            "spawn rooting + reviewer worktree resolution use this."
+        ),
+    )
+    cadence: Literal["per_commit", "end_of_ticket"] = Field(
+        default="end_of_ticket",
+        description=(
+            "Cadence under which the reviewer was selected. LLM "
+            "reviewers only ever fire at end_of_ticket today; the field "
+            "is here so the federation-execution path can carry the "
+            "scope through to spawn-time analytics."
+        ),
+    )
 
 # Labels that trigger specialty-reviewer auto-selection. Sets so
 # membership tests stay O(1) for the common case (a ticket usually
@@ -365,13 +469,24 @@ async def dispatch_for_cadence(
     *,
     worktree_path: Path | None = None,
     base_ref: str = "main",
-) -> dict[str, list[ReviewerComment]]:
+) -> dict[str, list[ReviewerComment] | LlmReviewerPending]:
     """Run the reviewers selected for ``ticket`` at ``cadence``.
 
-    Returns ``{reviewer_id: [ReviewerComment, ...]}``. The map shape
-    (rather than a flat list) lets callers drive per-reviewer
-    disposition (auto-apply, lead-reviewer dedup, analytics
-    attribution) without re-parsing ``reviewer`` on every comment.
+    Returns ``{reviewer_id: [ReviewerComment, ...] | LlmReviewerPending}``.
+    Mechanical reviewers (Python classes — contract-compliance,
+    cross-cutting-policy, spec-compliance, intent-compliance,
+    visual-compliance, accessibility, responsive-design) execute
+    in-process and emit a list of comments. LLM-driven reviewers
+    (security, performance, architectural, pattern-conformance,
+    error-handling, test-adequacy) are queued for orchestrator spawn
+    via an ``LlmReviewerPending`` record per id — the federation-
+    execution entry point ``dispatch_with_llm_spawn`` consumes those
+    pendings and runs them as agents.
+
+    The map shape (rather than a flat list) lets callers drive
+    per-reviewer disposition (auto-apply, lead-reviewer dedup,
+    analytics attribution) without re-parsing ``reviewer`` on every
+    comment.
 
     Cadence semantics per design §"Two-cadence review":
 
@@ -383,7 +498,8 @@ async def dispatch_for_cadence(
       the deterministic core regardless of the planner's authored
       end-of-ticket set, because the per-commit job is "catch the
       mistake before the dev compounds it" not "run the full
-      federation".
+      federation". LLM reviewers are NEVER queued at per-commit
+      cadence — single-digit-second latency budget rules them out.
     - ``end_of_ticket`` runs the full ``select_reviewers_for_ticket``
       result — mechanical + intent-compliance for MVP+. Intent-
       compliance runs against authored artifacts, not the worktree
@@ -391,7 +507,8 @@ async def dispatch_for_cadence(
       invocation path stays in place. ``dispatch_for_cadence``
       returns intent-compliance with an empty list at end-of-ticket
       so callers can see "this reviewer is selected" without forcing
-      an artifact load here.
+      an artifact load here. LLM-driven specialty reviewers come back
+      as ``LlmReviewerPending`` records.
 
     Comments emitted at ``per_commit`` cadence carry ``cadence=
     "per_commit"``; end-of-ticket comments carry the field default
@@ -428,7 +545,7 @@ async def dispatch_for_cadence(
             ticket, project_root=project_root,
         )
 
-    out: dict[str, list[ReviewerComment]] = {}
+    out: dict[str, list[ReviewerComment] | LlmReviewerPending] = {}
 
     if BONES_REVIEWER_ID in reviewer_ids:
         comments = await ContractComplianceReviewer().review(
@@ -512,7 +629,172 @@ async def dispatch_for_cadence(
             flat.extend(comments)
         out[INTENT_REVIEWER_ID] = _tag_cadence(flat, cadence)
 
+    # Block 3 — Important 1: queue LLM-driven reviewers as
+    # ``LlmReviewerPending`` records. ``dispatch_with_llm_spawn``
+    # consumes these and spawns agents via the orchestrator. Per-commit
+    # cadence never queues LLM reviewers — the single-digit-second
+    # latency budget rules them out, and the mechanical subset above
+    # has nothing to forward.
+    if cadence == "end_of_ticket":
+        for reviewer_id in reviewer_ids:
+            if reviewer_id not in _LLM_REVIEWER_IDS:
+                continue
+            role_file = _REVIEWER_ID_TO_ROLE_FILE.get(reviewer_id)
+            if role_file is None:
+                # Defensive: an LLM id without a role-config map entry
+                # is a bug — surface as a programming error rather than
+                # silently skipping the spawn.
+                raise RuntimeError(
+                    f"reviewer id {reviewer_id!r} is in _LLM_REVIEWER_IDS "
+                    f"but has no entry in _REVIEWER_ID_TO_ROLE_FILE"
+                )
+            out[reviewer_id] = LlmReviewerPending(
+                reviewer_id=reviewer_id,
+                ticket_id=ticket.id,
+                role_config_path=role_file,
+                project_root=str(project_root),
+                cadence=cadence,
+            )
+
     return out
+
+
+async def dispatch_with_llm_spawn(
+    ticket: Ticket,
+    project_root: Path,
+    cadence: Literal["per_commit", "end_of_ticket"],
+    orchestrator: "Orchestrator",
+    *,
+    worktree_path: Path | None = None,
+    base_ref: str = "main",
+) -> dict[str, list[ReviewerComment]]:
+    """Federation-execution entry point (Block 3, Important 1).
+
+    Pre-Block-3, ``dispatch_for_cadence`` *selected* the LLM-driven
+    specialty + judgment reviewers but had no execution branches for
+    them — the federation could report "reviewer-security is in the
+    set" without ever spawning the agent. This function closes that
+    gap: it runs the in-process mechanical reviewers AND spawns each
+    LLM reviewer via the orchestrator, waits for the spawned agents to
+    finish, then reads the comments they posted via
+    ``reviewer_post_comment`` back from the ``ReviewCommentsStore``.
+
+    ``orchestrator`` is the singleton orchestrator instance from
+    ``jig.orchestrator``. The function uses its
+    ``spawn_review_agent_for_id`` helper (added by Block 3) which loads
+    the role config, builds an ``AgentSpawnContext``, and runs the
+    agent through the same ``_run_agent_with_analytics`` path as a
+    regular phase. Tests inject a mock orchestrator to exercise the
+    spawn-and-wait flow without burning LLM tokens — the real spawn
+    path is operator-driven.
+
+    Per-commit cadence does not enter this function — the caller
+    should keep using ``dispatch_for_cadence`` directly there. The
+    LLM-spawn path is end-of-ticket only by design (the single-digit-
+    second per-commit budget rules out judgment reviewers).
+
+    Returns ``{reviewer_id: [ReviewerComment, ...]}`` — the same shape
+    bones-era callers expect, with mechanical results and LLM-spawned
+    results merged. Pending records that produce no agent output (the
+    common case for a clean ticket where the security reviewer has
+    nothing to flag) come back as empty lists, mirroring the
+    mechanical reviewers' "selected but found nothing" semantics.
+    """
+    # Lazy import to avoid a circular dep — review_comments.py imports
+    # ``ReviewerComment``; pulling the store in at module load time
+    # means dispatch.py can't be imported during reviewer construction.
+    from jig.store.review_comments import ReviewCommentsStore
+
+    by_reviewer = await dispatch_for_cadence(
+        ticket,
+        project_root,
+        cadence,
+        worktree_path=worktree_path,
+        base_ref=base_ref,
+    )
+
+    out: dict[str, list[ReviewerComment]] = {}
+    pendings: list[LlmReviewerPending] = []
+
+    # Split mechanical results from LLM pendings. Mechanical results
+    # pass straight through; pendings get spawned below.
+    for reviewer_id, value in by_reviewer.items():
+        if isinstance(value, LlmReviewerPending):
+            pendings.append(value)
+        else:
+            out[reviewer_id] = value
+
+    if not pendings:
+        return out
+
+    # Spawn each LLM reviewer through the orchestrator. The
+    # orchestrator's spawn helper handles role-config loading, worktree
+    # rooting, MCP setup, and analytics. We wait for each spawn to
+    # complete sequentially — judgment reviewers are end-of-ticket only
+    # and the federation is small (≤6 reviewers), so the parallelism
+    # win isn't worth the increased operator-cost surface.
+    store_path = project_root / ".jig" / "store" / "review_comments.jsonl"
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store = ReviewCommentsStore(store_path)
+    await store.load()
+
+    # Snapshot the pre-spawn comments so we can attribute newly-posted
+    # comments to each reviewer run cleanly. Without the snapshot we'd
+    # double-count a reviewer that ran in an earlier cycle on this same
+    # ticket.
+    pre_existing_ids: set[str] = set()
+    pre_comments = await store.for_ticket(ticket.id)
+    for c in pre_comments:
+        # The store assigns ids on insert; ReviewerComment itself has no
+        # id field, so the only way to "remember" a row is by an
+        # in-memory tuple of distinguishing fields. We snapshot
+        # ``(reviewer, type, prose)`` as the unique key — judgment
+        # reviewers don't post identical comments twice within the same
+        # cycle by design.
+        pre_existing_ids.add(_comment_signature(c))
+
+    for pending in pendings:
+        await orchestrator.spawn_review_agent_for_id(
+            reviewer_id=pending.reviewer_id,
+            ticket=ticket,
+            role_file=pending.role_config_path,
+            project_root=project_root,
+            worktree_path=worktree_path,
+        )
+        # Re-load the store after each spawn so a reviewer that posts
+        # mid-spawn (rather than at the end of its run) lands cleanly.
+        await store.load()
+
+    # Read every comment the spawned agents posted and attribute each to
+    # the reviewer id that produced it. ``ReviewerComment.reviewer`` is
+    # required, so the attribution is straightforward.
+    final_comments = await store.for_ticket(ticket.id)
+    for c in final_comments:
+        if _comment_signature(c) in pre_existing_ids:
+            continue
+        if c.reviewer not in {p.reviewer_id for p in pendings}:
+            continue
+        out.setdefault(c.reviewer, []).append(c)
+
+    # Ensure every pending reviewer has an entry in the result map so
+    # callers see "this reviewer was selected and ran" even on an empty
+    # finding list. Mirrors the mechanical reviewer semantics where
+    # contract-compliance always shows up in ``out`` once selected.
+    for pending in pendings:
+        out.setdefault(pending.reviewer_id, [])
+
+    return out
+
+
+def _comment_signature(comment: ReviewerComment) -> str:
+    """Stable per-comment signature for de-dup across spawn rounds.
+
+    Uses ``(reviewer, type, prose)`` as the discriminator — judgment
+    reviewers don't post identical comments twice within the same
+    cycle by design, so this is sufficient for separating a fresh-spawn
+    comment from a stale row in the store.
+    """
+    return f"{comment.reviewer}::{comment.type}::{comment.prose}"
 
 
 def _tag_cadence(
@@ -538,13 +820,18 @@ __all__ = [
     "ARCHITECTURAL_REVIEWER_ID",
     "BONES_REVIEWER_ID",
     "CROSS_CUTTING_REVIEWER_ID",
+    "ERROR_HANDLING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
+    "LlmReviewerPending",
+    "PATTERN_CONFORMANCE_REVIEWER_ID",
     "PERFORMANCE_REVIEWER_ID",
     "RESPONSIVE_REVIEWER_ID",
     "SECURITY_REVIEWER_ID",
     "SPEC_COMPLIANCE_REVIEWER_ID",
+    "TEST_ADEQUACY_REVIEWER_ID",
     "VISUAL_COMPLIANCE_REVIEWER_ID",
     "dispatch_for_cadence",
+    "dispatch_with_llm_spawn",
     "select_reviewers_for_ticket",
     "should_run_for_bones",
 ]

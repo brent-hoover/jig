@@ -125,6 +125,88 @@ class TestRunnerSafeFailures:
         assert n == 0
 
 
+class TestPerCommitNeverSpawnsLlmReviewers:
+    """Block 3 design contract: per-commit cadence is mechanical-only.
+
+    Single-digit-second latency budget rules out LLM-driven specialty
+    reviewers (security/performance/architectural). Even on a ticket
+    that *would* trigger specialty selection at end-of-ticket, the
+    per-commit runner must run only the mechanical subset and emit
+    PerCommitCheckFailed only for those reviewers.
+    """
+
+    async def test_security_label_does_not_spawn_llm(
+        self, tmp_path: Path
+    ) -> None:
+        from jig.reviewers.dispatch import dispatch_for_cadence
+        from jig.store.tickets import TicketStore
+
+        project_root, wt = await _setup_project(
+            tmp_path, ticket_id="tkt-sec-1"
+        )
+        # Patch the ticket so it carries a security-trigger label.
+        store = TicketStore(
+            project_root / ".jig" / "store" / "tickets.jsonl"
+        )
+        await store.load()
+        ticket = await store.get("tkt-sec-1")
+        assert ticket is not None
+        ticket = ticket.model_copy(
+            update={"labels": ["touches-auth"], "layer": "mvp"}
+        )
+        # Re-create with new fields so the JSONL store reflects them.
+        # (Tests directly use dispatch_for_cadence below; the
+        # in-memory ticket is what matters for selection.)
+
+        out = await dispatch_for_cadence(
+            ticket, project_root, "per_commit", worktree_path=wt,
+        )
+
+        # Every value at per_commit cadence is a list (mechanical
+        # comments). NO LlmReviewerPending records.
+        from jig.reviewers import LlmReviewerPending
+
+        for reviewer_id, value in out.items():
+            assert not isinstance(value, LlmReviewerPending), (
+                f"per-commit dispatch must not queue LLM reviewer "
+                f"{reviewer_id!r}; latency budget rules them out"
+            )
+        # Specialty reviewer ids absent.
+        assert "reviewer-security" not in out
+        assert "reviewer-performance" not in out
+        assert "reviewer-architectural" not in out
+
+    async def test_runner_emits_only_mechanical_per_commit_failures(
+        self, tmp_path: Path
+    ) -> None:
+        """Even when the runner runs against a security-flavored ticket,
+        the PerCommitCheckFailed events come only from the mechanical
+        reviewers — no LLM reviewer events fire from per-commit."""
+        project_root, wt = await _setup_project(
+            tmp_path, ticket_id="tkt-sec-2"
+        )
+
+        critical = await _run_per_commit_review("tkt-sec-2", cwd=wt)
+        assert critical >= 1
+
+        analytics = AnalyticsStore(
+            project_root / ".jig" / "store" / "analytics.jsonl"
+        )
+        await analytics.load()
+        events = await analytics.by_kind("per_commit_check_failed")
+        # Each event's reviewer_role must be a mechanical role —
+        # no "reviewer-security" / "reviewer-performance" / etc.
+        for ev in events:
+            assert ev.reviewer_role in {
+                "contract_compliance",
+                "cross_cutting_policy",
+                "spec_compliance",
+            }, (
+                f"per-commit must never emit PerCommitCheckFailed for "
+                f"LLM reviewer {ev.reviewer_role!r}"
+            )
+
+
 class TestCliExitCode:
     def test_cli_always_exits_zero(self, tmp_path: Path) -> None:
         runner = CliRunner()

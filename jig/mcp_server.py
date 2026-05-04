@@ -13,6 +13,7 @@ from jig import (
     planner_pm_mcp,
     po_l0_mcp,
     po_l3_mcp,
+    quartermaster,
     sa_mcp,
     thread_mcp,
     ticket_mcp,
@@ -1018,6 +1019,28 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(plan_finalize)
+
+    if "quartermaster_briefing" in agent_cfg.allowed_tools:
+
+        @tool(
+            "quartermaster_briefing",
+            "Produce an operator-facing briefing of the analytics event "
+            "stream over the last 7 days. Returns markdown with a "
+            "headline (tickets completed/failed/in-progress, escalations, "
+            "average cycle time), notable patterns (module repeated "
+            "escalations, reviewer-comment repeats, stalled tickets), "
+            "and a top-3 attention-recommendation list. Read-only, "
+            "deterministic — no LLM interpretation. Call this when the "
+            "operator asks for a briefing.",
+            {},
+        )
+        async def quartermaster_briefing(args):
+            md = await quartermaster.handle_quartermaster_briefing(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": md}]}
+
+        all_tools.append(quartermaster_briefing)
 
     if "spec_publish" in agent_cfg.allowed_tools:
 

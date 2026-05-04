@@ -197,6 +197,7 @@ class TestDefaultRoles:
             "planner-pm",
             "spec-generator",
             "concierge",
+            "quartermaster",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

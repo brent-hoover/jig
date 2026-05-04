@@ -10,6 +10,7 @@ from claude_agent_sdk import tool, create_sdk_mcp_server
 from jig import (
     checkpoint_mcp,
     init_mcp,
+    planner_pm_mcp,
     po_l0_mcp,
     po_l3_mcp,
     sa_mcp,
@@ -987,6 +988,36 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(sa_finalize)
+
+    if "plan_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "plan_finalize",
+            "Write the v2 build plan: ``.jig/plan/build-plan.yaml`` "
+            "(epics × bones / mvp / final layers, ordered "
+            "``bones_first`` by default). ``plan`` is a dict matching "
+            "the ``BuildPlan`` schema (top-level keys: ``project``, "
+            "``ordering_rule``, ``epics``, ``stalled``, "
+            "``open_questions``). Every epic requires ``intent`` "
+            "(problem / simplest_solution / complications_considered) "
+            "and at least one epic must have a non-empty bones layer "
+            "for ``bones_first`` ordering to dispatch. Ticket ids "
+            "must be unique across the whole plan. Hands off to the "
+            "Coordinator. Call exactly once when the plan is ready.",
+            {"plan": dict},
+        )
+        async def plan_finalize(args):
+            entry_id = await planner_pm_mcp.handle_plan_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                plan=args["plan"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(plan_finalize)
 
     if "spec_publish" in agent_cfg.allowed_tools:
 

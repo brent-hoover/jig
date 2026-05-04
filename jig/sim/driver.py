@@ -46,6 +46,7 @@ from jig.analytics.events import AnalyticsEvent
 from jig.analytics.store import AnalyticsStore
 from jig.atomic import atomic_write_text
 from jig.coordinator import Coordinator
+from jig.planner_pm_mcp import PLANNER_TICKET_ID, handle_plan_finalize
 from jig.po_l0_mcp import handle_l0_finalize
 from jig.po_l3_mcp import handle_l3_finalize
 from jig.reviewers import ContractComplianceReviewer, ReviewerComment
@@ -216,6 +217,7 @@ class Driver:
             StepKind.WRITE_ARCHITECTURE.value: _handle_write_architecture,
             StepKind.WRITE_MODULE_CONTRACTS.value: _handle_write_module_contracts,
             StepKind.WRITE_BUILD_PLAN.value: _handle_write_build_plan,
+            StepKind.INVOKE_PLAN_FINALIZE.value: _handle_invoke_plan_finalize,
             StepKind.MATERIALIZE_TICKETS.value: _handle_materialize_tickets,
             StepKind.MOCK_DEV_COMMIT.value: dev_handler,
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
@@ -451,6 +453,38 @@ async def _handle_write_build_plan(
     raw = step.params["plan"]
     plan = raw if isinstance(raw, BuildPlan) else BuildPlan.model_validate(raw)
     write_build_plan(ctx.project_root, plan)
+
+
+async def _handle_invoke_plan_finalize(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Invoke handle_plan_finalize. Auto-creates the planner ticket if missing.
+
+    Mirrors the L0 / L3 / SA invoke handlers — the finalize handler
+    expects its ticket to exist (resolve_after_handoff is a no-op
+    otherwise, swallowing the expected status transition). MVP+
+    scenarios use this step to exercise the agent path; bones
+    scenarios continue to use ``write_build_plan`` for the operator
+    hand-write path.
+    """
+    if await ctx.tickets.get(PLANNER_TICKET_ID) is None:
+        await ctx.tickets.create(
+            Ticket(
+                id=PLANNER_TICKET_ID,
+                work_type=WorkType.BRIEF,
+                title="Planner — build plan",
+                created_by="sim-driver",
+            )
+        )
+    params = dict(step.params)
+    params.setdefault("author", "planner-pm")
+    await handle_plan_finalize(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        **params,
+    )
 
 
 async def _handle_materialize_tickets(

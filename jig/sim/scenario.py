@@ -51,6 +51,11 @@ class StepKind(str, Enum):
     WRITE_MODULE_CONTRACTS = "write_module_contracts"
     WRITE_BUILD_PLAN = "write_build_plan"
 
+    # MVP-tier Planner: invoke the v2 plan_finalize handler. Bones
+    # scenarios use ``write_build_plan`` (operator hand-write); MVP
+    # scenarios swap in this step to exercise the agent path.
+    INVOKE_PLAN_FINALIZE = "invoke_plan_finalize"
+
     # PM bones — Coordinator dispatch (no Planner agent yet).
     MATERIALIZE_TICKETS = "materialize_tickets"
 

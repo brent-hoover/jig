@@ -28,6 +28,7 @@ __all__ = [
     "CrossCuttingPolicy",
     "DataContract",
     "DataStore",
+    "DevProvisioning",
     "ExternalDependency",
     "IntegrationAcceptance",
     "Module",
@@ -92,6 +93,59 @@ class OpenQuestion(BaseModel):
     blocking: list[str] = Field(default_factory=list)
 
 
+class DevProvisioning(BaseModel):
+    """Per-data-store dev-provisioning declaration (Track E MVP).
+
+    Declares the isolation strategy + cleanup policy + connection-string
+    template used by the orchestrator's per-agent provisioning hooks.
+    Three strategies cover virtually every case (per
+    ``docs/dev-environment/design.md`` §"Provisioning strategies"):
+
+    - ``shared_namespaced`` — one shared service instance, per-agent
+      namespace prefix (Postgres CREATE SCHEMA, NATS subject prefix,
+      S3 bucket prefix, Redis key prefix). MVP scope ships this.
+    - ``per_agent_ephemeral`` — each agent gets its own ephemeral
+      instance (SQLite per file, per-agent Postgres DB). Schema-only
+      stub in MVP scope; concrete provisioner lands in Final.
+    - ``operator_supplied`` — operator owns the service out-of-band;
+      jig only injects the connection string. Schema-only stub.
+
+    ``namespace_template`` supports ``{agent_id}``, ``{ticket_id}``,
+    and ``{epic_id}`` placeholders. ``connection_string_template``
+    additionally supports ``{namespace}`` so the per-agent prefix lands
+    inside the URL exactly where it needs to (e.g. Postgres
+    ``search_path``, S3 bucket prefix, NATS subject root).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: Literal[
+        "shared_namespaced", "per_agent_ephemeral", "operator_supplied"
+    ]
+    namespace_template: str = Field(
+        default="agent_{agent_id}_{ticket_id}",
+        min_length=1,
+        description=(
+            "Substituted with {agent_id} / {ticket_id} / {epic_id} at "
+            "provision time to produce the per-agent namespace prefix."
+        ),
+    )
+    cleanup_on_success: Literal["drop", "archive", "keep"] = "drop"
+    cleanup_on_failure: Literal["drop", "archive", "keep"] = "archive"
+    connection_string_template: str = Field(
+        default="",
+        description=(
+            "Per-service URL template; supports {namespace} along with "
+            "the same {agent_id} / {ticket_id} / {epic_id} placeholders "
+            "as ``namespace_template``. Example for Postgres: "
+            '"postgresql://jig:jig@localhost:5432/jigdev'
+            '?options=-c%20search_path%3D{namespace}". MVP-shipped '
+            "kinds (NATS / Redis / S3) treat this as the prefix-bearing "
+            "URL the agent's code reads from env."
+        ),
+    )
+
+
 class DataStore(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -99,6 +153,16 @@ class DataStore(BaseModel):
     kind: str = Field(..., min_length=1, description="postgres | sqlite | opensearch | nats | ...")
     rationale: str | None = None
     accessed_by: list[str] = Field(default_factory=list)
+    dev_provisioning: DevProvisioning | None = Field(
+        default=None,
+        description=(
+            "Optional Track E MVP dev-provisioning block. Absence means "
+            "the orchestrator's per-agent provisioning step skips this "
+            "store (operator-shared / no isolation needed). Presence "
+            "names the strategy and connection-string template the "
+            "provisioner uses."
+        ),
+    )
 
 
 class SharedContract(BaseModel):

@@ -14,6 +14,7 @@ from jig.schemas.arch import (
     ContractsFile,
     DataContract,
     DataStore,
+    DevProvisioning,
     ExternalDependency,
     IntegrationAcceptance,
     Module,
@@ -183,6 +184,108 @@ def test_owned_collection_defaults_self_write_access():
     o = OwnedCollection(collection="products", db="main-db")
     assert o.write_access == ["self"]
     assert o.read_access == []
+
+
+# ---------------------------------------------------------------------------
+# Track E MVP — DevProvisioning + DataStore.dev_provisioning
+# ---------------------------------------------------------------------------
+
+
+def test_dev_provisioning_defaults_round_trip():
+    p = DevProvisioning(strategy="shared_namespaced")
+    assert p.namespace_template == "agent_{agent_id}_{ticket_id}"
+    assert p.cleanup_on_success == "drop"
+    assert p.cleanup_on_failure == "archive"
+    assert p.connection_string_template == ""
+    blob = p.model_dump()
+    p2 = DevProvisioning.model_validate(blob)
+    assert p2 == p
+
+
+def test_dev_provisioning_full_shape_round_trip():
+    p = DevProvisioning(
+        strategy="shared_namespaced",
+        namespace_template="agent_{ticket_id}",
+        cleanup_on_success="archive",
+        cleanup_on_failure="drop",
+        connection_string_template=(
+            "postgresql://jig:jig@localhost:5432/jigdev"
+            "?options=-c%20search_path%3D{namespace}"
+        ),
+    )
+    blob = p.model_dump()
+    p2 = DevProvisioning.model_validate(blob)
+    assert p2 == p
+
+
+def test_dev_provisioning_per_agent_ephemeral_parses_as_stub():
+    """MVP-stub strategies validate but no provisioner is wired yet."""
+    p = DevProvisioning(strategy="per_agent_ephemeral")
+    assert p.strategy == "per_agent_ephemeral"
+
+
+def test_dev_provisioning_operator_supplied_parses_as_stub():
+    p = DevProvisioning(strategy="operator_supplied")
+    assert p.strategy == "operator_supplied"
+
+
+def test_dev_provisioning_rejects_unknown_strategy():
+    with pytest.raises(ValidationError, match="strategy"):
+        DevProvisioning(strategy="nonsense")  # type: ignore[arg-type]
+
+
+def test_dev_provisioning_rejects_unknown_cleanup_policy():
+    with pytest.raises(ValidationError, match="cleanup_on_success"):
+        DevProvisioning(
+            strategy="shared_namespaced",
+            cleanup_on_success="nuke",  # type: ignore[arg-type]
+        )
+
+
+def test_dev_provisioning_forbids_extra_keys():
+    with pytest.raises(ValidationError, match="extra"):
+        DevProvisioning(strategy="shared_namespaced", surprise="boom")  # type: ignore[call-arg]
+
+
+def test_data_store_dev_provisioning_default_is_none():
+    ds = DataStore(id="main-db", kind="postgres")
+    assert ds.dev_provisioning is None
+
+
+def test_data_store_with_dev_provisioning_round_trip():
+    ds = DataStore(
+        id="main-db",
+        kind="postgres",
+        accessed_by=["catalog-ingest"],
+        dev_provisioning=DevProvisioning(
+            strategy="shared_namespaced",
+            namespace_template="agent_{ticket_id}",
+            connection_string_template=(
+                "postgresql://jig:jig@localhost:5432/jigdev"
+                "?options=-c%20search_path%3D{namespace}"
+            ),
+        ),
+    )
+    blob = ds.model_dump()
+    ds2 = DataStore.model_validate(blob)
+    assert ds2 == ds
+    assert ds2.dev_provisioning is not None
+    assert ds2.dev_provisioning.strategy == "shared_namespaced"
+
+
+def test_architecture_with_data_store_dev_provisioning():
+    a = Architecture(
+        data_stores=[
+            DataStore(
+                id="main-db",
+                kind="postgres",
+                dev_provisioning=DevProvisioning(strategy="shared_namespaced"),
+            ),
+        ],
+    )
+    blob = a.model_dump(mode="json")
+    a2 = Architecture.model_validate(blob)
+    assert a2.data_stores[0].dev_provisioning is not None
 
 
 def test_intent_with_complications_round_trips_through_contract():

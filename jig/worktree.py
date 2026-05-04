@@ -90,6 +90,21 @@ async def create_worktree(
         str(worktree_path),
         base_branch,
     )
+
+    # Track G MVP follow-on: install the per-commit reviewer hook so
+    # the dev agent's commits trigger the mechanical reviewer subset.
+    # Best-effort: a hook-install failure must not block worktree
+    # creation (the agent can still work; reviewers just won't fire
+    # on commit). Errors are logged but swallowed.
+    try:
+        from jig.hooks.per_commit import install_per_commit_hook
+
+        install_per_commit_hook(worktree_path)
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning(
+            "per-commit hook install failed for %s: %r", ticket_id, exc
+        )
+
     return worktree_path
 
 

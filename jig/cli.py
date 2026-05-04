@@ -559,6 +559,16 @@ _DEFAULT_WS_URL = "ws://127.0.0.1:9100"
 _WORK_TYPES = ["feature", "bugfix", "refactor", "spike", "perf", "migration", "docs"]
 
 
+# Track G MVP follow-on: per-commit reviewer hook entry point.
+# Registered as a top-level command (not under ``hooks``) because the
+# installed post-commit hook calls it by short name; nesting under
+# ``hooks`` would force the hook script to use ``jig hooks <name>``,
+# breaking the hook's documented invocation in design.md.
+from jig.hooks.per_commit_runner import main as _per_commit_main  # noqa: E402
+
+cli.add_command(_per_commit_main, name="per-commit-review")
+
+
 @cli.group("ticket")
 def ticket_group() -> None:
     """Manage tickets against a running orchestrator."""

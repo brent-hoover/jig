@@ -19,14 +19,30 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml as _yaml
 
+from jig.analytics.emitter import EventEmitter
+from jig.analytics.store import AnalyticsStore
 from jig.intent import Intent
+from jig.intent import Intent as _Intent
+from jig.pm.calibration import (
+    CalibrationSample,
+    CalibrationStore,
+)
 from jig.schemas.arch import (
     Architecture,
+    BehavioralContract,
+    CascadeContractDisposition,
+    CascadeProposal,
     ContractsFile,
+    DataContract,
     IntegrationAcceptance,
     Module,
     OwnedCollection,
+    Risk,
+    RiskImpact,
+    RiskLikelihood,
+    RiskStatus,
 )
 from jig.schemas.plan import (
     BuildPlan,
@@ -34,28 +50,61 @@ from jig.schemas.plan import (
     EpicLayers,
     LayerStatus,
 )
-from jig.schemas.po import Suite, SuitesIndex
+from jig.schemas.po import Ontology, OntologyTerm, Suite, SuitesIndex
 from jig.sim.assertions import (
     AnalyticsEventEmittedAssertion,
     ArtifactWrittenAssertion,
+    BuildPlanLayerStatusAssertion,
+    CascadeProposalAssertion,
+    ContractValidatedAssertion,
     CostUnderBudgetAssertion,
+    DiscoveryStateConsistentAssertion,
+    EnvelopeUpdatedAssertion,
+    FixtureCassetteAssertion,
+    OntologyTermAssertion,
+    OrphanReportAssertion,
+    ProvisioningSucceededAssertion,
     ReviewerReturnedNoCriticalAssertion,
+    RiskStatusAssertion,
     TicketStatusAssertion,
+    TierPromotionAssertion,
+    WireframeAssertion,
 )
 from jig.sim.driver import (
     AssertionResult,
     Driver,
+    DriverContext,
     ScenarioReport,
+    _check_build_plan_layer_status,
+    _check_cascade_proposal,
+    _check_contract_validated,
+    _check_discovery_state_consistent,
+    _check_envelope_updated,
+    _check_fixture_cassette,
+    _check_ontology_term,
+    _check_orphan_report,
+    _check_provisioning_succeeded,
+    _check_risk_status,
+    _check_tier_promotion,
+    _check_wireframe,
 )
 from jig.sim.scenario import Scenario, ScenarioStep, StepKind
 from jig.spec_loader import (
     architecture_path,
     build_plan_path,
     module_contracts_path,
+    save_architecture,
+    save_module_contracts,
+    save_ontology,
+    save_wireframe,
     suite_brief_path,
     suite_structured_path,
     suites_index_path,
+    write_build_plan,
 )
+from jig.store.bus import MessageBus
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 
 
 # ---- helpers -----------------------------------------------------------
@@ -920,3 +969,491 @@ async def test_invoke_quartermaster_feedback_requires_useful(tmp_path: Path):
     report = await driver.run(scn, project_root=tmp_path)
     assert not report.passed
     assert "useful" in (report.step_outcomes[0].error or "")
+
+
+# ---------------------------------------------------------------------------
+# Block 4 — semantic-state assertion checks (issue #4)
+# ---------------------------------------------------------------------------
+#
+# Each new assertion kind gets a happy-path + sad-path test. Tests
+# directly exercise the ``_check_*`` helpers (rather than spinning a full
+# scenario) so failure modes are pinpoint and the test suite stays fast.
+
+
+async def _make_ctx(tmp_path: Path) -> DriverContext:
+    """Build a minimal DriverContext for direct assertion-helper tests."""
+    store_dir = tmp_path / ".jig" / "store"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir = tmp_path / ".jig" / "spec"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    tickets = TicketStore(store_dir / "tickets.jsonl")
+    threads = ThreadStore(store_dir / "comments.jsonl")
+    bus = MessageBus(store_dir / "messages.jsonl")
+    analytics = AnalyticsStore(store_dir / "analytics.jsonl")
+    for s in (tickets, threads, bus, analytics):
+        await s.load()
+    return DriverContext(
+        project_root=tmp_path,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        analytics=analytics,
+        emitter=EventEmitter(analytics, simulator_mode=True),
+    )
+
+
+def _intent_obj() -> _Intent:
+    return _Intent(problem="P", simplest_solution="S")
+
+
+# ---- ContractValidatedAssertion -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_contract_validated_passes_for_present_behavioral_contract(
+    tmp_path: Path,
+):
+    ctx = await _make_ctx(tmp_path)
+    save_module_contracts(
+        tmp_path,
+        "catalog-ingest",
+        ContractsFile(
+            module="catalog-ingest",
+            behavioral_contracts=[
+                BehavioralContract(
+                    id="ingest-batch-atomicity",
+                    invariant="forward-only",
+                    intent=_intent_obj(),
+                ),
+            ],
+        ),
+    )
+    result = _check_contract_validated(
+        ctx,
+        ContractValidatedAssertion(
+            module_id="catalog-ingest",
+            contract_id="ingest-batch-atomicity",
+            contract_kind="behavioral",
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_contract_validated_fails_for_missing_contract(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_module_contracts(
+        tmp_path,
+        "catalog-ingest",
+        ContractsFile(module="catalog-ingest"),
+    )
+    result = _check_contract_validated(
+        ctx,
+        ContractValidatedAssertion(
+            module_id="catalog-ingest",
+            contract_id="missing-id",
+            contract_kind="behavioral",
+        ),
+    )
+    assert not result.passed
+    assert "not found" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_contract_validated_data_contract_round_trip(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_module_contracts(
+        tmp_path,
+        "catalog-ingest",
+        ContractsFile(
+            module="catalog-ingest",
+            data_contracts=[
+                DataContract(
+                    id="product-row",
+                    description="x",
+                    intent=_intent_obj(),
+                ),
+            ],
+        ),
+    )
+    result = _check_contract_validated(
+        ctx,
+        ContractValidatedAssertion(
+            module_id="catalog-ingest",
+            contract_id="product-row",
+            contract_kind="data",
+        ),
+    )
+    assert result.passed
+
+
+# ---- WireframeAssertion ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wireframe_passes_for_existing_clean_html(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_wireframe(
+        tmp_path, "dashboard", "<html><body>dashboard</body></html>"
+    )
+    result = _check_wireframe(
+        ctx, WireframeAssertion(screen_id="dashboard", contains="dashboard")
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_wireframe_fails_for_missing_screen(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = _check_wireframe(ctx, WireframeAssertion(screen_id="missing"))
+    assert not result.passed
+
+
+@pytest.mark.asyncio
+async def test_wireframe_fails_when_lint_marker_present(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_wireframe(
+        tmp_path, "dashboard", "<!-- LINT-FAIL: missing-aria -->\n<html/>"
+    )
+    result = _check_wireframe(ctx, WireframeAssertion(screen_id="dashboard"))
+    assert not result.passed
+    assert "LINT-FAIL" in result.detail
+
+
+# ---- BuildPlanLayerStatusAssertion ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_plan_layer_status_passes_when_match(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    write_build_plan(
+        tmp_path,
+        BuildPlan(
+            project="x",
+            epics=[
+                Epic(
+                    id="catalog-ingest",
+                    title="t",
+                    suite="catalog",
+                    layers=EpicLayers(
+                        bones=LayerStatus(tickets=["tb-1"]),
+                    ),
+                    intent=_intent_obj(),
+                )
+            ],
+        ),
+    )
+    result = _check_build_plan_layer_status(
+        ctx,
+        BuildPlanLayerStatusAssertion(
+            epic_id="catalog-ingest",
+            layer="bones",
+            status="not_started",
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_build_plan_layer_status_fails_for_missing_epic(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    write_build_plan(tmp_path, BuildPlan(project="x"))
+    result = _check_build_plan_layer_status(
+        ctx,
+        BuildPlanLayerStatusAssertion(
+            epic_id="missing", layer="bones", status="not_started"
+        ),
+    )
+    assert not result.passed
+    assert "missing" in result.detail
+
+
+# ---- RiskStatusAssertion --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_risk_status_passes_when_match(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_architecture(
+        tmp_path,
+        Architecture(
+            risks=[
+                Risk(
+                    id="r-shopify-delta",
+                    text="x",
+                    impact=RiskImpact.MEDIUM,
+                    likelihood=RiskLikelihood.MEDIUM,
+                    status=RiskStatus.SPIKE_PROPOSED,
+                    intent=_intent_obj(),
+                )
+            ]
+        ),
+    )
+    result = _check_risk_status(
+        ctx,
+        RiskStatusAssertion(
+            risk_id="r-shopify-delta", status="spike_proposed"
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_risk_status_fails_for_unknown_risk(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_architecture(tmp_path, Architecture())
+    result = _check_risk_status(
+        ctx, RiskStatusAssertion(risk_id="r-missing", status="open")
+    )
+    assert not result.passed
+
+
+# ---- CascadeProposalAssertion ---------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cascade_proposal_passes_when_present(tmp_path: Path):
+    from jig.spec_loader import cascade_proposal_path
+
+    ctx = await _make_ctx(tmp_path)
+    proposal = CascadeProposal(
+        cascade_id="r-x-20260501T000000",
+        risk_id="r-x",
+        spike_ticket_id="spike-r-x",
+        finding="x",
+        contracts=[
+            CascadeContractDisposition(
+                uri="project://arch/modules/m/contracts#owns/products",
+                proposed_disposition="invalidated",
+            )
+        ],
+    )
+    target = cascade_proposal_path(tmp_path, "r-x", "20260501T000000")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_yaml.safe_dump(proposal.model_dump(mode="json")))
+
+    result = _check_cascade_proposal(
+        ctx,
+        CascadeProposalAssertion(
+            risk_id="r-x",
+            min_contracts=1,
+            contains_disposition="invalidated",
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_cascade_proposal_fails_when_missing(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = _check_cascade_proposal(
+        ctx, CascadeProposalAssertion(risk_id="r-missing")
+    )
+    assert not result.passed
+
+
+# ---- OntologyTermAssertion ------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ontology_term_passes_when_term_present(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_ontology(
+        tmp_path,
+        Ontology(
+            terms=[
+                OntologyTerm(
+                    term="Cart",
+                    definition="What the buyer fills with products.",
+                ),
+            ]
+        ),
+    )
+    result = _check_ontology_term(
+        ctx,
+        OntologyTermAssertion(
+            term="Cart", definition_contains="buyer"
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_ontology_term_fails_when_term_missing(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    save_ontology(tmp_path, Ontology(terms=[]))
+    result = _check_ontology_term(
+        ctx, OntologyTermAssertion(term="ghost")
+    )
+    assert not result.passed
+
+
+# ---- DiscoveryStateConsistentAssertion ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_discovery_state_consistent_fails_when_state_missing(
+    tmp_path: Path,
+):
+    """No discovery.state.yaml → assertion surfaces the absence."""
+    ctx = await _make_ctx(tmp_path)
+    result = _check_discovery_state_consistent(
+        ctx, DiscoveryStateConsistentAssertion()
+    )
+    assert not result.passed
+    assert "discovery state" in result.detail
+
+
+# ---- EnvelopeUpdatedAssertion ---------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_envelope_updated_passes_when_sample_count_meets(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    store = CalibrationStore(tmp_path)
+    await store.append(
+        CalibrationSample(
+            ticket_id="t-x",
+            size="m",
+            dev_tier="standard",
+            layer=None,
+            observed_turns=10,
+            observed_tool_calls=20,
+            observed_duration_ms=60000,
+            observed_cost_usd=0.5,
+            completion_status="success",
+        )
+    )
+    result = await _check_envelope_updated(
+        ctx, EnvelopeUpdatedAssertion(size="m", min_sample_count=1)
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_envelope_updated_fails_when_too_few_samples(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = await _check_envelope_updated(
+        ctx, EnvelopeUpdatedAssertion(size="m", min_sample_count=1)
+    )
+    assert not result.passed
+
+
+# ---- OrphanReportAssertion ------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_orphan_report_passes_when_entries_present(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    log = tmp_path / ".jig" / "dev" / "orphans.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text('{"namespace": "n1"}\n{"namespace": "n2"}\n')
+    result = _check_orphan_report(
+        ctx, OrphanReportAssertion(min_entries=2)
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_orphan_report_fails_when_log_missing(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = _check_orphan_report(ctx, OrphanReportAssertion())
+    assert not result.passed
+
+
+# ---- ProvisioningSucceededAssertion ---------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_provisioning_succeeded_passes_via_env_vars(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    ctx.dev_provisioning_env_vars["main-db"] = (
+        "postgresql://localhost:5432/jigdev?search_path=ns_t"
+    )
+    result = _check_provisioning_succeeded(
+        ctx,
+        ProvisioningSucceededAssertion(
+            service_id="main-db", url_contains="search_path=ns_t"
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_provisioning_succeeded_fails_when_service_absent(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = _check_provisioning_succeeded(
+        ctx, ProvisioningSucceededAssertion(service_id="ghost")
+    )
+    assert not result.passed
+
+
+# ---- FixtureCassetteAssertion ---------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fixture_cassette_passes_when_signature_present(tmp_path: Path):
+    from jig.dev_env.fixtures import FixtureCassette, FixtureStore
+
+    ctx = await _make_ctx(tmp_path)
+    store = FixtureStore(tmp_path)
+    await store.record(
+        FixtureCassette(
+            service_id="shopify-api",
+            request_signature="sig-1",
+            request={"method": "GET", "url": "/products"},
+            response={"status": 200, "body": "[]"},
+        )
+    )
+    result = await _check_fixture_cassette(
+        ctx,
+        FixtureCassetteAssertion(
+            service_id="shopify-api", request_signature="sig-1"
+        ),
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_fixture_cassette_fails_when_no_cassettes(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = await _check_fixture_cassette(
+        ctx, FixtureCassetteAssertion(service_id="ghost-service")
+    )
+    assert not result.passed
+
+
+# ---- TierPromotionAssertion -----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tier_promotion_passes_when_to_tier_matches(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    ctx.last_tier_promotion_from = "standard"
+    ctx.last_tier_promotion_to = "senior"
+    result = _check_tier_promotion(
+        ctx, TierPromotionAssertion(from_tier="standard", to_tier="senior")
+    )
+    assert result.passed, result.detail
+
+
+@pytest.mark.asyncio
+async def test_tier_promotion_fails_when_no_promotion_recorded(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    result = _check_tier_promotion(
+        ctx, TierPromotionAssertion(to_tier="senior")
+    )
+    assert not result.passed
+
+
+@pytest.mark.asyncio
+async def test_tier_promotion_fails_when_to_tier_mismatches(tmp_path: Path):
+    ctx = await _make_ctx(tmp_path)
+    ctx.last_tier_promotion_from = "standard"
+    ctx.last_tier_promotion_to = "senior"
+    result = _check_tier_promotion(
+        ctx, TierPromotionAssertion(to_tier="sa")
+    )
+    assert not result.passed
+
+

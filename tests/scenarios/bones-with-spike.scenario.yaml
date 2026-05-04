@@ -262,6 +262,12 @@ steps:
         reviewer_id: contract-compliance
 
 # ---- final assertions: spike resolved to mitigated; cascade did NOT fire
+# Block 4: the previous bones-only assertions only checked the ticket
+# transitioned to RESOLVED — they didn't pin the actual risk-state
+# transition the SA design promises. The risk_status assertion proves
+# the spike-completion handler advanced the risk to ``mitigated``
+# (and not, say, ``confirmed_impossible``, which would have triggered
+# the cascade workflow).
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
@@ -270,5 +276,8 @@ final_assertions:
   - kind: ticket_status
     ticket_id: spike-r-shopify-rate-limit
     status: resolved
+  - kind: risk_status
+    risk_id: r-shopify-rate-limit
+    status: mitigated
   - kind: cost_under_budget
     usd: 1.0

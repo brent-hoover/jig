@@ -210,15 +210,24 @@ steps:
           to_status: confirmed_impossible
 
 # ---- final assertions ----------------------------------------------------
-# The cascade-proposal artifact lives at
-# ``.jig/arch/cascades/<risk>-<ts>.yaml`` — the timestamp suffix means
-# we can't pin the path here. ``test_sim_bones_with_cascade_scenario``
-# verifies the artifact landed via glob; the assertions here cover the
-# rest of the cascade-handler contract: the spike ticket resolved and
-# the cost stayed in-budget.
+# Block 4: the bones-only scenario could only assert the spike ticket
+# resolved and the cost stayed in-budget. The cascade_proposal
+# assertion proves the proposal artifact actually carries the right
+# dispositions (here: at least the two contracts referenced in
+# ``dependent_contracts`` above), and the risk_status assertion proves
+# the spike-completion handler advanced the risk to
+# ``confirmed_impossible`` rather than just emitting the analytics
+# event. Together they pin the semantic state the cascade workflow
+# actually advertises.
 final_assertions:
   - kind: ticket_status
     ticket_id: spike-r-shopify-delta
     status: resolved
+  - kind: risk_status
+    risk_id: r-shopify-delta
+    status: confirmed_impossible
+  - kind: cascade_proposal
+    risk_id: r-shopify-delta
+    min_contracts: 2
   - kind: cost_under_budget
     usd: 1.0

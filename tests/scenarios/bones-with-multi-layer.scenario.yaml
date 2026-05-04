@@ -255,6 +255,12 @@ steps:
   - kind: invoke_coordinator_cycle
 
 # ---- final assertions: spine cohesion + analytics + cost ---------------
+# Block 4: the build_plan_layer_status assertions below pin the
+# Coordinator's layer-transition contract directly. Pre-Block-4 the
+# scenario could only assert the tickets reached RESOLVED and the
+# state-changed events fired — neither proves that the *plan* moved
+# the layer's status from ``not_started`` to ``done`` (which is what
+# the multi-layer dispatcher actually advertises).
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
@@ -262,6 +268,14 @@ final_assertions:
   - kind: ticket_status
     ticket_id: t-shopify-oauth
     status: resolved
+  - kind: build_plan_layer_status
+    epic_id: catalog-ingest
+    layer: bones
+    status: done
+  - kind: build_plan_layer_status
+    epic_id: catalog-ingest
+    layer: mvp
+    status: done
   - kind: analytics_event_emitted
     event_kind: ticket_state_changed
     field_constraints:

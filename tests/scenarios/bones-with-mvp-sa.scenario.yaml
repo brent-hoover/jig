@@ -399,6 +399,10 @@ steps:
         reviewer_id: contract-compliance
 
 # ---- final assertions: spine cohesion + analytics + cost ---------------
+# Block 4: contract_validated assertions prove the SA-MVP discovery
+# loop landed both contract kinds (behavioral + data) with intent
+# populated, not just that the YAML grew. Pre-Block-4 the assertion
+# could only check the YAML file existed.
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
@@ -408,6 +412,14 @@ final_assertions:
     field_constraints:
       ticket_id: tb-catalog-ingest
       to_state: resolved
+  - kind: contract_validated
+    module_id: catalog-ingest
+    contract_id: ingest-batch-atomicity
+    contract_kind: behavioral
+  - kind: contract_validated
+    module_id: catalog-ingest
+    contract_id: product-row
+    contract_kind: data
   # Track I Final: the data contract with inline fields auto-rendered
   # to a Pydantic class file via the SA upsert path.
   - kind: artifact_written

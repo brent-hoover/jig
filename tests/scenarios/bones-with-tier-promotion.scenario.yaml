@@ -184,10 +184,17 @@ steps:
         reviewer_id: contract-compliance
 
 # ---- final assertions ----------------------------------------------------
+# Block 4: tier_promotion is the new first-class assertion that mirrors
+# the analytics-event check below. The two together prove both halves
+# of the contract: the analytics event fired AND ``promote_ticket_tier``
+# stamped the from/to rungs on the driver context.
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
     status: resolved
+  - kind: tier_promotion
+    from_tier: standard
+    to_tier: senior
   - kind: analytics_event_emitted
     event_kind: auto_escalation_triggered
     field_constraints:

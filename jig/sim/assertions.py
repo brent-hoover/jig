@@ -33,13 +33,25 @@ __all__ = [
     "AnalyticsEventEmittedAssertion",
     "ArtifactWrittenAssertion",
     "AssertionKind",
+    "BuildPlanLayerStatusAssertion",
+    "CascadeProposalAssertion",
+    "ContractValidatedAssertion",
     "CostUnderBudgetAssertion",
+    "DiscoveryStateConsistentAssertion",
     "EnvVarSetAssertion",
+    "EnvelopeUpdatedAssertion",
+    "FixtureCassetteAssertion",
+    "OntologyTermAssertion",
+    "OrphanReportAssertion",
+    "ProvisioningSucceededAssertion",
     "ReviewCommentInStoreAssertion",
     "ReviewerReturnedNoCriticalAssertion",
+    "RiskStatusAssertion",
     "ScenarioAssertion",
     "ScenarioAssertionUnion",
     "TicketStatusAssertion",
+    "TierPromotionAssertion",
+    "WireframeAssertion",
 ]
 
 
@@ -60,6 +72,25 @@ class AssertionKind(str, Enum):
     # ticket. Pins the gap the v2-review flagged: pre-Block-3 the
     # specialty scenario only verified selection, not execution.
     REVIEW_COMMENT_IN_STORE = "review_comment_in_store"
+    # Block 4 — semantic assertions that match step-handler intent.
+    # The bones-only assertion set proved indirect facts (artifact
+    # exists, ticket is X). The new kinds let scenarios assert the
+    # exact piece of state the handler advertises (a contract was
+    # written with intent fields, a wireframe linted clean, a build-
+    # plan layer transitioned, a risk status moved, a cascade landed
+    # with the expected dispositions, etc.).
+    CONTRACT_VALIDATED = "contract_validated"
+    WIREFRAME = "wireframe"
+    BUILD_PLAN_LAYER_STATUS = "build_plan_layer_status"
+    RISK_STATUS = "risk_status"
+    CASCADE_PROPOSAL = "cascade_proposal"
+    ONTOLOGY_TERM = "ontology_term"
+    DISCOVERY_STATE_CONSISTENT = "discovery_state_consistent"
+    ENVELOPE_UPDATED = "envelope_updated"
+    ORPHAN_REPORT = "orphan_report"
+    PROVISIONING_SUCCEEDED = "provisioning_succeeded"
+    FIXTURE_CASSETTE = "fixture_cassette"
+    TIER_PROMOTION = "tier_promotion"
 
 
 class _AssertionBase(BaseModel):
@@ -188,6 +219,261 @@ class CostUnderBudgetAssertion(_AssertionBase):
     usd: float = Field(..., gt=0.0)
 
 
+# ---- Block 4 — semantic assertions matching step-handler intent ---------
+#
+# Pre-Block-4 final-track scenarios could only assert indirect facts
+# (artifact exists, ticket is in status X). Per the v2 code review's
+# important finding #4, the assertion set has lagged the simulator's
+# step-kind growth (~32 step kinds vs 5 bones assertion kinds). Each
+# new assertion below pins the *semantic* state a step handler
+# advertises so a scenario can prove the right thing happened, not just
+# that something landed on disk.
+
+
+class ContractValidatedAssertion(_AssertionBase):
+    """A behavioral or data contract exists in the architecture.
+
+    Reads ``.jig/spec/modules/<module_id>/contracts.yaml`` and asserts
+    the named contract id is present, optionally verifying its
+    ``intent`` fields are populated (intent-compliance reviewer's
+    pre-condition). Mirrors the contract-validated facts the SA-MVP
+    discovery-loop step writes; lets a scenario prove the contract
+    landed with intent rather than just that the YAML grew.
+    """
+
+    kind: Literal[AssertionKind.CONTRACT_VALIDATED.value] = (
+        AssertionKind.CONTRACT_VALIDATED.value
+    )
+    module_id: str = Field(..., min_length=1)
+    contract_id: str = Field(..., min_length=1)
+    contract_kind: Literal["behavioral", "data"]
+    require_intent: bool = Field(
+        default=True,
+        description=(
+            "When True (default) the contract's ``intent.problem`` and "
+            "``intent.simplest_solution`` must be non-empty. Disable for "
+            "tests that exercise schema-level optionality."
+        ),
+    )
+
+
+class WireframeAssertion(_AssertionBase):
+    """A wireframe HTML file exists at the expected screen-derived path.
+
+    Reads ``.jig/spec/wireframes/<screen_id>.html``. Optional
+    ``contains`` substring matches the file content; optional
+    ``lint_passed`` flag asserts the rendered HTML carries no
+    ``<!-- LINT-FAIL: ... -->`` markers (the wireframe-linter's
+    convention for inline failures). Lets visual scenarios prove the
+    wireframe round-tripped without reaching for ``artifact_written``.
+    """
+
+    kind: Literal[AssertionKind.WIREFRAME.value] = (
+        AssertionKind.WIREFRAME.value
+    )
+    screen_id: str = Field(..., min_length=1)
+    contains: str | None = None
+    lint_passed: bool = True
+
+
+class BuildPlanLayerStatusAssertion(_AssertionBase):
+    """An epic's layer status in the build plan matches the expected value.
+
+    Reads ``.jig/plan/build-plan.yaml``, looks up ``epic_id``, and
+    inspects ``layers.<layer>.status``. Promotes the previously-
+    implicit "layer-transitioned" check to a first-class assertion.
+    """
+
+    kind: Literal[AssertionKind.BUILD_PLAN_LAYER_STATUS.value] = (
+        AssertionKind.BUILD_PLAN_LAYER_STATUS.value
+    )
+    epic_id: str = Field(..., min_length=1)
+    layer: Literal["bones", "mvp", "final"]
+    status: Literal["not_started", "in_progress", "blocked", "done"]
+
+
+class RiskStatusAssertion(_AssertionBase):
+    """A risk in the architecture has the expected status.
+
+    Reads ``.jig/spec/architecture.yaml`` and finds the risk by id.
+    The risk-state machine is the public-facing contract for the
+    spike workflow — ``open`` → ``spike_proposed`` →
+    ``spike_running`` → ``mitigated`` / ``confirmed_impossible`` /
+    ``mitigated_with_constraints`` — and many scenarios advance it.
+    Until now they could only assert the analytics event fired.
+    """
+
+    kind: Literal[AssertionKind.RISK_STATUS.value] = (
+        AssertionKind.RISK_STATUS.value
+    )
+    risk_id: str = Field(..., min_length=1)
+    status: Literal[
+        "open",
+        "spike_proposed",
+        "spike_running",
+        "mitigated",
+        "mitigated_with_constraints",
+        "accepted",
+        "confirmed_impossible",
+    ]
+
+
+class CascadeProposalAssertion(_AssertionBase):
+    """A cascade proposal exists for ``risk_id`` with expected dispositions.
+
+    Globs ``.jig/arch/cascades/<risk_id>-*.yaml`` (the writer-stamped
+    timestamp suffix means we can't pin the exact path without
+    coordination), validates the most-recent proposal, and asserts
+    its top-level ``state`` plus the per-disposition tally in
+    ``contracts``. Pre-Block-4 the cascade scenarios could only
+    confirm the file exists; this assertion proves the contents.
+    """
+
+    kind: Literal[AssertionKind.CASCADE_PROPOSAL.value] = (
+        AssertionKind.CASCADE_PROPOSAL.value
+    )
+    risk_id: str = Field(..., min_length=1)
+    state: (
+        Literal["pending", "staged", "holding", "rejected", "resolved"] | None
+    ) = None
+    min_contracts: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Minimum number of CascadeContractDisposition rows the "
+            "proposal must carry. 0 (default) skips the count check."
+        ),
+    )
+    contains_disposition: (
+        Literal["invalidated", "needs_revision", "still_holds"] | None
+    ) = Field(
+        default=None,
+        description=(
+            "When set, at least one row in ``contracts`` must carry "
+            "this disposition value."
+        ),
+    )
+
+
+class OntologyTermAssertion(_AssertionBase):
+    """An ontology term exists with the expected definition substring.
+
+    Loads ``.jig/spec/ontology.md``, looks up the term (case-
+    insensitive), and asserts that ``definition_contains`` appears in
+    the rendered definition. Lets the L1-PO ontology scenarios prove
+    the term landed with content rather than just that the file grew.
+    """
+
+    kind: Literal[AssertionKind.ONTOLOGY_TERM.value] = (
+        AssertionKind.ONTOLOGY_TERM.value
+    )
+    term: str = Field(..., min_length=1)
+    definition_contains: str | None = None
+
+
+class DiscoveryStateConsistentAssertion(_AssertionBase):
+    """L1 discovery state is consistent with discovery.md.
+
+    Runs ``validate_state_consistency`` and asserts the divergence
+    count matches ``expected_divergence_count`` (default 0 — fully
+    consistent). Lets resume scenarios prove the reconcile happened
+    without inspecting the divergence list directly.
+    """
+
+    kind: Literal[AssertionKind.DISCOVERY_STATE_CONSISTENT.value] = (
+        AssertionKind.DISCOVERY_STATE_CONSISTENT.value
+    )
+    expected_divergence_count: int = Field(default=0, ge=0)
+
+
+class EnvelopeUpdatedAssertion(_AssertionBase):
+    """The estimation envelope for ``size`` has shifted from the default.
+
+    Reads the calibration store, computes the envelope for ``size``,
+    and asserts ``sample_count >= min_sample_count`` (i.e. the
+    operator-feedback loop deposited at least N samples). Lets the
+    quartermaster-feedback scenario prove the envelope moved rather
+    than just that the analytics event fired.
+    """
+
+    kind: Literal[AssertionKind.ENVELOPE_UPDATED.value] = (
+        AssertionKind.ENVELOPE_UPDATED.value
+    )
+    size: Literal["xs", "s", "m", "l", "xl"]
+    min_sample_count: int = Field(default=1, ge=1)
+
+
+class OrphanReportAssertion(_AssertionBase):
+    """The orphan tracker categorized the expected number of namespaces.
+
+    Reads ``.jig/dev/orphans.jsonl`` and asserts the latest report's
+    counts match the expected breakdown. Bones-only scenarios checked
+    artifact_written; this assertion verifies the categorization
+    output instead.
+    """
+
+    kind: Literal[AssertionKind.ORPHAN_REPORT.value] = (
+        AssertionKind.ORPHAN_REPORT.value
+    )
+    min_entries: int = Field(default=1, ge=0)
+
+
+class ProvisioningSucceededAssertion(_AssertionBase):
+    """A service was provisioned and its connection string surfaced.
+
+    Asserts the named service id appears in
+    ``ctx.dev_provisioning_env_vars`` (or one of the per-service
+    captured-env maps the dev-provisioning step stamps). Pre-Block-4
+    scenarios checked artifact_written on a manifest file; this
+    assertion verifies the provisioner actually returned a URL.
+    """
+
+    kind: Literal[AssertionKind.PROVISIONING_SUCCEEDED.value] = (
+        AssertionKind.PROVISIONING_SUCCEEDED.value
+    )
+    service_id: str = Field(..., min_length=1)
+    url_contains: str | None = Field(
+        default=None,
+        description=(
+            "Optional substring the provisioner-supplied URL must "
+            "contain. Useful for verifying namespace templating."
+        ),
+    )
+
+
+class FixtureCassetteAssertion(_AssertionBase):
+    """A fixture cassette exists for ``service_id`` with the expected signature.
+
+    Reads ``.jig/dev/fixtures/<service_id>.jsonl`` and asserts at
+    least one cassette matches ``request_signature``. Lets the
+    fixture-replay scenarios prove the cassette landed with the
+    operator-expected request shape.
+    """
+
+    kind: Literal[AssertionKind.FIXTURE_CASSETTE.value] = (
+        AssertionKind.FIXTURE_CASSETTE.value
+    )
+    service_id: str = Field(..., min_length=1)
+    request_signature: str | None = None
+
+
+class TierPromotionAssertion(_AssertionBase):
+    """A ticket got tier-promoted from one rung to another.
+
+    Reads ``ctx.last_tier_promotion_*`` (stamped by the
+    invoke_tier_promotion handler). When ``from_tier`` and
+    ``to_tier`` are set, both must match; passing only ``to_tier``
+    lets the assertion verify "ended at this tier" without coupling
+    to the starting rung.
+    """
+
+    kind: Literal[AssertionKind.TIER_PROMOTION.value] = (
+        AssertionKind.TIER_PROMOTION.value
+    )
+    from_tier: Literal["standard", "senior", "sa"] | None = None
+    to_tier: Literal["standard", "senior", "sa"]
+
+
 # Discriminated union; the YAML loader passes raw dicts to
 # ``validate_python``. ``TypeAdapter`` mirrors the parse_event pattern in
 # ``jig.analytics.events`` without paying for a wrapper BaseModel.
@@ -200,6 +486,19 @@ ScenarioAssertionUnion = Annotated[
         CostUnderBudgetAssertion,
         EnvVarSetAssertion,
         ReviewCommentInStoreAssertion,
+        # Block 4 — semantic assertions matching step-handler intent.
+        ContractValidatedAssertion,
+        WireframeAssertion,
+        BuildPlanLayerStatusAssertion,
+        RiskStatusAssertion,
+        CascadeProposalAssertion,
+        OntologyTermAssertion,
+        DiscoveryStateConsistentAssertion,
+        EnvelopeUpdatedAssertion,
+        OrphanReportAssertion,
+        ProvisioningSucceededAssertion,
+        FixtureCassetteAssertion,
+        TierPromotionAssertion,
     ],
     Field(discriminator="kind"),
 ]

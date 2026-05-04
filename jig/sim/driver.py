@@ -77,11 +77,23 @@ from jig.vd_mcp import VD_TICKET_ID, handle_vd_finalize
 from jig.sim.assertions import (
     AnalyticsEventEmittedAssertion,
     ArtifactWrittenAssertion,
+    BuildPlanLayerStatusAssertion,
+    CascadeProposalAssertion,
+    ContractValidatedAssertion,
     CostUnderBudgetAssertion,
+    DiscoveryStateConsistentAssertion,
     EnvVarSetAssertion,
+    EnvelopeUpdatedAssertion,
+    FixtureCassetteAssertion,
+    OntologyTermAssertion,
+    OrphanReportAssertion,
+    ProvisioningSucceededAssertion,
     ReviewCommentInStoreAssertion,
     ReviewerReturnedNoCriticalAssertion,
+    RiskStatusAssertion,
     TicketStatusAssertion,
+    TierPromotionAssertion,
+    WireframeAssertion,
 )
 from jig.sim.scenario import Scenario, ScenarioStep, StepKind
 from jig.spec_loader import (
@@ -2200,6 +2212,31 @@ async def _evaluate_assertion(
         return _check_env_var_set(ctx, assertion)
     if isinstance(assertion, ReviewCommentInStoreAssertion):
         return await _check_review_comment_in_store(ctx, assertion)
+    # Block 4 — semantic-state assertions.
+    if isinstance(assertion, ContractValidatedAssertion):
+        return _check_contract_validated(ctx, assertion)
+    if isinstance(assertion, WireframeAssertion):
+        return _check_wireframe(ctx, assertion)
+    if isinstance(assertion, BuildPlanLayerStatusAssertion):
+        return _check_build_plan_layer_status(ctx, assertion)
+    if isinstance(assertion, RiskStatusAssertion):
+        return _check_risk_status(ctx, assertion)
+    if isinstance(assertion, CascadeProposalAssertion):
+        return _check_cascade_proposal(ctx, assertion)
+    if isinstance(assertion, OntologyTermAssertion):
+        return _check_ontology_term(ctx, assertion)
+    if isinstance(assertion, DiscoveryStateConsistentAssertion):
+        return _check_discovery_state_consistent(ctx, assertion)
+    if isinstance(assertion, EnvelopeUpdatedAssertion):
+        return await _check_envelope_updated(ctx, assertion)
+    if isinstance(assertion, OrphanReportAssertion):
+        return _check_orphan_report(ctx, assertion)
+    if isinstance(assertion, ProvisioningSucceededAssertion):
+        return _check_provisioning_succeeded(ctx, assertion)
+    if isinstance(assertion, FixtureCassetteAssertion):
+        return await _check_fixture_cassette(ctx, assertion)
+    if isinstance(assertion, TierPromotionAssertion):
+        return _check_tier_promotion(ctx, assertion)
     return AssertionResult(
         kind=type(assertion).__name__,
         passed=False,
@@ -2428,6 +2465,550 @@ async def _check_review_comment_in_store(
         detail=(
             f"{a.reviewer_id} → {len(matched)} comment(s) in store "
             f"for {a.ticket_id}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Block 4 — semantic-state assertion checks (issue #4)
+# ---------------------------------------------------------------------------
+#
+# Each check below reads the artifact / store state the corresponding
+# step handler advertises and proves the *semantic* fact rather than
+# the artifact's existence. The bones-only ``artifact_written`` +
+# ``ticket_status`` set could only assert indirect facts; these checks
+# reach inside the artifact (or the relevant store) to verify the
+# handler actually did what it claims.
+
+
+def _check_contract_validated(
+    ctx: DriverContext, a: ContractValidatedAssertion
+) -> AssertionResult:
+    """Verify a behavioral / data contract exists with intent populated."""
+    from jig.spec_loader import module_contracts_path
+
+    path = module_contracts_path(ctx.project_root, a.module_id)
+    if not path.is_file():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"module contracts file {path} does not exist "
+                f"(module_id={a.module_id!r})"
+            ),
+        )
+    cf = ContractsFile.model_validate(yaml.safe_load(path.read_text()) or {})
+    pool = (
+        cf.behavioral_contracts
+        if a.contract_kind == "behavioral"
+        else cf.data_contracts
+    )
+    match = next((c for c in pool if c.id == a.contract_id), None)
+    if match is None:
+        ids = [c.id for c in pool]
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"{a.contract_kind} contract {a.contract_id!r} not found in "
+                f"module {a.module_id!r}; present: {ids}"
+            ),
+        )
+    if a.require_intent:
+        # ``intent`` is required by the schema for Behavioral/DataContract
+        # so its presence is structural — but the strings can still be
+        # technically-empty placeholder text. Pin the non-empty rule
+        # explicitly so a "ceremony" intent fails the assertion.
+        if (
+            match.intent is None
+            or not match.intent.problem.strip()
+            or not match.intent.simplest_solution.strip()
+        ):
+            return AssertionResult(
+                kind=a.kind,
+                passed=False,
+                detail=(
+                    f"contract {a.contract_id!r} has empty intent "
+                    "(problem or simplest_solution missing)"
+                ),
+            )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=f"{a.contract_kind}/{a.contract_id} OK in {a.module_id}",
+    )
+
+
+def _check_wireframe(
+    ctx: DriverContext, a: WireframeAssertion
+) -> AssertionResult:
+    """Verify a wireframe HTML file exists at the expected screen-derived path."""
+    from jig.spec_loader import wireframe_path
+
+    path = wireframe_path(ctx.project_root, a.screen_id)
+    if not path.is_file():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"wireframe {a.screen_id!r} not found at {path}",
+        )
+    text = path.read_text()
+    if a.contains is not None and a.contains not in text:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"wireframe {a.screen_id!r} exists but does not contain "
+                f"{a.contains!r}"
+            ),
+        )
+    if a.lint_passed and "<!-- LINT-FAIL:" in text:
+        # The wireframe linter writes inline ``<!-- LINT-FAIL: ... -->``
+        # markers when content fails a check; the operator-driven flow
+        # treats their presence as failure.
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"wireframe {a.screen_id!r} carries inline LINT-FAIL "
+                "marker(s)"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind, passed=True, detail=f"wireframe {a.screen_id} OK"
+    )
+
+
+def _check_build_plan_layer_status(
+    ctx: DriverContext, a: BuildPlanLayerStatusAssertion
+) -> AssertionResult:
+    """Verify an epic's layer.status in build-plan.yaml."""
+    plan_path = ctx.project_root / ".jig" / "plan" / "build-plan.yaml"
+    if not plan_path.is_file():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"build plan {plan_path} not found",
+        )
+    bp = BuildPlan.model_validate(yaml.safe_load(plan_path.read_text()) or {})
+    epic = next((e for e in bp.epics if e.id == a.epic_id), None)
+    if epic is None:
+        ids = [e.id for e in bp.epics]
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"epic {a.epic_id!r} not in plan; present: {ids}",
+        )
+    layer_obj = getattr(epic.layers, a.layer)
+    if layer_obj.status.value != a.status:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"epic {a.epic_id!r} layer {a.layer!r} status is "
+                f"{layer_obj.status.value!r}, expected {a.status!r}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=f"{a.epic_id}/{a.layer} → {a.status}",
+    )
+
+
+def _check_risk_status(
+    ctx: DriverContext, a: RiskStatusAssertion
+) -> AssertionResult:
+    """Verify a risk in architecture.yaml has the expected status."""
+    arch_path = architecture_path(ctx.project_root)
+    if not arch_path.is_file():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"architecture {arch_path} not found",
+        )
+    arch = Architecture.model_validate(
+        yaml.safe_load(arch_path.read_text()) or {}
+    )
+    risk = next((r for r in arch.risks if r.id == a.risk_id), None)
+    if risk is None:
+        ids = [r.id for r in arch.risks]
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"risk {a.risk_id!r} not in architecture; present: {ids}"
+            ),
+        )
+    if risk.status.value != a.status:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"risk {a.risk_id!r} status is {risk.status.value!r}, "
+                f"expected {a.status!r}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind, passed=True, detail=f"{a.risk_id} → {a.status}"
+    )
+
+
+def _check_cascade_proposal(
+    ctx: DriverContext, a: CascadeProposalAssertion
+) -> AssertionResult:
+    """Verify the most recent cascade proposal for ``risk_id`` matches."""
+    from jig.schemas.arch import CascadeProposal
+    from jig.spec_loader import cascades_dir
+
+    cdir = cascades_dir(ctx.project_root)
+    if not cdir.is_dir():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"cascades dir {cdir} does not exist",
+        )
+    # Writer stamps ``<risk-id>-<ts>.yaml``; pick the lexicographically
+    # latest match (timestamps sort correctly given the YYYYMMDDTHHMMSS
+    # format the writer uses).
+    candidates = sorted(cdir.glob(f"{a.risk_id}-*.yaml"))
+    if not candidates:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"no cascade proposal for risk {a.risk_id!r} in {cdir}"
+            ),
+        )
+    proposal = CascadeProposal.model_validate(
+        yaml.safe_load(candidates[-1].read_text()) or {}
+    )
+    if a.state is not None and proposal.state.value != a.state:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"cascade {proposal.cascade_id!r} state is "
+                f"{proposal.state.value!r}, expected {a.state!r}"
+            ),
+        )
+    if len(proposal.contracts) < a.min_contracts:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"cascade {proposal.cascade_id!r} has "
+                f"{len(proposal.contracts)} dispositions, expected "
+                f">= {a.min_contracts}"
+            ),
+        )
+    if a.contains_disposition is not None:
+        match = any(
+            c.proposed_disposition == a.contains_disposition
+            for c in proposal.contracts
+        )
+        if not match:
+            dispositions = [c.proposed_disposition for c in proposal.contracts]
+            return AssertionResult(
+                kind=a.kind,
+                passed=False,
+                detail=(
+                    f"cascade {proposal.cascade_id!r} has no row with "
+                    f"disposition={a.contains_disposition!r}; saw "
+                    f"{dispositions}"
+                ),
+            )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=(
+            f"cascade {proposal.cascade_id} OK "
+            f"(state={proposal.state.value}, "
+            f"contracts={len(proposal.contracts)})"
+        ),
+    )
+
+
+def _check_ontology_term(
+    ctx: DriverContext, a: OntologyTermAssertion
+) -> AssertionResult:
+    """Verify an ontology term exists with optional definition substring."""
+    from jig.spec_loader import load_ontology
+
+    try:
+        ont = load_ontology(ctx.project_root)
+    except FileNotFoundError:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail="ontology.md not found",
+        )
+    found = ont.by_term(a.term)
+    if found is None:
+        terms = [t.term for t in ont.terms]
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"term {a.term!r} not in ontology; present: {terms}",
+        )
+    if (
+        a.definition_contains is not None
+        and a.definition_contains not in found.definition
+    ):
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"term {a.term!r} found but definition does not contain "
+                f"{a.definition_contains!r}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind, passed=True, detail=f"ontology term {a.term} OK"
+    )
+
+
+def _check_discovery_state_consistent(
+    ctx: DriverContext, a: DiscoveryStateConsistentAssertion
+) -> AssertionResult:
+    """Verify L1 in-flight state consistency vs discovery.md.
+
+    Defers to ``validate_state_consistency`` — the same check the
+    discovery-resume handler runs — and asserts the divergence count.
+    """
+    from jig.po_l1_mcp import validate_state_consistency
+    from jig.spec_loader import (
+        discovery_path,
+        discovery_state_path,
+        load_discovery,
+        load_discovery_state,
+    )
+
+    state_path = discovery_state_path(ctx.project_root)
+    if not state_path.is_file():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"discovery state {state_path} does not exist",
+        )
+    state = load_discovery_state(ctx.project_root)
+    # ``discovery.md`` may legitimately be missing pre-finalize; pass
+    # ``None`` so the validator's "concurrent-edit" branch sees the
+    # absence consistently.
+    discovery_md = discovery_path(ctx.project_root)
+    doc = (
+        load_discovery(ctx.project_root) if discovery_md.is_file() else None
+    )
+    on_disk_digest = ""
+    if discovery_md.is_file():
+        import hashlib
+
+        on_disk_digest = hashlib.sha256(
+            discovery_md.read_bytes()
+        ).hexdigest()
+    divergences = validate_state_consistency(
+        state, doc, on_disk_digest=on_disk_digest
+    )
+    if len(divergences) != a.expected_divergence_count:
+        kinds = [d.kind for d in divergences]
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"expected {a.expected_divergence_count} divergence(s), "
+                f"got {len(divergences)}: {kinds}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=f"{len(divergences)} divergence(s)",
+    )
+
+
+async def _check_envelope_updated(
+    ctx: DriverContext, a: EnvelopeUpdatedAssertion
+) -> AssertionResult:
+    """Verify the calibration envelope for ``size`` shifted from default.
+
+    Loads the calibration store (the same path the quartermaster
+    feedback writes to) and reads the per-size sample count. We can't
+    rely on ``current_envelopes`` returning a non-default envelope
+    here (the function falls back to defaults below
+    ``MIN_SAMPLES_FOR_CALIBRATION``); we count successful samples
+    directly so a single-sample scenario still demonstrates "the
+    feedback loop deposited at least N sample(s)".
+    """
+    from jig.pm.calibration import CalibrationStore
+
+    store = CalibrationStore(ctx.project_root)
+    await store.load()
+    successful = [
+        s
+        for s in store.all()
+        if s.size == a.size and s.completion_status == "success"
+    ]
+    sample_count = len(successful)
+    if sample_count < a.min_sample_count:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"calibration store has {sample_count} successful "
+                f"sample(s) for size {a.size!r}, expected >= "
+                f"{a.min_sample_count}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=f"size={a.size} sample_count={sample_count}",
+    )
+
+
+def _check_orphan_report(
+    ctx: DriverContext, a: OrphanReportAssertion
+) -> AssertionResult:
+    """Verify the orphan tracker logged at least ``min_entries`` entries."""
+    log = ctx.project_root / ".jig" / "dev" / "orphans.jsonl"
+    if not log.is_file():
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"orphan log {log} does not exist",
+        )
+    lines = [
+        line for line in log.read_text().splitlines() if line.strip()
+    ]
+    if len(lines) < a.min_entries:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"orphan log has {len(lines)} entries, expected >= "
+                f"{a.min_entries}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind, passed=True, detail=f"{len(lines)} orphan entries"
+    )
+
+
+def _check_provisioning_succeeded(
+    ctx: DriverContext, a: ProvisioningSucceededAssertion
+) -> AssertionResult:
+    """Verify a provisioner returned a URL for ``service_id``.
+
+    Reads the captured-env maps the dev-provisioning step stamps onto
+    the context. ``ctx.dev_provisioning_env_vars`` carries the
+    {var_name: url} pairs the bones provisioning handler emits;
+    ``ctx.last_ephemeral_url`` covers the per-agent-ephemeral path;
+    ``ctx.last_operator_supplied_url`` covers operator-supplied.
+    """
+    # The bones dev_provisioning step keys the env vars by service id;
+    # the per_agent_ephemeral path stamps the URL on a dedicated field.
+    candidates: dict[str, str] = {}
+    candidates.update(ctx.dev_provisioning_env_vars)
+    if ctx.last_ephemeral_url is not None:
+        candidates[a.service_id] = ctx.last_ephemeral_url
+    if ctx.last_operator_supplied_url is not None:
+        candidates.setdefault(a.service_id, ctx.last_operator_supplied_url)
+
+    url = candidates.get(a.service_id)
+    if url is None:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"no provisioning URL captured for service "
+                f"{a.service_id!r}; keys present: {sorted(candidates)}"
+            ),
+        )
+    if a.url_contains is not None and a.url_contains not in url:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"service {a.service_id!r} URL {url!r} does not contain "
+                f"{a.url_contains!r}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind, passed=True, detail=f"{a.service_id} → {url}"
+    )
+
+
+async def _check_fixture_cassette(
+    ctx: DriverContext, a: FixtureCassetteAssertion
+) -> AssertionResult:
+    """Verify a fixture cassette exists for ``service_id``."""
+    from jig.dev_env.fixtures import FixtureStore
+
+    store = FixtureStore(ctx.project_root)
+    cassettes = await store.list_for_service(a.service_id)
+    if not cassettes:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=f"no cassettes recorded for service {a.service_id!r}",
+        )
+    if a.request_signature is not None:
+        match = any(
+            c.request_signature == a.request_signature for c in cassettes
+        )
+        if not match:
+            sigs = [c.request_signature for c in cassettes]
+            return AssertionResult(
+                kind=a.kind,
+                passed=False,
+                detail=(
+                    f"no cassette with signature {a.request_signature!r} "
+                    f"for service {a.service_id!r}; saw {sigs}"
+                ),
+            )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=f"{a.service_id} → {len(cassettes)} cassette(s)",
+    )
+
+
+def _check_tier_promotion(
+    ctx: DriverContext, a: TierPromotionAssertion
+) -> AssertionResult:
+    """Verify a tier promotion landed; reads the ctx.last_tier_promotion_*."""
+    if ctx.last_tier_promotion_to is None:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                "no tier promotion recorded on ctx; did the scenario run "
+                "an invoke_tier_promotion step?"
+            ),
+        )
+    if a.from_tier is not None and ctx.last_tier_promotion_from != a.from_tier:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"tier promotion from_tier was "
+                f"{ctx.last_tier_promotion_from!r}, expected {a.from_tier!r}"
+            ),
+        )
+    if ctx.last_tier_promotion_to != a.to_tier:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"tier promotion to_tier was "
+                f"{ctx.last_tier_promotion_to!r}, expected {a.to_tier!r}"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=(
+            f"tier {ctx.last_tier_promotion_from} → {ctx.last_tier_promotion_to}"
         ),
     )
 

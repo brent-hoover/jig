@@ -58,5 +58,10 @@ steps:
         source: fixture_env
 
 final_assertions:
+  # Block 4: fixture_cassette proves the cassette landed for the
+  # service id (and not just that *some* file with the service-id
+  # substring was written, which artifact_written only weakly checks).
+  - kind: fixture_cassette
+    service_id: shopify-api
   - kind: cost_under_budget
     usd: 1.0

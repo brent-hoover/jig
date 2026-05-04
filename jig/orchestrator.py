@@ -249,6 +249,16 @@ class Orchestrator:
                 _logger.debug(
                     "could not stamp extra_env on ctx (frozen / slots?)",
                 )
+        # Block 2 — stamp the analytics emitter onto the context so
+        # ``run_agent`` can forward it into ``create_agent_mcp_server``
+        # for MCP-tool handler emission (ontology edits etc.). Best-
+        # effort: test stubs that use slots / freeze ignore the assign.
+        try:
+            ctx.analytics_emitter = self._analytics_emitter
+        except AttributeError:
+            _logger.debug(
+                "could not stamp analytics_emitter on ctx (frozen / slots?)",
+            )
         start = time.monotonic()
         result_status = "failed"
         cost_usd: float | None = None

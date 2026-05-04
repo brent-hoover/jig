@@ -3,7 +3,7 @@
 import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
@@ -24,6 +24,9 @@ from jig import (
     ticket_mcp,
     vd_mcp,
 )
+
+if TYPE_CHECKING:
+    from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
 from jig.logging_setup import (
     _agent_id_var,
     _phase_var,
@@ -91,6 +94,7 @@ def create_agent_mcp_server(
     phase_questions_to: frozenset[str] = frozenset(),
     phase_escalation_targets: frozenset[str] = frozenset(),
     ticket_id: str = "",
+    analytics_emitter: "AnalyticsEmitter | None" = None,
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -99,6 +103,13 @@ def create_agent_mcp_server(
     ``thread_answer`` / ``thread_resolve_question`` write typed entries
     directly; legacy ticket tools (``ask_question``, ``comment_on_ticket``
     etc.) now translate to ThreadEntry types on the way in.
+
+    ``analytics_emitter`` (Block 2) flows into MCP tool handlers that
+    emit analytics events (ontology edits, ontology removals). Passing
+    None keeps the bones-era contract — handlers that emit only emit
+    when an emitter is wired (the CLI / sim driver / tests already do
+    this directly; this argument lets the orchestrator's emitter ride
+    along into agent-driven invocations of the same handlers).
     """
 
     # Allowed assignees: known roles + orchestrator + user
@@ -1308,15 +1319,17 @@ def create_agent_mcp_server(
             {"term": str, "definition": str, "examples": list},
         )
         async def ontology_edit_term(args):
-            # Emitter is None at MCP-tool dispatch — analytics events
-            # are wired through the orchestrator-level emitter when
-            # production runs land. Tests + CLI invoke the handler
-            # directly with an emitter when they need analytics.
+            # Block 2 — the orchestrator-level analytics emitter is
+            # plumbed through ``analytics_emitter`` so agent-driven
+            # invocations of this MCP tool emit ``OntologyTermEdited``
+            # alongside CLI / sim-driver invocations that pass the
+            # emitter directly.
             await po_ontology_mcp.handle_ontology_edit_term(
                 project_path=project_path,
                 term=args["term"],
                 definition=args["definition"],
                 examples=args.get("examples") or [],
+                emitter=analytics_emitter,
             )
             return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -1340,10 +1353,15 @@ def create_agent_mcp_server(
             replacement = args.get("replacement_term")
             if isinstance(replacement, str) and not replacement.strip():
                 replacement = None
+            # Block 2 — propagate the orchestrator-level analytics
+            # emitter so ``OntologyTermRemoved`` lands when an agent
+            # invokes this MCP tool (matching the existing behavior
+            # for direct handler invocation from CLI / sim driver).
             result = await po_ontology_mcp.handle_ontology_remove_term(
                 project_path=project_path,
                 term=args["term"],
                 replacement_term=replacement,
+                emitter=analytics_emitter,
             )
             payload = {
                 "term": result.term,

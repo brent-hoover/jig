@@ -443,6 +443,10 @@ async def run_agent(
             phase_questions_to=phase_q_to,
             phase_escalation_targets=phase_esc_targets,
             ticket_id=ctx.ticket.id,
+            # Block 2 — analytics emitter rides through so MCP tool
+            # handlers that emit analytics events (ontology edits, etc.)
+            # actually emit when invoked from a real agent.
+            analytics_emitter=ctx.analytics_emitter,
         )
 
         mcp_servers: dict = {"jig": mcp_server}

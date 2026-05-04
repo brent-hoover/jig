@@ -239,6 +239,75 @@ async def test_ask_question_dedupes_repeated_entries_in_list(
 
 
 @pytest.mark.asyncio
+async def test_ontology_edit_term_emits_via_analytics_emitter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Block 2 — analytics emitter plumbed through create_agent_mcp_server.
+
+    The MCP-tool dispatch wrapper used to ignore the emitter, so
+    ontology-edit tools never emitted ``OntologyTermEdited`` from a real
+    agent context (only from CLI / sim-driver paths that called the
+    handler directly with an emitter). This pins that the orchestrator-
+    level emitter now flows through the MCP server factory and is passed
+    to handler invocations.
+    """
+    from jig.analytics.emitter import EventEmitter
+    from jig.analytics.events import OntologyTermEdited
+    from jig.analytics.store import AnalyticsStore
+    from jig.po_ontology_mcp import handle_ontology_add_term
+
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
+    cfg = RoleConfig(
+        role="po",
+        phase_prompt="",
+        allowed_tools=["ontology_edit_term"],
+    )
+
+    captured: dict = {}
+    _patch_create_server(monkeypatch, captured)
+
+    analytics = AnalyticsStore(tmp_path / "analytics.jsonl")
+    await analytics.load()
+    emitter = EventEmitter(analytics)
+
+    # Seed an existing term so edit has something to replace.
+    await handle_ontology_add_term(
+        project_path=tmp_path,
+        term="blocker",
+        definition="A thing that blocks progress.",
+    )
+
+    mcp_server.create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po",
+        agent_cfg=cfg,
+        worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
+        analytics_emitter=emitter,
+    )
+    tools_by_name = {t.name: t for t in captured["tools"]}
+    assert "ontology_edit_term" in tools_by_name
+
+    await tools_by_name["ontology_edit_term"].handler(
+        {
+            "term": "blocker",
+            "definition": "Updated definition.",
+            "examples": ["e1"],
+        }
+    )
+
+    # Drain emitter so the event lands in the store.
+    await emitter.drain()
+    events = await analytics.all()
+    edited = [e for e in events if isinstance(e, OntologyTermEdited)]
+    assert len(edited) == 1
+    assert edited[0].term == "blocker"
+
+
+@pytest.mark.asyncio
 async def test_ask_question_keeps_distinct_questions(
     tmp_path: Path, monkeypatch
 ) -> None:

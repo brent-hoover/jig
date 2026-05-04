@@ -51,3 +51,9 @@ class AgentSpawnContext:
     # the connection-string map returned by ``provision_agent_namespace``
     # before invoking ``run_agent``. None / empty means no extra env.
     extra_env: dict[str, str] | None = None
+    # Block 2 — analytics emitter forwarded into the MCP server factory
+    # so analytics-emitting MCP tool handlers (ontology edits, etc.)
+    # actually emit when invoked from a real agent. Typed as ``object``
+    # to avoid pulling the analytics module into the runtime import
+    # graph; ``mcp_server.create_agent_mcp_server`` narrows back.
+    analytics_emitter: object | None = None

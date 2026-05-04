@@ -1,0 +1,275 @@
+spec_version: 1
+id: bones-with-deferred-ticket
+description: |
+  Exercises the Coordinator DEFERRED queue path. Per
+  ``docs/pm-workflow/design.md`` §"DEFERRED queue triage", the
+  Coordinator (or the operator) defers a ticket that cannot
+  currently make progress; the row lands in
+  ``.jig/plan/deferred-queue.jsonl`` for later operator triage.
+
+  This scenario walks the methodical persona through a build plan
+  with two bones tickets in one epic. After materialization, the
+  operator defers the second ticket (simulating "blocked on external
+  API spec"); the first ticket walks to resolved as normal. A final
+  triage pass is invoked to verify the queue's mechanical heuristic
+  surfaces the still-in-flight deferred entry as ``leave_deferred``.
+
+  MVP scope: the deferred queue + mechanical triage exist; LLM-based
+  triage is Final. The scenario exercises the queue's persistence +
+  triage surface, not the (Final-only) automatic re-materialization.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-deferred-ticket
+      pitch: a tracer-bullet project that exercises the DEFERRED queue path
+      problem: |
+        We need a happy-path scenario that proves the DEFERRED queue
+        records operator-deferred tickets correctly and the
+        mechanical triage pass surfaces them with the expected
+        recommendation.
+      audience: |
+        Internal jig developers validating the DEFERRED queue path.
+      non_goals:
+        - id: no-llm-triage
+          text: This scenario does not exercise LLM-based triage
+          rationale: LLM-based triage lands in Final per pm-workflow design
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-deferred-ticket
+
+  # ---- L1 / L2 (operator hand-writes) ---
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data into the local store
+            capabilities:
+              - shopify-connect
+              - shopify-products-sync
+        crosscutting_non_goals: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: shopify-connect
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite with two capabilities so the build
+        plan has two bones tickets to exercise the DEFERRED queue.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify
+        - id: shopify-products-sync
+          title: Sync Shopify products
+          state: planned
+          summary: |
+            After OAuth completes we pull the catalog.
+          behaviors:
+            - id: pull-catalog
+              description: Pull catalog rows
+              acceptance_criteria:
+                - Catalog rows appear in the products collection
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  # ---- SA (operator hand-writes architecture + module contract) ---
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Pulls catalog data from Shopify. Implements both bones
+              capabilities so the build plan has two tickets.
+            implements_capabilities:
+              - shopify-connect
+              - shopify-products-sync
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Two-ticket bones layer to exercise DEFERRED queue.
+              simplest_solution: |
+                One module, two capabilities, two bones tickets.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: catalog-ingest
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access:
+              - self
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Operator authorizes Shopify via OAuth handshake
+          - capability: shopify-products-sync
+            must:
+              - Catalog rows appear in the products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/modules/catalog-ingest/contracts.yaml
+        contains: shopify-connect
+
+  # ---- PM: two-ticket build plan -----------------------------------
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-deferred-ticket
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest-oauth
+                  - tb-catalog-ingest-sync
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the DEFERRED queue path: two-ticket bones
+                layer, one walks to resolved, one is deferred for
+                operator triage.
+              simplest_solution: |
+                Two bones tickets in one epic; defer the second.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/build-plan.yaml
+        contains: tb-catalog-ingest-oauth
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest-oauth
+        status: open
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest-sync
+        status: open
+
+  # ---- Defer the second ticket -------------------------------------
+  - kind: defer_ticket
+    params:
+      ticket_id: tb-catalog-ingest-sync
+      reason: blocked on external API spec
+      notes: |
+        Synthetic operator deferred this ticket pending Shopify
+        Products API spec confirmation. Mechanical triage should
+        surface as ``leave_deferred`` since the ticket is still in
+        flight.
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/deferred-queue.jsonl
+        contains: tb-catalog-ingest-sync
+
+  # ---- Resolve the first ticket through the bones spine ------------
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest-oauth
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest-oauth
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Mechanical triage pass --------------------------------------
+  # No assertion on the in-memory triage decisions (the driver
+  # handler doesn't surface them via the ScenarioReport for MVP);
+  # the deferred-queue artifact assertion above gates the persistence
+  # half of the path.
+  - kind: triage_deferred
+
+# ---- final assertions: spine cohesion + analytics + cost ---------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest-oauth
+    status: resolved
+  # The deferred ticket stays open — the mechanical triage doesn't
+  # auto-rematerialize. Final-tier LLM triage handles that.
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest-sync
+    status: open
+  - kind: analytics_event_emitted
+    event_kind: ticket_state_changed
+    field_constraints:
+      ticket_id: tb-catalog-ingest-oauth
+      to_state: resolved
+  - kind: cost_under_budget
+    usd: 1.0

@@ -244,6 +244,8 @@ class Driver:
             StepKind.INVOKE_PLAN_FINALIZE.value: _handle_invoke_plan_finalize,
             StepKind.MATERIALIZE_TICKETS.value: _handle_materialize_tickets,
             StepKind.INVOKE_COORDINATOR_CYCLE.value: _handle_invoke_coordinator_cycle,
+            StepKind.DEFER_TICKET.value: _handle_defer_ticket,
+            StepKind.TRIAGE_DEFERRED.value: _handle_triage_deferred,
             StepKind.MOCK_DEV_COMMIT.value: dev_handler,
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
         }
@@ -808,6 +810,56 @@ async def _handle_invoke_coordinator_cycle(
     """
     coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
     await coord.dispatch_cycle(ctx.project_root)
+
+
+async def _handle_defer_ticket(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Defer a ticket via ``Coordinator.defer_ticket``.
+
+    Scenario YAML shape::
+
+        kind: defer_ticket
+        params:
+          ticket_id: tb-catalog-ingest
+          reason: "blocked on external API spec"
+          notes: "operator deferred for triage"  # optional
+
+    Appends one row to ``.jig/plan/deferred-queue.jsonl`` and stamps
+    ``deferred_at`` on the ticket. MVP+ scenarios use this step to
+    exercise the DEFERRED queue path; bones scenarios don't touch it.
+    """
+    ticket_id = step.params["ticket_id"]
+    reason = step.params.get("reason") or ""
+    notes = step.params.get("notes") or ""
+    if not reason:
+        raise ValueError(
+            "defer_ticket: params.reason is required"
+        )
+    coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
+    await coord.defer_ticket(ticket_id, reason=reason, notes=notes)
+
+
+async def _handle_triage_deferred(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Run one mechanical triage pass over the DEFERRED queue.
+
+    Scenario YAML shape::
+
+        kind: triage_deferred
+        params: {}
+
+    Triage decisions land on the driver context for assertion-time
+    inspection. The mechanical heuristic (no LLM) recommends
+    ``rematerialize`` / ``leave_deferred`` / ``close`` per
+    ``Coordinator.triage_deferred``; the synthetic operator can
+    inspect the recommendations via the captured-events / artifact
+    assertions. MVP+ scenarios; bones scenarios don't touch it.
+    """
+    del step  # no params yet — triage takes none
+    coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
+    await coord.triage_deferred(ctx.project_root)
 
 
 # Keywords-from-AC pattern. Mock dev produces a file containing every

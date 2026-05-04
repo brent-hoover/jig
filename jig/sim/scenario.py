@@ -96,6 +96,15 @@ class StepKind(str, Enum):
     # exercise multi-layer dispatch with this step.
     INVOKE_COORDINATOR_CYCLE = "invoke_coordinator_cycle"
 
+    # PM MVP — Coordinator DEFERRED queue. The operator (synthetic or
+    # real) defers a ticket via ``coord.defer_ticket(...)``; the row
+    # lands in ``.jig/plan/deferred-queue.jsonl`` and the ticket gets
+    # ``deferred_at`` stamped. Triage is operator-only at MVP (mechanical
+    # heuristic in ``coord.triage_deferred``); this step exposes the
+    # defer half so a scenario can exercise the queue path end-to-end.
+    DEFER_TICKET = "defer_ticket"
+    TRIAGE_DEFERRED = "triage_deferred"
+
     # Dev — mocked in mock mode (writes a small commit satisfying the
     # bones reviewer's checks); spawns a real agent in real mode.
     MOCK_DEV_COMMIT = "mock_dev_commit"

@@ -11,9 +11,10 @@ Currently shipped (mechanical, deterministic, no LLM):
 - ``ContractComplianceReviewer`` — bones contract-compliance (Track G2).
 - ``IntentComplianceReviewer`` — intent-layer enforcement (Track I MVP).
 - ``CrossCuttingPolicyReviewer`` — universal-rule enforcement (Track G MVP).
+- ``SpecComplianceReviewer`` — behavior-AC reference checks (Track G MVP).
 
-Additional mechanical reviewers (spec-compliance) and the two-cadence
-dispatcher land in subsequent Track G MVP commits.
+The two-cadence dispatcher (per-commit + end-of-ticket) lands in a
+subsequent Track G MVP commit.
 
 The synthetic operator (Track H) invokes the reviewer explicitly after
 the dev agent completes; this package does NOT yet wire into the
@@ -33,6 +34,7 @@ from jig.reviewers.dispatch import (
     BONES_REVIEWER_ID,
     CROSS_CUTTING_REVIEWER_ID,
     INTENT_REVIEWER_ID,
+    SPEC_COMPLIANCE_REVIEWER_ID,
     select_reviewers_for_ticket,
     should_run_for_bones,
 )
@@ -41,6 +43,7 @@ from jig.reviewers.intent_compliance import (
     IntentComplianceReviewer,
     review_intent,
 )
+from jig.reviewers.spec_compliance import SpecComplianceReviewer
 
 __all__ = [
     "BONES_REVIEWER_ID",
@@ -53,7 +56,9 @@ __all__ = [
     "IntentComplianceReviewer",
     "ReviewerComment",
     "ReviewerCommentType",
+    "SPEC_COMPLIANCE_REVIEWER_ID",
     "Severity",
+    "SpecComplianceReviewer",
     "review_intent",
     "select_reviewers_for_ticket",
     "should_run_for_bones",

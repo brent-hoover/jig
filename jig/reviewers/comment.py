@@ -63,6 +63,8 @@ class ReviewerCommentType(str, Enum):
       finding kinds.
     * Mechanical cross-cutting-policy (Track G MVP) — universal-rule
       violation + missing-positive-policy reference.
+    * Mechanical spec-compliance (Track G MVP) — behavior-AC reference
+      miss + ticket cites a capability that doesn't exist in the spec.
     """
 
     EMPTY_DIFF = "empty-diff"
@@ -78,6 +80,10 @@ class ReviewerCommentType(str, Enum):
     # ``Architecture.cross_cutting_policies``.
     CROSS_CUTTING_POLICY_VIOLATION = "cross-cutting-policy-violation"
     CROSS_CUTTING_POLICY_NOT_REFERENCED = "cross-cutting-policy-not-referenced"
+    # Spec-compliance (Track G MVP). Behavior-AC token reference checks
+    # against the suite's structured spec, plus capability-id sanity.
+    BEHAVIOR_AC_NOT_REFERENCED = "behavior-ac-not-referenced"
+    CAPABILITY_NOT_FOUND_IN_SPEC = "capability-not-found-in-spec"
 
 
 # Backward-compatible alias. The bones-era name keeps working for the

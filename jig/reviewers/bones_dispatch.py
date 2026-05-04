@@ -14,6 +14,7 @@ from jig.reviewers.dispatch import (
     BONES_REVIEWER_ID,
     CROSS_CUTTING_REVIEWER_ID,
     INTENT_REVIEWER_ID,
+    SPEC_COMPLIANCE_REVIEWER_ID,
     select_reviewers_for_ticket,
     should_run_for_bones,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "BONES_REVIEWER_ID",
     "CROSS_CUTTING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
+    "SPEC_COMPLIANCE_REVIEWER_ID",
     "select_reviewers_for_ticket",
     "should_run_for_bones",
 ]

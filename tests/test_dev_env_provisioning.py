@@ -265,7 +265,11 @@ async def test_provision_agent_namespace_returns_per_service_urls():
 
 
 @pytest.mark.asyncio
-async def test_provision_agent_namespace_skips_unsupported_strategy():
+async def test_provision_agent_namespace_routes_strategies_correctly():
+    """SQLite ephemeral lacks a project_root → skipped; operator_supplied
+    is now wired (Block 2) and yields the templated connection string.
+    Per-strategy routing keeps the dispatcher predictable.
+    """
     rec = _Recorder()
     reg = ProvisioningRegistry(postgres_sql_executor=rec)
     m = DevManifest(
@@ -285,13 +289,16 @@ async def test_provision_agent_namespace_skips_unsupported_strategy():
         ],
         connection_string_templates={
             "ephemeral": "sqlite:///x/{namespace}.db",
-            "op": "postgres://x/{namespace}",
+            "op": "postgres://operator-managed/db",
         },
     )
     out = await provision_agent_namespace(
         m, agent_id="dev", ticket_id="t-1", registry=reg
     )
-    assert out == {}
+    # SQLite ephemeral skipped (no project_root on registry); op
+    # surfaces the operator-supplied URL verbatim.
+    assert out == {"op": "postgres://operator-managed/db"}
+    # No CREATE SCHEMA / CREATE DATABASE for operator_supplied.
     assert rec.calls == []
 
 
@@ -385,4 +392,129 @@ async def test_cleanup_agent_namespace_swallows_provisioner_errors():
     # Must not raise
     await cleanup_agent_namespace(
         m, agent_id="dev", ticket_id="t-1", success=True, registry=reg
+    )
+
+
+# ---------------------------------------------------------------------------
+# Block 2 — OperatorSuppliedProvisioner
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_operator_supplied_yields_template_string():
+    """``operator_supplied`` services pass through the template string."""
+    from jig.dev_env.provisioning import OperatorSuppliedProvisioner
+
+    provisioner = OperatorSuppliedProvisioner()
+    service = ManifestService(
+        id="vendor-queue",
+        kind="nats",
+        strategy="operator_supplied",
+        namespace_template="x",
+    )
+    url = await provisioner.provision(
+        service,
+        connection_string_template="nats://operator.example.com:4222",
+        agent_id="dev",
+        ticket_id="t-1",
+        epic_id=None,
+    )
+    assert url == "nats://operator.example.com:4222"
+
+
+@pytest.mark.asyncio
+async def test_operator_supplied_substitutes_id_placeholders():
+    """Operators can still parameterize on agent/ticket/epic for shared
+    backing stores (e.g. a hosted Postgres with per-agent search_path)."""
+    from jig.dev_env.provisioning import OperatorSuppliedProvisioner
+
+    provisioner = OperatorSuppliedProvisioner()
+    service = ManifestService(
+        id="hosted-db",
+        kind="postgres",
+        strategy="operator_supplied",
+        namespace_template="x",
+    )
+    url = await provisioner.provision(
+        service,
+        connection_string_template=(
+            "postgres://hosted/db?app={agent_id}_{ticket_id}"
+        ),
+        agent_id="Dev-1",
+        ticket_id="T-001",
+        epic_id=None,
+    )
+    # Sanitization runs through ``_sanitize`` (lowercase + alnum).
+    assert url == "postgres://hosted/db?app=dev_1_t_001"
+
+
+@pytest.mark.asyncio
+async def test_operator_supplied_missing_template_raises():
+    """A missing ``connection_string_template`` is a manifest bug, not
+    silent skip — operators need the loud failure to know they need to
+    author one (or pick a different strategy)."""
+    from jig.dev_env.provisioning import OperatorSuppliedProvisioner
+
+    provisioner = OperatorSuppliedProvisioner()
+    service = ManifestService(
+        id="vendor-queue",
+        kind="nats",
+        strategy="operator_supplied",
+        namespace_template="x",
+    )
+    with pytest.raises(KeyError, match="vendor-queue"):
+        await provisioner.provision(
+            service,
+            connection_string_template="",
+            agent_id="dev",
+            ticket_id="t-1",
+            epic_id=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_operator_supplied_cleanup_is_noop():
+    """Operator owns the lifecycle — cleanup must never act."""
+    from jig.dev_env.provisioning import OperatorSuppliedProvisioner
+
+    provisioner = OperatorSuppliedProvisioner()
+    service = ManifestService(
+        id="vendor-queue",
+        kind="nats",
+        strategy="operator_supplied",
+        namespace_template="x",
+    )
+    # Both success + failure paths return None and don't raise.
+    await provisioner.cleanup(
+        service, agent_id="d", ticket_id="t", success=True, epic_id=None,
+    )
+    await provisioner.cleanup(
+        service, agent_id="d", ticket_id="t", success=False, epic_id=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_routes_operator_supplied_services():
+    """End-to-end: operator-supplied services in a manifest yield URLs."""
+    m = DevManifest(
+        services=[
+            ManifestService(
+                id="vendor-queue",
+                kind="nats",
+                strategy="operator_supplied",
+                namespace_template="x",
+            ),
+        ],
+        connection_string_templates={
+            "vendor-queue": "nats://operator.example.com:4222",
+        },
+    )
+    out = await provision_agent_namespace(
+        m, agent_id="dev", ticket_id="t-1",
+    )
+    assert out == {"vendor-queue": "nats://operator.example.com:4222"}
+
+    # Cleanup must be a no-op — the operator owns the service lifecycle.
+    await cleanup_agent_namespace(
+        m, agent_id="dev", ticket_id="t-1", success=True,
     )

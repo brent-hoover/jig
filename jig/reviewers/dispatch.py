@@ -419,7 +419,14 @@ async def dispatch_for_cadence(
         # budget allows.
         reviewer_ids = list(_MECHANICAL_REVIEWER_IDS)
     else:
-        reviewer_ids = select_reviewers_for_ticket(ticket)
+        # Block 2 (Important 2): forward project_root so
+        # ``select_reviewers_for_ticket`` can pull in architecture-
+        # driven specialty reviewers (SA-tier module security, perf-AC
+        # scans). Pre-Block-2 dispatch dropped project_root here, so
+        # those triggers were silently skipped through the dispatcher.
+        reviewer_ids = select_reviewers_for_ticket(
+            ticket, project_root=project_root,
+        )
 
     out: dict[str, list[ReviewerComment]] = {}
 

@@ -433,3 +433,65 @@ async def test_per_commit_critical_comments_drive_per_commit_failure_event(tmp_p
         auto_applied=False,
     )
     assert event.kind == "per_commit_check_failed"
+
+
+# ---- end-of-ticket dispatch + project_root + specialty reviewers ---------
+
+
+@pytest.mark.asyncio
+async def test_end_of_ticket_dispatch_forwards_project_root_to_selector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Block 2 — Important 2: dispatch_for_cadence must forward project_root
+    to select_reviewers_for_ticket so architecture-driven specialty
+    triggers (SA-tier module security, perf AC scans) participate in the
+    selection. Pre-Block-2 dispatch_for_cadence dropped project_root at
+    line 422, so those triggers were silently skipped.
+
+    Specialty reviewer EXECUTION (Block 3) is separate; this test pins
+    only the selection-side forwarding.
+    """
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-dispatch"
+    _init_worktree(worktree, head_files={"x.py": "x = 1\n"})
+
+    captured: dict = {}
+
+    from jig.reviewers import dispatch as dispatch_module
+
+    real_selector = dispatch_module.select_reviewers_for_ticket
+
+    def _spy(t, *, project_root=None):
+        captured["project_root"] = project_root
+        return real_selector(t, project_root=project_root)
+
+    monkeypatch.setattr(
+        dispatch_module, "select_reviewers_for_ticket", _spy
+    )
+
+    await dispatch_for_cadence(_ticket(), tmp_path, "end_of_ticket")
+
+    # The dispatcher must hand its own project_root through to the
+    # selector so architecture-driven triggers can fire.
+    assert captured["project_root"] == tmp_path
+
+
+@pytest.mark.asyncio
+async def test_end_of_ticket_dispatch_does_not_trigger_specialty_for_standard_module(
+    tmp_path: Path,
+) -> None:
+    """Sanity check: standard-tier module + clean ticket → no specialty
+    reviewer auto-selection through dispatch_for_cadence."""
+    _write_arch(tmp_path)  # default STANDARD tier
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-dispatch"
+    _init_worktree(worktree, head_files={"x.py": "x = 1\n"})
+
+    out = await dispatch_for_cadence(_ticket(), tmp_path, "end_of_ticket")
+
+    assert "reviewer-security" not in out
+    assert "reviewer-architectural" not in out
+    assert "reviewer-performance" not in out

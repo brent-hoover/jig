@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = [
     "NamespaceProvisioner",
     "NatsSubjectPrefixProvisioner",
+    "OperatorSuppliedProvisioner",
     "PostgresSchemaProvisioner",
     "ProvisioningRegistry",
     "RedisKeyPrefixProvisioner",
@@ -226,6 +227,72 @@ class S3BucketPrefixProvisioner(NamespaceProvisioner):
     kind: ClassVar[str] = "s3"
 
 
+class OperatorSuppliedProvisioner:
+    """Block 2 (Important 10) — passthrough for operator-managed services.
+
+    Per ``docs/dev-environment/design.md`` §"Provisioning strategies"
+    operator_supplied means the operator has provisioned the service
+    out-of-band (e.g. a hosted Postgres or vendor-hosted queue) and
+    supplied a connection string template that already names the right
+    connection parameters. Jig's job is purely to surface that string in
+    the agent's env-var map; there is no per-agent namespacing,
+    provision step, or cleanup step — the operator owns the lifecycle.
+
+    Distinct from :class:`NamespaceProvisioner` because it is
+    strategy-specific rather than kind-specific: any kind with
+    ``strategy: operator_supplied`` routes here. Failure mode: if the
+    manifest's ``connection_string_templates`` map has no entry for the
+    service id, raise ``KeyError`` at provisioning time so the operator
+    sees the misconfiguration loud and clear (the alternative — silently
+    skipping — is exactly the Block 2 gap this provisioner exists to
+    close).
+    """
+
+    async def provision(
+        self,
+        service: ManifestService,
+        *,
+        connection_string_template: str,
+        agent_id: str,
+        ticket_id: str,
+        epic_id: str | None,
+    ) -> str:
+        """Return the operator-supplied connection string verbatim.
+
+        ``connection_string_template`` is taken from the manifest's
+        ``connection_string_templates`` map. The id placeholders
+        (``{agent_id}``, ``{ticket_id}``, ``{epic_id}``) still substitute
+        for operators who want per-agent search-path customization on a
+        shared backing store, but ``{namespace}`` is intentionally NOT
+        substituted (operator_supplied has no namespace concept — the
+        operator's URL is the URL).
+        """
+        if not connection_string_template:
+            raise KeyError(
+                f"operator_supplied service {service.id!r} has no "
+                "connection_string_template in the manifest's "
+                "connection_string_templates map; either author one or "
+                "switch to a different strategy"
+            )
+        return connection_string_template.format(
+            agent_id=_sanitize(agent_id),
+            ticket_id=_sanitize(ticket_id),
+            epic_id=_sanitize(epic_id) if epic_id else "",
+        )
+
+    async def cleanup(
+        self,
+        service: ManifestService,
+        *,
+        agent_id: str,
+        ticket_id: str,
+        success: bool,
+        epic_id: str | None,
+    ) -> None:
+        """No-op — the operator manages the service lifecycle."""
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Registry + dispatcher
 # ---------------------------------------------------------------------------
@@ -260,6 +327,13 @@ class ProvisioningRegistry:
             "redis": RedisKeyPrefixProvisioner(),
             "s3": S3BucketPrefixProvisioner(),
         }
+        # Block 2 — operator_supplied is strategy-keyed (any kind), so a
+        # single provisioner instance covers every operator-managed
+        # service. Constructed eagerly so callers don't need to know
+        # the strategy is wired automatically.
+        self._operator_supplied: OperatorSuppliedProvisioner = (
+            OperatorSuppliedProvisioner()
+        )
         # Local import keeps the MVP shared_namespaced surface free of
         # the ephemeral module's own imports (and avoids a cycle if a
         # future ephemeral kind ever wants to call the dispatcher).
@@ -295,6 +369,16 @@ class ProvisioningRegistry:
     def get_ephemeral(self, kind: str) -> "EphemeralProvisioner | None":
         """Return the per_agent_ephemeral provisioner for ``kind`` or ``None``."""
         return self._ephemeral.get(kind)
+
+    def get_operator_supplied(self) -> OperatorSuppliedProvisioner:
+        """Return the (single) operator_supplied passthrough provisioner.
+
+        Strategy-keyed rather than kind-keyed: every kind with
+        ``strategy: operator_supplied`` routes through the same
+        instance, which simply returns the operator-authored connection
+        string template.
+        """
+        return self._operator_supplied
 
     def register(
         self, kind: str, provisioner: NamespaceProvisioner
@@ -397,12 +481,29 @@ async def provision_agent_namespace(
             )
             if url:
                 out[service.id] = url
+        elif service.strategy == "operator_supplied":
+            # Block 2 (Important 10) — operator-managed services no
+            # longer silently disappear. The provisioner is a passthrough
+            # over the manifest's connection_string_templates entry; the
+            # operator owns the service lifecycle (no provision call,
+            # no cleanup). A missing template raises KeyError loud and
+            # clear so the operator can fix the manifest.
+            template = manifest.connection_string_templates.get(
+                service.id, ""
+            )
+            url = await registry.get_operator_supplied().provision(
+                service,
+                connection_string_template=template,
+                agent_id=agent_id,
+                ticket_id=ticket_id,
+                epic_id=epic_id,
+            )
+            if url:
+                out[service.id] = url
         else:
-            # operator_supplied: nothing to do; the operator's existing
-            # service is reachable via whatever they configured.
             _logger.info(
                 "skip provisioning service=%s strategy=%s — "
-                "operator-managed",
+                "unknown strategy",
                 service.id,
                 service.strategy,
             )
@@ -473,4 +574,21 @@ async def cleanup_agent_namespace(
                     success,
                     exc_info=True,
                 )
-        # operator_supplied: nothing to clean up.
+        elif service.strategy == "operator_supplied":
+            # Operator owns lifecycle — cleanup is intentionally a no-op.
+            try:
+                await registry.get_operator_supplied().cleanup(
+                    service,
+                    agent_id=agent_id,
+                    ticket_id=ticket_id,
+                    success=success,
+                    epic_id=epic_id,
+                )
+            except Exception:
+                _logger.warning(
+                    "operator-supplied cleanup hook failed for "
+                    "service=%s success=%s",
+                    service.id,
+                    success,
+                    exc_info=True,
+                )

@@ -239,6 +239,7 @@ class Driver:
             StepKind.INVOKE_SA_INCREMENTAL.value: _handle_invoke_sa_incremental,
             StepKind.INVOKE_PLAN_FINALIZE.value: _handle_invoke_plan_finalize,
             StepKind.MATERIALIZE_TICKETS.value: _handle_materialize_tickets,
+            StepKind.INVOKE_COORDINATOR_CYCLE.value: _handle_invoke_coordinator_cycle,
             StepKind.MOCK_DEV_COMMIT.value: dev_handler,
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
         }
@@ -695,6 +696,21 @@ async def _handle_materialize_tickets(
     """Coordinator dispatch — materialize the bones-layer tickets."""
     coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
     await coord.materialize_ready_tickets()
+
+
+async def _handle_invoke_coordinator_cycle(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Run one ``Coordinator.dispatch_cycle`` against the build plan.
+
+    MVP-tier sim step: refreshes per-epic layer statuses from the live
+    ticket store, then materializes the next ready layer per the
+    plan's ``OrderingRule`` (default ``BONES_FIRST``). Bones scenarios
+    keep using ``materialize_tickets`` (one-shot bones layer); MVP
+    scenarios use this step to walk bones → mvp → final across cycles.
+    """
+    coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
+    await coord.dispatch_cycle(ctx.project_root)
 
 
 # Keywords-from-AC pattern. Mock dev produces a file containing every

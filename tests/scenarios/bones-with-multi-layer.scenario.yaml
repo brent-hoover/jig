@@ -1,0 +1,268 @@
+spec_version: 1
+id: bones-with-multi-layer
+description: |
+  Track F MVP follow-on — exercise the cycle-aware Coordinator across
+  two layers (bones + mvp) of a single epic. Validates:
+
+  - Cycle 1: Coordinator materializes the bones layer.
+  - Mock dev resolves the bones ticket.
+  - Cycle 2: Coordinator advances bones → done, then materializes mvp.
+  - Mock dev resolves the mvp ticket.
+  - Cycle 3: Coordinator advances mvp → done; nothing more to materialize.
+
+  This is the Track F MVP cycle-aware dispatcher's smallest end-to-end
+  exercise: the same scenario shape as bones-with-planner, but with a
+  build plan that has both bones AND mvp layers across one epic and
+  the operator hand-write replaced by ``invoke_coordinator_cycle``
+  steps that drive multi-layer dispatch.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-multi-layer
+      pitch: a tracer-bullet project that exercises Coordinator multi-layer dispatch
+      problem: |
+        We need a single happy-path scenario that walks the cycle-aware
+        Coordinator across two layers (bones + mvp) end-to-end so we
+        can prove the multi-layer dispatcher composes with the rest of
+        the v2 spine in mock mode.
+      audience: |
+        Internal jig developers validating that Track F MVP cycle
+        dispatch holds together.
+      non_goals:
+        - id: no-edge-cases
+          text: This scenario does not cover edge cases or failure modes
+          rationale: bones+MVP tracer; later scenarios cover those
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-multi-layer
+
+  # ---- L1 / L2 (operator hand-writes; bones skips the discovery agents) ---
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data into the local store
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: shopify-connect
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite: pull catalog data from Shopify and
+        normalize into our products collection.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store; we pull the catalog
+            and normalize into the products collection.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake from settings
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+            - id: pull-catalog
+              description: After OAuth completes we pull the catalog
+              acceptance_criteria:
+                - Catalog rows appear in the products collection
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  # ---- SA (operator hand-writes architecture + module contract) -----
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Pulls catalog data from Shopify and normalizes into the
+              products collection.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Bones+MVP needs a module that owns the products
+                collection so the contract-compliance reviewer has
+                something to check the dev's diff against.
+              simplest_solution: |
+                One module that handles Shopify ingest and writes to a
+                single owned collection.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: catalog-ingest
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access:
+              - self
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Shopify catalog data flows into the products collection
+              - catalog-ingested event published with normalized payload
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/modules/catalog-ingest/contracts.yaml
+        contains: shopify-connect
+
+  # ---- PM (operator hand-writes a multi-layer build plan) -----------
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-multi-layer
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets:
+                  - t-shopify-oauth
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the cycle-aware Coordinator end-to-end across
+                two layers: a bones tracer ticket then an MVP ticket
+                that depends on the bones layer being done.
+              simplest_solution: |
+                One epic, one bones ticket, one mvp ticket — exercise
+                two cycles of dispatch.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/build-plan.yaml
+        contains: t-shopify-oauth
+
+  # ---- Cycle 1: materialize bones ----------------------------------
+  - kind: invoke_coordinator_cycle
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Cycle 2: bones → done; materialize mvp ----------------------
+  - kind: invoke_coordinator_cycle
+    assertions:
+      - kind: ticket_status
+        ticket_id: t-shopify-oauth
+        status: open
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: t-shopify-oauth
+
+  - kind: run_reviewer
+    params:
+      ticket_id: t-shopify-oauth
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Cycle 3: mvp → done; nothing more to materialize ------------
+  - kind: invoke_coordinator_cycle
+
+# ---- final assertions: spine cohesion + analytics + cost ---------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: ticket_status
+    ticket_id: t-shopify-oauth
+    status: resolved
+  - kind: analytics_event_emitted
+    event_kind: ticket_state_changed
+    field_constraints:
+      ticket_id: tb-catalog-ingest
+      to_state: resolved
+  - kind: analytics_event_emitted
+    event_kind: ticket_state_changed
+    field_constraints:
+      ticket_id: t-shopify-oauth
+      to_state: resolved
+  - kind: cost_under_budget
+    usd: 1.0

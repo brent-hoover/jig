@@ -80,6 +80,13 @@ class StepKind(str, Enum):
     # PM bones — Coordinator dispatch (no Planner agent yet).
     MATERIALIZE_TICKETS = "materialize_tickets"
 
+    # PM MVP — one cycle of the cycle-aware Coordinator. Refreshes
+    # layer statuses from the live ticket store, then materializes the
+    # next ready layer per the plan's ``OrderingRule``. Bones scenarios
+    # use ``materialize_tickets`` (one-shot bones layer); MVP scenarios
+    # exercise multi-layer dispatch with this step.
+    INVOKE_COORDINATOR_CYCLE = "invoke_coordinator_cycle"
+
     # Dev — mocked in mock mode (writes a small commit satisfying the
     # bones reviewer's checks); spawns a real agent in real mode.
     MOCK_DEV_COMMIT = "mock_dev_commit"

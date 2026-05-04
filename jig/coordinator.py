@@ -248,7 +248,7 @@ class Coordinator:
 
     # ---- advance_layer_status ------------------------------------------
 
-    async def advance_layer_status(self, plan_path: Path) -> bool:
+    async def advance_layer_status(self, project_root: Path) -> bool:
         """Recompute every epic-layer's status from the ticket store.
 
         Rules per design §"Iteration":
@@ -260,7 +260,7 @@ class Coordinator:
         Returns True iff any status was changed (and the plan was rewritten).
         """
         try:
-            plan = load_build_plan(plan_path)
+            plan = load_build_plan(project_root)
         except FileNotFoundError:
             return False
 
@@ -277,7 +277,7 @@ class Coordinator:
 
         if any_changed:
             plan.last_revised = datetime.now(timezone.utc)
-            write_build_plan(plan_path, plan)
+            write_build_plan(project_root, plan)
         return any_changed
 
     async def _compute_layer_status(
@@ -373,7 +373,7 @@ class Coordinator:
 
     # ---- dispatch_cycle ------------------------------------------------
 
-    async def dispatch_cycle(self, plan_path: Path) -> CycleResult:
+    async def dispatch_cycle(self, project_root: Path) -> CycleResult:
         """One cycle: refresh layer statuses, materialize next layer.
 
         The Coordinator's mainline tactical operation. Steps:
@@ -389,7 +389,7 @@ class Coordinator:
         result = CycleResult()
 
         try:
-            plan = load_build_plan(plan_path)
+            plan = load_build_plan(project_root)
         except FileNotFoundError:
             return result
 
@@ -403,8 +403,8 @@ class Coordinator:
                     self._epic_layer(epic, layer_enum).status
                 )
 
-        if await self.advance_layer_status(plan_path):
-            plan = load_build_plan(plan_path)
+        if await self.advance_layer_status(project_root):
+            plan = load_build_plan(project_root)
             for epic in plan.epics:
                 for layer_enum in (
                     LayerName.BONES, LayerName.MVP, LayerName.FINAL,
@@ -445,7 +445,7 @@ class Coordinator:
         """Return the current deferred queue (chronological)."""
         return _load_deferred_queue(self._project_root)
 
-    async def triage_deferred(self, plan_path: Path) -> list[TriageDecision]:
+    async def triage_deferred(self, project_root: Path) -> list[TriageDecision]:
         """Mechanical triage pass over the deferred queue.
 
         For each entry, recommends one of:
@@ -457,10 +457,10 @@ class Coordinator:
         Real LLM-based triage (per design §"DEFERRED queue triage")
         lands in Final; this is the bones+MVP mechanical baseline.
 
-        ``plan_path`` is accepted (not used by the mechanical heuristic)
+        ``project_root`` is accepted (not used by the mechanical heuristic)
         so the call signature stays stable for the Final upgrade.
         """
-        del plan_path  # accepted for forward-compat; unused mechanically
+        del project_root  # accepted for forward-compat; unused mechanically
         decisions: list[TriageDecision] = []
         for entry in self.list_deferred():
             t = await self._tickets.get(entry.ticket_id)

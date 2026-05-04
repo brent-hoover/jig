@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from jig.coordinator import Coordinator
-from jig.spec_loader import build_plan_path
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
 
@@ -121,7 +120,7 @@ async def test_triage_recommends_rematerialize_when_resolved(
     coord = Coordinator(tickets=store, project_root=tmp_path)
     await coord.defer_ticket("tb-cat", "notable")
 
-    decisions = await coord.triage_deferred(build_plan_path(tmp_path))
+    decisions = await coord.triage_deferred(tmp_path)
 
     assert len(decisions) == 1
     assert decisions[0].recommended_action == "rematerialize"
@@ -134,7 +133,7 @@ async def test_triage_recommends_close_when_ticket_missing(
     coord = Coordinator(tickets=store, project_root=tmp_path)
     await coord.defer_ticket("ghost", "deferred but no ticket")
 
-    decisions = await coord.triage_deferred(build_plan_path(tmp_path))
+    decisions = await coord.triage_deferred(tmp_path)
     assert decisions[0].recommended_action == "close"
 
 
@@ -146,7 +145,7 @@ async def test_triage_recommends_leave_deferred_for_in_flight(
     coord = Coordinator(tickets=store, project_root=tmp_path)
     await coord.defer_ticket("tb-cat", "notable")
 
-    decisions = await coord.triage_deferred(build_plan_path(tmp_path))
+    decisions = await coord.triage_deferred(tmp_path)
     assert decisions[0].recommended_action == "leave_deferred"
 
 
@@ -155,7 +154,7 @@ async def test_triage_returns_empty_for_empty_queue(
     tmp_path: Path, store: TicketStore
 ):
     coord = Coordinator(tickets=store, project_root=tmp_path)
-    assert await coord.triage_deferred(build_plan_path(tmp_path)) == []
+    assert await coord.triage_deferred(tmp_path) == []
 
 
 # ---- Ticket.deferred_at field ------------------------------------------

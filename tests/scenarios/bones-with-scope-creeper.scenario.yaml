@@ -1,54 +1,60 @@
 spec_version: 1
-id: bones-with-policy-driven-methodical
+id: bones-with-scope-creeper
 description: |
-  Same shape as ``bones-with-planner`` but ``policy_driven: true`` so
-  the driver routes per-step responses through ``jig.sim.policy.apply_policy``
-  rather than reading scripted text. Per ``docs/synthetic-operator/design.md``
-  §"Scripted vs policy-driven turns", policy-driven turns are
-  reproducible given a scenario seed (Final scope is template-based;
-  LLM-driven response generation is v2.x).
+  Scope-creeper persona walk through the bones spine. Per
+  ``docs/synthetic-operator/design.md`` §"Persona library", the
+  scope-creeper persona pushes for additional features mid-stream
+  and tries to expand non-goals into scope.
 
-  Assertions verify the spine resolves end-to-end identically to the
-  scripted methodical run AND that the report carries one
-  ``PolicyTurn`` per step (the test reads ``report.policy_turns``).
+  For Final scope, the scenario embodies that profile via the
+  payloads it sends — extra non-goals at L0 (the "additions" the
+  scope-creeper would push), but the L2 suite allowlist is the
+  source of truth for capability scope. The scenario verifies the
+  spine resolves end-to-end with the L2-allowed capability set
+  intact (the L3 PO's allowlist validator would reject any extra
+  capability beyond what L2 sanctioned — that branch is exercised
+  in test_sim_bones_with_scope_creeper_scenario.py's allowlist
+  test).
 
-persona: methodical
+persona: scope-creeper
 estimated_cost_usd_max: 1.0
-policy_driven: true
-scenario_seed: 1729
 coverage_tags:
   - po-l0
   - po-l3
   - sa-bones
-  - pm-planner
   - pm-coordinator-bones
   - dev-mock
   - reviewer-contract-compliance
-  - policy-driven-turns
-  - tui-driver-mode
-  - coverage-threshold
+  - persona-scope-creeper
 
 steps:
+  # ---- L0 PO: scope-creeper introduces extra non-goals (which is in-scope
+  # behavior — the persona "negotiates" non-goals). The non-goals do not
+  # affect the build plan because they're declared as non-goals.
   - kind: invoke_l0_finalize
     params:
-      name: bones-with-policy-driven-methodical
-      pitch: a tracer-bullet project that exercises the policy-driven turn machinery
+      name: bones-with-scope-creeper
+      pitch: tracer bullet that exercises the scope-creeper persona
       problem: |
-        Validate the policy-driven turn machinery against the methodical
-        persona — same payload as the scripted run, just routed through
-        the policy module so the report carries deterministic
-        PolicyTurn entries.
+        Validate the spine while the scope-creeper persona attempts
+        to expand scope. The L2 suite allowlist holds the line.
       audience: |
-        Internal jig developers validating the policy-driven turn path.
+        Internal jig developers validating the scope-creeper persona path.
       non_goals:
-        - id: no-llm
-          text: This scenario does not exercise LLM-driven response generation
-          rationale: Final scope is template-based; LLM is v2.x
+        - id: no-email-notifications
+          text: This scenario does not include email notifications
+          rationale: scope-creeper proposed; deferred per L0 alignment
+        - id: no-sms
+          text: This scenario does not include SMS
+          rationale: scope-creeper proposed; deferred per L0 alignment
+        - id: no-csv-export
+          text: This scenario does not include CSV export
+          rationale: scope-creeper proposed; deferred per L0 alignment
       author: po-l0
     assertions:
       - kind: artifact_written
         path: .jig/spec/project.md
-        contains: bones-with-policy-driven-methodical
+        contains: bones-with-scope-creeper
 
   - kind: write_suites_yaml
     params:
@@ -66,11 +72,16 @@ steps:
         path: .jig/spec/suites.yaml
         contains: shopify-connect
 
+  # ---- L3 PO: the scope-creeper's "extras" stay in non_goals (the L3
+  # validator would reject them as capabilities). The actual capability
+  # list matches the L2 allowlist exactly.
   - kind: invoke_l3_finalize
     params:
       suite_id: catalog
       intro: |
-        Catalog ingestion suite.
+        Catalog ingestion suite. The scope-creeper persona's extras
+        (email, SMS, CSV export) stay in non_goals — the L2 allowlist
+        is the source of truth.
       capabilities:
         - id: shopify-connect
           title: Connect Shopify store via OAuth
@@ -82,7 +93,10 @@ steps:
               description: After OAuth completes we pull the catalog
               acceptance_criteria:
                 - Catalog rows appear in the products collection
-      non_goals: []
+      non_goals:
+        - id: no-email-notifications
+          text: This scenario does not include email notifications
+          rationale: scope-creeper proposed; deferred
       author: po-l3
     assertions:
       - kind: artifact_written
@@ -153,11 +167,11 @@ steps:
         path: .jig/spec/modules/catalog-ingest/contracts.yaml
         contains: shopify-connect
 
-  - kind: invoke_plan_finalize
+  - kind: write_build_plan
     params:
       plan:
         spec_version: 1
-        project: bones-with-policy-driven-methodical
+        project: bones-with-scope-creeper
         revision: 1
         ordering_rule: bones_first
         epics:
@@ -180,9 +194,9 @@ steps:
             risks_addressed: []
             intent:
               problem: |
-                Validate the policy-driven turn machinery.
+                Bones spine for the scope-creeper scenario.
               simplest_solution: |
-                One epic, one bones ticket.
+                One ticket — extras stay deferred.
               complications_considered:
                 scale: null
                 concurrency: null
@@ -190,7 +204,6 @@ steps:
                 cross_cutting: null
         stalled: []
         open_questions: []
-      author: planner-pm
     assertions:
       - kind: artifact_written
         path: .jig/plan/build-plan.yaml
@@ -224,3 +237,7 @@ final_assertions:
       to_state: resolved
   - kind: cost_under_budget
     usd: 1.0
+  # Scope held: project.md must record the deferred extras as non-goals.
+  - kind: artifact_written
+    path: .jig/spec/project.md
+    contains: no-email-notifications

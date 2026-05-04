@@ -20,6 +20,7 @@ coverage_tags:
   - dev-mock
   - reviewer-contract-compliance
   - severity-disposition
+  - comment-self-check
 
 steps:
   # ---- L0 PO --------------------------------------------------------

@@ -1,54 +1,47 @@
+# Regression scenario for bug: example-stub
+# Description: example regression scenario seeded by Track H Final to claim the
+#   regression-scenarios coverage tag and demonstrate the convention. Real
+#   regression scenarios scaffolded via ``jig sim regression new`` go alongside.
+# Per docs/synthetic-operator/design.md §"Failure-mode regression scenarios":
+#   every bug lands with one regression scenario that would have caught it.
+# This particular file is intentionally a near-trivial scenario — the
+# walking-skeleton spine — so the regression-scenarios coverage tag has at
+# least one claimant in the in-tree library.
+
 spec_version: 1
-id: bones-with-policy-driven-methodical
+id: regression-example-stub
 description: |
-  Same shape as ``bones-with-planner`` but ``policy_driven: true`` so
-  the driver routes per-step responses through ``jig.sim.policy.apply_policy``
-  rather than reading scripted text. Per ``docs/synthetic-operator/design.md``
-  §"Scripted vs policy-driven turns", policy-driven turns are
-  reproducible given a scenario seed (Final scope is template-based;
-  LLM-driven response generation is v2.x).
-
-  Assertions verify the spine resolves end-to-end identically to the
-  scripted methodical run AND that the report carries one
-  ``PolicyTurn`` per step (the test reads ``report.policy_turns``).
-
+  Stub regression scenario that exercises the walking-skeleton spine. Seeds
+  the regression-scenarios coverage tag so the discipline is wired from
+  Track H Final forward; real bug-driven regressions scaffold via
+  ``jig sim regression new --bug-id <id>``.
 persona: methodical
 estimated_cost_usd_max: 1.0
-policy_driven: true
-scenario_seed: 1729
+tier: smoke
 coverage_tags:
+  - regression-scenarios
   - po-l0
   - po-l3
   - sa-bones
-  - pm-planner
   - pm-coordinator-bones
   - dev-mock
   - reviewer-contract-compliance
-  - policy-driven-turns
-  - tui-driver-mode
-  - coverage-threshold
 
 steps:
   - kind: invoke_l0_finalize
     params:
-      name: bones-with-policy-driven-methodical
-      pitch: a tracer-bullet project that exercises the policy-driven turn machinery
+      name: regression-example-stub
+      pitch: stub regression scenario for the regression-scenarios coverage tag
       problem: |
-        Validate the policy-driven turn machinery against the methodical
-        persona — same payload as the scripted run, just routed through
-        the policy module so the report carries deterministic
-        PolicyTurn entries.
+        Demonstrate the regression-scenarios discipline.
       audience: |
-        Internal jig developers validating the policy-driven turn path.
-      non_goals:
-        - id: no-llm
-          text: This scenario does not exercise LLM-driven response generation
-          rationale: Final scope is template-based; LLM is v2.x
+        Internal jig developers.
+      non_goals: []
       author: po-l0
     assertions:
       - kind: artifact_written
         path: .jig/spec/project.md
-        contains: bones-with-policy-driven-methodical
+        contains: regression-example-stub
 
   - kind: write_suites_yaml
     params:
@@ -57,26 +50,20 @@ steps:
         suites:
           - id: catalog
             title: Catalog
-            summary: ingestion of catalog data into the local store
+            summary: ingest
             capabilities:
               - shopify-connect
         crosscutting_non_goals: []
-    assertions:
-      - kind: artifact_written
-        path: .jig/spec/suites.yaml
-        contains: shopify-connect
 
   - kind: invoke_l3_finalize
     params:
       suite_id: catalog
-      intro: |
-        Catalog ingestion suite.
+      intro: stub regression L3
       capabilities:
         - id: shopify-connect
-          title: Connect Shopify store via OAuth
+          title: Connect Shopify
           state: planned
-          summary: |
-            Operator authorizes their Shopify store; we pull the catalog.
+          summary: pull catalog
           behaviors:
             - id: pull-catalog
               description: After OAuth completes we pull the catalog
@@ -84,10 +71,6 @@ steps:
                 - Catalog rows appear in the products collection
       non_goals: []
       author: po-l3
-    assertions:
-      - kind: artifact_written
-        path: .jig/spec/suites/catalog/brief.md
-        contains: shopify-connect
 
   - kind: write_architecture
     params:
@@ -96,8 +79,7 @@ steps:
         modules:
           - id: catalog-ingest
             title: Catalog ingest
-            summary: |
-              Pull catalog data from Shopify.
+            summary: pull catalog
             implements_capabilities:
               - shopify-connect
             owns:
@@ -105,10 +87,8 @@ steps:
             tier_hint: standard
             requires_tracer_bullet: true
             intent:
-              problem: |
-                Need a module that owns the products collection.
-              simplest_solution: |
-                One module that handles Shopify ingest.
+              problem: stub
+              simplest_solution: stub
               complications_considered:
                 scale: null
                 concurrency: null
@@ -120,10 +100,6 @@ steps:
         risks: []
         open_questions: []
         change_log: []
-    assertions:
-      - kind: artifact_written
-        path: .jig/spec/architecture.yaml
-        contains: catalog-ingest
 
   - kind: write_module_contracts
     params:
@@ -148,16 +124,12 @@ steps:
         data_contracts: []
         open_questions: []
         change_log: []
-    assertions:
-      - kind: artifact_written
-        path: .jig/spec/modules/catalog-ingest/contracts.yaml
-        contains: shopify-connect
 
-  - kind: invoke_plan_finalize
+  - kind: write_build_plan
     params:
       plan:
         spec_version: 1
-        project: bones-with-policy-driven-methodical
+        project: regression-example-stub
         revision: 1
         ordering_rule: bones_first
         epics:
@@ -179,10 +151,8 @@ steps:
                 tickets: []
             risks_addressed: []
             intent:
-              problem: |
-                Validate the policy-driven turn machinery.
-              simplest_solution: |
-                One epic, one bones ticket.
+              problem: stub
+              simplest_solution: stub
               complications_considered:
                 scale: null
                 concurrency: null
@@ -190,17 +160,8 @@ steps:
                 cross_cutting: null
         stalled: []
         open_questions: []
-      author: planner-pm
-    assertions:
-      - kind: artifact_written
-        path: .jig/plan/build-plan.yaml
-        contains: tb-catalog-ingest
 
   - kind: materialize_tickets
-    assertions:
-      - kind: ticket_status
-        ticket_id: tb-catalog-ingest
-        status: open
 
   - kind: mock_dev_commit
     params:
@@ -209,18 +170,8 @@ steps:
   - kind: run_reviewer
     params:
       ticket_id: tb-catalog-ingest
-    assertions:
-      - kind: reviewer_returned_no_critical
-        reviewer_id: contract-compliance
 
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
     status: resolved
-  - kind: analytics_event_emitted
-    event_kind: ticket_state_changed
-    field_constraints:
-      ticket_id: tb-catalog-ingest
-      to_state: resolved
-  - kind: cost_under_budget
-    usd: 1.0

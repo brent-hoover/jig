@@ -1,54 +1,50 @@
 spec_version: 1
-id: bones-with-policy-driven-methodical
+id: bones-with-hostile
 description: |
-  Same shape as ``bones-with-planner`` but ``policy_driven: true`` so
-  the driver routes per-step responses through ``jig.sim.policy.apply_policy``
-  rather than reading scripted text. Per ``docs/synthetic-operator/design.md``
-  §"Scripted vs policy-driven turns", policy-driven turns are
-  reproducible given a scenario seed (Final scope is template-based;
-  LLM-driven response generation is v2.x).
+  Hostile persona walk through the bones spine. Per
+  ``docs/synthetic-operator/design.md`` §"Persona library", the
+  hostile persona provides ambiguous/contradictory inputs, refuses
+  gates initially, and asks tangent questions.
 
-  Assertions verify the spine resolves end-to-end identically to the
-  scripted methodical run AND that the report carries one
-  ``PolicyTurn`` per step (the test reads ``report.policy_turns``).
+  For Final scope (scripted personas; LLM-driven persona response
+  generation is v2.x), the scenario embodies the hostile profile via
+  the payloads it sends — short / contradictory L0 prose ("validate
+  the spine. or don't. whatever."), terse L3 capability description,
+  no extra non-goals (the hostile persona refuses to elaborate). The
+  scenario verifies the agent recovers cleanly from the
+  hostile-flavored inputs and the spine still resolves.
 
-persona: methodical
+  The full hostile-as-loop assertion (the agent re-prompts after a
+  refusal until the operator accepts a gate) requires LLM-driven
+  turns and lands in v2.x.
+
+persona: hostile
 estimated_cost_usd_max: 1.0
-policy_driven: true
-scenario_seed: 1729
 coverage_tags:
   - po-l0
   - po-l3
   - sa-bones
-  - pm-planner
   - pm-coordinator-bones
   - dev-mock
   - reviewer-contract-compliance
-  - policy-driven-turns
-  - tui-driver-mode
-  - coverage-threshold
+  - persona-hostile
 
 steps:
   - kind: invoke_l0_finalize
     params:
-      name: bones-with-policy-driven-methodical
-      pitch: a tracer-bullet project that exercises the policy-driven turn machinery
+      name: bones-with-hostile
+      pitch: validate the spine. or don't. whatever.
       problem: |
-        Validate the policy-driven turn machinery against the methodical
-        persona — same payload as the scripted run, just routed through
-        the policy module so the report carries deterministic
-        PolicyTurn entries.
+        Operator is uncooperative. Validate the agent recovers from
+        hostile inputs without crashing.
       audience: |
-        Internal jig developers validating the policy-driven turn path.
-      non_goals:
-        - id: no-llm
-          text: This scenario does not exercise LLM-driven response generation
-          rationale: Final scope is template-based; LLM is v2.x
+        Internal jig developers validating the hostile persona path.
+      non_goals: []
       author: po-l0
     assertions:
       - kind: artifact_written
         path: .jig/spec/project.md
-        contains: bones-with-policy-driven-methodical
+        contains: bones-with-hostile
 
   - kind: write_suites_yaml
     params:
@@ -57,7 +53,7 @@ steps:
         suites:
           - id: catalog
             title: Catalog
-            summary: ingestion of catalog data into the local store
+            summary: ingestion of catalog data
             capabilities:
               - shopify-connect
         crosscutting_non_goals: []
@@ -70,13 +66,13 @@ steps:
     params:
       suite_id: catalog
       intro: |
-        Catalog ingestion suite.
+        whatever. catalog from shopify. fine.
       capabilities:
         - id: shopify-connect
-          title: Connect Shopify store via OAuth
+          title: Connect Shopify store
           state: planned
           summary: |
-            Operator authorizes their Shopify store; we pull the catalog.
+            pull the catalog. that's it.
           behaviors:
             - id: pull-catalog
               description: After OAuth completes we pull the catalog
@@ -106,9 +102,9 @@ steps:
             requires_tracer_bullet: true
             intent:
               problem: |
-                Need a module that owns the products collection.
+                Bones spine.
               simplest_solution: |
-                One module that handles Shopify ingest.
+                One module.
               complications_considered:
                 scale: null
                 concurrency: null
@@ -153,11 +149,11 @@ steps:
         path: .jig/spec/modules/catalog-ingest/contracts.yaml
         contains: shopify-connect
 
-  - kind: invoke_plan_finalize
+  - kind: write_build_plan
     params:
       plan:
         spec_version: 1
-        project: bones-with-policy-driven-methodical
+        project: bones-with-hostile
         revision: 1
         ordering_rule: bones_first
         epics:
@@ -180,9 +176,9 @@ steps:
             risks_addressed: []
             intent:
               problem: |
-                Validate the policy-driven turn machinery.
+                Bones spine.
               simplest_solution: |
-                One epic, one bones ticket.
+                One ticket.
               complications_considered:
                 scale: null
                 concurrency: null
@@ -190,7 +186,6 @@ steps:
                 cross_cutting: null
         stalled: []
         open_questions: []
-      author: planner-pm
     assertions:
       - kind: artifact_written
         path: .jig/plan/build-plan.yaml
@@ -214,6 +209,8 @@ steps:
         reviewer_id: contract-compliance
 
 final_assertions:
+  # Recovery from hostile input: the spine resolves cleanly despite
+  # the persona's contradictory + terse style.
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
     status: resolved

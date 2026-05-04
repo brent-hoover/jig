@@ -63,11 +63,11 @@ SPEC_COMPLIANCE_REVIEWER_ID = "spec-compliance"
 # non-empty visual_references). Tier: senior per design; MVP ships the
 # basic mechanical version (no vision), Final adds screenshot diff.
 VISUAL_COMPLIANCE_REVIEWER_ID = "visual-compliance"
-# Track D Final — accessibility (WCAG AA mechanical). Default-on for
-# Final-layer tickets that carry a non-empty visual_references list.
-# Mechanical: no LLM. Responsive-design lands alongside (separate
-# constant + dispatch branch in the same Track D Final scope).
+# Track D Final — accessibility (WCAG AA mechanical) + responsive-
+# design enforcement. Both default-on for Final-layer tickets that
+# carry a non-empty visual_references list. Mechanical: no LLM.
 ACCESSIBILITY_REVIEWER_ID = "accessibility"
+RESPONSIVE_REVIEWER_ID = "responsive-design"
 
 # Track G Final — specialty reviewers auto-selected by ticket
 # characteristics (labels, dev_tier, module tier_hint, AC text).
@@ -115,10 +115,11 @@ _MECHANICAL_REVIEWER_IDS: list[str] = [
     # itself no-ops when the ticket has no visual_references, so non-UI
     # tickets pay no cost.
     VISUAL_COMPLIANCE_REVIEWER_ID,
-    # Track D Final — accessibility reviewer is mechanical too, so it
-    # rides per-commit alongside visual-compliance at no extra LLM
-    # cost. No-ops on non-UI tickets.
+    # Track D Final — accessibility + responsive reviewers are
+    # mechanical too, so they ride per-commit alongside visual-
+    # compliance at no extra LLM cost. No-ops on non-UI tickets.
     ACCESSIBILITY_REVIEWER_ID,
+    RESPONSIVE_REVIEWER_ID,
 ]
 
 # Bones layer default-on set. Cross-cutting policies are universal rules
@@ -201,15 +202,21 @@ def select_reviewers_for_ticket(
     ):
         selected.append(VISUAL_COMPLIANCE_REVIEWER_ID)
 
-    # Track D Final — accessibility reviewer rides the same gating
-    # signal as visual-compliance (non-empty visual_references).
-    # Mechanical, bounded cost. No-ops when wireframes are missing —
-    # visual-compliance already emits the critical there.
+    # Track D Final — accessibility + responsive reviewers ride the
+    # same gating signal as visual-compliance (non-empty
+    # visual_references). Mechanical, bounded cost. Both no-op when
+    # wireframes are missing — visual-compliance already emits the
+    # critical there.
     if (
         ticket.visual_references
         and ACCESSIBILITY_REVIEWER_ID not in selected
     ):
         selected.append(ACCESSIBILITY_REVIEWER_ID)
+    if (
+        ticket.visual_references
+        and RESPONSIVE_REVIEWER_ID not in selected
+    ):
+        selected.append(RESPONSIVE_REVIEWER_ID)
 
     # Specialty reviewer auto-selection (Track G Final). Each helper
     # returns True iff the reviewer should fire; we append in
@@ -469,6 +476,17 @@ async def dispatch_for_cadence(
         )
         out[ACCESSIBILITY_REVIEWER_ID] = _tag_cadence(comments, cadence)
 
+    if RESPONSIVE_REVIEWER_ID in reviewer_ids:
+        from jig.reviewers.responsive import ResponsiveDesignReviewer
+
+        comments = await ResponsiveDesignReviewer().review(
+            ticket,
+            project_root,
+            worktree_path=worktree_path,
+            base_ref=base_ref,
+        )
+        out[RESPONSIVE_REVIEWER_ID] = _tag_cadence(comments, cadence)
+
     if INTENT_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
         # Intent reviewer runs against authored artifacts (Modules,
         # Contracts, etc.), not against a worktree diff. Final
@@ -515,6 +533,7 @@ __all__ = [
     "CROSS_CUTTING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
     "PERFORMANCE_REVIEWER_ID",
+    "RESPONSIVE_REVIEWER_ID",
     "SECURITY_REVIEWER_ID",
     "SPEC_COMPLIANCE_REVIEWER_ID",
     "VISUAL_COMPLIANCE_REVIEWER_ID",

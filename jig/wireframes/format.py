@@ -50,6 +50,13 @@ class WireframeMeta(BaseModel):
     ``journey_refs`` accept empty lists so the agent can author a
     skeleton wireframe and fill in the references on a follow-on call —
     the linker treats empties as a soft warning, not a hard reject.
+
+    Track D Final adds ``breakpoints`` so the responsive-design
+    reviewer knows which viewports the wireframe targets (typically
+    some subset of mobile / tablet / desktop). Default empty for
+    backwards compatibility with MVP-era wireframes; the responsive
+    reviewer flags an empty list with an IMPORTANT comment so
+    operators can backfill.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -59,6 +66,16 @@ class WireframeMeta(BaseModel):
     persona_targets: list[str] = Field(default_factory=list)
     journey_refs: list[str] = Field(default_factory=list)
     notes: str | None = None
+    breakpoints: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Target breakpoints the wireframe is designed for "
+            "(typically a subset of 'mobile' / 'tablet' / 'desktop'). "
+            "Empty list is permitted so existing wireframes load "
+            "without re-authoring; the responsive-design reviewer "
+            "flags empty lists as a violation."
+        ),
+    )
 
 
 def extract_meta(html: str) -> WireframeMeta | None:

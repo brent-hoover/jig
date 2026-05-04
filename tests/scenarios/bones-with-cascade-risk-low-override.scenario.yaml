@@ -24,6 +24,7 @@ coverage_tags:
   - dev-mock
   - reviewer-contract-compliance
   - cascade-risk-low-override
+  - bones-first-override
 
 steps:
   - kind: invoke_l0_finalize

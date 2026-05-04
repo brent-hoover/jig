@@ -1,0 +1,199 @@
+spec_version: 1
+id: bones-with-tier-promotion
+description: |
+  Track F Final mid-work tier promotion. Per
+  ``docs/pm-workflow/design.md`` §"Auto-escalation thresholds":
+  when a ticket's auto-escalation signals trip (3+ failed per-commit
+  checks on the same contract URI), the orchestrator promotes the
+  ticket's dev_tier so the next dispatch picks up at the higher rung.
+
+  This scenario walks the methodical persona through a one-ticket
+  bones plan, then exercises the ``invoke_tier_promotion`` step which
+  injects the failed-check events + drives ``promote_ticket_tier``
+  against the live ticket store. Final assertions verify the
+  AutoEscalationTriggered event fired with the right tier delta.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - tier-promotion
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-tier-promotion
+      pitch: tier promotion validation
+      problem: |
+        Verify the tier-promotion lifecycle plumbed end-to-end.
+      audience: |
+        Internal jig devs validating Track F Final.
+      non_goals: []
+      author: po-l0
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog ingestion
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify
+          state: planned
+          summary: |
+            OAuth + catalog pull.
+          behaviors:
+            - id: begin-oauth
+              description: OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Single-module catalog ingest for tier-promotion test.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: tier promotion validation
+              simplest_solution: standard tier baseline
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog rows appear in the products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-tier-promotion
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: tier promotion test
+              simplest_solution: one ticket, one module
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  # Trigger the promotion path: inject 3 PerCommitCheckFailed events
+  # on the same contract URI, then run promote_ticket_tier. The ticket
+  # should ratchet from standard → senior.
+  - kind: invoke_tier_promotion
+    params:
+      ticket_id: tb-catalog-ingest
+      failures: 3
+
+  # Resolve the ticket through the standard bones spine after the
+  # promotion (so cost stays bounded and the cohesion assertion runs).
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+# ---- final assertions ----------------------------------------------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: analytics_event_emitted
+    event_kind: auto_escalation_triggered
+    field_constraints:
+      ticket_id: tb-catalog-ingest
+      from_tier: standard
+      to_tier: senior
+      trip_signal: repeated_same_failure
+  - kind: cost_under_budget
+    usd: 1.0

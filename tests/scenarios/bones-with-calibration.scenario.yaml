@@ -1,0 +1,228 @@
+spec_version: 1
+id: bones-with-calibration
+description: |
+  Track F Final estimation calibration loop. Per
+  ``docs/pm-workflow/design.md`` §"Estimation calibration": once the
+  project has run a handful of tickets, observed cycles feed back
+  into Planner PM's estimation prompts via per-size envelopes.
+
+  This scenario seeds five S-size successful samples (one per
+  invoke_calibration_record step) — enough to cross the
+  MIN_SAMPLES_FOR_CALIBRATION threshold and produce a calibrated
+  envelope. The Coordinator's bones-spine then dispatches one ticket
+  through the standard reviewer pipeline. Final assertions verify the
+  calibration store landed at .jig/plan/calibration.jsonl.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - estimation-calibration
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-calibration
+      pitch: estimation calibration validation
+      problem: |
+        Verify the calibration loop's persistence + envelope crossover.
+      audience: |
+        Internal jig devs validating Track F Final.
+      non_goals: []
+      author: po-l0
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog ingestion
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify
+          state: planned
+          summary: |
+            OAuth + catalog pull.
+          behaviors:
+            - id: begin-oauth
+              description: OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Single-module catalog ingest for calibration test.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: calibration validation
+              simplest_solution: synthetic samples + bones spine
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog rows appear in the products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-calibration
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: calibration test
+              simplest_solution: synthetic + bones
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  # Seed five synthetic S-size samples — crosses the calibration min
+  # so current_envelopes returns a calibrated S envelope.
+  - kind: invoke_calibration_record
+    params:
+      ticket_id: cal-warm-1
+      size: s
+      observed_turns: 8
+      observed_cost_usd: 0.30
+      observed_duration_ms: 100000
+      completion_status: success
+  - kind: invoke_calibration_record
+    params:
+      ticket_id: cal-warm-2
+      size: s
+      observed_turns: 9
+      observed_cost_usd: 0.35
+      observed_duration_ms: 110000
+      completion_status: success
+  - kind: invoke_calibration_record
+    params:
+      ticket_id: cal-warm-3
+      size: s
+      observed_turns: 10
+      observed_cost_usd: 0.40
+      observed_duration_ms: 120000
+      completion_status: success
+  - kind: invoke_calibration_record
+    params:
+      ticket_id: cal-warm-4
+      size: s
+      observed_turns: 11
+      observed_cost_usd: 0.45
+      observed_duration_ms: 130000
+      completion_status: success
+  - kind: invoke_calibration_record
+    params:
+      ticket_id: cal-warm-5
+      size: s
+      observed_turns: 12
+      observed_cost_usd: 0.50
+      observed_duration_ms: 140000
+      completion_status: success
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+# ---- final assertions ----------------------------------------------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: artifact_written
+    path: .jig/plan/calibration.jsonl
+    contains: cal-warm-5
+  - kind: cost_under_budget
+    usd: 1.0

@@ -113,6 +113,13 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "coverage-threshold",
     "regression-scenarios",
     "tui-driver-mode",
+    # Track F Final — mid-work tier promotion mechanics, estimation
+    # calibration loop, manual bones-first override + audit, full
+    # cycle view data model.
+    "tier-promotion",
+    "estimation-calibration",
+    "bones-first-override",
+    "cycle-view",
 })
 
 

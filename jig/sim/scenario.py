@@ -185,6 +185,25 @@ class StepKind(str, Enum):
     # Mock-mode safe (no LLM).
     INVOKE_CASCADE_RISK_LOW = "invoke_cascade_risk_low"
 
+    # Track F Final — exercise the mid-work tier promotion path. The
+    # handler injects N PerCommitCheckFailed events for the named
+    # ticket on the same contract URI (so the auto-escalation checker
+    # reports a tripped signal), then drives ``promote_ticket_tier``
+    # against the live ticket store + analytics emitter so the
+    # ticket's dev_tier ratchets up by one rung. Scenario YAML carries
+    # the ticket id + (optional) target tier; the handler verifies the
+    # ladder direction and stamps the resolved promotion onto the
+    # driver context.
+    INVOKE_TIER_PROMOTION = "invoke_tier_promotion"
+
+    # Track F Final — exercise the calibration-record path. The
+    # handler synthesizes one CalibrationSample (without spinning a
+    # real agent) and persists it so a scenario can verify the
+    # calibration envelope shifts as samples accumulate. Scenario YAML
+    # carries the ticket id + size + observed turn / cost / duration
+    # values.
+    INVOKE_CALIBRATION_RECORD = "invoke_calibration_record"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

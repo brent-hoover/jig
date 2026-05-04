@@ -256,6 +256,14 @@ class DriverContext:
     # value so the report can distinguish daemon-API steps from
     # would-be-TUI steps.
     tui_via_tag: str | None = None
+    # Track F Final — captured outputs from tier-promotion + calibration
+    # sim steps. ``last_tier_promotion`` carries the from/to tier rung
+    # the promotion handler just resolved; ``last_calibration_sample``
+    # carries the synthesized sample id for assertion-time
+    # introspection.
+    last_tier_promotion_from: str | None = None
+    last_tier_promotion_to: str | None = None
+    last_calibration_sample_size: str | None = None
 
 
 # ---- step handler signature ---------------------------------------------
@@ -412,6 +420,12 @@ class Driver:
             ),
             StepKind.INVOKE_CASCADE_RISK_LOW.value: (
                 _handle_invoke_cascade_risk_low
+            ),
+            StepKind.INVOKE_TIER_PROMOTION.value: (
+                _handle_invoke_tier_promotion
+            ),
+            StepKind.INVOKE_CALIBRATION_RECORD.value: (
+                _handle_invoke_calibration_record
             ),
         }
 
@@ -2306,3 +2320,134 @@ async def _handle_invoke_fixture_replay(
             "invoke_fixture_replay: replayed response does not match "
             f"recorded one (got {replayed!r}, expected {response!r})"
         )
+
+
+# ---- Track F Final — tier promotion + calibration sim handlers ---------
+
+
+async def _handle_invoke_tier_promotion(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Force a mid-work tier promotion against a ticket.
+
+    Scenario YAML shape::
+
+        kind: invoke_tier_promotion
+        params:
+          ticket_id: tb-catalog-ingest      # required; must already exist
+          contract_uri: "project://arch/.../#x"  # optional; default placeholder
+          # Number of failed per-commit checks to inject before triggering
+          # the promotion. Defaults to 3 (matching the auto-escalation
+          # threshold).
+          failures: 3
+
+    Synthesizes the analytics events the auto-escalation checker
+    needs (PerCommitCheckFailed × failures), then runs
+    decide_promotion + promote_ticket_tier against the live store.
+    Stamps the resolved promotion onto the driver context.
+    """
+    from jig.analytics.events import PerCommitCheckFailed
+    from jig.auto_escalation import check_escalation_signals
+    from jig.pm.tier_promotion import decide_promotion, promote_ticket_tier
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_tier_promotion: params.ticket_id is required"
+        )
+    failures = int(step.params.get("failures", 3))
+    contract_uri = step.params.get(
+        "contract_uri",
+        "project://arch/modules/sim/contracts#owns/x/write_access",
+    )
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_tier_promotion: ticket {ticket_id!r} missing — did you "
+            "forget a materialize_tickets step before this?"
+        )
+
+    agent_id = step.params.get("agent_id") or f"dev:{ticket_id[:8]}"
+    for i in range(failures):
+        await ctx.analytics.append(
+            PerCommitCheckFailed(
+                ticket_id=ticket_id,
+                agent_id=agent_id,
+                commit_sha=f"sim{i:03d}",
+                reviewer_role="contract_compliance",
+                violation_category="ownership",
+                contract_uri=contract_uri,
+                severity="critical",
+                auto_applied=False,
+            )
+        )
+
+    signals = await check_escalation_signals(ticket_id, ctx.analytics)
+    current_tier = ticket.dev_tier or "standard"
+    target = decide_promotion(signals, current_tier)
+    if target is None:
+        ctx.last_tier_promotion_from = current_tier
+        ctx.last_tier_promotion_to = current_tier
+        return
+
+    record = await promote_ticket_tier(
+        ctx.tickets,
+        ticket_id,
+        target,
+        reason="sim: " + (signals[0].detail or signals[0].kind),
+        signal=signals[0],
+        emitter=ctx.emitter,
+        agent_id=agent_id,
+    )
+    ctx.last_tier_promotion_from = record.from_tier
+    ctx.last_tier_promotion_to = record.to_tier
+
+
+async def _handle_invoke_calibration_record(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Persist one synthetic calibration sample.
+
+    Scenario YAML shape::
+
+        kind: invoke_calibration_record
+        params:
+          ticket_id: tb-catalog-ingest      # required
+          size: m                           # required (xs|s|m|l|xl)
+          dev_tier: standard                # optional; default standard
+          observed_turns: 25                # optional; default 0
+          observed_tool_calls: 25           # optional; default 0
+          observed_duration_ms: 240000      # optional
+          observed_cost_usd: 1.5            # optional
+          completion_status: success        # optional; default success
+
+    Stamps the size onto the driver context so an assertion can verify
+    the sample was persisted at the right slot.
+    """
+    from jig.pm.calibration import CalibrationSample, CalibrationStore
+
+    ticket_id = step.params.get("ticket_id")
+    size = step.params.get("size")
+    if not ticket_id or not size:
+        raise ValueError(
+            "invoke_calibration_record: params.ticket_id and params.size "
+            "are required"
+        )
+
+    store = CalibrationStore(ctx.project_root)
+    await store.load()
+    sample = CalibrationSample(
+        ticket_id=ticket_id,
+        size=size,
+        dev_tier=step.params.get("dev_tier") or "standard",
+        layer=step.params.get("layer"),
+        observed_turns=int(step.params.get("observed_turns", 0)),
+        observed_tool_calls=int(step.params.get("observed_tool_calls", 0)),
+        observed_duration_ms=int(step.params.get("observed_duration_ms", 0)),
+        observed_cost_usd=float(step.params.get("observed_cost_usd", 0.0)),
+        completion_status=step.params.get(
+            "completion_status", "success"
+        ),  # type: ignore[arg-type]
+    )
+    await store.append(sample)
+    ctx.last_calibration_sample_size = size

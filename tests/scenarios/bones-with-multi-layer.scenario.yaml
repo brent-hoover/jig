@@ -25,6 +25,7 @@ coverage_tags:
   - pm-coordinator-multi-layer
   - dev-mock
   - reviewer-contract-compliance
+  - cycle-view
 
 steps:
   # ---- L0 PO --------------------------------------------------------

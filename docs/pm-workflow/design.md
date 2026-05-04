@@ -362,6 +362,41 @@ can use to prioritize.
 | **Important** | SHOULD fix unless fix triggers major rework | If rework needed → consult SA          |
 | **Notable**   | Fix or push to DEFERRED queue               | Operator decides at plan-revision time |
 
+The orchestrator wires the federation as a **gate** on ticket
+resolution, not an observation hook. After a clean merge the gate runs
+`dispatch_with_llm_spawn` and routes the returned comments through
+`apply_severity_disposition`:
+
+- **Critical** comments flip the ticket to `FAILED` with the structured
+  reason `reviewer-critical`. A `Note` summarising the criticals lands
+  on the thread; the worktree + branch are preserved so the operator
+  can address the comments and re-run the federation. The ticket does
+  NOT mark `RESOLVED`.
+- **Important** comments flip the ticket to `BLOCKED` with the
+  structured reason `reviewer-important` and post a
+  `Handoff(phase="sa-consult")` per comment. The orchestrator's
+  existing handoff dispatch path picks the SA reviewer up; the ticket
+  unblocks once the SA addresses the consult.
+- **Notable**-only comments leave the ticket `RESOLVED` but defer it
+  via the Coordinator (the row lands in `.jig/plan/deferred-queue.jsonl`
+  with reason `reviewer-notable`).
+- **Mixed** severities follow precedence: critical wins over important
+  wins over notable. Notables on a non-resolving ticket are not
+  deferred — the ticket isn't actually leaving in-flight.
+
+If `dispatch_with_llm_spawn` raises (transient SDK / network error),
+the orchestrator retries once after a 2-second delay. If the retry
+also fails the ticket is marked `FAILED` with reason
+`federation-error` and a `Note` describing the failure — a misbehaving
+federation must never silently pass a ticket the operator expected
+gated.
+
+The gate is controlled by `orchestrator.run_review_federation` in
+`.jig/config.yaml`. The flag defaults `True` so the gate ships on
+every project; operators who want the legacy passive
+(observation-only) behaviour set the flag to `False` explicitly per
+project.
+
 ## Auto-apply path
 
 When a Critical comment has both `confidence: 1.0` (mechanical) and a `suggested_diff`, the dev agent may apply it

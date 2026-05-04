@@ -1,0 +1,226 @@
+spec_version: 1
+id: bones-with-severity-disposition
+description: |
+  Exercises the notable→deferred branch of the severity-tier
+  disposition policy (Track G Final). The synthetic operator runs
+  the bones spine through to a resolved ticket, then synthesizes a
+  notable-severity reviewer comment and routes it through
+  ``apply_severity_disposition``. The notable comment lands in the
+  DEFERRED queue (``.jig/plan/deferred-queue.jsonl``) without
+  flipping the ticket status — exactly the design's "ticket
+  continues; comment goes to DEFERRED queue" rule.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-incremental
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - severity-disposition
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-severity-disposition
+      pitch: a tracer-bullet project that exercises notable→deferred
+      problem: |
+        We need to verify the severity-tier disposition policy
+        correctly routes notable comments into the DEFERRED queue
+        without disrupting ticket flow.
+      audience: |
+        Internal jig developers validating the Track G Final
+        disposition wiring.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-severity-disposition
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data into the local store
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite — pull catalog from Shopify.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  - kind: invoke_sa_incremental
+    params:
+      calls:
+        - tool: arch_set_data_store
+          params:
+            data_store:
+              id: main-db
+              kind: sqlite
+              rationale: bones — single-process file-backed
+              accessed_by: [catalog-ingest]
+
+        - tool: arch_set_module
+          params:
+            module:
+              id: catalog-ingest
+              title: Catalog Ingest
+              summary: |
+                Pulls catalog data and writes to the products collection.
+              implements_capabilities:
+                - shopify-connect
+              owns:
+                - products
+              tier_hint: standard
+              requires_tracer_bullet: true
+              n_a_categories:
+                - behavioral_contracts
+                - external_dependencies
+              intent:
+                problem: |
+                  Bones MVP needs a writable owned collection.
+                simplest_solution: |
+                  One module, one owned collection, one happy path.
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
+        - tool: module_set_owned_collection
+          params:
+            module_id: catalog-ingest
+            owned_collection:
+              collection: products
+              db: main-db
+              write_access: [self]
+              read_access: []
+
+        - tool: module_set_integration_ac
+          params:
+            module_id: catalog-ingest
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - catalog flows into products collection
+
+      finalize:
+        summary: SA-MVP — one module
+        author: sa-mvp
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: catalog-ingest
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-severity-disposition
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the spine + exercise notable→deferred routing.
+              simplest_solution: |
+                One epic, one bones ticket; one notable comment.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Synthesize a notable comment + route via disposition --------
+  - kind: invoke_severity_disposition
+    params:
+      ticket_id: tb-catalog-ingest
+      comments:
+        - severity: notable
+          reviewer: reviewer-pattern-conformance
+          type: pattern-divergence
+          confidence: 0.85
+          file: jig/foo.py
+          prose: |
+            Local helper duplicates a sibling pattern; consider
+            extracting once a similar third instance lands. Notable
+            because the divergence is contained and the dev's intent
+            is still readable.
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/deferred-queue.jsonl
+        contains: tb-catalog-ingest
+
+# ---- final assertions: ticket stays resolved + queue has the row -
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: artifact_written
+    path: .jig/plan/deferred-queue.jsonl
+    contains: reviewer-notable
+  - kind: cost_under_budget
+    usd: 1.0

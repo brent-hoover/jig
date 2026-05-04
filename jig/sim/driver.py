@@ -202,6 +202,18 @@ class DriverContext:
     # this so the calibration shape doesn't have to leak into
     # ArtifactWrittenAssertion.
     quartermaster_calibration: dict[str, int] = field(default_factory=dict)
+    # Track G Final — selection result from the most recent
+    # invoke_specialty_reviewer step. Scenario assertions inspect the
+    # list directly to verify the dispatcher picked the requested
+    # reviewer (mock-mode only — no LLM agent spawned).
+    specialty_reviewer_selection: list[str] = field(default_factory=list)
+    # Track G Final — disposition counts from the most recent
+    # invoke_severity_disposition step. Three integers (blocked /
+    # consulted-SA / deferred) so scenario assertions can introspect
+    # without re-loading the disposition module.
+    last_disposition_blocked: int = 0
+    last_disposition_consulted_sa: int = 0
+    last_disposition_deferred: int = 0
 
 
 # ---- step handler signature ---------------------------------------------
@@ -264,6 +276,12 @@ class Driver:
             StepKind.INVOKE_VD_FINALIZE.value: _handle_invoke_vd_finalize,
             StepKind.INVOKE_QUARTERMASTER_FEEDBACK.value: (
                 _handle_invoke_quartermaster_feedback
+            ),
+            StepKind.INVOKE_SPECIALTY_REVIEWER.value: (
+                _handle_invoke_specialty_reviewer
+            ),
+            StepKind.INVOKE_SEVERITY_DISPOSITION.value: (
+                _handle_invoke_severity_disposition
             ),
         }
 
@@ -877,6 +895,13 @@ async def _handle_materialize_tickets(
     the visual_compliance reviewer sees a non-empty list. This is the
     sim-time stand-in for the Planner-PM authoring visual_references
     on UI tickets directly (which lands in a later track).
+
+    Optional ``labels_by_ticket`` (Track G Final) is a
+    ``{ticket_id: [label, ...]}`` map — after materialization, the
+    handler patches each named ticket's ``labels`` field so a
+    specialty-reviewer dispatch step (``invoke_specialty_reviewer``)
+    sees the labels the planner would have authored. Stand-in for
+    Planner-PM authoring labels directly.
     """
     coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
     await coord.materialize_ready_tickets()
@@ -889,6 +914,15 @@ async def _handle_materialize_tickets(
                 f"must be a list, got {type(screens).__name__}"
             )
         await ctx.tickets.update(ticket_id, visual_references=list(screens))
+
+    labels_by_ticket = step.params.get("labels_by_ticket") or {}
+    for ticket_id, labels in labels_by_ticket.items():
+        if not isinstance(labels, list):
+            raise ValueError(
+                f"materialize_tickets.labels_by_ticket[{ticket_id!r}] "
+                f"must be a list, got {type(labels).__name__}"
+            )
+        await ctx.tickets.update(ticket_id, labels=list(labels))
 
 
 async def _handle_invoke_coordinator_cycle(
@@ -1387,6 +1421,151 @@ async def _handle_invoke_quartermaster_feedback(
     )
     cal = await get_pattern_calibration(ctx.project_root)
     ctx.quartermaster_calibration = dict(cal.thresholds)
+
+
+async def _handle_invoke_specialty_reviewer(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Verify dispatch selected the requested specialty reviewer.
+
+    Scenario YAML shape::
+
+        kind: invoke_specialty_reviewer
+        params:
+          ticket_id: tb-catalog-ingest
+          expected_reviewer: reviewer-security    # required
+
+    Mock-mode only: doesn't spawn the LLM agent. Calls
+    ``select_reviewers_for_ticket(ticket, project_root=ctx.project_root)``
+    and stamps the full selected list on
+    ``ctx.specialty_reviewer_selection`` so downstream artifact /
+    per-step assertions can introspect. Raises if the requested
+    reviewer wasn't selected — the synthetic operator wants to know
+    immediately when its selection assumption is wrong.
+    """
+    from jig.reviewers.dispatch import select_reviewers_for_ticket
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_specialty_reviewer: params.ticket_id is required"
+        )
+    expected = step.params.get("expected_reviewer")
+    if not expected:
+        raise ValueError(
+            "invoke_specialty_reviewer: params.expected_reviewer is required"
+        )
+
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_specialty_reviewer: ticket {ticket_id!r} missing"
+        )
+
+    selection = select_reviewers_for_ticket(
+        ticket, project_root=ctx.project_root
+    )
+    ctx.specialty_reviewer_selection = list(selection)
+
+    if expected not in selection:
+        raise AssertionError(
+            f"invoke_specialty_reviewer: expected reviewer "
+            f"{expected!r} was NOT selected; got {selection!r}"
+        )
+
+
+async def _handle_invoke_severity_disposition(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Apply severity-tier disposition against synthesized comments.
+
+    Scenario YAML shape::
+
+        kind: invoke_severity_disposition
+        params:
+          ticket_id: tb-catalog-ingest
+          comments:
+            - severity: notable           # required
+              reviewer: reviewer-pattern-conformance  # optional
+              prose: "..."                # optional; defaults to filler
+              file: jig/foo.py            # optional; ensures self-check pass
+              confidence: 0.85            # optional; defaults to 0.85
+
+    Mock-mode handler — no LLM. Builds the synthesized comment list,
+    runs ``apply_severity_disposition`` against the live ticket store
+    + Coordinator + ThreadStore, and stamps the disposition counts on
+    the driver context for assertion-time introspection.
+
+    The notable→deferred branch routes through the live Coordinator
+    so a scenario asserting against ``.jig/plan/deferred-queue.jsonl``
+    sees the row land. Critical→FAILED routes through the ticket
+    store so a ticket_status assertion sees the flip.
+    """
+    from jig.reviewers.comment import (
+        ReviewerComment,
+        ReviewerCommentType,
+        Severity,
+    )
+    from jig.reviewers.disposition import apply_severity_disposition
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_severity_disposition: params.ticket_id is required"
+        )
+    comments_raw = step.params.get("comments") or []
+    if not isinstance(comments_raw, list):
+        raise ValueError(
+            "invoke_severity_disposition: params.comments must be a list"
+        )
+
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_severity_disposition: ticket {ticket_id!r} missing"
+        )
+
+    comments: list[ReviewerComment] = []
+    for entry in comments_raw:
+        severity = entry.get("severity")
+        if not severity:
+            raise ValueError(
+                "invoke_severity_disposition: each comment requires a severity"
+            )
+        confidence = entry.get("confidence", 0.85)
+        # Critical comments always pass the self-check; for important /
+        # notable we compose a default prose long enough + an anchor
+        # so the disposition path doesn't trip the gate.
+        prose = entry.get(
+            "prose",
+            "Severity-disposition fixture comment for the synthetic "
+            "operator scenario; long enough to pass the gate.",
+        )
+        comments.append(
+            ReviewerComment(
+                type=ReviewerCommentType(entry.get("type", "pattern-divergence")),
+                severity=Severity(severity),
+                reviewer=entry.get(
+                    "reviewer", "reviewer-pattern-conformance"
+                ),
+                prose=prose,
+                confidence=confidence,
+                file=entry.get("file", "jig/foo.py"),
+                contract_uri=entry.get("contract_uri"),
+            )
+        )
+
+    coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
+    result = await apply_severity_disposition(
+        comments,
+        ticket,
+        ctx.tickets,
+        coord,
+        threads=ctx.threads,
+    )
+    ctx.last_disposition_blocked = len(result.blocked_by)
+    ctx.last_disposition_consulted_sa = len(result.consulted_sa)
+    ctx.last_disposition_deferred = len(result.deferred)
 
 
 async def _handle_run_reviewer(

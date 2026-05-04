@@ -1,0 +1,232 @@
+spec_version: 1
+id: bones-with-specialty-reviewers
+description: |
+  Extends bones-with-mvp-sa with a tracer-bullet ticket carrying
+  ``labels: ["touches-auth"]``. The synthetic operator invokes the
+  specialty-reviewer dispatch step and asserts that
+  ``reviewer-security`` joined the reviewer set per
+  ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+  logic". Mock-mode only — no LLM agent spawned; just verifies the
+  selection logic in ``jig.reviewers.dispatch``.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-incremental
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - reviewer-security
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-specialty-reviewers
+      pitch: a tracer-bullet project that exercises the security specialty reviewer
+      problem: |
+        We need to verify that a ticket carrying a security-flavored
+        label (touches-auth) pulls in the reviewer-security agent via
+        the Track G Final dispatch selection logic.
+      audience: |
+        Internal jig developers validating that specialty-reviewer
+        auto-selection composes with the rest of the spine.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-specialty-reviewers
+
+  # ---- skip L1/L2 with hand-write ----------------------------------
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data into the local store
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite — pull catalog from Shopify.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  # ---- SA MVP (one module, security-flavored AC) -------------------
+  - kind: invoke_sa_incremental
+    params:
+      calls:
+        - tool: arch_set_data_store
+          params:
+            data_store:
+              id: main-db
+              kind: sqlite
+              rationale: bones — single-process file-backed
+              accessed_by: [catalog-ingest]
+
+        - tool: arch_set_module
+          params:
+            module:
+              id: catalog-ingest
+              title: Catalog Ingest
+              summary: |
+                Pulls catalog data from Shopify and normalizes into the
+                products collection.
+              implements_capabilities:
+                - shopify-connect
+              owns:
+                - products
+              tier_hint: standard
+              requires_tracer_bullet: true
+              n_a_categories:
+                - behavioral_contracts
+              intent:
+                problem: |
+                  Bones MVP needs a module that owns the products
+                  collection so the contract-compliance reviewer has a
+                  diff to check against.
+                simplest_solution: |
+                  One module that handles Shopify ingest and writes to
+                  one owned collection.
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
+        - tool: module_set_owned_collection
+          params:
+            module_id: catalog-ingest
+            owned_collection:
+              collection: products
+              db: main-db
+              write_access: [self]
+              read_access: []
+
+        - tool: module_set_external_dependency
+          params:
+            module_id: catalog-ingest
+            external_dependency:
+              id: shopify-api
+              kind: external_http
+              rate_limit: 2 req/sec per shop
+              auth: oauth2 token per shop
+              failure_mode: exponential backoff, then fail batch
+
+        - tool: module_set_integration_ac
+          params:
+            module_id: catalog-ingest
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - Shopify OAuth token validated against secret
+                - catalog flows into products collection
+
+      finalize:
+        summary: SA-MVP — one module, security-flavored AC
+        author: sa-mvp
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: catalog-ingest
+
+  # ---- Build plan w/ a security-flavored ticket --------------------
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-specialty-reviewers
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the bones spine + verify dispatch pulls in
+                the security reviewer for a touches-auth ticket.
+              simplest_solution: |
+                One epic, one bones ticket carrying touches-auth.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  # ---- Materialize and patch labels onto the ticket ---------------
+  - kind: materialize_tickets
+    params:
+      labels_by_ticket:
+        tb-catalog-ingest:
+          - touches-auth
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  # ---- Specialty-reviewer dispatch verification --------------------
+  - kind: invoke_specialty_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+      expected_reviewer: reviewer-security
+
+  # ---- Spine continuation: dev + reviewer --------------------------
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+# ---- final assertions ---------------------------------------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

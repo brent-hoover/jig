@@ -76,6 +76,15 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     # on data-contract upsert.
     "quartermaster-feedback",
     "pydantic-renderer-auto",
+    # Track G Final — specialty reviewers (LLM-driven judgment),
+    # severity-tier disposition policy (mechanical), and the
+    # self-check gate that runs before any judgment-reviewer comment
+    # lands in the store.
+    "reviewer-security",
+    "reviewer-performance",
+    "reviewer-architectural",
+    "severity-disposition",
+    "comment-self-check",
 })
 
 

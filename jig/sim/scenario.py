@@ -135,6 +135,23 @@ class StepKind(str, Enum):
     # Mock-mode safe (no LLM); real-mode runs are out of scope.
     INVOKE_QUARTERMASTER_FEEDBACK = "invoke_quartermaster_feedback"
 
+    # Track G Final — verify dispatch selected the requested specialty
+    # reviewer for an in-store ticket. Mock-mode only: doesn't actually
+    # spawn the LLM agent, just confirms that
+    # ``select_reviewers_for_ticket`` returned the expected id given
+    # the ticket's labels / dev_tier / contract_amendment / module
+    # tier. The selection bookkeeping lands on the driver context so
+    # an artifact_written / per-step assertion can introspect it.
+    INVOKE_SPECIALTY_REVIEWER = "invoke_specialty_reviewer"
+
+    # Track G Final — apply the severity-tier disposition policy to
+    # a synthesized comment list. The handler builds N comments at the
+    # requested severity, runs ``apply_severity_disposition`` against
+    # the live ticket store + Coordinator, and stamps the disposition
+    # result on the driver context so scenario assertions can check
+    # the deferred-queue / FAILED-status / Handoff side-effects.
+    INVOKE_SEVERITY_DISPOSITION = "invoke_severity_disposition"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

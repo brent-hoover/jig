@@ -9,6 +9,7 @@ tracks (C/D/F) land artifact schemas.
 """
 from __future__ import annotations
 
+from jig.uri.cache import UriResolverCache
 from jig.uri.errors import (
     ProjectUriError,
     UnimplementedAuthorityError,
@@ -30,6 +31,7 @@ __all__ = [
     "ResolvedUri",
     "UnimplementedAuthorityError",
     "UnknownAuthorityError",
+    "UriResolverCache",
     "parse_project_uri",
     "resolve_project_uri",
     "resolve_spec_uri",

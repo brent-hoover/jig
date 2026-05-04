@@ -21,7 +21,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from jig.schemas._validators import validate_kebab_id, validate_tz_aware
 
 __all__ = [
     "DevManifest",
@@ -53,6 +55,11 @@ class ManifestService(BaseModel):
     cleanup_on_success: Literal["drop", "archive", "keep"] = "drop"
     cleanup_on_failure: Literal["drop", "archive", "keep"] = "archive"
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "ManifestService.id")
+
 
 class DevManifest(BaseModel):
     """The full derived manifest.
@@ -71,6 +78,11 @@ class DevManifest(BaseModel):
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+    @field_validator("generated_at")
+    @classmethod
+    def _tz_generated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "DevManifest.generated_at")
 
 
 # ---------------------------------------------------------------------------

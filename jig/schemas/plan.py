@@ -15,9 +15,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.intent import Intent
+from jig.schemas._validators import validate_kebab_id, validate_tz_aware
 from jig.schemas.arch import OpenQuestion
 
 __all__ = [
@@ -100,6 +101,16 @@ class Epic(BaseModel):
         description="Why this epic exists; the simplest carve-up that solves the problem.",
     )
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "Epic.id")
+
+    @field_validator("suite")
+    @classmethod
+    def _kebab_suite(cls, v: str) -> str:
+        return validate_kebab_id(v, "Epic.suite")
+
 
 class StalledTicket(BaseModel):
     """A ticket the Coordinator paused; surfaces in the operator's view."""
@@ -110,6 +121,11 @@ class StalledTicket(BaseModel):
     reason: str = Field(..., min_length=1)
     blocked_since: datetime
     spike: str | None = None
+
+    @field_validator("blocked_since")
+    @classmethod
+    def _tz_blocked_since(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "StalledTicket.blocked_since")
 
 
 class BuildPlan(BaseModel):
@@ -130,3 +146,8 @@ class BuildPlan(BaseModel):
     epics: list[Epic] = Field(default_factory=list)
     stalled: list[StalledTicket] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
+
+    @field_validator("generated_at", "last_revised")
+    @classmethod
+    def _tz_timestamps(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "BuildPlan.<timestamp>")

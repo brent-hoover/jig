@@ -20,11 +20,15 @@ playbacks land under ``.jig/spec/discovery/playbacks/``.
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from jig.schemas._validators import (
+    validate_kebab_id,
+    validate_kebab_id_list,
+    validate_tz_aware,
+)
 from jig.spec_schema import StructuredSpec
 
 __all__ = [
@@ -47,22 +51,10 @@ __all__ = [
 ]
 
 
-_KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-
-
+# Local alias — keeps existing call-sites in this module compact and stable
+# while delegating to the shared validator package.
 def _validate_kebab(value: str, field: str) -> str:
-    """Reject non-kebab ids — the design's brief-format rule for L1.
-
-    Used by Persona / Journey / CapabilityRosterEntry id fields. Centralized
-    so each schema doesn't re-implement the regex (and so the error text
-    stays uniform across artifacts).
-    """
-    if not _KEBAB_RE.fullmatch(value):
-        raise ValueError(
-            f"{field} {value!r} must be kebab-case "
-            "(lowercase letters, digits, single dashes between segments)"
-        )
-    return value
+    return validate_kebab_id(value, field)
 
 
 class ProductNonGoal(BaseModel):
@@ -78,6 +70,11 @@ class ProductNonGoal(BaseModel):
     id: str = Field(..., min_length=1, description="kebab-case stable id")
     text: str = Field(..., min_length=1)
     rationale: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "ProductNonGoal.id")
 
 
 class Project(BaseModel):
@@ -111,6 +108,11 @@ class Project(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
 
+    @field_validator("generated_at")
+    @classmethod
+    def _tz_generated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "Project.generated_at")
+
 
 class Suite(BaseModel):
     """One suite entry in ``.jig/spec/suites.yaml``.
@@ -131,6 +133,16 @@ class Suite(BaseModel):
         default_factory=list,
         description="L1 capability ids assigned to this suite.",
     )
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "Suite.id")
+
+    @field_validator("capabilities")
+    @classmethod
+    def _kebab_capabilities(cls, v: list[str]) -> list[str]:
+        return validate_kebab_id_list(v, "Suite.capabilities")
 
 
 class SuitesIndex(BaseModel):
@@ -300,6 +312,11 @@ class DiscoveryDoc(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
 
+    @field_validator("generated_at")
+    @classmethod
+    def _tz_generated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "DiscoveryDoc.generated_at")
+
 
 # ---- L1 in-flight conversation state --------------------------------------
 
@@ -395,6 +412,11 @@ class DiscoveryState(BaseModel):
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+    @field_validator("updated_at")
+    @classmethod
+    def _tz_updated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "DiscoveryState.updated_at")
 
     @field_validator("status")
     @classmethod

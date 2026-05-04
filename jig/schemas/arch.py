@@ -13,9 +13,14 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.intent import Intent
+from jig.schemas._validators import (
+    validate_kebab_id,
+    validate_project_uri_shape,
+    validate_tz_aware,
+)
 
 __all__ = [
     "Architecture",
@@ -92,6 +97,11 @@ class OpenQuestion(BaseModel):
     text: str = Field(..., min_length=1)
     blocking: list[str] = Field(default_factory=list)
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "OpenQuestion.id")
+
 
 class DevProvisioning(BaseModel):
     """Per-data-store dev-provisioning declaration (Track E MVP).
@@ -164,6 +174,11 @@ class DataStore(BaseModel):
         ),
     )
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "DataStore.id")
+
 
 class SharedContract(BaseModel):
     """An entry in architecture.yaml's shared_contracts list."""
@@ -178,6 +193,16 @@ class SharedContract(BaseModel):
     publisher: str | None = None
     subscribers: list[str] = Field(default_factory=list)
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "SharedContract.id")
+
+    @field_validator("schema_ref", "payload_ref")
+    @classmethod
+    def _uri_shape(cls, v: str | None) -> str | None:
+        return validate_project_uri_shape(v) if v is not None else v
+
 
 class CrossCuttingPolicy(BaseModel):
     """Architecture-wide policy that applies to multiple modules."""
@@ -188,6 +213,11 @@ class CrossCuttingPolicy(BaseModel):
     polarity: ContractPolarity
     rule: str = Field(..., min_length=1)
     auto_generates_integration_ac: bool = False
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "CrossCuttingPolicy.id")
 
 
 class Risk(BaseModel):
@@ -221,6 +251,18 @@ class Risk(BaseModel):
         description="Required for risks with status >= spike_proposed.",
     )
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "Risk.id")
+
+    @field_validator("dependent_contracts")
+    @classmethod
+    def _uri_shape_dependent_contracts(cls, v: list[str]) -> list[str]:
+        for entry in v:
+            validate_project_uri_shape(entry)
+        return v
+
 
 class Module(BaseModel):
     """A module entry in architecture.yaml."""
@@ -252,6 +294,11 @@ class Module(BaseModel):
         description="Why this module exists; the simplest-it-could-be version.",
     )
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "Module.id")
+
 
 class Architecture(BaseModel):
     """Top-level architecture.yaml. Lives at .jig/spec/architecture.yaml."""
@@ -270,6 +317,11 @@ class Architecture(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
 
+    @field_validator("generated_at")
+    @classmethod
+    def _tz_generated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "Architecture.generated_at")
+
 
 # ---------------------------------------------------------------------------
 # Per-module contracts (modules/<m>/contracts.yaml)
@@ -287,6 +339,11 @@ class OwnedCollection(BaseModel):
     write_access: list[str] = Field(default_factory=lambda: ["self"])
     read_access: list[str] = Field(default_factory=list)
 
+    @field_validator("schema_ref")
+    @classmethod
+    def _uri_shape_schema_ref(cls, v: str | None) -> str | None:
+        return validate_project_uri_shape(v) if v is not None else v
+
 
 class ExternalDependency(BaseModel):
     """An external system (API, queue, file source) this module depends on."""
@@ -299,6 +356,11 @@ class ExternalDependency(BaseModel):
     auth: str | None = None
     failure_mode: str | None = None
     max_size: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "ExternalDependency.id")
 
 
 class IntegrationAcceptance(BaseModel):
@@ -337,6 +399,16 @@ class DataContract(BaseModel):
     )
     intent: Intent
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "DataContract.id")
+
+    @field_validator("schema_ref")
+    @classmethod
+    def _uri_shape_schema_ref(cls, v: str | None) -> str | None:
+        return validate_project_uri_shape(v) if v is not None else v
+
 
 class BehavioralContract(BaseModel):
     """Design-by-Contract: precondition / postcondition / invariant / side-effect.
@@ -367,6 +439,11 @@ class BehavioralContract(BaseModel):
     enforcement: str | None = None
     intent: Intent
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "BehavioralContract.id")
+
 
 class ContractsFile(BaseModel):
     """One module's contracts file — modules/<m>/contracts.yaml."""
@@ -396,6 +473,11 @@ class ContractsFile(BaseModel):
     data_contracts: list[DataContract] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
     change_log: list[ChangeLogEntry] = Field(default_factory=list)
+
+    @field_validator("module")
+    @classmethod
+    def _kebab_module(cls, v: str) -> str:
+        return validate_kebab_id(v, "ContractsFile.module")
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +513,11 @@ class CascadeContractDisposition(BaseModel):
         "invalidated", "needs_revision", "still_holds"
     ] = "still_holds"
 
+    @field_validator("uri")
+    @classmethod
+    def _uri_shape(cls, v: str) -> str:
+        return validate_project_uri_shape(v)
+
 
 class CascadeProposal(BaseModel):
     """One cascade-after-confirmed-impossible proposal artifact.
@@ -452,3 +539,18 @@ class CascadeProposal(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     contracts: list[CascadeContractDisposition] = Field(default_factory=list)
+
+    @field_validator("risk_id")
+    @classmethod
+    def _kebab_risk_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "CascadeProposal.risk_id")
+
+    @field_validator("spike_ticket_id")
+    @classmethod
+    def _kebab_spike_ticket_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "CascadeProposal.spike_ticket_id")
+
+    @field_validator("generated_at")
+    @classmethod
+    def _tz_generated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "CascadeProposal.generated_at")

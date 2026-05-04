@@ -71,7 +71,7 @@ def _data_contract(intent: Intent | None = None) -> DataContract:
     return DataContract(
         id="product-row",
         description="Product rows in the catalog table.",
-        schema_ref="project://schemas/product-row",
+        schema_ref="project://arch/contracts/shared/product-row",
         intent=intent or _good_intent(),
     )
 

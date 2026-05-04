@@ -44,7 +44,7 @@ def _contract(
     *,
     contract_id: str = "product-row",
     fields: dict[str, str] | None = None,
-    schema_ref: str | None = "project://schemas/product-row",
+    schema_ref: str | None = "project://arch/contracts/shared/product-row",
 ) -> DataContract:
     return DataContract(
         id=contract_id,
@@ -62,7 +62,7 @@ def test_renders_basic_pydantic_class():
     contract = _contract(fields={"sku": "str", "qty": "int"})
     src = render_pydantic_from_data_contract(contract)
     # Header carries the source URI (operator can compare)
-    assert "project://schemas/product-row" in src
+    assert "project://arch/contracts/shared/product-row" in src
     # Class name is the contract id PascalCased
     assert "class ProductRow(BaseModel):" in src
     # extra='forbid' on the model_config — strict by default
@@ -89,9 +89,9 @@ def test_renders_optional_and_collection_types():
 
 
 def test_uses_contract_id_for_class_name_pascal_case():
-    """Snake-case and kebab-case ids both pascal-case correctly."""
+    """Single-segment and multi-segment kebab ids both pascal-case correctly."""
     a = render_pydantic_from_data_contract(
-        _contract(contract_id="user_profile", fields={"id": "str"})
+        _contract(contract_id="user-profile", fields={"id": "str"})
     )
     assert "class UserProfile(BaseModel):" in a
     b = render_pydantic_from_data_contract(

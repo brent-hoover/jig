@@ -23,9 +23,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.intent import Intent
+from jig.schemas._validators import validate_tz_aware
 
 __all__ = [
     "FrontendSpec",
@@ -109,3 +110,8 @@ class FrontendSpec(BaseModel):
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+    @field_validator("generated_at")
+    @classmethod
+    def _tz_generated_at(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "FrontendSpec.generated_at")

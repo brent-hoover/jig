@@ -28,7 +28,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from jig.schemas._validators import validate_kebab_id
 
 __all__ = [
     "Brand",
@@ -62,6 +64,11 @@ class DesignToken(BaseModel):
     value: str = Field(..., min_length=1)
     description: str | None = None
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "DesignToken.id")
+
 
 class Tokens(BaseModel):
     """``.jig/spec/system/tokens.yaml`` — the design-token list."""
@@ -86,6 +93,11 @@ class ComponentVariant(BaseModel):
     id: str = Field(..., min_length=1, description="kebab-case variant id")
     description: str | None = None
 
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "ComponentVariant.id")
+
 
 class Component(BaseModel):
     """One component spec — one entry in ``components.yaml``.
@@ -102,6 +114,11 @@ class Component(BaseModel):
     name: str = Field(..., min_length=1)
     variants: list[ComponentVariant] = Field(default_factory=list)
     description: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "Component.id")
 
 
 class ComponentLibrary(BaseModel):

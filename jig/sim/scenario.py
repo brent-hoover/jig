@@ -43,6 +43,12 @@ class StepKind(str, Enum):
     INVOKE_L0_FINALIZE = "invoke_l0_finalize"
     INVOKE_L3_FINALIZE = "invoke_l3_finalize"
 
+    # MVP-tier L1 Discovery PO — invoke the discovery_finalize handler
+    # with a complete payload. Bones scenarios skip L1 (operator
+    # hand-writes suites.yaml directly); MVP-tier scenarios swap in
+    # this step to exercise the L1 PO authoring path.
+    INVOKE_L1_FINALIZE = "invoke_l1_finalize"
+
     # Manual writes for stages bones doesn't run via agents (per
     # ``docs/implementation/v2-plan.md`` Bones scope: L1/L2 + SA
     # artifacts hand-written by the operator).

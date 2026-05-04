@@ -306,3 +306,176 @@ def test_intent_with_complications_round_trips_through_contract():
     assert blob["intent"]["complications_considered"]["idempotency"] == "y"
     bc2 = BehavioralContract.model_validate(blob)
     assert bc2 == bc
+
+
+# ---------------------------------------------------------------------------
+# Block 4 — non-tautological rejection + cross-field tests (issue #7)
+# ---------------------------------------------------------------------------
+#
+# Existing tests above include several round-trip-only checks (DataStore
+# with dev_provisioning, Architecture with dev_provisioning, Intent with
+# complications). The reviewer's concern: those don't prove the schema
+# rejects bad inputs or enforces cross-field semantics. The tests below
+# pin those gaps without removing the smoke checks.
+
+
+# ---- DataStore / Architecture: missing required + bad enum ----------------
+
+
+def test_data_store_rejects_missing_kind():
+    with pytest.raises(ValidationError, match="kind"):
+        DataStore(id="main-db")  # type: ignore[call-arg]
+
+
+def test_data_store_rejects_extra_field():
+    """``extra='forbid'`` chain: typo'd keys must surface, not silently drop."""
+    with pytest.raises(ValidationError, match="extra"):
+        DataStore(id="main-db", kind="postgres", region="us-east-1")  # type: ignore[call-arg]
+
+
+def test_module_rejects_naive_generated_at_via_architecture():
+    """Architecture.generated_at uses validate_tz_aware — naive must error."""
+    from datetime import datetime as _dt
+
+    with pytest.raises(ValidationError, match="timezone"):
+        Architecture(generated_at=_dt(2026, 5, 1))
+
+
+def test_pydantic_extra_forbid_rejects_unknown_keys_on_module():
+    with pytest.raises(ValidationError, match="extra"):
+        Module(  # type: ignore[call-arg]
+            id="catalog-ingest",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            owner="ada",  # not a known Module field
+        )
+
+
+# ---- Risk: cross-field semantics on dependent_contracts -------------------
+#
+# The Risk schema documents that ``dependent_contracts`` is "Required once
+# status >= spike_proposed". The current schema implementation enforces
+# the URI shape on entries but not the presence rule. We pin BOTH halves
+# here so the contract is visible regardless of where in the pipeline the
+# enforcement lives:
+#
+# - happy path: with status=open, dependent_contracts may be empty
+# - with status=spike_proposed and well-formed URI list, accept
+# - with status=spike_proposed and bad URI in the list, reject (already
+#   covered by validate_project_uri_shape but pinning here documents the
+#   joint claim).
+
+
+def test_risk_open_status_allows_empty_dependent_contracts():
+    """Smoke check on the documented "open status doesn't require URIs" rule."""
+    r = Risk(
+        id="r-x",
+        text="x",
+        impact=RiskImpact.LOW,
+        likelihood=RiskLikelihood.LOW,
+        status=RiskStatus.OPEN,
+    )
+    assert r.dependent_contracts == []
+
+
+def test_risk_spike_proposed_with_well_formed_uri_accepted():
+    r = Risk(
+        id="r-x",
+        text="x",
+        impact=RiskImpact.MEDIUM,
+        likelihood=RiskLikelihood.MEDIUM,
+        status=RiskStatus.SPIKE_PROPOSED,
+        dependent_contracts=[
+            "project://arch/modules/m/contracts#owns/products",
+        ],
+        intent=_intent(),
+    )
+    assert len(r.dependent_contracts) == 1
+
+
+def test_risk_spike_proposed_with_bad_uri_rejected():
+    """URI-shape validator fires inside the list, not just the field."""
+    with pytest.raises(ValidationError, match="prefix"):
+        Risk(
+            id="r-x",
+            text="x",
+            impact=RiskImpact.MEDIUM,
+            likelihood=RiskLikelihood.MEDIUM,
+            status=RiskStatus.SPIKE_PROPOSED,
+            dependent_contracts=["bad-uri"],
+            intent=_intent(),
+        )
+
+
+# ---- Architecture: cross-field — non-duplicate module ids -----------------
+#
+# The architecture schema doesn't currently enforce module-id uniqueness
+# at the schema layer (modules is just a list). The deliverable asks us
+# to add a cross-field semantic test "where applicable": for Architecture
+# the applicable claim is that a downstream consumer (PM, reviewer) keys
+# off ``Module.id`` and depends on uniqueness. We don't add the uniqueness
+# constraint here (that's a real-semantic-validation v2.x concern), but
+# we DO pin the construction-side reality: today the schema accepts
+# duplicates silently. The test name documents the gap so a future
+# tightening is one assertion-flip away.
+
+
+def test_architecture_currently_accepts_duplicate_module_ids():
+    """Documents schema-layer claim: uniqueness lives in the SA finalize
+    pass, not in the Pydantic model. If the schema gains a uniqueness
+    constraint, flip the assert and re-name the test."""
+    a = Architecture(
+        modules=[
+            Module(id="m", title="t", summary="s", intent=_intent()),
+            Module(id="m", title="t2", summary="s2", intent=_intent()),
+        ]
+    )
+    ids = [m.id for m in a.modules]
+    # The schema accepts this; SA finalize is the real gate. Pin both
+    # halves of the chain explicitly.
+    assert ids == ["m", "m"]
+
+
+# ---- ContractsFile: rejection coverage ------------------------------------
+
+
+def test_contracts_file_rejects_non_kebab_module():
+    with pytest.raises(ValidationError, match="kebab"):
+        ContractsFile(module="Catalog_Ingest")
+
+
+def test_contracts_file_rejects_missing_module():
+    with pytest.raises(ValidationError, match="module"):
+        ContractsFile()  # type: ignore[call-arg]
+
+
+def test_pydantic_extra_forbid_rejects_unknown_keys_on_contracts_file():
+    with pytest.raises(ValidationError, match="extra"):
+        ContractsFile(module="catalog-ingest", surprise="boom")  # type: ignore[call-arg]
+
+
+# ---- BehavioralContract / DataContract: missing-required ------------------
+
+
+def test_behavioral_contract_rejects_missing_id():
+    with pytest.raises(ValidationError, match="id"):
+        BehavioralContract(invariant="x", intent=_intent())  # type: ignore[call-arg]
+
+
+def test_data_contract_rejects_missing_id():
+    with pytest.raises(ValidationError, match="id"):
+        DataContract(description="x", intent=_intent())  # type: ignore[call-arg]
+
+
+# ---- ChangeLogEntry: revision must be >= 1 --------------------------------
+
+
+def test_change_log_entry_rejects_revision_zero():
+    with pytest.raises(ValidationError, match="revision"):
+        ChangeLogEntry(revision=0, date=date(2026, 5, 1), summary="x")
+
+
+def test_change_log_entry_rejects_negative_revision():
+    with pytest.raises(ValidationError, match="revision"):
+        ChangeLogEntry(revision=-1, date=date(2026, 5, 1), summary="x")

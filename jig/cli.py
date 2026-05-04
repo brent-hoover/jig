@@ -1017,6 +1017,96 @@ def dev_orphans_drop_cmd(orphan_id: str, path: Path) -> None:
     asyncio.run(_run())
 
 
+@dev_group.group("fixtures")
+def dev_fixtures_group() -> None:
+    """Inspect / clear vcr-style external-API fixture cassettes (Track E Final)."""
+
+
+@dev_fixtures_group.command("list")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_fixtures_list_cmd(path: Path) -> None:
+    """List service ids with at least one recorded cassette."""
+    from jig.dev_env.fixtures import FixtureStore
+
+    async def _run() -> None:
+        store = FixtureStore(path)
+        services = await store.list_services()
+        if not services:
+            click.echo("(no fixtures recorded)")
+            return
+        for sid in services:
+            rows = await store.list_for_service(sid)
+            click.echo(f"{sid}\t{len(rows)} cassette(s)")
+
+    asyncio.run(_run())
+
+
+@dev_fixtures_group.command("show")
+@click.argument("service_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_fixtures_show_cmd(service_id: str, path: Path) -> None:
+    """Print every cassette recorded for ``service_id``."""
+    from jig.dev_env.fixtures import FixtureStore
+
+    async def _run() -> None:
+        store = FixtureStore(path)
+        rows = await store.list_for_service(service_id)
+        if not rows:
+            click.echo(f"(no cassettes for {service_id})")
+            return
+        for c in rows:
+            method = c.request.get("method", "?")
+            url = c.request.get("url", "?")
+            click.echo(
+                f"{c.recorded_at.isoformat()}\t{method}\t{url}\t"
+                f"sig={c.request_signature[:12]}…"
+            )
+
+    asyncio.run(_run())
+
+
+@dev_fixtures_group.command("clear")
+@click.argument("service_id")
+@click.option(
+    "--confirm",
+    is_flag=True,
+    help="Required — destroys every cassette for the named service.",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_fixtures_clear_cmd(
+    service_id: str, confirm: bool, path: Path
+) -> None:
+    """Drop every cassette for ``service_id``. Requires ``--confirm``."""
+    if not confirm:
+        raise click.ClickException(
+            "refusing to clear without --confirm "
+            f"(destroys every cassette for {service_id!r})"
+        )
+    from jig.dev_env.fixtures import FixtureStore
+
+    async def _run() -> None:
+        store = FixtureStore(path)
+        await store.clear_service(service_id)
+
+    asyncio.run(_run())
+    click.echo(f"cleared {service_id}")
+
+
 @dev_group.group("ephemeral")
 def dev_ephemeral_group() -> None:
     """Inspect / drop per-agent ephemeral instances (Track E Final)."""

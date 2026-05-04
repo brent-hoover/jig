@@ -17,6 +17,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from jig.dev_env.fixtures import (
+    FIXTURE_MODE_ENV_VAR,
+    FixtureMode,
+    fixture_mode_for_ticket,
+)
 from jig.dev_env.provisioning import (
     ProvisioningRegistry,
     cleanup_agent_namespace,
@@ -24,10 +29,12 @@ from jig.dev_env.provisioning import (
 )
 from jig.schemas.dev_env import DevManifest
 from jig.spec_loader import load_dev_manifest
+from jig.ticket import Ticket
 
 __all__ = [
     "ENV_VAR_PREFIX",
     "build_env_var_name",
+    "build_fixture_env",
     "load_manifest_or_none",
     "provision_for_agent",
     "cleanup_for_agent",
@@ -136,3 +143,21 @@ async def cleanup_for_agent(
             success,
             exc_info=True,
         )
+
+
+def build_fixture_env(
+    ticket: Ticket, *, override: str | None = None
+) -> dict[str, str]:
+    """Return ``{JIG_FIXTURE_MODE: <mode>}`` for the agent's spawn env.
+
+    Per ``docs/dev-environment/design.md`` §"External-API recorded
+    fixtures": SPIKE work_type → ``record_new`` (the spike's job is to
+    grow the fixture corpus); everything else → ``replay_only``.
+    Per-spawn ``override`` (e.g. an ``arch_propose_spike`` carrying
+    ``fixture_mode_override="bypass"``) wins.
+
+    Returns a single-entry dict so the caller can ``env.update(...)``
+    it onto the bwrap-injected env map alongside the dev-service URLs.
+    """
+    mode: FixtureMode = fixture_mode_for_ticket(ticket, override=override)
+    return {FIXTURE_MODE_ENV_VAR: mode.value}

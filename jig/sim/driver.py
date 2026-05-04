@@ -14,11 +14,21 @@ get tagged ``simulator: true`` (per ``jig.analytics.emitter`` already
 wired), and restores the prior env on exit so concurrent test runs
 don't leak.
 
-Real-mode dev dispatch is out of bones scope for the driver's mock
-path — see ``jig.sim.cli`` for the operator-invoked real-mode run.
+Real mode (``Driver(real_mode=True)``): the ``mock_dev_commit`` step is
+re-routed to ``_handle_real_dev_dispatch``, which boots an
+``Orchestrator`` rooted at ``ctx.project_root``, lets its dispatch loop
+pick up the materialized ticket, and waits for a terminal status before
+shutting down. After the dev step completes the driver aggregates
+``AgentCompleted.cost_estimate_usd`` from the analytics store into
+``ctx.cost_usd`` so the ``cost_under_budget`` assertion gates real
+spend. The orchestrator path uses the existing ``run_agent`` glue —
+the SDK invocation is the same path production uses, just rooted at
+the simulator's tmp dir. Operators opt in via ``jig sim run --real``
+(see ``jig.sim.cli``).
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import subprocess
@@ -184,9 +194,20 @@ class Driver:
     Instantiate once per scenario library; call ``run(scenario,
     project_root)`` per execution. Stateless across runs — each ``run``
     builds its own ``DriverContext`` against a fresh tmp dir.
+
+    ``real_mode`` swaps the dev-step handler from the deterministic
+    mock helper (``_handle_mock_dev_commit``) to the orchestrator-spawn
+    path (``_handle_real_dev_dispatch``). All other steps are mode-
+    agnostic — only dev dispatch differs because that's the only step
+    that, in real mode, would invoke an LLM agent. Defaults to mock so
+    test suites and CI never accidentally cost money.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, real_mode: bool = False) -> None:
+        self._real_mode = real_mode
+        dev_handler: StepHandler = (
+            _handle_real_dev_dispatch if real_mode else _handle_mock_dev_commit
+        )
         self._handlers: dict[str, StepHandler] = {
             StepKind.INVOKE_L0_FINALIZE.value: _handle_l0_finalize,
             StepKind.INVOKE_L3_FINALIZE.value: _handle_l3_finalize,
@@ -195,9 +216,14 @@ class Driver:
             StepKind.WRITE_MODULE_CONTRACTS.value: _handle_write_module_contracts,
             StepKind.WRITE_BUILD_PLAN.value: _handle_write_build_plan,
             StepKind.MATERIALIZE_TICKETS.value: _handle_materialize_tickets,
-            StepKind.MOCK_DEV_COMMIT.value: _handle_mock_dev_commit,
+            StepKind.MOCK_DEV_COMMIT.value: dev_handler,
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
         }
+
+    @property
+    def real_mode(self) -> bool:
+        """True when this driver routes the dev step to the real Claude path."""
+        return self._real_mode
 
     def register_step_handler(
         self, kind: str, handler: StepHandler
@@ -226,11 +252,17 @@ class Driver:
                             await _evaluate_assertion(ctx, a)
                         )
                 report.step_outcomes.append(outcome)
+            # Cost aggregation: drain pending writes so AgentCompleted
+            # events the orchestrator emit_nowait'd land in the store
+            # before we sum. Mock mode emits no AgentCompleted events,
+            # so this resolves to 0.0 — consistent with the existing
+            # mock-mode contract.
+            await ctx.emitter.drain()
+            ctx.cost_usd = await _aggregate_agent_cost(ctx)
             for a in scenario.final_assertions:
                 report.final_assertion_results.append(
                     await _evaluate_assertion(ctx, a)
                 )
-            await ctx.emitter.drain()
             report.captured_events = await ctx.analytics.all()
             report.captured_reviewer_comments = dict(ctx.reviewer_comments)
             report.cost_usd = ctx.cost_usd
@@ -516,6 +548,177 @@ def _git(cwd: Path, *args: str) -> None:
     """Run a git subcommand inside ``cwd``; raise on nonzero."""
     subprocess.run(
         ["git", *args], cwd=cwd, check=True, capture_output=True
+    )
+
+
+# ---- real-mode dev dispatch ---------------------------------------------
+
+
+# Default workflow installed for real-mode bones runs. One phase, one
+# role — the dev does the whole thing. Bones doesn't need spec/test/
+# review phases (the contract-compliance reviewer fires later as its
+# own step). Keeping it minimal also keeps the real-mode cost ceiling
+# tight: one agent invocation per ticket. MVP gets a richer workflow.
+_REAL_MODE_WORKFLOW_NAME = "default"
+_REAL_MODE_DEV_ROLE = "dev"
+
+# Polling interval for waiting on the orchestrator to drive a ticket
+# to a terminal status. Short enough that test wall-clock stays low,
+# long enough that we're not pegging the event loop.
+_REAL_MODE_POLL_INTERVAL_S = 0.25
+# Hard cap so a stuck agent can't hang the simulator forever. The
+# bones runtime budget is "under 10 minutes" per
+# docs/implementation/v2-plan.md; 15 minutes gives margin without
+# hiding pathological slowness.
+_REAL_MODE_TIMEOUT_S = 15 * 60
+
+
+async def _handle_real_dev_dispatch(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Real-mode dev: spawn a Claude agent via the existing orchestrator path.
+
+    Bootstraps a minimal v2 project on ``ctx.project_root`` (config +
+    one workflow + dev role), starts an ``Orchestrator`` against it,
+    and waits for the materialized ticket to reach a terminal status.
+    The orchestrator's existing dispatch loop owns agent spawn,
+    streaming, lifecycle, and analytics emission — we don't reach
+    inside it. Cost aggregation runs after this step finishes and reads
+    the analytics store the orchestrator already populated.
+
+    The ``_seed_repo``-style git base must exist (the CLI seeds it; the
+    test harness pre-seeds via the test fixture). Without it the
+    orchestrator's worktree creation fails because there's no main
+    branch to branch off of.
+    """
+    from jig.orchestrator import Orchestrator
+    from jig.ticket import TicketStatus
+
+    ticket_id = step.params["ticket_id"]
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"real_dev_dispatch: ticket {ticket_id!r} missing — did you "
+            "forget a materialize_tickets step before this?"
+        )
+
+    _bootstrap_real_mode_project(ctx.project_root)
+
+    orch = Orchestrator(project_path=ctx.project_root)
+    await orch.startup()
+    try:
+        # The orchestrator's startup runs ``_start_ready_tickets``
+        # which picks up our materialized ticket and dispatches it.
+        # We just wait for the ticket to terminate.
+        terminal = {
+            TicketStatus.RESOLVED,
+            TicketStatus.FAILED,
+            TicketStatus.MERGE_CONFLICT,
+        }
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + _REAL_MODE_TIMEOUT_S
+        while loop.time() < deadline:
+            current = await orch.tickets.get(ticket_id)  # type: ignore[union-attr]
+            if current is not None and current.status in terminal:
+                break
+            await asyncio.sleep(_REAL_MODE_POLL_INTERVAL_S)
+        else:
+            raise TimeoutError(
+                f"real_dev_dispatch: ticket {ticket_id!r} did not reach a "
+                f"terminal status within {_REAL_MODE_TIMEOUT_S}s"
+            )
+    finally:
+        await orch.shutdown()
+
+    # Refresh the driver's stores from disk — the orchestrator has its
+    # own JsonlStore instances and our in-memory copies don't see its
+    # writes. Without this the post-step ticket_status assertion reads
+    # stale data and (correctly) reports the orchestrator's RESOLVED
+    # update never happened in our view.
+    await ctx.tickets.load()
+    await ctx.threads.load()
+    await ctx.analytics.load()
+
+
+def _bootstrap_real_mode_project(project_root: Path) -> None:
+    """Write the minimum project config the orchestrator needs to dispatch.
+
+    A real-mode run needs:
+      * ``.jig/config.yaml`` with a ``Project`` (load_project must succeed)
+      * ``.jig/workflows/default.yaml`` (the orchestrator loads ticket
+        ``workflow="default"`` at dispatch time)
+      * ``.jig/roles/dev.yaml`` (the workflow's only role)
+
+    We deliberately ship a one-phase workflow so a single agent
+    invocation drives the whole ticket. MVP can extend this. The role
+    config is the shipped ``dev`` default re-saved into the project so
+    the persistence loader's project-overrides-defaults rule resolves
+    cleanly without us depending on the defaults dir.
+    """
+    from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
+    from jig.persistence import load_role, save_role, save_workflow
+    from jig.project import Project, save_project
+
+    save_project(
+        project_root,
+        Project(
+            id="sim-real",
+            name="sim-real",
+            path=str(project_root),
+            language="python",
+            package_manager="uv",
+        ),
+    )
+
+    workflow = WorkflowConfig(
+        name=_REAL_MODE_WORKFLOW_NAME,
+        phases=[
+            PhaseConfig(
+                name="implement",
+                role=_REAL_MODE_DEV_ROLE,
+                task_template="Implement the bones ticket: {ticket_title}",
+                acceptance_criteria=(
+                    "All integration AC tokens from the module's "
+                    "contracts.yaml appear in the diff."
+                ),
+            ),
+        ],
+    )
+    save_workflow(project_root, workflow)
+
+    # Re-save the shipped dev role into the project so the role loader
+    # finds it in the project layer (avoids depending on the defaults
+    # directory at runtime — keeps the project self-contained for the
+    # sim run).
+    try:
+        dev_role = load_role(project_root, _REAL_MODE_DEV_ROLE)
+    except FileNotFoundError:
+        # Defensive: if the shipped default disappears, ship a minimal
+        # one rather than failing the bootstrap. This path should only
+        # fire if jig itself is broken.
+        dev_role = RoleConfig(
+            role=_REAL_MODE_DEV_ROLE,
+            phase_prompt=(
+                "You are a development agent. Implement the ticket and "
+                "call update_ticket(status=resolved) when finished."
+            ),
+        )
+    save_role(project_root, dev_role)
+
+
+async def _aggregate_agent_cost(ctx: DriverContext) -> float:
+    """Sum ``AgentCompleted.cost_estimate_usd`` for this run.
+
+    Treats ``None`` as 0.0 (mock-mode events, or SDK responses with no
+    cost reported). Mock-mode runs never emit ``AgentCompleted``
+    events, so this is effectively a no-op there. Real-mode runs see
+    the orchestrator's per-agent emission (one event per spawn) and
+    sum across the whole run.
+    """
+    events = await ctx.analytics.by_kind("agent_completed")
+    return sum(
+        (getattr(e, "cost_estimate_usd", None) or 0.0)
+        for e in events
     )
 
 

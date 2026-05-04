@@ -10,12 +10,14 @@ Two run modes:
 - **mock** (default; CI-safe; no LLM cost) — the dev step is replaced
   with a deterministic helper that satisfies the bones reviewer's
   checks. This is what ``test_sim_bones_scenario.py`` exercises.
-- **real** (operator-invoked; bones cost target < $1) — the dev step
-  spawns a real Claude agent against the project_root. NOT yet wired
-  in this commit; the flag is accepted so the operator-facing surface
-  is stable, but the implementation will land alongside the
-  orchestrator-side dev-spawn glue. Calling ``--real`` raises
-  NotImplementedError until then.
+- **real** (operator-invoked; bones cost target < $1, runtime < 10
+  min per ``docs/implementation/v2-plan.md``) — the dev step spawns a
+  real Claude agent via the orchestrator's existing dispatch path
+  rooted at the simulator's tmp project. Requires
+  ``CLAUDE_CODE_OAUTH_TOKEN`` to be set (run ``claude setup-token``
+  if not). The CLI prompts before invoking real-mode so an operator
+  can't fat-finger themselves into spending money — pass ``--yes`` to
+  skip the prompt (intended for scripts).
 
 Per-run isolation: the CLI creates its own tmp dir under the system
 temp root for each run and never reuses it, mirroring the
@@ -24,6 +26,7 @@ per-pytest-fixture isolation tests get from ``tmp_path``.
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 import tempfile
@@ -35,6 +38,11 @@ from jig.sim.driver import Driver, ScenarioReport
 from jig.sim.scenario import load_scenario
 
 __all__ = ["sim"]
+
+
+def _under_pytest() -> bool:
+    """True when the CLI is being driven by pytest (skip interactive prompts)."""
+    return "PYTEST_CURRENT_TEST" in os.environ
 
 
 def _seed_repo(root: Path) -> None:
@@ -103,19 +111,57 @@ def sim() -> None:
         "skeleton scenario. Operator-invoked only."
     ),
 )
-def run(scenario: Path, real: bool) -> None:
+@click.option(
+    "--yes",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the real-mode confirmation prompt. Intended for scripts; "
+        "interactive operators should let the prompt run so they don't "
+        "fat-finger an LLM bill."
+    ),
+)
+def run(scenario: Path, real: bool, yes: bool) -> None:
     """Run one scenario in mock mode (default) or real mode."""
-    if real:
-        raise click.ClickException(
-            "--real not yet implemented for bones; mock mode is the "
-            "bones milestone. Real-mode dev dispatch lands with the "
-            "orchestrator-side spawn glue."
-        )
     scn = load_scenario(scenario)
+    if real:
+        if not _confirm_real_mode(scn.estimated_cost_usd_max, assume_yes=yes):
+            click.echo("Aborted; real-mode invocation cancelled.")
+            sys.exit(1)
+        if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            # Surface the missing-token failure mode early — the SDK
+            # would eventually fail with a less-obvious error. The
+            # operator's fix is `claude setup-token`.
+            click.echo(
+                "Warning: CLAUDE_CODE_OAUTH_TOKEN is not set. Real-mode "
+                "agent spawn will fail without it. Run `claude setup-token` "
+                "and export it (e.g. via ~/.secrets.env) before retrying.",
+                err=True,
+            )
     with tempfile.TemporaryDirectory(prefix="jig-sim-") as tmpdir:
         root = Path(tmpdir)
         _seed_repo(root)
-        report = asyncio.run(Driver().run(scn, project_root=root))
+        driver = Driver(real_mode=real)
+        report = asyncio.run(driver.run(scn, project_root=root))
         _print_report(report)
         if not report.passed:
             sys.exit(1)
+
+
+def _confirm_real_mode(estimated_cost_usd_max: float, *, assume_yes: bool) -> bool:
+    """Prompt the operator before kicking off real-mode.
+
+    Skipped when running under pytest (so test runs don't deadlock on
+    stdin) or when ``--yes`` was passed. Defaults to NO so a stray
+    Enter cancels the run instead of authorizing spend.
+    """
+    if assume_yes or _under_pytest():
+        return True
+    click.echo(
+        f"Real-mode invocation will spawn a Claude Code dev agent and "
+        f"incur LLM costs (scenario budget: ~${estimated_cost_usd_max:.2f}). "
+        "Continue? [y/N] ",
+        nl=False,
+    )
+    answer = click.get_text_stream("stdin").readline().strip().lower()
+    return answer in ("y", "yes")

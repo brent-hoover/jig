@@ -35,6 +35,13 @@ include = ["jig*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Custom markers. ``real`` opts into tests that exercise real-mode
+# wiring with a monkeypatched Claude SDK; the FULL real-mode run
+# (operator-only, costs LLM tokens) is invoked via
+# ``uv run jig sim run … --real`` not via pytest.
+markers = [
+    "real: tests that touch real-mode wiring (skipped by default; opt in with -m real)",
+]
 
 [dependency-groups]
 dev = [

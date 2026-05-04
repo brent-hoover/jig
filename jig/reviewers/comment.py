@@ -25,6 +25,7 @@ mapping isn't 1:1 with check definitions.
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -157,6 +158,17 @@ class ReviewerComment(BaseModel):
             "Optional fix-it patch. Bones doesn't propose diffs (the "
             "checks are too coarse); the auto-apply path (G4) consumes "
             "this in MVP."
+        ),
+    )
+    cadence: Literal["per_commit", "end_of_ticket"] = Field(
+        default="end_of_ticket",
+        description=(
+            'Two-cadence review per design §"Two-cadence review". '
+            "Per-commit cadence runs only the mechanical reviewers "
+            "within seconds of git commit; end-of-ticket runs the full "
+            "federation. Defaults to end_of_ticket so bones-era callers "
+            "(which only ever ran end-of-ticket) keep working without "
+            "passing the field explicitly."
         ),
     )
 

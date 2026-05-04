@@ -13,8 +13,13 @@ Currently shipped (mechanical, deterministic, no LLM):
 - ``CrossCuttingPolicyReviewer`` — universal-rule enforcement (Track G MVP).
 - ``SpecComplianceReviewer`` — behavior-AC reference checks (Track G MVP).
 
-The two-cadence dispatcher (per-commit + end-of-ticket) lands in a
-subsequent Track G MVP commit.
+Two-cadence dispatch (Track G MVP) is wired through
+``dispatch_for_cadence``: per-commit cadence runs only the mechanical
+reviewers (single-digit-second budget); end-of-ticket runs the full
+default-on set per ``select_reviewers_for_ticket``. Per-commit
+critical comments emit ``PerCommitCheckFailed`` analytics events when
+the dispatch is wired through ``EventEmitter`` (separate orchestrator
+follow-on).
 
 The synthetic operator (Track H) invokes the reviewer explicitly after
 the dev agent completes; this package does NOT yet wire into the
@@ -35,6 +40,7 @@ from jig.reviewers.dispatch import (
     CROSS_CUTTING_REVIEWER_ID,
     INTENT_REVIEWER_ID,
     SPEC_COMPLIANCE_REVIEWER_ID,
+    dispatch_for_cadence,
     select_reviewers_for_ticket,
     should_run_for_bones,
 )
@@ -59,6 +65,7 @@ __all__ = [
     "SPEC_COMPLIANCE_REVIEWER_ID",
     "Severity",
     "SpecComplianceReviewer",
+    "dispatch_for_cadence",
     "review_intent",
     "select_reviewers_for_ticket",
     "should_run_for_bones",

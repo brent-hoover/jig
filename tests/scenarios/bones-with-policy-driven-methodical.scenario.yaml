@@ -1,0 +1,224 @@
+spec_version: 1
+id: bones-with-policy-driven-methodical
+description: |
+  Same shape as ``bones-with-planner`` but ``policy_driven: true`` so
+  the driver routes per-step responses through ``jig.sim.policy.apply_policy``
+  rather than reading scripted text. Per ``docs/synthetic-operator/design.md``
+  §"Scripted vs policy-driven turns", policy-driven turns are
+  reproducible given a scenario seed (Final scope is template-based;
+  LLM-driven response generation is v2.x).
+
+  Assertions verify the spine resolves end-to-end identically to the
+  scripted methodical run AND that the report carries one
+  ``PolicyTurn`` per step (the test reads ``report.policy_turns``).
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+policy_driven: true
+scenario_seed: 1729
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-planner
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - policy-driven-turns
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-policy-driven-methodical
+      pitch: a tracer-bullet project that exercises the policy-driven turn machinery
+      problem: |
+        Validate the policy-driven turn machinery against the methodical
+        persona — same payload as the scripted run, just routed through
+        the policy module so the report carries deterministic
+        PolicyTurn entries.
+      audience: |
+        Internal jig developers validating the policy-driven turn path.
+      non_goals:
+        - id: no-llm
+          text: This scenario does not exercise LLM-driven response generation
+          rationale: Final scope is template-based; LLM is v2.x
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-policy-driven-methodical
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data into the local store
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: shopify-connect
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store; we pull the catalog.
+          behaviors:
+            - id: pull-catalog
+              description: After OAuth completes we pull the catalog
+              acceptance_criteria:
+                - Catalog rows appear in the products collection
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Pull catalog data from Shopify.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Need a module that owns the products collection.
+              simplest_solution: |
+                One module that handles Shopify ingest.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: catalog-ingest
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access:
+              - self
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Shopify catalog data flows into the products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/modules/catalog-ingest/contracts.yaml
+        contains: shopify-connect
+
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-policy-driven-methodical
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the policy-driven turn machinery.
+              simplest_solution: |
+                One epic, one bones ticket.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/build-plan.yaml
+        contains: tb-catalog-ingest
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: open
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: analytics_event_emitted
+    event_kind: ticket_state_changed
+    field_constraints:
+      ticket_id: tb-catalog-ingest
+      to_state: resolved
+  - kind: cost_under_budget
+    usd: 1.0

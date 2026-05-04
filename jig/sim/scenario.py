@@ -230,6 +230,13 @@ class Scenario(BaseModel):
     final_assertions: list[ScenarioAssertionUnion] = Field(default_factory=list)
     coverage_tags: list[str] = Field(default_factory=list)
     tier: Literal["smoke", "full", "nightly"] = "smoke"
+    # Track H Final — policy-driven turns. When true, the driver routes
+    # any step's response generation through ``jig.sim.policy.apply_policy``
+    # rather than reading literal scripted text. ``scenario_seed`` is the
+    # RNG seed for reproducibility — the same (persona, seed) pair always
+    # yields the same sampled responses.
+    policy_driven: bool = False
+    scenario_seed: int = 0
 
     @field_validator("coverage_tags")
     @classmethod

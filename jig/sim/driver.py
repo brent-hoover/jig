@@ -102,6 +102,8 @@ __all__ = [
     "DriverContext",
     "ScenarioReport",
     "StepOutcome",
+    "TUI_TRACE_RELPATH",
+    "TuiDriverAdapter",
 ]
 
 
@@ -142,6 +144,9 @@ class ScenarioReport:
         default_factory=dict,
     )
     cost_usd: float = 0.0  # mock mode: 0.0; real mode: aggregated AgentCompleted.cost
+    # Track H Final — policy-driven turns sampled for this run. Empty
+    # for scripted scenarios. Each entry is a ``jig.sim.policy.PolicyTurn``.
+    policy_turns: list = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -232,6 +237,25 @@ class DriverContext:
     last_cascade_action: str | None = None
     last_cascade_stage_count: int = 0
     last_next_layer: str | None = None
+    # Track H Final — policy-driven turn record. Populated when the
+    # active scenario has ``policy_driven: true``. Each per-step
+    # response sampled via ``jig.sim.policy.apply_policy`` lands here
+    # so a scenario / test can audit the deterministic outputs.
+    policy_turns: list = field(default_factory=list)
+    # The persona Pydantic model loaded for the current scenario. Set
+    # by the driver before any step handler runs; ``None`` outside of
+    # a scenario run. Carries the response_templates the policy module
+    # samples from.
+    persona: object | None = None
+    # The scenario seed for the current run (reproducibility for
+    # policy-driven turns). ``None`` for scripted scenarios.
+    scenario_seed: int | None = None
+    # Track H Final — TUI-driving mode marker. When non-None, step
+    # handlers that mutate state should record the intended TUI
+    # interaction in the trace log + tag analytics events with this
+    # value so the report can distinguish daemon-API steps from
+    # would-be-TUI steps.
+    tui_via_tag: str | None = None
 
 
 # ---- step handler signature ---------------------------------------------
@@ -245,6 +269,75 @@ StepHandler = Callable[
     ["DriverContext", ScenarioStep],
     Awaitable[None],
 ]
+
+
+# ---- TUI-driving mode (Track H Final hook) ------------------------------
+
+
+# Trace log relpath for the TUI-driving stub. Lives under ``.jig/sim/``
+# so all simulator-owned state nests cleanly. JSONL semantics — one row
+# per recorded TUI interaction.
+TUI_TRACE_RELPATH = Path(".jig") / "sim" / "tui-trace.jsonl"
+
+
+class TuiDriverAdapter:
+    """Thin TUI-driving adapter (Track H Final stub).
+
+    For Final scope this is a stub — actual TUI driving lands with the
+    TUI track. The stub records the intended TUI interactions
+    structurally to ``.jig/sim/tui-trace.jsonl`` so a scenario
+    asserting that step X "would have been a TUI interaction" can
+    introspect the trace. Dispatch still goes through the same
+    MCP-direct handlers; nothing actually drives a TUI.
+
+    Real TUI driving (spawning the textual app, sending keystrokes,
+    asserting on screen state) is a v2.x extension.
+    """
+
+    def __init__(self, *, project_root: Path) -> None:
+        self._project_root = project_root
+        self._path = project_root / TUI_TRACE_RELPATH
+        self._started = False
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    async def start(self) -> None:
+        """Initialize the trace log file (truncate any prior contents)."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Truncate so each run starts clean — the trace is run-scoped,
+        # not append-forever like the analytics store.
+        self._path.write_text("")
+        self._started = True
+
+    async def record(
+        self,
+        *,
+        step_kind: str,
+        params: dict,
+        tag: str,
+    ) -> None:
+        """Record one intended TUI interaction.
+
+        Format is one JSON object per line (JSONL) so downstream tools
+        can stream-parse without loading the whole file.
+        """
+        import json
+
+        if not self._started:
+            await self.start()
+        row = {
+            "step_kind": step_kind,
+            "params": params,
+            "tui_via": tag,
+        }
+        with self._path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, default=str) + "\n")
+
+    async def stop(self) -> None:
+        """No-op for the stub. Real adapter would tear down the TUI process."""
+        return None
 
 
 # ---- driver -------------------------------------------------------------
@@ -265,8 +358,12 @@ class Driver:
     test suites and CI never accidentally cost money.
     """
 
-    def __init__(self, *, real_mode: bool = False) -> None:
+    def __init__(
+        self, *, real_mode: bool = False, tui_mode: bool = False
+    ) -> None:
         self._real_mode = real_mode
+        self._tui_mode = tui_mode
+        self._tui_adapter: TuiDriverAdapter | None = None
         dev_handler: StepHandler = (
             _handle_real_dev_dispatch if real_mode else _handle_mock_dev_commit
         )
@@ -323,6 +420,11 @@ class Driver:
         """True when this driver routes the dev step to the real Claude path."""
         return self._real_mode
 
+    @property
+    def tui_mode(self) -> bool:
+        """True when step invocations route through the TUI driver adapter (stub)."""
+        return self._tui_mode
+
     def register_step_handler(
         self, kind: str, handler: StepHandler
     ) -> None:
@@ -334,6 +436,39 @@ class Driver:
     ) -> ScenarioReport:
         report = ScenarioReport(scenario_id=scenario.id)
         async with _isolated_run(project_root) as ctx:
+            # Track H Final — policy-driven scenarios pre-load the
+            # persona + scenario seed onto the context so any handler
+            # that wants to sample a response has the inputs in scope.
+            if scenario.policy_driven:
+                from jig.sim.persona import load_persona, persona_path
+                from jig.sim.policy import apply_policy
+
+                ctx.persona = load_persona(persona_path(scenario.persona))
+                ctx.scenario_seed = scenario.scenario_seed
+                # Eagerly sample one turn per step kind so the
+                # ``policy_turns`` log captures the sequence the
+                # scenario "intended" without each handler needing to
+                # opt in. Future LLM-driven turns would replace this.
+                for step in scenario.steps:
+                    turn = apply_policy(
+                        ctx.persona,
+                        prompt=str(step.params)[:200],
+                        prompt_kind="confirm_gate",
+                        scenario_seed=scenario.scenario_seed,
+                    )
+                    ctx.policy_turns.append(turn)
+
+            # Track H Final — TUI-driving mode hook. When the driver
+            # was constructed with tui_mode=True we tag the context so
+            # step handlers can mark their writes as "would have been
+            # a TUI interaction" and the trace log records the intent.
+            if self._tui_mode:
+                ctx.tui_via_tag = "tui"
+                self._tui_adapter = TuiDriverAdapter(
+                    project_root=project_root
+                )
+                await self._tui_adapter.start()
+
             for step in scenario.steps:
                 # Surface the actual handler name in real mode so the
                 # report doesn't lie ("mock_dev_commit" PASS during a
@@ -347,6 +482,16 @@ class Driver:
                 if handler is None:
                     outcome.error = f"no handler registered for kind {step.kind!r}"
                 else:
+                    # Track H Final — tui_mode: record the intended TUI
+                    # interaction before dispatching the (still
+                    # MCP-direct, stub) handler. Real TUI driving lands
+                    # with the TUI track Final.
+                    if self._tui_mode and self._tui_adapter is not None:
+                        await self._tui_adapter.record(
+                            step_kind=step.kind,
+                            params=step.params,
+                            tag=ctx.tui_via_tag or "tui",
+                        )
                     try:
                         await handler(ctx, step)
                     except Exception as e:
@@ -371,6 +516,9 @@ class Driver:
             report.captured_events = await ctx.analytics.all()
             report.captured_reviewer_comments = dict(ctx.reviewer_comments)
             report.cost_usd = ctx.cost_usd
+            report.policy_turns = list(ctx.policy_turns)
+            if self._tui_mode and self._tui_adapter is not None:
+                await self._tui_adapter.stop()
         return report
 
 

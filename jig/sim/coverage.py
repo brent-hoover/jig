@@ -102,6 +102,15 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "reviewer-architectural",
     "severity-disposition",
     "comment-self-check",
+    # Track H Final — synthetic operator final scope: two new personas,
+    # policy-driven turns, coverage threshold, regression-scenario
+    # discipline, and TUI-driving mode.
+    "persona-scope-creeper",
+    "persona-hostile",
+    "policy-driven-turns",
+    "coverage-threshold",
+    "regression-scenarios",
+    "tui-driver-mode",
 })
 
 

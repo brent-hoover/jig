@@ -24,7 +24,12 @@ What this DOESN'T do (intentionally):
 - Auto-escalate from inside the cycle. Auto-escalation is its own
   module (``jig.auto_escalation``) — the synthetic operator (and
   future Orchestrator hook) invokes the checker between cycles.
-- Apply the bones-first override (``cascade_risk_low``) — Final.
+
+Track C Final adds the bones-first override path on
+``next_layer_ready``: when every blocked epic's bones touches only
+``cascade_risk_low=true`` modules, the MVP layer becomes promotable
+for the un-blocked epics. The strict bones-first default still wins
+when blocked epics touch any non-low-risk module.
 
 See ``docs/pm-workflow/design.md`` §"Roles" for the Planner/Coordinator
 distinction, §"The three completeness layers" for the bones/mvp/final
@@ -48,7 +53,7 @@ from jig.schemas.plan import (
     LayerStatusEnum,
     OrderingRule,
 )
-from jig.spec_loader import load_build_plan, write_build_plan
+from jig.spec_loader import load_architecture, load_build_plan, write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
 
@@ -325,11 +330,26 @@ class Coordinator:
           is done. An empty layer counts as vacuously done.
         - ``PER_EPIC``: return the next due layer for the first epic
           that's ready to advance.
+
+        Track C Final override: when ``BONES_FIRST`` is in effect AND
+        the un-done bones layers all touch modules with
+        ``cascade_risk_low=true``, returns ``"mvp"`` instead of
+        ``"bones"`` so unblocked epics can advance per
+        ``docs/pm-workflow/design.md`` §"Bones-first ordering".
         """
         if plan.ordering_rule == OrderingRule.BONES_FIRST:
             for layer_name in _LAYER_ORDER:
                 if not self._all_epics_layer_done_or_empty(plan, layer_name):
                     if self._any_epic_layer_has_tickets(plan, layer_name):
+                        # Track C Final: cascade_risk_low override.
+                        # Only relevant for the bones layer — once we
+                        # promote past bones the rest of the chain
+                        # follows the normal rule.
+                        if (
+                            layer_name == LayerName.BONES.value
+                            and self._cascade_risk_low_override_allows_mvp(plan)
+                        ):
+                            return LayerName.MVP.value
                         return layer_name
                     # Every epic's layer is empty AND not_started → vacuous
                     # done; advance to the next layer.
@@ -345,6 +365,60 @@ class Coordinator:
                 if layer.status != LayerStatusEnum.DONE:
                     return layer_name
         return None
+
+    # ---- cascade_risk_low override (Track C Final) ---------------------
+
+    def _cascade_risk_low_override_allows_mvp(self, plan: BuildPlan) -> bool:
+        """True when blocked-bones epics touch only cascade_risk_low modules.
+
+        Per ``docs/pm-workflow/design.md`` §"Bones-first ordering":
+        the strict default holds unless every still-blocked bones epic
+        touches modules the SA flagged ``cascade_risk_low=true``. Then
+        the un-blocked epics can promote to MVP without losing the
+        integration-validation property bones-first exists to provide
+        — the SA's hint says the un-done bones won't reshape what's
+        already been built.
+
+        Conditions:
+        - At least one epic's bones layer is done (otherwise there's
+          nothing to promote).
+        - At least one epic's bones layer is NOT done (otherwise we're
+          past bones and the override is moot).
+        - Every not-done epic's modules ALL have cascade_risk_low=true.
+        - At least one un-done epic exists with module references (we
+          can't override on epics we know nothing about).
+
+        Architecture-load failure → False (fail closed; we keep the
+        strict default rather than over-promoting on a misread).
+        """
+        try:
+            arch = load_architecture(self._project_root)
+        except FileNotFoundError:
+            return False
+        cascade_low_modules = {
+            m.id for m in arch.modules if m.cascade_risk_low
+        }
+
+        bones = LayerName.BONES
+        any_done = False
+        any_blocked = False
+        for epic in plan.epics:
+            layer = self._epic_layer(epic, bones)
+            if not layer.tickets:
+                continue
+            if layer.status == LayerStatusEnum.DONE:
+                any_done = True
+            else:
+                any_blocked = True
+                # Each blocked epic must touch only cascade_risk_low
+                # modules. Empty epic.modules → "we don't know" →
+                # treat as not-low-risk so we don't over-promote.
+                if not epic.modules:
+                    return False
+                for module_id in epic.modules:
+                    if module_id not in cascade_low_modules:
+                        return False
+        return any_done and any_blocked
 
     def _all_epics_layer_done_or_empty(
         self, plan: BuildPlan, layer_name: str

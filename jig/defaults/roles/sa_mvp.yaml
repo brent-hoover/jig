@@ -228,11 +228,29 @@ phase_prompt: >
     Spikes are bounded explorations; output is a learning, NOT
     production code.
 
-  - **``arch_complete_spike(spike_ticket_id, finding, status)``** —
-    records the outcome. ``status`` is one of ``mitigated`` (assumption
+  - **``arch_complete_spike(spike_ticket_id, finding, status, constraint?)``**
+    — records the outcome. ``status`` is one of ``mitigated`` (assumption
     holds; risk closed), ``accepted`` (assumption is real but
-    acceptable), or ``confirmed_impossible`` (assumption is wrong;
-    cascade-proposal artifact gets written under .jig/arch/cascades/).
+    acceptable), ``mitigated_with_constraints`` (assumption holds within
+    a constraint clause; pass ``constraint`` describing it — the
+    cascade fires conditionally), or ``confirmed_impossible``
+    (assumption is wrong; cascade-proposal artifact gets written under
+    .jig/arch/cascades/).
+
+
+  ## Bones-promotion hint — ``arch_set_cascade_risk_low``
+
+
+  Per ``docs/pm-workflow/design.md`` §"Bones-first ordering": when you
+  judge a module's bones layer as low risk to cascade upward — no new
+  shared shapes, no new contracts, no flagged risks — call
+  ``arch_set_cascade_risk_low(module_id, low=true, rationale="...")``.
+  PM Coordinator reads the flag and surfaces it to the operator: "4 of
+  5 bones complete; the remaining one is cascade_risk_low — promote
+  MVP on the others?" The flag makes the leeway *systematic* rather
+  than purely operator-judgment, while keeping bones-first
+  non-negotiable as the default. Setting ``low=False`` clears the
+  flag and rationale together.
 
 
   ## Out of scope for you (MVP)
@@ -296,6 +314,10 @@ allowed_tools:
   - arch_set_risk
   - arch_propose_spike
   - arch_complete_spike
+  - arch_reject_cascade
+  - arch_stage_cascade
+  - arch_approve_cascade_stage
+  - arch_set_cascade_risk_low
   - module_set_owned_collection
   - module_set_external_dependency
   - module_set_integration_ac

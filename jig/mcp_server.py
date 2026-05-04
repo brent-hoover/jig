@@ -1552,10 +1552,114 @@ def create_agent_mcp_server(
                 finding=args["finding"],
                 status=args["status"],
                 author=agent_role,
+                constraint=args.get("constraint"),
             )
             return {"content": [{"type": "text", "text": "ok"}]}
 
         all_tools.append(arch_complete_spike)
+
+    if "arch_reject_cascade" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_reject_cascade",
+            "Reject a cascade proposal (Track C Final mitigation #1). "
+            "``cascade_id`` matches the on-disk artifact "
+            "``<risk-id>-<timestamp>``. ``reason`` is required and "
+            "lands in the audit log so cross-project analytics can "
+            "flag rejection patterns. Returns the audit entry.",
+            {"cascade_id": str, "reason": str},
+        )
+        async def arch_reject_cascade(args):
+            entry = await sa_incremental_mcp.handle_arch_reject_cascade(
+                project_path=project_path,
+                cascade_id=args["cascade_id"],
+                reason=args["reason"],
+                actor=agent_role,
+            )
+            return {
+                "content": [
+                    {"type": "text", "text": entry.model_dump_json()}
+                ]
+            }
+
+        all_tools.append(arch_reject_cascade)
+
+    if "arch_stage_cascade" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_stage_cascade",
+            "Split a cascade proposal into approval stages "
+            "(Track C Final mitigation #2 — huge cascades). "
+            "Default chunk_size=5; the operator approves stages one at "
+            "a time via ``arch_approve_cascade_stage``. Returns the "
+            "stage list.",
+            {"cascade_id": str},
+        )
+        async def arch_stage_cascade(args):
+            stages = await sa_incremental_mcp.handle_arch_stage_cascade(
+                project_path=project_path,
+                cascade_id=args["cascade_id"],
+                actor=agent_role,
+                chunk_size=args.get("chunk_size", 5),
+            )
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": ",".join(s.stage_id for s in stages),
+                    }
+                ]
+            }
+
+        all_tools.append(arch_stage_cascade)
+
+    if "arch_approve_cascade_stage" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_approve_cascade_stage",
+            "Approve one stage of a staged cascade. When the last "
+            "outstanding stage approves, the cascade as a whole "
+            "transitions to ``resolved`` and an extra audit entry "
+            "lands.",
+            {"cascade_id": str, "stage_id": str},
+        )
+        async def arch_approve_cascade_stage(args):
+            stage = await sa_incremental_mcp.handle_arch_approve_cascade_stage(
+                project_path=project_path,
+                cascade_id=args["cascade_id"],
+                stage_id=args["stage_id"],
+                actor=agent_role,
+            )
+            return {
+                "content": [
+                    {"type": "text", "text": stage.stage_id}
+                ]
+            }
+
+        all_tools.append(arch_approve_cascade_stage)
+
+    if "arch_set_cascade_risk_low" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_cascade_risk_low",
+            "Mark a Module's ``cascade_risk_low`` flag. Per "
+            "docs/pm-workflow/design.md §'Bones-first ordering': when "
+            "True, PM Coordinator may suggest MVP promotion on "
+            "unblocked epics even if blocked epics' bones touch this "
+            "module. ``rationale`` is required when ``low=True`` so "
+            "the operator sees the reasoning behind the SA's hint.",
+            {"module_id": str, "low": bool, "rationale": str},
+        )
+        async def arch_set_cascade_risk_low(args):
+            mid = await sa_incremental_mcp.handle_arch_set_cascade_risk_low(
+                project_path=project_path,
+                module_id=args["module_id"],
+                low=args["low"],
+                rationale=args["rationale"],
+            )
+            return {"content": [{"type": "text", "text": mid}]}
+
+        all_tools.append(arch_set_cascade_risk_low)
 
     if "arch_set_risk" in agent_cfg.allowed_tools:
 

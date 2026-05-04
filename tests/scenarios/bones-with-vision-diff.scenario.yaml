@@ -1,0 +1,252 @@
+spec_version: 1
+id: bones-with-vision-diff
+description: |
+  Track D Final — exercises the vision-based screenshot diff path
+  using the StubVisionProvider. Walks the full v2 spine to land a UI
+  ticket carrying a wireframe, then runs ``invoke_vision_diff`` with
+  a canned ``VisionDiffResult`` — the FullVisualComplianceReviewer
+  composes the MVP mechanical checks with the per-screen vision diff
+  and emits one ``visual-vision-diff`` comment per canned difference.
+
+  Mock-mode safe: the vision provider is the stub, no LLM is invoked.
+  Production wires its preferred vision LLM (Claude Vision / GPT-4V)
+  outside of jig's tree; the Protocol is the seam.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - vd-finalize
+  - wireframe-lint
+  - visual-compliance
+  - vision-diff-stub
+  - pm-planner
+  - pm-coordinator-bones
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-vision-diff
+      pitch: vision-diff scenario
+      problem: |
+        We need a happy-path scenario that exercises the Track D Final
+        vision-diff path with a stub provider so the full reviewer flow
+        (MVP mechanical checks + per-screen vision diff) runs end-to-end.
+      audience: |
+        jig developers verifying Track D Final wiring.
+      non_goals:
+        - id: no-real-vision
+          text: This scenario uses the StubVisionProvider, not a real LLM
+          rationale: Track D Final ships the seam; operators wire the LLM
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-vision-diff
+
+  # ---- L2 PO (hand-write suites) ------------------------------------
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: jobs
+            title: Jobs
+            summary: posting jobs
+            capabilities:
+              - post-a-job
+        crosscutting_non_goals: []
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: jobs
+      intro: Jobs suite
+      capabilities:
+        - id: post-a-job
+          title: Operator posts a new job
+          state: planned
+          summary: Operator submits a form.
+          behaviors:
+            - id: submit-job
+              description: Submit
+              acceptance_criteria:
+                - Form validates title before submit
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/jobs/brief.md
+        contains: post-a-job
+
+  # ---- SA bones (operator hand-write) -------------------------------
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        data_stores:
+          - id: main-db
+            kind: sqlite
+            rationale: bones — single-process file-backed
+            accessed_by: [jobs-api]
+        modules:
+          - id: jobs-api
+            title: Jobs API
+            summary: Backend module that owns the jobs collection.
+            implements_capabilities: [post-a-job]
+            owns: [jobs]
+            tier_hint: standard
+            requires_tracer_bullet: true
+            n_a_categories:
+              - behavioral_contracts
+              - external_dependencies
+            intent:
+              problem: bones — needs a jobs collection
+              simplest_solution: one module, one collection
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: jobs-api
+      contracts:
+        spec_version: 1
+        module: jobs-api
+        owns:
+          - collection: jobs
+            db: main-db
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: post-a-job
+            must:
+              - jobs collection accepts a row from the post-a-job screen
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  # ---- VD MVP — author the wireframe --------------------------------
+  - kind: invoke_vd_finalize
+    params:
+      frontend:
+        spec_version: 1
+        stack:
+          framework: htmx_alpine
+          language: python_jinja
+          bundler: none
+          css: custom_utility
+          notes: default minimal stack
+        allowed_dependencies:
+          - alpinejs
+        intent:
+          problem: |
+            The post-a-job screen needs a declared frontend stack.
+          simplest_solution: |
+            Default minimal HTMX + Alpine + custom utility CSS.
+          complications_considered:
+            scale: null
+            concurrency: null
+            failure_modes: null
+            cross_cutting: null
+      wireframes:
+        - screen_id: post-a-job
+          html: |
+            <!-- wireframe-meta: {"screen_id": "post-a-job", "title": "Post a job", "persona_targets": ["merchant"], "journey_refs": ["j-merchant-onboarding"]} -->
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <link rel="stylesheet" href="../wireframe.css">
+              <script src="https://cdn.jsdelivr.net/npm/alpinejs@3" defer></script>
+            </head>
+            <body class="min-h-screen flex flex-col">
+              <a href="#main">Skip to content</a>
+              <main id="main" class="container mx-auto max-w-2xl p-6 flex-1">
+                <h1 class="text-2xl font-semibold mb-4">Post a job</h1>
+              </main>
+            </body>
+            </html>
+      summary: VD — minimal wireframe for vision-diff scenario
+      author: vd
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/wireframes/post-a-job.html
+        contains: post-a-job
+
+  # ---- Planner ------------------------------------------------------
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-vision-diff
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: jobs-tracer
+            title: Jobs tracer bullet
+            suite: jobs
+            modules: [jobs-api]
+            layers:
+              bones:
+                status: not_started
+                tickets: [tb-post-a-job]
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: bones tracer
+              simplest_solution: one ticket
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+
+  - kind: materialize_tickets
+    params:
+      visual_references_by_ticket:
+        tb-post-a-job:
+          - post-a-job
+
+  # ---- Vision diff (the new step) -----------------------------------
+  - kind: invoke_vision_diff
+    params:
+      ticket_id: tb-post-a-job
+      screen_id: post-a-job
+      screenshot_present: true
+      differences:
+        - kind: layout-shift
+          description: header element drifted left of center
+          severity: important
+          location_hint: header
+        - kind: color-mismatch
+          description: brand color rendered desaturated
+          severity: notable
+          location_hint: cta-button
+
+final_assertions:
+  - kind: cost_under_budget
+    usd: 1.0

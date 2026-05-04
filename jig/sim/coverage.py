@@ -91,6 +91,12 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "vd-finalize",
     "wireframe-lint",
     "visual-compliance",
+    # Track D Final — vision-based screenshot diff (with stub
+    # provider), accessibility (WCAG AA mechanical), responsive-
+    # design enforcement.
+    "vision-diff-stub",
+    "reviewer-accessibility",
+    "reviewer-responsive",
     # Track I Final — quartermaster feedback loop + Pydantic auto-render
     # on data-contract upsert.
     "quartermaster-feedback",

@@ -204,6 +204,27 @@ class StepKind(str, Enum):
     # values.
     INVOKE_CALIBRATION_RECORD = "invoke_calibration_record"
 
+    # Track D Final — exercise the vision-based screenshot diff path
+    # using the StubVisionProvider. Scenario YAML carries the
+    # ticket_id + screen_id + a canned VisionDiffResult so the
+    # reviewer's full-flow comment generation runs deterministically
+    # without a real vision LLM. Scenario can also opt to omit the
+    # screenshot to exercise the missing-screenshot branch.
+    INVOKE_VISION_DIFF = "invoke_vision_diff"
+
+    # Track D Final — exercise the AccessibilityReviewer end-to-end
+    # against an authored wireframe. Scenario YAML names the
+    # ticket_id + (optionally) a wireframe-html override so the
+    # scenario can swap in a deliberately-broken HTML to assert on a
+    # specific WCAG rule. Stamps the comment count + rule ids onto
+    # the driver context.
+    INVOKE_ACCESSIBILITY_REVIEW = "invoke_accessibility_review"
+
+    # Track D Final — exercise the ResponsiveDesignReviewer end-to-end.
+    # Same shape as the a11y handler — ticket_id + optional html
+    # override so a scenario can drive each rule independently.
+    INVOKE_RESPONSIVE_REVIEW = "invoke_responsive_review"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

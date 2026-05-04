@@ -264,6 +264,14 @@ class DriverContext:
     last_tier_promotion_from: str | None = None
     last_tier_promotion_to: str | None = None
     last_calibration_sample_size: str | None = None
+    # Track D Final — captured outputs from vision-diff / accessibility /
+    # responsive steps. ``last_vision_diff_count`` records the number of
+    # vision-diff comments (so a scenario can assert "got the canned
+    # diffs back"); ``last_a11y_rule_ids`` + ``last_responsive_breakpoints``
+    # carry the rule labels / breakpoint hits for fine-grained checks.
+    last_vision_diff_count: int = 0
+    last_a11y_rule_ids: list[str] = field(default_factory=list)
+    last_responsive_breakpoints: list[str] = field(default_factory=list)
 
 
 # ---- step handler signature ---------------------------------------------
@@ -426,6 +434,15 @@ class Driver:
             ),
             StepKind.INVOKE_CALIBRATION_RECORD.value: (
                 _handle_invoke_calibration_record
+            ),
+            StepKind.INVOKE_VISION_DIFF.value: (
+                _handle_invoke_vision_diff
+            ),
+            StepKind.INVOKE_ACCESSIBILITY_REVIEW.value: (
+                _handle_invoke_accessibility_review
+            ),
+            StepKind.INVOKE_RESPONSIVE_REVIEW.value: (
+                _handle_invoke_responsive_review
             ),
         }
 
@@ -2451,3 +2468,177 @@ async def _handle_invoke_calibration_record(
     )
     await store.append(sample)
     ctx.last_calibration_sample_size = size
+
+
+# ---- Track D Final — vision / a11y / responsive sim steps -------------
+
+
+async def _handle_invoke_vision_diff(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Run the FullVisualComplianceReviewer with the StubVisionProvider.
+
+    Scenario YAML shape::
+
+        kind: invoke_vision_diff
+        params:
+          ticket_id: tb-post-a-job          # required
+          screen_id: post-a-job             # required
+          screenshot_present: true          # optional; default True
+          differences:                      # optional; default []
+            - kind: layout-shift
+              description: header drifted left
+              severity: important
+              location_hint: header
+
+    Mock-mode only — no real vision LLM. Builds a
+    ``StubVisionProvider`` from the canned ``differences``, calls
+    ``FullVisualComplianceReviewer.review_full`` rooted at the
+    project's screenshots dir (``.jig/sim/screenshots/``), and stamps
+    the resulting comments on ``ctx.reviewer_comments`` +
+    ``ctx.last_vision_diff_count`` so assertion-time checks can
+    introspect.
+    """
+    from jig.reviewers.vision_provider import (
+        StubVisionProvider,
+        VisionDiffResult,
+        VisualDifference,
+    )
+    from jig.reviewers.visual_compliance_full import (
+        FullVisualComplianceReviewer,
+    )
+
+    ticket_id = step.params.get("ticket_id")
+    screen_id = step.params.get("screen_id")
+    if not ticket_id or not screen_id:
+        raise ValueError(
+            "invoke_vision_diff: params.ticket_id and params.screen_id "
+            "are required"
+        )
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_vision_diff: ticket {ticket_id!r} missing"
+        )
+
+    screenshots_dir = ctx.project_root / ".jig" / "sim" / "screenshots"
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+    if step.params.get("screenshot_present", True):
+        # Drop a tiny placeholder so the reviewer reaches the vision
+        # call. Bytes content is irrelevant — the StubVisionProvider
+        # ignores the inputs and returns the canned result.
+        (screenshots_dir / f"{screen_id}.png").write_bytes(b"PNG-stub")
+
+    diffs = [
+        VisualDifference(
+            kind=d["kind"],
+            description=d["description"],
+            severity=d.get("severity", "important"),
+            location_hint=d.get("location_hint"),
+        )
+        for d in (step.params.get("differences") or [])
+    ]
+    stub = StubVisionProvider(result=VisionDiffResult(differences=diffs))
+    reviewer = FullVisualComplianceReviewer()
+    comments = await reviewer.review_full(
+        ticket,
+        ctx.project_root,
+        stub,
+        screenshots_dir,
+    )
+    ctx.reviewer_comments[reviewer.reviewer_id] = comments
+    ctx.last_vision_diff_count = sum(
+        1 for c in comments if c.type == "visual-vision-diff"
+    )
+
+
+async def _handle_invoke_accessibility_review(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Run AccessibilityReviewer end-to-end against the ticket's wireframes.
+
+    Scenario YAML shape::
+
+        kind: invoke_accessibility_review
+        params:
+          ticket_id: tb-post-a-job        # required
+          screen_id: post-a-job           # optional
+          html: |                         # optional override
+            <!-- wireframe-meta: {...} -->
+            <html>...</html>
+
+    When ``html`` is supplied the handler writes it to the wireframe
+    path before running the reviewer — useful for forcing a specific
+    WCAG violation pattern without authoring a full wireframe via
+    ``invoke_vd_finalize``. Stamps the resulting WCAG rule ids on
+    ``ctx.last_a11y_rule_ids``.
+    """
+    from jig.reviewers.accessibility import AccessibilityReviewer
+    from jig.spec_loader import save_wireframe
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_accessibility_review: params.ticket_id is required"
+        )
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_accessibility_review: ticket {ticket_id!r} missing"
+        )
+
+    if step.params.get("html"):
+        screen_id = step.params.get("screen_id")
+        if not screen_id:
+            raise ValueError(
+                "invoke_accessibility_review: params.screen_id is "
+                "required when params.html is supplied"
+            )
+        save_wireframe(ctx.project_root, screen_id, step.params["html"])
+
+    reviewer = AccessibilityReviewer()
+    comments = await reviewer.review(ticket, ctx.project_root)
+    ctx.reviewer_comments[reviewer.reviewer_id] = comments
+    ctx.last_a11y_rule_ids = [
+        c.wcag_rule_id for c in comments if c.wcag_rule_id is not None
+    ]
+
+
+async def _handle_invoke_responsive_review(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Run ResponsiveDesignReviewer end-to-end against the ticket's wireframes.
+
+    Scenario YAML shape mirrors the accessibility handler — same
+    optional ``html`` override pattern. Stamps the breakpoint labels
+    surfaced by violations on ``ctx.last_responsive_breakpoints``.
+    """
+    from jig.reviewers.responsive import ResponsiveDesignReviewer
+    from jig.spec_loader import save_wireframe
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_responsive_review: params.ticket_id is required"
+        )
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_responsive_review: ticket {ticket_id!r} missing"
+        )
+
+    if step.params.get("html"):
+        screen_id = step.params.get("screen_id")
+        if not screen_id:
+            raise ValueError(
+                "invoke_responsive_review: params.screen_id is "
+                "required when params.html is supplied"
+            )
+        save_wireframe(ctx.project_root, screen_id, step.params["html"])
+
+    reviewer = ResponsiveDesignReviewer()
+    comments = await reviewer.review(ticket, ctx.project_root)
+    ctx.reviewer_comments[reviewer.reviewer_id] = comments
+    ctx.last_responsive_breakpoints = [
+        c.breakpoint for c in comments if c.breakpoint is not None
+    ]

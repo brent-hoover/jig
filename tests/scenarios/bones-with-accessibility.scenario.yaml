@@ -1,0 +1,217 @@
+spec_version: 1
+id: bones-with-accessibility
+description: |
+  Track D Final — exercises the AccessibilityReviewer (WCAG AA
+  mechanical) against an authored wireframe. The
+  ``invoke_accessibility_review`` step writes a deliberately-broken
+  wireframe HTML (img missing alt + html missing lang) over the
+  authored copy and runs the reviewer; the canned WCAG rule ids land
+  on the driver context for assertion-time introspection.
+
+  Mock-mode safe — no LLM, fully deterministic.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - vd-finalize
+  - wireframe-lint
+  - reviewer-accessibility
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-accessibility
+      pitch: a11y-review scenario
+      problem: |
+        Need a happy-path scenario that drives the accessibility
+        reviewer end-to-end through the sim driver.
+      audience: jig developers verifying Track D Final wiring.
+      non_goals:
+        - id: no-aaa
+          text: Final ships AA only
+          rationale: AAA lands later
+      author: po-l0
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: jobs
+            title: Jobs
+            summary: posting jobs
+            capabilities:
+              - post-a-job
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: jobs
+      intro: Jobs suite
+      capabilities:
+        - id: post-a-job
+          title: Post
+          state: planned
+          summary: Submit
+          behaviors:
+            - id: submit
+              description: Submit
+              acceptance_criteria:
+                - validate
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        data_stores:
+          - id: main-db
+            kind: sqlite
+            rationale: bones
+            accessed_by: [jobs-api]
+        modules:
+          - id: jobs-api
+            title: Jobs API
+            summary: Backend.
+            implements_capabilities: [post-a-job]
+            owns: [jobs]
+            tier_hint: standard
+            requires_tracer_bullet: true
+            n_a_categories:
+              - behavioral_contracts
+              - external_dependencies
+            intent:
+              problem: bones
+              simplest_solution: one
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: jobs-api
+      contracts:
+        spec_version: 1
+        module: jobs-api
+        owns:
+          - collection: jobs
+            db: main-db
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: post-a-job
+            must:
+              - jobs collection accepts a row
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: invoke_vd_finalize
+    params:
+      frontend:
+        spec_version: 1
+        stack:
+          framework: htmx_alpine
+          language: python_jinja
+          bundler: none
+          css: custom_utility
+          notes: stack
+        allowed_dependencies:
+          - alpinejs
+        intent:
+          problem: needs frontend
+          simplest_solution: minimal
+          complications_considered:
+            scale: null
+            concurrency: null
+            failure_modes: null
+            cross_cutting: null
+      wireframes:
+        - screen_id: post-a-job
+          html: |
+            <!-- wireframe-meta: {"screen_id": "post-a-job", "title": "Post a job", "persona_targets": ["merchant"], "journey_refs": ["j-merchant-onboarding"]} -->
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+            </head>
+            <body>
+              <a href="#main">Skip to content</a>
+              <main id="main"><h1>Post a job</h1></main>
+            </body></html>
+      summary: VD wireframe
+      author: vd
+
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-accessibility
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: jobs-tracer
+            title: Jobs tracer
+            suite: jobs
+            modules: [jobs-api]
+            layers:
+              bones:
+                status: not_started
+                tickets: [tb-post-a-job]
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: bones
+              simplest_solution: one
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+
+  - kind: materialize_tickets
+    params:
+      visual_references_by_ticket:
+        tb-post-a-job:
+          - post-a-job
+
+  # ---- Accessibility review with a deliberately-broken wireframe ---
+  - kind: invoke_accessibility_review
+    params:
+      ticket_id: tb-post-a-job
+      screen_id: post-a-job
+      html: |
+        <!-- wireframe-meta: {"screen_id": "post-a-job", "title": "Post", "persona_targets": [], "journey_refs": []} -->
+        <!doctype html>
+        <html>
+        <head><title>Bad</title></head>
+        <body>
+          <h1>Post</h1>
+          <img src="logo.png">
+          <button></button>
+        </body></html>
+
+final_assertions:
+  - kind: cost_under_budget
+    usd: 1.0

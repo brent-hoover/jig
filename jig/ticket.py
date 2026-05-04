@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from jig.safe_path import validate_safe_path_segment
 from jig.schemas._validators import validate_kebab_id, validate_tz_aware
@@ -83,6 +83,16 @@ class TicketStatus(str, Enum):
 
 
 class Ticket(StoreModel):
+    # ``extra="forbid"`` (Block A.3) — typos in operator-edited YAML
+    # (e.g. ``visulal_references``) used to land on the model as
+    # silently-discarded keys; now they raise at load time. The schema
+    # is otherwise additive: every legacy field stays.
+    #
+    # We MUST NOT set ``populate_by_name=False`` here — ``StoreModel``
+    # turns it on so callers can pass ``id=`` (the alias is ``_id``)
+    # interchangeably. Re-declare both explicitly.
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     work_type: WorkType
     size: Size = Size.M
     status: TicketStatus = TicketStatus.OPEN
@@ -91,10 +101,10 @@ class Ticket(StoreModel):
     assignee: str | None = None
     derived_from: str | None = None  # e.g. "project://spec/capabilities/due-dates"
     parent_id: str | None = None
-    blocks: list[str] = []
-    blocked_by: list[str] = []
+    blocks: list[str] = Field(default_factory=list)
+    blocked_by: list[str] = Field(default_factory=list)
     workflow: str = "default"
-    labels: list[str] = []
+    labels: list[str] = Field(default_factory=list)
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -104,13 +114,13 @@ class Ticket(StoreModel):
     # ticket. See docs/v2.0/pm-workflow/design.md §"Ticket structure (extensions)".
     suite_id: str | None = None
     module_id: str | None = None
-    capability_ids: list[str] = []
+    capability_ids: list[str] = Field(default_factory=list)
     epic_id: str | None = None
     layer: str | None = None  # bones | mvp | final
     dev_tier: str | None = None  # standard | senior | sa
-    reviewer_set: list[str] = []
-    context_hints: dict[str, Any] = {}
-    risks_addressed: list[str] = []
+    reviewer_set: list[str] = Field(default_factory=list)
+    context_hints: dict[str, Any] = Field(default_factory=dict)
+    risks_addressed: list[str] = Field(default_factory=list)
     done_when: str | None = None
 
     # v2 Track D MVP — VD wireframes referenced by this ticket. Each
@@ -119,7 +129,7 @@ class Ticket(StoreModel):
     # the wireframe exists, lints clean, and is referenced in the dev's
     # diff. Empty list means "this ticket implements no UI" — the
     # reviewer is skipped per dispatch logic.
-    visual_references: list[str] = []
+    visual_references: list[str] = Field(default_factory=list)
 
     # Set when the Coordinator defers this ticket via the DEFERRED queue
     # (per docs/v2.0/pm-workflow/design.md §"DEFERRED queue triage"). The

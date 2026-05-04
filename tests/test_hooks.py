@@ -451,9 +451,13 @@ phases:
     # actually picks it up — a bare dict raises ValueError on missing _op/_id
     # and the runner's narrowed except would silently fall through to the
     # fallback path, leaving the phase-aware branch uncovered.
+    #
+    # The Ticket model carries ``extra="forbid"`` (Block A.3) so the
+    # JSONL must not duplicate ``id`` alongside ``_id`` — Pydantic
+    # treats them as separate inputs and rejects the duplicate.
     (project / ".jig" / "store").mkdir()
     (project / ".jig" / "store" / "tickets.jsonl").write_text(
-        '{"_op": "insert", "_id": "t-1", "id": "t-1", '
+        '{"_op": "insert", "_id": "t-1", '
         '"work_type": "feature", "title": "x", "created_by": "u", '
         '"workflow": "default"}\n'
     )
@@ -491,8 +495,10 @@ def test_run_pre_push_in_worktree_workflow_schema_invalid_skips(tmp_path: Path, 
     # ValidationError. yaml.safe_load still succeeds on this input.
     (project / ".jig" / "workflows" / "default.yaml").write_text("phases: []\n")
     (project / ".jig" / "store").mkdir()
+    # Block A.3 — Ticket carries ``extra="forbid"``; JSONL must not
+    # duplicate ``id`` alongside ``_id`` (the alias).
     (project / ".jig" / "store" / "tickets.jsonl").write_text(
-        '{"_op": "insert", "_id": "t-1", "id": "t-1", '
+        '{"_op": "insert", "_id": "t-1", '
         '"work_type": "feature", "title": "x", "created_by": "u", '
         '"workflow": "default"}\n'
     )

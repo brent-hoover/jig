@@ -159,6 +159,31 @@ def load_module_contracts(project_root: Path, module_id: str) -> ContractsFile:
     return ContractsFile.model_validate(data)
 
 
+def save_architecture(project_root: Path, arch: Architecture) -> None:
+    """Atomically write ``arch`` to ``.jig/spec/architecture.yaml``.
+
+    Used by the SA MVP incremental authoring path — each upsert call
+    loads, mutates, then writes. ``sort_keys=False`` mirrors the bones
+    one-shot writer's choice so diffs across writes stay readable for
+    the operator inspecting the file mid-discovery.
+    """
+    payload = yaml.safe_dump(arch.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(architecture_path(project_root), payload)
+
+
+def save_module_contracts(
+    project_root: Path, module_id: str, contracts: ContractsFile
+) -> None:
+    """Atomically write ``contracts`` to ``modules/<module_id>/contracts.yaml``.
+
+    Companion to ``save_architecture`` for the SA MVP incremental path.
+    The module dir is created on demand so the first upsert against a
+    new module doesn't fail on a missing parent.
+    """
+    payload = yaml.safe_dump(contracts.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(module_contracts_path(project_root, module_id), payload)
+
+
 # ---- v2 PM paths ----------------------------------------------------------
 
 

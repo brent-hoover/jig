@@ -171,6 +171,16 @@ class Module(BaseModel):
     )
     tier_hint: TierHint = TierHint.STANDARD
     requires_tracer_bullet: bool = False
+    n_a_categories: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Checklist categories this module legitimately doesn't address "
+            "(e.g. ``behavioral_contracts`` for a CRUD-only data module). "
+            "Required for ``arch_finalize`` to skip checklist enforcement "
+            "on those categories — silence is treated as 'forgot to "
+            "address', not 'no behavioral contracts apply'."
+        ),
+    )
     intent: Intent = Field(
         ...,
         description="Why this module exists; the simplest-it-could-be version.",

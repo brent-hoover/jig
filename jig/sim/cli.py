@@ -33,7 +33,12 @@ from pathlib import Path
 
 import click
 
-from jig.sim.coverage import compute_coverage, format_coverage
+from jig.sim.coverage import (
+    CoverageThreshold,
+    compute_coverage,
+    compute_coverage_with_threshold,
+    format_coverage,
+)
 from jig.sim.driver import Driver, ScenarioReport
 from jig.sim.realism import RealismGap, list_gaps, log_gap
 from jig.sim.scenario import Scenario, load_scenario
@@ -202,7 +207,19 @@ def _scenarios_for_tier(scenarios: list[Scenario], tier: str) -> list[Scenario]:
         "scenario library (tests/scenarios/)."
     ),
 )
-def run_tier(tier: str, scenarios: Path | None) -> None:
+@click.option(
+    "--enforce-threshold",
+    type=float,
+    default=None,
+    help=(
+        "After the tier run, gate on canonical-tag coverage. Exit 1 if "
+        "covered-tags percentage falls below the given value. Per the "
+        "v2-plan, the Final target is 80."
+    ),
+)
+def run_tier(
+    tier: str, scenarios: Path | None, enforce_threshold: float | None
+) -> None:
     """Run every scenario at the given tier (or below).
 
     Tier ordering: ``smoke`` ⊂ ``full`` ⊂ ``nightly``. ``run-tier full``
@@ -210,7 +227,8 @@ def run_tier(tier: str, scenarios: Path | None) -> None:
     all three. All runs are mock-mode (no LLM cost) — real-mode
     requires the explicit ``jig sim run --real`` invocation.
 
-    Exits 1 if any scenario fails.
+    Exits 1 if any scenario fails. With ``--enforce-threshold N``,
+    also exits 1 if covered-tag percentage falls below N.
     """
     src = scenarios if scenarios is not None else _DEFAULT_SCENARIO_DIR
     library = _load_scenario_library(src)
@@ -238,8 +256,27 @@ def run_tier(tier: str, scenarios: Path | None) -> None:
                 click.echo(report.failure_summary())
 
     click.echo(f"\nTier {tier!r}: {len(selected) - len(failed)}/{len(selected)} passed")
+    threshold_failed = False
+    if enforce_threshold is not None:
+        # The threshold floor is computed against the full library, not
+        # just the tier-selected subset, so a smoke-tier run still
+        # surfaces the canonical taxonomy's coverage state. Operators
+        # gating on a tier-restricted floor can pass --scenarios a
+        # tier-filtered dir.
+        report = compute_coverage_with_threshold(
+            library, CoverageThreshold(min_percent=enforce_threshold)
+        )
+        gate = "PASS" if report.meets_threshold else "FAIL"
+        click.echo(
+            f"Coverage: {report.coverage_percent:.2f}% "
+            f"(threshold {enforce_threshold:.2f}%) → {gate}"
+        )
+        if not report.meets_threshold:
+            threshold_failed = True
     if failed:
         click.echo(f"Failed: {', '.join(failed)}")
+        sys.exit(1)
+    if threshold_failed:
         sys.exit(1)
 
 
@@ -254,18 +291,39 @@ def run_tier(tier: str, scenarios: Path | None) -> None:
         "scenarios pass a directory."
     ),
 )
-def coverage(scenarios: Path | None) -> None:
+@click.option(
+    "--threshold",
+    type=float,
+    default=None,
+    help=(
+        "Minimum canonical-tag coverage percentage to require. When set, "
+        "the CLI exits 1 if the library covers fewer than ``--threshold`` "
+        "percent of canonical tags. Default: no threshold (informational)."
+    ),
+)
+def coverage(scenarios: Path | None, threshold: float | None) -> None:
     """Print a markdown coverage report across the scenario library.
 
     Aggregates ``coverage_tags`` per scenario against the canonical
     taxonomy in ``jig.sim.coverage.CANONICAL_TAGS``. Surfaces gap
     tags (canonical tags that no scenario claims) so the operator
     knows what to write next.
+
+    Pass ``--threshold N`` to gate on coverage — the CLI exits 1 when
+    the library's covered-tags percentage falls below ``N``.
     """
     src = scenarios if scenarios is not None else _DEFAULT_SCENARIO_DIR
     library = _load_scenario_library(src)
-    report = compute_coverage(library)
-    click.echo(format_coverage(report))
+    if threshold is not None:
+        report = compute_coverage_with_threshold(
+            library, CoverageThreshold(min_percent=threshold)
+        )
+        click.echo(format_coverage(report))
+        if not report.meets_threshold:
+            sys.exit(1)
+    else:
+        report = compute_coverage(library)
+        click.echo(format_coverage(report))
 
 
 @sim.group(name="realism")

@@ -23,8 +23,10 @@ from pydantic import BaseModel, ConfigDict, Field
 __all__ = [
     "CANONICAL_TAGS",
     "CoverageReport",
+    "CoverageThreshold",
     "TagCoverage",
     "compute_coverage",
+    "compute_coverage_with_threshold",
     "format_coverage",
 ]
 
@@ -138,6 +140,11 @@ class CoverageReport(BaseModel):
     ``format_coverage(report)``. Surfaces gaps (canonical tags with
     zero scenario coverage) prominently — those are the next
     scenarios the operator should write.
+
+    ``meets_threshold`` is populated by
+    ``compute_coverage_with_threshold`` (Track H Final); the bare
+    ``compute_coverage`` leaves it ``None`` so old call sites stay
+    untouched.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -145,6 +152,12 @@ class CoverageReport(BaseModel):
     total_scenarios: int
     per_tag: dict[str, TagCoverage]
     unknown_tags: list[str] = Field(default_factory=list)
+    # Track H Final — populated by compute_coverage_with_threshold; left
+    # ``None`` by the threshold-agnostic compute_coverage so existing
+    # callers don't have to change.
+    meets_threshold: bool | None = None
+    threshold_percent: float | None = None
+    coverage_percent: float | None = None
 
     @property
     def covered_tags(self) -> list[str]:
@@ -153,6 +166,22 @@ class CoverageReport(BaseModel):
     @property
     def gap_tags(self) -> list[str]:
         return sorted(t for t, c in self.per_tag.items() if not c.covered)
+
+
+class CoverageThreshold(BaseModel):
+    """Operator-configurable coverage threshold (Track H Final).
+
+    Per the v2-plan's "≥80%" target, the threshold sets the floor for
+    canonical-tag coverage. ``enforce_in_ci`` is advisory metadata; the
+    actual CI gate is enforced by ``jig sim run-tier --enforce-threshold``
+    + ``jig sim coverage --threshold N`` exit codes — those check the
+    floor and exit 1 below it. The CI YAML is operator-owned.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_percent: float = Field(default=80.0, ge=0.0, le=100.0)
+    enforce_in_ci: bool = False
 
 
 # Imported lazily inside the function to avoid a circular import
@@ -190,6 +219,31 @@ def compute_coverage(scenarios: list) -> CoverageReport:  # type: ignore[type-ar
     )
 
 
+def compute_coverage_with_threshold(
+    scenarios: list,  # type: ignore[type-arg]
+    threshold: CoverageThreshold,
+) -> CoverageReport:
+    """``compute_coverage`` plus threshold gating (Track H Final).
+
+    Populates ``meets_threshold``, ``threshold_percent``, and
+    ``coverage_percent`` on the returned report. ``coverage_percent``
+    is ``len(covered_tags) / len(CANONICAL_TAGS) * 100`` (i.e. it's
+    measured against the canonical taxonomy, not against tags claimed
+    in the library — un-claimed canonical tags are gaps and they
+    count against the floor).
+    """
+    report = compute_coverage(scenarios)
+    canonical_total = len(CANONICAL_TAGS)
+    if canonical_total == 0:
+        coverage_pct = 100.0
+    else:
+        coverage_pct = (len(report.covered_tags) / canonical_total) * 100.0
+    report.coverage_percent = round(coverage_pct, 2)
+    report.threshold_percent = threshold.min_percent
+    report.meets_threshold = coverage_pct >= threshold.min_percent
+    return report
+
+
 def format_coverage(report: CoverageReport) -> str:
     """Markdown rendering of a ``CoverageReport``.
 
@@ -207,6 +261,12 @@ def format_coverage(report: CoverageReport) -> str:
         f"Tags covered: {len(covered)}/{len(CANONICAL_TAGS)} | "
         f"Gaps: {len(gaps)}"
     )
+    if report.coverage_percent is not None:
+        gate = "PASS" if report.meets_threshold else "FAIL"
+        lines.append(
+            f"Coverage: {report.coverage_percent:.2f}% "
+            f"(threshold {report.threshold_percent:.2f}%) → {gate}"
+        )
     lines.append("")
 
     lines.append("## Covered tags")

@@ -16,8 +16,10 @@ from jig.sim.cli import sim
 from jig.sim.coverage import (
     CANONICAL_TAGS,
     CoverageReport,
+    CoverageThreshold,
     TagCoverage,
     compute_coverage,
+    compute_coverage_with_threshold,
     format_coverage,
 )
 from jig.sim.scenario import Scenario, load_scenario
@@ -258,3 +260,133 @@ def test_coverage_report_round_trips_through_json():
     restored = CoverageReport.model_validate(payload)
     assert restored.total_scenarios == 1
     assert restored.per_tag["po-l0"].scenario_ids == ["s1"]
+
+
+# ---- threshold gating (Track H Final) ------------------------------------
+
+
+def test_coverage_threshold_default_is_eighty():
+    """The Final scope target is 80% per the v2-plan."""
+    t = CoverageThreshold()
+    assert t.min_percent == 80.0
+    assert t.enforce_in_ci is False
+
+
+def test_coverage_threshold_rejects_out_of_range():
+    """Threshold must be in [0, 100]."""
+    with pytest.raises(ValidationError):
+        CoverageThreshold(min_percent=110.0)
+    with pytest.raises(ValidationError):
+        CoverageThreshold(min_percent=-1.0)
+
+
+def test_compute_coverage_with_threshold_meets_when_above():
+    """Library covering > threshold passes the gate."""
+    scenarios = [_scn(f"s-{tag}", [tag]) for tag in CANONICAL_TAGS]
+    report = compute_coverage_with_threshold(
+        scenarios, CoverageThreshold(min_percent=80.0)
+    )
+    assert report.meets_threshold is True
+    assert report.coverage_percent == 100.0
+    assert report.threshold_percent == 80.0
+
+
+def test_compute_coverage_with_threshold_fails_when_below():
+    """Library covering < threshold fails the gate."""
+    scn = _scn("s1", ["po-l0"])
+    report = compute_coverage_with_threshold(
+        [scn], CoverageThreshold(min_percent=80.0)
+    )
+    assert report.meets_threshold is False
+    # Single tag covered out of >>1 canonical tags ≪ 80%.
+    assert report.coverage_percent < 80.0
+
+
+def test_compute_coverage_threshold_renders_in_format():
+    """format_coverage surfaces the gate verdict + percentages."""
+    scenarios = [_scn(f"s-{tag}", [tag]) for tag in CANONICAL_TAGS]
+    report = compute_coverage_with_threshold(
+        scenarios, CoverageThreshold(min_percent=80.0)
+    )
+    out = format_coverage(report)
+    assert "Coverage:" in out
+    assert "PASS" in out
+    assert "80.00" in out
+
+
+def test_compute_coverage_threshold_render_fail_state():
+    scn = _scn("s1", ["po-l0"])
+    report = compute_coverage_with_threshold(
+        [scn], CoverageThreshold(min_percent=80.0)
+    )
+    out = format_coverage(report)
+    assert "FAIL" in out
+
+
+# ---- CLI threshold flag --------------------------------------------------
+
+
+def test_cli_coverage_threshold_pass(tmp_path: Path):
+    """``jig sim coverage --threshold 1`` passes against in-tree library."""
+    runner = CliRunner()
+    result = runner.invoke(sim, ["coverage", "--threshold", "1.0"])
+    assert result.exit_code == 0, result.output
+    assert "Coverage:" in result.output
+    assert "PASS" in result.output
+
+
+def test_cli_coverage_threshold_fail_on_empty_dir(tmp_path: Path):
+    """``--threshold 50`` against an empty library exits 1."""
+    runner = CliRunner()
+    result = runner.invoke(
+        sim,
+        ["coverage", "--scenarios", str(tmp_path), "--threshold", "50.0"],
+    )
+    assert result.exit_code == 1, result.output
+    assert "FAIL" in result.output
+
+
+def test_cli_run_tier_enforce_threshold_pass(tmp_path: Path):
+    """``run-tier smoke --enforce-threshold 1`` passes against in-tree library."""
+    runner = CliRunner()
+    result = runner.invoke(
+        sim, ["run-tier", "smoke", "--enforce-threshold", "1.0"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Coverage:" in result.output
+
+
+def test_cli_run_tier_enforce_threshold_fail(tmp_path: Path):
+    """``run-tier --enforce-threshold N`` exits 1 below floor (custom dir)."""
+    scenario_dir = tmp_path / "scenarios"
+    scenario_dir.mkdir()
+    # One scenario covering a single tag — far below 50%.
+    (scenario_dir / "a.scenario.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "spec_version": 1,
+                "id": "a",
+                "description": "x",
+                "persona": "methodical",
+                "estimated_cost_usd_max": 0.0,
+                "tier": "smoke",
+                "coverage_tags": ["po-l0"],
+                "steps": [],
+                "final_assertions": [],
+            }
+        )
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        sim,
+        [
+            "run-tier",
+            "smoke",
+            "--scenarios",
+            str(scenario_dir),
+            "--enforce-threshold",
+            "50.0",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert "FAIL" in result.output

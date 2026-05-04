@@ -20,6 +20,8 @@ from jig.intent import Intent
 __all__ = [
     "Architecture",
     "BehavioralContract",
+    "CascadeContractDisposition",
+    "CascadeProposal",
     "ChangeLogEntry",
     "ContractsFile",
     "ContractPolarity",
@@ -330,3 +332,59 @@ class ContractsFile(BaseModel):
     data_contracts: list[DataContract] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
     change_log: list[ChangeLogEntry] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Cascade-after-confirmed-impossible artifact (Track C MVP follow-on)
+# ---------------------------------------------------------------------------
+
+
+class CascadeContractDisposition(BaseModel):
+    """One row in a cascade proposal: a dependent contract + proposed action.
+
+    The MVP cascade-generator writes ``proposed_disposition='still_holds'``
+    by default for every dependent and lets the operator hand-edit the
+    YAML to flip entries to ``invalidated`` (the contract is wrong; replace)
+    or ``needs_revision`` (the contract still applies but with new
+    constraints). Full automatic disposition lands in Final per the
+    design's §"The cascade workflow" SA delta-pass step.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    uri: str = Field(..., min_length=1)
+    current_shape: str | None = Field(
+        default=None,
+        description=(
+            "Snapshot of the contract's current text/shape at cascade-"
+            "generation time. Optional because the URI authority "
+            "resolvers are partial in MVP — the writer fills what it "
+            "can resolve, leaves None where the URI doesn't resolve "
+            "(operator still sees the URI and can read the source)."
+        ),
+    )
+    proposed_disposition: Literal[
+        "invalidated", "needs_revision", "still_holds"
+    ] = "still_holds"
+
+
+class CascadeProposal(BaseModel):
+    """One cascade-after-confirmed-impossible proposal artifact.
+
+    Persisted to ``.jig/arch/cascades/<risk-id>-<timestamp>.yaml`` per
+    ``docs/sa-architecture/design.md`` §"The cascade workflow" step 5
+    (audit trail). MVP scope writes the artifact and surfaces it via a
+    Handoff on the architecture ticket; the operator hand-edits to set
+    real dispositions and re-runs SA. Full transactional confirmation
+    + auto-cascade-application lands in Final.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    risk_id: str = Field(..., min_length=1)
+    spike_ticket_id: str = Field(..., min_length=1)
+    finding: str = Field(..., min_length=1)
+    generated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    contracts: list[CascadeContractDisposition] = Field(default_factory=list)

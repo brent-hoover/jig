@@ -184,6 +184,34 @@ def save_module_contracts(
     atomic_write_text(module_contracts_path(project_root, module_id), payload)
 
 
+# ---- v2 cascade-after-impossible-spike paths -----------------------------
+
+
+def cascades_dir(project_root: Path) -> Path:
+    """``.jig/arch/cascades/`` — per ``docs/sa-architecture/design.md``.
+
+    Each ``confirmed_impossible`` spike emits one cascade-proposal YAML
+    here named ``<risk-id>-<timestamp>.yaml``. Operator hand-edits the
+    file (MVP scope) to set real dispositions, then re-runs SA. The
+    timestamp suffix preserves the audit trail across multiple cascade
+    rounds for the same risk (re-spike → confirm impossible again).
+    """
+    return project_root / ".jig" / "arch" / "cascades"
+
+
+def cascade_proposal_path(
+    project_root: Path, risk_id: str, ts: str
+) -> Path:
+    """Deterministic path for one cascade proposal.
+
+    ``ts`` is the writer-generated timestamp (an ISO-like string with
+    filesystem-safe characters; the writer formats as ``YYYYMMDDTHHMMSS``).
+    Round-trippable from the on-disk filename so loaders can rebuild
+    the path without globbing.
+    """
+    return cascades_dir(project_root) / f"{risk_id}-{ts}.yaml"
+
+
 # ---- v2 PM paths ----------------------------------------------------------
 
 

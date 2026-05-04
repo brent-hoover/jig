@@ -41,11 +41,16 @@ Handoff the bones path posts, resolves the ticket via the shared
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import ValidationError
 
+from jig.analytics.emitter import EventEmitter
+from jig.analytics.events import RiskStatusChanged
+from jig.atomic import atomic_write_text
 from jig.handoff_resolve import resolve_after_handoff
 from jig.intent import ComplicationsConsidered, Intent
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
@@ -56,6 +61,8 @@ from jig.sa_validation import (
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    CascadeContractDisposition,
+    CascadeProposal,
     ContractsFile,
     CrossCuttingPolicy,
     DataContract,
@@ -69,8 +76,9 @@ from jig.schemas.arch import (
     RiskStatus,
     SharedContract,
 )
-from jig.ticket import Ticket, WorkType
 from jig.spec_loader import (
+    cascade_proposal_path,
+    cascades_dir,
     load_architecture,
     load_module_contracts,
     save_architecture,
@@ -80,6 +88,7 @@ from jig.store.bus import Message, MessageBus, MessageType
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note
+from jig.ticket import Ticket, WorkType
 
 
 __all__ = [
@@ -462,6 +471,7 @@ async def handle_arch_complete_spike(
     finding: str,
     status: str,
     author: str,
+    emitter: EventEmitter | None = None,
 ) -> None:
     """Record the spike outcome — finding-as-Note + risk status update.
 
@@ -481,10 +491,18 @@ async def handle_arch_complete_spike(
        carries operator-readable evidence of what the spike learned.
     4. Transition the risk's status to the matching outcome.
     5. Resolve the spike ticket via the shared resolver.
+    6. When ``status == confirmed_impossible``: write a cascade-proposal
+       artifact under ``.jig/arch/cascades/`` enumerating each dependent
+       contract, post a Handoff on the architecture ticket targeting
+       phase ``operator-cascade-confirm``, emit ``RiskStatusChanged``
+       carrying the cascade path. MVP scope per
+       ``docs/implementation/v2-plan.md`` Track C: operator manually
+       edits the YAML and re-runs SA; full transactional confirmation
+       lands in Final.
 
-    The ``confirmed_impossible`` branch wires the cascade-after-impossible
-    workflow in commit 3 — for now this handler just transitions the
-    risk status; the cascade-proposal write lands alongside.
+    ``emitter`` is optional so other outcomes (mitigated, accepted)
+    don't require an analytics emitter wired through. Only the
+    ``confirmed_impossible`` branch consumes it.
     """
     if status not in _SPIKE_OUTCOME_STATUSES:
         raise ValueError(
@@ -519,6 +537,7 @@ async def handle_arch_complete_spike(
         )
     risk = risks_by_id[risk_id]
     new_status = _SPIKE_OUTCOME_STATUSES[status]
+    prior_status = risk.status.value
 
     # Note with the finding — operator-readable evidence on the spike
     # ticket. Posted before the risk-status flip so the trail order
@@ -542,6 +561,49 @@ async def handle_arch_complete_spike(
     arch.risks = _replace_or_append(arch.risks, updated_risk)
     save_architecture(project_path, arch)
 
+    cascade_path: Path | None = None
+    if new_status == RiskStatus.CONFIRMED_IMPOSSIBLE:
+        cascade_path = _write_cascade_proposal(
+            project_path=project_path,
+            risk=updated_risk,
+            spike_ticket_id=spike_ticket_id,
+            finding=finding,
+        )
+        # Cascade Handoff on the architecture ticket — surfaces the
+        # cascade for operator review. Phase name ``operator-cascade-
+        # confirm`` matches the design's §"Cascade after confirmed-
+        # impossible spike" UX hook for the (Final-scope) confirmation
+        # screen; for MVP it just signals the operator to inspect the
+        # YAML and re-run SA.
+        await threads.post(
+            Handoff(
+                ticket_id=SA_TICKET_ID,
+                author=author,
+                phase="operator-cascade-confirm",
+                outputs=[
+                    str(cascade_path.relative_to(project_path)),
+                ],
+                summary=(
+                    f"Cascade proposal for risk {risk_id!r}: "
+                    f"{len(updated_risk.dependent_contracts)} dependent "
+                    "contract(s) need operator review."
+                ),
+            )
+        )
+        if emitter is not None:
+            emitter.emit_nowait(
+                RiskStatusChanged(
+                    risk_id=risk_id,
+                    from_status=prior_status,
+                    to_status=new_status.value,
+                    spike_ticket_id=spike_ticket_id,
+                    operator_confirmed=False,
+                    cascade_proposal_path=str(
+                        cascade_path.relative_to(project_path)
+                    ),
+                )
+            )
+
     await bus.publish(
         Message(
             sender=author,
@@ -552,6 +614,11 @@ async def handle_arch_complete_spike(
                 "ticket_id": spike_ticket_id,
                 "risk_id": risk_id,
                 "outcome": status,
+                "cascade_proposal_path": (
+                    str(cascade_path.relative_to(project_path))
+                    if cascade_path is not None
+                    else None
+                ),
             },
             topic="orchestrator",
         )
@@ -563,6 +630,90 @@ async def handle_arch_complete_spike(
         ticket_id=spike_ticket_id,
         author=author,
     )
+
+
+# ---- cascade-after-impossible-spike artifact -----------------------------
+
+
+def _cascade_timestamp() -> str:
+    """Filesystem-safe UTC timestamp suffix for cascade-proposal paths.
+
+    Format ``YYYYMMDDTHHMMSS`` so multiple cascade rounds for the same
+    risk sort by name in chronological order — operators reading the
+    cascades dir see the audit trail in time order without parsing.
+    """
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+
+
+def _resolve_dependent_shape(
+    project_path: Path, uri: str
+) -> str | None:
+    """Best-effort lookup of a dependent contract's current shape.
+
+    The URI scheme is partial in MVP — only architecture-resident
+    shapes (modules, shared contracts) resolve cleanly. Per-module
+    contract URIs (``project://arch/modules/<m>/contracts#...``)
+    return None and the operator reads the contract source directly.
+    Full URI resolution lands as the URI authority resolvers mature
+    (out of MVP scope per ``docs/implementation/v2-plan.md``).
+    """
+    if not uri.startswith("project://arch/modules/"):
+        return None
+    # Extract module id; we can only confirm presence + dump the
+    # whole module's contracts file by reference. Fragment resolution
+    # (``#<section>/<id>``) is what matures in the URI authority work.
+    rest = uri.removeprefix("project://arch/modules/")
+    module_id = rest.split("/", 1)[0]
+    try:
+        # Confirm the module's contracts file is loadable; we don't
+        # render the full contents here (the operator opens the file
+        # directly). Full fragment resolution lands as the URI
+        # authority resolvers mature.
+        load_module_contracts(project_path, module_id)
+    except FileNotFoundError:
+        return None
+    return f"module={module_id}; contracts.yaml present"
+
+
+def _write_cascade_proposal(
+    *,
+    project_path: Path,
+    risk: Risk,
+    spike_ticket_id: str,
+    finding: str,
+) -> Path:
+    """Atomically write a cascade-proposal YAML for ``risk``; return its path.
+
+    Per ``docs/sa-architecture/design.md`` §"The cascade workflow" step
+    5 (audit trail). MVP scope: every dependent gets a
+    ``still_holds`` starting disposition; the operator hand-edits the
+    YAML to flip entries to ``invalidated`` / ``needs_revision`` and
+    re-runs SA. Automatic disposition + transactional confirmation
+    land in Final.
+    """
+    contracts = [
+        CascadeContractDisposition(
+            uri=uri,
+            current_shape=_resolve_dependent_shape(project_path, uri),
+            proposed_disposition="still_holds",
+        )
+        for uri in risk.dependent_contracts
+    ]
+    proposal = CascadeProposal(
+        risk_id=risk.id,
+        spike_ticket_id=spike_ticket_id,
+        finding=finding,
+        contracts=contracts,
+    )
+    cascades_dir(project_path).mkdir(parents=True, exist_ok=True)
+    target = cascade_proposal_path(
+        project_path, risk.id, _cascade_timestamp()
+    )
+    payload = yaml.safe_dump(
+        proposal.model_dump(mode="json"), sort_keys=False
+    )
+    atomic_write_text(target, payload)
+    return target
 
 
 # ---- modules/<m>/contracts.yaml upserts ----------------------------------

@@ -404,7 +404,12 @@ class RiskStatusChanged(_EventBase):
     from_status: _RiskStatus | None = None  # None on initial logging
     to_status: _RiskStatus
     spike_ticket_id: str | None = None
-    operator_confirmed: bool
+    operator_confirmed: bool = False
+    # Track C MVP follow-on: when a spike completes ``confirmed_impossible``
+    # the SA writes a cascade-proposal artifact and surfaces its path here
+    # so analytics consumers can correlate the status change with the
+    # cascade for downstream re-plan / audit.
+    cascade_proposal_path: str | None = None
 
 
 # ---- Plan events ----------------------------------------------------------

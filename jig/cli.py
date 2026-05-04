@@ -1107,6 +1107,122 @@ def dev_fixtures_clear_cmd(
     click.echo(f"cleared {service_id}")
 
 
+@dev_group.group("sweeper")
+def dev_sweeper_group() -> None:
+    """Periodic orphan sweeper with operator-confirmation (Track E Final)."""
+
+
+async def _build_sweeper(path: Path, threshold_days: int):
+    from jig.dev_env.sweeper import OrphanSweeper
+    from jig.spec_loader import load_dev_manifest
+    from jig.store.tickets import TicketStore
+
+    manifest = load_dev_manifest(path)
+    tickets = TicketStore(path / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+    return OrphanSweeper(
+        path, manifest, tickets, threshold_days=threshold_days
+    )
+
+
+@dev_sweeper_group.command("run")
+@click.option(
+    "--threshold-days",
+    type=int,
+    default=7,
+    show_default=True,
+    help="Age threshold (days) — older terminal tickets bucket as auto_safe.",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_sweeper_run_cmd(threshold_days: int, path: Path) -> None:
+    """Categorize orphan namespaces into auto_safe / needs_confirm / keep buckets."""
+
+    async def _run() -> None:
+        try:
+            sweeper = await _build_sweeper(path, threshold_days)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+        report = await sweeper.run()
+        click.echo(
+            f"sweep complete (threshold_days={report.threshold_days}): "
+            f"auto_safe={len(report.auto_safe)} "
+            f"needs_confirm={len(report.needs_confirm)} "
+            f"keep={len(report.keep)}"
+        )
+        if report.auto_safe:
+            click.echo("auto_safe:")
+            for o in report.auto_safe:
+                click.echo(
+                    f"  {o.id}\tstatus={o.ticket_status}\tnamespace={o.namespace}"
+                )
+        if report.needs_confirm:
+            click.echo("needs_confirm:")
+            for o in report.needs_confirm:
+                click.echo(
+                    f"  {o.id}\tstatus={o.ticket_status}\tnamespace={o.namespace}"
+                )
+        if report.keep:
+            click.echo("keep:")
+            for o in report.keep:
+                click.echo(
+                    f"  {o.id}\tstatus={o.ticket_status}\tnamespace={o.namespace}"
+                )
+
+    asyncio.run(_run())
+
+
+@dev_sweeper_group.command("apply")
+@click.option(
+    "--bucket",
+    type=click.Choice(["auto_safe", "needs_confirm", "all"]),
+    required=True,
+    help="Which bucket to drop.",
+)
+@click.option(
+    "--confirm",
+    is_flag=True,
+    help="Required for needs_confirm + all buckets (auto_safe is exempt).",
+)
+@click.option(
+    "--threshold-days",
+    type=int,
+    default=7,
+    show_default=True,
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_sweeper_apply_cmd(
+    bucket: str, confirm: bool, threshold_days: int, path: Path
+) -> None:
+    """Drop the named bucket. needs_confirm + all require --confirm."""
+    from jig.dev_env.sweeper import SweepBucket
+
+    if bucket in {"needs_confirm", "all"} and not confirm:
+        raise click.ClickException(
+            f"refusing to apply --bucket {bucket} without --confirm"
+        )
+
+    async def _run() -> None:
+        try:
+            sweeper = await _build_sweeper(path, threshold_days)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+        report = await sweeper.run()
+        n = await sweeper.apply(report, bucket=SweepBucket(bucket))
+        click.echo(f"applied: dropped {n} orphan(s) from bucket={bucket}")
+
+    asyncio.run(_run())
+
+
 @dev_group.group("ephemeral")
 def dev_ephemeral_group() -> None:
     """Inspect / drop per-agent ephemeral instances (Track E Final)."""

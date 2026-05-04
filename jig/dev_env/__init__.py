@@ -39,6 +39,12 @@ from jig.dev_env.provisioning import (
     cleanup_agent_namespace,
     provision_agent_namespace,
 )
+from jig.dev_env.sweeper import (
+    OrphanSweeper,
+    SweepBucket,
+    SweepReport,
+    sweeper_log_path,
+)
 
 __all__ = [
     "EphemeralInstance",
@@ -47,6 +53,7 @@ __all__ = [
     "NamespaceProvisioner",
     "NatsSubjectPrefixProvisioner",
     "OrphanLogEntry",
+    "OrphanSweeper",
     "OrphanTracker",
     "OrphanedNamespace",
     "PostgresDbEphemeralProvisioner",
@@ -55,6 +62,8 @@ __all__ = [
     "RedisKeyPrefixProvisioner",
     "S3BucketPrefixProvisioner",
     "SqliteEphemeralProvisioner",
+    "SweepBucket",
+    "SweepReport",
     "append_orphan_log",
     "cleanup_agent_namespace",
     "derive_manifest",
@@ -67,4 +76,5 @@ __all__ = [
     "list_orphans",
     "orphan_log_path",
     "provision_agent_namespace",
+    "sweeper_log_path",
 ]

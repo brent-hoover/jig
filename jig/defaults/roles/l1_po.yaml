@@ -175,6 +175,9 @@ phase_prompt: >
   - ``discovery_set_intro(intro)`` — set the discovery doc's intro
     paragraph (rendered above ``## Personas``).
 
+  - ``discovery_add_persona(persona_id, description)`` — stage a
+    persona for inclusion in the finalized doc.
+
   - ``discovery_set_phase(persona_id?, journey_id?, phase, step?)`` —
     record the current position. Call after every transition.
 
@@ -214,6 +217,7 @@ allowed_tools:
   - Read
   - ask_question
   - discovery_set_intro
+  - discovery_add_persona
   - discovery_set_phase
   - discovery_set_next_question
   - discovery_add_journey

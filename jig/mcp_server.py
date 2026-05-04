@@ -12,6 +12,7 @@ from jig import (
     init_mcp,
     planner_pm_mcp,
     po_l0_mcp,
+    po_l1_mcp,
     po_l3_mcp,
     quartermaster,
     sa_mcp,
@@ -920,6 +921,276 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(l0_finalize)
+
+    # ---- L1 PO MCP tools (Track B MVP) ------------------------------------
+    # The L1 Discovery PO drives the 5-phase journey-walk per
+    # docs/multi-level-spec/design.md §"L1 PO behavior". Authoring
+    # tools render to .jig/spec/discovery.md + per-journey playbacks;
+    # state-tracking tools update .jig/spec/discovery.state.yaml so
+    # mid-walk pauses + daemon restarts can resume cleanly.
+
+    if "discovery_set_intro" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_set_intro",
+            "Stash the L1 discovery doc's intro paragraph (rendered "
+            "above '## Personas' at finalize time). Call once early in "
+            "the conversation; ``discovery_finalize`` consumes the "
+            "stashed value when no explicit ``intro`` is passed.",
+            {"intro": str},
+        )
+        async def discovery_set_intro(args):
+            await po_l1_mcp.handle_discovery_set_intro(
+                project_path=project_path,
+                intro=args["intro"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_set_intro)
+
+    if "discovery_add_persona" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_add_persona",
+            "Stage a persona for the L1 discovery doc. ``persona_id`` "
+            "is kebab-case (e.g. 'merchant'). Replaces any prior "
+            "staging by the same id so the L1 PO can refine without "
+            "duplicates.",
+            {"persona_id": str, "description": str},
+        )
+        async def discovery_add_persona(args):
+            await po_l1_mcp.handle_discovery_add_persona(
+                project_path=project_path,
+                persona_id=args["persona_id"],
+                description=args["description"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_add_persona)
+
+    if "discovery_set_phase" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_set_phase",
+            "Record the L1 PO's current position in the 5-phase walk. "
+            "``phase`` is 1-5 per design.md §'L1 PO behavior'; "
+            "``persona_id`` / ``journey_id`` are nullable for Phase 1 "
+            "(framing) which runs before the first persona is locked "
+            "in. Pass empty strings to leave persona/journey unset.",
+            {
+                "persona_id": str,
+                "journey_id": str,
+                "phase": int,
+                "step": int,
+            },
+        )
+        async def discovery_set_phase(args):
+            await po_l1_mcp.handle_discovery_set_phase(
+                project_path=project_path,
+                persona_id=args.get("persona_id") or None,
+                journey_id=args.get("journey_id") or None,
+                phase=args["phase"],
+                step=args.get("step", 0),
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_set_phase)
+
+    if "discovery_set_next_question" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_set_next_question",
+            "Capture the question the L1 PO is about to ask. Call "
+            "before each ``ask_question`` so resume can replay the "
+            "exact thread without drift.",
+            {"question": str},
+        )
+        async def discovery_set_next_question(args):
+            await po_l1_mcp.handle_discovery_set_next_question(
+                project_path=project_path,
+                question=args["question"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_set_next_question)
+
+    if "discovery_add_journey" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_add_journey",
+            "Stage a committed journey for inclusion in discovery.md. "
+            "``persona_id`` / ``journey_id`` are kebab-case "
+            "(journey id convention starts with 'j-'). "
+            "``capability_ids`` is the kebab-case ids the journey "
+            "implies — every entry must also appear in the roster via "
+            "``discovery_add_capability``. ``playback_text`` writes the "
+            "Phase-5 audit trail in the same call when present.",
+            {
+                "persona_id": str,
+                "journey_id": str,
+                "title": str,
+                "narrative": str,
+                "capability_ids": list,
+                "playback_text": str,
+            },
+        )
+        async def discovery_add_journey(args):
+            await po_l1_mcp.handle_discovery_add_journey(
+                project_path=project_path,
+                persona_id=args["persona_id"],
+                journey_id=args["journey_id"],
+                title=args["title"],
+                narrative=args["narrative"],
+                capability_ids=args.get("capability_ids", []),
+                playback_text=args.get("playback_text") or None,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_add_journey)
+
+    if "discovery_add_capability" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_add_capability",
+            "Append (or merge by id) a capability into the L1 roster. "
+            "Use the operator's verbs in the description. Re-calling "
+            "with the same id union-merges ``journey_ids`` so a "
+            "capability shared across journeys lands cited by all of "
+            "them.",
+            {
+                "capability_id": str,
+                "description": str,
+                "journey_ids": list,
+            },
+        )
+        async def discovery_add_capability(args):
+            await po_l1_mcp.handle_discovery_add_capability(
+                project_path=project_path,
+                capability_id=args["capability_id"],
+                description=args["description"],
+                journey_ids=args.get("journey_ids", []),
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_add_capability)
+
+    if "discovery_stash_pending_capability" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_stash_pending_capability",
+            "Bookmark a capability extracted mid-walk before Phase-5 "
+            "commit. Stashed entries survive interruption; commit them "
+            "via ``discovery_add_capability`` once the operator confirms "
+            "the playback. Idempotent on (capability_id, journey_id).",
+            {
+                "capability_id": str,
+                "description": str,
+                "journey_id": str,
+            },
+        )
+        async def discovery_stash_pending_capability(args):
+            await po_l1_mcp.handle_discovery_stash_pending_capability(
+                project_path=project_path,
+                capability_id=args["capability_id"],
+                description=args["description"],
+                journey_id=args["journey_id"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_stash_pending_capability)
+
+    if "discovery_clear_pending" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_clear_pending",
+            "Drop all stashed pending capabilities for a journey — call "
+            "after the journey commits via ``discovery_add_journey``.",
+            {"journey_id": str},
+        )
+        async def discovery_clear_pending(args):
+            await po_l1_mcp.handle_discovery_clear_pending(
+                project_path=project_path,
+                journey_id=args["journey_id"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_clear_pending)
+
+    if "discovery_set_playback" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_set_playback",
+            "Write the per-journey Phase-5 playback markdown to "
+            ".jig/spec/discovery/playbacks/<journey_id>.md. "
+            "``discovery_add_journey`` accepts an inline ``playback_text`` "
+            "for the common case; this entrypoint exists for separate "
+            "or revised playbacks.",
+            {"journey_id": str, "playback_text": str},
+        )
+        async def discovery_set_playback(args):
+            await po_l1_mcp.handle_discovery_set_playback(
+                project_path=project_path,
+                journey_id=args["journey_id"],
+                playback_text=args["playback_text"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(discovery_set_playback)
+
+    if "discovery_load_state" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_load_state",
+            "Read .jig/spec/discovery.state.yaml for the L1 PO's resume "
+            "greeting. Returns ``{state: null}`` when no prior session "
+            "exists; otherwise the structured DiscoveryState dump.",
+            {},
+        )
+        async def discovery_load_state(args):
+            out = await po_l1_mcp.handle_discovery_load_state(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(discovery_load_state)
+
+    if "discovery_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "discovery_finalize",
+            "Synthesize the L1 discovery doc, clear in-flight state, "
+            "and hand off to L2 PO. Writes both .jig/spec/discovery.md "
+            "(markdown) and .jig/spec/discovery.structured.yaml "
+            "(structured cache). When ``personas`` / ``journeys`` / "
+            "``capability_roster`` are passed, they override the staged "
+            "sidecars from per-tool calls. Validation: every persona "
+            "needs a journey, every journey needs a capability, ids "
+            "kebab-case + unique, references resolve. Call exactly "
+            "once when the operator says L1 is done.",
+            {
+                "project_name": str,
+                "intro": str,
+                "personas": list,
+                "journeys": list,
+                "capability_roster": list,
+            },
+        )
+        async def discovery_finalize(args):
+            entry_id = await po_l1_mcp.handle_discovery_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                project_name=args["project_name"],
+                intro=args.get("intro") or None,
+                personas=args.get("personas"),
+                journeys=args.get("journeys"),
+                capability_roster=args.get("capability_roster"),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(discovery_finalize)
 
     if "l3_finalize" in agent_cfg.allowed_tools:
 

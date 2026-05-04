@@ -3,7 +3,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+import jig.mcp_server as mcp_server_mod
+from jig.mcp_server import create_agent_mcp_server
+from jig.models import RoleConfig
 from jig.persistence import load_role
+from jig.store.bus import MessageBus
+from jig.store.memory import MemoryStore
+from jig.store.threads import ThreadStore
+from jig.store.tickets import TicketStore
 
 
 # The L1 PO's MCP toolset per design.md §"L1 PO tools (new MCP tools)".
@@ -14,6 +23,7 @@ EXPECTED_L1_TOOLS = {
     "Read",
     "ask_question",
     "discovery_set_intro",
+    "discovery_add_persona",
     "discovery_set_phase",
     "discovery_set_next_question",
     "discovery_add_journey",
@@ -50,6 +60,89 @@ def test_l1_po_role_excludes_other_phase_tools(tmp_path: Path):
         "arch_set_field",    # v1 SA tooling
     ):
         assert forbidden not in cfg.allowed_tools
+
+
+@pytest.fixture
+async def stores(tmp_path: Path):
+    tickets = TicketStore(tmp_path / "tickets.jsonl")
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    memory = MemoryStore(tmp_path)
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    for s in (tickets, threads, memory, bus):
+        await s.load()
+    return tickets, threads, memory, bus
+
+
+def _spy_factory(monkeypatch, captured):
+    real = mcp_server_mod.create_sdk_mcp_server
+
+    def spy(*, name, tools):
+        captured["tools"] = tools
+        return real(name=name, tools=tools)
+
+    monkeypatch.setattr(mcp_server_mod, "create_sdk_mcp_server", spy)
+
+
+def _names(captured):
+    return {t.name for t in captured["tools"]}
+
+
+@pytest.mark.asyncio
+async def test_l1_po_server_exposes_full_toolset(tmp_path, stores, monkeypatch):
+    """Strict-mode L1 PO server exposes exactly the L1 toolset."""
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(
+        role="po-l1",
+        allowed_tools=sorted(EXPECTED_L1_TOOLS),
+        strict_tools=True,
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po-l1",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    names = _names(captured)
+    # MCP server resolves Read via the SDK so it shows in the tool list
+    # only when registered as a Jig tool — Read is the SDK's built-in
+    # filesystem read, gated by the role's allowed_tools at use-time.
+    # The MCP server's name set should match the L1 tool set minus Read.
+    expected = EXPECTED_L1_TOOLS - {"Read"}
+    assert names == expected
+
+
+@pytest.mark.asyncio
+async def test_l1_finalize_not_registered_when_not_allowed(
+    tmp_path, stores, monkeypatch
+):
+    """Strict-tools gating must keep discovery_finalize off other roles."""
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(
+        role="po-l3",
+        allowed_tools=["Read", "ask_question", "l3_finalize"],
+        strict_tools=True,
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po-l3",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    names = _names(captured)
+    for forbidden in EXPECTED_L1_TOOLS - {"Read", "ask_question"}:
+        assert forbidden not in names
 
 
 def test_l1_po_role_phase_prompt_is_substantive(tmp_path: Path):

@@ -164,6 +164,18 @@ class StepKind(str, Enum):
     # an artifact_written / per-step assertion can introspect it.
     INVOKE_SPECIALTY_REVIEWER = "invoke_specialty_reviewer"
 
+    # Block 3 (Important 1+3) — drive ``dispatch_with_llm_spawn``
+    # against a mocked orchestrator. The handler stubs the spawn step
+    # to inject a canned reviewer comment via a configured payload so
+    # the scenario can assert the comment actually lands in the
+    # ReviewCommentsStore (not just that the reviewer was selected).
+    # This is the "federation actually executes" path — pins the gap
+    # the v2-review flagged: ``bones-with-specialty-reviewers`` only
+    # exercised selection, not execution. Mock-mode only — real-mode
+    # LLM execution is operator-driven and out of scope for the
+    # synthetic operator.
+    INVOKE_FEDERATION_EXECUTION = "invoke_federation_execution"
+
     # Track G Final — apply the severity-tier disposition policy to
     # a synthesized comment list. The handler builds N comments at the
     # requested severity, runs ``apply_severity_disposition`` against

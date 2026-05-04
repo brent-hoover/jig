@@ -77,3 +77,39 @@ async def test_security_reviewer_selected_for_touches_auth_ticket(
     )
     ids = select_reviewers_for_ticket(ticket, project_root=tmp_path)
     assert SECURITY_REVIEWER_ID in ids
+
+
+@pytest.mark.asyncio
+async def test_federation_execution_lands_comment_in_store(
+    tmp_path: Path,
+) -> None:
+    """Block 3 (Important 1+3): post-scenario, the security reviewer's
+    canned comment must be in the ReviewCommentsStore. Pre-Block-3 the
+    scenario only verified selection — this test pins the execution
+    side, proving ``dispatch_with_llm_spawn`` actually wires the spawn-
+    and-wait flow.
+    """
+    from jig.store.review_comments import ReviewCommentsStore
+
+    _seed_repo(tmp_path)
+    scenario = load_scenario(SCENARIO_PATH)
+    driver = Driver()
+    report = await driver.run(scenario, project_root=tmp_path)
+    assert report.passed, report.failure_summary()
+
+    store_path = tmp_path / ".jig" / "store" / "review_comments.jsonl"
+    store = ReviewCommentsStore(store_path)
+    await store.load()
+    comments = await store.for_ticket("tb-catalog-ingest")
+    security_comments = [
+        c for c in comments if c.reviewer == "reviewer-security"
+    ]
+    assert security_comments, (
+        "expected at least one reviewer-security comment in the store "
+        "after federation execution; got "
+        f"{[c.reviewer for c in comments]!r}"
+    )
+    # The canned comment's prose carries our marker.
+    assert any(
+        "Federation-execution check" in c.prose for c in security_comments
+    ), "canned reviewer-security comment did not land in the store"

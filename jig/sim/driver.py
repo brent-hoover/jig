@@ -79,6 +79,7 @@ from jig.sim.assertions import (
     ArtifactWrittenAssertion,
     CostUnderBudgetAssertion,
     EnvVarSetAssertion,
+    ReviewCommentInStoreAssertion,
     ReviewerReturnedNoCriticalAssertion,
     TicketStatusAssertion,
 )
@@ -295,6 +296,19 @@ class DriverContext:
     # the connection string the operator-supplied passthrough returned.
     last_fixture_env: dict[str, str] = field(default_factory=dict)
     last_operator_supplied_url: str | None = None
+    # Block 3 (federation) — captured outputs from the
+    # invoke_federation_execution step. ``last_federation_spawn_calls``
+    # records the (reviewer_id, ticket_id, role_file) tuples the mocked
+    # orchestrator was asked to spawn. ``last_federation_comments``
+    # carries the merged ``{reviewer_id: [ReviewerComment, ...]}`` map
+    # ``dispatch_with_llm_spawn`` returned so the scenario can assert
+    # the canned comment landed in the federation's output.
+    last_federation_spawn_calls: list[tuple[str, str, str]] = field(
+        default_factory=list,
+    )
+    last_federation_comments: dict[str, list[ReviewerComment]] = field(
+        default_factory=dict,
+    )
 
 
 # ---- step handler signature ---------------------------------------------
@@ -439,6 +453,9 @@ class Driver:
             ),
             StepKind.INVOKE_SPECIALTY_REVIEWER.value: (
                 _handle_invoke_specialty_reviewer
+            ),
+            StepKind.INVOKE_FEDERATION_EXECUTION.value: (
+                _handle_invoke_federation_execution
             ),
             StepKind.INVOKE_SEVERITY_DISPOSITION.value: (
                 _handle_invoke_severity_disposition
@@ -1724,6 +1741,100 @@ async def _handle_invoke_specialty_reviewer(
         )
 
 
+async def _handle_invoke_federation_execution(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Drive ``dispatch_with_llm_spawn`` against a mocked orchestrator.
+
+    Block 3 (Important 1 + 3) — pins the gap the v2-review flagged:
+    ``bones-with-specialty-reviewers`` only exercised selection, not
+    execution. This handler runs ``dispatch_with_llm_spawn`` end-to-end
+    with a stub orchestrator that injects canned comments via
+    ``reviewer_post_comment``-equivalent direct-store writes, so the
+    scenario can assert the comment actually appears in the
+    ReviewCommentsStore.
+
+    Scenario YAML shape::
+
+        kind: invoke_federation_execution
+        params:
+          ticket_id: tb-catalog-ingest        # required
+          inject_comments:                    # optional
+            - reviewer: reviewer-security
+              type: pattern-divergence
+              severity: important
+              prose: "Mocked finding for federation-execution test."
+              file: ingest.py
+              line: 5
+              confidence: 0.85
+
+    Mock-mode only — no LLM agent spawned. The mocked orchestrator
+    records each ``spawn_review_agent_for_id`` call so a follow-up
+    assertion can introspect ``ctx.last_federation_spawn_calls``;
+    the merged result map lands on ``ctx.last_federation_comments``.
+    """
+    from jig.reviewers import ReviewerComment as _ReviewerComment
+    from jig.reviewers.dispatch import dispatch_with_llm_spawn
+    from jig.store.review_comments import ReviewCommentsStore
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_federation_execution: params.ticket_id is required"
+        )
+
+    ticket = await ctx.tickets.get(ticket_id)
+    if ticket is None:
+        raise RuntimeError(
+            f"invoke_federation_execution: ticket {ticket_id!r} missing"
+        )
+
+    inject_payloads = step.params.get("inject_comments") or []
+    canned_by_reviewer: dict[str, list[_ReviewerComment]] = {}
+    for payload in inject_payloads:
+        comment = _ReviewerComment.model_validate(payload)
+        canned_by_reviewer.setdefault(comment.reviewer, []).append(comment)
+
+    spawn_calls: list[tuple[str, str, str]] = []
+
+    class _ScenarioOrchestrator:
+        async def spawn_review_agent_for_id(
+            self,
+            *,
+            reviewer_id: str,
+            ticket,
+            role_file: str,
+            project_root: Path,
+            worktree_path: Path | None = None,
+        ) -> None:
+            spawn_calls.append((reviewer_id, ticket.id, role_file))
+            for comment in canned_by_reviewer.get(reviewer_id, []):
+                stamped = comment.model_copy(
+                    update={"ticket_id": ticket.id}
+                )
+                store = ReviewCommentsStore(
+                    project_root / ".jig" / "store" / "review_comments.jsonl"
+                )
+                await store.load()
+                await store.append(stamped)
+
+    worktree = (
+        ctx.project_root / ".jig" / "worktrees" / ticket_id
+    )
+    # Federation execution always fires at end-of-ticket cadence —
+    # per-commit cadence is mechanical-only by design.
+    out = await dispatch_with_llm_spawn(
+        ticket,
+        ctx.project_root,
+        "end_of_ticket",
+        _ScenarioOrchestrator(),  # type: ignore[arg-type]
+        worktree_path=worktree if worktree.exists() else None,
+    )
+
+    ctx.last_federation_spawn_calls = list(spawn_calls)
+    ctx.last_federation_comments = dict(out)
+
+
 async def _handle_invoke_severity_disposition(
     ctx: DriverContext, step: ScenarioStep
 ) -> None:
@@ -2069,6 +2180,8 @@ async def _evaluate_assertion(
         return _check_cost_under_budget(ctx, assertion)
     if isinstance(assertion, EnvVarSetAssertion):
         return _check_env_var_set(ctx, assertion)
+    if isinstance(assertion, ReviewCommentInStoreAssertion):
+        return await _check_review_comment_in_store(ctx, assertion)
     return AssertionResult(
         kind=type(assertion).__name__,
         passed=False,
@@ -2253,6 +2366,51 @@ def _check_env_var_set(
         )
     return AssertionResult(
         kind=a.kind, passed=True, detail=f"{a.name}={actual} OK",
+    )
+
+
+async def _check_review_comment_in_store(
+    ctx: DriverContext, a: ReviewCommentInStoreAssertion
+) -> AssertionResult:
+    """Verify a comment from ``a.reviewer_id`` is in the live store.
+
+    Block 3 (federation) — closes the gap the v2-review flagged: pre-
+    Block-3 the specialty scenario only checked selection. This
+    assertion reads the ReviewCommentsStore for ``a.ticket_id`` and
+    filters to comments whose ``reviewer`` matches, optionally
+    narrowing by severity / contains.
+    """
+    from jig.store.review_comments import ReviewCommentsStore
+
+    store_path = (
+        ctx.project_root / ".jig" / "store" / "review_comments.jsonl"
+    )
+    store = ReviewCommentsStore(store_path)
+    await store.load()
+    comments = await store.for_ticket(a.ticket_id)
+    matched = [c for c in comments if c.reviewer == a.reviewer_id]
+    if a.severity is not None:
+        matched = [c for c in matched if c.severity == a.severity]
+    if a.contains is not None:
+        matched = [c for c in matched if a.contains in c.prose]
+    if not matched:
+        return AssertionResult(
+            kind=a.kind,
+            passed=False,
+            detail=(
+                f"no comment from reviewer {a.reviewer_id!r} for ticket "
+                f"{a.ticket_id!r} matched (severity="
+                f"{a.severity!r}, contains={a.contains!r}); store has "
+                f"{len(comments)} comment(s) for this ticket"
+            ),
+        )
+    return AssertionResult(
+        kind=a.kind,
+        passed=True,
+        detail=(
+            f"{a.reviewer_id} → {len(matched)} comment(s) in store "
+            f"for {a.ticket_id}"
+        ),
     )
 
 

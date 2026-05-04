@@ -2,12 +2,26 @@ spec_version: 1
 id: bones-with-specialty-reviewers
 description: |
   Extends bones-with-mvp-sa with a tracer-bullet ticket carrying
-  ``labels: ["touches-auth"]``. The synthetic operator invokes the
-  specialty-reviewer dispatch step and asserts that
-  ``reviewer-security`` joined the reviewer set per
-  ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
-  logic". Mock-mode only — no LLM agent spawned; just verifies the
-  selection logic in ``jig.reviewers.dispatch``.
+  ``labels: ["touches-auth"]``. The scenario verifies BOTH that
+  ``reviewer-security`` is selected by ``select_reviewers_for_ticket``
+  AND that the federation actually executes — Block 3 closes the
+  Important #1 gap from the v2 code review where the specialty
+  reviewer was selected but never spawned.
+
+  Two-phase verification:
+
+  1. ``invoke_specialty_reviewer`` confirms selection (pre-Block-3
+     coverage).
+  2. ``invoke_federation_execution`` runs ``dispatch_with_llm_spawn``
+     against a mocked orchestrator that injects a canned comment via
+     ``reviewer_post_comment``-equivalent direct-store writes. The
+     follow-up ``review_comment_in_store`` assertion verifies the
+     security reviewer's comment actually landed in the
+     ReviewCommentsStore — proves the federation EXECUTED, not just
+     selected.
+
+  Mock-mode only — real LLM spawn is operator-driven. The test
+  exercises the spawn-and-wait flow without burning tokens.
 
 persona: methodical
 estimated_cost_usd_max: 1.0
@@ -222,6 +236,34 @@ steps:
     assertions:
       - kind: reviewer_returned_no_critical
         reviewer_id: contract-compliance
+
+  # ---- Federation EXECUTION verification (Block 3) -----------------
+  # Drives ``dispatch_with_llm_spawn`` against a mocked orchestrator
+  # that injects a canned reviewer-security comment. Verifies the
+  # comment actually lands in the ReviewCommentsStore — proves the
+  # federation EXECUTED, not just selected.
+  - kind: invoke_federation_execution
+    params:
+      ticket_id: tb-catalog-ingest
+      inject_comments:
+        - reviewer: reviewer-security
+          type: pattern-divergence
+          severity: important
+          prose: |
+            Federation-execution check: reviewer-security ran end-to-end
+            against the spawn-and-wait flow. Production would surface a
+            real finding here (e.g. "OAuth secret read without scope
+            check on path X"); the simulator injects a deterministic
+            canned comment so the assertion can pin spawn-execution.
+          file: ingest.py
+          line: 5
+          confidence: 0.85
+    assertions:
+      - kind: review_comment_in_store
+        ticket_id: tb-catalog-ingest
+        reviewer_id: reviewer-security
+        contains: Federation-execution check
+        severity: important
 
 # ---- final assertions ---------------------------------------------
 final_assertions:

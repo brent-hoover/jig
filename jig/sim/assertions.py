@@ -35,6 +35,7 @@ __all__ = [
     "AssertionKind",
     "CostUnderBudgetAssertion",
     "EnvVarSetAssertion",
+    "ReviewCommentInStoreAssertion",
     "ReviewerReturnedNoCriticalAssertion",
     "ScenarioAssertion",
     "ScenarioAssertionUnion",
@@ -54,6 +55,11 @@ class AssertionKind(str, Enum):
     # driver context (used to gate JIG_FIXTURE_MODE-style spawn-env
     # checks without coupling assertions to live process env).
     ENV_VAR_SET = "env_var_set"
+    # Block 3 (federation) — assert that a comment from the named
+    # reviewer is present in the live ReviewCommentsStore for a given
+    # ticket. Pins the gap the v2-review flagged: pre-Block-3 the
+    # specialty scenario only verified selection, not execution.
+    REVIEW_COMMENT_IN_STORE = "review_comment_in_store"
 
 
 class _AssertionBase(BaseModel):
@@ -145,6 +151,28 @@ class EnvVarSetAssertion(_AssertionBase):
     source: Literal["fixture_env", "operator_supplied"] = "fixture_env"
 
 
+class ReviewCommentInStoreAssertion(_AssertionBase):
+    """A comment from ``reviewer_id`` is in the store for ``ticket_id``.
+
+    Block 3 (federation) — pins the gap the v2-review called out.
+    Pre-Block-3 the specialty scenario only verified that a reviewer
+    was *selected* (``invoke_specialty_reviewer``); this assertion
+    verifies the comment actually landed via spawn-and-post.
+
+    Optional ``contains`` substring matches against any comment's
+    ``prose`` (case-sensitive). Optional ``severity`` narrows to
+    comments at the requested severity tier.
+    """
+
+    kind: Literal[AssertionKind.REVIEW_COMMENT_IN_STORE.value] = (
+        AssertionKind.REVIEW_COMMENT_IN_STORE.value
+    )
+    ticket_id: str = Field(..., min_length=1)
+    reviewer_id: str = Field(..., min_length=1)
+    contains: str | None = None
+    severity: Literal["critical", "important", "notable"] | None = None
+
+
 class CostUnderBudgetAssertion(_AssertionBase):
     """Total scenario cost stayed under ``usd``.
 
@@ -171,6 +199,7 @@ ScenarioAssertionUnion = Annotated[
         ReviewerReturnedNoCriticalAssertion,
         CostUnderBudgetAssertion,
         EnvVarSetAssertion,
+        ReviewCommentInStoreAssertion,
     ],
     Field(discriminator="kind"),
 ]

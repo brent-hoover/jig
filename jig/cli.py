@@ -865,3 +865,11 @@ def daemon_serve_cmd(path: Path, ws_port: int) -> None:
     """Internal: actually host the orchestrator. Called by daemon_start
     via the forked subprocess; not for direct user invocation."""
     _run_orchestrator_loop(path, ws_port)
+
+
+# Attach the synthetic operator simulator (Track H5, bones). Bones
+# ships ``jig sim run <scenario.yaml>`` only — see ``jig.sim.cli`` for
+# the full surface roadmap (run-tier / coverage / realism land in MVP).
+from jig.sim.cli import sim as _sim_group  # noqa: E402
+
+cli.add_command(_sim_group)

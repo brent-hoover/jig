@@ -36,6 +36,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from jig.atomic import atomic_write_text
+from jig.safe_path import validate_safe_path_segment
 from jig.ticket import Ticket, WorkType
 
 __all__ = [
@@ -71,7 +72,14 @@ def fixtures_dir(project_root: Path) -> Path:
 
 
 def fixture_store_path(project_root: Path, service_id: str) -> Path:
-    """``.jig/dev/fixtures/<service_id>.jsonl`` — JSONL cassette store for one service."""
+    """``.jig/dev/fixtures/<service_id>.jsonl`` — JSONL cassette store for one service.
+
+    ``service_id`` is operator-supplied via the dev manifest; defense
+    in depth — even though the manifest schema validates kebab-case,
+    validate at the path boundary so a manifest bypass can't escape
+    the fixtures directory.
+    """
+    validate_safe_path_segment(service_id, "service_id")
     return fixtures_dir(project_root) / f"{service_id}.jsonl"
 
 

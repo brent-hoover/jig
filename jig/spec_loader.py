@@ -30,6 +30,7 @@ from pathlib import Path
 import yaml
 
 from jig.atomic import atomic_write_text
+from jig.safe_path import validate_safe_path_segment
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.dev_env import DevManifest
 from jig.schemas.design_system import (
@@ -104,7 +105,13 @@ def load_suites_index(project_root: Path) -> SuitesIndex:
 
 
 def suite_dir(project_root: Path, suite_id: str) -> Path:
-    """``.jig/spec/suites/<suite_id>/`` — the per-suite artifact dir."""
+    """``.jig/spec/suites/<suite_id>/`` — the per-suite artifact dir.
+
+    ``suite_id`` is operator/agent-supplied; defense in depth — even
+    though the schema validates it, validate again here so a bypass
+    (manual call, future caller) cannot escape the suites root.
+    """
+    validate_safe_path_segment(suite_id, "suite_id")
     return project_root / ".jig" / "spec" / "suites" / suite_id
 
 
@@ -148,7 +155,15 @@ def load_architecture(project_root: Path) -> Architecture:
 
 
 def module_dir(project_root: Path, module_id: str) -> Path:
-    """``.jig/spec/modules/<module_id>/`` — the per-module artifact dir."""
+    """``.jig/spec/modules/<module_id>/`` — the per-module artifact dir.
+
+    ``module_id`` is operator/agent-supplied via MCP; raw-join here
+    was flagged in Block 1 as a fragile spot. Defense in depth —
+    validate even though ContractsFile-level schema validation
+    happens for writes, because reads happen *before* containment
+    checks.
+    """
+    validate_safe_path_segment(module_id, "module_id")
     return project_root / ".jig" / "spec" / "modules" / module_id
 
 
@@ -222,7 +237,13 @@ def cascade_proposal_path(
     filesystem-safe characters; the writer formats as ``YYYYMMDDTHHMMSS``).
     Round-trippable from the on-disk filename so loaders can rebuild
     the path without globbing.
+
+    Validates ``risk_id`` so an arch-supplied id can't escape the
+    cascades dir; ``ts`` is writer-generated and not externally
+    controlled, so a strict path-segment check would be too tight
+    (it must allow uppercase ``T``).
     """
+    validate_safe_path_segment(risk_id, "risk_id")
     return cascades_dir(project_root) / f"{risk_id}-{ts}.yaml"
 
 
@@ -343,8 +364,11 @@ def discovery_playback_path(project_root: Path, journey_id: str) -> Path:
     """``.jig/spec/discovery/playbacks/<journey_id>.md``.
 
     The audit trail of the Phase-5 playback the L1 PO read back to the
-    operator before committing the journey to ``discovery.md``.
+    operator before committing the journey to ``discovery.md``. Validates
+    ``journey_id`` so an L1 PO-supplied id can't escape the playbacks
+    directory.
     """
+    validate_safe_path_segment(journey_id, "journey_id")
     return (
         project_root
         / ".jig" / "spec" / "discovery" / "playbacks" / f"{journey_id}.md"
@@ -627,7 +651,13 @@ def generated_contract_path(
     the source contracts are; the operator who knows
     ``modules/<m>/contracts.yaml`` can find the rendered output by
     walking the same module path.
+
+    Both ``module_id`` and ``contract_id`` come from agent-authored
+    YAML; validate so a malformed contract id can't escape the
+    generated dir or land at e.g. ``../../etc/passwd.py``.
     """
+    validate_safe_path_segment(module_id, "module_id")
+    validate_safe_path_segment(contract_id, "contract_id")
     return generated_contracts_dir(project_root) / module_id / f"{contract_id}.py"
 
 
@@ -637,7 +667,12 @@ def wireframes_dir(project_root: Path) -> Path:
 
 
 def wireframe_path(project_root: Path, screen_id: str) -> Path:
-    """``.jig/spec/wireframes/<screen_id>.html`` — one per screen."""
+    """``.jig/spec/wireframes/<screen_id>.html`` — one per screen.
+
+    ``screen_id`` is operator/PO-supplied; validate so a malformed
+    id can't escape the wireframes directory.
+    """
+    validate_safe_path_segment(screen_id, "screen_id")
     return wireframes_dir(project_root) / f"{screen_id}.html"
 
 
@@ -654,6 +689,7 @@ def wireframe_notes_path(project_root: Path, screen_id: str) -> Path:
     operator can hand-edit prose without touching markup. Per
     design.md §"Per-screen notes (sidecar markdown, retained)".
     """
+    validate_safe_path_segment(screen_id, "screen_id")
     return wireframes_dir(project_root) / f"{screen_id}.notes.md"
 
 

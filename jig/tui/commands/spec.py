@@ -64,7 +64,7 @@ async def _spec_capabilities(project_path, suite_id: str) -> dict[str, Any]:
 
     import yaml
 
-    from jig.spec_loader import load_suites_index
+    from jig.spec_loader import load_suites_index, suite_structured_path
 
     try:
         index = load_suites_index(project_path)
@@ -76,14 +76,9 @@ async def _spec_capabilities(project_path, suite_id: str) -> dict[str, Any]:
             "error": f"suite {suite_id!r} not in suites.yaml",
         }
 
-    cache = (
-        Path(project_path)
-        / ".jig"
-        / "spec"
-        / "suites"
-        / suite_id
-        / "spec.structured.yaml"
-    )
+    # Reuse the spec_loader helper so suite_id goes through the
+    # centralized safe-path validation; no raw join here.
+    cache = suite_structured_path(Path(project_path), suite_id)
     if not cache.is_file():
         return {"ok": True, "data": {"capabilities": [], "status": "no-brief"}}
     raw = yaml.safe_load(cache.read_text()) or {}

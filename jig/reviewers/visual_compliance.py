@@ -90,6 +90,9 @@ def _git_diff(worktree_path: Path, base_ref: str) -> str:
 
 def _default_worktree_path(project_root: Path, ticket_id: str) -> Path:
     """Match the convention in ``jig.worktree.create_worktree``."""
+    from jig.safe_path import validate_safe_path_segment
+
+    validate_safe_path_segment(ticket_id, "ticket_id")
     return project_root / ".jig" / "worktrees" / ticket_id
 
 

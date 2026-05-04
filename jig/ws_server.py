@@ -328,8 +328,11 @@ class WebSocketServer:
                 if ticket.parent_id:
                     parent = await self._orch.tickets.get(ticket.parent_id)
                 role_cfg = load_role(self._orch._project_path, role)
+                # ``ticket.id`` is field-validated as path-safe by the
+                # Ticket model; reuse it instead of the raw WS arg so
+                # any drift between the two is caught.
                 worktree_path = (
-                    self._orch._project_path / ".jig" / "worktrees" / ticket_id
+                    self._orch._project_path / ".jig" / "worktrees" / ticket.id
                 )
                 ctx = AgentSpawnContext(
                     role=role,

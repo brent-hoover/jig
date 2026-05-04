@@ -33,6 +33,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from jig.dev_env.provisioning import SqlExecutor, render_namespace
+from jig.safe_path import validate_safe_path_segment
 from jig.schemas.dev_env import ManifestService
 
 __all__ = [
@@ -133,6 +134,13 @@ class SqliteEphemeralProvisioner(EphemeralProvisioner):
         ticket_id: str,
         epic_id: str | None = None,
     ) -> Path:
+        # ``service.id`` flows from manifest YAML into a directory
+        # name; defense in depth against a manifest bypass producing
+        # a malformed id. ``namespace`` is rendered through
+        # ``render_namespace`` which already sanitizes the agent /
+        # ticket / epic ids to ``[a-z0-9_]+``, so the .db filename
+        # is path-safe by construction.
+        validate_safe_path_segment(service.id, "service.id")
         namespace = render_namespace(
             service.namespace_template,
             agent_id=agent_id,

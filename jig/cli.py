@@ -11,6 +11,7 @@ from pathlib import Path
 import click
 
 from jig.events import EventEmitter
+from jig.safe_path import validate_safe_path_segment
 from jig.ws_server import WebSocketServer
 from jig.orchestrator import Orchestrator
 from jig.worktree import remove_worktree
@@ -244,6 +245,10 @@ def validate(path: Path, ticket_id: str | None) -> None:
         )
 
     if ticket_id is not None:
+        # Operator can pass any string here; validate before it
+        # touches the filesystem so a stray ".." can't probe outside
+        # .jig/worktrees.
+        validate_safe_path_segment(ticket_id, "ticket_id")
         worktree_path = jig_dir / "worktrees" / ticket_id
         if worktree_path.is_dir():
             try:

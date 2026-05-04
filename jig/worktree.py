@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 from jig.models import MergeStrategy
+from jig.safe_path import validate_safe_path_segment
 
 _logger = logging.getLogger(__name__)
 
@@ -55,8 +56,15 @@ async def create_worktree(
 ) -> Path:
     """Create a git worktree for a ticket.
 
-    Returns the path to the worktree directory.
+    Returns the path to the worktree directory. Validates
+    ``ticket_id`` because the path AND the git branch name (``jig/<id>``)
+    are derived from it — a malformed id could escape the worktrees
+    root or produce a dangerous git ref. Defense in depth: callers
+    construct ``Ticket`` objects whose ``id`` is already validated,
+    but raw-string callers (CLI, reviewers, sim driver) reach this
+    helper too.
     """
+    validate_safe_path_segment(ticket_id, "ticket_id")
     worktree_path = project_path / ".jig" / "worktrees" / ticket_id
     branch_name = f"jig/{ticket_id}"
 
@@ -200,6 +208,7 @@ async def remove_worktree(
     keep_branch: bool = False,
 ) -> None:
     """Remove a git worktree, optionally preserving its branch for merge."""
+    validate_safe_path_segment(ticket_id, "ticket_id")
     worktree_path = project_path / ".jig" / "worktrees" / ticket_id
     branch_name = f"jig/{ticket_id}"
     await _run_git(project_path, "worktree", "remove", str(worktree_path), "--force")
@@ -256,6 +265,7 @@ async def merge_ticket(
 
     Returns a short description of what was done.
     """
+    validate_safe_path_segment(ticket_id, "ticket_id")
     source_branch = f"jig/{ticket_id}"
 
     if strategy == MergeStrategy.FEATURE_BRANCH:

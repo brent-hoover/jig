@@ -1284,8 +1284,10 @@ async def _handle_mock_dev_commit(
         )
 
     # Worktree layout per jig.reviewers.contract_compliance default
-    # convention: <project_root>/.jig/worktrees/<ticket_id>/
-    worktree = ctx.project_root / ".jig" / "worktrees" / ticket_id
+    # convention: <project_root>/.jig/worktrees/<ticket_id>/.
+    # ``ticket.id`` is field-validated as path-safe so a malformed
+    # sim-fixture id would have failed at Ticket construction.
+    worktree = ctx.project_root / ".jig" / "worktrees" / ticket.id
     worktree.mkdir(parents=True, exist_ok=True)
 
     _git(worktree, "init", "-b", "main")

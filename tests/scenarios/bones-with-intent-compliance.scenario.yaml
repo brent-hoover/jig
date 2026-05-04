@@ -1,0 +1,222 @@
+spec_version: 1
+id: bones-with-intent-compliance
+description: |
+  Coverage scenario for ``reviewer-intent-compliance`` (Block 3,
+  federation). The intent reviewer is mechanical — it scans the
+  authored artifacts (Modules, Contracts, Risks, Epics) for thin or
+  boilerplate Intent blocks, missing complications-considered prose,
+  and (Final) cross-artifact duplication.
+
+  This scenario authors a small but Intent-compliant project +
+  triggers the federation-execution path with an MVP-layer ticket.
+  ``dispatch_with_llm_spawn`` runs the in-process intent reviewer at
+  end-of-ticket cadence; the assertion gates on the reviewer running
+  without flagging the (deliberately compliant) authored artifacts.
+
+  Closes the ``reviewer-intent-compliance`` gap from the v2-review's
+  coverage report. Mock-mode only.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - reviewer-intent-compliance
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-intent-compliance
+      pitch: coverage scenario for the intent-compliance reviewer
+      problem: |
+        Cover the ``reviewer-intent-compliance`` gap. The reviewer
+        scans authored artifacts for thin/boilerplate Intent blocks;
+        we want a path that fires the reviewer through the
+        federation-execution flow.
+      audience: |
+        Internal jig developers validating coverage of the federation
+        reviewer-kind tags.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-intent-compliance
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog suite
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: Catalog suite for intent-compliance coverage
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog Ingest
+            summary: Pulls catalog data from Shopify.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Catalog ingestion bottlenecks the operator's onboarding;
+                first-day inventory accuracy depends on a clean Shopify
+                pull, deduped against the local products collection.
+              simplest_solution: |
+                One module owns the products collection and runs the
+                Shopify ingest as an idempotent batch — re-running the
+                ingest is safe, partial failures retry from the last
+                committed cursor.
+              complications_considered:
+                scale: |
+                  Single Shopify shop; 10K SKUs cap. Larger shops
+                  re-architect to streaming ingest in MVP.
+                concurrency: |
+                  One ingest per shop at a time; the worktree lock on
+                  the products collection serializes writes.
+                failure_modes: |
+                  Shopify rate limits (429) trigger exponential backoff;
+                  we resume from the last committed cursor.
+                cross_cutting: |
+                  No PII handling here; the ingest pulls catalog data
+                  only.
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog flows into products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-intent-compliance
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Intent-compliance coverage tracer
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-intent-comp
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Cover the intent-compliance reviewer end-to-end.
+              simplest_solution: |
+                One epic with a fully-fleshed Intent block so the
+                reviewer's checks all pass.
+              complications_considered:
+                scale: |
+                  One epic, one ticket; nothing to scale here.
+                concurrency: |
+                  Sequential ticket dispatch; no concurrent epics.
+                failure_modes: |
+                  None expected; the reviewer is deterministic.
+                cross_cutting: |
+                  No cross-cutting policies in scope.
+        stalled: []
+        open_questions: []
+
+  - kind: materialize_tickets
+    params:
+      # Promote the bones-materialized ticket to mvp layer so the
+      # intent-compliance reviewer (mvp+ default) joins the federation
+      # at end-of-ticket cadence.
+      layer_by_ticket:
+        tb-intent-comp: mvp
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-intent-comp
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-intent-comp
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Federation execution covers intent-compliance --------------
+  # The intent reviewer runs against authored artifacts at
+  # end-of-ticket cadence; dispatch_with_llm_spawn calls
+  # dispatch_for_cadence under the hood, which invokes the in-process
+  # IntentComplianceReviewer.
+  - kind: invoke_federation_execution
+    params:
+      ticket_id: tb-intent-comp
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-intent-comp
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

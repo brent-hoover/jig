@@ -1,0 +1,198 @@
+spec_version: 1
+id: bones-with-spec-compliance
+description: |
+  Coverage scenario for ``reviewer-spec-compliance`` (Block 3,
+  federation). The reviewer is mechanical — it runs as part of the
+  end-of-ticket dispatch and verifies the dev's diff references the
+  behavior-AC tokens declared in the suite's structured spec, plus
+  capability-id sanity (the ticket's claimed capability_ids must
+  exist in the spec).
+
+  Authors a structured spec with one capability + behavior, runs a
+  bones tracer-bullet ticket through the pipeline, then drives
+  ``invoke_federation_execution`` so the spec-compliance reviewer
+  participates in the dispatch. Closes the
+  ``reviewer-spec-compliance`` gap from the v2-review's coverage
+  report.
+
+  Mock-mode only.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - reviewer-spec-compliance
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-spec-compliance
+      pitch: coverage scenario for the spec-compliance reviewer
+      problem: |
+        Cover the ``reviewer-spec-compliance`` gap. The reviewer needs
+        a structured spec it can check the dev's diff against.
+      audience: |
+        Internal jig developers validating coverage of the federation
+        reviewer-kind tags.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-spec-compliance
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog suite
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: Catalog suite for spec-compliance coverage
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+            - id: pull-catalog
+              description: After OAuth completes we pull the catalog
+              acceptance_criteria:
+                - Catalog rows appear in the products collection
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog Ingest
+            summary: Pulls catalog data from Shopify.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Coverage scenario needs a module so spec-compliance
+                has a contracts file linked to the spec.
+              simplest_solution: |
+                One module that owns one collection.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog flows into products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-spec-compliance
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Spec-compliance coverage tracer
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-spec-comp
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Cover the spec-compliance reviewer.
+              simplest_solution: |
+                One ticket whose capability_ids match the spec.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  - kind: materialize_tickets
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-spec-comp
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-spec-comp
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Federation execution covers spec-compliance ----------------
+  - kind: invoke_federation_execution
+    params:
+      ticket_id: tb-spec-comp
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-spec-comp
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

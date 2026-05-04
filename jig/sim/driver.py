@@ -1189,6 +1189,24 @@ async def _handle_materialize_tickets(
             )
         await ctx.tickets.update(ticket_id, labels=list(labels))
 
+    # Block 3 (federation) — optional layer override so coverage
+    # scenarios can opt MVP+ defaults into the federation reviewer
+    # set (intent-compliance is end-of-ticket-only on mvp+ layer
+    # tickets) without driving a full multi-layer cycle. Mirrors
+    # the existing labels/visual_references patch pattern.
+    layer_by_ticket = step.params.get("layer_by_ticket") or {}
+    for ticket_id, layer in layer_by_ticket.items():
+        if not isinstance(layer, str) or layer not in (
+            "bones",
+            "mvp",
+            "final",
+        ):
+            raise ValueError(
+                f"materialize_tickets.layer_by_ticket[{ticket_id!r}] "
+                f"must be one of 'bones', 'mvp', 'final'; got {layer!r}"
+            )
+        await ctx.tickets.update(ticket_id, layer=layer)
+
 
 async def _handle_invoke_coordinator_cycle(
     ctx: DriverContext, step: ScenarioStep

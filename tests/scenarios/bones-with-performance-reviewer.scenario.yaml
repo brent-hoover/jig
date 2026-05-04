@@ -1,0 +1,215 @@
+spec_version: 1
+id: bones-with-performance-reviewer
+description: |
+  Coverage scenario for ``reviewer-performance`` (Block 3,
+  federation). The performance reviewer is an LLM-driven judgment
+  reviewer — selected when the ticket has the ``perf-budget`` label
+  OR the linked integration AC contains perf-budget keywords (latency,
+  throughput, p99, "under N ms", "requests per").
+
+  This scenario authors a tracer-bullet ticket carrying the
+  ``perf-budget`` label so the dispatcher pulls in
+  ``reviewer-performance``. The ``invoke_federation_execution`` step
+  spawns it through the mocked orchestrator + injects a canned
+  comment that lands in the ReviewCommentsStore. Closes the
+  ``reviewer-performance`` gap from the v2-review's coverage report.
+
+  Mock-mode only — real LLM spawn is operator-driven.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - reviewer-performance
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-performance-reviewer
+      pitch: coverage scenario for the performance reviewer
+      problem: |
+        Cover the ``reviewer-performance`` gap. The reviewer fires on
+        perf-budget tickets; the federation-execution step spawns it
+        through the mocked orchestrator and pins the canned comment
+        in the ReviewCommentsStore.
+      audience: |
+        Internal jig developers validating coverage of the federation
+        reviewer-kind tags.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-performance-reviewer
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog suite
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: Catalog suite for performance-reviewer coverage
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store
+          state: planned
+          summary: Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog Ingest
+            summary: Pulls catalog data from Shopify.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Coverage scenario needs a module so the performance
+                reviewer has a target to inspect.
+              simplest_solution: |
+                One module with a perf-budget ticket.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog flows into products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-performance-reviewer
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Performance-reviewer coverage tracer
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-perf
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Cover the performance reviewer end-to-end via the
+                federation-execution path.
+              simplest_solution: |
+                One ticket carrying perf-budget.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  - kind: materialize_tickets
+    params:
+      labels_by_ticket:
+        tb-perf:
+          - perf-budget
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-perf
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-perf
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  - kind: invoke_federation_execution
+    params:
+      ticket_id: tb-perf
+      inject_comments:
+        - reviewer: reviewer-performance
+          type: pattern-divergence
+          severity: notable
+          prose: |
+            Coverage canned finding: the ingest loop does N+1 queries
+            against the products collection; batch the lookups via a
+            single multi-id read to stay under the perf budget.
+          file: ingest.py
+          line: 22
+          confidence: 0.82
+    assertions:
+      - kind: review_comment_in_store
+        ticket_id: tb-perf
+        reviewer_id: reviewer-performance
+        contains: N+1 queries
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-perf
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

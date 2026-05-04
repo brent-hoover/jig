@@ -1,0 +1,210 @@
+spec_version: 1
+id: bones-with-cross-cutting-policy
+description: |
+  Coverage scenario for ``reviewer-cross-cutting-policy`` (Block 3,
+  federation). The reviewer is mechanical — it runs as part of the
+  end-of-ticket dispatch and scans the worktree diff against any
+  ``cross_cutting_policies`` declared in ``architecture.yaml``.
+
+  This scenario authors one universal-rule policy ("MUST NOT log
+  credentials"), spawns the federation execution against a clean
+  ticket, and asserts the cross-cutting-policy reviewer ran via the
+  federation map. Closes the ``reviewer-cross-cutting-policy`` gap
+  flagged by the v2-review's coverage report.
+
+  Mock-mode only — the federation step uses the synthetic operator's
+  stub orchestrator; mechanical reviewers execute for real against
+  the authored artifacts.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - reviewer-cross-cutting-policy
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-cross-cutting-policy
+      pitch: coverage scenario for the cross-cutting-policy reviewer
+      problem: |
+        We need to cover the ``reviewer-cross-cutting-policy`` gap
+        flagged by the v2-review. The mechanical reviewer needs an
+        ``architecture.yaml`` with at least one cross-cutting policy
+        plus a ticket whose worktree diff can be scanned.
+      audience: |
+        Internal jig developers validating coverage of the federation
+        reviewer-kind tags.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-cross-cutting-policy
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: Catalog ingestion suite
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store
+          state: planned
+          summary: Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+
+  # ---- SA: write architecture WITH a cross-cutting policy ---------
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog Ingest
+            summary: Pulls catalog data from Shopify.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Coverage scenario needs one module so the federation
+                has a worktree to dispatch against.
+              simplest_solution: |
+                One module that owns one collection.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies:
+          - id: no-secrets-in-logs
+            polarity: negative
+            rule: |
+              Modules MUST NOT log credentials, tokens, or secrets in
+              any form (plaintext, base64, hashed identifiers).
+        risks: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: no-secrets-in-logs
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog rows persist in the products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-cross-cutting-policy
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Coverage tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-cc-policy
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Cover the cross-cutting-policy reviewer end-to-end.
+              simplest_solution: |
+                One epic, one ticket, one cross-cutting policy.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  - kind: materialize_tickets
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-cc-policy
+        status: open
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-cc-policy
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-cc-policy
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # ---- Federation execution: cross-cutting-policy runs here ------
+  - kind: invoke_federation_execution
+    params:
+      ticket_id: tb-cc-policy
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-cc-policy
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

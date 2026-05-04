@@ -1,0 +1,218 @@
+spec_version: 1
+id: bones-with-architectural-reviewer
+description: |
+  Coverage scenario for ``reviewer-architectural`` (Block 3,
+  federation). The architectural reviewer is an LLM-driven judgment
+  reviewer — selected when the ticket has the ``touches-contract``
+  label, ``dev_tier == "sa"``, or ``contract_amendment`` populated.
+
+  This scenario authors a tracer-bullet ticket with
+  ``contract_amendment="extends ingest contract"`` so the dispatcher
+  pulls in ``reviewer-architectural``. The
+  ``invoke_federation_execution`` step injects a canned comment via
+  the mocked orchestrator + asserts it lands in the
+  ReviewCommentsStore. Closes the ``reviewer-architectural`` gap from
+  the v2-review's coverage report.
+
+  Mock-mode only — real LLM spawn is operator-driven.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - reviewer-architectural
+
+steps:
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-architectural-reviewer
+      pitch: coverage scenario for the architectural reviewer
+      problem: |
+        Cover the ``reviewer-architectural`` gap. The reviewer fires
+        on contract-amendment tickets; the federation-execution step
+        spawns it through the mocked orchestrator and pins the
+        canned comment in the ReviewCommentsStore.
+      audience: |
+        Internal jig developers validating coverage of the federation
+        reviewer-kind tags.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-architectural-reviewer
+
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 1
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: catalog suite
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: Catalog suite for architectural-reviewer coverage
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store
+          state: planned
+          summary: Operator authorizes Shopify; we pull and normalize.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog Ingest
+            summary: Pulls catalog data from Shopify.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Coverage scenario needs a module so the architectural
+                reviewer has a contract to inspect.
+              simplest_solution: |
+                One module, one contract amendment.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Catalog flows into products collection
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_build_plan
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-architectural-reviewer
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Architectural-reviewer coverage tracer
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-arch
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Cover the architectural reviewer end-to-end via the
+                federation-execution path.
+              simplest_solution: |
+                One ticket carrying a contract_amendment.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+
+  # Materialize + patch the ticket with contract_amendment so the
+  # architectural reviewer is pulled into the dispatch.
+  - kind: materialize_tickets
+    params:
+      labels_by_ticket:
+        tb-arch:
+          - touches-contract
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-arch
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-arch
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+  # Federation execution: spawn architectural reviewer + canned comment.
+  - kind: invoke_federation_execution
+    params:
+      ticket_id: tb-arch
+      inject_comments:
+        - reviewer: reviewer-architectural
+          type: pattern-divergence
+          severity: notable
+          prose: |
+            Coverage canned finding: the contract amendment introduces
+            a cross-module dependency that should route through the
+            shared-contracts surface rather than a direct call.
+          file: ingest.py
+          line: 12
+          confidence: 0.8
+    assertions:
+      - kind: review_comment_in_store
+        ticket_id: tb-arch
+        reviewer_id: reviewer-architectural
+        contains: cross-module dependency
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-arch
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

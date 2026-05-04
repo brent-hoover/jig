@@ -171,6 +171,29 @@ class ReviewerComment(BaseModel):
             "passing the field explicitly."
         ),
     )
+    ticket_id: str | None = Field(
+        default=None,
+        description=(
+            "Ticket the comment was raised against. Optional because "
+            "bones-era reviewers were called from contexts that didn't "
+            "always have a ticket id in scope (the synthetic-operator "
+            "harness invoked them by URI). MVP callers populate it; the "
+            "ReviewCommentsStore indexes on this field for "
+            "``for_ticket`` queries."
+        ),
+    )
+    cycle: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Review→fix cycle number this comment belongs to. Starts at "
+            "0 for the first review pass, increments each time the dev "
+            "agent re-submits and the reviewers re-run. The bounded "
+            "fix-loop cap (3 cycles per design §\"Bounded fix loops\") "
+            "compares categories across consecutive cycles to detect "
+            "non-converging issues."
+        ),
+    )
 
 
 __all__ = [

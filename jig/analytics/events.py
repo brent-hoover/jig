@@ -638,6 +638,37 @@ class DesignSystemImported(_EventBase):
     revision: int
 
 
+class OntologyTermEdited(_EventBase):
+    """Operator revised an existing project-ontology term (Track B Final).
+
+    Fires when ``ontology_edit_term`` replaces a term's definition or
+    examples. Distinct from ``ontology_add_term`` (which is the initial-
+    capture path) so analytics can separate "first capture" from
+    "post-hoc revision" — the latter is a higher-signal event because it
+    means downstream artifacts may need to be re-checked against the
+    revised definition.
+    """
+
+    kind: Literal["ontology_term_edited"] = "ontology_term_edited"
+    term: str
+    examples_count: int
+
+
+class OntologyTermRemoved(_EventBase):
+    """Operator removed a project-ontology term (Track B Final).
+
+    Fires when ``ontology_remove_term`` deletes a term. ``replacement_term``
+    is set when the operator chose to redirect downstream references to a
+    different ontology entry; ``orphaned_reference_count`` counts the
+    references that became orphaned (no replacement).
+    """
+
+    kind: Literal["ontology_term_removed"] = "ontology_term_removed"
+    term: str
+    replacement_term: str | None = None
+    orphaned_reference_count: int = 0
+
+
 class VisualComplianceFailed(_EventBase):
     """Visual reviewer flagged divergence between implementation and wireframe.
 
@@ -696,6 +727,8 @@ AnalyticsEvent = Annotated[
         WireframeApproved,
         DesignSystemImported,
         VisualComplianceFailed,
+        OntologyTermEdited,
+        OntologyTermRemoved,
     ],
     Field(discriminator="kind"),
 ]

@@ -121,3 +121,66 @@ async def test_ontology_tools_not_registered_when_not_allowed(
     )
     for forbidden in ONTOLOGY_TOOLS:
         assert forbidden not in _names(captured)
+
+
+# ---- operator-edit affordances (Track B Final) ---------------------------
+
+
+OPERATOR_EDIT_TOOLS = {
+    "ontology_edit_term",
+    "ontology_remove_term",
+    "ontology_find_references",
+}
+
+
+@pytest.mark.asyncio
+async def test_operator_edit_tools_register_when_allowed(
+    tmp_path, stores, monkeypatch
+):
+    """Track B Final adds three operator-edit tools that the L1 PO can
+    invoke when the operator asks for a revision mid-walk."""
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(
+        role="po-l1",
+        allowed_tools=sorted(OPERATOR_EDIT_TOOLS | {"ask_question"}),
+        strict_tools=True,
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po-l1",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    assert OPERATOR_EDIT_TOOLS.issubset(_names(captured))
+
+
+@pytest.mark.asyncio
+async def test_operator_edit_tools_not_registered_when_not_allowed(
+    tmp_path, stores, monkeypatch
+):
+    tickets, threads, memory, bus = stores
+    cfg = RoleConfig(
+        role="po-l3",
+        allowed_tools=["Read", "ask_question", "l3_finalize"],
+        strict_tools=True,
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="po-l3",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    for forbidden in OPERATOR_EDIT_TOOLS:
+        assert forbidden not in _names(captured)

@@ -1806,3 +1806,157 @@ def pm_view_cmd(path: Path) -> None:
         click.echo(format_cycle_view(view))
 
     asyncio.run(_run())
+
+
+# ---- ontology CLI (Track B Final operator-edit affordances) -------------
+
+
+@cli.group("ontology")
+def ontology_group() -> None:
+    """Inspect and edit the project ontology (operator-edit affordances)."""
+
+
+@ontology_group.command("list")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def ontology_list_cmd(path: Path) -> None:
+    """List every term currently in ``.jig/spec/ontology.md``."""
+    from jig.po_ontology_mcp import handle_ontology_get_terms
+
+    out = asyncio.run(handle_ontology_get_terms(project_path=path))
+    terms = out.get("terms", [])
+    if not terms:
+        click.echo("(no terms)")
+        return
+    for t in terms:
+        click.echo(f"- {t['term']}")
+
+
+@ontology_group.command("show")
+@click.argument("term")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def ontology_show_cmd(term: str, path: Path) -> None:
+    """Print the full entry for one term."""
+    from jig.po_ontology_mcp import handle_ontology_lookup
+
+    out = asyncio.run(handle_ontology_lookup(project_path=path, term=term))
+    if out is None:
+        raise click.ClickException(f"term {term!r} not in ontology")
+    click.echo(f"### {out['term']}")
+    click.echo(out["definition"])
+    if out.get("examples"):
+        click.echo("")
+        click.echo("**Examples:**")
+        for ex in out["examples"]:
+            click.echo(f"- {ex}")
+
+
+@ontology_group.command("edit")
+@click.argument("term")
+@click.option("--definition", required=True, help="New definition (one paragraph).")
+@click.option(
+    "--example",
+    "examples",
+    multiple=True,
+    help="An example bullet. Repeat to add multiple.",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def ontology_edit_cmd(
+    term: str, definition: str, examples: tuple[str, ...], path: Path
+) -> None:
+    """Replace an existing term's definition + examples."""
+    from jig.po_ontology_mcp import handle_ontology_edit_term
+
+    try:
+        result = asyncio.run(
+            handle_ontology_edit_term(
+                project_path=path,
+                term=term,
+                definition=definition,
+                examples=list(examples),
+            )
+        )
+    except KeyError as exc:
+        raise click.ClickException(str(exc).strip("'"))
+    click.echo(f"updated term {result.term!r}")
+
+
+@ontology_group.command("remove")
+@click.argument("term")
+@click.option(
+    "--replace-with",
+    "replacement_term",
+    default=None,
+    help=(
+        "Replacement term — references in artifacts get rewritten in place. "
+        "Without this flag references become orphaned."
+    ),
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def ontology_remove_cmd(
+    term: str, replacement_term: str | None, path: Path
+) -> None:
+    """Remove a term from the ontology (with optional reference rewrite)."""
+    from jig.po_ontology_mcp import handle_ontology_remove_term
+
+    try:
+        result = asyncio.run(
+            handle_ontology_remove_term(
+                project_path=path,
+                term=term,
+                replacement_term=replacement_term,
+            )
+        )
+    except KeyError as exc:
+        raise click.ClickException(str(exc).strip("'"))
+    click.echo(f"removed term {result.term!r}")
+    if result.replacement_term:
+        click.echo(f"redirected references to {result.replacement_term!r}")
+        for p in result.rewritten:
+            click.echo(f"  rewrote {p}")
+    elif result.orphaned:
+        click.echo(f"orphaned {len(result.orphaned)} references:")
+        for ref in result.orphaned:
+            click.echo(f"  {ref.path}:{ref.line}: {ref.snippet}")
+
+
+@ontology_group.command("find-references")
+@click.argument("term")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def ontology_find_references_cmd(term: str, path: Path) -> None:
+    """List every artifact line referencing ``term``."""
+    from jig.po_ontology_mcp import handle_ontology_find_references
+
+    refs = asyncio.run(
+        handle_ontology_find_references(project_path=path, term=term)
+    )
+    if not refs:
+        click.echo(f"no references to {term!r}")
+        return
+    for ref in refs:
+        click.echo(f"{ref.path}:{ref.line}: {ref.snippet}")
+

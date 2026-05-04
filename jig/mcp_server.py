@@ -1288,6 +1288,94 @@ def create_agent_mcp_server(
 
         all_tools.append(ontology_lookup)
 
+    # ---- Ontology operator-edit affordances (Track B Final) ---------------
+    # These tools let the operator (and the L1 PO acting on operator
+    # request) revise the committed ontology after authoring. Each
+    # tool emits an analytics event so downstream consumers can detect
+    # vocabulary churn that may invalidate prior interpretations.
+
+    if "ontology_edit_term" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_edit_term",
+            "Replace an existing term's definition + examples in "
+            "``.jig/spec/ontology.md``. Distinct from ``ontology_add_term``: "
+            "raises an error when the term is missing rather than silently "
+            "creating a new entry — operators expect 'edit' to fail loud "
+            "on a typo. Emits ``OntologyTermEdited`` analytics so "
+            "downstream artifacts can be re-checked against the revised "
+            "definition.",
+            {"term": str, "definition": str, "examples": list},
+        )
+        async def ontology_edit_term(args):
+            # Emitter is None at MCP-tool dispatch — analytics events
+            # are wired through the orchestrator-level emitter when
+            # production runs land. Tests + CLI invoke the handler
+            # directly with an emitter when they need analytics.
+            await po_ontology_mcp.handle_ontology_edit_term(
+                project_path=project_path,
+                term=args["term"],
+                definition=args["definition"],
+                examples=args.get("examples") or [],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(ontology_edit_term)
+
+    if "ontology_remove_term" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_remove_term",
+            "Remove a term from the ontology. ``replacement_term`` is "
+            "optional: when set, references in suite briefs / contracts / "
+            "comments / suites.yaml get rewritten in place to point at the "
+            "replacement (which must already be in the ontology). Without "
+            "it, references become orphaned (no matching ontology entry) "
+            "and the operator addresses them by hand. Emits "
+            "``OntologyTermRemoved`` analytics with the orphaned-reference "
+            "count so the consequences are visible.",
+            {"term": str, "replacement_term": str},
+        )
+        async def ontology_remove_term(args):
+            replacement = args.get("replacement_term")
+            if isinstance(replacement, str) and not replacement.strip():
+                replacement = None
+            result = await po_ontology_mcp.handle_ontology_remove_term(
+                project_path=project_path,
+                term=args["term"],
+                replacement_term=replacement,
+            )
+            payload = {
+                "term": result.term,
+                "replacement_term": result.replacement_term,
+                "rewritten": result.rewritten,
+                "orphaned": [r.model_dump(mode="json") for r in result.orphaned],
+            }
+            return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        all_tools.append(ontology_remove_term)
+
+    if "ontology_find_references" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_find_references",
+            "List every line in v2 artifacts (suite briefs, module "
+            "contracts, suites.yaml, comments) that references ``term``. "
+            "Word-boundary matching — ``blocker`` doesn't match "
+            "``roadblockers``. Returns a JSON array of "
+            "``{path, line, snippet}`` rows sorted by (path, line).",
+            {"term": str},
+        )
+        async def ontology_find_references(args):
+            refs = await po_ontology_mcp.handle_ontology_find_references(
+                project_path=project_path,
+                term=args["term"],
+            )
+            payload = [r.model_dump(mode="json") for r in refs]
+            return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        all_tools.append(ontology_find_references)
+
     if "l2_finalize" in agent_cfg.allowed_tools:
 
         @tool(

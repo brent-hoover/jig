@@ -32,6 +32,7 @@ import asyncio
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -573,6 +574,24 @@ _REAL_MODE_POLL_INTERVAL_S = 0.25
 _REAL_MODE_TIMEOUT_S = 15 * 60
 
 
+class _RealModeProgress:
+    """Operator-visible progress emitter for the real-mode wait loop.
+
+    Writes to stderr so stdout stays reserved for the final scenario
+    report. Silent under pytest (PYTEST_CURRENT_TEST set) so test output
+    isn't polluted.
+    """
+
+    def __init__(self, *, ticket_id: str) -> None:
+        self._ticket_id = ticket_id
+        self._silent = "PYTEST_CURRENT_TEST" in os.environ
+
+    def emit(self, msg: str) -> None:
+        if self._silent:
+            return
+        print(f"[sim:{self._ticket_id}] {msg}", file=sys.stderr, flush=True)
+
+
 async def _handle_real_dev_dispatch(
     ctx: DriverContext, step: ScenarioStep
 ) -> None:
@@ -604,9 +623,18 @@ async def _handle_real_dev_dispatch(
 
     _bootstrap_real_mode_project(ctx.project_root)
 
+    # Real-mode runs can take minutes; without operator-visible progress
+    # it looks like a hang. We surface ticket-status transitions and a
+    # heartbeat to stderr so the operator knows the agent is alive.
+    # stderr (not stdout) so the final scenario report stays the only
+    # stdout signal.
+    progress = _RealModeProgress(ticket_id=ticket_id)
+    progress.emit("orchestrator starting…")
+
     orch = Orchestrator(project_path=ctx.project_root)
     await orch.startup()
     try:
+        progress.emit("orchestrator ready; waiting for ticket dispatch")
         # The orchestrator's startup runs ``_start_ready_tickets``
         # which picks up our materialized ticket and dispatches it.
         # We just wait for the ticket to terminate.
@@ -617,10 +645,21 @@ async def _handle_real_dev_dispatch(
         }
         loop = asyncio.get_event_loop()
         deadline = loop.time() + _REAL_MODE_TIMEOUT_S
+        last_status: TicketStatus | None = None
+        last_heartbeat = loop.time()
         while loop.time() < deadline:
             current = await orch.tickets.get(ticket_id)  # type: ignore[union-attr]
+            if current is not None and current.status != last_status:
+                progress.emit(f"ticket status → {current.status.value}")
+                last_status = current.status
             if current is not None and current.status in terminal:
                 break
+            now = loop.time()
+            if now - last_heartbeat > 30.0:
+                progress.emit(
+                    f"still waiting… ({int(now - (deadline - _REAL_MODE_TIMEOUT_S))}s elapsed)"
+                )
+                last_heartbeat = now
             await asyncio.sleep(_REAL_MODE_POLL_INTERVAL_S)
         else:
             raise TimeoutError(
@@ -628,7 +667,9 @@ async def _handle_real_dev_dispatch(
                 f"terminal status within {_REAL_MODE_TIMEOUT_S}s"
             )
     finally:
+        progress.emit("orchestrator shutting down")
         await orch.shutdown()
+    progress.emit("dispatch complete")
 
     # Refresh the driver's stores from disk — the orchestrator has its
     # own JsonlStore instances and our in-memory copies don't see its

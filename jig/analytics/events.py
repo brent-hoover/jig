@@ -391,6 +391,9 @@ _RiskStatus = Literal[
     "spike_proposed",
     "spike_in_progress",
     "mitigated",
+    # Track C Final mitigation #3: spike returned "depends on
+    # constraint X"; cascade fires conditionally on the constraint.
+    "mitigated_with_constraints",
     "accepted",
     "confirmed_impossible",
 ]

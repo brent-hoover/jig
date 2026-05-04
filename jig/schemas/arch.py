@@ -25,8 +25,11 @@ from jig.schemas._validators import (
 __all__ = [
     "Architecture",
     "BehavioralContract",
+    "CascadeAuditEntry",
     "CascadeContractDisposition",
     "CascadeProposal",
+    "CascadeStage",
+    "CascadeState",
     "ChangeLogEntry",
     "ContractsFile",
     "ContractPolarity",
@@ -76,6 +79,13 @@ class RiskStatus(str, Enum):
     SPIKE_PROPOSED = "spike_proposed"
     SPIKE_RUNNING = "spike_running"
     MITIGATED = "mitigated"
+    # Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    # and mitigations" mitigation #3: a spike that returns "depends on
+    # operator constraint X" rather than impossible/mitigated transitions
+    # the risk to this state. The cascade fires conditionally on the
+    # constraint being met — captured in the cascade artifact's
+    # ``constraint`` field rather than mutating contracts unconditionally.
+    MITIGATED_WITH_CONSTRAINTS = "mitigated_with_constraints"
     ACCEPTED = "accepted"
     CONFIRMED_IMPOSSIBLE = "confirmed_impossible"
 
@@ -292,6 +302,28 @@ class Module(BaseModel):
     intent: Intent = Field(
         ...,
         description="Why this module exists; the simplest-it-could-be version.",
+    )
+    cascade_risk_low: bool = Field(
+        default=False,
+        description=(
+            "SA-suggested hint per ``docs/pm-workflow/design.md`` "
+            "§'Bones-first ordering' / cascade_risk_low flag: when "
+            "True, even if this module's bones doesn't converge "
+            "cleanly, promoting it to MVP is unlikely to cascade "
+            "upward (no new shared shapes, no new contracts, no "
+            "flagged risks). PM Coordinator reads this to allow MVP "
+            "promotion on unblocked epics when blocked epics touch "
+            "only cascade_risk_low=true modules."
+        ),
+    )
+    cascade_risk_low_rationale: str | None = Field(
+        default=None,
+        description=(
+            "Why the SA judged cascade risk as low. Required when "
+            "``cascade_risk_low`` is True so the operator (and the "
+            "audit trail) can see the reasoning rather than a bare "
+            "boolean toggle."
+        ),
     )
 
     @field_validator("id")
@@ -519,19 +551,111 @@ class CascadeContractDisposition(BaseModel):
         return validate_project_uri_shape(v)
 
 
+class CascadeStage(BaseModel):
+    """One stage of a (potentially staged) cascade proposal.
+
+    Per ``docs/sa-architecture/design.md`` §"Failure modes and
+    mitigations" failure mode #2 — when a cascade affects N+ contracts,
+    the operator gets a per-stage approval flow instead of one
+    overwhelming all-or-nothing screen. Each stage is a sub-batch with
+    its own approval state; the cascade as a whole resolves only when
+    every stage is either approved or rejected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage_id: str = Field(..., min_length=1)
+    contracts: list[CascadeContractDisposition] = Field(default_factory=list)
+    approved: bool = False
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+
+    @field_validator("approved_at")
+    @classmethod
+    def _tz_approved_at(cls, v: datetime | None) -> datetime | None:
+        return validate_tz_aware(v, "CascadeStage.approved_at") if v else v
+
+
+class CascadeState(str, Enum):
+    """Lifecycle state of a CascadeProposal artifact.
+
+    ``pending`` — newly written; awaiting operator action.
+    ``staged`` — split into stages via ``arch_stage_cascade``; partial
+    approvals tracked per-stage.
+    ``holding`` — concurrent-cascade detection blocked emission per
+    failure mode #4 (overlapping dependent_contracts with an in-flight
+    cascade).
+    ``rejected`` — operator rejected the whole cascade; the audit entry
+    captures the reason.
+    ``resolved`` — every stage approved (or non-staged cascade
+    accepted); contracts will be amended in the SA delta-pass.
+    """
+
+    PENDING = "pending"
+    STAGED = "staged"
+    HOLDING = "holding"
+    REJECTED = "rejected"
+    RESOLVED = "resolved"
+
+
+class CascadeAuditEntry(BaseModel):
+    """One row in ``.jig/arch/cascades/audit.jsonl``.
+
+    Captures every operator-facing transition on a cascade proposal —
+    proposed, staged, stage-approved, rejected, held-for-overlap. The
+    JSONL is append-only so cross-project analytics can scan for
+    operator-rejection patterns ("operator rejects 30% of cascades from
+    this risk family") per failure mode #1.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cascade_id: str = Field(..., min_length=1)
+    risk_id: str = Field(..., min_length=1)
+    action: Literal[
+        "proposed",
+        "staged",
+        "stage_approved",
+        "rejected",
+        "holding",
+        "resolved",
+    ]
+    actor: str = Field(..., min_length=1)
+    reason: str | None = None
+    stage_id: str | None = None
+    holding_for: str | None = None
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    @field_validator("timestamp")
+    @classmethod
+    def _tz_timestamp(cls, v: datetime) -> datetime:
+        return validate_tz_aware(v, "CascadeAuditEntry.timestamp")
+
+
 class CascadeProposal(BaseModel):
     """One cascade-after-confirmed-impossible proposal artifact.
 
     Persisted to ``.jig/arch/cascades/<risk-id>-<timestamp>.yaml`` per
     ``docs/sa-architecture/design.md`` §"The cascade workflow" step 5
-    (audit trail). MVP scope writes the artifact and surfaces it via a
-    Handoff on the architecture ticket; the operator hand-edits to set
-    real dispositions and re-runs SA. Full transactional confirmation
-    + auto-cascade-application lands in Final.
+    (audit trail). Final scope adds ``state`` + optional ``stages`` +
+    ``holding_for`` + ``constraint`` to track the four failure-mode
+    mitigations on the artifact itself; the JSONL audit log carries
+    the per-action history.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    cascade_id: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Unique cascade id, formatted ``<risk-id>-<timestamp>`` to "
+            "match the on-disk filename and let the audit trail link "
+            "actions to one cascade unambiguously."
+        ),
+    )
     risk_id: str = Field(..., min_length=1)
     spike_ticket_id: str = Field(..., min_length=1)
     finding: str = Field(..., min_length=1)
@@ -539,6 +663,41 @@ class CascadeProposal(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     contracts: list[CascadeContractDisposition] = Field(default_factory=list)
+    state: CascadeState = CascadeState.PENDING
+    stages: list[CascadeStage] = Field(
+        default_factory=list,
+        description=(
+            "When non-empty, the cascade has been split via "
+            "``arch_stage_cascade``. ``contracts`` is preserved as the "
+            "flat view; each stage references a subset by URI."
+        ),
+    )
+    holding_for: str | None = Field(
+        default=None,
+        description=(
+            "When set, names the cascade_id of an in-flight cascade "
+            "with overlapping dependent_contracts. The new cascade "
+            "stays in ``holding`` state until the named one resolves "
+            "(failure mode #4 mitigation)."
+        ),
+    )
+    constraint: str | None = Field(
+        default=None,
+        description=(
+            "When the originating risk transitioned to "
+            "``mitigated_with_constraints``, the constraint clause "
+            "captured here so the cascade fires conditionally rather "
+            "than reshaping contracts unconditionally."
+        ),
+    )
+    rejected_reason: str | None = Field(
+        default=None,
+        description=(
+            "Set by ``arch_reject_cascade``. Structured operator "
+            "rationale; downstream analytics aggregate by this field "
+            "to flag rejection patterns."
+        ),
+    )
 
     @field_validator("risk_id")
     @classmethod

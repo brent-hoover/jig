@@ -226,6 +226,19 @@ def cascade_proposal_path(
     return cascades_dir(project_root) / f"{risk_id}-{ts}.yaml"
 
 
+def cascade_audit_path(project_root: Path) -> Path:
+    """``.jig/arch/cascades/audit.jsonl`` — per-action append-only log.
+
+    Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    and mitigations" mitigation #1: every operator-facing cascade action
+    (proposed, staged, stage-approved, rejected, holding) lands here so
+    cross-project analytics can scan for rejection patterns and audit-
+    trail viewers can render the per-cascade history without reading
+    every proposal YAML.
+    """
+    return cascades_dir(project_root) / "audit.jsonl"
+
+
 # ---- v2 PM paths ----------------------------------------------------------
 
 

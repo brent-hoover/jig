@@ -41,6 +41,7 @@ Handoff the bones path posts, resolves the ticket via the shared
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -61,8 +62,11 @@ from jig.sa_validation import (
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    CascadeAuditEntry,
     CascadeContractDisposition,
     CascadeProposal,
+    CascadeStage,
+    CascadeState,
     ContractsFile,
     CrossCuttingPolicy,
     DataContract,
@@ -77,6 +81,7 @@ from jig.schemas.arch import (
     SharedContract,
 )
 from jig.spec_loader import (
+    cascade_audit_path,
     cascade_proposal_path,
     cascades_dir,
     generated_contract_path,
@@ -93,16 +98,20 @@ from jig.ticket import Ticket, WorkType
 
 
 __all__ = [
+    "handle_arch_approve_cascade_stage",
     "handle_arch_complete_spike",
     "handle_arch_finalize",
     "handle_arch_propose_spike",
     "handle_arch_regenerate_pydantic_models",
+    "handle_arch_reject_cascade",
+    "handle_arch_set_cascade_risk_low",
     "handle_arch_set_cross_cutting_policy",
     "handle_arch_set_data_store",
     "handle_arch_set_module",
     "handle_arch_set_open_question",
     "handle_arch_set_risk",
     "handle_arch_set_shared_contract",
+    "handle_arch_stage_cascade",
     "handle_module_set_behavioral_contract",
     "handle_module_set_data_contract",
     "handle_module_set_external_dependency",
@@ -117,9 +126,32 @@ __all__ = [
 # branch enumerates; ``confirmed_impossible`` is the cascade trigger.
 _SPIKE_OUTCOME_STATUSES: dict[str, RiskStatus] = {
     "mitigated": RiskStatus.MITIGATED,
+    # Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    # and mitigations" mitigation #3: spikes that return "depends on
+    # constraint X" land here rather than in confirmed_impossible. The
+    # cascade fires conditionally — the constraint is captured on the
+    # cascade artifact and contracts gain a constraint clause rather
+    # than being reshaped unconditionally.
+    "mitigated_with_constraints": RiskStatus.MITIGATED_WITH_CONSTRAINTS,
     "accepted": RiskStatus.ACCEPTED,
     "confirmed_impossible": RiskStatus.CONFIRMED_IMPOSSIBLE,
 }
+
+
+# Outcomes that emit a cascade-proposal artifact. Mitigation #3 brings
+# ``mitigated_with_constraints`` into the cascade-emit set because the
+# downstream contract revisions still need an audit trail — they're
+# just smaller and conditional rather than full reshapes.
+_CASCADE_EMITTING_STATUSES: frozenset[RiskStatus] = frozenset(
+    {RiskStatus.CONFIRMED_IMPOSSIBLE, RiskStatus.MITIGATED_WITH_CONSTRAINTS}
+)
+
+
+# Default chunk size for ``arch_stage_cascade`` per failure mode #2 — the
+# operator can override per-call but most cascades-too-big situations
+# resolve cleanly at 5-per-stage (an operator can still hold a five-row
+# decision in their head; ten rows blurs).
+_DEFAULT_STAGE_CHUNK_SIZE = 5
 
 
 # URI prefix for risks in the architecture register. Used as the
@@ -474,6 +506,7 @@ async def handle_arch_complete_spike(
     status: str,
     author: str,
     emitter: EventEmitter | None = None,
+    constraint: str | None = None,
 ) -> None:
     """Record the spike outcome — finding-as-Note + risk status update.
 
@@ -563,13 +596,30 @@ async def handle_arch_complete_spike(
     arch.risks = _replace_or_append(arch.risks, updated_risk)
     save_architecture(project_path, arch)
 
+    if (
+        status == "mitigated_with_constraints"
+        and not constraint
+    ):
+        # Mitigation #3: the new state demands a constraint clause —
+        # without one the cascade artifact's ``constraint`` field
+        # would be empty and the conditional-fire semantics collapse
+        # to "we said constrained but didn't say how", which is the
+        # silent-drift failure this state was added to prevent.
+        raise ValueError(
+            "arch_complete_spike: status='mitigated_with_constraints' "
+            "requires a non-empty constraint clause describing the "
+            "condition under which the cascade fires"
+        )
+
     cascade_path: Path | None = None
-    if new_status == RiskStatus.CONFIRMED_IMPOSSIBLE:
+    if new_status in _CASCADE_EMITTING_STATUSES:
         cascade_path = _write_cascade_proposal(
             project_path=project_path,
             risk=updated_risk,
             spike_ticket_id=spike_ticket_id,
             finding=finding,
+            constraint=constraint,
+            actor=author,
         )
         # Cascade Handoff on the architecture ticket — surfaces the
         # cascade for operator review. Phase name ``operator-cascade-
@@ -677,21 +727,152 @@ def _resolve_dependent_shape(
     return f"module={module_id}; contracts.yaml present"
 
 
+def _cascade_id(risk_id: str, ts: str) -> str:
+    """Compose the cascade id used in artifacts + audit log.
+
+    Mirrors the on-disk filename (``<risk-id>-<timestamp>.yaml``) so
+    operators can grep/sort either dimension consistently. Audit log
+    entries reference the same id so a viewer can join the per-action
+    history with the proposal artifact via a single key.
+    """
+    return f"{risk_id}-{ts}"
+
+
+def _load_cascade_proposal(path: Path) -> CascadeProposal:
+    """Load + validate one cascade-proposal YAML."""
+    return CascadeProposal.model_validate(yaml.safe_load(path.read_text()))
+
+
+def _save_cascade_proposal(path: Path, proposal: CascadeProposal) -> None:
+    """Atomically rewrite one cascade-proposal YAML.
+
+    Used by all the state-mutating handlers (reject / stage / approve)
+    so disk + in-memory state stay aligned. ``sort_keys=False`` mirrors
+    the writer for stable diffs across mutations.
+    """
+    payload = yaml.safe_dump(
+        proposal.model_dump(mode="json"), sort_keys=False
+    )
+    atomic_write_text(path, payload)
+
+
+def _find_cascade_path(
+    project_path: Path, cascade_id: str
+) -> Path:
+    """Resolve a cascade_id to its on-disk YAML path; raise KeyError if absent.
+
+    The cascade_id format is ``<risk-id>-<timestamp>`` so we can
+    compute the path directly without globbing — but we still validate
+    the file exists to surface typos as KeyError rather than letting
+    the caller hit FileNotFoundError on the next read.
+    """
+    target_dir = cascades_dir(project_path)
+    candidate = target_dir / f"{cascade_id}.yaml"
+    if not candidate.is_file():
+        raise KeyError(
+            f"cascade {cascade_id!r} not found at {candidate} — "
+            "audit trail and viewer reference cascades by id; verify "
+            "the id matches the on-disk artifact"
+        )
+    return candidate
+
+
+def _append_cascade_audit(
+    project_path: Path, entry: CascadeAuditEntry
+) -> None:
+    """Append one CascadeAuditEntry to ``.jig/arch/cascades/audit.jsonl``.
+
+    JSONL append-only — the audit log is a write-once record per
+    action so the viewer + analytics consumers never see partial state.
+    Read-rewrite-replace mirrors the deferred-queue pattern in
+    ``coordinator.py``: the cascade audit log is small (operator-action
+    granularity), so a full-file rewrite is cheap.
+    """
+    path = cascade_audit_path(project_path)
+    rows: list[str] = []
+    if path.is_file():
+        rows = [
+            line for line in path.read_text().splitlines() if line.strip()
+        ]
+    rows.append(
+        json.dumps(entry.model_dump(mode="json"), sort_keys=True)
+    )
+    atomic_write_text(path, "\n".join(rows) + "\n")
+
+
+def _detect_holding_for(
+    project_path: Path, dependents: list[str]
+) -> str | None:
+    """Mitigation #4: scan existing cascades for overlapping URIs.
+
+    Returns the cascade_id of an in-flight cascade (state == pending,
+    staged, or holding) whose ``contracts[].uri`` set overlaps the
+    new cascade's dependent URIs — or None when nothing overlaps.
+    URI string-equality is sufficient for Final per the task spec;
+    semantic URI normalization is v2.x.
+
+    "In-flight" intentionally excludes ``rejected`` and ``resolved``:
+    a cascade the operator already disposed of can't merge-conflict
+    with the new one's contract amendments.
+    """
+    target_dir = cascades_dir(project_path)
+    if not target_dir.is_dir():
+        return None
+    new_uris = set(dependents)
+    in_flight = {
+        CascadeState.PENDING,
+        CascadeState.STAGED,
+        CascadeState.HOLDING,
+    }
+    # Sort by filename so timestamp order = chronological order; we
+    # return the oldest in-flight overlap (FIFO release once it's
+    # acted on, even though auto-release is v2.x scope).
+    for path in sorted(target_dir.glob("*.yaml")):
+        try:
+            existing = _load_cascade_proposal(path)
+        except Exception:
+            # A malformed YAML in the cascades dir shouldn't block a
+            # new cascade — surface via the viewer separately.
+            continue
+        if existing.state not in in_flight:
+            continue
+        existing_uris = {c.uri for c in existing.contracts}
+        if existing_uris & new_uris:
+            return existing.cascade_id
+    return None
+
+
 def _write_cascade_proposal(
     *,
     project_path: Path,
     risk: Risk,
     spike_ticket_id: str,
     finding: str,
+    constraint: str | None = None,
+    actor: str = "sa-mvp",
 ) -> Path:
     """Atomically write a cascade-proposal YAML for ``risk``; return its path.
 
     Per ``docs/sa-architecture/design.md`` §"The cascade workflow" step
-    5 (audit trail). MVP scope: every dependent gets a
-    ``still_holds`` starting disposition; the operator hand-edits the
-    YAML to flip entries to ``invalidated`` / ``needs_revision`` and
-    re-runs SA. Automatic disposition + transactional confirmation
-    land in Final.
+    5 (audit trail) plus Track C Final §"Failure modes and mitigations":
+
+    - Mitigation #4: scans existing cascades for dependent_contracts
+      overlap. When an in-flight cascade overlaps, the new cascade is
+      written with state=holding and ``holding_for=<existing-id>`` so
+      the operator/viewer can see it's serialized behind another
+      cascade. Auto-release on resolution is v2.x.
+    - Mitigation #3: when ``constraint`` is provided (i.e. the spike
+      came back ``mitigated_with_constraints``), the cascade artifact
+      records it so contracts get a constraint clause rather than full
+      replacement.
+    - Mitigation #1: every cascade write appends a ``proposed`` audit
+      entry (and a ``holding`` entry when held) so the viewer + cross-
+      project analytics see the lineage from the first action onward.
+
+    MVP scope still applies for the contract-disposition default —
+    every dependent starts at ``still_holds`` and the operator (or, in
+    a future SA delta-pass) flips entries to ``invalidated`` /
+    ``needs_revision``.
     """
     contracts = [
         CascadeContractDisposition(
@@ -701,21 +882,287 @@ def _write_cascade_proposal(
         )
         for uri in risk.dependent_contracts
     ]
+    ts = _cascade_timestamp()
+    cascade_id = _cascade_id(risk.id, ts)
+    holding_for = _detect_holding_for(project_path, risk.dependent_contracts)
+    state = CascadeState.HOLDING if holding_for else CascadeState.PENDING
     proposal = CascadeProposal(
+        cascade_id=cascade_id,
         risk_id=risk.id,
         spike_ticket_id=spike_ticket_id,
         finding=finding,
         contracts=contracts,
+        constraint=constraint,
+        holding_for=holding_for,
+        state=state,
     )
     cascades_dir(project_path).mkdir(parents=True, exist_ok=True)
-    target = cascade_proposal_path(
-        project_path, risk.id, _cascade_timestamp()
+    target = cascade_proposal_path(project_path, risk.id, ts)
+    _save_cascade_proposal(target, proposal)
+    # Audit: always log the proposed action; add a held entry when the
+    # concurrent-cascade detector blocked emission.
+    _append_cascade_audit(
+        project_path,
+        CascadeAuditEntry(
+            cascade_id=cascade_id,
+            risk_id=risk.id,
+            action="proposed",
+            actor=actor,
+        ),
     )
-    payload = yaml.safe_dump(
-        proposal.model_dump(mode="json"), sort_keys=False
-    )
-    atomic_write_text(target, payload)
+    if holding_for is not None:
+        _append_cascade_audit(
+            project_path,
+            CascadeAuditEntry(
+                cascade_id=cascade_id,
+                risk_id=risk.id,
+                action="holding",
+                actor=actor,
+                holding_for=holding_for,
+                reason=(
+                    f"overlapping dependent_contracts with cascade "
+                    f"{holding_for}"
+                ),
+            ),
+        )
     return target
+
+
+# ---- cascade failure-mode mitigation handlers (Track C Final) -----------
+
+
+async def handle_arch_reject_cascade(
+    *,
+    project_path: Path,
+    cascade_id: str,
+    reason: str,
+    actor: str,
+) -> CascadeAuditEntry:
+    """Reject a cascade proposal; record the action in the audit log.
+
+    Mitigation #1 per ``docs/sa-architecture/design.md`` §"Failure modes
+    and mitigations". The proposal's ``state`` flips to ``rejected`` and
+    ``rejected_reason`` is stamped so the cascade YAML carries the
+    decision inline; the JSONL audit entry is the cross-project signal
+    analytics consumes for "operator rejects N% of cascades from this
+    risk family" analysis.
+
+    ``reason`` is required (no silent rejections) — the design's
+    "structured category" applies once the operator UX taxonomy is
+    finalized; for Final scope any non-empty string is sufficient and
+    the consumer aggregates by exact-match.
+    """
+    if not reason or not reason.strip():
+        raise ValueError(
+            "arch_reject_cascade: reason is required — silent rejections "
+            "defeat the audit-flagging mitigation"
+        )
+    path = _find_cascade_path(project_path, cascade_id)
+    proposal = _load_cascade_proposal(path)
+    updated = proposal.model_copy(
+        update={
+            "state": CascadeState.REJECTED,
+            "rejected_reason": reason,
+        }
+    )
+    _save_cascade_proposal(path, updated)
+    entry = CascadeAuditEntry(
+        cascade_id=cascade_id,
+        risk_id=proposal.risk_id,
+        action="rejected",
+        actor=actor,
+        reason=reason,
+    )
+    _append_cascade_audit(project_path, entry)
+    return entry
+
+
+def _split_into_stages(
+    cascade_id: str,
+    contracts: list[CascadeContractDisposition],
+    chunk_size: int,
+) -> list[CascadeStage]:
+    """Slice ``contracts`` into stages of at most ``chunk_size`` entries.
+
+    Stage ids are deterministic (``<cascade-id>-stage-<n>``) so the
+    operator UX, audit log, and stage-approve handler can reference
+    stages without round-tripping through the cascade artifact.
+    """
+    if chunk_size < 1:
+        raise ValueError(
+            f"chunk_size must be >= 1, got {chunk_size!r}"
+        )
+    out: list[CascadeStage] = []
+    for i in range(0, len(contracts), chunk_size):
+        out.append(
+            CascadeStage(
+                stage_id=f"{cascade_id}-stage-{(i // chunk_size) + 1}",
+                contracts=contracts[i : i + chunk_size],
+            )
+        )
+    return out
+
+
+async def handle_arch_stage_cascade(
+    *,
+    project_path: Path,
+    cascade_id: str,
+    actor: str,
+    chunk_size: int = _DEFAULT_STAGE_CHUNK_SIZE,
+) -> list[CascadeStage]:
+    """Split a cascade into operator-approval stages.
+
+    Mitigation #2: huge cascades (10+ contracts in the design's example)
+    overwhelm the all-or-nothing confirmation screen. Staging splits the
+    contracts into ``chunk_size`` slices; the operator approves stage-
+    by-stage via ``arch_approve_cascade_stage`` so partial progress is
+    explicit. The cascade's overall ``state`` becomes ``staged`` until
+    every stage approves (then ``resolved``) or the operator rejects
+    the whole thing (``rejected``).
+
+    Idempotent on re-call: the cascade gets re-staged from the live
+    contracts list; existing stages are replaced. This lets the
+    operator change chunk_size mid-flight without manual cleanup.
+    """
+    path = _find_cascade_path(project_path, cascade_id)
+    proposal = _load_cascade_proposal(path)
+    stages = _split_into_stages(cascade_id, proposal.contracts, chunk_size)
+    updated = proposal.model_copy(
+        update={
+            "stages": stages,
+            "state": CascadeState.STAGED,
+        }
+    )
+    _save_cascade_proposal(path, updated)
+    _append_cascade_audit(
+        project_path,
+        CascadeAuditEntry(
+            cascade_id=cascade_id,
+            risk_id=proposal.risk_id,
+            action="staged",
+            actor=actor,
+            reason=f"chunk_size={chunk_size}; stages={len(stages)}",
+        ),
+    )
+    return stages
+
+
+async def handle_arch_approve_cascade_stage(
+    *,
+    project_path: Path,
+    cascade_id: str,
+    stage_id: str,
+    actor: str,
+) -> CascadeStage:
+    """Approve one stage of a staged cascade; resolve the whole when last.
+
+    Mitigation #2 follow-on: the per-stage approval primitive. Each
+    approval stamps ``approved=True``, ``approved_by=<actor>``, and
+    ``approved_at=<now>`` on the named stage. When every stage is
+    approved the cascade as a whole transitions to ``resolved``; an
+    additional ``resolved`` audit entry lands so the audit-trail viewer
+    and downstream consumers see the terminal action without scanning
+    every prior stage_approved entry.
+    """
+    path = _find_cascade_path(project_path, cascade_id)
+    proposal = _load_cascade_proposal(path)
+    if not proposal.stages:
+        raise ValueError(
+            f"cascade {cascade_id!r} has no stages — call "
+            "arch_stage_cascade before approving stages"
+        )
+    target_stage: CascadeStage | None = None
+    new_stages: list[CascadeStage] = []
+    for s in proposal.stages:
+        if s.stage_id == stage_id:
+            target_stage = s.model_copy(
+                update={
+                    "approved": True,
+                    "approved_at": datetime.now(timezone.utc),
+                    "approved_by": actor,
+                }
+            )
+            new_stages.append(target_stage)
+        else:
+            new_stages.append(s)
+    if target_stage is None:
+        raise KeyError(
+            f"cascade {cascade_id!r} has no stage {stage_id!r}; "
+            f"known stages: {[s.stage_id for s in proposal.stages]!r}"
+        )
+    all_approved = all(s.approved for s in new_stages)
+    new_state = CascadeState.RESOLVED if all_approved else CascadeState.STAGED
+    updated = proposal.model_copy(
+        update={"stages": new_stages, "state": new_state}
+    )
+    _save_cascade_proposal(path, updated)
+    _append_cascade_audit(
+        project_path,
+        CascadeAuditEntry(
+            cascade_id=cascade_id,
+            risk_id=proposal.risk_id,
+            action="stage_approved",
+            actor=actor,
+            stage_id=stage_id,
+        ),
+    )
+    if all_approved:
+        _append_cascade_audit(
+            project_path,
+            CascadeAuditEntry(
+                cascade_id=cascade_id,
+                risk_id=proposal.risk_id,
+                action="resolved",
+                actor=actor,
+            ),
+        )
+    return target_stage
+
+
+async def handle_arch_set_cascade_risk_low(
+    *,
+    project_path: Path,
+    module_id: str,
+    low: bool,
+    rationale: str,
+) -> str:
+    """Mark a Module's ``cascade_risk_low`` flag with operator/SA rationale.
+
+    Per ``docs/pm-workflow/design.md`` §"Bones-first ordering" /
+    ``cascade_risk_low`` flag. PM Coordinator reads this when deciding
+    whether to allow MVP promotion despite a still-running bones layer
+    on a sibling epic; a True flag with rationale is the SA's signal
+    that promotion won't cascade upward.
+
+    ``rationale`` is required when ``low=True`` so the audit trail
+    captures the SA's reasoning rather than a bare boolean toggle.
+    Setting ``low=False`` clears the rationale alongside the flag —
+    re-running with a fresh rationale flips both back together.
+    """
+    if low and not rationale.strip():
+        raise ValueError(
+            "arch_set_cascade_risk_low: rationale is required when "
+            "low=True; the flag is the SA's signal to PM that bones "
+            "promotion is safe — that signal is meaningless without "
+            "the reasoning behind it"
+        )
+    arch = _load_or_init_arch(project_path)
+    by_id = {m.id: m for m in arch.modules}
+    if module_id not in by_id:
+        raise KeyError(
+            f"module {module_id!r} not found in architecture.yaml — "
+            "set the module via arch_set_module before flagging risk"
+        )
+    target = by_id[module_id]
+    updated = target.model_copy(
+        update={
+            "cascade_risk_low": low,
+            "cascade_risk_low_rationale": rationale if low else None,
+        }
+    )
+    arch.modules = _replace_or_append(arch.modules, updated)
+    save_architecture(project_path, arch)
+    return module_id
 
 
 # ---- modules/<m>/contracts.yaml upserts ----------------------------------

@@ -160,6 +160,61 @@ async def test_provision_for_agent_swallows_errors(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_provision_for_agent_wires_sqlite_ephemeral_without_explicit_registry(
+    tmp_path: Path,
+) -> None:
+    """Block 2 — SQLite ``per_agent_ephemeral`` must be reachable when the
+    caller does NOT pass an explicit registry. The orchestrator-side hook
+    constructs the registry with the project_root so the SQLite ephemeral
+    provisioner is registered automatically. Previously, calling
+    ``provision_for_agent(..., registry=None)`` silently skipped SQLite
+    services because the auto-built registry had no ``project_root``.
+    """
+    from jig.dev_env.fixtures import FIXTURES_DIR_RELATIVE  # noqa: F401
+    from jig.schemas.arch import (
+        Architecture,
+        DataStore,
+        DevProvisioning,
+        Module,
+    )
+    from jig.spec_loader import save_architecture, save_dev_manifest
+
+    arch = Architecture(
+        data_stores=[
+            DataStore(
+                id="ephem",
+                kind="sqlite",
+                dev_provisioning=DevProvisioning(
+                    strategy="per_agent_ephemeral",
+                    namespace_template="agent_{ticket_id}",
+                ),
+            ),
+        ],
+        modules=[
+            Module(
+                id="catalog-ingest",
+                title="t",
+                summary="s",
+                intent=_intent(),
+            )
+        ],
+    )
+    save_architecture(tmp_path, arch)
+    save_dev_manifest(tmp_path, derive_manifest(arch))
+
+    out = await provision_for_agent(
+        tmp_path, agent_id="dev", ticket_id="t-001",
+    )
+    # SQLite ephemeral should yield a connection string, not silently skip.
+    assert "JIG_DEV_EPHEM_URL" in out
+    assert out["JIG_DEV_EPHEM_URL"].startswith("sqlite:///")
+
+    await cleanup_for_agent(
+        tmp_path, agent_id="dev", ticket_id="t-001", success=True,
+    )
+
+
+@pytest.mark.asyncio
 async def test_cleanup_for_agent_no_manifest_no_op(tmp_path: Path):
     """No manifest → nothing to clean; must not raise."""
     await cleanup_for_agent(

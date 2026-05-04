@@ -95,6 +95,7 @@ async def provision_for_agent(
             ticket_id=ticket_id,
             epic_id=epic_id,
             registry=registry,
+            project_root=project_path,
         )
     except Exception:
         _logger.warning(
@@ -134,6 +135,7 @@ async def cleanup_for_agent(
             success=success,
             epic_id=epic_id,
             registry=registry,
+            project_root=project_path,
         )
     except Exception:
         _logger.warning(

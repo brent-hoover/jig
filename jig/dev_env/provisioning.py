@@ -321,6 +321,7 @@ async def provision_agent_namespace(
     ticket_id: str,
     epic_id: str | None = None,
     registry: ProvisioningRegistry | None = None,
+    project_root: Path | None = None,
 ) -> dict[str, str]:
     """Provision one namespace per service in ``manifest``; return URLs.
 
@@ -340,8 +341,15 @@ async def provision_agent_namespace(
     connection string in env. Exceptions raised by individual
     provisioners propagate; the orchestrator's wrapper decides whether
     to fail the spawn (per the design's HEALTH-CHECK step).
+
+    When ``registry`` is None, an auto-built registry is created with
+    ``project_root`` (when supplied) so per-agent-ephemeral services that
+    need on-disk state (SQLite) are registered automatically. Without a
+    ``project_root`` the auto-built registry leaves the SQLite ephemeral
+    provisioner unwired (kept for backward-compat with callers that
+    explicitly opt out of ephemeral SQLite).
     """
-    registry = registry or ProvisioningRegistry()
+    registry = registry or ProvisioningRegistry(project_root=project_root)
     out: dict[str, str] = {}
     for service in manifest.services:
         if service.strategy == "shared_namespaced":
@@ -410,6 +418,7 @@ async def cleanup_agent_namespace(
     success: bool,
     epic_id: str | None = None,
     registry: ProvisioningRegistry | None = None,
+    project_root: Path | None = None,
 ) -> None:
     """Clean up per-service namespaces honoring the success / failure policy.
 
@@ -418,8 +427,12 @@ async def cleanup_agent_namespace(
     is already in the "agent finished" path and shouldn't crash on
     cleanup errors per ``docs/dev-environment/design.md`` §"Cleanup
     discipline" failure mode 1).
+
+    See :func:`provision_agent_namespace` for the ``project_root`` /
+    auto-built-registry contract — symmetric here so ephemeral cleanups
+    can find their on-disk state.
     """
-    registry = registry or ProvisioningRegistry()
+    registry = registry or ProvisioningRegistry(project_root=project_root)
     for service in manifest.services:
         if service.strategy == "shared_namespaced":
             provisioner = registry.get(service.kind)

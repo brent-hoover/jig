@@ -1,0 +1,215 @@
+spec_version: 1
+id: bones-with-cascade
+description: |
+  Extends ``bones-with-mvp-sa`` with a risk + spike workflow that
+  resolves to ``confirmed_impossible``, triggering the cascade-after-
+  impossible-spike workflow per ``docs/sa-architecture/design.md``
+  §"Cascade after confirmed-impossible spike".
+
+  The cascade branch writes a cascade-proposal artifact under
+  ``.jig/arch/cascades/<risk>-<ts>.yaml`` enumerating each dependent
+  contract and posts a Handoff on the architecture ticket targeting
+  phase ``operator-cascade-confirm``. Final assertions verify both
+  artifacts landed.
+
+  Per ``docs/implementation/v2-plan.md`` Track C MVP scope: the
+  operator-confirm UX is NOT built — they hand-edit the cascade YAML
+  and re-run SA. Full transactional confirmation lands in Final.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-cascade
+      pitch: a tracer-bullet project that exercises the cascade-after-impossible workflow
+      problem: |
+        We need a regression scenario that proves a spike returning
+        confirmed_impossible writes a cascade-proposal artifact and
+        surfaces it to the operator via a Handoff on the architecture
+        ticket — the worst-case iteration path the SA design carries
+        graceful handling for.
+      audience: |
+        Internal jig developers validating the Track C MVP follow-on.
+      non_goals:
+        - id: no-final-mitigations
+          text: This scenario does not exercise the four failure-mode mitigations
+          rationale: those land in Final per the v2-plan
+      author: po-l0
+
+  # ---- L1 PO --------------------------------------------------------
+  - kind: invoke_l1_finalize
+    params:
+      project_name: bones-with-cascade
+      intro: |
+        Discovery walk for the bones-with-cascade scenario.
+      personas:
+        - id: merchant
+          description: The buyer who integrates jig into their ecommerce site
+      journeys:
+        - id: j-merchant-onboarding
+          persona_id: merchant
+          title: Merchant onboarding
+          narrative: |
+            Merchant signs up, authorizes their Shopify store.
+          capability_ids:
+            - shopify-connect
+      capability_roster:
+        - id: shopify-connect
+          description: Connect Shopify store via OAuth
+          journey_ids:
+            - j-merchant-onboarding
+      author: po-l1
+
+  # ---- L2 PO --------------------------------------------------------
+  - kind: invoke_l2_finalize
+    params:
+      suites:
+        - id: catalog
+          title: Catalog
+          summary: ingestion of catalog data into the local store
+          capabilities:
+            - shopify-connect
+      crosscutting_non_goals: []
+      author: po-l2
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store; we pull the catalog.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake from settings
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+
+  # ---- SA MVP ------------------------------------------------------
+  - kind: invoke_sa_incremental
+    params:
+      calls:
+        - tool: arch_set_data_store
+          params:
+            data_store:
+              id: main-db
+              kind: sqlite
+              rationale: bones — single-process file-backed
+              accessed_by: [catalog-ingest]
+
+        - tool: arch_set_module
+          params:
+            module:
+              id: catalog-ingest
+              title: Catalog Ingest
+              summary: |
+                Pulls catalog data from Shopify and normalizes into the
+                products collection.
+              implements_capabilities:
+                - shopify-connect
+              owns:
+                - products
+              tier_hint: standard
+              requires_tracer_bullet: true
+              n_a_categories:
+                - behavioral_contracts
+              intent:
+                problem: bones MVP catalog ingest
+                simplest_solution: one module, one collection
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
+        - tool: module_set_owned_collection
+          params:
+            module_id: catalog-ingest
+            owned_collection:
+              collection: products
+              db: main-db
+              write_access: [self]
+
+        - tool: module_set_external_dependency
+          params:
+            module_id: catalog-ingest
+            external_dependency:
+              id: shopify-api
+              kind: external_http
+              rate_limit: 2 req/sec per shop
+              auth: oauth2 token per shop
+
+        - tool: module_set_integration_ac
+          params:
+            module_id: catalog-ingest
+            integration_ac:
+              capability: shopify-connect
+              must:
+                - Shopify catalog data flows into the products collection
+
+      finalize:
+        summary: SA-MVP bones for cascade scenario
+        author: sa-mvp
+    assertions:
+      - kind: ticket_status
+        ticket_id: architecture
+        status: resolved
+
+  # ---- Risk + spike + CASCADE ---------------------------------------
+  - kind: invoke_risk_and_spike
+    params:
+      risk:
+        id: r-shopify-delta
+        text: Unclear whether Shopify's API supports clean delta sync.
+        impact: medium
+        likelihood: medium
+        status: open
+      propose:
+        summary: |
+          Try Shopify's products endpoint with since_id and confirm
+          delta-sync coverage across product updates.
+        dependent_contracts:
+          - project://arch/modules/catalog-ingest/contracts#external_dependencies/shopify-api
+          - project://arch/modules/catalog-ingest/contracts#integration_ac/shopify-connect
+      complete:
+        finding: |
+          Shopify's API does NOT expose reliable delta sync — full
+          re-fetch required every poll. Catalog-ingest assumptions
+          and shopify-connect AC are now wrong.
+        status: confirmed_impossible
+      author: sa-mvp
+    assertions:
+      # Spike resolved.
+      - kind: ticket_status
+        ticket_id: spike-r-shopify-delta
+        status: resolved
+      # Cascade analytics event fired with the proposal-path payload.
+      - kind: analytics_event_emitted
+        event_kind: risk_status_changed
+        field_constraints:
+          risk_id: r-shopify-delta
+          to_status: confirmed_impossible
+
+# ---- final assertions ----------------------------------------------------
+# The cascade-proposal artifact lives at
+# ``.jig/arch/cascades/<risk>-<ts>.yaml`` — the timestamp suffix means
+# we can't pin the path here. ``test_sim_bones_with_cascade_scenario``
+# verifies the artifact landed via glob; the assertions here cover the
+# rest of the cascade-handler contract: the spike ticket resolved and
+# the cost stayed in-budget.
+final_assertions:
+  - kind: ticket_status
+    ticket_id: spike-r-shopify-delta
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

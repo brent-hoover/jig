@@ -72,6 +72,15 @@ class StepKind(str, Enum):
     # controls the exact ordering an operator would hand-walk through.
     INVOKE_SA_INCREMENTAL = "invoke_sa_incremental"
 
+    # MVP-tier SA risk register + spike workflow (Track C MVP follow-on).
+    # Author one risk via ``arch_set_risk``, propose a spike via
+    # ``arch_propose_spike``, complete the spike via ``arch_complete_spike``
+    # with a configurable outcome (mitigated / accepted /
+    # confirmed_impossible). The ``confirmed_impossible`` branch
+    # exercises the cascade-proposal write + Handoff post — see the
+    # bones-with-cascade scenario.
+    INVOKE_RISK_AND_SPIKE = "invoke_risk_and_spike"
+
     # MVP-tier Planner: invoke the v2 plan_finalize handler. Bones
     # scenarios use ``write_build_plan`` (operator hand-write); MVP
     # scenarios swap in this step to exercise the agent path.

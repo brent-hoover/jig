@@ -53,11 +53,14 @@ from jig.po_l2_mcp import L2_TICKET_ID, handle_l2_finalize
 from jig.po_l3_mcp import handle_l3_finalize
 from jig.reviewers import ContractComplianceReviewer, ReviewerComment
 from jig.sa_incremental_mcp import (
+    handle_arch_complete_spike,
     handle_arch_finalize,
+    handle_arch_propose_spike,
     handle_arch_set_cross_cutting_policy,
     handle_arch_set_data_store,
     handle_arch_set_module,
     handle_arch_set_open_question,
+    handle_arch_set_risk,
     handle_arch_set_shared_contract,
     handle_module_set_behavioral_contract,
     handle_module_set_data_contract,
@@ -237,6 +240,7 @@ class Driver:
             StepKind.WRITE_MODULE_CONTRACTS.value: _handle_write_module_contracts,
             StepKind.WRITE_BUILD_PLAN.value: _handle_write_build_plan,
             StepKind.INVOKE_SA_INCREMENTAL.value: _handle_invoke_sa_incremental,
+            StepKind.INVOKE_RISK_AND_SPIKE.value: _handle_invoke_risk_and_spike,
             StepKind.INVOKE_PLAN_FINALIZE.value: _handle_invoke_plan_finalize,
             StepKind.MATERIALIZE_TICKETS.value: _handle_materialize_tickets,
             StepKind.INVOKE_COORDINATOR_CYCLE.value: _handle_invoke_coordinator_cycle,
@@ -655,6 +659,99 @@ async def _handle_invoke_sa_incremental(
         project_path=ctx.project_root,
         summary=finalize["summary"],
         author=finalize["author"],
+    )
+
+
+async def _handle_invoke_risk_and_spike(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Drive the risk-register + spike + (optional) cascade workflow.
+
+    Scenario YAML shape::
+
+        kind: invoke_risk_and_spike
+        params:
+          risk:
+            id: r-shopify-delta
+            text: "..."
+            impact: medium
+            likelihood: medium
+            status: open
+          propose:
+            summary: "..."
+            dependent_contracts:
+              - project://arch/modules/catalog-ingest/contracts#...
+          complete:
+            finding: "..."
+            status: mitigated   # or accepted / confirmed_impossible
+          author: sa-mvp        # optional; defaults to sa-mvp
+
+    Author the risk first (via ``arch_set_risk``), propose a spike
+    (which transitions the risk + creates a SPIKE ticket), then
+    complete the spike with the requested outcome. The
+    ``confirmed_impossible`` outcome triggers cascade-proposal
+    generation — the bones-with-cascade scenario gates on the
+    artifact landing under ``.jig/arch/cascades/``.
+
+    The architecture ticket is auto-created if missing; the spike
+    handler creates the spike ticket itself. Mirrors the L0 / L1 / L2 /
+    L3 / SA invoke-handler pattern.
+    """
+    if await ctx.tickets.get(SA_TICKET_ID) is None:
+        await ctx.tickets.create(
+            Ticket(
+                id=SA_TICKET_ID,
+                work_type=WorkType.BRIEF,
+                title="SA — architecture",
+                created_by="sim-driver",
+            )
+        )
+
+    author = step.params.get("author") or "sa-mvp"
+
+    risk_payload = step.params.get("risk")
+    if risk_payload is None:
+        raise ValueError(
+            "invoke_risk_and_spike: params.risk is required"
+        )
+    risk_id = await handle_arch_set_risk(
+        project_path=ctx.project_root, risk=risk_payload
+    )
+
+    propose = step.params.get("propose") or {}
+    if "summary" not in propose:
+        raise ValueError(
+            "invoke_risk_and_spike: params.propose.summary is required"
+        )
+    spike_id = await handle_arch_propose_spike(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        risk_id=risk_id,
+        summary=propose["summary"],
+        dependent_contracts=propose.get("dependent_contracts", []),
+        author=author,
+    )
+
+    complete = step.params.get("complete") or {}
+    if "finding" not in complete or "status" not in complete:
+        raise ValueError(
+            "invoke_risk_and_spike: params.complete.finding and "
+            "params.complete.status are required"
+        )
+    await handle_arch_complete_spike(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        spike_ticket_id=spike_id,
+        finding=complete["finding"],
+        status=complete["status"],
+        author=author,
+        # Pass the driver's emitter so the cascade branch can fire its
+        # RiskStatusChanged event into the per-run analytics store.
+        emitter=ctx.emitter,
     )
 
 

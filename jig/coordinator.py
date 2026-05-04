@@ -44,6 +44,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from typing import TYPE_CHECKING
+
 from jig.atomic import atomic_write_text
 from jig.schemas.plan import (
     BuildPlan,
@@ -53,6 +55,9 @@ from jig.schemas.plan import (
     LayerStatusEnum,
     OrderingRule,
 )
+
+if TYPE_CHECKING:
+    from jig.analytics.emitter import EventEmitter
 from jig.spec_loader import load_architecture, load_build_plan, write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
@@ -199,9 +204,16 @@ class Coordinator:
       — DEFERRED queue helpers.
     """
 
-    def __init__(self, *, tickets: TicketStore, project_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        tickets: TicketStore,
+        project_root: Path,
+        emitter: "EventEmitter | None" = None,
+    ) -> None:
         self._tickets = tickets
         self._project_root = project_root
+        self._emitter = emitter
 
     # ---- bones-era surface ----------------------------------------------
 
@@ -490,12 +502,77 @@ class Coordinator:
                         )
 
         next_layer = self.next_layer_ready(plan)
+        # Track F Final — when next_layer is ``mvp`` only because the
+        # ``cascade_risk_low`` override fired, emit the analytics event
+        # so consequences are visible later. We detect this by re-running
+        # the override predicate: if it would block bones-first → True
+        # AND we're materializing mvp, the override fired.
+        cascade_override_fired = (
+            next_layer == LayerName.MVP.value
+            and plan.ordering_rule == OrderingRule.BONES_FIRST
+            and self._cascade_risk_low_override_allows_mvp(plan)
+        )
         if next_layer is not None:
             result.tickets_materialized = await self.materialize_layer(
                 plan, next_layer
             )
+            if cascade_override_fired and self._emitter is not None:
+                await self._emit_bones_promoted_incomplete_for_cascade(plan)
         result.next_layer = next_layer
         return result
+
+    async def _emit_bones_promoted_incomplete_for_cascade(
+        self, plan: BuildPlan
+    ) -> None:
+        """Emit ``BonesPromotedIncomplete`` for the cascade_risk_low path.
+
+        Captures the full epic context: the epics whose MVP just
+        materialized, the still-running bones epics, and the subset
+        flagged ``cascade_risk_low=true``.
+        """
+        from jig.analytics.events import BonesPromotedIncomplete
+        from jig.spec_loader import load_architecture
+
+        try:
+            arch = load_architecture(self._project_root)
+        except FileNotFoundError:
+            return
+
+        cascade_low_module_ids = {
+            m.id for m in arch.modules if m.cascade_risk_low
+        }
+
+        promoted: list[str] = []
+        still_running: list[str] = []
+        sa_low: list[str] = []
+        bones = LayerName.BONES
+        for epic in plan.epics:
+            layer = self._epic_layer(epic, bones)
+            if not layer.tickets:
+                continue
+            if layer.status == LayerStatusEnum.DONE:
+                promoted.append(epic.id)
+            else:
+                still_running.append(epic.id)
+                if epic.modules and all(
+                    mid in cascade_low_module_ids for mid in epic.modules
+                ):
+                    sa_low.append(epic.id)
+
+        if not promoted or not still_running:
+            return  # not a cascade-override situation
+
+        if self._emitter is not None:
+            self._emitter.emit_nowait(
+                BonesPromotedIncomplete(
+                    promoted_epic_ids=promoted,
+                    still_running_bones_epic_ids=still_running,
+                    sa_marked_cascade_risk_low=sa_low,
+                    operator_rationale_category=(
+                        "cascade_risk_low_auto" if sa_low else None
+                    ),
+                )
+            )
 
     # ---- DEFERRED queue ------------------------------------------------
 

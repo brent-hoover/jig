@@ -1646,3 +1646,138 @@ def pm_calibration_show(size: str | None, path: Path) -> None:
         click.echo(json.dumps(env.model_dump(mode="json"), indent=2))
         return
     click.echo(json.dumps(serialize_envelopes_for_cli(envelopes), indent=2))
+
+
+# ---- jig pm plan + overrides (Track F Final) ----------------------------
+
+
+@pm_group.group("plan")
+def pm_plan_group() -> None:
+    """Build-plan operator commands (override gates, etc.)."""
+
+
+@pm_plan_group.command("unblock")
+@click.argument("epic_id")
+@click.option(
+    "--rationale",
+    default="",
+    help="Operator rationale for the override (recorded in audit log).",
+)
+@click.option(
+    "--cascade-risk-low",
+    is_flag=True,
+    default=False,
+    help=(
+        "Acknowledge an SA cascade_risk_low hint as the trigger. "
+        "Recorded so analytics can correlate the override with the "
+        "SA suggestion."
+    ),
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def pm_plan_unblock(
+    epic_id: str, rationale: str, cascade_risk_low: bool, path: Path,
+) -> None:
+    """Manually override the bones-first gate for one epic.
+
+    Records an entry in ``.jig/plan/overrides.jsonl`` and emits a
+    ``BonesPromotedIncomplete`` analytics event so the consequences
+    are visible later if the still-running bones forces a contract
+    change. Per docs/pm-workflow/design.md §"Bones-first ordering".
+    """
+    from jig.analytics.emitter import EventEmitter
+    from jig.analytics.store import AnalyticsStore
+    from jig.pm.overrides import record_unblock_override
+    from jig.schemas.plan import LayerStatusEnum
+    from jig.spec_loader import load_build_plan
+
+    async def _run() -> None:
+        try:
+            plan = load_build_plan(path)
+        except FileNotFoundError:
+            raise click.ClickException(
+                f"no build plan found at {path}/.jig/plan/build-plan.yaml"
+            )
+
+        # Compute still-running bones context for the audit + event.
+        still_running: list[str] = []
+        for epic in plan.epics:
+            layer = epic.layers.bones
+            if not layer.tickets:
+                continue
+            if layer.status != LayerStatusEnum.DONE:
+                still_running.append(epic.id)
+
+        # Best-effort SA cascade_risk_low correlation.
+        sa_low: list[str] = []
+        try:
+            from jig.spec_loader import load_architecture
+
+            arch = load_architecture(path)
+            low_modules = {m.id for m in arch.modules if m.cascade_risk_low}
+            for epic in plan.epics:
+                if epic.id not in still_running:
+                    continue
+                if epic.modules and all(
+                    mid in low_modules for mid in epic.modules
+                ):
+                    sa_low.append(epic.id)
+        except FileNotFoundError:
+            pass
+
+        # Optional analytics emit; non-blocking on missing store dir.
+        emitter: EventEmitter | None = None
+        store_dir = path / ".jig" / "store"
+        if store_dir.is_dir():
+            analytics = AnalyticsStore(store_dir / "analytics.jsonl")
+            await analytics.load()
+            emitter = EventEmitter(analytics)
+
+        await record_unblock_override(
+            project_root=path,
+            epic_id=epic_id,
+            rationale=rationale,
+            cascade_risk_low_acknowledged=cascade_risk_low,
+            still_running_bones_epic_ids=still_running,
+            sa_marked_cascade_risk_low_epic_ids=sa_low,
+            emitter=emitter,
+        )
+        if emitter is not None:
+            await emitter.drain()
+
+        click.echo(f"recorded override for epic {epic_id!r}")
+        click.echo(f"audit: {path}/.jig/plan/overrides.jsonl")
+
+    asyncio.run(_run())
+
+
+@pm_group.group("overrides")
+def pm_overrides_group() -> None:
+    """Inspect manual bones-first overrides."""
+
+
+@pm_overrides_group.command("list")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def pm_overrides_list(path: Path) -> None:
+    """List every recorded override (chronological)."""
+    from jig.pm.overrides import list_overrides
+
+    rows = list_overrides(path)
+    if not rows:
+        click.echo("(no overrides recorded)")
+        return
+    for row in rows:
+        cri = " (cascade_risk_low)" if row.cascade_risk_low_acknowledged else ""
+        click.echo(
+            f"[{row.recorded_at.isoformat()}] {row.epic_id} by {row.actor}{cri}: "
+            f"{row.rationale or '(no rationale)'}"
+        )

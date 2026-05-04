@@ -1,0 +1,349 @@
+spec_version: 1
+id: bones-with-vd
+description: |
+  A UI-flavored scenario that walks the v2 spine through Track D MVP:
+  L0/L1/L2/L3 PO + SA bones + VD finalize (with a wireframe + frontend
+  spec) + Planner + Coordinator + dev (mock) + reviewers including
+  visual_compliance. Validates that the VD track's authored artifacts
+  (frontend.yaml + per-screen wireframe HTML) compose with the rest of
+  the spine end-to-end and that visual_compliance passes when the
+  dev's diff references the wireframe.
+
+  Per ``docs/visual-design/design.md`` §"VD discovery loop": the VD
+  agent (or here, the synthetic operator via ``invoke_vd_finalize``)
+  authors the frontend stack + wireframes; downstream UI tickets carry
+  ``visual_references`` so the reviewer can verify wireframe presence,
+  linter cleanliness, and reference in the implementation diff.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l1
+  - po-l2
+  - po-l3
+  - sa-bones
+  - vd-finalize
+  - wireframe-lint
+  - visual-compliance
+  - pm-planner
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+
+steps:
+  # ---- L0 PO --------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-vd
+      pitch: a tracer-bullet UI project that exercises the VD MVP path
+      problem: |
+        We need a single happy-path scenario that proves the VD MVP
+        slice (frontend.yaml + wireframes + visual_compliance reviewer)
+        composes with the rest of the v2 spine.
+      audience: |
+        Internal jig developers validating Track D MVP integration.
+      non_goals:
+        - id: no-edge-cases
+          text: This scenario does not cover edge cases or failure modes
+          rationale: bones tracer; MVP scenarios cover those
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-vd
+
+  # ---- L1 PO --------------------------------------------------------
+  - kind: invoke_l1_finalize
+    params:
+      project_name: bones-with-vd
+      intro: |
+        Discovery walk for the bones-with-vd scenario.
+      personas:
+        - id: merchant
+          description: The buyer who configures their store and posts a job
+      journeys:
+        - id: j-merchant-onboarding
+          persona_id: merchant
+          title: Merchant onboarding
+          narrative: |
+            Merchant signs up, lands on the post-a-job screen, and
+            submits their first job listing.
+          capability_ids:
+            - post-a-job
+      capability_roster:
+        - id: post-a-job
+          description: Operator submits a job listing
+          journey_ids:
+            - j-merchant-onboarding
+      author: po-l1
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/discovery.md
+        contains: j-merchant-onboarding
+
+  # ---- L2 PO --------------------------------------------------------
+  - kind: invoke_l2_finalize
+    params:
+      suites:
+        - id: jobs
+          title: Jobs
+          summary: posting and viewing jobs
+          capabilities:
+            - post-a-job
+      crosscutting_non_goals: []
+      author: po-l2
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: post-a-job
+
+  # ---- L3 PO --------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: jobs
+      intro: |
+        Jobs suite: post a job, view the listing, get a confirmation.
+      capabilities:
+        - id: post-a-job
+          title: Operator posts a new job listing
+          state: planned
+          summary: |
+            Operator fills in title + description and submits.
+          behaviors:
+            - id: submit-job
+              description: Operator submits the form
+              acceptance_criteria:
+                - Form validates title and description before submit
+                - Successful post navigates to the job detail screen
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/jobs/brief.md
+        contains: post-a-job
+
+  # ---- SA bones (operator hand-write) ---------------------------------
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        data_stores:
+          - id: main-db
+            kind: sqlite
+            rationale: bones — single-process file-backed
+            accessed_by: [jobs-api]
+        modules:
+          - id: jobs-api
+            title: Jobs API
+            summary: |
+              Backend module that owns the jobs collection; UI calls
+              hit it via HTTP.
+            implements_capabilities:
+              - post-a-job
+            owns: [jobs]
+            tier_hint: standard
+            requires_tracer_bullet: true
+            n_a_categories:
+              - behavioral_contracts
+              - external_dependencies
+            intent:
+              problem: bones — needs a jobs collection
+              simplest_solution: one module, one collection
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/architecture.yaml
+        contains: jobs-api
+
+  - kind: write_module_contracts
+    params:
+      module_id: jobs-api
+      contracts:
+        spec_version: 1
+        module: jobs-api
+        owns:
+          - collection: jobs
+            db: main-db
+            write_access: [self]
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: post-a-job
+            must:
+              - jobs collection accepts a row from the post-a-job screen
+              - submission returns the new job id for navigation
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/modules/jobs-api/contracts.yaml
+        contains: post-a-job
+
+  # ---- VD MVP — frontend.yaml + one wireframe ------------------------
+  - kind: invoke_vd_finalize
+    params:
+      frontend:
+        spec_version: 1
+        stack:
+          framework: htmx_alpine
+          language: python_jinja
+          bundler: none
+          css: custom_utility
+          notes: default minimal stack
+        allowed_dependencies:
+          - alpinejs
+        intent:
+          problem: |
+            The post-a-job screen needs a declared frontend stack so
+            dev agents implementing it know what to author against.
+          simplest_solution: |
+            Take the default minimal HTMX + Alpine + custom utility CSS
+            stack — no build step, no framework.
+          complications_considered:
+            scale: null
+            concurrency: null
+            failure_modes: null
+            cross_cutting: null
+      wireframes:
+        - screen_id: post-a-job
+          html: |
+            <!-- wireframe-meta: {"screen_id": "post-a-job", "title": "Post a job", "persona_targets": ["merchant"], "journey_refs": ["j-merchant-onboarding"]} -->
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>Wireframe — Post a job</title>
+              <link rel="stylesheet" href="../wireframe.css">
+              <script src="https://cdn.jsdelivr.net/npm/alpinejs@3" defer></script>
+            </head>
+            <body class="min-h-screen flex flex-col">
+              <header class="border-b p-4"><small>Header</small></header>
+              <main class="container mx-auto max-w-2xl p-6 flex-1">
+                <h1 class="text-2xl font-semibold mb-4">Post a job</h1>
+                <form class="flex flex-col gap-4">
+                  <label class="flex flex-col gap-1">
+                    <small>Title</small>
+                    <input type="text" name="title" class="border p-2" disabled>
+                  </label>
+                  <button class="border px-4 py-2 self-start" disabled>Post job</button>
+                </form>
+              </main>
+            </body>
+            </html>
+      summary: VD MVP — default stack + 1 wireframe
+      author: vd
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/frontend.yaml
+        contains: htmx_alpine
+      - kind: artifact_written
+        path: .jig/spec/wireframes/post-a-job.html
+        contains: post-a-job
+      - kind: ticket_status
+        ticket_id: frontend
+        status: resolved
+
+  # ---- Planner PM (v2 agent path) ---------------------------------------
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-vd
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: jobs-tracer
+            title: Jobs tracer bullet
+            suite: jobs
+            modules:
+              - jobs-api
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-post-a-job
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Validate the bones spine end-to-end with VD-authored
+                wireframe before the planner fires UI tickets.
+              simplest_solution: |
+                One epic, one bones ticket, one capability, one
+                wireframe.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+    assertions:
+      - kind: artifact_written
+        path: .jig/plan/build-plan.yaml
+        contains: tb-post-a-job
+      - kind: ticket_status
+        ticket_id: plan
+        status: resolved
+
+  - kind: materialize_tickets
+    params:
+      # Track D MVP — sim-time stand-in for the Planner authoring
+      # visual_references on UI tickets directly. After materialization
+      # we patch the tracer ticket so the visual_compliance reviewer
+      # has a non-empty references list to gate on.
+      visual_references_by_ticket:
+        tb-post-a-job:
+          - post-a-job
+    assertions:
+      - kind: ticket_status
+        ticket_id: tb-post-a-job
+        status: open
+
+  # ---- Dev (mock; commit body now also references the wireframe) -------
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-post-a-job
+
+  # ---- Reviewer (runs contract-compliance + visual_compliance) ----------
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-post-a-job
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+      - kind: reviewer_returned_no_critical
+        reviewer_id: visual-compliance
+
+# ---- final assertions: spine cohesion + analytics + cost ---------------
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-post-a-job
+    status: resolved
+  - kind: analytics_event_emitted
+    event_kind: ticket_state_changed
+    field_constraints:
+      ticket_id: tb-post-a-job
+      to_state: resolved
+  - kind: cost_under_budget
+    usd: 1.0

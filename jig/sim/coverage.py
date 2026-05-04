@@ -67,6 +67,11 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "reviewer-intent-compliance",
     # Track E MVP — dev-environment provisioning happy-path coverage.
     "dev-provisioning",
+    # Track D MVP — VD finalize, wireframe linter, visual_compliance
+    # reviewer (basic mechanical version).
+    "vd-finalize",
+    "wireframe-lint",
+    "visual-compliance",
 })
 
 

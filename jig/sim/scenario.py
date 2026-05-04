@@ -119,6 +119,14 @@ class StepKind(str, Enum):
     # True) so the assertion suite can gate on the recorder's calls.
     INVOKE_DEV_PROVISIONING = "invoke_dev_provisioning"
 
+    # Track D MVP — exercise the VD vd_finalize path. The handler
+    # synthesizes a complete VD payload (FrontendSpec + 1-2
+    # wireframes) and calls handle_vd_finalize directly. Scenario YAML
+    # carries the frontend dict + wireframes list so a UI-flavored
+    # scenario can land the VD artifacts before the planner / dev /
+    # visual_compliance reviewer steps fire.
+    INVOKE_VD_FINALIZE = "invoke_vd_finalize"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

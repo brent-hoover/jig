@@ -73,6 +73,7 @@ from jig.sa_mcp import SA_TICKET_ID
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.plan import BuildPlan
 from jig.schemas.po import SuitesIndex
+from jig.vd_mcp import VD_TICKET_ID, handle_vd_finalize
 from jig.sim.assertions import (
     AnalyticsEventEmittedAssertion,
     ArtifactWrittenAssertion,
@@ -255,6 +256,7 @@ class Driver:
             StepKind.INVOKE_DEV_PROVISIONING.value: (
                 _handle_invoke_dev_provisioning
             ),
+            StepKind.INVOKE_VD_FINALIZE.value: _handle_invoke_vd_finalize,
         }
 
     @property
@@ -764,6 +766,66 @@ async def _handle_invoke_risk_and_spike(
     )
 
 
+async def _handle_invoke_vd_finalize(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Invoke handle_vd_finalize. Auto-creates the VD ticket if missing.
+
+    Scenario YAML shape::
+
+        kind: invoke_vd_finalize
+        params:
+          frontend:
+            stack: { framework: htmx_alpine, ... }
+            allowed_dependencies: [...]
+            intent:
+              problem: "..."
+              simplest_solution: "..."
+              complications_considered: { ... }
+          wireframes:
+            - screen_id: signup
+              html: "<!-- wireframe-meta: {...} --><html>...</html>"
+              meta:
+                screen_id: signup
+                title: Sign up
+                ...
+          summary: "VD finalize"
+          author: vd          # optional; defaults to vd
+
+    Mirrors the L0 / L1 / L2 / L3 / SA / Planner invoke patterns —
+    auto-creates the ticket so resolve_after_handoff has a target.
+    """
+    if await ctx.tickets.get(VD_TICKET_ID) is None:
+        await ctx.tickets.create(
+            Ticket(
+                id=VD_TICKET_ID,
+                work_type=WorkType.BRIEF,
+                title="VD — frontend",
+                created_by="sim-driver",
+            )
+        )
+    params = dict(step.params)
+    params.setdefault("author", "vd")
+    if "frontend" not in params:
+        raise ValueError(
+            "invoke_vd_finalize: params.frontend is required"
+        )
+    if "summary" not in params:
+        raise ValueError(
+            "invoke_vd_finalize: params.summary is required"
+        )
+    await handle_vd_finalize(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        frontend=params["frontend"],
+        wireframes=params.get("wireframes") or [],
+        summary=params["summary"],
+        author=params["author"],
+    )
+
+
 async def _handle_invoke_plan_finalize(
     ctx: DriverContext, step: ScenarioStep
 ) -> None:
@@ -799,9 +861,26 @@ async def _handle_invoke_plan_finalize(
 async def _handle_materialize_tickets(
     ctx: DriverContext, step: ScenarioStep
 ) -> None:
-    """Coordinator dispatch — materialize the bones-layer tickets."""
+    """Coordinator dispatch — materialize the bones-layer tickets.
+
+    Optional ``visual_references_by_ticket`` (Track D MVP) is a
+    ``{ticket_id: [screen_id, ...]}`` map — after materialization, the
+    handler patches each named ticket's ``visual_references`` field so
+    the visual_compliance reviewer sees a non-empty list. This is the
+    sim-time stand-in for the Planner-PM authoring visual_references
+    on UI tickets directly (which lands in a later track).
+    """
     coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
     await coord.materialize_ready_tickets()
+
+    visual_refs = step.params.get("visual_references_by_ticket") or {}
+    for ticket_id, screens in visual_refs.items():
+        if not isinstance(screens, list):
+            raise ValueError(
+                f"materialize_tickets.visual_references_by_ticket[{ticket_id!r}] "
+                f"must be a list, got {type(screens).__name__}"
+            )
+        await ctx.tickets.update(ticket_id, visual_references=list(screens))
 
 
 async def _handle_invoke_coordinator_cycle(
@@ -946,13 +1025,21 @@ async def _handle_mock_dev_commit(
     ac_tokens = _ac_tokens_for_ticket(ctx.project_root, ticket)
     # Even with no AC tokens (no contracts file), produce *some* diff
     # so the empty-diff critical comment doesn't fire — bones needs a
-    # non-empty diff for the existence check.
+    # non-empty diff for the existence check. Track D MVP: also include
+    # every wireframe screen-id the ticket references so the
+    # visual_compliance reviewer's reference check passes for UI tickets.
     body_tokens = sorted(ac_tokens) or ["bones", "tracer", "bullet", "spine"]
+    visual_refs = sorted(ticket.visual_references)
     body = (
         f"# {ticket.title}\n\n"
         f"# Mock dev commit — references AC tokens for the bones reviewer:\n"
         + " ".join(body_tokens)
         + "\n"
+        + (
+            f"# Wireframe screens implemented: {' '.join(visual_refs)}\n"
+            if visual_refs
+            else ""
+        )
     )
     impl = worktree / f"{ticket_id}.py"
     impl.write_text(body)
@@ -1267,15 +1354,31 @@ async def _handle_run_reviewer(
     reviewer = ContractComplianceReviewer()
     comments = await reviewer.review(ticket, ctx.project_root)
     ctx.reviewer_comments[reviewer.reviewer_id] = comments
+    all_comments = list(comments)
+
+    # Track D MVP: also run visual_compliance when the ticket has
+    # visual_references — otherwise UI-flavored scenarios can't gate
+    # on the reviewer's critical-comment count via this step. The
+    # reviewer no-ops when references is empty so non-UI tickets pay
+    # nothing.
+    if ticket.visual_references:
+        # Local import: visual_compliance imports the wireframe linter
+        # via the spec_loader path helpers; pulling it in lazily keeps
+        # the driver module's import surface unchanged for non-UI runs.
+        from jig.reviewers.visual_compliance import VisualComplianceReviewer
+
+        vc = VisualComplianceReviewer()
+        vc_comments = await vc.review(ticket, ctx.project_root)
+        ctx.reviewer_comments[vc.reviewer_id] = vc_comments
+        all_comments.extend(vc_comments)
+
     # Bones success means resolving the ticket. The orchestrator's
     # post-review wiring lands in MVP (Track G3 two-cadence + Track F
     # cycle-completion), but bones needs SOMETHING to flip the ticket
     # to RESOLVED so the ticket_status assertion passes. Using the
     # critical-comment count as the gate mirrors the design's
     # "critical = block" rule (G10).
-    has_critical = any(
-        c.severity == "critical" for c in comments
-    )
+    has_critical = any(c.severity == "critical" for c in all_comments)
     if not has_critical:
         from jig.ticket import TicketStatus
         await ctx.tickets.update_status(ticket_id, TicketStatus.RESOLVED)

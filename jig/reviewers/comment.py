@@ -124,6 +124,16 @@ class ReviewerCommentType(str, Enum):
     WIREFRAME_NOT_FOUND = "wireframe-not-found"
     WIREFRAME_LINT_FAILED = "wireframe-lint-failed"
     WIREFRAME_NOT_REFERENCED = "wireframe-not-referenced"
+    # Visual compliance (Track D Final). Vision-based screenshot diff
+    # surfaced as one comment per spotted ``VisualDifference``;
+    # accessibility (WCAG AA) violations and responsive-design
+    # violations land alongside as their own comment kinds. The
+    # vision-diff path takes its severity from the vision provider;
+    # the a11y / responsive paths set severity deterministically.
+    SCREENSHOT_MISSING = "screenshot-missing"
+    VISUAL_VISION_DIFF = "visual-vision-diff"
+    ACCESSIBILITY_VIOLATION = "accessibility-violation"
+    RESPONSIVE_DESIGN_VIOLATION = "responsive-design-violation"
 
 
 # Backward-compatible alias. The bones-era name keeps working for the
@@ -296,6 +306,32 @@ class ReviewerComment(BaseModel):
             "override. ``None`` means no auto-apply scheduled (the "
             "bones-era behavior). Has no effect when suggested_diff "
             "is empty."
+        ),
+    )
+    # Track D Final — accessibility-violation comments cite the
+    # specific WCAG rule that fired (e.g. "WCAG 1.1.1 Non-text Content")
+    # so the operator can map straight back to the spec. Optional
+    # because non-a11y comment kinds don't carry one.
+    wcag_rule_id: str | None = Field(
+        default=None,
+        description=(
+            "WCAG rule identifier the comment cites (e.g. 'WCAG 1.1.1 "
+            "Non-text Content'). Populated only by the accessibility "
+            "reviewer; other reviewers leave it ``None``."
+        ),
+    )
+    # Track D Final — responsive-design-violation comments name the
+    # breakpoint that failed (mobile / tablet / desktop) so the
+    # operator knows where to look. ``None`` for non-responsive
+    # comments and for responsive comments that span every breakpoint
+    # (e.g. missing viewport meta).
+    breakpoint: str | None = Field(
+        default=None,
+        description=(
+            "Breakpoint label the responsive-design reviewer flagged "
+            "(typically 'mobile' / 'tablet' / 'desktop'). ``None`` for "
+            "non-responsive comments or for findings that apply to "
+            "every breakpoint."
         ),
     )
 

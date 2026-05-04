@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from jig.coordinator import Coordinator
     from jig.events import EventEmitter
 
 from jig.agent import run_agent
@@ -101,7 +102,43 @@ class Orchestrator:
         # off so test/CI runs don't auto-fire LLM reviewers and burn
         # tokens. Operator flips on per-project via .jig/config.yaml.
         self._orchestrator_cfg: OrchestratorSection = OrchestratorSection()
+        # Lazy-constructed Coordinator wired to the orchestrator's
+        # stores. Built on first access via the ``coordinator``
+        # property and reused for the orchestrator's lifetime so the
+        # review-federation gate's notable→DEFERRED path doesn't pay
+        # a per-call construction cost.
+        self._coordinator: "Coordinator | None" = None
         self._running = False
+
+    @property
+    def coordinator(self) -> "Coordinator":
+        """Lazy-construct a Coordinator wired to the orchestrator's stores.
+
+        Used by the review-federation gate's notable→DEFERRED branch
+        (``apply_severity_disposition``) so a notable comment can land
+        in the deferred queue without the orchestrator threading a
+        Coordinator through every dispatch call. Stays singleton for
+        the orchestrator's lifetime — re-entries return the cached
+        instance.
+
+        Raises ``RuntimeError`` when stores aren't loaded yet — pre-
+        startup access is a programming error rather than a silent
+        no-op (the caller would otherwise queue defers into a half-
+        baked Coordinator).
+        """
+        from jig.coordinator import Coordinator as _Coordinator
+
+        if self.tickets is None:
+            raise RuntimeError(
+                "Orchestrator not started — call startup() before "
+                "accessing coordinator"
+            )
+        if self._coordinator is None:
+            self._coordinator = _Coordinator(
+                tickets=self.tickets,
+                project_root=self._project_path,
+            )
+        return self._coordinator
 
     @property
     def is_configured(self) -> bool:

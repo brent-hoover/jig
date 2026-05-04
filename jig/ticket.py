@@ -138,6 +138,24 @@ class Ticket(StoreModel):
     # amendment in this ticket".
     contract_amendment: str | None = None
 
+    # v2 Hardening — structured reason set when the ticket lands in a
+    # non-OK terminal state driven by the review-federation gate (per
+    # ``docs/pm-workflow/design.md`` §"Severity tiers and disposition").
+    # Known values:
+    #   ``"reviewer-critical"``  — federation found one or more critical
+    #                              comments; ticket FAILED.
+    #   ``"reviewer-important"`` — federation found one or more important
+    #                              comments; ticket BLOCKED awaiting SA
+    #                              consult Handoff resolution.
+    #   ``"federation-error"``   — federation crashed (after the single
+    #                              retry); ticket FAILED.
+    # ``None`` for clean transitions and operator-driven parks — that
+    # preserves the bones-era contract for the existing BLOCKED /
+    # FAILED states. Analytics + the operator UX filter on this field
+    # to distinguish review-blocked tickets from operator-blocked ones
+    # without reading prose.
+    block_reason: str | None = None
+
     @field_validator("id")
     @classmethod
     def _validate_id_is_path_safe(cls, value: str) -> str:

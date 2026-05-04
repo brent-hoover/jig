@@ -1597,3 +1597,52 @@ def sa_cascade_audit_cmd(
     since_aware = since.replace(tzinfo=_tz.utc) if since is not None else None
     entries = filter_audit(path, since=since_aware, actor=actor)
     click.echo(format_audit_markdown(entries))
+
+
+# ---- jig pm subgroup (Track F Final) -------------------------------------
+
+
+@cli.group("pm")
+def pm_group() -> None:
+    """PM-side operator commands (calibration, overrides, cycle view)."""
+
+
+@pm_group.group("calibration")
+def pm_calibration_group() -> None:
+    """Estimation calibration loop inspection."""
+
+
+@pm_calibration_group.command("show")
+@click.option(
+    "--size",
+    type=click.Choice(["xs", "s", "m", "l", "xl"]),
+    default=None,
+    help="Optional size filter; default prints all sizes.",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def pm_calibration_show(size: str | None, path: Path) -> None:
+    """Print current per-size envelopes (median + p90 over turns/cost/duration)."""
+    import json
+
+    from jig.pm.calibration import (
+        CalibrationStore,
+        current_envelopes,
+        serialize_envelopes_for_cli,
+    )
+
+    store = CalibrationStore(path)
+    asyncio.run(store.load())
+    envelopes = current_envelopes(store)
+    if size is not None:
+        env = envelopes.get(size)
+        if env is None:
+            click.echo(f"(no envelope for size={size!r})")
+            return
+        click.echo(json.dumps(env.model_dump(mode="json"), indent=2))
+        return
+    click.echo(json.dumps(serialize_envelopes_for_cli(envelopes), indent=2))

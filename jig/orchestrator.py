@@ -261,11 +261,19 @@ class Orchestrator:
                         tokens_out=tokens_out,
                     )
                 )
-            # Track F Final — check for mid-work tier promotion.
-            # Best-effort: swallows exceptions so analytics drift
-            # can't kill a ticket dispatch.
+            # Track F Final — check for mid-work tier promotion +
+            # record calibration sample. Best-effort: swallow
+            # exceptions so analytics drift can't kill a dispatch.
             await self._maybe_promote_tier_after_blocked(
                 ctx, agent_id=agent_id, result_status=result_status,
+            )
+            await self._record_calibration_sample(
+                ctx,
+                result_status=result_status,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                cost_usd=cost_usd,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
             )
             # Track E MVP — best-effort cleanup. ``success`` is keyed
             # off the mapped status (anything besides "success" goes
@@ -331,6 +339,54 @@ class Orchestrator:
         except Exception:
             _logger.warning(
                 "tier-promotion check failed for ticket %s",
+                ctx.ticket.id,
+                exc_info=True,
+            )
+
+    async def _record_calibration_sample(
+        self,
+        ctx,
+        *,
+        result_status: str,
+        duration_ms: int,
+        cost_usd: float | None,
+        tokens_in: int | None,
+        tokens_out: int | None,
+    ) -> None:
+        """Track F Final — append one calibration sample after each agent run.
+
+        Best-effort: swallows exceptions and logs. The sample carries
+        the ticket's size + tier + layer plus the observed turn /
+        tool-call / duration / cost numbers so ``current_envelopes``
+        can compute median/p90 envelopes per S/M/L bucket.
+        """
+        if self.tickets is None or self.analytics is None:
+            return
+        try:
+            ticket = await self.tickets.get(ctx.ticket.id)
+            if ticket is None:
+                return
+            from jig.pm.calibration import (
+                CalibrationStore,
+                record_completion_sample,
+            )
+
+            store = CalibrationStore(self._project_path)
+            await store.load()
+            await record_completion_sample(
+                ticket=ticket,
+                status=result_status,
+                duration_ms=duration_ms,
+                cost_usd=cost_usd,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                store=store,
+                analytics=self.analytics,
+                emitter=self._analytics_emitter,
+            )
+        except Exception:
+            _logger.warning(
+                "calibration sample recording failed for ticket %s",
                 ctx.ticket.id,
                 exc_info=True,
             )

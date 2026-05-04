@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -45,6 +45,9 @@ from jig.analytics.events import (
     ToolCalled,
 )
 from jig.analytics.store import AnalyticsStore
+
+if TYPE_CHECKING:
+    from jig.pm.calibration import CalibrationStore
 
 __all__ = [
     "AutoEscalationConfig",
@@ -136,6 +139,8 @@ async def check_escalation_signals(
     *,
     config: AutoEscalationConfig | None = None,
     now: datetime | None = None,
+    calibration_store: "CalibrationStore | None" = None,
+    ticket_size: str | None = None,
 ) -> list[EscalationSignal]:
     """Read recent analytics events for a ticket; report tripped thresholds.
 
@@ -244,6 +249,44 @@ async def check_escalation_signals(
                 ),
             )
         )
+
+    # Out-of-budget — Track F Final calibration integration. When a
+    # CalibrationStore is supplied alongside the ticket's size, the
+    # threshold uses the per-size p90 envelope from the calibration
+    # store (when sample count meets the calibration minimum) rather
+    # than the conservative shipped default. Trips when the agent's
+    # observed turn count exceeds the p90 by more than the configured
+    # ``out_of_budget_pct`` over-budget factor.
+    if calibration_store is not None and ticket_size is not None:
+        from jig.pm.calibration import (
+            DEFAULT_ENVELOPES,
+            current_envelopes,
+            MIN_SAMPLES_FOR_CALIBRATION,
+        )
+
+        envelopes = current_envelopes(calibration_store)
+        env = envelopes.get(ticket_size) or DEFAULT_ENVELOPES.get(ticket_size)
+        if env is not None:
+            calibrated = env.sample_count >= MIN_SAMPLES_FOR_CALIBRATION
+            observed_turns = float(len(agent_tool_events))
+            # The signal trips when observed turns exceed the threshold
+            # of (p90 + over-budget pct headroom).
+            budget_threshold = env.p90_turns * (1.0 + cfg.out_of_budget_pct)
+            if budget_threshold > 0 and observed_turns >= budget_threshold:
+                source = "calibrated" if calibrated else "default"
+                signals.append(
+                    EscalationSignal(
+                        kind="out_of_budget",
+                        threshold_value=budget_threshold,
+                        observed_value=observed_turns,
+                        detail=(
+                            f"observed_turns={int(observed_turns)} >= "
+                            f"{budget_threshold:.1f} "
+                            f"(p90={env.p90_turns:.1f} via {source} "
+                            f"envelope for size={ticket_size!r})"
+                        ),
+                    )
+                )
 
     return signals
 

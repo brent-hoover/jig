@@ -200,6 +200,60 @@ def test_persona_new_fields_default_for_methodical():
     assert 0.0 <= p.gate_acceptance_probability <= 1.0
     assert 0.0 <= p.clarification_request_probability <= 1.0
     assert p.prefers_short_rationale is False
+    # Track H Final additive fields default to zero so legacy YAMLs
+    # validate unchanged.
+    assert p.feature_addition_probability == 0.0
+    assert p.contradictory_input_probability == 0.0
+    assert p.tangent_question_probability == 0.0
+    assert p.response_templates == {}
+
+
+def test_scope_creeper_persona_yaml_ships_with_package():
+    """scope-creeper persona — high feature-addition + override probability."""
+    p = load_persona(persona_path("scope-creeper"))
+    assert p.id == "scope-creeper"
+    assert p.gate_confirmation_policy == "confirm_then_re_open"
+    # Behavioral profile contract: pushes scope additions; willing to
+    # override gates (re-opens after confirming).
+    assert p.feature_addition_probability >= 0.5
+    assert p.override_probability >= 0.2
+    # Templates ship for the common gate kinds so policy-driven turns
+    # have something to sample.
+    assert "confirm_gate" in p.response_templates
+    assert len(p.response_templates["confirm_gate"]) >= 2
+
+
+def test_hostile_persona_yaml_ships_with_package():
+    """hostile persona — high contradictory + tangent + low cooperation."""
+    p = load_persona(persona_path("hostile"))
+    assert p.id == "hostile"
+    assert p.gate_confirmation_policy == "refuse_initially"
+    # Behavioral profile contract: contradictory inputs, tangents,
+    # low cooperation (refuses initially), low patience.
+    assert p.contradictory_input_probability >= 0.5
+    assert p.tangent_question_probability >= 0.3
+    assert p.patience_for_clarification == "very_low"
+    # Templates ship including the junk-input + tangent forms.
+    assert "confirm_gate" in p.response_templates
+    assert "give_pitch" in p.response_templates
+
+
+def test_persona_new_behavior_fields_constraints():
+    """New probability fields enforce [0.0, 1.0]."""
+    with pytest.raises(ValidationError):
+        Persona(
+            id="bad",
+            description="x",
+            gate_confirmation_policy="confirm_when_clear",
+            feature_addition_probability=1.5,
+        )
+    with pytest.raises(ValidationError):
+        Persona(
+            id="bad",
+            description="x",
+            gate_confirmation_policy="confirm_when_clear",
+            contradictory_input_probability=-0.1,
+        )
 
 
 # ---- scenario steps -----------------------------------------------------

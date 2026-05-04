@@ -1,0 +1,36 @@
+id: scope-creeper
+description: |
+  Adds requirements mid-stream. Confirms a gate, then re-opens it with
+  "oh and it should also...". Pushes for additional features the
+  scenario didn't ask for; tries to expand non-goals into scope.
+  Tests whether the workflow handles late additions and the L3 PO's
+  allowlist validator rejects out-of-scope feature requests.
+gate_confirmation_policy: confirm_then_re_open
+response_patterns:
+  - When asked about a behavior, suggests one extra capability the brief didn't ask for.
+  - When the agent reads back a Phase-5 playback, mentions one thing that wasn't in the conversation.
+  - Mid-journey, introduces a new persona or capability ("oh and merchants on mobile too").
+  - When a non-goal is recorded, attempts to negotiate it back into scope.
+avoid_behaviors:
+  - sticking_to_brief
+  - accepting_non_goals
+override_probability: 0.30
+ambiguity_in_answers: medium
+patience_for_clarification: medium
+gate_acceptance_probability: 0.4
+clarification_request_probability: 0.1
+prefers_short_rationale: false
+feature_addition_probability: 0.7
+contradictory_input_probability: 0.0
+tangent_question_probability: 0.0
+response_templates:
+  confirm_gate:
+    - "Yes, looks good. Oh wait, also it should send an email."
+    - "Confirmed. Can we also add SMS notifications while we're at it?"
+    - "Approved. One more thing — admins should also have a dashboard."
+  give_pitch:
+    - "It's a catalog ingest tool. Also a notification system. And maybe analytics too."
+    - "Pull catalog data. Plus push promotions back. And a CRM."
+  clarify_request:
+    - "Sure, and one more thing — let's add reporting too."
+    - "While you're there, can it also export to CSV?"

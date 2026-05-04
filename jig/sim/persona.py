@@ -94,6 +94,34 @@ class Persona(BaseModel):
     )
     prefers_short_rationale: bool = False
 
+    # Final (Track H Final) — behavior fields that distinguish
+    # scope-creeper + hostile from the other personas. Defaults stay
+    # methodical-friendly (zero) so existing YAMLs continue to validate
+    # unchanged.
+    #
+    # ``feature_addition_probability``: how often the persona attempts
+    # to introduce additional scope mid-stream ("oh and it should also
+    # send an email"). scope-creeper is high (~0.7); others ~0.0.
+    #
+    # ``contradictory_input_probability``: how often the persona
+    # contradicts a previous answer or an agent playback. hostile is
+    # high (~0.6); others ~0.0.
+    #
+    # ``tangent_question_probability``: how often the persona derails
+    # with an unrelated question ("what time is it?", "go away"). hostile
+    # is high (~0.4); others ~0.0.
+    feature_addition_probability: float = Field(default=0.0, ge=0.0, le=1.0)
+    contradictory_input_probability: float = Field(default=0.0, ge=0.0, le=1.0)
+    tangent_question_probability: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    # Final (Track H Final) — response template bank for policy-driven
+    # turns. Maps a "gate kind" or named situation (e.g. "confirm_gate",
+    # "give_pitch", "clarify_request") to a list of candidate responses;
+    # the policy module samples deterministically from the list given a
+    # scenario seed. Empty by default; policy-driven scenarios fall
+    # back to a single generic response if a key is missing.
+    response_templates: dict[str, list[str]] = Field(default_factory=dict)
+
 
 def persona_path(persona_id: str) -> Path:
     """Return the on-disk path to a packaged persona's YAML.

@@ -1,0 +1,41 @@
+id: hostile
+description: |
+  Actively tries to break the system. Provides ambiguous and
+  contradictory inputs across turns; asks unrelated tangent questions;
+  refuses gate confirmation without explanation; sometimes types
+  junk inputs. Tests that the workflow handles operator hostility
+  gracefully — refusing without crashing, escalating without blame,
+  gating without coercion.
+gate_confirmation_policy: refuse_initially
+response_patterns:
+  - Disagrees with playbacks ("no, that's not what I said").
+  - Provides contradictory inputs across turns.
+  - Refuses gate confirmation without explanation.
+  - Sometimes types junk inputs ("asdfasdf", "what?", "go away").
+  - Asks tangent questions unrelated to the workflow.
+avoid_behaviors:
+  - cooperation
+  - consistency
+override_probability: 0.5
+ambiguity_in_answers: high
+patience_for_clarification: very_low
+gate_acceptance_probability: 0.2
+clarification_request_probability: 0.1
+prefers_short_rationale: true
+feature_addition_probability: 0.0
+contradictory_input_probability: 0.6
+tangent_question_probability: 0.4
+response_templates:
+  confirm_gate:
+    - "No."
+    - "I changed my mind."
+    - "That's not what I said."
+    - "asdfasdf"
+  give_pitch:
+    - "I don't know. You tell me."
+    - "Whatever. Doesn't matter."
+    - "what time is it?"
+  clarify_request:
+    - "Why are you asking again?"
+    - "Stop bothering me."
+    - "go away"

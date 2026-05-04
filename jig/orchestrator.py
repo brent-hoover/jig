@@ -15,6 +15,7 @@ from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChange
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, load_config
 from jig.deadlock import sweep_blocking_entries
+from jig.dev_env.orchestrator_hook import cleanup_for_agent, provision_for_agent
 from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
 from jig.project import Project, load_project
 from jig.thread import Handoff, SystemEvent
@@ -194,6 +195,13 @@ class Orchestrator:
         scope: model is recorded as ``"default"`` since per-spawn model
         selection isn't yet plumbed through the orchestrator. Duration is
         wall-clock from the spawn-emit point.
+
+        Track E MVP: provisions per-agent dev-env namespaces (Postgres
+        schema, NATS subject prefix, etc.) before invoking ``run_agent``
+        and cleans them up after. Best-effort — provisioning failures
+        leave ``ctx.extra_env`` empty rather than failing the spawn;
+        cleanup failures are logged and swallowed (mirrors the
+        analytics-drain-on-shutdown pattern).
         """
         agent_id = f"{ctx.role}:{ctx.ticket.id[:8]}"
         emitter = self._analytics_emitter
@@ -207,6 +215,28 @@ class Orchestrator:
                     spawned_by=spawned_by,
                 )
             )
+        # Track E MVP — provision per-agent namespaces and stamp the
+        # connection-string env-var map onto the context. Absence of a
+        # manifest (the common case in bones / pre-SA projects) yields
+        # an empty map; absence of services likewise. Failures here
+        # don't block the spawn — the agent just runs without the
+        # extra env vars.
+        env_map = await provision_for_agent(
+            self._project_path,
+            agent_id=agent_id,
+            ticket_id=ctx.ticket.id,
+        )
+        if env_map:
+            existing = dict(getattr(ctx, "extra_env", None) or {})
+            existing.update(env_map)
+            try:
+                ctx.extra_env = existing
+            except AttributeError:
+                # Test stubs may use slots / freeze; in that case the
+                # injection is best-effort — the agent still runs.
+                _logger.debug(
+                    "could not stamp extra_env on ctx (frozen / slots?)",
+                )
         start = time.monotonic()
         result_status = "failed"
         cost_usd: float | None = None
@@ -231,6 +261,18 @@ class Orchestrator:
                         tokens_out=tokens_out,
                     )
                 )
+            # Track E MVP — best-effort cleanup. ``success`` is keyed
+            # off the mapped status (anything besides "success" goes
+            # through the failure path so the operator can inspect
+            # archived namespaces). cleanup_for_agent itself swallows
+            # downstream provisioner errors per the design's "Cleanup
+            # discipline" failure-mode-1 mitigation.
+            await cleanup_for_agent(
+                self._project_path,
+                agent_id=agent_id,
+                ticket_id=ctx.ticket.id,
+                success=result_status == "success",
+            )
 
     @staticmethod
     def _map_result_status(s: str) -> str:

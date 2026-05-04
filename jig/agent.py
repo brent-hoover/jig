@@ -462,6 +462,14 @@ async def run_agent(
         disallowed: list[str] = []
         if ctx.role_cfg.strict_tools:
             disallowed = _strict_disallowed_tools(ctx.role_cfg.allowed_tools)
+        # Track E MVP — propagate the orchestrator-built env map (one
+        # entry per provisioned dev service: JIG_DEV_<SERVICE_ID>_URL).
+        # Empty / None means no extra env (typical bones runs and any
+        # role that doesn't touch dev services).
+        sdk_kwargs: dict = {}
+        if ctx.extra_env:
+            sdk_kwargs["env"] = dict(ctx.extra_env)
+
         options = ClaudeAgentOptions(
             cwd=str(ctx.worktree_path),
             allowed_tools=ctx.role_cfg.allowed_tools,
@@ -470,6 +478,7 @@ async def run_agent(
             mcp_servers=mcp_servers,
             permission_mode="bypassPermissions",
             thinking=_thinking_config(),
+            **sdk_kwargs,
         )
         _logger.info(
             "agent config: cwd=%s tools=%s mcps=%s",

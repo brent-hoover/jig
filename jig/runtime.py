@@ -46,3 +46,8 @@ class AgentSpawnContext:
     # thread-level spawns where there is no workflow phase context.
     phase: PhaseConfig | None = None
     initial_bus_message: dict | None = None
+    # Track E MVP — per-agent env map injected into the SDK options. The
+    # orchestrator's ``_run_agent_with_analytics`` populates this with
+    # the connection-string map returned by ``provision_agent_namespace``
+    # before invoking ``run_agent``. None / empty means no extra env.
+    extra_env: dict[str, str] | None = None

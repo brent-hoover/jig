@@ -104,6 +104,12 @@ class Ticket(StoreModel):
     risks_addressed: list[str] = []
     done_when: str | None = None
 
+    # Set when the Coordinator defers this ticket via the DEFERRED queue
+    # (per docs/pm-workflow/design.md §"DEFERRED queue triage"). The
+    # ticket itself stays in the store; this stamp lets downstream views
+    # filter "currently deferred" without needing to consult the queue.
+    deferred_at: datetime | None = None
+
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_fields(cls, data: Any) -> Any:

@@ -414,31 +414,23 @@ def test_risk_spike_proposed_with_bad_uri_rejected():
 
 # ---- Architecture: cross-field — non-duplicate module ids -----------------
 #
-# The architecture schema doesn't currently enforce module-id uniqueness
-# at the schema layer (modules is just a list). The deliverable asks us
-# to add a cross-field semantic test "where applicable": for Architecture
-# the applicable claim is that a downstream consumer (PM, reviewer) keys
-# off ``Module.id`` and depends on uniqueness. We don't add the uniqueness
-# constraint here (that's a real-semantic-validation v2.x concern), but
-# we DO pin the construction-side reality: today the schema accepts
-# duplicates silently. The test name documents the gap so a future
-# tightening is one assertion-flip away.
+# Block A.2 hoists module-id uniqueness from the SA finalize pass to
+# the schema layer. Downstream consumers (PM Coordinator, reviewer
+# federation, MCP handlers) all key off ``Module.id`` — duplicates
+# silently route work to the wrong entry, so the schema rejects the
+# YAML at load time instead of letting the breakage surface inside
+# a reviewer.
 
 
-def test_architecture_currently_accepts_duplicate_module_ids():
-    """Documents schema-layer claim: uniqueness lives in the SA finalize
-    pass, not in the Pydantic model. If the schema gains a uniqueness
-    constraint, flip the assert and re-name the test."""
-    a = Architecture(
-        modules=[
-            Module(id="m", title="t", summary="s", intent=_intent()),
-            Module(id="m", title="t2", summary="s2", intent=_intent()),
-        ]
-    )
-    ids = [m.id for m in a.modules]
-    # The schema accepts this; SA finalize is the real gate. Pin both
-    # halves of the chain explicitly.
-    assert ids == ["m", "m"]
+def test_architecture_rejects_duplicate_module_ids():
+    """Schema-level uniqueness gate per Block A.2."""
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            modules=[
+                Module(id="m", title="t", summary="s", intent=_intent()),
+                Module(id="m", title="t2", summary="s2", intent=_intent()),
+            ]
+        )
 
 
 # ---- ContractsFile: rejection coverage ------------------------------------
@@ -819,3 +811,145 @@ def test_cascade_proposal_resolved_state_no_extra_fields_required():
         **_cascade_kwargs(state=CascadeState.RESOLVED)
     )
     assert cp.state == CascadeState.RESOLVED
+
+
+# ---- Architecture: id-uniqueness across every collection ----------------
+
+
+def test_architecture_rejects_duplicate_data_store_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            data_stores=[
+                DataStore(id="db", kind="postgres"),
+                DataStore(id="db", kind="sqlite"),
+            ]
+        )
+
+
+def test_architecture_rejects_duplicate_shared_contract_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            shared_contracts=[
+                SharedContract(id="sc", type="data"),
+                SharedContract(id="sc", type="event"),
+            ]
+        )
+
+
+def test_architecture_rejects_duplicate_risk_ids():
+    valid_uri = "project://arch/modules/m/contracts#owns/x"
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            risks=[
+                Risk(
+                    id="r1", text="x",
+                    impact=RiskImpact.LOW,
+                    likelihood=RiskLikelihood.LOW,
+                    status=RiskStatus.SPIKE_PROPOSED,
+                    dependent_contracts=[valid_uri],
+                    intent=_intent(),
+                ),
+                Risk(
+                    id="r1", text="y",
+                    impact=RiskImpact.MEDIUM,
+                    likelihood=RiskLikelihood.MEDIUM,
+                    status=RiskStatus.SPIKE_PROPOSED,
+                    dependent_contracts=[valid_uri],
+                    intent=_intent(),
+                ),
+            ]
+        )
+
+
+def test_architecture_rejects_duplicate_open_question_ids():
+    from jig.schemas.arch import OpenQuestion as OQ
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            open_questions=[
+                OQ(id="q1", text="x"),
+                OQ(id="q1", text="y"),
+            ]
+        )
+
+
+def test_architecture_accepts_unique_ids_across_every_collection():
+    """Happy path — distinct ids in every collection."""
+    a = Architecture(
+        data_stores=[DataStore(id="db", kind="postgres")],
+        modules=[
+            Module(id="m1", title="t", summary="s", intent=_intent()),
+            Module(id="m2", title="t", summary="s", intent=_intent()),
+        ],
+        shared_contracts=[SharedContract(id="sc", type="data")],
+    )
+    assert len(a.modules) == 2
+
+
+# ---- ContractsFile: id-uniqueness across every collection ---------------
+
+
+def test_contracts_file_rejects_duplicate_behavioral_contract_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        ContractsFile(
+            module="m",
+            behavioral_contracts=[
+                BehavioralContract(
+                    id="bc", postcondition="x", intent=_intent(),
+                ),
+                BehavioralContract(
+                    id="bc", postcondition="y", intent=_intent(),
+                ),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_data_contract_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        ContractsFile(
+            module="m",
+            data_contracts=[
+                DataContract(
+                    id="dc",
+                    schema_ref="project://arch/contracts/shared/x",
+                    intent=_intent(),
+                ),
+                DataContract(
+                    id="dc",
+                    schema_ref="project://arch/contracts/shared/y",
+                    intent=_intent(),
+                ),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_owns_collection_names():
+    with pytest.raises(ValidationError, match="duplicate collection"):
+        ContractsFile(
+            module="m",
+            owns=[
+                OwnedCollection(collection="things", db="main-db"),
+                OwnedCollection(collection="things", db="aux-db"),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_external_dependency_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        ContractsFile(
+            module="m",
+            external_dependencies=[
+                ExternalDependency(id="ext", kind="external_http"),
+                ExternalDependency(id="ext", kind="external_queue"),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_integration_ac_capabilities():
+    with pytest.raises(ValidationError, match="duplicate capability"):
+        ContractsFile(
+            module="m",
+            integration_ac=[
+                IntegrationAcceptance(capability="cap-x", must=["a"]),
+                IntegrationAcceptance(capability="cap-x", must=["b"]),
+            ],
+        )

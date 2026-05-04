@@ -299,7 +299,14 @@ async def test_plan_finalize_rejects_missing_epic_intent(wired):
 
 @pytest.mark.asyncio
 async def test_plan_finalize_rejects_duplicate_ticket_ids_across_epics(wired):
-    """A ticket id may not appear in two different epics."""
+    """A ticket id may not appear in two different epics.
+
+    Block A.2 hoists this gate to the ``BuildPlan`` schema layer; the
+    handler's coercion step now rejects the duplicate before the
+    explicit handler-level check fires. The schema's error message
+    names the colliding (epic, layer) anchors so the test asserts on
+    that text instead of the handler's wording.
+    """
     bad = _plan_dict(
         epics=[
             _epic_dict(epic_id="catalog-ingest", bones_tickets=["tb-shared"]),
@@ -311,7 +318,7 @@ async def test_plan_finalize_rejects_duplicate_ticket_ids_across_epics(wired):
             ),
         ]
     )
-    with pytest.raises(ValueError, match="listed more than once"):
+    with pytest.raises(ValueError, match="multiple .epic, layer. slots"):
         await handle_plan_finalize(
             tickets=wired["tickets"],
             threads=wired["threads"],
@@ -325,7 +332,11 @@ async def test_plan_finalize_rejects_duplicate_ticket_ids_across_epics(wired):
 
 @pytest.mark.asyncio
 async def test_plan_finalize_rejects_duplicate_ticket_ids_across_layers(wired):
-    """A ticket id may not span bones + mvp inside one epic either."""
+    """A ticket id may not span bones + mvp inside one epic either.
+
+    Block A.2 schema-level enforcement; see the across-epics test above
+    for the rationale.
+    """
     bad = _plan_dict(
         epics=[
             _epic_dict(
@@ -334,7 +345,7 @@ async def test_plan_finalize_rejects_duplicate_ticket_ids_across_layers(wired):
             ),
         ]
     )
-    with pytest.raises(ValueError, match="listed more than once"):
+    with pytest.raises(ValueError, match="multiple .epic, layer. slots"):
         await handle_plan_finalize(
             tickets=wired["tickets"],
             threads=wired["threads"],

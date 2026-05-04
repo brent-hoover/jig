@@ -185,40 +185,74 @@ def test_stalled_ticket_rejects_missing_blocked_since():
 
 # ---- BuildPlan cross-field semantics --------------------------------------
 #
-# The reviewer asked for cross-field semantic tests "where applicable".
-# The plan schema doesn't currently enforce non-overlapping ticket ids
-# across epics — that lives in the Planner's plan_finalize path. As with
-# Architecture's module-id uniqueness, we document the chain here so the
-# claim is visible at the schema-test layer.
+# Block A.2 hoists ticket-id uniqueness from the Planner finalize path
+# to the schema layer. A ticket id must appear in exactly one
+# (epic, layer) slot — duplicates across epics double-dispatch the
+# ticket; duplicates across layers break layer-status views.
 
 
-def test_build_plan_currently_accepts_overlapping_ticket_ids_across_epics():
-    """Schema-layer claim: ticket-id uniqueness lives in the Planner, not
-    in the Pydantic model. If schema-side enforcement lands later, flip
-    this assertion to ``pytest.raises``."""
-    bp = BuildPlan(
-        project="x",
-        epics=[
-            Epic(
-                id="e1",
-                title="t",
-                suite="s",
-                layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
-                intent=_intent(),
-            ),
-            Epic(
-                id="e2",
-                title="t",
-                suite="s",
-                layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
-                intent=_intent(),
-            ),
-        ],
-    )
-    bones_tickets = [
-        t for e in bp.epics for t in e.layers.bones.tickets
-    ]
-    assert bones_tickets == ["tb-shared", "tb-shared"]
+def test_build_plan_rejects_overlapping_ticket_ids_across_epics():
+    with pytest.raises(ValidationError, match="multiple .epic, layer. slots"):
+        BuildPlan(
+            project="x",
+            epics=[
+                Epic(
+                    id="e1",
+                    title="t",
+                    suite="s",
+                    layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
+                    intent=_intent(),
+                ),
+                Epic(
+                    id="e2",
+                    title="t",
+                    suite="s",
+                    layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
+                    intent=_intent(),
+                ),
+            ],
+        )
+
+
+def test_build_plan_rejects_overlapping_ticket_ids_across_layers():
+    """A ticket may not appear in both bones + mvp of the same epic."""
+    with pytest.raises(ValidationError, match="multiple .epic, layer. slots"):
+        BuildPlan(
+            project="x",
+            epics=[
+                Epic(
+                    id="e1",
+                    title="t",
+                    suite="s",
+                    layers=EpicLayers(
+                        bones=LayerStatus(tickets=["t-x"]),
+                        mvp=LayerStatus(tickets=["t-x"]),
+                    ),
+                    intent=_intent(),
+                ),
+            ],
+        )
+
+
+def test_build_plan_rejects_duplicate_epic_ids():
+    with pytest.raises(ValidationError, match="duplicate epic id"):
+        BuildPlan(
+            project="x",
+            epics=[
+                Epic(
+                    id="e1",
+                    title="t",
+                    suite="s",
+                    intent=_intent(),
+                ),
+                Epic(
+                    id="e1",
+                    title="t2",
+                    suite="s",
+                    intent=_intent(),
+                ),
+            ],
+        )
 
 
 def test_build_plan_revision_increments_round_trip():

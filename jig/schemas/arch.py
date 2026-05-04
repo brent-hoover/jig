@@ -412,6 +412,33 @@ class Module(BaseModel):
         return self
 
 
+def _check_unique_ids(
+    items: list, *, attr: str, owner: str, collection: str
+) -> None:
+    """Raise when two entries in ``items`` share the same ``attr`` value.
+
+    Hoisted helper because every aggregate model in this package wants
+    the same shape: collection name + entry attribute name + owner
+    name to put in the error message. Centralizing the check keeps the
+    error format uniform across schemas.
+    """
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for item in items:
+        value = getattr(item, attr)
+        if value in seen:
+            duplicates.add(value)
+        else:
+            seen.add(value)
+    if duplicates:
+        raise ValueError(
+            f"{owner}.{collection}: duplicate {attr} value(s) "
+            f"{sorted(duplicates)!r}. Downstream consumers key off "
+            f"{attr} and a duplicate breaks ticket / review / "
+            f"reviewer dispatch."
+        )
+
+
 class Architecture(BaseModel):
     """Top-level architecture.yaml. Lives at .jig/spec/architecture.yaml."""
 
@@ -433,6 +460,39 @@ class Architecture(BaseModel):
     @classmethod
     def _tz_generated_at(cls, v: datetime) -> datetime:
         return validate_tz_aware(v, "Architecture.generated_at")
+
+    @model_validator(mode="after")
+    def _enforce_id_uniqueness(self) -> Architecture:
+        """Every id-bearing list inside the architecture is keyed on
+        ``id`` by downstream consumers (PM, reviewers, MCP handlers).
+        Duplicates silently route work to the wrong entry — pin
+        uniqueness at the schema layer so a hand-edited YAML can't
+        sneak the breakage in."""
+        _check_unique_ids(
+            self.data_stores, attr="id",
+            owner="Architecture", collection="data_stores",
+        )
+        _check_unique_ids(
+            self.modules, attr="id",
+            owner="Architecture", collection="modules",
+        )
+        _check_unique_ids(
+            self.shared_contracts, attr="id",
+            owner="Architecture", collection="shared_contracts",
+        )
+        _check_unique_ids(
+            self.cross_cutting_policies, attr="id",
+            owner="Architecture", collection="cross_cutting_policies",
+        )
+        _check_unique_ids(
+            self.risks, attr="id",
+            owner="Architecture", collection="risks",
+        )
+        _check_unique_ids(
+            self.open_questions, attr="id",
+            owner="Architecture", collection="open_questions",
+        )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -630,6 +690,37 @@ class ContractsFile(BaseModel):
     @classmethod
     def _kebab_module(cls, v: str) -> str:
         return validate_kebab_id(v, "ContractsFile.module")
+
+    @model_validator(mode="after")
+    def _enforce_id_uniqueness(self) -> ContractsFile:
+        """Per-list uniqueness inside a module's contracts file.
+
+        ``behavioral_contracts`` / ``data_contracts`` keyed on ``id``;
+        ``owns`` keyed on ``collection`` (no ``id`` field — collection
+        name is the natural key); ``external_dependencies`` on ``id``;
+        ``integration_ac`` on ``capability`` (one per capability).
+        """
+        _check_unique_ids(
+            self.behavioral_contracts, attr="id",
+            owner="ContractsFile", collection="behavioral_contracts",
+        )
+        _check_unique_ids(
+            self.data_contracts, attr="id",
+            owner="ContractsFile", collection="data_contracts",
+        )
+        _check_unique_ids(
+            self.owns, attr="collection",
+            owner="ContractsFile", collection="owns",
+        )
+        _check_unique_ids(
+            self.external_dependencies, attr="id",
+            owner="ContractsFile", collection="external_dependencies",
+        )
+        _check_unique_ids(
+            self.integration_ac, attr="capability",
+            owner="ContractsFile", collection="integration_ac",
+        )
+        return self
 
 
 # ---------------------------------------------------------------------------

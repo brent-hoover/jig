@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.intent import Intent
 from jig.schemas._validators import validate_kebab_id, validate_tz_aware
@@ -151,3 +151,55 @@ class BuildPlan(BaseModel):
     @classmethod
     def _tz_timestamps(cls, v: datetime) -> datetime:
         return validate_tz_aware(v, "BuildPlan.<timestamp>")
+
+    @model_validator(mode="after")
+    def _enforce_uniqueness(self) -> BuildPlan:
+        """Two-axis uniqueness inside the build plan:
+
+        * Epic ids unique across the plan (Coordinator dispatch +
+          reviewer federation key off ``Epic.id``).
+        * Ticket ids unique across all epics × all layers — a ticket
+          must appear in exactly one (epic, layer) slot. Duplicates
+          across layers silently double-dispatch the ticket; duplicates
+          across epics break the layer-status views.
+        """
+        # Epic-id uniqueness.
+        epic_ids: set[str] = set()
+        epic_dupes: set[str] = set()
+        for epic in self.epics:
+            if epic.id in epic_ids:
+                epic_dupes.add(epic.id)
+            else:
+                epic_ids.add(epic.id)
+        if epic_dupes:
+            raise ValueError(
+                f"BuildPlan.epics: duplicate epic id(s) "
+                f"{sorted(epic_dupes)!r}. Coordinator dispatch keys off "
+                f"Epic.id; duplicates break ticket/layer routing."
+            )
+        # Cross-layer ticket-id uniqueness.
+        ticket_seen: dict[str, str] = {}  # ticket_id -> "epic.layer" anchor
+        ticket_dupes: dict[str, list[str]] = {}
+        for epic in self.epics:
+            for layer_name in ("bones", "mvp", "final"):
+                layer_obj = getattr(epic.layers, layer_name)
+                for tid in layer_obj.tickets:
+                    anchor = f"{epic.id}.{layer_name}"
+                    if tid in ticket_seen:
+                        ticket_dupes.setdefault(
+                            tid, [ticket_seen[tid]]
+                        ).append(anchor)
+                    else:
+                        ticket_seen[tid] = anchor
+        if ticket_dupes:
+            offenders = ", ".join(
+                f"{tid!r} in {locations!r}"
+                for tid, locations in sorted(ticket_dupes.items())
+            )
+            raise ValueError(
+                f"BuildPlan: ticket id(s) appear in multiple (epic, "
+                f"layer) slots: {offenders}. A ticket belongs to exactly "
+                f"one slot — duplicates double-dispatch and break the "
+                f"layer-status views."
+            )
+        return self

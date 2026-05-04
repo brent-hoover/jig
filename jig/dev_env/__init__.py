@@ -9,10 +9,13 @@ Public surface:
 """
 from jig.dev_env.manifest import derive_manifest
 from jig.dev_env.orphans import (
+    OrphanLogEntry,
     OrphanedNamespace,
     OrphanTracker,
+    append_orphan_log,
     drop_orphan,
     list_orphans,
+    orphan_log_path,
 )
 from jig.dev_env.provisioning import (
     NamespaceProvisioner,
@@ -28,15 +31,18 @@ from jig.dev_env.provisioning import (
 __all__ = [
     "NamespaceProvisioner",
     "NatsSubjectPrefixProvisioner",
+    "OrphanLogEntry",
     "OrphanTracker",
     "OrphanedNamespace",
     "PostgresSchemaProvisioner",
     "ProvisioningRegistry",
     "RedisKeyPrefixProvisioner",
     "S3BucketPrefixProvisioner",
+    "append_orphan_log",
     "cleanup_agent_namespace",
     "derive_manifest",
     "drop_orphan",
     "list_orphans",
+    "orphan_log_path",
     "provision_agent_namespace",
 ]

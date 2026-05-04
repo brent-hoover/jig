@@ -829,6 +829,162 @@ def story(
 
 
 # ---------------------------------------------------------------------------
+# `jig dev ...` — Track E MVP: dev-environment manifest + orphan tooling
+# ---------------------------------------------------------------------------
+
+
+@cli.group("dev")
+def dev_group() -> None:
+    """Inspect and manage the per-project dev environment (Track E MVP)."""
+
+
+@dev_group.command("manifest")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+@click.option(
+    "--derive/--no-derive",
+    default=True,
+    show_default=True,
+    help="Re-derive from architecture.yaml before printing.",
+)
+def dev_manifest_cmd(path: Path, derive: bool) -> None:
+    """Print the derived dev-environment manifest as YAML.
+
+    By default re-runs the derivation against the current
+    ``architecture.yaml`` so the printed manifest is always fresh; pass
+    ``--no-derive`` to print the on-disk file as-is.
+    """
+    import yaml
+
+    from jig.dev_env.manifest import derive_manifest
+    from jig.spec_loader import (
+        load_architecture,
+        load_dev_manifest,
+        save_dev_manifest,
+    )
+
+    if derive:
+        try:
+            arch = load_architecture(path)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+        manifest = derive_manifest(arch)
+        save_dev_manifest(path, manifest)
+    else:
+        try:
+            manifest = load_dev_manifest(path)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+    click.echo(
+        yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False).rstrip()
+    )
+
+
+@dev_group.group("orphans")
+def dev_orphans_group() -> None:
+    """List, drop, or purge orphan namespaces."""
+
+
+async def _load_tracker(path: Path):
+    from jig.dev_env.orphans import OrphanTracker
+    from jig.spec_loader import load_dev_manifest
+    from jig.store.tickets import TicketStore
+
+    manifest = load_dev_manifest(path)
+    tickets = TicketStore(path / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+    return OrphanTracker(path, manifest, tickets)
+
+
+@dev_orphans_group.command("list")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_orphans_list_cmd(path: Path) -> None:
+    """List orphan namespaces (tickets that are no longer OPEN/IN_PROGRESS)."""
+
+    async def _run() -> None:
+        try:
+            tracker = await _load_tracker(path)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+        rows = await tracker.list_orphans()
+        if not rows:
+            click.echo("(no orphans)")
+            return
+        for o in rows:
+            click.echo(
+                f"{o.id}\tservice={o.service_id}\tkind={o.service_kind}\t"
+                f"namespace={o.namespace}\tstatus={o.ticket_status}"
+            )
+
+    asyncio.run(_run())
+
+
+@dev_orphans_group.command("drop")
+@click.argument("orphan_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_orphans_drop_cmd(orphan_id: str, path: Path) -> None:
+    """Drop one orphan namespace identified by its composite id."""
+
+    async def _run() -> None:
+        try:
+            tracker = await _load_tracker(path)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+        ok = await tracker.drop(orphan_id)
+        if not ok:
+            raise click.ClickException(
+                f"orphan id {orphan_id!r} not found"
+            )
+        click.echo(f"dropped {orphan_id}")
+
+    asyncio.run(_run())
+
+
+@dev_orphans_group.command("purge")
+@click.option(
+    "--confirm",
+    is_flag=True,
+    help="Required — destroys every orphan namespace. Use with care.",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_orphans_purge_cmd(confirm: bool, path: Path) -> None:
+    """Drop every orphan namespace. Requires ``--confirm`` for safety."""
+    if not confirm:
+        raise click.ClickException(
+            "refusing to purge without --confirm (destroys every orphan namespace)"
+        )
+
+    async def _run() -> None:
+        try:
+            tracker = await _load_tracker(path)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc))
+        n = await tracker.purge()
+        click.echo(f"purged {n} orphan(s)")
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
 # `jig daemon ...` — manage the background daemon (orchestrator + WebSocket)
 # ---------------------------------------------------------------------------
 

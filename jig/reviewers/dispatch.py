@@ -30,11 +30,24 @@ from jig.ticket import Ticket
 # the dispatch imports the reviewers; the constants stay above both.
 BONES_REVIEWER_ID = "contract-compliance"
 INTENT_REVIEWER_ID = "intent-compliance"
+CROSS_CUTTING_REVIEWER_ID = "cross-cutting-policy"
+
+# Bones layer default-on set. Cross-cutting policies are universal rules
+# (PII, secrets, no-direct-cross-module-db) per design §"Reviewer
+# federation — selection logic" — they apply at every layer including
+# bones, so cross-cutting joins contract-compliance in the bones
+# default-on subset.
+_BONES_DEFAULTS: list[str] = [BONES_REVIEWER_ID, CROSS_CUTTING_REVIEWER_ID]
 
 # MVP / final default set. ``contract-compliance`` is reused from the
 # bones default — every ticket benefits from the diff/AC checks, not
-# just bones tickets.
-_MVP_FINAL_DEFAULTS: list[str] = [BONES_REVIEWER_ID, INTENT_REVIEWER_ID]
+# just bones tickets. Intent-compliance and cross-cutting-policy join
+# from MVP onward.
+_MVP_FINAL_DEFAULTS: list[str] = [
+    BONES_REVIEWER_ID,
+    INTENT_REVIEWER_ID,
+    CROSS_CUTTING_REVIEWER_ID,
+]
 
 
 def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
@@ -55,7 +68,7 @@ def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
     if ticket.reviewer_set:
         return list(ticket.reviewer_set)
     if ticket.layer == "bones":
-        return [BONES_REVIEWER_ID]
+        return list(_BONES_DEFAULTS)
     if ticket.layer in ("mvp", "final"):
         return list(_MVP_FINAL_DEFAULTS)
     return []
@@ -69,6 +82,7 @@ should_run_for_bones = select_reviewers_for_ticket
 
 __all__ = [
     "BONES_REVIEWER_ID",
+    "CROSS_CUTTING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
     "select_reviewers_for_ticket",
     "should_run_for_bones",

@@ -367,10 +367,16 @@ def test_final_layer_default_includes_intent_reviewer():
 
 
 def test_bones_layer_does_not_default_intent_reviewer():
-    """Bones budget keeps just contract-compliance — see Track G2."""
+    """Bones budget excludes intent-compliance.
+
+    Bones default-on set = contract-compliance + cross-cutting-policy.
+    Intent-layer enforcement starts at MVP per the bones budget; this
+    test pins the negative side of that policy.
+    """
     t = _ticket(layer="bones", reviewer_set=[])
     ids = select_reviewers_for_ticket(t)
-    assert ids == [BONES_REVIEWER_ID]
+    assert INTENT_REVIEWER_ID not in ids
+    assert BONES_REVIEWER_ID in ids
 
 
 def test_explicit_reviewer_set_still_honored():

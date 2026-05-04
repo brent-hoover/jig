@@ -425,8 +425,16 @@ async def test_review_honors_explicit_worktree_and_base_ref(tmp_path: Path):
 
 
 def test_select_reviewers_for_ticket_defaults_for_bones_layer_empty_set():
+    """Bones default-on set: contract-compliance + cross-cutting-policy.
+
+    Cross-cutting policies are universal rules per design — they apply
+    at every layer including bones. Intent-compliance and
+    spec-compliance start at MVP.
+    """
     t = _ticket(layer="bones", reviewer_set=[])
-    assert select_reviewers_for_ticket(t) == [BONES_REVIEWER_ID]
+    ids = select_reviewers_for_ticket(t)
+    assert BONES_REVIEWER_ID in ids
+    assert "cross-cutting-policy" in ids
 
 
 def test_select_reviewers_for_ticket_returns_empty_for_non_bones_empty_set():

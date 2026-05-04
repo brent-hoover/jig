@@ -61,6 +61,8 @@ class ReviewerCommentType(str, Enum):
       integration-ac-not-referenced, contract-violation.
     * Mechanical intent-compliance (Track I MVP) — three intent-layer
       finding kinds.
+    * Mechanical cross-cutting-policy (Track G MVP) — universal-rule
+      violation + missing-positive-policy reference.
     """
 
     EMPTY_DIFF = "empty-diff"
@@ -72,6 +74,10 @@ class ReviewerCommentType(str, Enum):
     INTENT_TOO_SHORT = "intent-too-short"
     INTENT_BOILERPLATE_RESTATEMENT = "intent-boilerplate-restatement"
     INTENT_COMPLICATIONS_SKIPPED = "intent-complications-skipped"
+    # Cross-cutting policy (Track G MVP). Universal rules from
+    # ``Architecture.cross_cutting_policies``.
+    CROSS_CUTTING_POLICY_VIOLATION = "cross-cutting-policy-violation"
+    CROSS_CUTTING_POLICY_NOT_REFERENCED = "cross-cutting-policy-not-referenced"
 
 
 # Backward-compatible alias. The bones-era name keeps working for the

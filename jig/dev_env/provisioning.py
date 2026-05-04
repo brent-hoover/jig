@@ -28,9 +28,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import ClassVar
+from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar
 
 from jig.schemas.dev_env import DevManifest, ManifestService
+
+if TYPE_CHECKING:
+    from jig.dev_env.ephemeral import EphemeralProvisioner
 
 __all__ = [
     "NamespaceProvisioner",
@@ -39,6 +43,7 @@ __all__ = [
     "ProvisioningRegistry",
     "RedisKeyPrefixProvisioner",
     "S3BucketPrefixProvisioner",
+    "SqlExecutor",
     "cleanup_agent_namespace",
     "provision_agent_namespace",
     "render_namespace",
@@ -227,17 +232,27 @@ class S3BucketPrefixProvisioner(NamespaceProvisioner):
 
 
 class ProvisioningRegistry:
-    """Map ``service.kind`` to a configured ``NamespaceProvisioner``.
+    """Map ``(kind, strategy)`` to a configured provisioner.
 
     Built once per orchestrator startup with whatever wiring the
     deployment requires (e.g. an asyncpg-backed Postgres callable in
     production; an in-memory recorder in tests).
+
+    For ``shared_namespaced`` services the registry returns a
+    :class:`NamespaceProvisioner`; for ``per_agent_ephemeral`` services
+    it returns an
+    :class:`~jig.dev_env.ephemeral.EphemeralProvisioner`. Track E Final
+    extended the registry with the ephemeral path; ``operator_supplied``
+    remains unsupported (operator owns the connection string out-of-
+    band per the design).
     """
 
     def __init__(
         self,
         *,
         postgres_sql_executor: SqlExecutor | None = None,
+        project_root: Path | None = None,
+        postgres_db_ephemeral_sql_executor: SqlExecutor | None = None,
     ) -> None:
         self._provisioners: dict[str, NamespaceProvisioner] = {
             "postgres": PostgresSchemaProvisioner(postgres_sql_executor),
@@ -245,9 +260,31 @@ class ProvisioningRegistry:
             "redis": RedisKeyPrefixProvisioner(),
             "s3": S3BucketPrefixProvisioner(),
         }
+        # Local import keeps the MVP shared_namespaced surface free of
+        # the ephemeral module's own imports (and avoids a cycle if a
+        # future ephemeral kind ever wants to call the dispatcher).
+        from jig.dev_env.ephemeral import (
+            PostgresDbEphemeralProvisioner,
+            SqliteEphemeralProvisioner,
+        )
+
+        # The SQLite ephemeral provisioner needs a project_root to know
+        # where to write the per-agent files. When the registry is built
+        # without one (the MVP-style call site), the ephemeral SQLite
+        # entry stays unwired and the dispatcher skips ephemeral
+        # services with kind=sqlite — same shape as an unknown kind.
+        ephemeral: dict[str, "EphemeralProvisioner"] = {}
+        if project_root is not None:
+            ephemeral["sqlite"] = SqliteEphemeralProvisioner(
+                project_root=project_root
+            )
+        ephemeral["postgres"] = PostgresDbEphemeralProvisioner(
+            sql_executor=postgres_db_ephemeral_sql_executor,
+        )
+        self._ephemeral: dict[str, "EphemeralProvisioner"] = ephemeral
 
     def get(self, kind: str) -> NamespaceProvisioner | None:
-        """Return the provisioner for ``kind`` or ``None`` if unsupported.
+        """Return the shared_namespaced provisioner for ``kind``.
 
         Unknown kinds are skipped silently — the orchestrator-side
         wrapper logs them but doesn't fail the spawn (the agent still
@@ -255,11 +292,21 @@ class ProvisioningRegistry:
         """
         return self._provisioners.get(kind)
 
+    def get_ephemeral(self, kind: str) -> "EphemeralProvisioner | None":
+        """Return the per_agent_ephemeral provisioner for ``kind`` or ``None``."""
+        return self._ephemeral.get(kind)
+
     def register(
         self, kind: str, provisioner: NamespaceProvisioner
     ) -> None:
-        """Register or replace a provisioner — for tests and per-deployment overrides."""
+        """Register or replace a shared_namespaced provisioner."""
         self._provisioners[kind] = provisioner
+
+    def register_ephemeral(
+        self, kind: str, provisioner: "EphemeralProvisioner"
+    ) -> None:
+        """Register or replace a per_agent_ephemeral provisioner."""
+        self._ephemeral[kind] = provisioner
 
 
 # ---------------------------------------------------------------------------
@@ -278,50 +325,80 @@ async def provision_agent_namespace(
     """Provision one namespace per service in ``manifest``; return URLs.
 
     Returns ``{service_id: connection_string}`` ready for env-var
-    injection. Skips services whose strategy isn't ``shared_namespaced``
-    (per_agent_ephemeral / operator_supplied are MVP-stubbed) and
-    services whose kind doesn't have a registered provisioner.
+    injection. Dispatches per service:
 
-    Exceptions raised by individual provisioners propagate — the
-    orchestrator's wrapper decides whether to fail the spawn or
-    continue (per the design's HEALTH-CHECK step which fails fast).
+    - ``shared_namespaced`` → :class:`NamespaceProvisioner`; URL built
+      from the manifest's per-service ``connection_string_template``.
+    - ``per_agent_ephemeral`` → :class:`EphemeralProvisioner`; URL
+      returned directly by the provisioner (each ephemeral instance
+      knows its own connection string).
+    - ``operator_supplied`` → skipped (operator manages the connection
+      string out-of-band).
+
+    Services whose kind has no registered provisioner are skipped
+    silently — the agent still runs, just without that service's
+    connection string in env. Exceptions raised by individual
+    provisioners propagate; the orchestrator's wrapper decides whether
+    to fail the spawn (per the design's HEALTH-CHECK step).
     """
     registry = registry or ProvisioningRegistry()
     out: dict[str, str] = {}
     for service in manifest.services:
-        if service.strategy != "shared_namespaced":
-            _logger.info(
-                "skip provisioning service=%s strategy=%s — "
-                "MVP only wires shared_namespaced",
-                service.id,
-                service.strategy,
-            )
-            continue
-        provisioner = registry.get(service.kind)
-        if provisioner is None:
-            _logger.info(
-                "skip provisioning service=%s kind=%s — "
-                "no registered provisioner",
-                service.id,
-                service.kind,
-            )
-            continue
-        namespace = render_namespace(
-            service.namespace_template,
-            agent_id=agent_id,
-            ticket_id=ticket_id,
-            epic_id=epic_id,
-        )
-        await provisioner.provision(service, namespace)
-        template = manifest.connection_string_templates.get(service.id, "")
-        if template:
-            out[service.id] = _render_connection_string(
-                template,
-                namespace=namespace,
+        if service.strategy == "shared_namespaced":
+            provisioner = registry.get(service.kind)
+            if provisioner is None:
+                _logger.info(
+                    "skip provisioning service=%s kind=%s — "
+                    "no registered provisioner",
+                    service.id,
+                    service.kind,
+                )
+                continue
+            namespace = render_namespace(
+                service.namespace_template,
                 agent_id=agent_id,
                 ticket_id=ticket_id,
                 epic_id=epic_id,
             )
+            await provisioner.provision(service, namespace)
+            template = manifest.connection_string_templates.get(service.id, "")
+            if template:
+                out[service.id] = _render_connection_string(
+                    template,
+                    namespace=namespace,
+                    agent_id=agent_id,
+                    ticket_id=ticket_id,
+                    epic_id=epic_id,
+                )
+        elif service.strategy == "per_agent_ephemeral":
+            ephemeral = registry.get_ephemeral(service.kind)
+            if ephemeral is None:
+                _logger.info(
+                    "skip provisioning service=%s kind=%s strategy=%s — "
+                    "no registered ephemeral provisioner",
+                    service.id,
+                    service.kind,
+                    service.strategy,
+                )
+                continue
+            url = await ephemeral.provision(
+                service,
+                agent_id=agent_id,
+                ticket_id=ticket_id,
+                epic_id=epic_id,
+            )
+            if url:
+                out[service.id] = url
+        else:
+            # operator_supplied: nothing to do; the operator's existing
+            # service is reachable via whatever they configured.
+            _logger.info(
+                "skip provisioning service=%s strategy=%s — "
+                "operator-managed",
+                service.id,
+                service.strategy,
+            )
+            continue
     return out
 
 
@@ -344,24 +421,43 @@ async def cleanup_agent_namespace(
     """
     registry = registry or ProvisioningRegistry()
     for service in manifest.services:
-        if service.strategy != "shared_namespaced":
-            continue
-        provisioner = registry.get(service.kind)
-        if provisioner is None:
-            continue
-        namespace = render_namespace(
-            service.namespace_template,
-            agent_id=agent_id,
-            ticket_id=ticket_id,
-            epic_id=epic_id,
-        )
-        try:
-            await provisioner.cleanup(service, namespace, success)
-        except Exception:
-            _logger.warning(
-                "cleanup failed for service=%s namespace=%s success=%s",
-                service.id,
-                namespace,
-                success,
-                exc_info=True,
+        if service.strategy == "shared_namespaced":
+            provisioner = registry.get(service.kind)
+            if provisioner is None:
+                continue
+            namespace = render_namespace(
+                service.namespace_template,
+                agent_id=agent_id,
+                ticket_id=ticket_id,
+                epic_id=epic_id,
             )
+            try:
+                await provisioner.cleanup(service, namespace, success)
+            except Exception:
+                _logger.warning(
+                    "cleanup failed for service=%s namespace=%s success=%s",
+                    service.id,
+                    namespace,
+                    success,
+                    exc_info=True,
+                )
+        elif service.strategy == "per_agent_ephemeral":
+            ephemeral = registry.get_ephemeral(service.kind)
+            if ephemeral is None:
+                continue
+            try:
+                await ephemeral.cleanup(
+                    service,
+                    agent_id=agent_id,
+                    ticket_id=ticket_id,
+                    success=success,
+                    epic_id=epic_id,
+                )
+            except Exception:
+                _logger.warning(
+                    "ephemeral cleanup failed for service=%s success=%s",
+                    service.id,
+                    success,
+                    exc_info=True,
+                )
+        # operator_supplied: nothing to clean up.

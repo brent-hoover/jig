@@ -1,4 +1,4 @@
-"""Per-agent ephemeral provisioners (Track E Final).
+"""Per-agent ephemeral provisioners + inspection helpers (Track E Final).
 
 Per ``docs/dev-environment/design.md`` §"Provisioning strategies", the
 ``per_agent_ephemeral`` strategy is the strong-isolation escape hatch
@@ -25,19 +25,27 @@ from __future__ import annotations
 
 import logging
 import shutil
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import ClassVar
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from jig.dev_env.provisioning import SqlExecutor, render_namespace
 from jig.schemas.dev_env import ManifestService
 
 __all__ = [
+    "EphemeralInstance",
     "EphemeralProvisioner",
+    "InspectResult",
     "PostgresDbEphemeralProvisioner",
     "SqliteEphemeralProvisioner",
+    "drop_ephemeral_instance",
     "ephemeral_archive_dir",
     "ephemeral_root",
+    "inspect_ephemeral_instance",
+    "list_ephemeral_instances",
 ]
 
 _logger = logging.getLogger(__name__)
@@ -303,3 +311,160 @@ class PostgresDbEphemeralProvisioner(EphemeralProvisioner):
                 policy,
                 exc_info=True,
             )
+
+
+# ---------------------------------------------------------------------------
+# Operator-facing inspection — drives the ``jig dev ephemeral`` CLI
+# ---------------------------------------------------------------------------
+
+
+class EphemeralInstance(BaseModel):
+    """One ephemeral instance row surfaced by ``list_ephemeral_instances``.
+
+    The composite ``id`` is ``<service_id>:<namespace>`` so the operator
+    can reference it deterministically from the CLI (no spaces, all
+    safe shell chars) — same shape as ``OrphanedNamespace.id``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    service_id: str = Field(..., min_length=1)
+    namespace: str = Field(..., min_length=1)
+    kind: str = Field(..., min_length=1)
+    path: str = Field(..., min_length=1)
+    size_bytes: int = Field(..., ge=0)
+
+
+class InspectResult(BaseModel):
+    """One ``(table_name, row_count)`` row for the inspect output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    table: str = Field(..., min_length=1)
+    rows: int = Field(..., ge=0)
+
+
+def _instance_id(service_id: str, namespace: str) -> str:
+    return f"{service_id}:{namespace}"
+
+
+def list_ephemeral_instances(project_root: Path) -> list[EphemeralInstance]:
+    """Walk ``.jig/dev/ephemeral/`` and return one row per SQLite file.
+
+    Postgres ephemeral instances aren't enumerable from disk (they live
+    in the postgres cluster); a Postgres listing would require querying
+    ``pg_database`` via the same injectable executor pattern the
+    provisioner uses. For Final scope SQLite is the listing surface;
+    the operator inspects Postgres ephemeral DBs via ``psql`` directly.
+    """
+    out: list[EphemeralInstance] = []
+    root = ephemeral_root(project_root)
+    if not root.is_dir():
+        return out
+    for service_dir in sorted(root.iterdir()):
+        if not service_dir.is_dir():
+            continue
+        service_id = service_dir.name
+        for db_path in sorted(service_dir.glob("*.db")):
+            namespace = db_path.stem
+            try:
+                size = db_path.stat().st_size
+            except OSError:
+                continue
+            out.append(
+                EphemeralInstance(
+                    id=_instance_id(service_id, namespace),
+                    service_id=service_id,
+                    namespace=namespace,
+                    kind="sqlite",
+                    path=str(db_path),
+                    size_bytes=size,
+                )
+            )
+    return out
+
+
+def _split_instance_id(instance_id: str) -> tuple[str, str]:
+    if ":" not in instance_id:
+        raise ValueError(
+            f"ephemeral instance id {instance_id!r} must be "
+            "<service_id>:<namespace>"
+        )
+    service_id, _, namespace = instance_id.partition(":")
+    if not service_id or not namespace:
+        raise ValueError(
+            f"ephemeral instance id {instance_id!r} must be "
+            "<service_id>:<namespace>"
+        )
+    return service_id, namespace
+
+
+def _find_instance(
+    project_root: Path, instance_id: str
+) -> EphemeralInstance | None:
+    rows = list_ephemeral_instances(project_root)
+    return next((r for r in rows if r.id == instance_id), None)
+
+
+def inspect_ephemeral_instance(
+    project_root: Path, instance_id: str
+) -> list[InspectResult]:
+    """Return per-table row counts for the named SQLite instance.
+
+    Raises ``FileNotFoundError`` when the instance id doesn't resolve
+    to a tracked file. An empty SQLite file (no tables created yet)
+    returns an empty list — the CLI wraps that into a friendly
+    ``(no tables)`` message.
+    """
+    inst = _find_instance(project_root, instance_id)
+    if inst is None:
+        raise FileNotFoundError(
+            f"ephemeral instance {instance_id!r} not found under "
+            f"{ephemeral_root(project_root)}"
+        )
+    out: list[InspectResult] = []
+    conn = sqlite3.connect(inst.path)
+    try:
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+        tables = [row[0] for row in cur.fetchall()]
+        for table in tables:
+            # Use parameterized identifiers via quoted names — sqlite
+            # doesn't support bound identifiers, so we wrap in double
+            # quotes after a sanity check that the name came from
+            # sqlite_master (already trusted).
+            count_cur = conn.execute(f'SELECT COUNT(*) FROM "{table}"')
+            (count,) = count_cur.fetchone()
+            out.append(InspectResult(table=table, rows=int(count)))
+    finally:
+        conn.close()
+    return out
+
+
+def drop_ephemeral_instance(
+    project_root: Path, instance_id: str
+) -> bool:
+    """Operator override — drop a SQLite ephemeral instance directly.
+
+    Returns ``True`` iff the instance was found + removed; ``False``
+    when the id doesn't resolve. Bypasses the orchestrator hook (which
+    only fires on agent completion) — used when the operator wants to
+    reclaim disk before a long-running ticket finishes, or after the
+    orchestrator missed a cleanup.
+    """
+    inst = _find_instance(project_root, instance_id)
+    if inst is None:
+        return False
+    try:
+        Path(inst.path).unlink()
+    except OSError:
+        _logger.warning(
+            "drop_ephemeral_instance failed for %s",
+            inst.path,
+            exc_info=True,
+        )
+        return False
+    return True

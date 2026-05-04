@@ -1017,6 +1017,76 @@ def dev_orphans_drop_cmd(orphan_id: str, path: Path) -> None:
     asyncio.run(_run())
 
 
+@dev_group.group("ephemeral")
+def dev_ephemeral_group() -> None:
+    """Inspect / drop per-agent ephemeral instances (Track E Final)."""
+
+
+@dev_ephemeral_group.command("list")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_ephemeral_list_cmd(path: Path) -> None:
+    """List active ephemeral SQLite instances under ``.jig/dev/ephemeral/``."""
+    from jig.dev_env.ephemeral import list_ephemeral_instances
+
+    rows = list_ephemeral_instances(path)
+    if not rows:
+        click.echo("(no ephemeral instances)")
+        return
+    for inst in rows:
+        click.echo(
+            f"{inst.id}\tkind={inst.kind}\tpath={inst.path}\t"
+            f"{inst.size_bytes} bytes"
+        )
+
+
+@dev_ephemeral_group.command("inspect")
+@click.argument("instance_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_ephemeral_inspect_cmd(instance_id: str, path: Path) -> None:
+    """Print per-table row counts for one SQLite ephemeral instance."""
+    from jig.dev_env.ephemeral import inspect_ephemeral_instance
+
+    try:
+        rows = inspect_ephemeral_instance(path, instance_id)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc))
+    if not rows:
+        click.echo("(no tables)")
+        return
+    click.echo(f"{instance_id}:")
+    for r in rows:
+        click.echo(f"  {r.table}\t{r.rows} rows")
+
+
+@dev_ephemeral_group.command("drop")
+@click.argument("instance_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def dev_ephemeral_drop_cmd(instance_id: str, path: Path) -> None:
+    """Drop one SQLite ephemeral instance (operator override)."""
+    from jig.dev_env.ephemeral import drop_ephemeral_instance
+
+    if not drop_ephemeral_instance(path, instance_id):
+        raise click.ClickException(
+            f"ephemeral instance {instance_id!r} not found"
+        )
+    click.echo(f"dropped {instance_id}")
+
+
 @dev_orphans_group.command("purge")
 @click.option(
     "--confirm",

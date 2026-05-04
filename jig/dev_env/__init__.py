@@ -8,11 +8,16 @@ Public surface:
 - ``OrphanTracker`` — operator-facing orphan-namespace inventory
 """
 from jig.dev_env.ephemeral import (
+    EphemeralInstance,
     EphemeralProvisioner,
+    InspectResult,
     PostgresDbEphemeralProvisioner,
     SqliteEphemeralProvisioner,
+    drop_ephemeral_instance,
     ephemeral_archive_dir,
     ephemeral_root,
+    inspect_ephemeral_instance,
+    list_ephemeral_instances,
 )
 from jig.dev_env.manifest import derive_manifest
 from jig.dev_env.orphans import (
@@ -36,7 +41,9 @@ from jig.dev_env.provisioning import (
 )
 
 __all__ = [
+    "EphemeralInstance",
     "EphemeralProvisioner",
+    "InspectResult",
     "NamespaceProvisioner",
     "NatsSubjectPrefixProvisioner",
     "OrphanLogEntry",
@@ -51,9 +58,12 @@ __all__ = [
     "append_orphan_log",
     "cleanup_agent_namespace",
     "derive_manifest",
+    "drop_ephemeral_instance",
     "drop_orphan",
     "ephemeral_archive_dir",
     "ephemeral_root",
+    "inspect_ephemeral_instance",
+    "list_ephemeral_instances",
     "list_orphans",
     "orphan_log_path",
     "provision_agent_namespace",

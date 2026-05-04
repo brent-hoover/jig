@@ -5,7 +5,15 @@ from typing import Any
 from pydantic import Field, field_validator, model_validator
 
 from jig.safe_path import validate_safe_path_segment
+from jig.schemas._validators import validate_kebab_id, validate_tz_aware
 from jig.store.models import StoreModel
+
+# v2 build-plan fields carry a small literal vocabulary the schemas team
+# explicitly enumerates (see ``docs/pm-workflow/design.md`` §"Layer model"
+# and §"Dev tier"). We keep the allowed sets as module-level frozensets
+# so the validator and downstream consumers can share one source of truth.
+_ALLOWED_LAYERS = frozenset({"bones", "mvp", "final"})
+_ALLOWED_DEV_TIERS = frozenset({"standard", "senior", "sa"})
 
 
 class WorkType(str, Enum):
@@ -144,6 +152,102 @@ class Ticket(StoreModel):
         defense in depth complementing the per-helper validation.
         """
         return validate_safe_path_segment(value, "Ticket.id")
+
+    # ---- v2 schema discipline (Block 4) -----------------------------------
+    #
+    # The shared ``jig/schemas/*`` v2 models all use ``validate_kebab_id`` /
+    # ``validate_tz_aware`` for ids and timestamps. The pre-v2 ``Ticket``
+    # model carries the most-touched v2 fields (``suite_id``, ``module_id``,
+    # ``epic_id``, etc.) but had no equivalent guards — any operator-edited
+    # YAML or older fixture could leak ``"Catalog Ingest"`` / naive
+    # datetimes into worktree paths, ticket-store reads, and reviewer
+    # federation paths. These validators bring Ticket onto the same
+    # invariants the schemas package already enforces.
+
+    @field_validator("created_at", "updated_at")
+    @classmethod
+    def _tz_required_timestamps(cls, v: datetime) -> datetime:
+        """``created_at``/``updated_at`` are required + always present;
+        Pydantic feeds the validator the resolved value (default factories
+        always emit tz-aware UTC), so ``None`` never reaches here."""
+        return validate_tz_aware(v, "Ticket.<timestamp>")
+
+    @field_validator("deferred_at")
+    @classmethod
+    def _tz_optional_deferred_at(cls, v: datetime | None) -> datetime | None:
+        """``deferred_at`` is optional — only enforce tz on present values."""
+        return validate_tz_aware(v, "Ticket.deferred_at") if v is not None else v
+
+    @field_validator("suite_id", "module_id", "epic_id")
+    @classmethod
+    def _kebab_optional_ids(cls, v: str | None) -> str | None:
+        """v2 build-plan extension ids must be kebab-case when populated.
+
+        These ids round-trip through PM artifacts (``build-plan.yaml``),
+        the worktree's spec compliance reviewer, and the federation
+        reviewer dispatch. Keeping them on the same kebab grammar as the
+        ``jig/schemas/*`` ids stops mismatches at the boundary instead of
+        deep in a reviewer's path lookup.
+        """
+        if v is None:
+            return v
+        # Field name is whichever caller triggered the validator; the
+        # validator can introspect it via ``ValidationInfo`` but the
+        # ergonomic win there isn't worth the extra arg here — the error
+        # message includes the value, which is enough to triage.
+        return validate_kebab_id(v, "Ticket.<id-field>")
+
+    @field_validator("capability_ids", "visual_references")
+    @classmethod
+    def _kebab_id_lists(cls, v: list[str]) -> list[str]:
+        """Each entry in these lists is a kebab-id used as a path segment.
+
+        ``capability_ids`` are the L1-discovery capability ids the spec-
+        compliance reviewer cross-references; ``visual_references`` are
+        screen-id-derived paths the visual reviewer reads from
+        ``.jig/spec/wireframes/<id>.html``. Bad ids here turn into
+        path-traversal-shaped lookups inside the reviewer.
+        """
+        for entry in v:
+            validate_kebab_id(entry, "Ticket.<id-list>[]")
+        return v
+
+    @field_validator("layer")
+    @classmethod
+    def _allowed_layer(cls, v: str | None) -> str | None:
+        """``layer`` ∈ {``bones``, ``mvp``, ``final``} when present.
+
+        Kept as ``str | None`` rather than a Literal because the field is
+        optional in v1 records and we still want the validator's error
+        message to show the allowed values explicitly (Pydantic's default
+        Literal error mentions the field, not the universe).
+        """
+        if v is None:
+            return v
+        if v not in _ALLOWED_LAYERS:
+            raise ValueError(
+                f"Ticket.layer must be one of {sorted(_ALLOWED_LAYERS)!r}, "
+                f"got {v!r}"
+            )
+        return v
+
+    @field_validator("dev_tier")
+    @classmethod
+    def _allowed_dev_tier(cls, v: str | None) -> str | None:
+        """``dev_tier`` ∈ {``standard``, ``senior``, ``sa``} when present.
+
+        Mirrors ``arch.TierHint`` exactly — the SA's ``tier_hint`` is
+        the upstream source for this value via the Planner's tier
+        promotion logic.
+        """
+        if v is None:
+            return v
+        if v not in _ALLOWED_DEV_TIERS:
+            raise ValueError(
+                f"Ticket.dev_tier must be one of "
+                f"{sorted(_ALLOWED_DEV_TIERS)!r}, got {v!r}"
+            )
+        return v
 
     @model_validator(mode="before")
     @classmethod

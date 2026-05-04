@@ -23,37 +23,52 @@ from jig.ticket import Ticket
 # is one edit.
 BONES_REVIEWER_ID = "contract-compliance"
 
+# Intent-layer reviewer (Track I MVP). Defaults on for MVP / final
+# tickets so the federation runs both contract-compliance and intent
+# enforcement; bones layer keeps just contract-compliance to honor
+# the bones budget. Imported by name from ``intent_compliance.py`` to
+# keep the rename surface to one edit.
+INTENT_REVIEWER_ID = "intent-compliance"
+
+# MVP / final default sets. ``contract-compliance`` is reused from the
+# bones default — every ticket benefits from the diff/AC checks, not
+# just bones tickets.
+_MVP_FINAL_DEFAULTS: list[str] = [BONES_REVIEWER_ID, INTENT_REVIEWER_ID]
+
 
 def should_run_for_bones(ticket: Ticket) -> list[str]:
-    """Return the reviewer ids to run on ``ticket`` under bones rules.
+    """Return the reviewer ids to run on ``ticket``.
 
-    Three branches:
+    Despite the name (kept stable for callers), this is the federation-
+    dispatch entry point for all layers; it grew past the bones-only
+    scope when Track I MVP added the intent reviewer for MVP/final.
 
-    - ``layer == "bones"`` and ``reviewer_set`` empty → default-on
-      contract-compliance. This is the bones-Coordinator-materialized
-      case; tickets land without a Planner-authored reviewer set.
-    - ``reviewer_set`` non-empty → honour it as authored. The Planner
-      doesn't run in bones, but the slot still respects an explicit
-      operator override (e.g. a synthetic-operator scenario that
-      hand-writes ``reviewer_set: []`` to opt OUT of review).
-    - ``layer != "bones"`` and empty ``reviewer_set`` → return empty.
-      MVP/Final layers without a Planner-authored set are operator
-      error; bones doesn't paper over it by silently running the bones
-      reviewer on a non-bones ticket.
+    Branches:
 
-    Distinct empty-list returns for "bones, no reviewers requested"
-    versus "non-bones, no reviewer set authored" share the same shape;
-    the synthetic operator can disambiguate via the input ticket if it
-    needs to.
+    - ``reviewer_set`` non-empty → honour it as authored (the Planner
+      PM owns the set on MVP+). Empty reviewer_set with layer ==
+      ``bones`` → default-on contract-compliance only (bones budget).
+    - ``layer == "mvp"`` or ``"final"`` with empty reviewer_set →
+      default to contract-compliance + intent-compliance. This is the
+      MVP layer's federation floor.
+    - ``layer`` unset and empty reviewer_set → return empty. The
+      bones-Coordinator materializes tickets with ``layer="bones"``;
+      a missing layer means we can't tell what defaults apply.
+
+    Distinct empty-list returns for the same shape stay disambiguated
+    via the input ticket if a caller needs it.
     """
     if ticket.reviewer_set:
         return list(ticket.reviewer_set)
     if ticket.layer == "bones":
         return [BONES_REVIEWER_ID]
+    if ticket.layer in ("mvp", "final"):
+        return list(_MVP_FINAL_DEFAULTS)
     return []
 
 
 __all__ = [
     "BONES_REVIEWER_ID",
+    "INTENT_REVIEWER_ID",
     "should_run_for_bones",
 ]

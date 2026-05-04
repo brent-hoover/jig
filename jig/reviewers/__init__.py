@@ -30,18 +30,32 @@ concern (Track G3 — two-cadence integration).
 """
 from __future__ import annotations
 
-from jig.reviewers.bones_dispatch import should_run_for_bones
+from jig.reviewers.bones_dispatch import (
+    BONES_REVIEWER_ID,
+    INTENT_REVIEWER_ID,
+    should_run_for_bones,
+)
 from jig.reviewers.comment import (
     BonesCommentType,
     ReviewerComment,
     Severity,
 )
 from jig.reviewers.contract_compliance import ContractComplianceReviewer
+from jig.reviewers.intent_compliance import (
+    IntentCommentType,
+    IntentComplianceReviewer,
+    review_intent,
+)
 
 __all__ = [
+    "BONES_REVIEWER_ID",
     "BonesCommentType",
     "ContractComplianceReviewer",
+    "INTENT_REVIEWER_ID",
+    "IntentCommentType",
+    "IntentComplianceReviewer",
     "ReviewerComment",
     "Severity",
+    "review_intent",
     "should_run_for_bones",
 ]

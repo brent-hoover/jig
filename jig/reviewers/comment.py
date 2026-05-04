@@ -59,6 +59,12 @@ class BonesCommentType(str, Enum):
     EMPTY_DIFF = "empty-diff"
     INTEGRATION_AC_NOT_REFERENCED = "integration-ac-not-referenced"
     CONTRACT_VIOLATION = "contract-violation"
+    # Intent-layer enforcement (Track I MVP). The intent reviewer flags
+    # thin/boilerplate Intent blocks on authored artifacts (Module,
+    # DataContract, BehavioralContract, Risk, Epic). Mechanical, no LLM.
+    INTENT_TOO_SHORT = "intent-too-short"
+    INTENT_BOILERPLATE_RESTATEMENT = "intent-boilerplate-restatement"
+    INTENT_COMPLICATIONS_SKIPPED = "intent-complications-skipped"
 
 
 class ReviewerComment(BaseModel):

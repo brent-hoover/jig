@@ -430,7 +430,12 @@ def test_should_run_for_bones_defaults_for_bones_layer_empty_set():
 
 
 def test_should_run_for_bones_returns_empty_for_non_bones_empty_set():
-    t = _ticket(layer="mvp", reviewer_set=[])
+    """MVP/final tickets with empty reviewer_set get the Track-I-MVP defaults
+    (contract-compliance + intent-compliance), not nothing — see
+    bones_dispatch._MVP_FINAL_DEFAULTS. Tickets with no layer at all still
+    return empty (we can't pick defaults without knowing the layer).
+    """
+    t = _ticket(layer=None, reviewer_set=[])
     assert should_run_for_bones(t) == []
 
 

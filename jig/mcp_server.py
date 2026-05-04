@@ -1702,6 +1702,29 @@ def create_agent_mcp_server(
 
         all_tools.append(module_set_open_question)
 
+    if "arch_regenerate_pydantic_models" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_regenerate_pydantic_models",
+            "Re-render every renderable DataContract to its Pydantic "
+            "class file under .jig/generated/contracts/. Pass "
+            "``module_id`` to scope to one module; omit (empty string) "
+            "for a project-wide pass. Contracts without inline "
+            "``fields`` are skipped silently. Returns a newline-"
+            "separated list of written paths.",
+            {"module_id": str},
+        )
+        async def arch_regenerate_pydantic_models(args):
+            mid = args.get("module_id") or None
+            paths = await sa_incremental_mcp.handle_arch_regenerate_pydantic_models(
+                project_path=project_path,
+                module_id=mid,
+            )
+            text = "\n".join(str(p.relative_to(project_path)) for p in paths)
+            return {"content": [{"type": "text", "text": text}]}
+
+        all_tools.append(arch_regenerate_pydantic_models)
+
     if "arch_finalize" in agent_cfg.allowed_tools:
 
         @tool(

@@ -592,6 +592,32 @@ def save_brand(project_root: Path, brand: Brand) -> None:
     atomic_write_text(brand_path(project_root), payload)
 
 
+def generated_contracts_dir(project_root: Path) -> Path:
+    """``.jig/generated/contracts/`` — Pydantic-from-DataContract output dir.
+
+    Per ``docs/agent-leverage/problem.md`` §6: rendered artifacts
+    live under ``.jig/generated/`` so the operator can inspect them
+    without confusing them with hand-written code under ``src/``.
+    The Track I Final SA hook writes one file per data contract
+    here whenever the contract is upserted.
+    """
+    return project_root / ".jig" / "generated" / "contracts"
+
+
+def generated_contract_path(
+    project_root: Path, module_id: str, contract_id: str
+) -> Path:
+    """Deterministic path for one generated Pydantic contract module.
+
+    Layout: ``.jig/generated/contracts/<module_id>/<contract_id>.py``.
+    The per-module subdir keeps generated files grouped the same way
+    the source contracts are; the operator who knows
+    ``modules/<m>/contracts.yaml`` can find the rendered output by
+    walking the same module path.
+    """
+    return generated_contracts_dir(project_root) / module_id / f"{contract_id}.py"
+
+
 def wireframes_dir(project_root: Path) -> Path:
     """``.jig/spec/wireframes/`` — VD's per-screen HTML wireframes dir."""
     return project_root / ".jig" / "spec" / "wireframes"

@@ -79,6 +79,7 @@ from jig.schemas.arch import (
 from jig.spec_loader import (
     cascade_proposal_path,
     cascades_dir,
+    generated_contract_path,
     load_architecture,
     load_module_contracts,
     save_architecture,
@@ -95,6 +96,7 @@ __all__ = [
     "handle_arch_complete_spike",
     "handle_arch_finalize",
     "handle_arch_propose_spike",
+    "handle_arch_regenerate_pydantic_models",
     "handle_arch_set_cross_cutting_policy",
     "handle_arch_set_data_store",
     "handle_arch_set_module",
@@ -790,11 +792,98 @@ async def handle_module_set_behavioral_contract(
 async def handle_module_set_data_contract(
     *, project_path: Path, module_id: str, data_contract: Any
 ) -> str:
+    """Upsert a DataContract; auto-render Pydantic class when fields are present.
+
+    Track I Final: when ``DataContract.fields`` is non-empty the
+    handler also writes a Pydantic class source file under
+    ``.jig/generated/contracts/<module>/<contract>.py``. The render
+    is best-effort — when the contract has no inline ``fields`` the
+    handler skips the generation step (legitimate; not every contract
+    carries an inline shape).
+    """
     dc = _coerce(DataContract, data_contract, kind="data_contract")
     cf = _load_or_init_contracts(project_path, module_id)
     cf.data_contracts = _replace_or_append(cf.data_contracts, dc)
     save_module_contracts(project_path, module_id, cf)
+    _maybe_render_pydantic_for_contract(project_path, module_id, dc)
     return dc.id
+
+
+def _maybe_render_pydantic_for_contract(
+    project_path: Path, module_id: str, contract: DataContract
+) -> Path | None:
+    """Render the contract to a Pydantic file when ``fields`` is populated.
+
+    Returns the written path on success; None when the contract has
+    no fields or rendering raises (we re-raise ValueError because
+    that's a real authoring error worth surfacing — the agent set
+    fields but with a bad identifier, etc.).
+    """
+    if not contract.fields:
+        return None
+    # Lazy import keeps the SA module's import surface unchanged for
+    # callers that never trigger the renderer.
+    from jig.renderers.pydantic_from_data_contract import (
+        render_pydantic_from_data_contract,
+    )
+
+    src = render_pydantic_from_data_contract(contract)
+    target = generated_contract_path(project_path, module_id, contract.id)
+    atomic_write_text(target, src)
+    return target
+
+
+async def handle_arch_regenerate_pydantic_models(
+    *, project_path: Path, module_id: str | None = None
+) -> list[Path]:
+    """Re-render every renderable DataContract in scope; return the file paths.
+
+    Track I Final operator-facing tool. Walks every authored
+    ``modules/<m>/contracts.yaml`` (or just one when ``module_id`` is
+    given) and re-runs the renderer on each contract that carries
+    inline ``fields``. The returned list is a flat sequence of
+    written paths — useful both as MCP return value and as a CLI
+    summary the operator can scan.
+
+    Contracts without ``fields`` are skipped silently (URI-based
+    schema resolution is the v2.x lift; the renderer itself raises
+    on bad inputs but the bulk path treats absence as "nothing to
+    render here, that's fine").
+    """
+    written: list[Path] = []
+    if module_id is not None:
+        try:
+            cf = load_module_contracts(project_path, module_id)
+        except FileNotFoundError:
+            return []
+        for dc in cf.data_contracts:
+            path = _maybe_render_pydantic_for_contract(
+                project_path, module_id, dc
+            )
+            if path is not None:
+                written.append(path)
+        return written
+
+    modules_dir = project_path / ".jig" / "spec" / "modules"
+    if not modules_dir.is_dir():
+        return []
+    for child in sorted(modules_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        if not (child / "contracts.yaml").is_file():
+            continue
+        mid = child.name
+        try:
+            cf = load_module_contracts(project_path, mid)
+        except FileNotFoundError:
+            continue
+        for dc in cf.data_contracts:
+            path = _maybe_render_pydantic_for_contract(
+                project_path, mid, dc
+            )
+            if path is not None:
+                written.append(path)
+    return written
 
 
 async def handle_module_set_open_question(

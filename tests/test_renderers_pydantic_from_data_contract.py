@@ -306,3 +306,224 @@ def test_rendered_output_matches_expected_shape():
         """
     )
     assert expected_substring in src
+
+
+def test_rendered_header_includes_regenerate_hint():
+    """Track I Final: header carries an operator-readable regenerate hint."""
+    contract = _contract(fields={"sku": "str"})
+    src = render_pydantic_from_data_contract(contract)
+    assert "Regenerate by re-running" in src
+    assert "module_set_data_contract" in src
+
+
+# ---- SA auto-generation integration (Track I Final) ---------------------
+
+
+@pytest.mark.asyncio
+async def test_module_set_data_contract_auto_renders_when_fields_present(tmp_path: Path):
+    """When module_set_data_contract is invoked with a contract that
+    carries inline fields, the handler atomically writes a Pydantic
+    file under .jig/generated/contracts/<module>/<contract>.py."""
+    from jig.sa_incremental_mcp import handle_module_set_data_contract
+    from jig.spec_loader import generated_contract_path
+
+    contract = _contract(fields={"sku": "str", "qty": "int"})
+    cid = await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="catalog-ingest",
+        data_contract=contract.model_dump(mode="json"),
+    )
+    assert cid == "product-row"
+    expected = generated_contract_path(
+        tmp_path, "catalog-ingest", "product-row"
+    )
+    assert expected.is_file()
+    src = expected.read_text()
+    assert "class ProductRow(BaseModel):" in src
+    assert "sku: str" in src
+
+
+@pytest.mark.asyncio
+async def test_module_set_data_contract_skips_render_when_fields_absent(tmp_path: Path):
+    """No fields → no render. The contract still saves to YAML; the
+    Pydantic file just doesn't appear."""
+    from jig.sa_incremental_mcp import handle_module_set_data_contract
+    from jig.spec_loader import generated_contract_path
+
+    contract = _contract(fields=None)
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="m",
+        data_contract=contract.model_dump(mode="json"),
+    )
+    assert not generated_contract_path(tmp_path, "m", "product-row").is_file()
+
+
+@pytest.mark.asyncio
+async def test_arch_regenerate_pydantic_models_walks_all_modules(tmp_path: Path):
+    """Bulk regeneration tool walks every module's contracts.yaml and
+    re-renders each contract that has inline fields."""
+    from jig.sa_incremental_mcp import (
+        handle_arch_regenerate_pydantic_models,
+        handle_module_set_data_contract,
+    )
+
+    a = _contract(contract_id="row-a", fields={"sku": "str"})
+    b = _contract(contract_id="row-b", fields={"qty": "int"})
+    no_fields = _contract(contract_id="row-c", fields=None)
+
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="m1",
+        data_contract=a.model_dump(mode="json"),
+    )
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="m2",
+        data_contract=b.model_dump(mode="json"),
+    )
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="m2",
+        data_contract=no_fields.model_dump(mode="json"),
+    )
+
+    paths = await handle_arch_regenerate_pydantic_models(
+        project_path=tmp_path, module_id=None
+    )
+    names = sorted(p.name for p in paths)
+    assert names == ["row-a.py", "row-b.py"]
+
+
+@pytest.mark.asyncio
+async def test_arch_regenerate_pydantic_models_scopes_to_one_module(tmp_path: Path):
+    """``module_id`` arg restricts the regeneration to that module."""
+    from jig.sa_incremental_mcp import (
+        handle_arch_regenerate_pydantic_models,
+        handle_module_set_data_contract,
+    )
+
+    a = _contract(contract_id="row-a", fields={"sku": "str"})
+    b = _contract(contract_id="row-b", fields={"qty": "int"})
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="m1",
+        data_contract=a.model_dump(mode="json"),
+    )
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="m2",
+        data_contract=b.model_dump(mode="json"),
+    )
+
+    paths = await handle_arch_regenerate_pydantic_models(
+        project_path=tmp_path, module_id="m1"
+    )
+    assert len(paths) == 1
+    assert paths[0].name == "row-a.py"
+
+
+@pytest.mark.asyncio
+async def test_arch_regenerate_handles_unknown_module(tmp_path: Path):
+    """Asking for a module that doesn't exist returns [] without raising."""
+    from jig.sa_incremental_mcp import handle_arch_regenerate_pydantic_models
+
+    paths = await handle_arch_regenerate_pydantic_models(
+        project_path=tmp_path, module_id="missing"
+    )
+    assert paths == []
+
+
+def test_sa_mvp_role_config_lists_arch_regenerate_pydantic_models(tmp_path: Path):
+    """The shipped sa-mvp role exposes arch_regenerate_pydantic_models."""
+    from jig.persistence import load_role
+
+    cfg = load_role(tmp_path, "sa_mvp")
+    assert "arch_regenerate_pydantic_models" in cfg.allowed_tools
+
+
+@pytest.mark.asyncio
+async def test_arch_regenerate_pydantic_models_mcp_tool_registered(
+    tmp_path: Path, monkeypatch
+):
+    """The MCP server exposes the bulk regen tool when allowed_tools grants it."""
+    import jig.mcp_server as mcp_server_mod
+    from jig.mcp_server import create_agent_mcp_server
+    from jig.models import RoleConfig
+    from jig.store.bus import MessageBus
+    from jig.store.memory import MemoryStore
+    from jig.store.threads import ThreadStore
+    from jig.store.tickets import TicketStore
+
+    tickets = TicketStore(tmp_path / "tickets.jsonl")
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    memory = MemoryStore(tmp_path)
+    bus = MessageBus(tmp_path / "messages.jsonl")
+    for s in (tickets, threads, memory, bus):
+        await s.load()
+
+    cfg = RoleConfig(
+        role="sa-mvp",
+        allowed_tools=["Read", "arch_regenerate_pydantic_models"],
+        strict_tools=True,
+    )
+    captured: dict = {}
+    real = mcp_server_mod.create_sdk_mcp_server
+
+    def spy(*, name, tools):
+        captured["tools"] = tools
+        return real(name=name, tools=tools)
+
+    monkeypatch.setattr(mcp_server_mod, "create_sdk_mcp_server", spy)
+
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="sa-mvp",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    names = {t.name for t in captured["tools"]}
+    assert "arch_regenerate_pydantic_models" in names
+
+
+@pytest.mark.asyncio
+async def test_generated_file_is_importable_round_trip(tmp_path: Path):
+    """End-to-end: invoke module_set_data_contract → import the generated
+    file → instantiate the model → reject extras."""
+    import importlib.util
+    import sys
+
+    from jig.sa_incremental_mcp import handle_module_set_data_contract
+    from jig.spec_loader import generated_contract_path
+
+    contract = _contract(
+        contract_id="round-trip-row",
+        fields={"sku": "str", "qty": "int"},
+    )
+    await handle_module_set_data_contract(
+        project_path=tmp_path,
+        module_id="catalog-ingest",
+        data_contract=contract.model_dump(mode="json"),
+    )
+
+    target = generated_contract_path(
+        tmp_path, "catalog-ingest", "round-trip-row"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "round_trip_row", target
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["round_trip_row"] = mod
+    try:
+        spec.loader.exec_module(mod)
+        instance = mod.RoundTripRow(sku="abc", qty=2)
+        assert instance.sku == "abc"
+        with pytest.raises(Exception):
+            mod.RoundTripRow(sku="abc", qty=2, mystery=1)
+    finally:
+        sys.modules.pop("round_trip_row", None)

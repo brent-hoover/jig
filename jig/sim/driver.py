@@ -214,6 +214,13 @@ class DriverContext:
     last_disposition_blocked: int = 0
     last_disposition_consulted_sa: int = 0
     last_disposition_deferred: int = 0
+    # Track E Final — captured outputs from dev-ephemeral / fixture
+    # steps. Tests + scenario assertions read these to verify the
+    # per_agent_ephemeral lifecycle + the recorded-fixture replay
+    # produced the expected URL / response body.
+    last_ephemeral_url: str | None = None
+    last_ephemeral_path: str | None = None
+    last_fixture_response: dict | None = None
 
 
 # ---- step handler signature ---------------------------------------------
@@ -272,6 +279,12 @@ class Driver:
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
             StepKind.INVOKE_DEV_PROVISIONING.value: (
                 _handle_invoke_dev_provisioning
+            ),
+            StepKind.INVOKE_DEV_EPHEMERAL.value: (
+                _handle_invoke_dev_ephemeral
+            ),
+            StepKind.INVOKE_FIXTURE_REPLAY.value: (
+                _handle_invoke_fixture_replay
             ),
             StepKind.INVOKE_VD_FINALIZE.value: _handle_invoke_vd_finalize,
             StepKind.INVOKE_QUARTERMASTER_FEEDBACK.value: (
@@ -1775,3 +1788,170 @@ def _check_cost_under_budget(
         passed=True,
         detail=f"cost {ctx.cost_usd:.4f} < budget {a.usd:.4f}",
     )
+
+
+async def _handle_invoke_dev_ephemeral(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Exercise the per_agent_ephemeral SQLite path end-to-end.
+
+    Scenario YAML shape::
+
+        kind: invoke_dev_ephemeral
+        params:
+          ticket_id: tb-catalog-ingest
+          service_id: ephem            # optional; default ``ephem``
+          namespace_template: "agent_{ticket_id}"  # optional
+          cleanup: true                # optional; default true
+
+    Builds a one-service manifest in-memory (no architecture.yaml
+    dependency — the scenario just wants to exercise the dispatcher),
+    runs ``provision_agent_namespace`` rooted at ``ctx.project_root``,
+    then (if cleanup=True) runs ``cleanup_agent_namespace``. Stamps
+    ``ctx.last_ephemeral_url`` + ``ctx.last_ephemeral_path`` so a
+    follow-up assertion can introspect.
+    """
+    from jig.dev_env.ephemeral import ephemeral_root
+    from jig.dev_env.provisioning import (
+        ProvisioningRegistry,
+        cleanup_agent_namespace,
+        provision_agent_namespace,
+    )
+    from jig.schemas.dev_env import DevManifest, ManifestService
+
+    ticket_id = step.params.get("ticket_id")
+    if not ticket_id:
+        raise ValueError(
+            "invoke_dev_ephemeral: params.ticket_id is required"
+        )
+    service_id = step.params.get("service_id") or "ephem"
+    namespace_template = (
+        step.params.get("namespace_template") or "agent_{ticket_id}"
+    )
+    do_cleanup = bool(step.params.get("cleanup", True))
+    success = bool(step.params.get("success", True))
+    agent_id = step.params.get("agent_id") or "sim-dev"
+
+    manifest = DevManifest(
+        services=[
+            ManifestService(
+                id=service_id,
+                kind="sqlite",
+                strategy="per_agent_ephemeral",
+                namespace_template=namespace_template,
+            ),
+        ],
+        connection_string_templates={service_id: ""},
+    )
+    registry = ProvisioningRegistry(project_root=ctx.project_root)
+    url_map = await provision_agent_namespace(
+        manifest,
+        agent_id=agent_id,
+        ticket_id=ticket_id,
+        registry=registry,
+    )
+    url = url_map.get(service_id)
+    if not url:
+        raise AssertionError(
+            "invoke_dev_ephemeral: provisioner returned no URL for "
+            f"service={service_id!r}"
+        )
+    ctx.last_ephemeral_url = url
+
+    # Walk to the actual file so the assertion suite can verify it landed.
+    root = ephemeral_root(ctx.project_root)
+    files = list((root / service_id).glob("*.db"))
+    if not files:
+        raise AssertionError(
+            f"invoke_dev_ephemeral: no .db file found under {root / service_id}"
+        )
+    ctx.last_ephemeral_path = str(files[0])
+
+    if do_cleanup:
+        await cleanup_agent_namespace(
+            manifest,
+            agent_id=agent_id,
+            ticket_id=ticket_id,
+            success=success,
+            registry=registry,
+        )
+
+
+async def _handle_invoke_fixture_replay(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Exercise the vcr-style cassette record + replay round-trip.
+
+    Scenario YAML shape::
+
+        kind: invoke_fixture_replay
+        params:
+          service_id: shopify-api      # required
+          method: GET                  # required
+          url: https://api.shopify.com/products  # required
+          body: { ... }                # optional
+          response: { status: 200, json: { products: [] } }  # required
+
+    Pre-records a cassette via ``FixtureStore.record``, builds a
+    ``FixtureMiddleware`` in REPLAY_ONLY mode (no backing client —
+    a missed cassette would raise loudly per design.md §"replay_only
+    default"), and calls ``record_or_replay`` with the same shape.
+    Stamps the response on ``ctx.last_fixture_response`` so an
+    assertion can verify the replay matched the recording.
+    """
+    from jig.dev_env.fixtures import (
+        FixtureCassette,
+        FixtureMiddleware,
+        FixtureMode,
+        FixtureStore,
+        request_signature,
+    )
+
+    service_id = step.params.get("service_id")
+    if not service_id:
+        raise ValueError(
+            "invoke_fixture_replay: params.service_id is required"
+        )
+    method = step.params.get("method")
+    if not method:
+        raise ValueError(
+            "invoke_fixture_replay: params.method is required"
+        )
+    url = step.params.get("url")
+    if not url:
+        raise ValueError(
+            "invoke_fixture_replay: params.url is required"
+        )
+    response = step.params.get("response")
+    if response is None:
+        raise ValueError(
+            "invoke_fixture_replay: params.response is required"
+        )
+    body = step.params.get("body")
+
+    store = FixtureStore(ctx.project_root)
+    sig = request_signature(method, url, body)
+    await store.record(
+        FixtureCassette(
+            service_id=service_id,
+            request_signature=sig,
+            request={"method": method, "url": url, "body": body or {}},
+            response=response,
+        )
+    )
+
+    middleware = FixtureMiddleware(
+        service_id=service_id,
+        store=store,
+        mode=FixtureMode.REPLAY_ONLY,
+        client=None,  # REPLAY_ONLY must never hit a client.
+    )
+    replayed = await middleware.record_or_replay(
+        method, url, headers=None, body=body
+    )
+    ctx.last_fixture_response = dict(replayed)
+    if replayed != response:
+        raise AssertionError(
+            "invoke_fixture_replay: replayed response does not match "
+            f"recorded one (got {replayed!r}, expected {response!r})"
+        )

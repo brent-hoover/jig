@@ -734,6 +734,117 @@ async def test_invoke_dev_provisioning_requires_ticket_id(tmp_path: Path):
     assert "ticket_id" in (report.step_outcomes[0].error or "")
 
 
+# ---------------------------------------------------------------------------
+# Track E Final — invoke_dev_ephemeral + invoke_fixture_replay step kinds
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_invoke_dev_ephemeral_provisions_and_cleans(tmp_path: Path):
+    """Step provisions a SQLite ephemeral file; cleanup removes it.
+
+    Verifies the file lands under .jig/dev/ephemeral/<service>/ + the
+    URL flows back into ctx.last_ephemeral_url.
+    """
+    driver = Driver()
+    scn = Scenario(
+        id="dev-ephemeral-only",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_DEV_EPHEMERAL,
+                params={
+                    "ticket_id": "tb-eph",
+                    "service_id": "scratch",
+                    "namespace_template": "agent_{ticket_id}",
+                    "cleanup": True,
+                    "success": True,
+                },
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert report.passed, report.failure_summary()
+    # The cleanup ran; the file should be gone.
+    db_path = (
+        tmp_path / ".jig" / "dev" / "ephemeral" / "scratch" / "agent_tb_eph.db"
+    )
+    assert not db_path.is_file()
+
+
+@pytest.mark.asyncio
+async def test_invoke_dev_ephemeral_requires_ticket_id(tmp_path: Path):
+    driver = Driver()
+    scn = Scenario(
+        id="dev-ephemeral-bad",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_DEV_EPHEMERAL,
+                params={},
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert not report.passed
+    assert "ticket_id" in (report.step_outcomes[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_invoke_fixture_replay_records_and_replays(tmp_path: Path):
+    """Step records a cassette + replays it through REPLAY_ONLY middleware."""
+    driver = Driver()
+    scn = Scenario(
+        id="fixture-replay-only",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_FIXTURE_REPLAY,
+                params={
+                    "service_id": "shopify-api",
+                    "method": "GET",
+                    "url": "https://api.shopify.com/products",
+                    "response": {"status": 200, "body": "ok"},
+                },
+                assertions=[
+                    ArtifactWrittenAssertion(
+                        path=".jig/dev/fixtures/shopify-api.jsonl",
+                        contains="shopify-api",
+                    ),
+                ],
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert report.passed, report.failure_summary()
+
+
+@pytest.mark.asyncio
+async def test_invoke_fixture_replay_requires_service_id(tmp_path: Path):
+    driver = Driver()
+    scn = Scenario(
+        id="fixture-bad",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_FIXTURE_REPLAY,
+                params={},
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert not report.passed
+    assert "service_id" in (report.step_outcomes[0].error or "")
+
+
 # ---- Track I Final: invoke_quartermaster_feedback step kind --------------
 
 

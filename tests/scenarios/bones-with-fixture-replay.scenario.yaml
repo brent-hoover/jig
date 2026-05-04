@@ -1,0 +1,34 @@
+spec_version: 1
+id: bones-with-fixture-replay
+description: |
+  Track E Final — exercises the vcr-style FixtureMiddleware in
+  REPLAY_ONLY mode. The ``invoke_fixture_replay`` step records a
+  cassette to ``.jig/dev/fixtures/<service_id>.jsonl``, then replays
+  the same request through a no-client middleware. The handler asserts
+  the replayed body matches the recording — REPLAY_ONLY with no
+  backing client is the safest possible test of the cassette path.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - fixtures-replay
+
+steps:
+  - kind: invoke_fixture_replay
+    params:
+      service_id: shopify-api
+      method: GET
+      url: https://api.shopify.com/admin/api/products.json
+      body:
+        page: 1
+      response:
+        status: 200
+        body: { products: [] }
+    assertions:
+      - kind: artifact_written
+        path: .jig/dev/fixtures/shopify-api.jsonl
+        contains: shopify-api
+
+final_assertions:
+  - kind: cost_under_budget
+    usd: 1.0

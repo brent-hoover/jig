@@ -67,6 +67,14 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "reviewer-intent-compliance",
     # Track E MVP — dev-environment provisioning happy-path coverage.
     "dev-provisioning",
+    # Track E Final — per_agent_ephemeral provisioning (SQLite + Postgres
+    # DB), recorded-fixtures replay + record_new modes, periodic orphan
+    # sweeper with operator-confirmation.
+    "dev-ephemeral-sqlite",
+    "dev-ephemeral-postgres",
+    "fixtures-replay",
+    "fixtures-record-new",
+    "orphan-sweeper",
     # Track D MVP — VD finalize, wireframe linter, visual_compliance
     # reviewer (basic mechanical version).
     "vd-finalize",

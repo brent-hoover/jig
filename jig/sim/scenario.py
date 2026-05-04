@@ -119,6 +119,26 @@ class StepKind(str, Enum):
     # True) so the assertion suite can gate on the recorder's calls.
     INVOKE_DEV_PROVISIONING = "invoke_dev_provisioning"
 
+    # Track E Final — exercise the per_agent_ephemeral SQLite path. The
+    # handler builds a one-service manifest with strategy=
+    # per_agent_ephemeral + kind=sqlite, runs ``provision_for_agent``
+    # rooted at the project tmp dir, verifies the URL came back +
+    # the file landed under .jig/dev/ephemeral/, then runs
+    # ``cleanup_for_agent`` and verifies the file is gone (drop policy).
+    # Scenario YAML carries the ticket id + service id + namespace
+    # template; the handler stamps the URL on the driver context so a
+    # follow-up assertion can introspect.
+    INVOKE_DEV_EPHEMERAL = "invoke_dev_ephemeral"
+
+    # Track E Final — exercise the vcr-style fixture replay path. The
+    # handler pre-populates a cassette via FixtureStore.record, then
+    # builds a FixtureMiddleware in REPLAY_ONLY mode and calls
+    # ``record_or_replay`` with the matching method/url/body — the
+    # assertion suite gates on the response matching what was recorded
+    # (no real-API call ever fires). Scenario YAML carries the
+    # service_id + recorded request/response pair.
+    INVOKE_FIXTURE_REPLAY = "invoke_fixture_replay"
+
     # Track D MVP — exercise the VD vd_finalize path. The handler
     # synthesizes a complete VD payload (FrontendSpec + 1-2
     # wireframes) and calls handle_vd_finalize directly. Scenario YAML

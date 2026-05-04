@@ -1,0 +1,29 @@
+spec_version: 1
+id: bones-with-dev-ephemeral
+description: |
+  Track E Final — exercises the per_agent_ephemeral SQLite path. The
+  ``invoke_dev_ephemeral`` step builds a one-service in-memory manifest
+  (kind=sqlite, strategy=per_agent_ephemeral), provisions a fresh DB
+  file under ``.jig/dev/ephemeral/``, and verifies cleanup removes it.
+  No Postgres dependency, no architecture.yaml authoring required —
+  this scenario isolates the ephemeral lifecycle from the rest of the
+  spine so a failure points squarely at the dispatcher.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - dev-ephemeral-sqlite
+
+steps:
+  # Provision + cleanup an ephemeral SQLite under .jig/dev/ephemeral/.
+  - kind: invoke_dev_ephemeral
+    params:
+      ticket_id: tb-ephemeral-test
+      service_id: ephem
+      namespace_template: "agent_{ticket_id}"
+      cleanup: true
+      success: true
+
+final_assertions:
+  - kind: cost_under_budget
+    usd: 1.0

@@ -205,6 +205,8 @@ class TestDefaultRoles:
             "reviewer-pattern-conformance",
             "reviewer-error-handling",
             "reviewer-test-adequacy",
+            # Track D MVP — VD (Visual Designer / frontend architect).
+            "vd",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

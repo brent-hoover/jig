@@ -22,6 +22,7 @@ from jig import (
     sa_mcp,
     thread_mcp,
     ticket_mcp,
+    vd_mcp,
 )
 from jig.logging_setup import (
     _agent_id_var,
@@ -1727,6 +1728,186 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(arch_finalize)
+
+    # ---- v2 VD MVP — wireframes + design system + frontend.yaml ----------
+    # Per docs/visual-design/design.md the VD agent edits HTML directly via
+    # Read/Write/Edit and uses these MCP wrappers for incremental upserts +
+    # the linter + the finalize handoff. Each upsert is idempotent on its
+    # natural id; vd_finalize is the one-shot atomic write + handoff.
+
+    if "vd_set_wireframe" in agent_cfg.allowed_tools:
+
+        @tool(
+            "vd_set_wireframe",
+            "Upsert one wireframe HTML file under "
+            "``.jig/spec/wireframes/<screen_id>.html``. Runs the "
+            "wireframe linter and raises on critical violations "
+            "(missing meta block, inline ``style=`` attributes, real "
+            "color values outside <style> tags, disallowed <script> "
+            "tags). ``meta`` is optional; when provided the handler "
+            "splices a fresh ``<!-- wireframe-meta: {...} -->`` "
+            "comment into the HTML. Returns ``{screen_id, warnings}`` "
+            "where warnings is the non-critical lint list — advisory.",
+            {"screen_id": str, "html": str, "meta": dict},
+        )
+        async def vd_set_wireframe(args):
+            payload = {
+                "screen_id": args["screen_id"],
+                "html": args["html"],
+            }
+            if args.get("meta"):
+                payload["meta"] = args["meta"]
+            result = await vd_mcp.handle_vd_set_wireframe(
+                project_path=project_path,
+                **payload,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(vd_set_wireframe)
+
+    if "vd_set_design_token" in agent_cfg.allowed_tools:
+
+        @tool(
+            "vd_set_design_token",
+            "Upsert one DesignToken into ``tokens.yaml``. ``token`` is "
+            "a dict matching ``{id, kind, value, description?}`` where "
+            "``kind`` is one of ``color | spacing | type | shadow | "
+            "border-radius``. Idempotent on id. Loads from the shipped "
+            "defaults when no operator-authored tokens.yaml exists, "
+            "then flips ``source`` to ``operator_supplied`` so the "
+            "default-vs-operator-state is recoverable.",
+            {"token": dict},
+        )
+        async def vd_set_design_token(args):
+            tid = await vd_mcp.handle_vd_set_design_token(
+                project_path=project_path,
+                token=args["token"],
+            )
+            return {"content": [{"type": "text", "text": tid}]}
+
+        all_tools.append(vd_set_design_token)
+
+    if "vd_set_component" in agent_cfg.allowed_tools:
+
+        @tool(
+            "vd_set_component",
+            "Upsert one Component into ``components.yaml``. "
+            "``component`` is a dict ``{id, name, variants?, "
+            "description?}``. Variants may be a list of dicts with "
+            "``id`` (and optional ``description``). Idempotent on id.",
+            {"component": dict},
+        )
+        async def vd_set_component(args):
+            cid = await vd_mcp.handle_vd_set_component(
+                project_path=project_path,
+                component=args["component"],
+            )
+            return {"content": [{"type": "text", "text": cid}]}
+
+        all_tools.append(vd_set_component)
+
+    if "wireframe_lint" in agent_cfg.allowed_tools:
+
+        @tool(
+            "wireframe_lint",
+            "Run the deterministic wireframe-HTML linter on ``html``. "
+            "Returns a JSON list of ``{code, severity, message, line}`` "
+            "violations; empty list means clean. Use this to pre-flight "
+            "wireframe HTML before calling vd_set_wireframe.",
+            {"html": str},
+        )
+        async def wireframe_lint(args):
+            result = await vd_mcp.handle_wireframe_lint(html=args["html"])
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(wireframe_lint)
+
+    if "wireframe_get_notes" in agent_cfg.allowed_tools:
+
+        @tool(
+            "wireframe_get_notes",
+            "Read the per-screen sidecar notes markdown for ``screen_id`` "
+            "from ``.jig/spec/wireframes/<screen_id>.notes.md``. Returns "
+            "the empty string when the file is absent (no notes yet).",
+            {"screen_id": str},
+        )
+        async def wireframe_get_notes(args):
+            text = await vd_mcp.handle_wireframe_get_notes(
+                project_path=project_path,
+                screen_id=args["screen_id"],
+            )
+            return {"content": [{"type": "text", "text": text}]}
+
+        all_tools.append(wireframe_get_notes)
+
+    if "wireframe_set_notes" in agent_cfg.allowed_tools:
+
+        @tool(
+            "wireframe_set_notes",
+            "Write the per-screen sidecar notes markdown for "
+            "``screen_id``. Free-form markdown; no schema. Returns the "
+            "on-disk path relative to the project root.",
+            {"screen_id": str, "notes": str},
+        )
+        async def wireframe_set_notes(args):
+            path = await vd_mcp.handle_wireframe_set_notes(
+                project_path=project_path,
+                screen_id=args["screen_id"],
+                notes=args["notes"],
+            )
+            return {"content": [{"type": "text", "text": path}]}
+
+        all_tools.append(wireframe_set_notes)
+
+    if "vd_import_claude_design" in agent_cfg.allowed_tools:
+
+        @tool(
+            "vd_import_claude_design",
+            "Import a Claude Design payload — stub for MVP. ``payload`` "
+            "shape: ``{tokens?, components?, brand?, wireframes?}`` "
+            "where each section follows the same shape as the upsert "
+            "tools. Writes via the same save_* helpers. Returns "
+            "``{imported: {...counts...}, source: 'claude_design'}``.",
+            {"payload": dict},
+        )
+        async def vd_import_claude_design(args):
+            result = await vd_mcp.handle_vd_import_claude_design(
+                project_path=project_path,
+                payload=args["payload"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(vd_import_claude_design)
+
+    if "vd_finalize" in agent_cfg.allowed_tools:
+
+        @tool(
+            "vd_finalize",
+            "Write the full VD payload atomically + post the Handoff to "
+            "PM. ``frontend`` is a dict matching the FrontendSpec schema "
+            "(stack + intent are required; allowed_dependencies "
+            "defaults empty). ``wireframes`` is an optional list of "
+            "``{screen_id, html, meta?}`` entries — backend-only "
+            "projects pass an empty list. The linter pre-flights every "
+            "wireframe before any write so the operation is atomic from "
+            "the agent's perspective. Resolves the VD ticket via the "
+            "shared resolve_after_handoff. Call exactly once.",
+            {"frontend": dict, "wireframes": list, "summary": str},
+        )
+        async def vd_finalize(args):
+            entry_id = await vd_mcp.handle_vd_finalize(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                frontend=args["frontend"],
+                wireframes=args.get("wireframes") or [],
+                summary=args["summary"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(vd_finalize)
 
     if "dev_derive_manifest" in agent_cfg.allowed_tools:
         from jig import dev_env_mcp

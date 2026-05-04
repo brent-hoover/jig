@@ -32,7 +32,12 @@ import yaml
 from jig.atomic import atomic_write_text
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.plan import BuildPlan
-from jig.schemas.po import DiscoveryDoc, DiscoveryState, SuitesIndex
+from jig.schemas.po import (
+    DiscoveryDoc,
+    DiscoveryState,
+    Ontology,
+    SuitesIndex,
+)
 from jig.spec_schema import StructuredSpec
 
 _SPEC_RELATIVE = Path(".jig") / "spec" / "project.structured.yaml"
@@ -41,6 +46,7 @@ _ARCHITECTURE_RELATIVE = Path(".jig") / "spec" / "architecture.yaml"
 _BUILD_PLAN_RELATIVE = Path(".jig") / "plan" / "build-plan.yaml"
 _DISCOVERY_MD_RELATIVE = Path(".jig") / "spec" / "discovery.md"
 _DISCOVERY_STATE_RELATIVE = Path(".jig") / "spec" / "discovery.state.yaml"
+_ONTOLOGY_RELATIVE = Path(".jig") / "spec" / "ontology.md"
 
 
 def spec_path(project_root: Path) -> Path:
@@ -276,3 +282,67 @@ def save_discovery_state(project_root: Path, state: DiscoveryState) -> None:
     state.updated_at = datetime.now(timezone.utc)
     payload = yaml.safe_dump(state.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(discovery_state_path(project_root), payload)
+
+
+# ---- v2 project ontology paths -------------------------------------------
+
+
+def ontology_path(project_root: Path) -> Path:
+    """``.jig/spec/ontology.md`` — operator-edit-friendly domain vocabulary.
+
+    Per design.md §"Project ontology". The L1 PO is the primary author
+    (terms get captured during journey walks); SA / VD / PM / dev /
+    reviewer agents read it for terminology consistency.
+    """
+    return project_root / _ONTOLOGY_RELATIVE
+
+
+def load_ontology(project_root: Path) -> Ontology:
+    """Parse ``ontology.md`` into an ``Ontology``.
+
+    Raises ``FileNotFoundError`` if the file is absent — callers
+    branch on absence (e.g., the L1 PO writes a fresh one when no
+    prior session exists) rather than silently defaulting to empty.
+
+    Markdown shape (per design.md):
+
+        # <project> — Domain Vocabulary
+
+        <optional preface paragraphs>
+
+        ## Terms
+
+        ### <term>
+        <definition paragraph>
+
+        **Examples:**
+        - example one
+        - example two
+
+        ### <next term>
+        ...
+    """
+    src = ontology_path(project_root)
+    if not src.is_file():
+        raise FileNotFoundError(f"ontology not found at {src}")
+    # Local import to avoid circular: po_ontology_mcp depends on this
+    # module (path helpers); the parser depends on the schema.
+    from jig.po_ontology_mcp import parse_ontology_md
+    return parse_ontology_md(src.read_text())
+
+
+def save_ontology(
+    project_root: Path,
+    ontology: Ontology,
+    *,
+    project_name: str = "Project",
+) -> None:
+    """Atomically render ``ontology`` to markdown at ``ontology.md``.
+
+    ``project_name`` shows in the H1 heading; defaults to a generic
+    placeholder so callers without a project name (early bootstrap)
+    can still write a valid file.
+    """
+    from jig.po_ontology_mcp import render_ontology_md
+    md = render_ontology_md(ontology, project_name=project_name)
+    atomic_write_text(ontology_path(project_root), md)

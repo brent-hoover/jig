@@ -41,6 +41,9 @@ __all__ = [
     "DiscoveryStatus",
     "PendingCapability",
     "DiscoveryState",
+    "OntologyTerm",
+    "Ontology",
+    "PendingOntologyTerm",
 ]
 
 
@@ -403,3 +406,85 @@ class DiscoveryState(BaseModel):
                 f"got {v!r}"
             )
         return v
+
+
+# ---- Project ontology -----------------------------------------------------
+
+
+class OntologyTerm(BaseModel):
+    """One entry in the project ontology — operator's domain vocabulary.
+
+    Per design.md §"Project ontology — capturing the operator's domain
+    vocabulary": ubiquitous-language entries surfaced during PO
+    discovery so every downstream agent (SA, VD, PM, dev, reviewer)
+    uses consistent terminology. Stored on disk as markdown sections
+    keyed by ``term`` heading; ``examples`` render as a bullet list
+    under ``**Examples:**`` when present.
+
+    ``term`` is preserved as the operator wrote it (lowercased for
+    lookup but the original casing surfaces in the rendered heading).
+    No kebab-case rule — domain words may include spaces and quotes
+    ("looks off" signals).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    term: str = Field(..., min_length=1, description="The operator's word.")
+    definition: str = Field(
+        ...,
+        min_length=1,
+        description="One paragraph definition in the operator's vocabulary.",
+    )
+    examples: list[str] = Field(
+        default_factory=list,
+        description="Optional usage examples, one per bullet.",
+    )
+
+
+class PendingOntologyTerm(BaseModel):
+    """A term the L1 PO surfaced mid-walk, waiting for Phase-5 confirmation.
+
+    Per design.md: PO doesn't break the journey-walk flow to confirm
+    every term. Tentative entries land here via ``ontology_stash_term``;
+    the Phase-5 playback surfaces them for operator review and the
+    confirmed ones get promoted to the markdown ontology via
+    ``ontology_add_term``.
+
+    ``context`` carries the surrounding-conversation snippet (or a
+    one-line cue) so the L1 PO can re-anchor the operator at playback
+    time without re-deriving the prompt from scratch.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    term: str = Field(..., min_length=1)
+    context: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Where the term came up — a journey id, the prior operator "
+            "answer, or any cue that lets the PO re-anchor at Phase 5."
+        ),
+    )
+
+
+class Ontology(BaseModel):
+    """The project's domain vocabulary as captured at finalize time.
+
+    Lives at ``.jig/spec/ontology.md`` (markdown) but the structured
+    form is convenient for downstream resolution (``ontology_lookup``)
+    and for round-trip testing of the markdown renderer.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_version: int = 1
+    terms: list[OntologyTerm] = Field(default_factory=list)
+
+    def by_term(self, term: str) -> OntologyTerm | None:
+        """Case-insensitive lookup by ``term`` heading."""
+        needle = term.strip().lower()
+        for t in self.terms:
+            if t.term.lower() == needle:
+                return t
+        return None

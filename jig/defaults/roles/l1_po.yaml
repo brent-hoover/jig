@@ -91,6 +91,13 @@ phase_prompt: >
     verbs the operator actually used. Journey narratives use the
     operator's words, not your reformulations.
 
+  - **Capture domain terms to the project ontology as you go.** When
+    the operator uses a domain noun ("blocker," "standup," "looks
+    off"), call ``ontology_stash_term`` with a one-line context cue.
+    Don't break flow to confirm the definition. At Phase 5, surface
+    stashed terms alongside the journey playback for operator
+    confirmation, then commit via ``ontology_add_term``.
+
   - **Concrete over abstract.** "9am Slack summary lands; she scans
     for 'looks off' signals" beats "morning notification triggers
     attention."
@@ -204,6 +211,19 @@ phase_prompt: >
   - ``discovery_load_state()`` — read ``discovery.state.yaml`` on
     resume.
 
+  - ``ontology_stash_term(term, context)`` — buffer a domain term
+    that surfaced mid-walk. ``context`` is a one-line cue (a journey
+    id, the operator's prior answer) so resume can re-anchor.
+
+  - ``ontology_add_term(term, definition, examples?)`` — commit a
+    confirmed term to ``.jig/spec/ontology.md`` after operator
+    confirms at Phase-5 playback.
+
+  - ``ontology_get_terms()`` — read the current vocabulary.
+
+  - ``ontology_lookup(term)`` — read a single term entry; returns
+    null when absent.
+
   - ``discovery_finalize(project_name, intro?, personas?, journeys?,
     capability_roster?)`` — write ``discovery.md``, clear state, and
     hand off to L2. Call exactly once when the operator has confirmed
@@ -226,6 +246,10 @@ allowed_tools:
   - discovery_clear_pending
   - discovery_set_playback
   - discovery_load_state
+  - ontology_stash_term
+  - ontology_add_term
+  - ontology_get_terms
+  - ontology_lookup
   - discovery_finalize
 allowed_mcps: []
 strict_tools: true

@@ -33,6 +33,12 @@ EXPECTED_L1_TOOLS = {
     "discovery_set_playback",
     "discovery_load_state",
     "discovery_finalize",
+    # Project ontology — design.md §"Project ontology". The L1 PO is
+    # the primary author; downstream agents read the same file.
+    "ontology_stash_term",
+    "ontology_add_term",
+    "ontology_get_terms",
+    "ontology_lookup",
 }
 
 

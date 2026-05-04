@@ -15,6 +15,7 @@ from jig import (
     po_l1_mcp,
     po_l2_mcp,
     po_l3_mcp,
+    po_ontology_mcp,
     quartermaster,
     sa_mcp,
     thread_mcp,
@@ -1192,6 +1193,97 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": entry_id}]}
 
         all_tools.append(discovery_finalize)
+
+    # ---- Project ontology MCP tools (Track B6 MVP) ------------------------
+    # The L1 PO is the primary author — terms surface during journey
+    # walks; downstream agents (SA / VD / PM / dev / reviewer) read the
+    # same file so terminology stays consistent across the project's
+    # artifacts and code. See docs/multi-level-spec/design.md
+    # §"Project ontology — capturing the operator's domain vocabulary".
+
+    if "ontology_stash_term" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_stash_term",
+            "Buffer a domain term that surfaced mid-conversation; the "
+            "full definition gets captured later via ``ontology_add_term`` "
+            "(typically at Phase-5 playback). ``context`` is a one-line "
+            "cue (a journey id, the operator's prior answer) so resume "
+            "can re-anchor without re-deriving the prompt. Idempotent on "
+            "lowercased term — re-stashing updates the recorded context.",
+            {"term": str, "context": str},
+        )
+        async def ontology_stash_term(args):
+            await po_ontology_mcp.handle_ontology_stash_term(
+                project_path=project_path,
+                term=args["term"],
+                context=args["context"],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(ontology_stash_term)
+
+    if "ontology_add_term" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_add_term",
+            "Commit a confirmed term to ``.jig/spec/ontology.md`` — the "
+            "project's ubiquitous-language vocabulary read by every "
+            "subsequent agent. Replaces by lowercased term so re-adding "
+            "swaps the definition + examples in place (preserving "
+            "first-mention reading order). ``examples`` is optional; "
+            "blank entries are dropped. Folds clear-from-pending so an "
+            "LLM that forgets the explicit clear step doesn't leak "
+            "stale state.",
+            {"term": str, "definition": str, "examples": list},
+        )
+        async def ontology_add_term(args):
+            await po_ontology_mcp.handle_ontology_add_term(
+                project_path=project_path,
+                term=args["term"],
+                definition=args["definition"],
+                examples=args.get("examples") or [],
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(ontology_add_term)
+
+    if "ontology_get_terms" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_get_terms",
+            "Return the committed project ontology as a JSON dump "
+            "(``{terms: [{term, definition, examples}, ...]}``). Absent "
+            "ontology surfaces as ``{terms: []}`` rather than an error "
+            "so downstream readers can call opportunistically.",
+            {},
+        )
+        async def ontology_get_terms(args):
+            out = await po_ontology_mcp.handle_ontology_get_terms(
+                project_path=project_path,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(ontology_get_terms)
+
+    if "ontology_lookup" in agent_cfg.allowed_tools:
+
+        @tool(
+            "ontology_lookup",
+            "Look up a single ontology entry by term (case-insensitive). "
+            "Returns the matching ``OntologyTerm`` JSON dump or "
+            "``null`` when absent — callers fall back to general "
+            "vocabulary on miss rather than raising.",
+            {"term": str},
+        )
+        async def ontology_lookup(args):
+            out = await po_ontology_mcp.handle_ontology_lookup(
+                project_path=project_path,
+                term=args["term"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(out)}]}
+
+        all_tools.append(ontology_lookup)
 
     if "l2_finalize" in agent_cfg.allowed_tools:
 

@@ -38,3 +38,6 @@ from jig.tui.commands import prompt_reply  # noqa: F401, E402
 from jig.tui.commands import init  # noqa: F401, E402
 from jig.tui.commands import concierge  # noqa: F401, E402
 from jig.tui.commands import ticket  # noqa: F401, E402
+from jig.tui.commands import journey  # noqa: F401, E402
+from jig.tui.commands import suite  # noqa: F401, E402
+from jig.tui.commands import spec  # noqa: F401, E402

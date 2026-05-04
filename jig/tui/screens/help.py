@@ -23,15 +23,24 @@ _HELP = """\
 
 [bold]Slash commands[/bold]
 
-  /help     this overlay
-  /status   daemon + agent state
-  /quit     quit the TUI
+  /help                              this overlay
+  /status                            daemon + agent state
+  /init <name>                       bootstrap a project (no args = cwd)
+  /init --proceed                    advance the multi-level PO state machine
+  /journey list | add <persona>      list / stage journeys
+  /suite list | init <id> | refresh  L2/L3 dispatch
+  /spec capabilities --suite <id>    list capabilities for a suite
+  /concierge <query>                 ask the concierge agent
+  /quit                              quit the TUI
 
 [bold]Per-pane hotkeys[/bold]
 
-  Tickets:  n = new ticket, e = edit selection, b = list / board
-  Spec:     r = raw YAML, b = brief preview
-  Events:   f = cycle filter, F = toggle follow, enter = detail
+  Tickets:    n = new ticket, e = edit selection, b = list / board
+  Spec:       r = raw YAML, b = brief preview
+  Discovery:  L1 PO state + captured personas / journeys / capabilities
+  Suites:     L2 suites + L3 brief status
+  Ontology:   project domain vocabulary (edit via `jig ontology …` CLI)
+  Events:     f = cycle filter, F = toggle follow, enter = detail
 
 [dim]Press Escape to close.[/dim]
 """

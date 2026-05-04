@@ -21,8 +21,15 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/help", "show the command reference"),
     ("/status", "daemon + agent status"),
     ("/init", "initialize a project (no args = init cwd)"),
+    ("/init --proceed", "advance the multi-level PO state machine"),
     ("/ticket new", "create a ticket (--title T --size s)"),
     ("/ticket update", "edit a ticket (<id> field=value)"),
+    ("/journey list", "list captured journeys + playbacks"),
+    ("/journey add", "stage a new journey under <persona>"),
+    ("/suite list", "list suites with brief status"),
+    ("/suite init", "spawn L3 PO scoped to <id>"),
+    ("/suite refresh", "re-author the L3 brief for <id>"),
+    ("/spec capabilities", "list capabilities (--suite <id>)"),
     ("/concierge", "ask the concierge agent (or just type free text)"),
     ("/quit", "exit the TUI (also /q, /exit)"),
 ]
@@ -532,8 +539,12 @@ class NowScreen(Container):
                 "  /help                                 — show this message\n"
                 "  /status                               — daemon + agent status\n"
                 "  /init <name> [--force]                — initialize a project\n"
+                "  /init --proceed                       — advance the PO state machine\n"
                 "  /ticket new --title <t> --size <s>    — create a ticket\n"
                 "  /ticket update <id> <field>=<value>   — edit a ticket\n"
+                "  /journey list | add <persona>         — list / stage journeys\n"
+                "  /suite list | init <id> | refresh <id>— L2/L3 dispatch\n"
+                "  /spec capabilities --suite <id>       — capabilities for a suite\n"
                 "  /concierge <query>                    — ask the concierge agent\n"
                 "  /quit                                 — quit the TUI\n"
                 "\n"

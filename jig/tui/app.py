@@ -11,9 +11,12 @@ from textual.widgets import TabbedContent, TabPane
 
 from jig.daemon import daemon_paths
 from jig.tui.daemon_client import ConnectionState, DaemonClient
+from jig.tui.screens.discovery import DiscoveryScreen
 from jig.tui.screens.events import EventsScreen
 from jig.tui.screens.now import NowScreen
+from jig.tui.screens.ontology import OntologyScreen
 from jig.tui.screens.spec import SpecScreen
+from jig.tui.screens.suites import SuitesScreen
 from jig.tui.screens.tickets import TicketsScreen
 from jig.tui.widgets.footer import JigFooter
 from jig.tui.widgets.sidebar import Sidebar
@@ -91,12 +94,35 @@ class JigApp(App):
                     yield TicketsScreen()
                 with TabPane("Spec", id="spec-pane"):
                     yield SpecScreen()
+                # Track B Final — multi-level PO operator-facing panes.
+                # Discovery / Suites / Ontology are read-only views over
+                # the L1/L2/L3 artifacts; mutations route through the
+                # corresponding slash commands + MCP tools.
+                with TabPane("Discovery", id="discovery-pane"):
+                    yield DiscoveryScreen()
+                with TabPane("Suites", id="suites-pane"):
+                    yield SuitesScreen()
+                with TabPane("Ontology", id="ontology-pane"):
+                    yield OntologyScreen()
                 with TabPane("Events", id="events-pane"):
                     yield EventsScreen()
             yield Sidebar()
         yield JigFooter(project_path=self.project_path)
 
     async def on_mount(self) -> None:
+        # Track B Final — hand the project_path to the multi-level PO
+        # screens so they can read their on-disk artifacts directly.
+        # Each screen's set_project_path triggers a re-render.
+        for screen_cls in (DiscoveryScreen, SuitesScreen, OntologyScreen):
+            try:
+                screen = self.query_one(screen_cls)
+            except Exception:
+                continue
+            try:
+                screen.set_project_path(self.project_path)
+            except Exception:
+                pass
+
         self.run_worker(
             self.client.run_with_reconnect(
                 on_message=self._handle_daemon_message,

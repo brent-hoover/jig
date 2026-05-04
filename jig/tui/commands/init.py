@@ -27,6 +27,14 @@ async def cmd_init(
     emitter,
     **_kwargs,
 ) -> dict[str, Any]:
+    # /init --proceed advances the multi-level PO state machine — Track B
+    # Final affordance. The operator pushes forward when ready (e.g.,
+    # post-L1 finalize, ready to start L2 / L3). This is mode-distinct
+    # from project bootstrap; surfacing it under the same /init verb
+    # keeps the multi-level PO entrypoints discoverable.
+    if args and args[0] in ("--proceed", "proceed"):
+        return await _proceed(orch=orch, project_path=project_path)
+
     # /init with no name defaults to "this directory" — uses project_path
     # as the target, with its basename as the project name. This is the
     # natural flow after `jig create <name>` where the operator is already
@@ -100,3 +108,136 @@ async def cmd_init(
             )
 
     return {"ok": True, "data": {"name": name}}
+
+
+async def _proceed(*, orch, project_path) -> dict[str, Any]:
+    """Advance the multi-level PO state machine by one step.
+
+    Inspects what's on disk + what's open in the ticket store and
+    picks the next level to spawn. Bones-Final scope:
+
+    - L0 not committed → return error (operator must `/init <name>`).
+    - L0 committed, L1 not committed → ensure ``discovery`` ticket is
+      open so the orchestrator dispatches the L1 PO.
+    - L1 committed, L2 not committed → open the L2 ``suites`` ticket.
+    - L2 committed → check the L3 suite tickets; reopen the next
+      pending one.
+
+    The result includes ``level`` (which level we just advanced to)
+    and ``ticket_id`` (the ticket the orchestrator will dispatch on
+    next tick).
+    """
+    if project_path is None:
+        return {
+            "ok": False,
+            "error": "/init --proceed requires a project_path",
+        }
+    if orch is None:
+        return {"ok": False, "error": "/init --proceed requires a running orchestrator"}
+
+    from jig.po_l1_mcp import L1_TICKET_ID
+    from jig.po_l2_mcp import L2_TICKET_ID
+    from jig.spec_loader import (
+        discovery_path,
+        load_suites_index,
+        spec_path,
+    )
+    from jig.ticket import Ticket, TicketStatus, WorkType
+
+    # L0 gate.
+    if not (project_path / ".jig" / "spec" / "project.md").is_file() and not spec_path(
+        project_path
+    ).is_file():
+        return {
+            "ok": False,
+            "error": (
+                "no L0 project pitch on disk; run `/init <name>` to bootstrap "
+                "before invoking /init --proceed"
+            ),
+        }
+
+    # L1 gate.
+    if not discovery_path(project_path).is_file():
+        # Ensure discovery ticket exists in OPEN state so orchestrator
+        # picks up the L1 PO.
+        existing = await orch.tickets.get(L1_TICKET_ID)
+        if existing is None:
+            await orch.tickets.create(
+                Ticket(
+                    id=L1_TICKET_ID,
+                    work_type=WorkType.BRIEF,
+                    title="L1 discovery — personas + journeys",
+                    created_by="user",
+                )
+            )
+        elif existing.status != TicketStatus.OPEN:
+            await orch.tickets.update(
+                L1_TICKET_ID, status=TicketStatus.OPEN, assignee=None
+            )
+        return {
+            "ok": True,
+            "data": {"level": "po-l1", "ticket_id": L1_TICKET_ID},
+        }
+
+    # L2 gate.
+    try:
+        suites_index = load_suites_index(project_path)
+    except FileNotFoundError:
+        existing = await orch.tickets.get(L2_TICKET_ID)
+        if existing is None:
+            await orch.tickets.create(
+                Ticket(
+                    id=L2_TICKET_ID,
+                    work_type=WorkType.BRIEF,
+                    title="L2 suite organization",
+                    created_by="user",
+                )
+            )
+        elif existing.status != TicketStatus.OPEN:
+            await orch.tickets.update(
+                L2_TICKET_ID, status=TicketStatus.OPEN, assignee=None
+            )
+        return {
+            "ok": True,
+            "data": {"level": "po-l2", "ticket_id": L2_TICKET_ID},
+        }
+
+    # L3 gate — pick the first suite without a brief on disk.
+    for suite in suites_index.suites:
+        brief = (
+            project_path / ".jig" / "spec" / "suites" / suite.id / "brief.md"
+        )
+        if brief.is_file():
+            continue
+        ticket_id = f"suite-{suite.id}"
+        existing = await orch.tickets.get(ticket_id)
+        if existing is None:
+            await orch.tickets.create(
+                Ticket(
+                    id=ticket_id,
+                    work_type=WorkType.BRIEF,
+                    title=f"L3 brief — {suite.id}",
+                    description=suite.summary,
+                    created_by="user",
+                )
+            )
+        elif existing.status != TicketStatus.OPEN:
+            await orch.tickets.update(
+                ticket_id, status=TicketStatus.OPEN, assignee=None
+            )
+        return {
+            "ok": True,
+            "data": {
+                "level": "po-l3",
+                "ticket_id": ticket_id,
+                "suite_id": suite.id,
+            },
+        }
+
+    return {
+        "ok": True,
+        "data": {
+            "level": "po-complete",
+            "message": "all PO levels committed; nothing to advance",
+        },
+    }

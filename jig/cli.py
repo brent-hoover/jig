@@ -1513,3 +1513,87 @@ def daemon_serve_cmd(path: Path, ws_port: int) -> None:
 from jig.sim.cli import sim as _sim_group  # noqa: E402
 
 cli.add_command(_sim_group)
+
+
+# ---- jig sa cascade subgroup (Track C Final, Deliverable 2) ----------------
+
+
+@cli.group("sa")
+def sa_group() -> None:
+    """SA-related operator commands (cascades, future SA tools)."""
+
+
+@sa_group.group("cascade")
+def sa_cascade_group() -> None:
+    """Inspect cascade proposals + their audit trail."""
+
+
+@sa_cascade_group.command("list")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def sa_cascade_list_cmd(path: Path) -> None:
+    """List every cascade on disk (resolved + pending + rejected + holding)."""
+    from jig.cascade_viewer import format_list, list_cascades
+
+    rows = list_cascades(path)
+    click.echo(format_list(rows))
+
+
+@sa_cascade_group.command("show")
+@click.argument("cascade_id")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def sa_cascade_show_cmd(cascade_id: str, path: Path) -> None:
+    """Show one cascade — proposal + audit log + current state."""
+    from jig.cascade_viewer import format_show, show_cascade
+
+    try:
+        result = show_cascade(path, cascade_id)
+    except KeyError as e:
+        raise click.ClickException(str(e))
+    click.echo(format_show(result))
+
+
+@sa_cascade_group.command("audit")
+@click.option(
+    "--since",
+    type=click.DateTime(formats=["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"]),
+    default=None,
+    help="Only show entries on or after this UTC date/time.",
+)
+@click.option(
+    "--operator",
+    "actor",
+    type=str,
+    default=None,
+    help="Filter by actor name (exact match).",
+)
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def sa_cascade_audit_cmd(
+    since, actor: str | None, path: Path
+) -> None:
+    """Filtered audit log view (markdown table)."""
+    # Click's DateTime parser returns naive datetimes; the viewer
+    # compares against tz-aware timestamps in the audit log so we
+    # promote to UTC at the boundary rather than scattering tz logic
+    # through the filter.
+    from datetime import timezone as _tz
+
+    from jig.cascade_viewer import filter_audit, format_audit_markdown
+
+    since_aware = since.replace(tzinfo=_tz.utc) if since is not None else None
+    entries = filter_audit(path, since=since_aware, actor=actor)
+    click.echo(format_audit_markdown(entries))

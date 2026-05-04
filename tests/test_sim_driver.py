@@ -1071,6 +1071,8 @@ async def test_contract_validated_data_contract_round_trip(tmp_path: Path):
                 DataContract(
                     id="product-row",
                     description="x",
+                    # Block A.1: a data contract must declare a shape.
+                    fields={"id": "str", "name": "str"},
                     intent=_intent_obj(),
                 ),
             ],

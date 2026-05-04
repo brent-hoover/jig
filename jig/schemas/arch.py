@@ -521,6 +521,21 @@ class DataContract(BaseModel):
     def _uri_shape_schema_ref(cls, v: str | None) -> str | None:
         return validate_project_uri_shape(v) if v is not None else v
 
+    @model_validator(mode="after")
+    def _enforce_shape_present(self) -> DataContract:
+        """A data contract carries a shape — either a URI to an external
+        schema (``schema_ref``) or an inline ``fields`` map. A contract
+        with neither is meaningless: the Pydantic renderer has nothing
+        to render and the operator has nothing to inspect.
+        """
+        if self.schema_ref is None and not self.fields:
+            raise ValueError(
+                "DataContract must declare at least one of schema_ref "
+                "or fields. A data contract with no shape can't be "
+                "rendered or audited."
+            )
+        return self
+
 
 class BehavioralContract(BaseModel):
     """Design-by-Contract: precondition / postcondition / invariant / side-effect.
@@ -555,6 +570,31 @@ class BehavioralContract(BaseModel):
     @classmethod
     def _kebab_id(cls, v: str) -> str:
         return validate_kebab_id(v, "BehavioralContract.id")
+
+    @model_validator(mode="after")
+    def _enforce_some_constraint(self) -> BehavioralContract:
+        """A behavioral contract must constrain at least one thing.
+
+        Mirrors the design-by-contract intent: at least one of
+        ``precondition``, ``postcondition``, ``invariant``,
+        ``side_effects`` (non-empty), or ``side_effect_required`` must
+        be populated. A contract with none of these constrains nothing
+        and isn't worth the artifact slot.
+        """
+        if not (
+            self.precondition
+            or self.postcondition
+            or self.invariant
+            or self.side_effects
+            or self.side_effect_required
+        ):
+            raise ValueError(
+                "BehavioralContract must populate at least one of "
+                "precondition, postcondition, invariant, side_effects "
+                "(non-empty), or side_effect_required. A contract that "
+                "constrains nothing is meaningless."
+            )
+        return self
 
 
 class ContractsFile(BaseModel):
@@ -793,3 +833,37 @@ class CascadeProposal(BaseModel):
     @classmethod
     def _tz_generated_at(cls, v: datetime) -> datetime:
         return validate_tz_aware(v, "CascadeProposal.generated_at")
+
+    @model_validator(mode="after")
+    def _enforce_state_invariants(self) -> CascadeProposal:
+        """Each non-default state pulls one extra field along with it.
+
+        The artifact-as-source-of-truth claim falls apart if a
+        ``rejected`` cascade has no reason, a ``holding`` cascade has
+        no in-flight pointer, or a ``staged`` cascade has no stages.
+        Pinning the implication at the schema layer means a hand-edit
+        of the YAML can't quietly drop the field.
+        """
+        state_value = (
+            self.state.value
+            if isinstance(self.state, CascadeState)
+            else str(self.state)
+        )
+        if state_value == CascadeState.HOLDING.value and self.holding_for is None:
+            raise ValueError(
+                "CascadeProposal.holding_for must be set when state is "
+                "'holding'. The state names the in-flight overlap; the "
+                "field names the cascade we're holding behind."
+            )
+        if state_value == CascadeState.REJECTED.value and self.rejected_reason is None:
+            raise ValueError(
+                "CascadeProposal.rejected_reason must be set when state "
+                "is 'rejected'. Silent rejections defeat the audit trail."
+            )
+        if state_value == CascadeState.STAGED.value and not self.stages:
+            raise ValueError(
+                "CascadeProposal.stages must be non-empty when state is "
+                "'staged'. The state advertises a per-stage approval "
+                "flow; an empty stages list contradicts that."
+            )
+        return self

@@ -10,6 +10,10 @@ from jig.intent import ComplicationsConsidered, Intent
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    CascadeContractDisposition,
+    CascadeProposal,
+    CascadeStage,
+    CascadeState,
     ChangeLogEntry,
     ContractsFile,
     DataContract,
@@ -628,3 +632,190 @@ def test_module_cascade_risk_low_true_with_whitespace_rationale_rejected():
             cascade_risk_low=True,
             cascade_risk_low_rationale="    ok    ",
         )
+
+
+# ---- BehavioralContract: must constrain at least one thing ----------------
+
+
+def test_behavioral_contract_with_postcondition_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        applies_to={"module": "m"},
+        postcondition="row exists with the right tenant",
+        intent=_intent(),
+    )
+    assert bc.postcondition is not None
+
+
+def test_behavioral_contract_with_invariant_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        scope="cross_cutting",
+        invariant="status transitions are forward-only",
+        intent=_intent(),
+    )
+    assert bc.invariant is not None
+
+
+def test_behavioral_contract_with_only_side_effects_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        scope="cross_cutting",
+        side_effects=["audit_log appended"],
+        intent=_intent(),
+    )
+    assert bc.side_effects == ["audit_log appended"]
+
+
+def test_behavioral_contract_with_only_side_effect_required_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        scope="cross_cutting",
+        side_effect_required="audit row created",
+        intent=_intent(),
+    )
+    assert bc.side_effect_required is not None
+
+
+def test_behavioral_contract_with_only_precondition_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        applies_to={"module": "m"},
+        precondition="incoming row has canonical shape",
+        intent=_intent(),
+    )
+    assert bc.precondition is not None
+
+
+def test_behavioral_contract_with_no_constraints_rejected():
+    """A behavioral contract that constrains nothing is meaningless."""
+    with pytest.raises(ValidationError, match="constrain"):
+        BehavioralContract(
+            id="bc-empty",
+            applies_to={"module": "m"},
+            intent=_intent(),
+        )
+
+
+# ---- DataContract: must declare a shape ----------------------------------
+
+
+def test_data_contract_with_schema_ref_accepted():
+    dc = DataContract(
+        id="dc-x",
+        schema_ref="project://arch/contracts/shared/x",
+        intent=_intent(),
+    )
+    assert dc.schema_ref is not None
+
+
+def test_data_contract_with_fields_accepted():
+    dc = DataContract(
+        id="dc-x",
+        fields={"id": "str", "name": "str"},
+        intent=_intent(),
+    )
+    assert dc.fields is not None
+
+
+def test_data_contract_with_neither_schema_ref_nor_fields_rejected():
+    with pytest.raises(ValidationError, match="schema_ref or fields"):
+        DataContract(id="dc-empty", intent=_intent())
+
+
+def test_data_contract_with_empty_fields_dict_and_no_schema_ref_rejected():
+    """Empty fields dict is functionally absent — must reject."""
+    with pytest.raises(ValidationError, match="schema_ref or fields"):
+        DataContract(id="dc-empty", fields={}, intent=_intent())
+
+
+# ---- CascadeProposal: state-driven required fields -----------------------
+
+
+def _cascade_kwargs(**overrides) -> dict:
+    base = dict(
+        cascade_id="r-x-2026-05-01t00-00-00",
+        risk_id="r-x",
+        spike_ticket_id="spike-x",
+        finding="x",
+        contracts=[
+            CascadeContractDisposition(
+                uri="project://arch/modules/m/contracts#owns/x",
+                proposed_disposition="still_holds",
+            )
+        ],
+    )
+    base.update(overrides)
+    return base
+
+
+def test_cascade_proposal_pending_state_default_accepted():
+    cp = CascadeProposal(**_cascade_kwargs())
+    assert cp.state == CascadeState.PENDING
+
+
+def test_cascade_proposal_holding_state_requires_holding_for():
+    with pytest.raises(ValidationError, match="holding_for"):
+        CascadeProposal(**_cascade_kwargs(state=CascadeState.HOLDING))
+
+
+def test_cascade_proposal_holding_state_with_holding_for_accepted():
+    cp = CascadeProposal(
+        **_cascade_kwargs(
+            state=CascadeState.HOLDING,
+            holding_for="r-other-2026-01-01t00-00-00",
+        )
+    )
+    assert cp.holding_for is not None
+
+
+def test_cascade_proposal_rejected_state_requires_rejected_reason():
+    with pytest.raises(ValidationError, match="rejected_reason"):
+        CascadeProposal(**_cascade_kwargs(state=CascadeState.REJECTED))
+
+
+def test_cascade_proposal_rejected_state_with_reason_accepted():
+    cp = CascadeProposal(
+        **_cascade_kwargs(
+            state=CascadeState.REJECTED,
+            rejected_reason="operator override after architectural review",
+        )
+    )
+    assert cp.rejected_reason is not None
+
+
+def test_cascade_proposal_staged_state_requires_stages():
+    with pytest.raises(ValidationError, match="stages"):
+        CascadeProposal(**_cascade_kwargs(state=CascadeState.STAGED))
+
+
+def test_cascade_proposal_staged_state_with_stages_accepted():
+    cp = CascadeProposal(
+        **_cascade_kwargs(
+            state=CascadeState.STAGED,
+            stages=[
+                CascadeStage(
+                    stage_id="r-x-2026-05-01t00-00-00-stage-1",
+                    contracts=[
+                        CascadeContractDisposition(
+                            uri="project://arch/modules/m/contracts#owns/x",
+                            proposed_disposition="still_holds",
+                        )
+                    ],
+                )
+            ],
+        )
+    )
+    assert cp.stages != []
+
+
+def test_cascade_proposal_resolved_state_no_extra_fields_required():
+    """``resolved`` doesn't carry an extra-field gate by itself; the
+    workflow only reaches it after every stage approves, which the
+    stage-approve handler enforces. The schema allows resolved with
+    no extra fields so the round-trip from the file works.
+    """
+    cp = CascadeProposal(
+        **_cascade_kwargs(state=CascadeState.RESOLVED)
+    )
+    assert cp.state == CascadeState.RESOLVED

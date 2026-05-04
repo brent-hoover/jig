@@ -39,6 +39,10 @@ BONES_REVIEWER_ID = "contract-compliance"
 INTENT_REVIEWER_ID = "intent-compliance"
 CROSS_CUTTING_REVIEWER_ID = "cross-cutting-policy"
 SPEC_COMPLIANCE_REVIEWER_ID = "spec-compliance"
+# Track D MVP — visual_compliance gates UI tickets (those with
+# non-empty visual_references). Tier: senior per design; MVP ships the
+# basic mechanical version (no vision), Final adds screenshot diff.
+VISUAL_COMPLIANCE_REVIEWER_ID = "visual-compliance"
 
 # Mechanical reviewer ids — the per-commit-cadence-eligible set per
 # design §"Two-cadence review". These are the deterministic checks
@@ -51,6 +55,12 @@ _MECHANICAL_REVIEWER_IDS: list[str] = [
     BONES_REVIEWER_ID,
     CROSS_CUTTING_REVIEWER_ID,
     SPEC_COMPLIANCE_REVIEWER_ID,
+    # Visual-compliance MVP is mechanical (no vision); the per-commit
+    # cadence runs it on every commit so the dev catches missing /
+    # broken / unreferenced wireframes before integration. The reviewer
+    # itself no-ops when the ticket has no visual_references, so non-UI
+    # tickets pay no cost.
+    VISUAL_COMPLIANCE_REVIEWER_ID,
 ]
 
 # Bones layer default-on set. Cross-cutting policies are universal rules
@@ -78,22 +88,39 @@ def select_reviewers_for_ticket(ticket: Ticket) -> list[str]:
     Branches:
 
     - ``reviewer_set`` non-empty → honour it as authored (the Planner
-      PM owns the set on MVP+).
+      PM owns the set on MVP+). Visual-compliance is appended when the
+      ticket has non-empty ``visual_references`` even if the planner
+      didn't add it explicitly — the gating signal is the references
+      list itself, not an opt-in flag.
     - ``layer == "bones"`` with empty reviewer_set → default-on
       contract-compliance only (bones budget).
     - ``layer in ("mvp", "final")`` with empty reviewer_set → the
-      MVP/final mechanical defaults.
+      MVP/final mechanical defaults, plus visual-compliance when the
+      ticket implements UI.
     - ``layer`` unset and empty reviewer_set → empty list. The
       Coordinator materializes tickets with ``layer="bones"``; a
       missing layer means we can't tell what defaults apply.
     """
+    selected: list[str]
     if ticket.reviewer_set:
-        return list(ticket.reviewer_set)
-    if ticket.layer == "bones":
-        return list(_BONES_DEFAULTS)
-    if ticket.layer in ("mvp", "final"):
-        return list(_MVP_FINAL_DEFAULTS)
-    return []
+        selected = list(ticket.reviewer_set)
+    elif ticket.layer == "bones":
+        selected = list(_BONES_DEFAULTS)
+    elif ticket.layer in ("mvp", "final"):
+        selected = list(_MVP_FINAL_DEFAULTS)
+    else:
+        return []
+
+    # Visual-compliance is gated on the presence of visual_references —
+    # not on a planner opt-in. UI tickets get the reviewer regardless of
+    # how the reviewer_set was authored. Append rather than replace so
+    # planner-authored sets still get their other reviewers.
+    if (
+        ticket.visual_references
+        and VISUAL_COMPLIANCE_REVIEWER_ID not in selected
+    ):
+        selected.append(VISUAL_COMPLIANCE_REVIEWER_ID)
+    return selected
 
 
 # Backward-compatible alias. The bones-era name keeps working for the
@@ -194,6 +221,21 @@ async def dispatch_for_cadence(
         )
         out[SPEC_COMPLIANCE_REVIEWER_ID] = _tag_cadence(comments, cadence)
 
+    if VISUAL_COMPLIANCE_REVIEWER_ID in reviewer_ids:
+        # Local import: visual_compliance imports from
+        # jig.spec_loader, jig.wireframes — pulling them in lazily
+        # keeps dispatch.py importable without dragging the VD
+        # surface in for non-UI projects.
+        from jig.reviewers.visual_compliance import VisualComplianceReviewer
+
+        comments = await VisualComplianceReviewer().review(
+            ticket,
+            project_root,
+            worktree_path=worktree_path,
+            base_ref=base_ref,
+        )
+        out[VISUAL_COMPLIANCE_REVIEWER_ID] = _tag_cadence(comments, cadence)
+
     if INTENT_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
         # Intent reviewer runs against authored artifacts (Modules,
         # Contracts, etc.), not against a worktree diff. It's
@@ -230,6 +272,7 @@ __all__ = [
     "CROSS_CUTTING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
     "SPEC_COMPLIANCE_REVIEWER_ID",
+    "VISUAL_COMPLIANCE_REVIEWER_ID",
     "dispatch_for_cadence",
     "select_reviewers_for_ticket",
     "should_run_for_bones",

@@ -104,6 +104,14 @@ class Ticket(StoreModel):
     risks_addressed: list[str] = []
     done_when: str | None = None
 
+    # v2 Track D MVP — VD wireframes referenced by this ticket. Each
+    # entry is a screen-id matching a ``.jig/spec/wireframes/<id>.html``
+    # file. The visual_compliance reviewer walks this list to verify
+    # the wireframe exists, lints clean, and is referenced in the dev's
+    # diff. Empty list means "this ticket implements no UI" — the
+    # reviewer is skipped per dispatch logic.
+    visual_references: list[str] = []
+
     # Set when the Coordinator defers this ticket via the DEFERRED queue
     # (per docs/pm-workflow/design.md §"DEFERRED queue triage"). The
     # ticket itself stays in the store; this stamp lets downstream views

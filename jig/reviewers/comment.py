@@ -95,6 +95,12 @@ class ReviewerCommentType(str, Enum):
     PATTERN_DIVERGENCE = "pattern-divergence"
     ERROR_HANDLING = "error-handling"
     TEST_ADEQUACY = "test-adequacy"
+    # Visual compliance (Track D MVP). Mechanical, no vision: verify
+    # wireframe presence + linter pass + diff cites the screen id.
+    # Vision-based screenshot diff is Final scope.
+    WIREFRAME_NOT_FOUND = "wireframe-not-found"
+    WIREFRAME_LINT_FAILED = "wireframe-lint-failed"
+    WIREFRAME_NOT_REFERENCED = "wireframe-not-referenced"
 
 
 # Backward-compatible alias. The bones-era name keeps working for the

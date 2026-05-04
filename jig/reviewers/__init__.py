@@ -50,6 +50,10 @@ from jig.reviewers.intent_compliance import (
     review_intent,
 )
 from jig.reviewers.spec_compliance import SpecComplianceReviewer
+from jig.reviewers.visual_compliance import (
+    VISUAL_COMPLIANCE_REVIEWER_ID,
+    VisualComplianceReviewer,
+)
 
 __all__ = [
     "BONES_REVIEWER_ID",
@@ -65,6 +69,8 @@ __all__ = [
     "SPEC_COMPLIANCE_REVIEWER_ID",
     "Severity",
     "SpecComplianceReviewer",
+    "VISUAL_COMPLIANCE_REVIEWER_ID",
+    "VisualComplianceReviewer",
     "dispatch_for_cadence",
     "review_intent",
     "select_reviewers_for_ticket",

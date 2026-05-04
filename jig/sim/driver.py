@@ -272,6 +272,20 @@ class DriverContext:
     last_vision_diff_count: int = 0
     last_a11y_rule_ids: list[str] = field(default_factory=list)
     last_responsive_breakpoints: list[str] = field(default_factory=list)
+    # Track B Final — captured outputs from discovery-resume + ontology-edit
+    # sim steps. ``last_resume_divergences`` carries the kind tags from
+    # the resume call so scenario assertions can verify the expected
+    # divergence list. ``last_resume_actions`` records the reconcile
+    # actions the handler applied. ``last_ontology_edit`` /
+    # ``last_ontology_remove_*`` carry the per-tool outputs so a
+    # scenario can introspect without re-loading the ontology.
+    last_resume_divergences: list[str] = field(default_factory=list)
+    last_resume_actions: list[str] = field(default_factory=list)
+    last_ontology_edit_term: str | None = None
+    last_ontology_remove_term: str | None = None
+    last_ontology_remove_rewritten: list[str] = field(default_factory=list)
+    last_ontology_remove_orphan_count: int = 0
+    last_ontology_reference_count: int = 0
 
 
 # ---- step handler signature ---------------------------------------------
@@ -444,6 +458,10 @@ class Driver:
             StepKind.INVOKE_RESPONSIVE_REVIEW.value: (
                 _handle_invoke_responsive_review
             ),
+            StepKind.INVOKE_DISCOVERY_RESUME.value: (
+                _handle_invoke_discovery_resume
+            ),
+            StepKind.INVOKE_ONTOLOGY_EDIT.value: _handle_invoke_ontology_edit,
         }
 
     @property
@@ -2642,3 +2660,233 @@ async def _handle_invoke_responsive_review(
     ctx.last_responsive_breakpoints = [
         c.breakpoint for c in comments if c.breakpoint is not None
     ]
+
+
+# ---- Track B Final — discovery-resume + ontology-edit sim handlers -----
+
+
+async def _handle_invoke_discovery_resume(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Synthesize a stale discovery state YAML, then run resume.
+
+    Scenario YAML carries:
+
+    - ``mutation``: one of ``stale-journey`` | ``concurrent-edit`` |
+      ``partial-walk-orphan`` | ``clean`` (no mutation; verify the
+      no-divergence path).
+    - ``reconcile_mode``: passed through to ``handle_discovery_resume``.
+    - ``seed_doc``: optional dict with personas / journeys / roster
+      to commit before the mutation. Defaults to a minimal one-persona
+      one-journey shape.
+
+    The handler stamps ``last_resume_divergences`` + ``last_resume_actions``
+    on the driver context so scenario assertions can verify the
+    resolution.
+    """
+    from jig.po_l1_mcp import (
+        L1_TICKET_ID,
+        compute_discovery_doc_digest,
+        handle_discovery_finalize,
+        handle_discovery_resume,
+    )
+    from jig.schemas.po import (
+        CapabilityCandidate,
+        CapabilityRosterEntry,
+        DiscoveryPhase,
+        DiscoveryStatus,
+        Journey,
+        Persona,
+    )
+    from jig.spec_loader import (
+        discovery_path,
+        load_discovery_state,
+        save_discovery_state,
+    )
+
+    seed = step.params.get("seed_doc") or {}
+    project_name = seed.get("project_name", "discovery-resume-sim")
+    personas_raw = seed.get(
+        "personas",
+        [{"id": "merchant", "description": "merchant who integrates jig"}],
+    )
+    journeys_raw = seed.get(
+        "journeys",
+        [
+            {
+                "id": "j-merchant-onboarding",
+                "persona_id": "merchant",
+                "title": "Merchant onboarding",
+                "narrative": "walks through OAuth.",
+                "capability_ids": ["shopify-connect"],
+            }
+        ],
+    )
+    roster_raw = seed.get(
+        "capability_roster",
+        [
+            {
+                "id": "shopify-connect",
+                "description": "Connect via OAuth",
+                "journey_ids": ["j-merchant-onboarding"],
+            }
+        ],
+    )
+    personas = [Persona.model_validate(p) for p in personas_raw]
+    journeys = [Journey.model_validate(j) for j in journeys_raw]
+    roster = [CapabilityRosterEntry.model_validate(r) for r in roster_raw]
+
+    if await ctx.tickets.get(L1_TICKET_ID) is None:
+        await ctx.tickets.create(
+            Ticket(
+                id=L1_TICKET_ID,
+                work_type=WorkType.BRIEF,
+                title="L1 discovery resume sim",
+                created_by="sim-driver",
+            )
+        )
+    await handle_discovery_finalize(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        project_name=project_name,
+        personas=personas,
+        journeys=journeys,
+        capability_roster=roster,
+        author="po-l1",
+    )
+
+    mutation = step.params.get("mutation", "clean")
+    if mutation != "clean":
+        state = load_discovery_state(ctx.project_root)
+        state.status = DiscoveryStatus.IN_PROGRESS
+        if mutation == "stale-journey":
+            state.current = DiscoveryPhase(
+                persona_id="merchant",
+                journey_id="j-vanished",
+                phase=3,
+                step=1,
+            )
+        elif mutation == "concurrent-edit":
+            # Mutate the on-disk file; the saved digest no longer matches.
+            doc_path = discovery_path(ctx.project_root)
+            doc_path.write_text(
+                doc_path.read_text() + "\n<!-- operator hand-edit -->\n"
+            )
+        elif mutation == "partial-walk-orphan":
+            state.partial_walk = [
+                CapabilityCandidate(
+                    id="orphan-cap",
+                    description="orphan candidate",
+                    journey_id="j-vanished",
+                    confirmed=False,
+                )
+            ]
+        else:
+            raise ValueError(
+                f"invoke_discovery_resume: unknown mutation {mutation!r}"
+            )
+        if mutation != "concurrent-edit":
+            save_discovery_state(ctx.project_root, state)
+
+    # Sanity refresh: re-read the digest so the test sees the post-mutation
+    # value.
+    _ = compute_discovery_doc_digest(ctx.project_root)
+
+    reconcile_mode = step.params.get("reconcile_mode", "auto")
+    result = await handle_discovery_resume(
+        project_path=ctx.project_root,
+        reconcile_mode=reconcile_mode,
+    )
+    ctx.last_resume_divergences = [d.kind for d in result.divergences]
+    ctx.last_resume_actions = list(result.actions)
+
+
+async def _handle_invoke_ontology_edit(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Exercise one of the ontology operator-edit MCP handlers.
+
+    Scenario YAML drives the subkind:
+
+    - ``action: seed`` — preload a term via ``handle_ontology_add_term``
+      so a follow-up edit / remove has something to act on.
+    - ``action: edit`` — call ``handle_ontology_edit_term`` with the
+      provided term + definition (+ optional examples).
+    - ``action: remove`` — call ``handle_ontology_remove_term`` with
+      optional ``replacement_term``. References get auto-rewritten when
+      a replacement is given.
+    - ``action: find_references`` — invoke the scanner and stash the
+      count on the driver context.
+
+    Each branch stamps the result on the driver context so scenario
+    assertions can introspect without re-reading the markdown.
+    """
+    from jig.po_ontology_mcp import (
+        handle_ontology_add_term,
+        handle_ontology_edit_term,
+        handle_ontology_find_references,
+        handle_ontology_remove_term,
+    )
+
+    action = step.params.get("action")
+    if not action:
+        raise ValueError("invoke_ontology_edit: params.action is required")
+
+    if action == "seed":
+        term = step.params.get("term")
+        definition = step.params.get("definition", "seeded definition")
+        if not term:
+            raise ValueError("seed action requires params.term")
+        await handle_ontology_add_term(
+            project_path=ctx.project_root,
+            term=term,
+            definition=definition,
+            examples=step.params.get("examples") or [],
+        )
+        return
+
+    if action == "edit":
+        term = step.params.get("term")
+        definition = step.params.get("definition")
+        if not term or not definition:
+            raise ValueError("edit action requires params.term + params.definition")
+        await handle_ontology_edit_term(
+            project_path=ctx.project_root,
+            term=term,
+            definition=definition,
+            examples=step.params.get("examples") or [],
+            emitter=ctx.emitter,
+        )
+        ctx.last_ontology_edit_term = term
+        return
+
+    if action == "remove":
+        term = step.params.get("term")
+        if not term:
+            raise ValueError("remove action requires params.term")
+        result = await handle_ontology_remove_term(
+            project_path=ctx.project_root,
+            term=term,
+            replacement_term=step.params.get("replacement_term"),
+            emitter=ctx.emitter,
+        )
+        ctx.last_ontology_remove_term = result.term
+        ctx.last_ontology_remove_rewritten = list(result.rewritten)
+        ctx.last_ontology_remove_orphan_count = len(result.orphaned)
+        return
+
+    if action == "find_references":
+        term = step.params.get("term")
+        if not term:
+            raise ValueError("find_references action requires params.term")
+        refs = await handle_ontology_find_references(
+            project_path=ctx.project_root,
+            term=term,
+        )
+        ctx.last_ontology_reference_count = len(refs)
+        return
+
+    raise ValueError(f"invoke_ontology_edit: unknown action {action!r}")
+

@@ -126,6 +126,11 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "estimation-calibration",
     "bones-first-override",
     "cycle-view",
+    # Track B Final — L1 resume-from-state edge cases, project-ontology
+    # operator-edit affordances, multi-level PO TUI slash commands.
+    "discovery-resume",
+    "ontology-edit",
+    "tui-slash-commands",
 })
 
 

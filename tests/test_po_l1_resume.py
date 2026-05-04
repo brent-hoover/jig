@@ -22,7 +22,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
 from jig.po_l1_mcp import (
     ResumeResult,
@@ -30,7 +29,6 @@ from jig.po_l1_mcp import (
     handle_discovery_finalize,
     handle_discovery_resume,
     handle_discovery_set_partial_walk,
-    handle_discovery_set_phase,
     validate_state_consistency,
 )
 from jig.schemas.po import (

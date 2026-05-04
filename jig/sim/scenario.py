@@ -225,6 +225,21 @@ class StepKind(str, Enum):
     # override so a scenario can drive each rule independently.
     INVOKE_RESPONSIVE_REVIEW = "invoke_responsive_review"
 
+    # Track B Final — exercise the L1 discovery resume-from-state path.
+    # Synthesizes a stale state YAML on disk (per the params) and
+    # invokes ``handle_discovery_resume`` with the requested
+    # reconcile_mode. The handler stamps the resulting divergence list +
+    # actions on the driver context so scenario assertions can introspect
+    # the reconciliation outcome without re-running the resume.
+    INVOKE_DISCOVERY_RESUME = "invoke_discovery_resume"
+
+    # Track B Final — exercise the project-ontology operator-edit path.
+    # Subkinds: ``edit`` calls ``handle_ontology_edit_term``; ``remove``
+    # calls ``handle_ontology_remove_term``; ``find_references`` runs
+    # the scanner. Scenario YAML drives the term + new definition /
+    # replacement; the handler stamps the result on the driver context.
+    INVOKE_ONTOLOGY_EDIT = "invoke_ontology_edit"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

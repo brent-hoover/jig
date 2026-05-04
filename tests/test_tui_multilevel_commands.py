@@ -14,7 +14,6 @@ import pytest
 import yaml
 
 from jig.po_l1_mcp import handle_discovery_finalize
-from jig.po_ontology_mcp import handle_ontology_add_term
 from jig.schemas.po import (
     CapabilityRosterEntry,
     DiscoveryDoc,

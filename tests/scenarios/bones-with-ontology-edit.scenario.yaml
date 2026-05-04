@@ -1,0 +1,241 @@
+spec_version: 1
+id: bones-with-ontology-edit
+description: |
+  Bones-with-planner scenario plus the project-ontology operator-edit
+  affordances. Validates that the ``ontology_edit_term`` /
+  ``ontology_remove_term`` / ``ontology_find_references`` MCP tools
+  behave correctly mid-spine, with reference rewrite + analytics
+  emission. The flow:
+
+  1. Seed ontology with two terms (``blocker``, ``impediment``).
+  2. Edit ``blocker`` definition.
+  3. Find references — should be empty (no artifacts yet).
+  4. (Bones spine continues to write contracts referencing terms.)
+  5. Remove ``blocker`` with ``replace-with impediment`` — references
+     in the contract get rewritten in place.
+
+  Per ``docs/multi-level-spec/design.md`` §"Project ontology" + the
+  v2-plan's Track B Final row.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l3
+  - sa-bones
+  - pm-planner
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - ontology-edit
+  - tui-slash-commands
+
+steps:
+  # ---- L0 PO ---------------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-ontology-edit
+      pitch: validate ontology operator-edit affordances end-to-end
+      problem: |
+        Track B Final adds ontology edit/remove/find-references. Need
+        a scenario that exercises each path against a real spine.
+      audience: |
+        Internal jig developers validating Track B Final.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-ontology-edit
+
+  # ---- seed two ontology terms -------------------------------------------
+  - kind: invoke_ontology_edit
+    params:
+      action: seed
+      term: blocker
+      definition: Something preventing progress.
+
+  - kind: invoke_ontology_edit
+    params:
+      action: seed
+      term: impediment
+      definition: Synonym for blocker.
+
+  # ---- edit blocker's definition + examples ------------------------------
+  - kind: invoke_ontology_edit
+    params:
+      action: edit
+      term: blocker
+      definition: A material condition preventing forward progress.
+      examples:
+        - CI is down
+        - waiting on Sarah
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/ontology.md
+        contains: A material condition
+
+  # ---- find references in a fresh project (zero) -------------------------
+  - kind: invoke_ontology_edit
+    params:
+      action: find_references
+      term: blocker
+
+  # ---- L2 hand-write -----------------------------------------------------
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion handles blocker scenarios end-to-end
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite for the ontology-edit drill.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            OAuth handshake for the merchant's Shopify store.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify
+      non_goals: []
+      author: po-l3
+
+  # ---- find references — suite summary mentions "blocker" ----------------
+  - kind: invoke_ontology_edit
+    params:
+      action: find_references
+      term: blocker
+
+  # ---- remove blocker, redirect references to impediment ----------------
+  - kind: invoke_ontology_edit
+    params:
+      action: remove
+      term: blocker
+      replacement_term: impediment
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: impediment
+
+  # ---- SA + planner + dev to keep the spine green -----------------------
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Pulls catalog and normalizes.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: Tracer bullet for ontology-edit drill.
+              simplest_solution: One module.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access:
+              - self
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Shopify catalog data flows into the products collection
+              - catalog-ingested event published with normalized payload
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-ontology-edit
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: Bones spine for ontology-edit.
+              simplest_solution: One ticket.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+
+  - kind: materialize_tickets
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

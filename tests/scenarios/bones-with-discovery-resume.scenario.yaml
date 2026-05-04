@@ -1,0 +1,228 @@
+spec_version: 1
+id: bones-with-discovery-resume
+description: |
+  Bones-with-L1-discovery scenario plus a resume-from-state edge case
+  drill. Validates that the L1 PO's discovery_resume MCP tool detects
+  + reconciles the four divergence cases (stale-journey, concurrent-
+  edit, partial-walk-orphan, clean) without disrupting the rest of
+  the spine. Each ``invoke_discovery_resume`` step seeds a finalized
+  doc, mutates the state to introduce one divergence, and verifies
+  the resume call returned the expected divergence + applied
+  reconciliation.
+
+  Per ``docs/multi-level-spec/design.md`` §"L1 conversation state
+  and resume" + the v2-plan's Track B Final row.
+
+persona: methodical
+estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l1
+  - po-l3
+  - sa-bones
+  - pm-planner
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
+  - discovery-resume
+
+steps:
+  # ---- L0 PO ---------------------------------------------------------------
+  - kind: invoke_l0_finalize
+    params:
+      name: bones-with-discovery-resume
+      pitch: validate L1 resume-from-state edge cases end-to-end
+      problem: |
+        Track B Final adds resume edge cases. Need a scenario that
+        exercises each divergence + each reconcile mode.
+      audience: |
+        Internal jig developers validating Track B Final.
+      non_goals: []
+      author: po-l0
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/project.md
+        contains: bones-with-discovery-resume
+
+  # ---- discovery resume drill: stale-journey, auto reconcile -------------
+  - kind: invoke_discovery_resume
+    params:
+      mutation: stale-journey
+      reconcile_mode: auto
+
+  # ---- discovery resume drill: concurrent-edit, prefer-doc ---------------
+  - kind: invoke_discovery_resume
+    params:
+      mutation: concurrent-edit
+      reconcile_mode: prefer-doc
+
+  # ---- discovery resume drill: partial-walk-orphan, abandon-state -------
+  - kind: invoke_discovery_resume
+    params:
+      mutation: partial-walk-orphan
+      reconcile_mode: abandon-state
+
+  # ---- discovery resume drill: clean state, auto -------------------------
+  - kind: invoke_discovery_resume
+    params:
+      mutation: clean
+      reconcile_mode: auto
+
+  # ---- L2 hand-write to keep the spine moving ----------------------------
+  - kind: write_suites_yaml
+    params:
+      suites_index:
+        spec_version: 2
+        suites:
+          - id: catalog
+            title: Catalog
+            summary: ingestion of catalog data
+            capabilities:
+              - shopify-connect
+        crosscutting_non_goals: []
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites.yaml
+        contains: shopify-connect
+
+  # ---- L3 PO -------------------------------------------------------------
+  - kind: invoke_l3_finalize
+    params:
+      suite_id: catalog
+      intro: |
+        Catalog ingestion suite for the resume drill.
+      capabilities:
+        - id: shopify-connect
+          title: Connect Shopify store via OAuth
+          state: planned
+          summary: |
+            Operator authorizes their Shopify store; we pull catalog data.
+          behaviors:
+            - id: begin-oauth
+              description: Operator initiates OAuth handshake
+              acceptance_criteria:
+                - Operator clicks Connect Shopify and is redirected
+      non_goals: []
+      author: po-l3
+    assertions:
+      - kind: artifact_written
+        path: .jig/spec/suites/catalog/brief.md
+        contains: shopify-connect
+
+  # ---- SA hand-write -----------------------------------------------------
+  - kind: write_architecture
+    params:
+      architecture:
+        spec_version: 1
+        modules:
+          - id: catalog-ingest
+            title: Catalog ingest
+            summary: |
+              Pulls catalog data and normalizes it.
+            implements_capabilities:
+              - shopify-connect
+            owns:
+              - products
+            tier_hint: standard
+            requires_tracer_bullet: true
+            intent:
+              problem: |
+                Bones tracer for the resume drill.
+              simplest_solution: |
+                Single module owning the products collection.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        data_stores: []
+        shared_contracts: []
+        cross_cutting_policies: []
+        risks: []
+        open_questions: []
+        change_log: []
+
+  - kind: write_module_contracts
+    params:
+      module_id: catalog-ingest
+      contracts:
+        spec_version: 1
+        module: catalog-ingest
+        owns:
+          - collection: products
+            db: catalog
+            write_access:
+              - self
+            read_access: []
+        external_dependencies: []
+        exposes: []
+        emits: []
+        integration_ac:
+          - capability: shopify-connect
+            must:
+              - Shopify catalog data flows into the products collection
+              - catalog-ingested event published with normalized payload
+        behavioral_contracts: []
+        data_contracts: []
+        open_questions: []
+        change_log: []
+
+  # ---- Planner PM --------------------------------------------------------
+  - kind: invoke_plan_finalize
+    params:
+      plan:
+        spec_version: 1
+        project: bones-with-discovery-resume
+        revision: 1
+        ordering_rule: bones_first
+        epics:
+          - id: catalog-ingest
+            title: Catalog ingest tracer bullet
+            suite: catalog
+            modules:
+              - catalog-ingest
+            layers:
+              bones:
+                status: not_started
+                tickets:
+                  - tb-catalog-ingest
+              mvp:
+                status: not_started
+                tickets: []
+              final:
+                status: not_started
+                tickets: []
+            risks_addressed: []
+            intent:
+              problem: |
+                Bones spine for the resume drill scenario.
+              simplest_solution: |
+                One epic, one bones ticket.
+              complications_considered:
+                scale: null
+                concurrency: null
+                failure_modes: null
+                cross_cutting: null
+        stalled: []
+        open_questions: []
+      author: planner-pm
+
+  - kind: materialize_tickets
+
+  - kind: mock_dev_commit
+    params:
+      ticket_id: tb-catalog-ingest
+
+  - kind: run_reviewer
+    params:
+      ticket_id: tb-catalog-ingest
+    assertions:
+      - kind: reviewer_returned_no_critical
+        reviewer_id: contract-compliance
+
+final_assertions:
+  - kind: ticket_status
+    ticket_id: tb-catalog-ingest
+    status: resolved
+  - kind: cost_under_budget
+    usd: 1.0

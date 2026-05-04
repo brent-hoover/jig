@@ -27,9 +27,11 @@ suite brief). All three coexist behind allowed_tools gating.
 """
 from __future__ import annotations
 
+import hashlib
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import ValidationError
@@ -37,6 +39,7 @@ from pydantic import ValidationError
 from jig.atomic import atomic_write_text
 from jig.handoff_resolve import resolve_after_handoff
 from jig.schemas.po import (
+    CapabilityCandidate,
     CapabilityRosterEntry,
     DiscoveryDoc,
     DiscoveryPhase,
@@ -45,10 +48,13 @@ from jig.schemas.po import (
     Journey,
     PendingCapability,
     Persona,
+    StateDivergence,
+    StateDivergenceKind,
 )
 from jig.spec_loader import (
     discovery_path,
     discovery_playback_path,
+    load_discovery,
     load_discovery_state,
     save_discovery_state,
 )
@@ -76,9 +82,373 @@ __all__ = [
     "handle_discovery_clear_pending",
     "handle_discovery_set_playback",
     "handle_discovery_load_state",
+    "handle_discovery_set_partial_walk",
     "handle_discovery_finalize",
+    "handle_discovery_resume",
     "render_discovery_md",
+    "validate_state_consistency",
+    "ResumeResult",
+    "compute_discovery_doc_digest",
 ]
+
+
+# ---- resume-from-state edge cases (Track B Final) -------------------------
+
+
+@dataclass
+class ResumeResult:
+    """Outcome of ``handle_discovery_resume``.
+
+    ``divergences`` is the full list detected at consistency-check time
+    (empty when the state file matches the on-disk doc). ``applied`` is
+    the resolution mode the caller asked for; ``actions`` records the
+    individual remediations carried out — so the operator can audit what
+    just happened (e.g., "dropped 2 stale partial-walk entries").
+    """
+
+    divergences: list[StateDivergence] = field(default_factory=list)
+    applied: str = "auto"
+    actions: list[str] = field(default_factory=list)
+    state: DiscoveryState | None = None
+
+
+def compute_discovery_doc_digest(project_path: Path) -> str:
+    """Return a sha256 hexdigest of ``discovery.md`` (or ``""`` if absent).
+
+    Used for concurrent-edit detection: the L1 PO stamps this on the
+    state YAML at every save, and resume compares the stamp against the
+    file's current digest. Empty string when the doc doesn't exist —
+    that's the pre-finalize case where in-flight state is the only
+    artifact (no concurrent-edit risk yet).
+    """
+    p = discovery_path(project_path)
+    if not p.is_file():
+        return ""
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _load_discovery_doc_for_resume(
+    project_path: Path,
+) -> DiscoveryDoc | None:
+    """Read the structured discovery cache; ``None`` when absent.
+
+    Resume runs before any new turn, so ``discovery.md`` may not exist
+    yet (mid-walk, no Phase-5 commit happened). Absence is informational,
+    not an error.
+    """
+    try:
+        return load_discovery(project_path)
+    except FileNotFoundError:
+        return None
+
+
+def validate_state_consistency(
+    state: DiscoveryState,
+    discovery_doc: DiscoveryDoc | None,
+    *,
+    on_disk_digest: str = "",
+) -> list[StateDivergence]:
+    """Compare in-flight state against the committed discovery doc.
+
+    Returns the list of detected divergences. Empty list means the state
+    is consistent and ``discovery_resume`` can proceed without operator
+    interaction.
+
+    Three checks (Track B Final):
+
+    - **stale-journey** — ``state.current.journey_id`` references a
+      journey id that no longer appears in ``discovery_doc``. Operator
+      hand-edited ``discovery.md`` and removed the journey; resume must
+      re-anchor rather than crash on the missing reference.
+    - **concurrent-edit** — the on-disk ``discovery.md`` digest doesn't
+      match the digest the state was last saved against. Operator
+      hand-edited the file between sessions; the operator picks
+      prefer-state / prefer-doc / abandon-state.
+    - **partial-walk-orphan** — a ``CapabilityCandidate`` in
+      ``partial_walk`` references a journey id no longer in the doc
+      (similar to stale-journey but specific to in-flight extractions).
+
+    The ``on_disk_digest`` arg is the file's current digest (callers
+    typically pass ``compute_discovery_doc_digest(project_path)``); it's
+    a parameter rather than computed here so the helper stays pure /
+    testable.
+    """
+    out: list[StateDivergence] = []
+
+    known_journey_ids: set[str] = set()
+    if discovery_doc is not None:
+        known_journey_ids = {j.id for j in discovery_doc.journeys}
+
+    # stale-journey — only meaningful when there IS a discovery doc to
+    # compare against. Pre-finalize, the state's journey_id refers to a
+    # staged sidecar entry, not a doc entry; that's not stale.
+    if discovery_doc is not None and state.current is not None:
+        jid = state.current.journey_id
+        if jid is not None and jid not in known_journey_ids:
+            out.append(
+                StateDivergence(
+                    kind=StateDivergenceKind.STALE_JOURNEY,
+                    detail=(
+                        f"state.current.journey_id={jid!r} is not in "
+                        f"discovery.md (journeys: "
+                        f"{sorted(known_journey_ids)!r})"
+                    ),
+                    suggested_resolution="reanchor",
+                )
+            )
+
+    # concurrent-edit — only meaningful when both sides have a digest.
+    # The empty-stamp case (pre-finalize state with no doc) means
+    # there's no comparison to make; treat as consistent.
+    if state.discovery_doc_digest and on_disk_digest:
+        if state.discovery_doc_digest != on_disk_digest:
+            out.append(
+                StateDivergence(
+                    kind=StateDivergenceKind.CONCURRENT_EDIT,
+                    detail=(
+                        "discovery.md digest changed since last save "
+                        f"(saved={state.discovery_doc_digest[:8]}, "
+                        f"on-disk={on_disk_digest[:8]})"
+                    ),
+                    suggested_resolution="prefer-doc",
+                )
+            )
+
+    # partial-walk-orphan — checked against the doc when present.
+    if discovery_doc is not None and state.partial_walk:
+        for cand in state.partial_walk:
+            if cand.journey_id not in known_journey_ids:
+                out.append(
+                    StateDivergence(
+                        kind=StateDivergenceKind.PARTIAL_WALK_ORPHAN,
+                        detail=(
+                            f"partial_walk entry {cand.id!r} references "
+                            f"journey {cand.journey_id!r} which is not in "
+                            "discovery.md"
+                        ),
+                        suggested_resolution="abandon-state",
+                    )
+                )
+
+    return out
+
+
+def _apply_reconcile(
+    state: DiscoveryState,
+    divergences: list[StateDivergence],
+    *,
+    reconcile_mode: str,
+    on_disk_digest: str,
+    discovery_doc: DiscoveryDoc | None,
+) -> tuple[DiscoveryState, list[str]]:
+    """Apply the operator-chosen reconciliation to the state.
+
+    Returns ``(new_state, actions)``. ``actions`` is a flat list of
+    short human-readable strings describing what changed.
+
+    Reconcile modes:
+
+    - **auto** — apply each divergence's ``suggested_resolution`` (the
+      conservative default the validator picked).
+    - **prefer-state** — keep state unchanged; refresh the digest stamp
+      so the next save aligns. Loud-fail if a stale-journey points at a
+      vanished id (that's not safely recoverable without operator
+      input).
+    - **prefer-doc** — refresh the digest stamp + drop any in-flight
+      bits that reference vanished journeys.
+    - **abandon-state** — wipe in-flight state to a fresh
+      ``DiscoveryState`` (status preserved).
+    - **prompt** — surface the divergences without applying anything;
+      the caller (CLI / TUI) is responsible for re-running with a
+      concrete mode.
+    """
+    actions: list[str] = []
+
+    if reconcile_mode == "prompt":
+        actions.append("no changes — operator must pick a reconcile mode")
+        return state, actions
+
+    if reconcile_mode == "abandon-state":
+        new = DiscoveryState(
+            status=state.status,
+            discovery_doc_digest=on_disk_digest,
+        )
+        actions.append("abandoned in-flight state; reset to fresh DiscoveryState")
+        return new, actions
+
+    # Snapshot for in-place edits.
+    new_partial_walk = list(state.partial_walk)
+    new_personas_pending = list(state.personas_pending)
+    new_current = state.current
+
+    # Per-divergence resolution loop.
+    for d in divergences:
+        if reconcile_mode == "auto":
+            mode = d.suggested_resolution
+        else:
+            mode = reconcile_mode
+
+        if d.kind == StateDivergenceKind.STALE_JOURNEY:
+            if mode in ("reanchor", "prefer-doc"):
+                # Reanchor: clear the current pointer; the L1 PO greets
+                # with "pick a journey" rather than crashing on a missing
+                # ref. Same effect under prefer-doc.
+                if new_current is not None:
+                    actions.append(
+                        f"reanchored — cleared current.journey_id "
+                        f"{new_current.journey_id!r}"
+                    )
+                    new_current = None
+            elif mode == "prefer-state":
+                # Operator insisted state is right; we surface the
+                # action but the divergence persists until they edit
+                # discovery.md back into shape.
+                actions.append(
+                    f"prefer-state: kept stale current.journey_id "
+                    f"{state.current.journey_id!r} (caller must reconcile manually)"
+                )
+
+        elif d.kind == StateDivergenceKind.CONCURRENT_EDIT:
+            if mode in ("prefer-doc", "auto"):
+                actions.append(
+                    "prefer-doc: refreshed discovery_doc_digest from on-disk file"
+                )
+            elif mode == "prefer-state":
+                actions.append(
+                    "prefer-state: keeping in-flight state; "
+                    "digest will re-align on next save"
+                )
+
+        elif d.kind == StateDivergenceKind.PARTIAL_WALK_ORPHAN:
+            if mode in ("abandon-state", "prefer-doc", "reanchor", "auto"):
+                # Drop the orphan candidate(s); only the matching id+journey
+                # combination is removed.
+                kept: list[CapabilityCandidate] = []
+                dropped = 0
+                for c in new_partial_walk:
+                    if (
+                        discovery_doc is not None
+                        and c.journey_id
+                        not in {j.id for j in discovery_doc.journeys}
+                    ):
+                        dropped += 1
+                        continue
+                    kept.append(c)
+                new_partial_walk = kept
+                if dropped:
+                    actions.append(
+                        f"dropped {dropped} orphaned partial-walk entries"
+                    )
+            elif mode == "prefer-state":
+                actions.append(
+                    "prefer-state: kept orphaned partial_walk entries"
+                )
+
+    # Always refresh the digest stamp so subsequent saves are aligned —
+    # otherwise the same divergence resurfaces on every resume.
+    refreshed = state.model_copy(
+        update={
+            "current": new_current,
+            "partial_walk": new_partial_walk,
+            "personas_pending": new_personas_pending,
+            "discovery_doc_digest": on_disk_digest,
+        }
+    )
+    return refreshed, actions
+
+
+async def handle_discovery_resume(
+    *,
+    project_path: Path,
+    reconcile_mode: Literal[
+        "auto", "prompt", "prefer-state", "prefer-doc", "abandon-state"
+    ] = "auto",
+) -> ResumeResult:
+    """Resume an L1 discovery session, handling state-vs-doc divergence.
+
+    Reads ``discovery.state.yaml`` + the structured ``DiscoveryDoc``
+    cache, runs the consistency checks, and applies the operator-chosen
+    reconciliation. The result carries the divergence list + the actions
+    taken so the CLI / TUI can render an audit trail.
+
+    No state on disk → returns an empty result (no divergences, no
+    actions). The caller treats this as "fresh session".
+
+    Persists the reconciled state back to disk unless
+    ``reconcile_mode='prompt'``, which is operator-aware (the caller is
+    expected to re-invoke with a concrete mode after the prompt).
+    """
+    try:
+        state = load_discovery_state(project_path)
+    except FileNotFoundError:
+        return ResumeResult(divergences=[], applied=reconcile_mode, state=None)
+
+    doc = _load_discovery_doc_for_resume(project_path)
+    on_disk_digest = compute_discovery_doc_digest(project_path)
+    divergences = validate_state_consistency(
+        state, doc, on_disk_digest=on_disk_digest
+    )
+
+    if not divergences:
+        return ResumeResult(
+            divergences=[], applied=reconcile_mode, state=state
+        )
+
+    if reconcile_mode == "prompt":
+        return ResumeResult(
+            divergences=divergences,
+            applied="prompt",
+            actions=[
+                "operator must pick a reconcile mode "
+                "(prefer-state | prefer-doc | abandon-state | reanchor)"
+            ],
+            state=state,
+        )
+
+    new_state, actions = _apply_reconcile(
+        state,
+        divergences,
+        reconcile_mode=reconcile_mode,
+        on_disk_digest=on_disk_digest,
+        discovery_doc=doc,
+    )
+    save_discovery_state(project_path, new_state)
+    return ResumeResult(
+        divergences=divergences,
+        applied=reconcile_mode,
+        actions=actions,
+        state=new_state,
+    )
+
+
+async def handle_discovery_set_partial_walk(
+    *,
+    project_path: Path,
+    candidates: list[Any],
+) -> None:
+    """Replace the in-flight Phase-3 walk candidates.
+
+    The L1 PO calls this when entering / continuing a Phase-3 walk so
+    crash recovery has the latest view. Replace-rather-than-merge
+    semantics: the LLM passes the full current candidate list every
+    turn (matching how it tracks them in working memory).
+    """
+    coerced: list[CapabilityCandidate] = []
+    for c in candidates or []:
+        if isinstance(c, CapabilityCandidate):
+            coerced.append(c)
+            continue
+        if not isinstance(c, dict):
+            raise ValueError(
+                f"partial_walk entry must be a dict, got {type(c).__name__}"
+            )
+        try:
+            coerced.append(CapabilityCandidate.model_validate(c))
+        except ValidationError as e:
+            raise ValueError(f"invalid partial_walk entry: {e}") from e
+    state = _load_or_init_state(project_path)
+    state.partial_walk = coerced
+    save_discovery_state(project_path, state)
 
 
 # ---- markdown rendering ---------------------------------------------------
@@ -732,8 +1102,13 @@ async def handle_discovery_finalize(
         cache_yaml,
     )
 
-    # Clear in-flight state — finalize is the terminal transition.
-    final_state = DiscoveryState(status=DiscoveryStatus.FINALIZED)
+    # Clear in-flight state — finalize is the terminal transition. The
+    # digest stamp lets a future re-open distinguish "operator hand-edited
+    # discovery.md after finalize" (concurrent-edit) from "fresh resume".
+    final_state = DiscoveryState(
+        status=DiscoveryStatus.FINALIZED,
+        discovery_doc_digest=compute_discovery_doc_digest(project_path),
+    )
     save_discovery_state(project_path, final_state)
     _drain_sidecars(project_path)
 

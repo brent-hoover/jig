@@ -44,7 +44,10 @@ __all__ = [
     "DiscoveryPhase",
     "DiscoveryStatus",
     "PendingCapability",
+    "CapabilityCandidate",
     "DiscoveryState",
+    "StateDivergence",
+    "StateDivergenceKind",
     "OntologyTerm",
     "Ontology",
     "PendingOntologyTerm",
@@ -375,6 +378,48 @@ class DiscoveryStatus:
     FINALIZED = "finalized"
 
 
+class CapabilityCandidate(BaseModel):
+    """An in-flight capability extraction during a Phase-3 walk.
+
+    Track B Final addition. Where ``PendingCapability`` records a
+    confirmed extraction (Phase-3/4 → Phase-5 promote), a
+    ``CapabilityCandidate`` records the L1 PO's *current attempt* at
+    capturing a capability mid-walk, including whether the operator has
+    confirmed it yet. Crash-recovery uses this to skip already-confirmed
+    candidates on resume — re-asking "did you mean X?" after the operator
+    just said yes is jarring.
+
+    The ``confirmed`` flag is what makes resume non-destructive: the L1
+    PO that comes back up reads ``partial_walk`` and only re-prompts on
+    the unconfirmed entries.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="kebab-case capability id")
+    description: str = Field(..., min_length=1)
+    journey_id: str = Field(
+        ..., description="The journey currently being walked."
+    )
+    confirmed: bool = Field(
+        default=False,
+        description=(
+            "True once the operator has confirmed the candidate; resume "
+            "skips re-asking confirmed entries."
+        ),
+    )
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return _validate_kebab(v, "CapabilityCandidate.id")
+
+    @field_validator("journey_id")
+    @classmethod
+    def _kebab_journey(cls, v: str) -> str:
+        return _validate_kebab(v, "CapabilityCandidate.journey_id")
+
+
 class DiscoveryState(BaseModel):
     """L1 in-flight conversation state — ``.jig/spec/discovery.state.yaml``.
 
@@ -409,6 +454,15 @@ class DiscoveryState(BaseModel):
     personas_completed: list[str] = Field(default_factory=list)
     personas_pending: list[str] = Field(default_factory=list)
     pending_capabilities: list[PendingCapability] = Field(default_factory=list)
+    # Track B Final — in-flight Phase-3 walk candidates. Lets resume
+    # continue from the same capability without re-confirming entries the
+    # operator already said yes to.
+    partial_walk: list[CapabilityCandidate] = Field(default_factory=list)
+    # Track B Final — sha256 of ``discovery.md`` at last save. Resume
+    # compares against the current file digest to detect operator
+    # hand-edits between sessions (concurrent-edit reconciliation). Empty
+    # when no discovery.md existed at save time.
+    discovery_doc_digest: str = Field(default="")
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -426,6 +480,72 @@ class DiscoveryState(BaseModel):
             raise ValueError(
                 f"DiscoveryState.status must be one of {sorted(allowed)!r}, "
                 f"got {v!r}"
+            )
+        return v
+
+
+# ---- L1 resume-from-state divergence detection ----------------------------
+
+
+class StateDivergenceKind:
+    """Allowed values for ``StateDivergence.kind`` (Track B Final).
+
+    Plain strings (matches DiscoveryStatus pattern) so the YAML
+    round-trip stays human-readable.
+    """
+
+    STALE_JOURNEY = "stale-journey"
+    CONCURRENT_EDIT = "concurrent-edit"
+    PARTIAL_WALK_ORPHAN = "partial-walk-orphan"
+
+
+_DIVERGENCE_VALUES = frozenset({
+    StateDivergenceKind.STALE_JOURNEY,
+    StateDivergenceKind.CONCURRENT_EDIT,
+    StateDivergenceKind.PARTIAL_WALK_ORPHAN,
+})
+
+
+class StateDivergence(BaseModel):
+    """One divergence between L1 in-flight state and ``discovery.md``.
+
+    Track B Final — discovered by ``validate_state_consistency``. Each
+    divergence carries a kind tag, a human-readable detail string, and a
+    suggested resolution mode the operator can pick from when running
+    ``discovery_resume``. Operator-driven for Final scope; LLM-driven
+    reconciliation is v2.x.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(
+        ...,
+        description=(
+            "One of 'stale-journey' | 'concurrent-edit' | "
+            "'partial-walk-orphan'."
+        ),
+    )
+    detail: str = Field(
+        ...,
+        min_length=1,
+        description="One-line explanation of what diverged.",
+    )
+    suggested_resolution: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One of 'prefer-state' | 'prefer-doc' | 'abandon-state' | "
+            "'reanchor'."
+        ),
+    )
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str) -> str:
+        if v not in _DIVERGENCE_VALUES:
+            raise ValueError(
+                f"StateDivergence.kind must be one of "
+                f"{sorted(_DIVERGENCE_VALUES)!r}, got {v!r}"
             )
         return v
 

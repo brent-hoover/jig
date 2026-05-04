@@ -31,6 +31,8 @@ _INCREMENTAL_TOOLS = {
     "arch_set_cross_cutting_policy",
     "arch_set_open_question",
     "arch_set_risk",
+    "arch_propose_spike",
+    "arch_complete_spike",
     "module_set_owned_collection",
     "module_set_external_dependency",
     "module_set_integration_ac",

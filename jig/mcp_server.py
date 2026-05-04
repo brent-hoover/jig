@@ -1487,6 +1487,74 @@ def create_agent_mcp_server(
 
         all_tools.append(arch_set_open_question)
 
+    if "arch_propose_spike" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_propose_spike",
+            "Create a spike ticket linked to a risk and transition the "
+            "risk to ``spike_proposed``. Spikes are bounded explorations "
+            "(``work_type: SPIKE``); their output is a finding captured "
+            "via ``arch_complete_spike``, NOT production code. "
+            "``risk_id`` MUST already be in architecture.yaml. "
+            "``dependent_contracts`` is the list of contract URIs whose "
+            "shape depends on this risk's outcome — populates the risk's "
+            "field at the same time so the cascade workflow has what it "
+            "needs. Returns the new spike ticket id.",
+            {
+                "risk_id": str,
+                "summary": str,
+                "dependent_contracts": list,
+            },
+        )
+        async def arch_propose_spike(args):
+            spike_id = await sa_incremental_mcp.handle_arch_propose_spike(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                risk_id=args["risk_id"],
+                summary=args["summary"],
+                dependent_contracts=args.get("dependent_contracts", []),
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": spike_id}]}
+
+        all_tools.append(arch_propose_spike)
+
+    if "arch_complete_spike" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_complete_spike",
+            "Record the outcome of a spike: post the ``finding`` as a "
+            "Note thread entry on the spike ticket, transition the "
+            "linked risk's status, resolve the spike ticket. ``status`` "
+            "is one of ``mitigated`` (assumption holds; risk closed), "
+            "``accepted`` (assumption is real but acceptable), "
+            "``confirmed_impossible`` (assumption is wrong; cascade "
+            "fires). The ``confirmed_impossible`` branch generates a "
+            "cascade-proposal artifact under .jig/arch/cascades/ for "
+            "operator review.",
+            {
+                "spike_ticket_id": str,
+                "finding": str,
+                "status": str,
+            },
+        )
+        async def arch_complete_spike(args):
+            await sa_incremental_mcp.handle_arch_complete_spike(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                spike_ticket_id=args["spike_ticket_id"],
+                finding=args["finding"],
+                status=args["status"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(arch_complete_spike)
+
     if "arch_set_risk" in agent_cfg.allowed_tools:
 
         @tool(

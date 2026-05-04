@@ -47,6 +47,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from jig.handoff_resolve import resolve_after_handoff
+from jig.intent import ComplicationsConsidered, Intent
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
 from jig.sa_validation import (
     validate_behavioral_contract,
@@ -68,6 +69,7 @@ from jig.schemas.arch import (
     RiskStatus,
     SharedContract,
 )
+from jig.ticket import Ticket, WorkType
 from jig.spec_loader import (
     load_architecture,
     load_module_contracts,
@@ -81,7 +83,9 @@ from jig.thread import Handoff, Note
 
 
 __all__ = [
+    "handle_arch_complete_spike",
     "handle_arch_finalize",
+    "handle_arch_propose_spike",
     "handle_arch_set_cross_cutting_policy",
     "handle_arch_set_data_store",
     "handle_arch_set_module",
@@ -95,6 +99,23 @@ __all__ = [
     "handle_module_set_open_question",
     "handle_module_set_owned_collection",
 ]
+
+
+# Valid terminal outcomes for ``arch_complete_spike``. Mirrors the
+# three states the design.md §"The cascade workflow" spike-completion
+# branch enumerates; ``confirmed_impossible`` is the cascade trigger.
+_SPIKE_OUTCOME_STATUSES: dict[str, RiskStatus] = {
+    "mitigated": RiskStatus.MITIGATED,
+    "accepted": RiskStatus.ACCEPTED,
+    "confirmed_impossible": RiskStatus.CONFIRMED_IMPOSSIBLE,
+}
+
+
+# URI prefix for risks in the architecture register. Used as the
+# spike ticket's ``derived_from`` so reviewers + the cascade-generator
+# can trace lineage back to the originating risk without scanning the
+# risk register.
+_RISK_URI_PREFIX = "project://arch/risks/"
 
 
 # Status values >= ``spike_proposed`` trigger the cascade-prep gates
@@ -291,6 +312,257 @@ async def handle_arch_set_risk(
     arch.risks = _replace_or_append(arch.risks, r)
     save_architecture(project_path, arch)
     return r.id
+
+
+# ---- spike workflow ------------------------------------------------------
+
+
+def _spike_intent_from_summary(summary: str) -> Intent:
+    """Synthesize an Intent for a risk being upgraded to spike_proposed.
+
+    The risk-cascade-prep gate requires ``intent`` once status >=
+    spike_proposed. When the SA proposes the spike (rather than
+    re-authoring the risk) we synthesize an intent from the spike
+    summary so the gate stays satisfied without forcing a separate
+    re-author step. The spike's summary IS the simplest expression of
+    what the spike intends to learn — re-using it here keeps the
+    intent layer non-vacuous without adding ceremony.
+    """
+    return Intent(
+        problem=f"Verify whether the assumption holds: {summary}",
+        simplest_solution=summary,
+        complications_considered=ComplicationsConsidered(),
+    )
+
+
+def _spike_ticket_id_for_risk(risk_id: str) -> str:
+    """Deterministic spike ticket id for a risk.
+
+    One spike per risk at a time per the design's serialization rule
+    (§"Failure modes and mitigations" — only one cascade in flight at
+    a time per risk; spikes are 1:1 with risks at proposal time).
+    Deterministic so the operator + the cascade artifact can reference
+    the ticket id without round-tripping through the spike-creation
+    return value.
+    """
+    return f"spike-{risk_id}"
+
+
+def _truncate_for_title(text: str, *, limit: int = 80) -> str:
+    """Truncate prose for a ticket title without breaking on whitespace."""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+async def handle_arch_propose_spike(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    project_path: Path,
+    risk_id: str,
+    summary: str,
+    dependent_contracts: list[str],
+    author: str,
+) -> str:
+    """Create a spike ticket linked to ``risk_id``; return the ticket id.
+
+    Steps:
+
+    1. Look up the risk in architecture.yaml; raise KeyError if absent
+       (silent-create would mask a typo in the agent's risk_id).
+    2. Create a ``WorkType.SPIKE`` ticket with deterministic id
+       ``spike-<risk_id>`` so the cascade artifact + operator UX can
+       reference it without round-tripping through this handler's
+       return value.
+    3. Update the risk: ``spike_ticket = <new ticket id>``, ``status =
+       spike_proposed``, populate ``dependent_contracts``, synthesize
+       ``intent`` from ``summary`` so the cascade-prep gate is satisfied.
+
+    Idempotent on re-call with the same risk_id — re-running with a
+    revised summary updates the existing spike ticket's description and
+    re-saves the risk; this lets the SA iterate without manual cleanup.
+    """
+    arch = _load_or_init_arch(project_path)
+    risks_by_id = {r.id: r for r in arch.risks}
+    if risk_id not in risks_by_id:
+        raise KeyError(
+            f"risk {risk_id!r} not found in architecture.yaml — author "
+            "via arch_set_risk before proposing a spike"
+        )
+    risk = risks_by_id[risk_id]
+
+    spike_id = _spike_ticket_id_for_risk(risk_id)
+    risk_uri = f"{_RISK_URI_PREFIX}{risk_id}"
+    title = f"spike: {_truncate_for_title(risk.text)}"
+
+    existing = await tickets.get(spike_id)
+    if existing is None:
+        await tickets.create(
+            Ticket(
+                id=spike_id,
+                work_type=WorkType.SPIKE,
+                title=title,
+                description=summary,
+                derived_from=risk_uri,
+                risks_addressed=[risk_id],
+                created_by=author,
+            )
+        )
+    else:
+        # Idempotent re-propose: refresh description + title; status
+        # stays whatever the spike ticket currently has so a partially-
+        # complete spike isn't reset.
+        await tickets.update(
+            spike_id,
+            title=title,
+            description=summary,
+        )
+
+    # Update the risk in place. Status moves to spike_proposed; the
+    # cascade-prep gate now requires dependent_contracts + intent —
+    # we satisfy both before save.
+    updated = risk.model_copy(
+        update={
+            "spike_ticket": spike_id,
+            "status": RiskStatus.SPIKE_PROPOSED,
+            "dependent_contracts": list(dependent_contracts),
+            "intent": risk.intent or _spike_intent_from_summary(summary),
+        }
+    )
+    _validate_risk_cascade_prep(updated)
+    arch.risks = _replace_or_append(arch.risks, updated)
+    save_architecture(project_path, arch)
+
+    await bus.publish(
+        Message(
+            sender=author,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "spike_proposed",
+                "ticket_id": spike_id,
+                "risk_id": risk_id,
+            },
+            topic="orchestrator",
+        )
+    )
+    return spike_id
+
+
+async def handle_arch_complete_spike(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    project_path: Path,
+    spike_ticket_id: str,
+    finding: str,
+    status: str,
+    author: str,
+) -> None:
+    """Record the spike outcome — finding-as-Note + risk status update.
+
+    ``status`` is one of ``mitigated``, ``accepted``,
+    ``confirmed_impossible``. Other values raise.
+
+    Steps:
+
+    1. Validate the spike ticket exists AND has work_type == SPIKE
+       (refusing to operate on non-spike tickets keeps the handler
+       boundary clean — operator typos on ticket_id surface as
+       errors, not as accidental status transitions on real work).
+    2. Look up the linked risk via the spike's risks_addressed.
+       Raise KeyError on orphan spikes — without a backing risk we
+       can't transition status and the cascade workflow can't fire.
+    3. Append a Note with the finding so ``jig story <spike_id>``
+       carries operator-readable evidence of what the spike learned.
+    4. Transition the risk's status to the matching outcome.
+    5. Resolve the spike ticket via the shared resolver.
+
+    The ``confirmed_impossible`` branch wires the cascade-after-impossible
+    workflow in commit 3 — for now this handler just transitions the
+    risk status; the cascade-proposal write lands alongside.
+    """
+    if status not in _SPIKE_OUTCOME_STATUSES:
+        raise ValueError(
+            f"arch_complete_spike: status must be one of "
+            f"{sorted(_SPIKE_OUTCOME_STATUSES)!r}, got {status!r}"
+        )
+
+    spike = await tickets.get(spike_ticket_id)
+    if spike is None:
+        raise KeyError(
+            f"spike ticket {spike_ticket_id!r} not found"
+        )
+    if spike.work_type != WorkType.SPIKE:
+        raise ValueError(
+            f"ticket {spike_ticket_id!r} is not a spike "
+            f"(work_type={spike.work_type.value!r})"
+        )
+
+    if not spike.risks_addressed:
+        raise KeyError(
+            f"spike {spike_ticket_id!r} has no risks_addressed link — "
+            "can't transition any risk status"
+        )
+    risk_id = spike.risks_addressed[0]
+
+    arch = _load_or_init_arch(project_path)
+    risks_by_id = {r.id: r for r in arch.risks}
+    if risk_id not in risks_by_id:
+        raise KeyError(
+            f"spike {spike_ticket_id!r} references risk {risk_id!r} "
+            "which is not in architecture.yaml"
+        )
+    risk = risks_by_id[risk_id]
+    new_status = _SPIKE_OUTCOME_STATUSES[status]
+
+    # Note with the finding — operator-readable evidence on the spike
+    # ticket. Posted before the risk-status flip so the trail order
+    # (note then status change) reads naturally in ``jig story``.
+    await threads.post(
+        Note(
+            ticket_id=spike_ticket_id,
+            author=author,
+            text=(
+                f"Spike finding ({status}):\n{finding}"
+            ),
+            payload={
+                "kind": "spike_finding",
+                "risk_id": risk_id,
+                "outcome": status,
+            },
+        )
+    )
+
+    updated_risk = risk.model_copy(update={"status": new_status})
+    arch.risks = _replace_or_append(arch.risks, updated_risk)
+    save_architecture(project_path, arch)
+
+    await bus.publish(
+        Message(
+            sender=author,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "spike_completed",
+                "ticket_id": spike_ticket_id,
+                "risk_id": risk_id,
+                "outcome": status,
+            },
+            topic="orchestrator",
+        )
+    )
+    await resolve_after_handoff(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id=spike_ticket_id,
+        author=author,
+    )
 
 
 # ---- modules/<m>/contracts.yaml upserts ----------------------------------

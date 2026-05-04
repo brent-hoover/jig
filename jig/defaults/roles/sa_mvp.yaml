@@ -207,17 +207,32 @@ phase_prompt: >
     surface bounded.
 
 
-  ## Risk register
+  ## Risk register + spike workflow
 
 
   Per ``docs/sa-architecture/design.md`` §"Risk identification and
-  spikes": ``arch_set_risk(risk)`` logs an architectural risk.
-  ``status`` starts at ``open`` (cheap to capture; no dependents
-  required). When status moves to ``spike_proposed`` (or any later
-  state), you MUST populate both ``dependent_contracts`` (URIs of
-  contracts whose shape depends on the risk outcome) AND ``intent``
-  (problem / simplest_solution / complications). The validator
-  raises if either is missing.
+  spikes": for any architectural assumption you can't decide alone:
+
+
+  - **``arch_set_risk(risk)``** — log the risk. ``status`` starts at
+    ``open`` (cheap to capture; no dependents required). When
+    ``status`` moves to ``spike_proposed`` (or later), you MUST
+    populate both ``dependent_contracts`` (URIs of contracts whose
+    shape depends on the risk outcome) AND ``intent`` (problem /
+    simplest_solution / complications). The validator raises if
+    either is missing.
+
+  - **``arch_propose_spike(risk_id, summary, dependent_contracts)``**
+    — creates a ``work_type: SPIKE`` ticket linked to the risk and
+    transitions the risk to ``spike_proposed`` automatically.
+    Spikes are bounded explorations; output is a learning, NOT
+    production code.
+
+  - **``arch_complete_spike(spike_ticket_id, finding, status)``** —
+    records the outcome. ``status`` is one of ``mitigated`` (assumption
+    holds; risk closed), ``accepted`` (assumption is real but
+    acceptable), or ``confirmed_impossible`` (assumption is wrong;
+    cascade-proposal artifact gets written under .jig/arch/cascades/).
 
 
   ## Out of scope for you (MVP)
@@ -272,6 +287,8 @@ allowed_tools:
   - arch_set_cross_cutting_policy
   - arch_set_open_question
   - arch_set_risk
+  - arch_propose_spike
+  - arch_complete_spike
   - module_set_owned_collection
   - module_set_external_dependency
   - module_set_integration_ac

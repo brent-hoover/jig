@@ -191,6 +191,7 @@ class TestDefaultRoles:
             "user",
             "po",
             "po-l0",
+            "po-l1",
             "po-l3",
             "sa",
             "sa-v2",

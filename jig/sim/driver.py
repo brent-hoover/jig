@@ -49,6 +49,7 @@ from jig.coordinator import Coordinator
 from jig.planner_pm_mcp import PLANNER_TICKET_ID, handle_plan_finalize
 from jig.po_l0_mcp import handle_l0_finalize
 from jig.po_l1_mcp import L1_TICKET_ID, handle_discovery_finalize
+from jig.po_l2_mcp import L2_TICKET_ID, handle_l2_finalize
 from jig.po_l3_mcp import handle_l3_finalize
 from jig.reviewers import ContractComplianceReviewer, ReviewerComment
 from jig.schemas.arch import Architecture, ContractsFile
@@ -214,6 +215,7 @@ class Driver:
         self._handlers: dict[str, StepHandler] = {
             StepKind.INVOKE_L0_FINALIZE.value: _handle_l0_finalize,
             StepKind.INVOKE_L1_FINALIZE.value: _handle_invoke_l1_finalize,
+            StepKind.INVOKE_L2_FINALIZE.value: _handle_invoke_l2_finalize,
             StepKind.INVOKE_L3_FINALIZE.value: _handle_l3_finalize,
             StepKind.WRITE_SUITES_YAML.value: _handle_write_suites_yaml,
             StepKind.WRITE_ARCHITECTURE.value: _handle_write_architecture,
@@ -399,6 +401,39 @@ async def _handle_invoke_l1_finalize(
     params = dict(step.params)
     params.setdefault("author", "po-l1")
     await handle_discovery_finalize(
+        tickets=ctx.tickets,
+        threads=ctx.threads,
+        bus=ctx.bus,
+        project_path=ctx.project_root,
+        **params,
+    )
+
+
+async def _handle_invoke_l2_finalize(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Invoke handle_l2_finalize. Auto-creates the L2 suites ticket.
+
+    Bones scenarios hand-write suites.yaml directly via
+    ``write_suites_yaml`` and skip the L2 PO; MVP+ scenarios use this
+    step to exercise the L2 PO authoring path. The synthetic operator
+    passes a complete ``suites`` list (matching ``SuitesIndex.suites``)
+    so the multi-turn proposing UX is collapsed to one call — the
+    real LLM-driven walk only happens in real-mode runs (out of MVP
+    scope).
+    """
+    if await ctx.tickets.get(L2_TICKET_ID) is None:
+        await ctx.tickets.create(
+            Ticket(
+                id=L2_TICKET_ID,
+                work_type=WorkType.BRIEF,
+                title="L2 suite organization",
+                created_by="sim-driver",
+            )
+        )
+    params = dict(step.params)
+    params.setdefault("author", "po-l2")
+    await handle_l2_finalize(
         tickets=ctx.tickets,
         threads=ctx.threads,
         bus=ctx.bus,

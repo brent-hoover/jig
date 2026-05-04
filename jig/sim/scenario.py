@@ -49,6 +49,12 @@ class StepKind(str, Enum):
     # this step to exercise the L1 PO authoring path.
     INVOKE_L1_FINALIZE = "invoke_l1_finalize"
 
+    # MVP-tier L2 Suite Organizer — invoke l2_finalize with a complete
+    # SuitesIndex payload. Bones scenarios use ``write_suites_yaml``
+    # (operator hand-write); MVP-tier scenarios swap in this step to
+    # exercise the L2 PO authoring path.
+    INVOKE_L2_FINALIZE = "invoke_l2_finalize"
+
     # Manual writes for stages bones doesn't run via agents (per
     # ``docs/implementation/v2-plan.md`` Bones scope: L1/L2 + SA
     # artifacts hand-written by the operator).

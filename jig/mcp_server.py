@@ -1487,6 +1487,32 @@ def create_agent_mcp_server(
 
         all_tools.append(arch_set_open_question)
 
+    if "arch_set_risk" in agent_cfg.allowed_tools:
+
+        @tool(
+            "arch_set_risk",
+            "Upsert one Risk on architecture.yaml. ``risk`` is a dict "
+            "(id, text, impact, likelihood, status, spike_ticket?, "
+            "accepted_if?, blocking?, dependent_contracts?, "
+            "cascade_breaking_likely?, intent?). Idempotent on id. "
+            "Validation: when ``status`` is past ``open`` (i.e. "
+            "``spike_proposed``, ``spike_running``, ``mitigated``, "
+            "``accepted``, ``confirmed_impossible``), "
+            "``dependent_contracts`` MUST be non-empty AND ``intent`` "
+            "MUST be set — the cascade workflow needs both. ``open`` "
+            "status escapes the gate so noted-but-uncommitted risks "
+            "can be captured cheaply.",
+            {"risk": dict},
+        )
+        async def arch_set_risk(args):
+            rid = await sa_incremental_mcp.handle_arch_set_risk(
+                project_path=project_path,
+                risk=args["risk"],
+            )
+            return {"content": [{"type": "text", "text": rid}]}
+
+        all_tools.append(arch_set_risk)
+
     if "module_set_owned_collection" in agent_cfg.allowed_tools:
 
         @tool(

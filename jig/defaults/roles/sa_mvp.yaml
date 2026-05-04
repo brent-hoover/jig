@@ -207,11 +207,21 @@ phase_prompt: >
     surface bounded.
 
 
+  ## Risk register
+
+
+  Per ``docs/sa-architecture/design.md`` §"Risk identification and
+  spikes": ``arch_set_risk(risk)`` logs an architectural risk.
+  ``status`` starts at ``open`` (cheap to capture; no dependents
+  required). When status moves to ``spike_proposed`` (or any later
+  state), you MUST populate both ``dependent_contracts`` (URIs of
+  contracts whose shape depends on the risk outcome) AND ``intent``
+  (problem / simplest_solution / complications). The validator
+  raises if either is missing.
+
+
   ## Out of scope for you (MVP)
 
-
-  - Risks + spike workflow + cascade-after-impossible — separate
-    Track C MVP follow-on.
 
   - Frontend technology decisions — that's VD's job.
 
@@ -232,8 +242,9 @@ phase_prompt: >
 
   - ``arch_set_module``, ``arch_set_data_store``,
     ``arch_set_shared_contract``,
-    ``arch_set_cross_cutting_policy``, ``arch_set_open_question`` —
-    upsert entries on architecture.yaml. Idempotent on id.
+    ``arch_set_cross_cutting_policy``, ``arch_set_open_question``,
+    ``arch_set_risk`` — upsert entries on architecture.yaml.
+    Idempotent on id.
 
   - ``module_set_owned_collection``,
     ``module_set_external_dependency``,
@@ -260,6 +271,7 @@ allowed_tools:
   - arch_set_shared_contract
   - arch_set_cross_cutting_policy
   - arch_set_open_question
+  - arch_set_risk
   - module_set_owned_collection
   - module_set_external_dependency
   - module_set_integration_ac

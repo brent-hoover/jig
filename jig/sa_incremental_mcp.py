@@ -64,6 +64,8 @@ from jig.schemas.arch import (
     Module,
     OpenQuestion,
     OwnedCollection,
+    Risk,
+    RiskStatus,
     SharedContract,
 )
 from jig.spec_loader import (
@@ -84,6 +86,7 @@ __all__ = [
     "handle_arch_set_data_store",
     "handle_arch_set_module",
     "handle_arch_set_open_question",
+    "handle_arch_set_risk",
     "handle_arch_set_shared_contract",
     "handle_module_set_behavioral_contract",
     "handle_module_set_data_contract",
@@ -92,6 +95,23 @@ __all__ = [
     "handle_module_set_open_question",
     "handle_module_set_owned_collection",
 ]
+
+
+# Status values >= ``spike_proposed`` trigger the cascade-prep gates
+# (dependent_contracts + intent required) per
+# ``docs/sa-architecture/design.md`` §"Risk schema requires
+# `dependent_contracts`". ``OPEN`` is the noted-but-uncommitted state
+# that escapes the gate so the SA can capture nascent risks without
+# pre-committing to the dependency map.
+_CASCADE_PREP_STATUSES: frozenset[RiskStatus] = frozenset(
+    {
+        RiskStatus.SPIKE_PROPOSED,
+        RiskStatus.SPIKE_RUNNING,
+        RiskStatus.MITIGATED,
+        RiskStatus.ACCEPTED,
+        RiskStatus.CONFIRMED_IMPOSSIBLE,
+    }
+)
 
 
 # ---- shared helpers -------------------------------------------------------
@@ -219,6 +239,58 @@ async def handle_arch_set_open_question(
     arch.open_questions = _replace_or_append(arch.open_questions, q)
     save_architecture(project_path, arch)
     return q.id
+
+
+def _validate_risk_cascade_prep(risk: Risk) -> None:
+    """Enforce dependent_contracts + intent on risks past ``open``.
+
+    Per ``docs/sa-architecture/design.md`` §"Risk schema requires
+    ``dependent_contracts``": once a risk transitions past ``open``
+    the cascade workflow needs the dependents declared up front, and
+    every authored v2 artifact carries an intent layer. Both gates
+    fire together because they're paid at the same moment (the risk
+    moves into the spike pipeline) and a partial declaration is the
+    failure mode this catches.
+    """
+    if risk.status not in _CASCADE_PREP_STATUSES:
+        return
+    if not risk.dependent_contracts:
+        raise ValueError(
+            f"risk {risk.id!r}: dependent_contracts is required when "
+            f"status is {risk.status.value!r} (>= spike_proposed). "
+            "Without it the cascade workflow can't enumerate what "
+            "changes when a spike confirms an assumption is wrong."
+        )
+    if risk.intent is None:
+        raise ValueError(
+            f"risk {risk.id!r}: intent is required when status is "
+            f"{risk.status.value!r} (>= spike_proposed). Every v2 "
+            "artifact past the early-capture state carries an intent "
+            "layer; risks aren't an exception."
+        )
+
+
+async def handle_arch_set_risk(
+    *, project_path: Path, risk: Any
+) -> str:
+    """Upsert one Risk into architecture.yaml with cascade-prep gating.
+
+    Mirrors the other ``arch_set_*`` upserts (keyed on ``id``,
+    idempotent on re-set, accumulating across new ids). Adds two
+    gates per ``docs/sa-architecture/design.md`` §"Risk identification
+    and spikes": once a risk passes ``open``, both ``dependent_contracts``
+    and ``intent`` must be set so the cascade workflow has what it needs
+    to enumerate impact when a spike confirms an assumption is wrong.
+
+    Returns the risk id so the agent can immediately reference it from
+    ``arch_propose_spike`` without re-reading the file.
+    """
+    r = _coerce(Risk, risk, kind="risk")
+    _validate_risk_cascade_prep(r)
+    arch = _load_or_init_arch(project_path)
+    arch.risks = _replace_or_append(arch.risks, r)
+    save_architecture(project_path, arch)
+    return r.id
 
 
 # ---- modules/<m>/contracts.yaml upserts ----------------------------------

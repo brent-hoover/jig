@@ -15,6 +15,20 @@ optional — the bones reviewer's checks don't pinpoint a single line
 in every case (an empty diff has no file, an integration-AC reference
 miss spans many).
 
+Track G Final adds two optional polish fields:
+
+- ``evidence`` — list of ``Evidence`` records pointing at the source
+  material that supports the finding (a diff hunk, a test output, a
+  spec passage). Lets the operator click through to the actual
+  artifact instead of trusting the prose.
+- ``auto_apply_after`` — when populated, ``suggested_diff`` is queued
+  for auto-apply after N seconds, giving the operator a window to
+  override before the orchestrator commits. Default ``None``
+  preserves the bones-era behavior.
+
+Plus ``format_comment_markdown`` — a pure rendering helper used by the
+CLI and TUI to surface a comment in human-readable form.
+
 This shape deliberately diverges from ``jig.check_results.CheckResult``
 even though both record "something the harness checked". CheckResult is
 verdict-shaped (pass/fail/timeout/error per *check definition*);
@@ -119,6 +133,50 @@ class ReviewerCommentType(str, Enum):
 BonesCommentType = ReviewerCommentType
 
 
+class Evidence(BaseModel):
+    """One piece of supporting evidence for a reviewer comment.
+
+    Track G Final addition. Lets reviewers cite the source material
+    that backs a finding (diff hunk, test run output, static analysis
+    pointer, spec text excerpt) so the operator can click through
+    rather than re-derive context from the prose alone.
+
+    ``source`` constrains the small set of evidence kinds the
+    federation produces today — the union grows as new reviewer
+    integrations land. ``reference`` is a URI when one exists
+    (``project://...``) or a file/path string when not. ``excerpt``
+    is optional inline content (a few lines of code, a test output
+    snippet) — the operator-facing renderer truncates long excerpts
+    to keep the comment scannable.
+    """
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    source: Literal[
+        "diff",
+        "test_run",
+        "static_analysis",
+        "spec_text",
+    ]
+    reference: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "URI or path pointing at the evidence — e.g. a "
+            "project:// URI for a contract, or a repo-relative path "
+            "for a code line / test fixture."
+        ),
+    )
+    excerpt: str | None = Field(
+        default=None,
+        description=(
+            "Optional inline content — a code snippet, test output "
+            "fragment, or spec quote. Long excerpts get truncated by "
+            "the operator-facing renderer."
+        ),
+    )
+
+
 class ReviewerComment(BaseModel):
     """One finding from one reviewer.
 
@@ -219,11 +277,175 @@ class ReviewerComment(BaseModel):
             "non-converging issues."
         ),
     )
+    # Track G Final polish — see module docstring.
+    evidence: list[Evidence] = Field(
+        default_factory=list,
+        description=(
+            "Supporting evidence for the finding. Empty by default so "
+            "existing callers keep working; reviewers populate when "
+            "they have a clickable artifact to surface."
+        ),
+    )
+    auto_apply_after: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional auto-apply window in seconds. When populated, "
+            "the orchestrator queues the suggested_diff for application "
+            "after this many seconds, giving the operator a window to "
+            "override. ``None`` means no auto-apply scheduled (the "
+            "bones-era behavior). Has no effect when suggested_diff "
+            "is empty."
+        ),
+    )
+
+
+# ---- markdown rendering --------------------------------------------------
+
+
+_MAX_EXCERPT_LINES: int = 8
+_MAX_DIFF_LINES: int = 20
+
+
+def format_comment_markdown(comment: ReviewerComment) -> str:
+    """Render ``comment`` as operator-facing markdown.
+
+    Pure function — no I/O, no side effects. Used by both the CLI
+    (``jig story`` and friends) and the TUI to surface comments
+    consistently. Truncates long excerpts / diffs so a single
+    comment stays scannable; the operator can pull the full payload
+    from the JSONL store if needed.
+
+    Output shape::
+
+        ### [SEVERITY] reviewer-id — type
+        anchor: file:line OR contract_uri
+        confidence: 0.85   cadence: end_of_ticket   cycle: 0
+        > prose...
+
+        suggested diff (truncated to N lines):
+        ```diff
+        ...
+        ```
+
+        evidence:
+        - [diff] reference (excerpt...)
+    """
+    lines: list[str] = []
+
+    # Header line: severity + reviewer + type.
+    severity = (
+        comment.severity.upper()
+        if isinstance(comment.severity, str)
+        else str(comment.severity).upper()
+    )
+    lines.append(
+        f"### [{severity}] {comment.reviewer} — {comment.type}"
+    )
+
+    # Anchor line.
+    anchor = _format_anchor(comment)
+    if anchor:
+        lines.append(f"anchor: {anchor}")
+
+    # Metadata line.
+    meta_parts = [
+        f"confidence: {comment.confidence:.2f}",
+        f"cadence: {comment.cadence}",
+        f"cycle: {comment.cycle}",
+    ]
+    if comment.auto_apply_after is not None:
+        meta_parts.append(
+            f"auto-apply in: {comment.auto_apply_after}s"
+        )
+    lines.append("   ".join(meta_parts))
+    lines.append("")
+
+    # Prose as a blockquote so it's visually distinct from metadata.
+    for prose_line in comment.prose.splitlines() or [comment.prose]:
+        lines.append(f"> {prose_line}")
+    lines.append("")
+
+    # Suggested diff, truncated.
+    if comment.suggested_diff:
+        diff_lines = comment.suggested_diff.splitlines()
+        truncated = diff_lines[:_MAX_DIFF_LINES]
+        if len(diff_lines) > _MAX_DIFF_LINES:
+            note = (
+                f"suggested diff "
+                f"(truncated to {_MAX_DIFF_LINES} of "
+                f"{len(diff_lines)} lines):"
+            )
+        else:
+            note = "suggested diff:"
+        lines.append(note)
+        lines.append("```diff")
+        lines.extend(truncated)
+        lines.append("```")
+        lines.append("")
+
+    # Evidence list.
+    if comment.evidence:
+        lines.append("evidence:")
+        for ev in comment.evidence:
+            lines.append(_format_evidence_line(ev))
+        lines.append("")
+
+    # Drop the trailing blank line — markdown renderers re-add spacing.
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _format_anchor(comment: ReviewerComment) -> str:
+    """Build the anchor string ``file:line`` / ``contract_uri`` / ''.
+
+    Prefers ``file:line`` when both file and line are set; falls back
+    to bare file or to the contract URI when no file is present.
+    Empty string when the comment has no anchor at all (the
+    self-check gate normally drops these, but format remains a pure
+    function and must handle them).
+    """
+    if comment.file is not None:
+        if comment.line is not None:
+            return f"{comment.file}:{comment.line}"
+        return comment.file
+    if comment.contract_uri is not None:
+        return comment.contract_uri
+    return ""
+
+
+def _format_evidence_line(ev: Evidence) -> str:
+    """Render one evidence entry as a single bullet.
+
+    Truncates the excerpt to ``_MAX_EXCERPT_LINES`` lines so a noisy
+    test output doesn't blow up the comment view. Lossy truncation
+    is fine here — the operator can pull the full evidence from the
+    underlying artifact via ``reference``.
+    """
+    source = ev.source if isinstance(ev.source, str) else str(ev.source)
+    base = f"- [{source}] {ev.reference}"
+    if not ev.excerpt:
+        return base
+    excerpt_lines = ev.excerpt.splitlines()
+    truncated = excerpt_lines[:_MAX_EXCERPT_LINES]
+    if len(excerpt_lines) > _MAX_EXCERPT_LINES:
+        truncated.append(
+            f"... ({len(excerpt_lines) - _MAX_EXCERPT_LINES} more lines)"
+        )
+    excerpt = " ".join(line.strip() for line in truncated if line.strip())
+    if len(excerpt) > 160:
+        excerpt = excerpt[:160].rstrip() + "..."
+    if excerpt:
+        return f"{base} — {excerpt}"
+    return base
 
 
 __all__ = [
     "BonesCommentType",
+    "Evidence",
     "ReviewerComment",
     "ReviewerCommentType",
     "Severity",
+    "format_comment_markdown",
 ]

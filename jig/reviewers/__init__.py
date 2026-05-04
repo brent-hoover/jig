@@ -29,9 +29,11 @@ from __future__ import annotations
 
 from jig.reviewers.comment import (
     BonesCommentType,
+    Evidence,
     ReviewerComment,
     ReviewerCommentType,
     Severity,
+    format_comment_markdown,
 )
 from jig.reviewers.contract_compliance import ContractComplianceReviewer
 from jig.reviewers.cross_cutting_policy import CrossCuttingPolicyReviewer
@@ -65,6 +67,7 @@ __all__ = [
     "CROSS_CUTTING_REVIEWER_ID",
     "ContractComplianceReviewer",
     "CrossCuttingPolicyReviewer",
+    "Evidence",
     "INTENT_REVIEWER_ID",
     "IntentCommentType",
     "IntentComplianceReviewer",
@@ -78,6 +81,7 @@ __all__ = [
     "VISUAL_COMPLIANCE_REVIEWER_ID",
     "VisualComplianceReviewer",
     "dispatch_for_cadence",
+    "format_comment_markdown",
     "review_intent",
     "select_reviewers_for_ticket",
     "should_run_for_bones",

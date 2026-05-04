@@ -27,6 +27,7 @@ coverage_tags:
   - pm-coordinator-bones
   - dev-mock
   - reviewer-contract-compliance
+  - pydantic-renderer-auto
 
 steps:
   # ---- L0 PO --------------------------------------------------------
@@ -241,6 +242,33 @@ steps:
                   failure_modes: null
                   cross_cutting: null
 
+        # Track I Final: a data contract with inline fields → the
+        # incremental SA path auto-renders a Pydantic class to
+        # .jig/generated/contracts/catalog-ingest/product-row.py
+        # without any explicit render call.
+        - tool: module_set_data_contract
+          params:
+            module_id: catalog-ingest
+            data_contract:
+              id: product-row
+              description: One product row in the catalog.
+              fields:
+                sku: str
+                qty: int
+                title: str
+              intent:
+                problem: |
+                  The catalog needs a typed shape for product rows so
+                  Shopify ingest and downstream consumers don't drift.
+                simplest_solution: |
+                  A flat Pydantic-compatible row with sku, qty, and
+                  title; renderer materializes the class.
+                complications_considered:
+                  scale: null
+                  concurrency: null
+                  failure_modes: null
+                  cross_cutting: null
+
         # Module 2: categorization — CRUD-only; no behavioral contracts
         # is legitimate here (pure read + emit), so it declares the
         # category N/A rather than authoring an empty list.
@@ -380,5 +408,10 @@ final_assertions:
     field_constraints:
       ticket_id: tb-catalog-ingest
       to_state: resolved
+  # Track I Final: the data contract with inline fields auto-rendered
+  # to a Pydantic class file via the SA upsert path.
+  - kind: artifact_written
+    path: .jig/generated/contracts/catalog-ingest/product-row.py
+    contains: class ProductRow
   - kind: cost_under_budget
     usd: 1.0

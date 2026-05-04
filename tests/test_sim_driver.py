@@ -732,3 +732,80 @@ async def test_invoke_dev_provisioning_requires_ticket_id(tmp_path: Path):
     report = await driver.run(scn, project_root=tmp_path)
     assert not report.passed
     assert "ticket_id" in (report.step_outcomes[0].error or "")
+
+
+# ---- Track I Final: invoke_quartermaster_feedback step kind --------------
+
+
+@pytest.mark.asyncio
+async def test_invoke_quartermaster_feedback_records_row(tmp_path: Path):
+    """Standalone driver test — one feedback step writes a row + updates
+    the on-context calibration map."""
+    driver = Driver()
+    scn = Scenario(
+        id="qm-feedback-only",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_QUARTERMASTER_FEEDBACK,
+                params={
+                    "briefing_id": "brief-driver-test",
+                    "useful": False,
+                    "not_useful_pattern_ids": ["module_repeated_escalations"],
+                },
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert report.passed, report.failure_summary()
+
+    from jig.quartermaster import load_feedback
+
+    rows = await load_feedback(tmp_path)
+    assert len(rows) == 1
+    assert rows[0].briefing_id == "brief-driver-test"
+    assert rows[0].not_useful_pattern_ids == ["module_repeated_escalations"]
+
+
+@pytest.mark.asyncio
+async def test_invoke_quartermaster_feedback_requires_briefing_id(tmp_path: Path):
+    """Missing briefing_id surfaces as a step error."""
+    driver = Driver()
+    scn = Scenario(
+        id="qm-feedback-bad",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_QUARTERMASTER_FEEDBACK,
+                params={"useful": False},
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert not report.passed
+    assert "briefing_id" in (report.step_outcomes[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_invoke_quartermaster_feedback_requires_useful(tmp_path: Path):
+    """Missing useful surfaces as a step error."""
+    driver = Driver()
+    scn = Scenario(
+        id="qm-feedback-no-useful",
+        description="x",
+        persona="methodical",
+        estimated_cost_usd_max=0.0,
+        steps=[
+            ScenarioStep(
+                kind=StepKind.INVOKE_QUARTERMASTER_FEEDBACK,
+                params={"briefing_id": "brief-1"},
+            ),
+        ],
+    )
+    report = await driver.run(scn, project_root=tmp_path)
+    assert not report.passed
+    assert "useful" in (report.step_outcomes[0].error or "")

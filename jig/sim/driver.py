@@ -197,6 +197,11 @@ class DriverContext:
     # introspect this list; production drivers leave it empty.
     dev_provisioning_sql: list[str] = field(default_factory=list)
     dev_provisioning_env_vars: dict[str, str] = field(default_factory=dict)
+    # Track I Final — last computed quartermaster calibration (after
+    # invoke_quartermaster_feedback). Scenario assertions read off
+    # this so the calibration shape doesn't have to leak into
+    # ArtifactWrittenAssertion.
+    quartermaster_calibration: dict[str, int] = field(default_factory=dict)
 
 
 # ---- step handler signature ---------------------------------------------
@@ -257,6 +262,9 @@ class Driver:
                 _handle_invoke_dev_provisioning
             ),
             StepKind.INVOKE_VD_FINALIZE.value: _handle_invoke_vd_finalize,
+            StepKind.INVOKE_QUARTERMASTER_FEEDBACK.value: (
+                _handle_invoke_quartermaster_feedback
+            ),
         }
 
     @property
@@ -1333,6 +1341,52 @@ async def _handle_invoke_dev_provisioning(
         )
     ctx.dev_provisioning_sql = captured_sql
     ctx.dev_provisioning_env_vars = env_map
+
+
+async def _handle_invoke_quartermaster_feedback(
+    ctx: DriverContext, step: ScenarioStep
+) -> None:
+    """Record one quartermaster feedback row + refresh the calibration on ctx.
+
+    Scenario YAML shape::
+
+        kind: invoke_quartermaster_feedback
+        params:
+          briefing_id: brief-test-1
+          useful: false                                # required
+          not_useful_pattern_ids:                      # optional
+            - module_repeated_escalations
+          note: "operator decided this was noise"      # optional
+
+    After recording the feedback row, the handler reloads the live
+    calibration into ``ctx.quartermaster_calibration`` so a follow-
+    up assertion (e.g. ``artifact_written`` against the JSONL +
+    operator-supplied content checks) can verify the threshold
+    actually shifted. Track I Final exercise of the feedback loop.
+    """
+    from jig.quartermaster import (
+        get_pattern_calibration,
+        record_feedback,
+    )
+
+    if "briefing_id" not in step.params:
+        raise ValueError(
+            "invoke_quartermaster_feedback: params.briefing_id is required"
+        )
+    if "useful" not in step.params:
+        raise ValueError(
+            "invoke_quartermaster_feedback: params.useful is required"
+        )
+
+    await record_feedback(
+        ctx.project_root,
+        briefing_id=step.params["briefing_id"],
+        useful=bool(step.params["useful"]),
+        not_useful_pattern_ids=step.params.get("not_useful_pattern_ids") or [],
+        note=step.params.get("note") or None,
+    )
+    cal = await get_pattern_calibration(ctx.project_root)
+    ctx.quartermaster_calibration = dict(cal.thresholds)
 
 
 async def _handle_run_reviewer(

@@ -72,6 +72,10 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "vd-finalize",
     "wireframe-lint",
     "visual-compliance",
+    # Track I Final — quartermaster feedback loop + Pydantic auto-render
+    # on data-contract upsert.
+    "quartermaster-feedback",
+    "pydantic-renderer-auto",
 })
 
 

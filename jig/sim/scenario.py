@@ -127,6 +127,14 @@ class StepKind(str, Enum):
     # visual_compliance reviewer steps fire.
     INVOKE_VD_FINALIZE = "invoke_vd_finalize"
 
+    # Track I Final — exercise the quartermaster feedback loop.
+    # Calls record_feedback against the project's quartermaster
+    # store with operator-supplied (briefing_id, useful, noisy
+    # patterns) values; lets a scenario assert that the calibration
+    # actually shifted by reading it back via get_pattern_calibration.
+    # Mock-mode safe (no LLM); real-mode runs are out of scope.
+    INVOKE_QUARTERMASTER_FEEDBACK = "invoke_quartermaster_feedback"
+
 
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.

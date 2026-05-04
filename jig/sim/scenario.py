@@ -1,4 +1,4 @@
-"""Scenario YAML schema for the synthetic operator (Track H1, bones).
+"""Scenario YAML schema for the synthetic operator (Track H1 + H MVP).
 
 A scenario is a fully-scripted walk through the v2 lifecycle. Each step
 names a ``StepKind`` (the v2-helper to invoke) plus its params; the
@@ -6,22 +6,21 @@ driver dispatches on ``kind`` and runs the step. Per-step assertions
 fire after each step; ``final_assertions`` fire after every step
 completes.
 
-Bones-subset of the design.md scenario format: scripted turns only (no
-policy-driven), no ``coverage_tags`` (Track H9), no ``retry_count``
-(Track H11), no ``tier`` (CI tiering is Track H11). The full scenario
-schema is a superset and the bones loader rejects extra fields so
-forward additions land via explicit schema bumps.
+Track H MVP added ``coverage_tags`` (validated against the canonical
+taxonomy in ``jig.sim.coverage``) + ``tier`` for CI integration.
+Policy-driven turns + ``retry_count`` are Final.
 """
 from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.sim.assertions import ScenarioAssertionUnion
+from jig.sim.coverage import CANONICAL_TAGS
 
 __all__ = [
     "Scenario",
@@ -130,12 +129,20 @@ class ScenarioStep(BaseModel):
 
 
 class Scenario(BaseModel):
-    """A bones-scope scenario.
+    """A bones+MVP-scope scenario.
 
-    The bones loader rejects extra fields so forward design-doc
-    additions (``coverage_tags``, ``tier``, ``retry_count``,
-    ``policy``) require an explicit schema change rather than silently
-    landing via untyped YAML.
+    The loader rejects extra fields so forward design-doc additions
+    (``retry_count``, ``policy``) require an explicit schema change
+    rather than silently landing via untyped YAML.
+
+    ``coverage_tags`` are validated against the canonical taxonomy in
+    ``jig.sim.coverage`` so a typo in a YAML fails at load time
+    rather than producing a one-off tag nobody else claims.
+
+    ``tier`` defaults to ``smoke`` (the MVP scenarios all run in
+    <1s in mock mode). Operators tag scenarios ``full`` or
+    ``nightly`` as the library expands; ``jig sim run-tier`` filters
+    on this field.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -147,6 +154,25 @@ class Scenario(BaseModel):
     estimated_cost_usd_max: float = Field(..., ge=0.0)
     steps: list[ScenarioStep] = Field(default_factory=list)
     final_assertions: list[ScenarioAssertionUnion] = Field(default_factory=list)
+    coverage_tags: list[str] = Field(default_factory=list)
+    tier: Literal["smoke", "full", "nightly"] = "smoke"
+
+    @field_validator("coverage_tags")
+    @classmethod
+    def _coverage_tags_must_be_canonical(cls, v: list[str]) -> list[str]:
+        """Reject tags not in ``jig.sim.coverage.CANONICAL_TAGS``.
+
+        Catching this at load time means a typo (e.g. ``po-l9``)
+        fails the scenario test rather than silently producing an
+        un-aggregatable tag.
+        """
+        unknown = [t for t in v if t not in CANONICAL_TAGS]
+        if unknown:
+            raise ValueError(
+                f"coverage_tags contain unknown tag(s) {unknown!r}; "
+                f"add to jig.sim.coverage.CANONICAL_TAGS or fix the typo"
+            )
+        return v
 
 
 def load_scenario(path: Path) -> Scenario:

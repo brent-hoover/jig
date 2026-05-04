@@ -24,6 +24,14 @@ description: |
 
 persona: ambivalent
 estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l1
+  - po-l3
+  - sa-bones
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
 
 steps:
   # ---- L0 PO --------------------------------------------------------

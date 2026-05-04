@@ -1,11 +1,10 @@
-"""``jig sim`` CLI surface (Track H5, bones).
+"""``jig sim`` CLI surface (Track H5 bones + Track H MVP).
 
-Bones ships ``jig sim run <scenario.yaml>`` only — the minimum CLI the
-operator needs to run the bones-walking-skeleton scenario manually.
-The full ``jig sim`` surface from ``docs/synthetic-operator/design.md``
-(``run-tier``, ``coverage``, ``realism``) lands in MVP/Final.
+Bones shipped ``jig sim run <scenario.yaml>``. Track H MVP added
+``coverage`` (aggregate coverage report across the scenario library)
+and the realism-budget + run-tier surfaces.
 
-Two run modes:
+Two run modes for ``jig sim run``:
 
 - **mock** (default; CI-safe; no LLM cost) — the dev step is replaced
   with a deterministic helper that satisfies the bones reviewer's
@@ -34,10 +33,35 @@ from pathlib import Path
 
 import click
 
+from jig.sim.coverage import compute_coverage, format_coverage
 from jig.sim.driver import Driver, ScenarioReport
-from jig.sim.scenario import load_scenario
+from jig.sim.scenario import Scenario, load_scenario
 
 __all__ = ["sim"]
+
+
+# Default scenario library: the bundled scenarios live under
+# ``tests/scenarios/`` (versioned with the test suite — they're the
+# fixtures the in-tree sim tests run). Operators with their own
+# scenario sets pass ``--scenarios <dir>`` to point elsewhere.
+_DEFAULT_SCENARIO_DIR = (
+    Path(__file__).resolve().parents[2] / "tests" / "scenarios"
+)
+
+
+def _load_scenario_library(path: Path) -> list[Scenario]:
+    """Load every ``*.scenario.yaml`` under ``path`` (recursive).
+
+    Returns scenarios sorted by id for deterministic CLI output.
+    Empty directory → empty list (compute_coverage handles that).
+    """
+    if path.is_file():
+        return [load_scenario(path)]
+    scenarios: list[Scenario] = []
+    for src in sorted(path.rglob("*.scenario.yaml")):
+        scenarios.append(load_scenario(src))
+    scenarios.sort(key=lambda s: s.id)
+    return scenarios
 
 
 def _under_pytest() -> bool:
@@ -146,6 +170,31 @@ def run(scenario: Path, real: bool, yes: bool) -> None:
         _print_report(report)
         if not report.passed:
             sys.exit(1)
+
+
+@sim.command(name="coverage")
+@click.option(
+    "--scenarios",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help=(
+        "Path to a scenario file or directory. Defaults to the in-tree "
+        "scenario library (tests/scenarios/). Operators with their own "
+        "scenarios pass a directory."
+    ),
+)
+def coverage(scenarios: Path | None) -> None:
+    """Print a markdown coverage report across the scenario library.
+
+    Aggregates ``coverage_tags`` per scenario against the canonical
+    taxonomy in ``jig.sim.coverage.CANONICAL_TAGS``. Surfaces gap
+    tags (canonical tags that no scenario claims) so the operator
+    knows what to write next.
+    """
+    src = scenarios if scenarios is not None else _DEFAULT_SCENARIO_DIR
+    library = _load_scenario_library(src)
+    report = compute_coverage(library)
+    click.echo(format_coverage(report))
 
 
 def _confirm_real_mode(estimated_cost_usd_max: float, *, assume_yes: bool) -> bool:

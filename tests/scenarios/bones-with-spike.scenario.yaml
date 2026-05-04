@@ -14,6 +14,18 @@ description: |
 
 persona: methodical
 estimated_cost_usd_max: 1.0
+coverage_tags:
+  - po-l0
+  - po-l1
+  - po-l2
+  - po-l3
+  - sa-incremental
+  - sa-risks
+  - sa-spike-mitigated
+  - pm-planner
+  - pm-coordinator-bones
+  - dev-mock
+  - reviewer-contract-compliance
 
 steps:
   # ---- L0 PO --------------------------------------------------------

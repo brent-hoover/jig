@@ -1,0 +1,192 @@
+"""Scenario coverage taxonomy + aggregation (Track H MVP follow-on).
+
+Per ``docs/synthetic-operator/design.md`` §"Coverage metrics", each
+scenario tags itself with ``coverage_tags`` naming the workflow paths
+it exercises. The aggregate coverage view answers:
+
+- which canonical tags are exercised by at least one scenario?
+- which canonical tags have zero scenario coverage (gaps)?
+- per-tag, which scenarios cover it?
+
+For MVP scope the taxonomy is a small enum-ish constants module so
+tags don't drift across scenario files — every tag a scenario claims
+must appear in ``CANONICAL_TAGS`` or schema-load fails. The Final
+upgrade adds tier-coverage + persona-x-stage-coverage.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Final
+
+from pydantic import BaseModel, ConfigDict, Field
+
+__all__ = [
+    "CANONICAL_TAGS",
+    "CoverageReport",
+    "TagCoverage",
+    "compute_coverage",
+    "format_coverage",
+]
+
+
+# Canonical taxonomy. Drawn from the constraint list in the Track H
+# follow-on task description; one source of truth so a typo in a
+# scenario YAML fails schema validation rather than silently
+# producing a tag nobody else claims.
+#
+# Adding a new tag: append here, then claim it from at least one
+# scenario YAML's ``coverage_tags``. Removing a tag is a breaking
+# change — bump the schema version + sweep scenario files.
+CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
+    # PO ladder — L0 pitch, L1 discovery, L2 organizer, L3 brief.
+    "po-l0",
+    "po-l1",
+    "po-l2",
+    "po-l3",
+    # SA — bones (hand-write), MVP incremental loop, risk register +
+    # spike + cascade workflows.
+    "sa-bones",
+    "sa-incremental",
+    "sa-risks",
+    "sa-spike-mitigated",
+    "sa-spike-confirmed-impossible",
+    "sa-cascade",
+    # PM — Planner agent, Coordinator (bones one-shot, MVP cycle-aware,
+    # multi-layer dispatch, DEFERRED queue).
+    "pm-planner",
+    "pm-coordinator-bones",
+    "pm-coordinator-multi-layer",
+    "pm-deferred",
+    # Dev — mock vs real LLM mode.
+    "dev-mock",
+    "dev-real",
+    # Reviewer federation — bones contract-compliance + the MVP set.
+    "reviewer-contract-compliance",
+    "reviewer-cross-cutting-policy",
+    "reviewer-spec-compliance",
+    "reviewer-intent-compliance",
+})
+
+
+class TagCoverage(BaseModel):
+    """Per-tag aggregation: who covers it + how many."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str
+    scenario_ids: list[str] = Field(default_factory=list)
+
+    @property
+    def covered(self) -> bool:
+        return len(self.scenario_ids) > 0
+
+    @property
+    def count(self) -> int:
+        return len(self.scenario_ids)
+
+
+class CoverageReport(BaseModel):
+    """Coverage aggregate across the scenario library.
+
+    Built by ``compute_coverage(scenarios)``. Renders to markdown via
+    ``format_coverage(report)``. Surfaces gaps (canonical tags with
+    zero scenario coverage) prominently — those are the next
+    scenarios the operator should write.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_scenarios: int
+    per_tag: dict[str, TagCoverage]
+    unknown_tags: list[str] = Field(default_factory=list)
+
+    @property
+    def covered_tags(self) -> list[str]:
+        return sorted(t for t, c in self.per_tag.items() if c.covered)
+
+    @property
+    def gap_tags(self) -> list[str]:
+        return sorted(t for t, c in self.per_tag.items() if not c.covered)
+
+
+# Imported lazily inside the function to avoid a circular import
+# (scenario imports assertions imports nothing here, but the public
+# ``Scenario`` type lives in ``jig.sim.scenario`` which should depend
+# on this module, not the other way round).
+def compute_coverage(scenarios: list) -> CoverageReport:  # type: ignore[type-arg]
+    """Aggregate ``coverage_tags`` across a list of ``Scenario`` objects.
+
+    Returns a ``CoverageReport`` carrying per-tag coverage state +
+    a list of any tags claimed by scenarios that aren't in
+    ``CANONICAL_TAGS`` (validation should have caught those at load
+    time, but a mismatched library state surfaces them here too).
+
+    Empty input → report with zero scenarios and the canonical tags
+    all present-but-uncovered.
+    """
+    per_tag: dict[str, TagCoverage] = {
+        tag: TagCoverage(tag=tag) for tag in sorted(CANONICAL_TAGS)
+    }
+    unknown: set[str] = set()
+    by_tag: dict[str, list[str]] = defaultdict(list)
+    for scn in scenarios:
+        for tag in getattr(scn, "coverage_tags", []) or []:
+            if tag not in CANONICAL_TAGS:
+                unknown.add(tag)
+                continue
+            by_tag[tag].append(scn.id)
+    for tag, ids in by_tag.items():
+        per_tag[tag] = TagCoverage(tag=tag, scenario_ids=sorted(set(ids)))
+    return CoverageReport(
+        total_scenarios=len(scenarios),
+        per_tag=per_tag,
+        unknown_tags=sorted(unknown),
+    )
+
+
+def format_coverage(report: CoverageReport) -> str:
+    """Markdown rendering of a ``CoverageReport``.
+
+    Three sections: summary line, covered tags w/ scenario list,
+    gap tags (canonical tags that no scenario claims). Operator-
+    readable; gets piped into ``jig sim coverage`` stdout.
+    """
+    lines: list[str] = []
+    covered = report.covered_tags
+    gaps = report.gap_tags
+    lines.append("# Scenario coverage report")
+    lines.append("")
+    lines.append(
+        f"Scenarios analyzed: {report.total_scenarios} | "
+        f"Tags covered: {len(covered)}/{len(CANONICAL_TAGS)} | "
+        f"Gaps: {len(gaps)}"
+    )
+    lines.append("")
+
+    lines.append("## Covered tags")
+    lines.append("")
+    if not covered:
+        lines.append("_(no tags covered)_")
+    else:
+        for tag in covered:
+            ids = report.per_tag[tag].scenario_ids
+            lines.append(f"- `{tag}` ({len(ids)}): {', '.join(ids)}")
+    lines.append("")
+
+    lines.append("## Gap tags (no scenario coverage)")
+    lines.append("")
+    if not gaps:
+        lines.append("_(none — every canonical tag is covered)_")
+    else:
+        for tag in gaps:
+            lines.append(f"- `{tag}`")
+    lines.append("")
+
+    if report.unknown_tags:
+        lines.append("## Unknown tags (claimed but not in canonical taxonomy)")
+        lines.append("")
+        for tag in report.unknown_tags:
+            lines.append(f"- `{tag}`")
+        lines.append("")
+
+    return "\n".join(lines)

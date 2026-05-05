@@ -112,6 +112,9 @@ class ReviewerCommentType(str, Enum):
     # against the suite's structured spec, plus capability-id sanity.
     BEHAVIOR_AC_NOT_REFERENCED = "behavior-ac-not-referenced"
     CAPABILITY_NOT_FOUND_IN_SPEC = "capability-not-found-in-spec"
+    # Tradeoff compliance (Phase 1). Fired when a ticket re-adds work
+    # that was explicitly deferred to a later layer in the tradeoff ledger.
+    DEFERRED_WORK_REINTRODUCED = "deferred-work-reintroduced"
     # Judgment reviewers (Track G MVP follow-on). One per role; the
     # comment-type maps 1:1 to the reviewer that produces it. Confidence
     # < 1.0 by convention.

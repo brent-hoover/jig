@@ -1482,6 +1482,56 @@ def create_agent_mcp_server(
 
         all_tools.append(l3_finalize)
 
+    if "add_tradeoff" in agent_cfg.allowed_tools:
+        import jig.po_tradeoffs_mcp as po_tradeoffs_mcp
+
+        @tool(
+            "add_tradeoff",
+            "Record or update a deliberate scope decision in the tradeoff ledger "
+            "(.jig/spec/tradeoffs.yaml). The tradeoff-compliance reviewer "
+            "will flag any ticket that appears to re-add deferred work listed here. "
+            "``deferred_to`` is one of 'mvp', 'final', or 'never'.",
+            {
+                "id": str,
+                "decision_summary": str,
+                "deferred": list,
+                "deferred_to": str,
+                "rationale": str,
+                "capability_ids": list,
+            },
+        )
+        async def add_tradeoff(args):
+            result = await po_tradeoffs_mcp.handle_add_tradeoff(
+                project_path=project_path,
+                id=args["id"],
+                decision_summary=args["decision_summary"],
+                deferred=args.get("deferred", []),
+                deferred_to=args["deferred_to"],
+                rationale=args["rationale"],
+                capability_ids=args.get("capability_ids", []),
+            )
+            return {"content": [{"type": "text", "text": str(result)}]}
+
+        all_tools.append(add_tradeoff)
+
+    if "list_tradeoffs" in agent_cfg.allowed_tools:
+        import jig.po_tradeoffs_mcp as po_tradeoffs_mcp  # noqa: F811
+
+        @tool(
+            "list_tradeoffs",
+            "Return all tradeoffs from the ledger, optionally filtered by capability_id.",
+            {"capability_id": str},
+        )
+        async def list_tradeoffs(args):
+            result = await po_tradeoffs_mcp.handle_list_tradeoffs(
+                project_path=project_path,
+                capability_id=args.get("capability_id"),
+            )
+            import json
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(list_tradeoffs)
+
     if "sa_finalize" in agent_cfg.allowed_tools:
 
         @tool(

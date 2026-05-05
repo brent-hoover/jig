@@ -73,6 +73,9 @@ VISUAL_COMPLIANCE_REVIEWER_ID = "visual-compliance"
 # carry a non-empty visual_references list. Mechanical: no LLM.
 ACCESSIBILITY_REVIEWER_ID = "accessibility"
 RESPONSIVE_REVIEWER_ID = "responsive-design"
+# Phase 1 — tradeoff-compliance: flags tickets that re-add capability work
+# deferred to a later layer in the tradeoff ledger. Mechanical, no LLM.
+TRADEOFF_COMPLIANCE_REVIEWER_ID = "tradeoff-compliance"
 
 # Track G Final — specialty reviewers auto-selected by ticket
 # characteristics (labels, dev_tier, module tier_hint, AC text).
@@ -213,6 +216,7 @@ _MECHANICAL_REVIEWER_IDS: list[str] = [
     BONES_REVIEWER_ID,
     CROSS_CUTTING_REVIEWER_ID,
     SPEC_COMPLIANCE_REVIEWER_ID,
+    TRADEOFF_COMPLIANCE_REVIEWER_ID,
     # Visual-compliance MVP is mechanical (no vision); the per-commit
     # cadence runs it on every commit so the dev catches missing /
     # broken / unreferenced wireframes before integration. The reviewer
@@ -231,7 +235,11 @@ _MECHANICAL_REVIEWER_IDS: list[str] = [
 # federation — selection logic" — they apply at every layer including
 # bones, so cross-cutting joins contract-compliance in the bones
 # default-on subset.
-_BONES_DEFAULTS: list[str] = [BONES_REVIEWER_ID, CROSS_CUTTING_REVIEWER_ID]
+_BONES_DEFAULTS: list[str] = [
+    BONES_REVIEWER_ID,
+    CROSS_CUTTING_REVIEWER_ID,
+    TRADEOFF_COMPLIANCE_REVIEWER_ID,
+]
 
 # MVP / final default set. ``contract-compliance`` is reused from the
 # bones default — every ticket benefits from the diff/AC checks, not
@@ -242,6 +250,7 @@ _MVP_FINAL_DEFAULTS: list[str] = [
     INTENT_REVIEWER_ID,
     CROSS_CUTTING_REVIEWER_ID,
     SPEC_COMPLIANCE_REVIEWER_ID,
+    TRADEOFF_COMPLIANCE_REVIEWER_ID,
 ]
 
 
@@ -610,6 +619,12 @@ async def dispatch_for_cadence(
             base_ref=base_ref,
         )
         out[RESPONSIVE_REVIEWER_ID] = _tag_cadence(comments, cadence)
+
+    if TRADEOFF_COMPLIANCE_REVIEWER_ID in reviewer_ids:
+        from jig.reviewers.tradeoff_compliance import TradeoffComplianceReviewer
+
+        comments = await TradeoffComplianceReviewer().review(ticket, project_root)
+        out[TRADEOFF_COMPLIANCE_REVIEWER_ID] = _tag_cadence(comments, cadence)
 
     if INTENT_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
         # Intent reviewer runs against authored artifacts (Modules,

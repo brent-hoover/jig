@@ -150,6 +150,10 @@ class Ticket(StoreModel):
     context_hints: dict[str, Any] = Field(default_factory=dict)
     risks_addressed: list[str] = Field(default_factory=list)
     done_when: str | None = None
+    # Phase 1 — example-first AC: structured given/when/then scenarios
+    # for this ticket. Reviewers and the sim driver consume these instead
+    # of parsing prose. Each entry is {"given": ..., "when": ..., "then": ...}.
+    examples: list[dict[str, str]] = Field(default_factory=list)
 
     # v2 Track D MVP — VD wireframes referenced by this ticket. Each
     # entry is a screen-id matching a ``.jig/spec/wireframes/<id>.html``

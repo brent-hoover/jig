@@ -9,7 +9,7 @@ work.
 
 Jig seeks to achieve two things:
 
-1. Make agents better at what they already do well
+### Make agents better at what they already do well
 
 Coding agents are good at small, well-scoped tasks and bad at big ones. Left to their own devices on a medium-or-larger
 project, an agent will produce a plausible-looking pile of code that doesn't actually do what the app is supposed to do.
@@ -17,7 +17,7 @@ Jig's job is to keep the agent on the small-task side of that line, while still 
 fit together. **Correctness — does the app actually do what it's supposed to do — is the bar.** Everything below is in
 the service of that.
 
-2. Make Humans better at what they do well
+### Make Humans better at what they do well
 Projects often require more thought than most people think. The second goal is to make humans better at what they do
 well, which is thinking deeply and driving the project. Jig applies a layer of thinking discipline that smaller projects
 don't usually have. Humans understand the "why" of the project. They see how it helps people in the real world. They

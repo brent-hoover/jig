@@ -165,6 +165,8 @@ allowed_tools:
   - Read
   - ask_question
   - l3_finalize
+  - add_tradeoff
+  - list_tradeoffs
 allowed_mcps: []
 strict_tools: true
 default_context:

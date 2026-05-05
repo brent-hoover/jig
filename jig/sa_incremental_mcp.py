@@ -1363,6 +1363,59 @@ def _validate_module_link(arch: Architecture, module_ids: set[str]) -> None:
         )
 
 
+def _validate_consumption_refs(
+    arch: "Architecture",
+    contracts_by_module: "dict[str, ContractsFile]",
+) -> None:
+    """Verify Module.consumes_apis and consumes_events resolve to real entries.
+
+    For each ApiConsumption entry on a module, checks that the named
+    provider module has a contracts.yaml with an ExposedAPI whose ``name``
+    matches.  For EventConsumption, checks EmittedEvent.name on the
+    publisher's contracts.
+
+    Raises ValueError listing all broken references so the SA sees the
+    full set at once rather than fixing one at a time.
+    """
+    errors: list[str] = []
+    for module in arch.modules:
+        for api_cons in module.consumes_apis:
+            provider_cf = contracts_by_module.get(api_cons.module)
+            if provider_cf is None:
+                errors.append(
+                    f"{module.id}.consumes_apis: provider module "
+                    f"'{api_cons.module}' has no contracts.yaml"
+                )
+                continue
+            known = {e.name for e in provider_cf.exposes}
+            if api_cons.name not in known:
+                errors.append(
+                    f"{module.id}.consumes_apis: '{api_cons.name}' not found "
+                    f"in {api_cons.module}.exposes (known: {sorted(known)!r})"
+                )
+
+        for ev_cons in module.consumes_events:
+            publisher_cf = contracts_by_module.get(ev_cons.module)
+            if publisher_cf is None:
+                errors.append(
+                    f"{module.id}.consumes_events: publisher module "
+                    f"'{ev_cons.module}' has no contracts.yaml"
+                )
+                continue
+            known_ev = {e.name for e in publisher_cf.emits}
+            if ev_cons.name not in known_ev:
+                errors.append(
+                    f"{module.id}.consumes_events: '{ev_cons.name}' not found "
+                    f"in {ev_cons.module}.emits (known: {sorted(known_ev)!r})"
+                )
+
+    if errors:
+        raise ValueError(
+            "arch_finalize: consumption cross-reference errors:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
 def _collect_authored_module_ids(project_path: Path) -> list[str]:
     """Return every module id that has a contracts.yaml on disk.
 
@@ -1468,6 +1521,12 @@ async def handle_arch_finalize(
                 ),
             )
         )
+
+    # Phase 2 dep-graph PR #1 — consumption cross-reference validation.
+    # Each Module.consumes_apis entry must resolve to a real ExposedAPI on
+    # the named provider; likewise for consumes_events vs. EmittedEvent.
+    # Fails loud at finalize so the SA sees the breakage before PM planning.
+    _validate_consumption_refs(arch, contracts_by_module)
 
     handoff = Handoff(
         ticket_id=SA_TICKET_ID,

@@ -333,6 +333,28 @@ class Risk(BaseModel):
         return self
 
 
+class ApiConsumption(BaseModel):
+    """Declares that this module calls an API exposed by another module."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    module: str = Field(..., min_length=1, description="Provider module id.")
+    name: str = Field(
+        ..., min_length=1, description="API name as declared in provider's exposes[]."
+    )
+
+
+class EventConsumption(BaseModel):
+    """Declares that this module subscribes to an event emitted by another module."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    module: str = Field(..., min_length=1, description="Publisher module id.")
+    name: str = Field(
+        ..., min_length=1, description="Event name as declared in publisher's emits[]."
+    )
+
+
 class Module(BaseModel):
     """A module entry in architecture.yaml."""
 
@@ -384,6 +406,12 @@ class Module(BaseModel):
             "boolean toggle."
         ),
     )
+    # Phase 2 dep-graph PR #1 — declared consumption edges. The graph
+    # builder uses these to construct consumes edges without static
+    # import analysis. arch_finalize validates that each entry resolves
+    # to a real ExposedAPI / EmittedEvent on the named provider.
+    consumes_apis: list[ApiConsumption] = Field(default_factory=list)
+    consumes_events: list[EventConsumption] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -675,9 +703,11 @@ class ExposedAPI(BaseModel):
             "class name, endpoint path, CLI subcommand, etc.)."
         ),
     )
-    kind: Literal["function", "class", "endpoint", "cli", "other"] = (
-        "function"
-    )
+    kind: Literal[
+        "function", "class", "endpoint", "cli",
+        "route", "migration", "env_var",
+        "other",
+    ] = "function"
     summary: str = Field(
         ...,
         min_length=1,

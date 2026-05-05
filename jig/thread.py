@@ -318,6 +318,37 @@ class Handoff(_ThreadEntryBase):
     outputs: list[str] = Field(default_factory=list)
     summary: str = ""
     deferred_items: list[DeferredItem] = Field(default_factory=list)
+    # Phase 2 — integration checkpoint fields. All optional (defaults []
+    # preserve backward compat with existing Handoff records). Downstream
+    # phases inspect these so integration drift is visible before runtime.
+    new_public_surfaces: list[str] = Field(
+        default_factory=list,
+        description=(
+            "New routes, events, APIs, env vars, or migrations this phase "
+            "exposed. Signals to the next phase what new contracts to test."
+        ),
+    )
+    changed_assumptions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Assumptions that changed vs. what was planned — e.g. a module "
+            "changed its owned collection shape mid-phase."
+        ),
+    )
+    required_followups: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Work that must happen before the next phase can succeed — "
+            "e.g. 'consumer-driven test for event X must be added'."
+        ),
+    )
+    unknowns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Open questions not resolved during this phase — carry them "
+            "forward so the next phase owner is aware."
+        ),
+    )
     acceptance_state: Literal["pending", "accepted", "rejected"] = "pending"
     accepted_by: str | None = None
     rejection_reason: str | None = None

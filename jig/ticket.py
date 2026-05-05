@@ -16,6 +16,37 @@ _ALLOWED_LAYERS = frozenset({"bones", "mvp", "final"})
 _ALLOWED_DEV_TIERS = frozenset({"standard", "senior", "sa"})
 
 
+class TicketTouches(BaseModel):
+    """Explicit cross-boundary touch declarations for a ticket.
+
+    Phase 2 dep-graph PR #1: supplements the flat module_id + capability_ids
+    pair. The graph builder uses these to root the impact view. Optional;
+    defaults to all-empty. Tickets without an explicit touches get a best-
+    effort impact view from (module_id, capability_ids).
+
+    SA-tier tickets with empty touches are flagged by the dispatch logic
+    as a notable reviewer finding — they probably need explicit declaration.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    modules: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    exposed_apis: list[str] = Field(
+        default_factory=list, description="'<module>:<name>'"
+    )
+    emitted_events: list[str] = Field(default_factory=list)
+    consumed_events: list[str] = Field(default_factory=list)
+    data_stores: list[str] = Field(default_factory=list)
+    behavioral_contracts: list[str] = Field(default_factory=list)
+    data_contracts: list[str] = Field(default_factory=list)
+    routes: list[str] = Field(
+        default_factory=list, description="'<METHOD> <path>'"
+    )
+    migrations: list[str] = Field(default_factory=list)
+    env_vars: list[str] = Field(default_factory=list)
+
+
 class TicketPlanMetadata(BaseModel):
     """Read-only typed view over the v2 build-plan fields on Ticket.
 
@@ -150,10 +181,10 @@ class Ticket(StoreModel):
     context_hints: dict[str, Any] = Field(default_factory=dict)
     risks_addressed: list[str] = Field(default_factory=list)
     done_when: str | None = None
-    # Phase 1 — example-first AC: structured given/when/then scenarios
-    # for this ticket. Reviewers and the sim driver consume these instead
-    # of parsing prose. Each entry is {"given": ..., "when": ..., "then": ...}.
     examples: list[dict[str, str]] = Field(default_factory=list)
+    # Phase 2 dep-graph PR #1 — explicit cross-boundary declarations.
+    # Optional; graph falls back to (module_id, capability_ids) when empty.
+    touches: TicketTouches = Field(default_factory=TicketTouches)
 
     # v2 Track D MVP — VD wireframes referenced by this ticket. Each
     # entry is a screen-id matching a ``.jig/spec/wireframes/<id>.html``

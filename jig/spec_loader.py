@@ -33,6 +33,7 @@ from jig.atomic import atomic_write_text
 from jig.safe_path import validate_safe_path_segment
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.dev_env import DevManifest
+from jig.schemas.tracer import TracerSpec
 from jig.schemas.design_system import (
     DEFAULT_BRAND,
     DEFAULT_COMPONENTS,
@@ -710,3 +711,53 @@ def save_wireframe(project_root: Path, screen_id: str, html: str) -> None:
     file-write rejection).
     """
     atomic_write_text(wireframe_path(project_root, screen_id), html)
+
+
+# ---- tracer helpers (Phase 5.12) ----------------------------------------
+
+
+def tracers_dir(project_root: Path) -> Path:
+    """``.jig/spec/tracers/`` — directory containing per-tracer YAML files."""
+    return project_root / ".jig" / "spec" / "tracers"
+
+
+def tracer_path(project_root: Path, tracer_id: str) -> Path:
+    """``.jig/spec/tracers/<tracer_id>.yaml``."""
+    validate_safe_path_segment(tracer_id, "tracer_id")
+    return tracers_dir(project_root) / f"{tracer_id}.yaml"
+
+
+def load_tracer(project_root: Path, tracer_id: str) -> TracerSpec:
+    """Load and validate a tracer spec; raise ``FileNotFoundError`` if absent."""
+    src = tracer_path(project_root, tracer_id)
+    if not src.is_file():
+        raise FileNotFoundError(f"tracer {tracer_id!r} not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return TracerSpec.model_validate(data)
+
+
+def load_all_tracers(project_root: Path) -> list[TracerSpec]:
+    """Return every tracer spec under ``.jig/spec/tracers/``.
+
+    Silently skips files that fail validation so a corrupt tracer doesn't
+    block the caller (e.g. ``build_graph``). Returns an empty list when the
+    directory doesn't exist.
+    """
+    d = tracers_dir(project_root)
+    if not d.is_dir():
+        return []
+    out: list[TracerSpec] = []
+    for p in sorted(d.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(p.read_text()) or {}
+            out.append(TracerSpec.model_validate(data))
+        except Exception:
+            continue
+    return out
+
+
+def save_tracer(project_root: Path, tracer: TracerSpec) -> None:
+    """Atomically write a tracer spec to ``.jig/spec/tracers/<id>.yaml``."""
+    path = tracer_path(project_root, tracer.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, yaml.safe_dump(tracer.model_dump(mode="json"), sort_keys=False))

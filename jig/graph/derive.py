@@ -223,6 +223,33 @@ def build_graph(project_root: Path) -> DependencyGraph:
         except Exception:
             pass
 
+    # Tracers (Phase 5.12)
+    try:
+        from jig.spec_loader import load_all_tracers
+
+        for tr in load_all_tracers(project_root):
+            tr_nid = f"tracer:{tr.id}"
+            _add_node(Node(
+                id=tr_nid,
+                kind="tracer",
+                title=tr.description,
+                uri=f"project://spec/tracers/{tr.id}",
+            ))
+            for mod_id in tr.covers.modules:
+                _add_edge(Edge(src=tr_nid, dst=f"module:{mod_id}", kind="covers"))
+            for cap_id in tr.covers.capabilities:
+                _add_edge(Edge(src=tr_nid, dst=f"capability:{cap_id}", kind="covers"))
+            for api_ref in tr.covers.exposed_apis:
+                parts = api_ref.split(":", 1)
+                if len(parts) == 2:
+                    _add_edge(Edge(src=tr_nid, dst=f"exposed_api:{parts[0]}:{parts[1]}", kind="covers"))
+            for ev_ref in tr.covers.emitted_events:
+                parts = ev_ref.split(":", 1)
+                if len(parts) == 2:
+                    _add_edge(Edge(src=tr_nid, dst=f"emitted_event:{parts[0]}:{parts[1]}", kind="covers"))
+    except Exception:
+        pass
+
     # Tickets from the JSONL store
     tickets_path = project_root / ".jig" / "store" / "tickets.jsonl"
     if tickets_path.exists():
@@ -351,12 +378,18 @@ def ticket_impact(
         if incoming:
             consumers[nid] = incoming
 
-    # Exercised tracers in the walked subgraph
-    exercised_tracers = [
-        node_map[nid]
-        for nid in all_walked
-        if nid in node_map and node_map[nid].kind == "tracer"
-    ]
+    # Exercised tracers: tracers whose "covers" edge points at a directly
+    # touched node. Tracers point TO modules (tracer → module), so we
+    # check incoming "covers" edges on each touched node.
+    seen_tracers: set[str] = set()
+    exercised_tracers: list[Node] = []
+    for nid in directly_touched:
+        for e in graph.edges:
+            if e.dst == nid and e.kind == "covers" and e.src not in seen_tracers:
+                tr_node = node_map.get(e.src)
+                if tr_node is not None and tr_node.kind == "tracer":
+                    seen_tracers.add(e.src)
+                    exercised_tracers.append(tr_node)
 
     modules_in_walk = {
         nid for nid in all_walked

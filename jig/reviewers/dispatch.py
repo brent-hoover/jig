@@ -79,6 +79,9 @@ TRADEOFF_COMPLIANCE_REVIEWER_ID = "tradeoff-compliance"
 # Phase 3 — contract-test-coverage: flags consumed API/event contracts with no
 # integration_ac mention on either provider or consumer side. End-of-ticket only.
 CONTRACT_TEST_COVERAGE_REVIEWER_ID = "contract-test-coverage"
+# Phase 5 — tracer-preservation: flags tickets that touch nodes covered by a
+# tracer bullet, reminding the agent to re-run the smoke. End-of-ticket only.
+TRACER_PRESERVATION_REVIEWER_ID = "tracer-preservation"
 
 # Track G Final — specialty reviewers auto-selected by ticket
 # characteristics (labels, dev_tier, module tier_hint, AC text).
@@ -255,6 +258,7 @@ _MVP_FINAL_DEFAULTS: list[str] = [
     SPEC_COMPLIANCE_REVIEWER_ID,
     TRADEOFF_COMPLIANCE_REVIEWER_ID,
     CONTRACT_TEST_COVERAGE_REVIEWER_ID,
+    TRACER_PRESERVATION_REVIEWER_ID,
 ]
 
 
@@ -718,6 +722,12 @@ async def dispatch_for_cadence(
         comments = await ContractTestCoverageReviewer().review(ticket, project_root)
         out[CONTRACT_TEST_COVERAGE_REVIEWER_ID] = _tag_cadence(comments, cadence)
 
+    if TRACER_PRESERVATION_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
+        from jig.reviewers.tracer_preservation import TracerPreservationReviewer
+
+        comments = await TracerPreservationReviewer().review(ticket, project_root)
+        out[TRACER_PRESERVATION_REVIEWER_ID] = _tag_cadence(comments, cadence)
+
     if INTENT_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
         # Intent reviewer runs against authored artifacts (Modules,
         # Contracts, etc.), not against a worktree diff. Final
@@ -938,6 +948,7 @@ __all__ = [
     "SECURITY_REVIEWER_ID",
     "SPEC_COMPLIANCE_REVIEWER_ID",
     "TEST_ADEQUACY_REVIEWER_ID",
+    "TRACER_PRESERVATION_REVIEWER_ID",
     "VISUAL_COMPLIANCE_REVIEWER_ID",
     "dispatch_for_cadence",
     "dispatch_with_llm_spawn",

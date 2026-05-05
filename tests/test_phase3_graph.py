@@ -407,7 +407,7 @@ def test_ticket_impact_exercised_tracers():
     ]
     edges = [
         Edge(src="ticket:t-03", dst="module:api", kind="touches"),
-        Edge(src="module:api", dst="tracer:smoke-01", kind="exercises"),
+        Edge(src="tracer:smoke-01", dst="module:api", kind="covers"),
     ]
     g = DependencyGraph(generated_at=_ts(), nodes=nodes, edges=edges)
     impact = ticket_impact(g, "t-03", depth=1)

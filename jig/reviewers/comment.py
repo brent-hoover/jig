@@ -119,6 +119,10 @@ class ReviewerCommentType(str, Enum):
     # or event from another module but neither side's integration_ac mentions
     # the contract name — makes the gap visible so the SA can add a MUST entry.
     CONTRACT_TEST_COVERAGE_GAP = "contract-test-coverage-gap"
+    # Tracer preservation (Phase 5). Fired when a ticket touches a node
+    # covered by a tracer — the tracer should be re-run to confirm the
+    # smoke still passes after the change.
+    TRACER_PRESERVATION_RISK = "tracer-preservation-risk"
     # Judgment reviewers (Track G MVP follow-on). One per role; the
     # comment-type maps 1:1 to the reviewer that produces it. Confidence
     # < 1.0 by convention.

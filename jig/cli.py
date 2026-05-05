@@ -2271,3 +2271,77 @@ def graph_tracers(node_id: str, path: Path) -> None:
             line += f"  — {t.title}"
         click.echo(line)
 
+
+# ---- tracer group (Phase 5.12) ------------------------------------------
+
+
+@cli.group("tracer")
+def tracer_group() -> None:
+    """Manage tracer-bullet specs (.jig/spec/tracers/)."""
+
+
+@tracer_group.command("list")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tracer_list(path: Path) -> None:
+    """List all authored tracers."""
+    from jig.spec_loader import load_all_tracers
+
+    tracers = load_all_tracers(path)
+    if not tracers:
+        click.echo("(no tracers authored)")
+        return
+    for tr in tracers:
+        click.echo(f"{tr.id}  — {tr.description}")
+
+
+@tracer_group.command("show")
+@click.argument("tracer_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tracer_show(tracer_id: str, path: Path) -> None:
+    """Show a tracer spec in detail."""
+    import yaml as _yaml
+    from jig.spec_loader import load_tracer
+
+    try:
+        tr = load_tracer(path, tracer_id)
+    except FileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1) from exc
+    click.echo(_yaml.safe_dump(tr.model_dump(mode="json"), sort_keys=False))
+
+
+@tracer_group.command("run")
+@click.argument("tracer_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tracer_run(tracer_id: str, path: Path) -> None:
+    """Run a tracer's smoke command and report pass/fail."""
+    import subprocess
+    from jig.spec_loader import load_tracer
+
+    try:
+        tr = load_tracer(path, tracer_id)
+    except FileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1) from exc
+
+    click.echo(f"Running tracer {tr.id!r}: {' '.join(tr.command)}")
+    try:
+        result = subprocess.run(
+            tr.command,
+            cwd=str(path),
+            timeout=tr.timeout_seconds,
+            capture_output=False,
+        )
+    except subprocess.TimeoutExpired:
+        click.echo(f"TIMEOUT after {tr.timeout_seconds}s", err=True)
+        raise SystemExit(1)
+    except FileNotFoundError as exc:
+        click.echo(f"Command not found: {exc}", err=True)
+        raise SystemExit(1)
+
+    if result.returncode == 0:
+        click.echo(f"PASS (exit {result.returncode})")
+    else:
+        click.echo(f"FAIL (exit {result.returncode})")
+        raise SystemExit(result.returncode)
+

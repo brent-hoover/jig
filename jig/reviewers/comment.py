@@ -115,6 +115,10 @@ class ReviewerCommentType(str, Enum):
     # Tradeoff compliance (Phase 1). Fired when a ticket re-adds work
     # that was explicitly deferred to a later layer in the tradeoff ledger.
     DEFERRED_WORK_REINTRODUCED = "deferred-work-reintroduced"
+    # Contract test coverage (Phase 3). Fired when a module consumes an API
+    # or event from another module but neither side's integration_ac mentions
+    # the contract name — makes the gap visible so the SA can add a MUST entry.
+    CONTRACT_TEST_COVERAGE_GAP = "contract-test-coverage-gap"
     # Judgment reviewers (Track G MVP follow-on). One per role; the
     # comment-type maps 1:1 to the reviewer that produces it. Confidence
     # < 1.0 by convention.

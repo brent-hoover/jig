@@ -184,7 +184,60 @@ def main(ticket_id: str, cwd: Path | None) -> None:
             f"per-commit-review: unexpected error {exc!r}; continuing",
             file=sys.stderr,
         )
+        # SF-I4: emit a durable thread + analytics event so a runner
+        # crash isn't indistinguishable from "review passed". Exit
+        # stays 0 so the post-commit hook stays non-blocking.
+        try:
+            asyncio.run(
+                _record_runner_crash(ticket_id, cwd=target, error=str(exc))
+            )
+        except Exception:  # noqa: BLE001
+            print(
+                "per-commit-review: also failed to record crash event; "
+                "see ticket thread for partial state",
+                file=sys.stderr,
+            )
     sys.exit(0)
+
+
+async def _record_runner_crash(
+    ticket_id: str, *, cwd: Path, error: str
+) -> None:
+    """Record a ``per_commit_runner_crashed`` SystemEvent on the
+    ticket thread. Best-effort: if the project store can't be reached
+    (e.g. corrupted directory), the caller's outer except prints a
+    fallback message and the runner still exits 0."""
+    from jig.store.threads import ThreadStore
+    from jig.thread import SystemEvent
+
+    project_root = _find_project_root(cwd)
+    if project_root is None:
+        candidate = cwd
+        while candidate != candidate.parent:
+            if (candidate / ".jig").is_dir():
+                project_root = candidate
+                break
+            candidate = candidate.parent
+        if project_root is None:
+            return
+
+    store_dir = project_root / ".jig" / "store"
+    if not store_dir.is_dir():
+        return
+
+    threads = ThreadStore(store_dir / "threads.jsonl")
+    await threads.load()
+    await threads.post(
+        SystemEvent(
+            ticket_id=ticket_id,
+            author="per-commit-runner",
+            event_type="per_commit_runner_crashed",
+            content=(
+                f"per-commit reviewer runner crashed (non-blocking): "
+                f"{error}. Mechanical reviews for this commit did not run."
+            ),
+        )
+    )
 
 
 __all__ = ["main"]

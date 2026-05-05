@@ -24,8 +24,11 @@ per-worktree (under ``<worktree>/.git/hooks/``).
 
 from __future__ import annotations
 
+import shlex
 import stat
 from pathlib import Path
+
+from jig.safe_path import validate_safe_path_segment
 
 # Sentinel makes hook ownership detectable without parsing — mirrors
 # the convention in ``jig/hooks/__init__.py``.
@@ -36,7 +39,17 @@ PER_COMMIT_SENTINEL = (
 
 
 def _build_hook_script(ticket_id: str) -> str:
-    """Return the post-commit hook body for a ticket worktree."""
+    """Return the post-commit hook body for a ticket worktree.
+
+    ``ticket_id`` is interpolated into a shell command, so we run it
+    through both the safe-path validator (rejects ``..``, ``/``, NUL,
+    etc.) and ``shlex.quote`` for defence in depth — orchestrator-built
+    ticket ids already pass the validator, but the public installer
+    accepts arbitrary worktree names. SEC-I4 in
+    v2-review-findings-security.md.
+    """
+    validate_safe_path_segment(ticket_id, "ticket_id")
+    safe_id = shlex.quote(ticket_id)
     return f"""#!/usr/bin/env bash
 {PER_COMMIT_SENTINEL}
 # Track G MVP: dispatches the mechanical reviewer subset on each
@@ -50,7 +63,7 @@ if ! command -v jig >/dev/null 2>&1; then
   exit 0
 fi
 
-jig per-commit-review --ticket "{ticket_id}" || true
+jig per-commit-review --ticket {safe_id} || true
 exit 0
 """
 

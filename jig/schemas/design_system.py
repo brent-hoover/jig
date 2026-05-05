@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.schemas._validators import validate_kebab_id
 
@@ -78,6 +78,20 @@ class Tokens(BaseModel):
     spec_version: int = 1
     source: Literal["default", "operator_supplied", "claude_design"] = "default"
     tokens: list[DesignToken] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _enforce_unique_token_ids(self) -> "Tokens":
+        """TD-3: token ids must be unique. Two tokens with the same
+        id is a silent override during CSS generation — the wireframe
+        renders, but with whichever one the YAML hit second."""
+        seen: set[str] = set()
+        for tok in self.tokens:
+            if tok.id in seen:
+                raise ValueError(
+                    f"Tokens.tokens: duplicate token id {tok.id!r}"
+                )
+            seen.add(tok.id)
+        return self
 
 
 class ComponentVariant(BaseModel):
@@ -129,6 +143,29 @@ class ComponentLibrary(BaseModel):
     spec_version: int = 1
     source: Literal["default", "operator_supplied", "claude_design"] = "default"
     components: list[Component] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _enforce_unique_component_ids(self) -> "ComponentLibrary":
+        """TD-3: component ids must be unique within the library, and
+        each component's variant ids must be unique within the
+        component."""
+        seen: set[str] = set()
+        for comp in self.components:
+            if comp.id in seen:
+                raise ValueError(
+                    "ComponentLibrary.components: duplicate component "
+                    f"id {comp.id!r}"
+                )
+            seen.add(comp.id)
+            variant_ids: set[str] = set()
+            for var in comp.variants:
+                if var.id in variant_ids:
+                    raise ValueError(
+                        f"Component {comp.id!r}: duplicate variant id "
+                        f"{var.id!r}"
+                    )
+                variant_ids.add(var.id)
+        return self
 
 
 class Brand(BaseModel):

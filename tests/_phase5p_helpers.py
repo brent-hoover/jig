@@ -76,8 +76,17 @@ def build_orch(
     async def fake_remove(*args, **kwargs):
         return None
 
+    async def fake_commit(*args, **kwargs):
+        # Tests use a plain tmp dir as the worktree (no git init), so
+        # the auto-commit safety net would otherwise hit "not a git
+        # repository" and fail the phase. Stub a successful no-op so
+        # the worktree contract matches what production looks like
+        # for tests that don't actually exercise git.
+        return None
+
     monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
 
     return orch
 

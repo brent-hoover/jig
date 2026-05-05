@@ -1,6 +1,31 @@
 # tests/test_store_core.py
 import pytest
-from jig.store.core import JsonlStore
+from jig.store.core import JsonlStore, RecordTooLargeError
+
+
+async def test_insert_rejects_oversize_record(tmp_path):
+    """SEC-I2: per-record cap stops a single agent call from writing
+    a multi-megabyte blob into the store."""
+    store = JsonlStore(tmp_path / "s.jsonl", max_record_bytes=1024)
+    await store.load()
+    # 2 KiB payload comfortably exceeds the 1 KiB cap.
+    big = "x" * 2048
+    with pytest.raises(RecordTooLargeError, match="exceeds 1024 bytes"):
+        await store.insert({"text": big})
+    # No record was written.
+    assert (tmp_path / "s.jsonl").read_text() == ""
+
+
+async def test_update_rejects_oversize_record(tmp_path):
+    store = JsonlStore(tmp_path / "s.jsonl", max_record_bytes=1024)
+    await store.load()
+    doc_id = await store.insert({"text": "small"})
+    with pytest.raises(RecordTooLargeError):
+        await store.update(doc_id, {"text": "x" * 2048})
+    # Original value preserved.
+    doc = await store.get(doc_id)
+    assert doc is not None
+    assert doc["text"] == "small"
 
 
 async def test_load_creates_missing_file_and_parent(tmp_path):

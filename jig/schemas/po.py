@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.schemas._validators import (
     validate_kebab_id,
@@ -169,6 +169,33 @@ class SuitesIndex(BaseModel):
             if s.id == suite_id:
                 return s
         return None
+
+    @model_validator(mode="after")
+    def _enforce_uniqueness_and_capability_partition(self) -> "SuitesIndex":
+        """TD-3: suite ids must be unique, and a capability id must
+        appear in at most one suite — collisions across suites mean
+        downstream L3 reviewers can't tell which suite owns it."""
+
+        seen: set[str] = set()
+        for suite in self.suites:
+            if suite.id in seen:
+                raise ValueError(
+                    f"SuitesIndex.suites: duplicate suite id {suite.id!r}"
+                )
+            seen.add(suite.id)
+
+        capability_owner: dict[str, str] = {}
+        for suite in self.suites:
+            for cap in suite.capabilities:
+                prev = capability_owner.get(cap)
+                if prev is not None:
+                    raise ValueError(
+                        "SuitesIndex: capability {!r} appears in both "
+                        "suites {!r} and {!r}; capabilities must "
+                        "partition across suites.".format(cap, prev, suite.id)
+                    )
+                capability_owner[cap] = suite.id
+        return self
 
 
 # ---- L1 Discovery ---------------------------------------------------------
@@ -319,6 +346,60 @@ class DiscoveryDoc(BaseModel):
     @classmethod
     def _tz_generated_at(cls, v: datetime) -> datetime:
         return validate_tz_aware(v, "DiscoveryDoc.generated_at")
+
+    @model_validator(mode="after")
+    def _enforce_uniqueness_and_cross_refs(self) -> "DiscoveryDoc":
+        """TD-3: catch duplicate ids and dangling cross-references at
+        load time so a downstream reviewer never sees an inconsistent
+        ``DiscoveryDoc`` it has to defensively reason about."""
+
+        persona_ids: set[str] = set()
+        for p in self.personas:
+            if p.id in persona_ids:
+                raise ValueError(
+                    f"DiscoveryDoc.personas: duplicate persona id {p.id!r}"
+                )
+            persona_ids.add(p.id)
+
+        journey_ids: set[str] = set()
+        for j in self.journeys:
+            if j.id in journey_ids:
+                raise ValueError(
+                    f"DiscoveryDoc.journeys: duplicate journey id {j.id!r}"
+                )
+            journey_ids.add(j.id)
+            if j.persona_id not in persona_ids:
+                raise ValueError(
+                    f"DiscoveryDoc.journeys[{j.id!r}]: persona_id "
+                    f"{j.persona_id!r} not present in personas"
+                )
+
+        capability_ids: set[str] = set()
+        for entry in self.capability_roster:
+            if entry.id in capability_ids:
+                raise ValueError(
+                    "DiscoveryDoc.capability_roster: duplicate "
+                    f"capability id {entry.id!r}"
+                )
+            capability_ids.add(entry.id)
+            for jid in entry.journey_ids:
+                if jid not in journey_ids:
+                    raise ValueError(
+                        f"DiscoveryDoc.capability_roster[{entry.id!r}]: "
+                        f"journey_id {jid!r} not present in journeys"
+                    )
+
+        # Each capability cited on a journey must exist in the roster
+        # (the inverse of the roster→journey check above).
+        for j in self.journeys:
+            for cid in j.capability_ids:
+                if cid not in capability_ids:
+                    raise ValueError(
+                        f"DiscoveryDoc.journeys[{j.id!r}]: "
+                        f"capability_id {cid!r} not present in "
+                        "capability_roster"
+                    )
+        return self
 
 
 # ---- L1 in-flight conversation state --------------------------------------

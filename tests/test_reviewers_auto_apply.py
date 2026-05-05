@@ -30,6 +30,7 @@ def _make(
     suggested_diff: str | None = "patch-here",
     file_: str | None = "foo.py",
     line: int | None = 3,
+    contract_uri: str | None = "project://contracts/foo#bar",
 ) -> ReviewerComment:
     return ReviewerComment(
         type=type_,
@@ -40,6 +41,7 @@ def _make(
         suggested_diff=suggested_diff,
         file=file_,
         line=line,
+        contract_uri=contract_uri,
     )
 
 

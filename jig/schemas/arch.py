@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from jig.intent import Intent
 from jig.schemas._validators import (
+    ServiceKind,
     validate_kebab_id,
     validate_project_uri_shape,
     validate_tz_aware,
@@ -188,7 +189,9 @@ class DataStore(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(..., min_length=1)
-    kind: str = Field(..., min_length=1, description="postgres | sqlite | opensearch | nats | ...")
+    kind: ServiceKind = Field(
+        ..., description="Bounded vocabulary; see jig.schemas._validators.ServiceKind"
+    )
     rationale: str | None = None
     accessed_by: list[str] = Field(default_factory=list)
     dev_provisioning: DevProvisioning | None = Field(
@@ -657,6 +660,66 @@ class BehavioralContract(BaseModel):
         return self
 
 
+class ExposedAPI(BaseModel):
+    """One entry in ``ContractsFile.exposes`` — an internal API the
+    module makes available to other modules. Replaces the bones-era
+    ``list[dict]`` so reviewers can rely on a known shape (TD-1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Public identifier the module exposes (function name, "
+            "class name, endpoint path, CLI subcommand, etc.)."
+        ),
+    )
+    kind: Literal["function", "class", "endpoint", "cli", "other"] = (
+        "function"
+    )
+    summary: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One-line summary of what the API does — enough for a "
+            "reviewer to tell whether a downstream module is using "
+            "the right surface."
+        ),
+    )
+    schema_ref: str | None = Field(
+        default=None,
+        description=(
+            "Optional URI to a richer schema (contracts.yaml entry, "
+            "OpenAPI fragment, etc.) describing argument/return shape."
+        ),
+    )
+
+
+class EmittedEvent(BaseModel):
+    """One entry in ``ContractsFile.emits`` — an event the module
+    publishes onto the bus or analytics stream (TD-1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        description="Event name. Kebab-case by convention.",
+    )
+    summary: str = Field(
+        ...,
+        min_length=1,
+        description="One-line description of when the event fires.",
+    )
+    schema_ref: str | None = Field(
+        default=None,
+        description=(
+            "Optional URI to the event payload schema, if formalised."
+        ),
+    )
+
+
 class ContractsFile(BaseModel):
     """One module's contracts file — modules/<m>/contracts.yaml."""
 
@@ -666,18 +729,18 @@ class ContractsFile(BaseModel):
     module: str = Field(..., min_length=1)
     owns: list[OwnedCollection] = Field(default_factory=list)
     external_dependencies: list[ExternalDependency] = Field(default_factory=list)
-    exposes: list[dict] = Field(
+    exposes: list[ExposedAPI] = Field(
         default_factory=list,
         description=(
-            "Internal API surface this module exposes; sketch for bones. "
-            "Typed schema lands as the API contract type matures."
+            "Internal API surface this module exposes. Each entry "
+            "names a function/class/endpoint and a one-line summary."
         ),
     )
-    emits: list[dict] = Field(
+    emits: list[EmittedEvent] = Field(
         default_factory=list,
         description=(
-            "Events this module emits; sketch for bones. Typed schema "
-            "lands with the event contract type."
+            "Events this module emits. Each entry names the event "
+            "and a one-line summary of when it fires."
         ),
     )
     integration_ac: list[IntegrationAcceptance] = Field(default_factory=list)
@@ -719,6 +782,14 @@ class ContractsFile(BaseModel):
         _check_unique_ids(
             self.integration_ac, attr="capability",
             owner="ContractsFile", collection="integration_ac",
+        )
+        _check_unique_ids(
+            self.exposes, attr="name",
+            owner="ContractsFile", collection="exposes",
+        )
+        _check_unique_ids(
+            self.emits, attr="name",
+            owner="ContractsFile", collection="emits",
         )
         return self
 

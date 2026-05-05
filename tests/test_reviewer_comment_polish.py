@@ -105,6 +105,7 @@ class TestRoundTrip:
                     reference="project://arch/contracts#x",
                 ),
             ],
+            suggested_diff="--- a/foo\n+++ b/foo\n@@\n-x\n+y\n",
             auto_apply_after=120,
         )
         payload = c.model_dump(mode="json")
@@ -175,7 +176,12 @@ class TestMarkdownRendering:
         assert "cycle: 0" in out
 
     def test_auto_apply_window_appears_when_set(self) -> None:
-        out = format_comment_markdown(_comment(auto_apply_after=300))
+        out = format_comment_markdown(
+            _comment(
+                suggested_diff="--- a/foo\n+++ b/foo\n@@\n-x\n+y\n",
+                auto_apply_after=300,
+            )
+        )
         assert "auto-apply in: 300s" in out
 
     def test_auto_apply_window_omitted_when_unset(self) -> None:

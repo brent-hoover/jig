@@ -129,8 +129,12 @@ async def test_blocking_objection_resolves_then_advances_with_deferred_item(
     async def fake_remove(*args, **kwargs):
         return None
 
+    async def fake_commit(*args, **kwargs):
+        return None
+
     monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
 
     await orch.startup()
     try:

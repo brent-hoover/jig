@@ -27,12 +27,25 @@ def _comment(
     severity: Severity = Severity.IMPORTANT,
     confidence: float = 1.0,
 ) -> ReviewerComment:
+    extra: dict = {}
+    if type_ == ReviewerCommentType.CONTRACT_VIOLATION and severity in (
+        Severity.CRITICAL,
+        Severity.IMPORTANT,
+    ):
+        extra["contract_uri"] = "project://contracts/foo#bar"
+    if (
+        confidence == 1.0
+        and severity == Severity.CRITICAL
+        and "contract_uri" not in extra
+    ):
+        extra["file"] = "foo.py"
     return ReviewerComment(
         type=type_,
         severity=severity,
         reviewer=reviewer,
         prose="finding",
         confidence=confidence,
+        **extra,
     )
 
 

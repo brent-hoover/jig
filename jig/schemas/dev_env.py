@@ -23,7 +23,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from jig.schemas._validators import validate_kebab_id, validate_tz_aware
+from jig.schemas._validators import (
+    ServiceKind,
+    validate_kebab_id,
+    validate_tz_aware,
+)
 
 __all__ = [
     "DevManifest",
@@ -45,8 +49,8 @@ class ManifestService(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(..., min_length=1)
-    kind: str = Field(
-        ..., min_length=1, description="postgres | nats | redis | s3 | sqlite | ..."
+    kind: ServiceKind = Field(
+        ..., description="Bounded vocabulary shared with DataStore.kind."
     )
     strategy: Literal[
         "shared_namespaced", "per_agent_ephemeral", "operator_supplied"

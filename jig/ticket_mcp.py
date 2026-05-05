@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -555,16 +556,52 @@ async def handle_request_context(
 
 
 # Maps package_manager values to their add-dependency commands.
-# The package names are appended as extra args.
+# JS package managers get ``--ignore-scripts`` so postinstall code
+# can't execute under the orchestrator process. Python managers
+# already use PEP 517/518 build isolation; supply-chain risk there
+# is intrinsic to package install rather than fixable by a flag.
 _PKG_COMMANDS: dict[str, list[str]] = {
     "uv": ["uv", "add"],
     "pip": ["pip", "install"],
     "poetry": ["poetry", "add"],
-    "npm": ["npm", "install"],
-    "yarn": ["yarn", "add"],
-    "pnpm": ["pnpm", "add"],
-    "bun": ["bun", "add"],
+    "npm": ["npm", "install", "--ignore-scripts"],
+    "yarn": ["yarn", "add", "--ignore-scripts"],
+    "pnpm": ["pnpm", "add", "--ignore-scripts"],
+    "bun": ["bun", "add", "--ignore-scripts"],
 }
+
+# Env vars passed through to the package-manager subprocess.
+# Anything else (notably CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY,
+# JIG_*, GIT_*, GH_TOKEN) is dropped so a malicious package can't
+# exfiltrate orchestrator secrets via postinstall or build hooks.
+_PKG_ENV_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "TMPDIR",
+        "SHELL",
+    }
+)
+
+
+def _scrubbed_env(worktree_path: Path) -> dict[str, str]:
+    """Allowlist environment for package-manager subprocesses."""
+
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k in _PKG_ENV_ALLOWLIST
+    }
+    env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
+    env.setdefault("LANG", "C.UTF-8")
+    env["PWD"] = str(worktree_path)
+    return env
 
 
 async def handle_add_dependency(
@@ -606,13 +643,14 @@ async def handle_add_dependency(
     cmd.extend(packages)
 
     _logger.info("add_dependency: running %s in %s", cmd, worktree_path)
-    # Using create_subprocess_exec (not shell) to avoid injection —
-    # each arg is passed directly to the process.
+    # Args are passed directly (no shell), and env is allowlisted so
+    # install-time hooks can't exfiltrate orchestrator secrets.
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=str(worktree_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        env=_scrubbed_env(worktree_path),
     )
     stdout, _ = await proc.communicate()
     output = stdout.decode(errors="replace").strip()

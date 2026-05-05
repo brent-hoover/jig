@@ -53,14 +53,30 @@ def _wrap_with_context(
     phase: str | None,
     role: str | None,
     agent_id: str | None,
+    enforce_ticket_scope: bool = False,
 ) -> ToolHandler:
     """Wrap an MCP tool handler so each call runs with the given
     correlation context. The MCP SDK invokes each tool in a fresh
     asyncio task that does NOT inherit our per-ticket contextvars,
     so handlers must set them explicitly at the call boundary.
+
+    When ``enforce_ticket_scope`` is true and the spawn was bound to
+    a ``ticket_id``, the wrapper rejects tool calls whose ``ticket_id``
+    arg points at a different ticket. This stops a malicious agent
+    from reading or commenting on arbitrary tickets just by passing
+    another id (SEC-I1). Roles that legitimately need cross-ticket
+    access set ``RoleConfig.cross_ticket_access`` so the wrapper is
+    built without the check.
     """
 
     async def wrapper(args: dict[str, Any]) -> dict[str, Any]:
+        if enforce_ticket_scope and ticket_id is not None:
+            requested = args.get("ticket_id") if isinstance(args, dict) else None
+            if requested is not None and requested != ticket_id:
+                raise PermissionError(
+                    f"role is scoped to ticket {ticket_id!r}; "
+                    f"refusing cross-ticket access to {requested!r}"
+                )
         t_tid = _ticket_id_var.set(ticket_id)
         t_phase = _phase_var.set(phase)
         t_role = _role_var.set(role)
@@ -827,7 +843,11 @@ def create_agent_mcp_server(
                 checkpoint_promote_deferred,
             ]
         )
-    if package_manager:
+    # add_dependency runs in the orchestrator process (outside bwrap).
+    # Roles must opt in explicitly via ``allow_add_dependency`` rather
+    # than getting it implicitly because the project sets
+    # ``package_manager`` — see SEC-1 in v2-review-findings-security.md.
+    if package_manager and agent_cfg.allow_add_dependency:
         all_tools.append(add_dependency)
 
     # Init-workflow tools (brief / spec / architecture). Each is gated
@@ -2651,6 +2671,9 @@ def create_agent_mcp_server(
     # each incoming call. MCP tool calls arrive in fresh asyncio tasks
     # that don't inherit the factory's contextvars.
     _agent_id_stamp = f"{agent_role}:{(ticket_id or '')[:8]}"
+    # Single-ticket roles get the scope check; coordinator roles opt
+    # in to cross-ticket access via RoleConfig.cross_ticket_access.
+    enforce_scope = bool(ticket_id) and not agent_cfg.cross_ticket_access
     for t in all_tools:
         t.handler = _wrap_with_context(
             t.handler,
@@ -2658,6 +2681,7 @@ def create_agent_mcp_server(
             phase=phase_name or None,
             role=agent_role,
             agent_id=_agent_id_stamp,
+            enforce_ticket_scope=enforce_scope,
         )
 
     return create_sdk_mcp_server(

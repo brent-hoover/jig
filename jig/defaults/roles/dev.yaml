@@ -27,6 +27,7 @@ allowed_tools:
   - WebFetch
 allowed_mcps:
   - context7
+allow_add_dependency: true
 default_context:
   - "ticket://design"
   - "ticket://plan"

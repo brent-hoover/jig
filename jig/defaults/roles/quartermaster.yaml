@@ -64,4 +64,5 @@ allowed_tools:
   - record_feedback
 allowed_mcps: []
 strict_tools: true
+cross_ticket_access: true
 default_context: []

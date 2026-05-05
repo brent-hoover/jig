@@ -40,6 +40,26 @@ def _normalise_mount_path(path: str) -> tuple[str, ...]:
     return tuple(part for part in path.split("/") if part)
 
 
+# Env vars forwarded into the sandbox by default. Anything else from
+# the orchestrator's environment is dropped by ``--clearenv`` so an
+# agent can't read CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, JIG_*,
+# GIT_*, or other host secrets just by running ``env`` or reading
+# ``/proc/self/environ``. Claude Code authenticates via the mounted
+# ``~/.claude.json`` rather than the env var inside the sandbox.
+_DEFAULT_PASSTHROUGH_ENV: tuple[str, ...] = (
+    "HOME",
+    "PATH",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "TMPDIR",
+    "SHELL",
+)
+
+
 @dataclass
 class BwrapConfig:
     """Bubblewrap mount configuration for an agent sandbox."""
@@ -76,6 +96,18 @@ class BwrapConfig:
 
     workspace: str = "/workspace"
     """Mount point inside the sandbox where the worktree appears."""
+
+    passthrough_env_keys: tuple[str, ...] = _DEFAULT_PASSTHROUGH_ENV
+    """Names of env vars forwarded from the orchestrator process into
+    the sandbox via ``--setenv``. Anything not in this list is dropped
+    by ``--clearenv``. Notably excludes ``CLAUDE_CODE_OAUTH_TOKEN`` and
+    ``ANTHROPIC_API_KEY``: agents authenticate via the mounted Claude
+    config, not via env."""
+
+    extra_setenv: tuple[tuple[str, str], ...] = ()
+    """Additional ``(key, value)`` env pairs to set inside the sandbox.
+    Used for orchestrator-curated values like ``JIG_DEV_<service>_URL``
+    which aren't in the orchestrator's own environ."""
 
     # Sandbox-absolute mount points for the capability-policy artefacts.
     # These match ``jig.capability_compiler.SANDBOX_RULES_PATH`` and
@@ -133,6 +165,10 @@ class BwrapConfig:
     def to_args(self) -> list[str]:
         """Build the bwrap argument list."""
         args: list[str] = [
+            # Drop the orchestrator's environment. We --setenv exactly the
+            # vars the agent needs below; everything else (OAuth tokens,
+            # JIG_*, GIT_*, GH_TOKEN, ...) stays out of the sandbox.
+            "--clearenv",
             # Full container filesystem, read-only
             "--ro-bind",
             "/",
@@ -156,15 +192,19 @@ class BwrapConfig:
         ]
 
         # Docker volume mounts are separate mount points that
-        # --ro-bind / / doesn't capture.  Bind them explicitly.
-        # Claude Code needs write access for OAuth token refresh.
+        # --ro-bind / / doesn't capture. Bind them explicitly,
+        # READ-ONLY: a Bash-capable agent must not be able to mutate
+        # the orchestrator's Claude state, plugins, or cached tokens.
+        # Token refresh by the orchestrator happens out-of-band; an
+        # in-agent refresh is rare and would fail closed (the agent
+        # exits, the operator re-auths) rather than open.
         home = Path.home()
         claude_dir = home / ".claude"
         if claude_dir.is_dir():
-            args.extend(["--bind", str(claude_dir), str(claude_dir)])
+            args.extend(["--ro-bind", str(claude_dir), str(claude_dir)])
         claude_json = home / ".claude.json"
         if claude_json.is_file():
-            args.extend(["--bind", str(claude_json), str(claude_json)])
+            args.extend(["--ro-bind", str(claude_json), str(claude_json)])
 
         # Hide paths by overlaying with empty tmpfs
         for path in self.hide_paths:
@@ -201,7 +241,17 @@ class BwrapConfig:
         for src, dst in self.extra_rw_binds:
             args.extend(["--bind", src, dst])
 
-        # Working directory, env, and namespace isolation
+        # Forward only the curated env-var allowlist into the sandbox.
+        # ``--clearenv`` above wiped everything, so an explicit --setenv
+        # is required for each var the agent legitimately needs.
+        for key in self.passthrough_env_keys:
+            val = os.environ.get(key)
+            if val is not None:
+                args.extend(["--setenv", key, val])
+        for key, val in self.extra_setenv:
+            args.extend(["--setenv", key, val])
+
+        # Working directory + namespace isolation
         args.extend(
             [
                 "--chdir",

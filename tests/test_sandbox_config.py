@@ -183,3 +183,100 @@ class TestReservedMountProtection:
         args = cfg.to_args()
         assert (str(tmp_path), "/opt/data") in _pair_positions(args, "--ro-bind")
         assert (str(tmp_path), "/var/cache/jig") in _pair_positions(args, "--bind")
+
+
+class TestEnvIsolation:
+    """SEC-2: bwrap clears the orchestrator's environment and only
+    forwards a curated allowlist via ``--setenv``. CLAUDE_CODE_OAUTH_TOKEN
+    must never appear in the default allowlist — agents authenticate via
+    the mounted Claude config, not via env."""
+
+    def test_clearenv_first(self, tmp_path: Path) -> None:
+        cfg = BwrapConfig(worktree_host_path=tmp_path)
+        args = cfg.to_args()
+        assert args[0] == "--clearenv", "--clearenv must be the first arg"
+
+    def test_oauth_token_not_in_default_passthrough(self, tmp_path: Path) -> None:
+        cfg = BwrapConfig(worktree_host_path=tmp_path)
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in cfg.passthrough_env_keys
+        assert "ANTHROPIC_API_KEY" not in cfg.passthrough_env_keys
+
+    def test_passthrough_emitted_as_setenv(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
+        monkeypatch.setenv("HOME", "/home/jig")
+        # A var outside the allowlist must NOT appear in --setenv.
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-secret")
+        cfg = BwrapConfig(worktree_host_path=tmp_path)
+        args = cfg.to_args()
+        setenv_pairs = _pair_positions(args, "--setenv")
+        keys = {k for k, _v in setenv_pairs}
+        assert ("PATH", "/usr/local/bin:/usr/bin") in setenv_pairs
+        assert ("HOME", "/home/jig") in setenv_pairs
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in keys
+
+    def test_extra_setenv_emitted(self, tmp_path: Path) -> None:
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            extra_setenv=(("JIG_DEV_DB_URL", "postgres://..."),),
+        )
+        args = cfg.to_args()
+        setenv_pairs = _pair_positions(args, "--setenv")
+        assert ("JIG_DEV_DB_URL", "postgres://...") in setenv_pairs
+
+
+class TestClaudeHomeReadOnly:
+    """SEC-3: the Claude config and credentials are bound read-only so
+    a Bash-capable agent can't tamper with the orchestrator's tokens
+    or plugins."""
+
+    def test_claude_dir_bound_readonly_when_present(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        claude_dir = fake_home / ".claude"
+        claude_dir.mkdir()
+        claude_json = fake_home / ".claude.json"
+        claude_json.write_text("{}")
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        cfg = BwrapConfig(worktree_host_path=tmp_path)
+        args = cfg.to_args()
+
+        ro_binds = _pair_positions(args, "--ro-bind")
+        rw_binds = _pair_positions(args, "--bind")
+        assert (str(claude_dir), str(claude_dir)) in ro_binds
+        assert (str(claude_json), str(claude_json)) in ro_binds
+        # Must NOT appear as rw --bind.
+        rw_dsts = [dst for _src, dst in rw_binds]
+        assert str(claude_dir) not in rw_dsts
+        assert str(claude_json) not in rw_dsts
+
+
+class TestProjectHidden:
+    """SEC-4: callers can hide the orchestrator's project mount so the
+    agent's filesystem view narrows toward "only its worktree". The
+    worktree itself is bind-mounted independently and stays visible."""
+
+    def test_hide_project_does_not_block_worktree_bind(self, tmp_path: Path) -> None:
+        cfg = BwrapConfig(
+            worktree_host_path=tmp_path,
+            hide_paths=["/project"],
+        )
+        args = cfg.to_args()
+        # Worktree bind to /workspace is still emitted.
+        rw_binds = _pair_positions(args, "--bind")
+        assert (str(tmp_path), "/workspace") in rw_binds
+        # /project is overlaid with tmpfs.
+        tmpfs_targets = [
+            args[i + 1]
+            for i, a in enumerate(args)
+            if a == "--tmpfs" and i + 1 < len(args)
+        ]
+        assert "/project" in tmpfs_targets

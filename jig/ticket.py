@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.safe_path import validate_safe_path_segment
 from jig.schemas._validators import validate_kebab_id, validate_tz_aware
@@ -14,6 +14,34 @@ from jig.store.models import StoreModel
 # so the validator and downstream consumers can share one source of truth.
 _ALLOWED_LAYERS = frozenset({"bones", "mvp", "final"})
 _ALLOWED_DEV_TIERS = frozenset({"standard", "senior", "sa"})
+
+
+class TicketPlanMetadata(BaseModel):
+    """Read-only typed view over the v2 build-plan fields on Ticket.
+
+    TD-5: Ticket has accumulated a sizeable v2 planning surface
+    (suite_id / module_id / epic_id / layer / dev_tier / etc.).
+    Callers that want a typed value object — e.g. reviewers building
+    plan-aware prompts or analytics rolling up by module — can read
+    ``ticket.plan_metadata`` instead of touching the flat fields.
+
+    Storage stays flat for now (a wholesale migration would touch
+    every read site in the project). Future work can flip the
+    canonical representation, then remove the flat fields once all
+    callers move to ``plan_metadata``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    suite_id: str | None = None
+    module_id: str | None = None
+    capability_ids: tuple[str, ...] = ()
+    epic_id: str | None = None
+    layer: str | None = None
+    dev_tier: str | None = None
+    reviewer_set: tuple[str, ...] = ()
+    risks_addressed: tuple[str, ...] = ()
+    done_when: str | None = None
 
 
 class WorkType(str, Enum):
@@ -165,6 +193,27 @@ class Ticket(StoreModel):
     # to distinguish review-blocked tickets from operator-blocked ones
     # without reading prose.
     block_reason: str | None = None
+
+    @property
+    def plan_metadata(self) -> TicketPlanMetadata:
+        """Typed read-only view over the v2 build-plan fields (TD-5).
+
+        New code should prefer this over reaching into the flat
+        ``suite_id`` / ``module_id`` / etc. attributes; the underlying
+        storage may move to a nested representation in a future cleanup
+        without changing this property's contract.
+        """
+        return TicketPlanMetadata(
+            suite_id=self.suite_id,
+            module_id=self.module_id,
+            capability_ids=tuple(self.capability_ids),
+            epic_id=self.epic_id,
+            layer=self.layer,
+            dev_tier=self.dev_tier,
+            reviewer_set=tuple(self.reviewer_set),
+            risks_addressed=tuple(self.risks_addressed),
+            done_when=self.done_when,
+        )
 
     @field_validator("id")
     @classmethod

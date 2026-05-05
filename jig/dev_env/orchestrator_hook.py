@@ -38,7 +38,16 @@ __all__ = [
     "load_manifest_or_none",
     "provision_for_agent",
     "cleanup_for_agent",
+    "DevProvisioningError",
 ]
+
+
+class DevProvisioningError(RuntimeError):
+    """Raised when ``provision_for_agent`` cannot stand up the
+    per-agent namespace. SF-1: the orchestrator must surface this as
+    a spawn failure for tickets that declare dev services rather than
+    silently dropping the env map and letting the agent run against
+    default/local services."""
 
 _logger = logging.getLogger(__name__)
 
@@ -81,9 +90,12 @@ async def provision_for_agent(
     """Provision per-agent namespaces and return the env-var map.
 
     Returns ``{JIG_DEV_<SERVICE>_URL: connection_string}``. Empty when
-    no manifest exists or no services produce a URL. Best-effort:
-    provisioner failures are caught and logged, leaving that service
-    out of the env map rather than failing the spawn.
+    no manifest exists or no services produce a URL.
+
+    Raises ``DevProvisioningError`` if the manifest declares services
+    but provisioning fails. The orchestrator catches this and marks
+    the spawn failed rather than letting the agent run against default
+    services with a silently empty env map (SF-1).
     """
     manifest = load_manifest_or_none(project_path)
     if manifest is None or not manifest.services:
@@ -97,15 +109,16 @@ async def provision_for_agent(
             registry=registry,
             project_root=project_path,
         )
-    except Exception:
+    except Exception as exc:
         _logger.warning(
-            "dev-env provisioning failed for agent=%s ticket=%s; "
-            "agent will run without per-service env vars",
+            "dev-env provisioning failed for agent=%s ticket=%s",
             agent_id,
             ticket_id,
             exc_info=True,
         )
-        return {}
+        raise DevProvisioningError(
+            f"dev-env provisioning failed for ticket {ticket_id!r}: {exc}"
+        ) from exc
     return {build_env_var_name(sid): url for sid, url in url_map.items()}
 
 

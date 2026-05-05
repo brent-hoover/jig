@@ -628,7 +628,9 @@ async def test_finalize_rejects_journey_without_capability(wired):
 @pytest.mark.asyncio
 async def test_finalize_rejects_journey_with_unknown_persona(wired):
     bad = _journey(persona_id="ghost")
-    with pytest.raises(ValueError, match="unknown persona"):
+    # The DiscoveryDoc model validator catches the dangling persona_id
+    # before the handler runs (TD-3 cross-ref check).
+    with pytest.raises(ValueError, match="persona_id 'ghost' not present"):
         await handle_discovery_finalize(
             tickets=wired["tickets"],
             threads=wired["threads"],
@@ -645,7 +647,9 @@ async def test_finalize_rejects_journey_with_unknown_persona(wired):
 @pytest.mark.asyncio
 async def test_finalize_rejects_journey_capability_not_in_roster(wired):
     j = _journey(capability_ids=["mystery-cap"])
-    with pytest.raises(ValueError, match="not in the capability roster"):
+    with pytest.raises(
+        ValueError, match="capability_id 'mystery-cap' not present"
+    ):
         await handle_discovery_finalize(
             tickets=wired["tickets"],
             threads=wired["threads"],

@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions
@@ -140,6 +140,11 @@ class RunAgentResult:
     total_cost_usd: float | None = None
     tokens_in: int | None = None
     tokens_out: int | None = None
+    # SF-I5: surface non-fatal post-run issues (e.g. failure to write
+    # the ``agent_run`` SystemEvent) so callers and analytics can tell
+    # "succeeded fully" apart from "succeeded but the audit trail is
+    # incomplete". None when there's nothing to report.
+    warnings: list[str] = field(default_factory=list)
 
 
 async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
@@ -545,6 +550,7 @@ async def run_agent(
         cost_usd: float | None = None
         tokens_in: int | None = None
         tokens_out: int | None = None
+        run_warnings: list[str] = []
         # Short ticket prefix for log lines: first 8 chars of UUID
         tid = ctx.ticket.id[:8]
         tag = f"{ctx.role}:{tid}"
@@ -557,10 +563,27 @@ async def run_agent(
             # need either mount — keeping bwrap's mount list minimal
             # reduces attack surface.
             hook_bin = _hook_bin_dir() if cap.policy_dir is not None else None
+            # ctx.extra_env (e.g. JIG_DEV_<service>_URL) won't propagate
+            # through SDK options.env once the sandbox uses --clearenv,
+            # so explicit --setenv pairs are needed here.
+            extra_setenv: tuple[tuple[str, str], ...] = (
+                tuple((k, str(v)) for k, v in ctx.extra_env.items())
+                if ctx.extra_env
+                else ()
+            )
+            # Hide the orchestrator's project mount and any sibling
+            # state from the agent. The agent's worktree is bind-mounted
+            # at /workspace independently, so /project can be tmpfs-ed
+            # without losing access to its own files. This narrows the
+            # rootfs view down toward "only its worktree" — see SEC-4
+            # in v2-review-findings-security.md.
+            hide_paths = ["/project"]
             bwrap_cfg = BwrapConfig(
                 worktree_host_path=ctx.worktree_path,
                 policy_dir_host_path=cap.policy_dir,
                 hook_bin_host_path=hook_bin,
+                extra_setenv=extra_setenv,
+                hide_paths=hide_paths,
             )
             transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
             _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
@@ -705,6 +728,10 @@ async def run_agent(
                     )
                     # Post an agent_run SystemEvent so the story view
                     # gets per-spawn timing without having to parse logs.
+                    # SF-I5: a failure to post here means we lose the
+                    # canonical run metadata for the story view; record
+                    # a warning on the result so the caller can see the
+                    # gap rather than silently treating it as a clean run.
                     try:
                         preview = _sanitize_for_tui(final_text, limit=500)
                         await ctx.threads.post(
@@ -722,7 +749,10 @@ async def run_agent(
                                 },
                             )
                         )
-                    except Exception:
+                    except Exception as exc:
+                        run_warnings.append(
+                            f"agent_run SystemEvent post failed: {exc!r}"
+                        )
                         _logger.warning(
                             "failed to post agent_run SystemEvent", exc_info=True,
                         )
@@ -755,6 +785,7 @@ async def run_agent(
             total_cost_usd=cost_usd,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
+            warnings=list(run_warnings),
         )
     finally:
         _ticket_id_var.reset(_tid_token)

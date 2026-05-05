@@ -137,8 +137,12 @@ def _stub_orchestrator_completion(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_remove(*args, **kwargs):
         return None
 
+    async def fake_commit(*args, **kwargs):
+        return None
+
     monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
 
 
 def _stub_ensure_worktree(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:

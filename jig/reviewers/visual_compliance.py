@@ -156,6 +156,7 @@ class VisualComplianceReviewer:
                             "may be stale."
                         ),
                         ticket_id=ticket.id,
+                        file=str(wf_path.relative_to(project_root)),
                     )
                 )
                 continue
@@ -191,6 +192,7 @@ class VisualComplianceReviewer:
                             "implementation."
                         ),
                         ticket_id=ticket.id,
+                        file=str(wf_path.relative_to(project_root)),
                     )
                 )
 

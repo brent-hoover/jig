@@ -186,4 +186,7 @@ def _diff_to_comment(
         reviewer=VISUAL_COMPLIANCE_REVIEWER_ID,
         prose=prose,
         ticket_id=ticket_id,
+        # Anchor the comment on the wireframe so a critical finding
+        # tells the operator which artifact to start from.
+        file=screen_id,
     )

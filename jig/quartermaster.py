@@ -46,6 +46,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from jig.analytics.events import (
+    TicketGraphImpact,
     AgentCompleted,
     AnalyticsEvent,
     AutoEscalationTriggered,
@@ -86,6 +87,9 @@ _DEFAULT_MODULE_ESCALATION_THRESHOLD = 3
 _DEFAULT_REVIEWER_REPEAT_THRESHOLD = 3
 _DEFAULT_STALL_THRESHOLD_DAYS = 3
 _DEFAULT_RECOMMENDATION_LIMIT = 3
+# Phase 4.11 — complex-tickets pattern: tickets crossing >= N module
+# boundaries are flagged as architectural complexity signals.
+_DEFAULT_COMPLEX_TICKET_BOUNDARY_THRESHOLD = 3
 
 # Pattern severity ordering for attention-recommendation ranking.
 # Higher index = higher severity. Module-escalation patterns beat
@@ -95,6 +99,7 @@ _PATTERN_SEVERITY_RANK: dict[str, int] = {
     "module_repeated_escalations": 30,
     "tickets_stalled": 20,
     "reviewer_repeating_comment_type": 10,
+    "tickets_crossing_many_boundaries": 25,
 }
 
 
@@ -205,6 +210,7 @@ class Quartermaster:
         reviewer_repeat_threshold: int = _DEFAULT_REVIEWER_REPEAT_THRESHOLD,
         stall_threshold_days: int = _DEFAULT_STALL_THRESHOLD_DAYS,
         recommendation_limit: int = _DEFAULT_RECOMMENDATION_LIMIT,
+        complex_ticket_boundary_threshold: int = _DEFAULT_COMPLEX_TICKET_BOUNDARY_THRESHOLD,
         calibration: "PatternCalibration | None" = None,
     ) -> None:
         self._analytics = analytics
@@ -224,10 +230,14 @@ class Quartermaster:
                 "reviewer_repeating_comment_type"
             )
             stall_threshold_days = calibration.threshold_for("tickets_stalled")
+            complex_ticket_boundary_threshold = calibration.threshold_for(
+                "tickets_crossing_many_boundaries"
+            )
         self._module_escalation_threshold = module_escalation_threshold
         self._reviewer_repeat_threshold = reviewer_repeat_threshold
         self._stall_threshold_days = stall_threshold_days
         self._recommendation_limit = recommendation_limit
+        self._complex_ticket_boundary_threshold = complex_ticket_boundary_threshold
 
     async def briefing(
         self,
@@ -293,6 +303,7 @@ class Quartermaster:
         out.extend(self._pattern_module_escalations(events))
         out.extend(self._pattern_reviewer_repeats(events))
         out.extend(self._pattern_stalled_tickets(events))
+        out.extend(self._pattern_complex_tickets(events))
         return out
 
     def _pattern_module_escalations(self, events: list[AnalyticsEvent]) -> list[Pattern]:
@@ -402,6 +413,38 @@ class Quartermaster:
                     + ", ".join(sorted(t for t, _ in stalled))
                 ),
                 evidence_event_ids=[eid for _, eid in stalled],
+            )
+        ]
+
+    def _pattern_complex_tickets(self, events: list[AnalyticsEvent]) -> list[Pattern]:
+        """Tickets whose ``crossed_boundaries`` meets or exceeds the threshold.
+
+        A high boundary-crossing count is a signal that the ticket spans
+        too many architectural seams — either the ticket is too large, or
+        the module boundaries are wrong. One Pattern is emitted listing
+        all offending tickets.
+        """
+        offenders: list[tuple[str, str]] = []
+        for e in events:
+            if not isinstance(e, TicketGraphImpact):
+                continue
+            if e.crossed_boundaries >= self._complex_ticket_boundary_threshold:
+                offenders.append((e.ticket_id, e.id))
+
+        if not offenders:
+            return []
+        ticket_ids = sorted(t for t, _ in offenders)
+        return [
+            Pattern(
+                kind="tickets_crossing_many_boundaries",
+                description=(
+                    f"{len(offenders)} ticket(s) crossed >= "
+                    f"{self._complex_ticket_boundary_threshold} module "
+                    "boundaries — these may be too large or signal "
+                    "incorrect module decomposition: "
+                    + ", ".join(ticket_ids)
+                ),
+                evidence_event_ids=[eid for _, eid in offenders],
             )
         ]
 
@@ -552,6 +595,7 @@ _PATTERN_IDS: frozenset[str] = frozenset(
         "module_repeated_escalations",
         "reviewer_repeating_comment_type",
         "tickets_stalled",
+        "tickets_crossing_many_boundaries",
     }
 )
 
@@ -563,6 +607,7 @@ _PATTERN_TO_KWARG: dict[str, str] = {
     "module_repeated_escalations": "module_escalation_threshold",
     "reviewer_repeating_comment_type": "reviewer_repeat_threshold",
     "tickets_stalled": "stall_threshold_days",
+    "tickets_crossing_many_boundaries": "complex_ticket_boundary_threshold",
 }
 
 
@@ -573,6 +618,7 @@ _DEFAULT_THRESHOLDS: dict[str, int] = {
     "module_repeated_escalations": _DEFAULT_MODULE_ESCALATION_THRESHOLD,
     "reviewer_repeating_comment_type": _DEFAULT_REVIEWER_REPEAT_THRESHOLD,
     "tickets_stalled": _DEFAULT_STALL_THRESHOLD_DAYS,
+    "tickets_crossing_many_boundaries": _DEFAULT_COMPLEX_TICKET_BOUNDARY_THRESHOLD,
 }
 
 

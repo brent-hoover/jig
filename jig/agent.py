@@ -184,6 +184,23 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     # by the required URIs appearing first.
     resolved_context = required_context + optional_context
 
+    # Phase 4.9 — graph-narrowed context (JIG_GRAPH_CONTEXT=1).
+    # Appends contracts for modules in the ticket's depth-1 neighborhood
+    # so the agent has the relevant integration surfaces without loading
+    # every artifact. Behind a flag for before/after eval comparison.
+    import os as _os
+
+    if _os.environ.get("JIG_GRAPH_CONTEXT"):
+        from jig.graph_context import build_graph_context
+
+        try:
+            graph_ctx = await build_graph_context(
+                ctx.ticket, project_path, depth=1
+            )
+            resolved_context = resolved_context + graph_ctx
+        except Exception:
+            pass  # Narrowing is best-effort; fall through on any error
+
     all_roles = list_roles(ctx.project.path_or_default())
 
     # For evaluator spawns the orchestrator stamps a structured bundle

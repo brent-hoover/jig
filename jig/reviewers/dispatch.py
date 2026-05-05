@@ -351,6 +351,17 @@ def select_reviewers_for_ticket(
     ):
         selected.append(ARCHITECTURAL_REVIEWER_ID)
 
+    # Phase 4.10 — graph-aware auto-selection. If the ticket touches
+    # an exposed_api or emitted_event that has consumers in the graph,
+    # ensure the architectural reviewer fires (it might already be
+    # selected by the touches-contract label or dev_tier path above;
+    # this adds it when those signals are absent but the graph shows
+    # integration risk). No-ops when project_root is None (no graph
+    # available) or when the architectural reviewer is already selected.
+    if ARCHITECTURAL_REVIEWER_ID not in selected and project_root is not None:
+        if _touches_consumed_interface(ticket, project_root):
+            selected.append(ARCHITECTURAL_REVIEWER_ID)
+
     # Specialty reviewers fired on a layer-unset ticket should not
     # promote the ticket to "no reviewers when none asked for one";
     # the empty-list branch above already returned []. But if any
@@ -431,6 +442,77 @@ def _module_tier_hint(project_root: Path, module_id: str) -> str | None:
         if module.id == module_id:
             return module.tier_hint.value
     return None
+
+
+def _touches_consumed_interface(ticket: Ticket, project_root: Path) -> bool:
+    """True iff the ticket touches an api or event that has consumers.
+
+    Builds the dependency graph (cheap, seconds) and checks whether
+    any directly touched node of kind ``exposed_api`` or
+    ``emitted_event`` has at least one consumer. A "consumed" interface
+    changed by this ticket is exactly the scenario the architectural
+    reviewer was designed to catch.
+    """
+    from jig.graph.derive import build_graph, ticket_impact
+
+    try:
+        graph = build_graph(project_root)
+        impact = ticket_impact(graph, ticket.id, depth=0)
+        interface_kinds = frozenset({"exposed_api", "emitted_event"})
+        for node in impact.touched:
+            if node.kind not in interface_kinds:
+                continue
+            if graph.consumers_of(node.id):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def promote_dev_tier(ticket: Ticket, project_root: Path) -> str | None:
+    """Return the promoted ``dev_tier`` based on graph crossed_boundaries.
+
+    Rules (configurable thresholds):
+      crossed_boundaries == 0 → None (no change; keep existing tier)
+      1–2                     → ``"senior"`` at minimum
+      3+                      → ``"sa"`` at minimum
+
+    Returns ``None`` when the ticket's existing tier is already at or
+    above the threshold (no demotion), when the graph can't be loaded,
+    or when the ticket has no module touches.
+
+    Callers typically do::
+
+        promoted = promote_dev_tier(ticket, project_root)
+        if promoted and (ticket.dev_tier is None or ...):
+            ticket = ticket.model_copy(update={"dev_tier": promoted})
+    """
+    _TIER_ORDER = {"standard": 0, "senior": 1, "sa": 2}
+    _THRESHOLD_SENIOR = 1
+    _THRESHOLD_SA = 3
+
+    from jig.graph.derive import build_graph, ticket_impact
+
+    try:
+        graph = build_graph(project_root)
+        impact = ticket_impact(graph, ticket.id, depth=1)
+    except Exception:
+        return None
+
+    boundaries = impact.crossed_boundaries
+    if boundaries >= _THRESHOLD_SA:
+        target_tier = "sa"
+    elif boundaries >= _THRESHOLD_SENIOR:
+        target_tier = "senior"
+    else:
+        return None
+
+    current = ticket.dev_tier
+    if current is None:
+        return target_tier
+    current_rank = _TIER_ORDER.get(current, 0)
+    target_rank = _TIER_ORDER[target_tier]
+    return target_tier if target_rank > current_rank else None
 
 
 def _integration_ac_mentions_perf(
@@ -846,6 +928,7 @@ __all__ = [
     "BONES_REVIEWER_ID",
     "CONTRACT_TEST_COVERAGE_REVIEWER_ID",
     "CROSS_CUTTING_REVIEWER_ID",
+    "promote_dev_tier",
     "ERROR_HANDLING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",
     "LlmReviewerPending",

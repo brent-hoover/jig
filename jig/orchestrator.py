@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from jig.agent import run_agent
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
-from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChanged
+from jig.analytics.events import AgentCompleted, AgentSpawned, TicketGraphImpact, TicketStateChanged
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, OrchestratorSection, load_config
 from jig.deadlock import sweep_blocking_entries
@@ -290,6 +290,27 @@ class Orchestrator:
                     spawned_by=spawned_by,
                 )
             )
+            # Phase 4.11 — emit graph impact at spawn time so the
+            # Quartermaster can surface complex-ticket patterns. Best-effort:
+            # projects without architecture.yaml produce no event.
+            try:
+                from jig.graph.derive import build_graph, ticket_impact
+
+                _graph = build_graph(self._project_path)
+                _impact = ticket_impact(_graph, ctx.ticket.id)
+                emitter.emit_nowait(
+                    TicketGraphImpact(
+                        ticket_id=ctx.ticket.id,
+                        crossed_boundaries=_impact.crossed_boundaries,
+                        touched_node_count=len(_impact.touched),
+                        consumer_count=sum(
+                            len(v) for v in _impact.consumers.values()
+                        ),
+                        exercised_tracer_count=len(_impact.exercised_tracers),
+                    )
+                )
+            except Exception:
+                pass
         # Track E MVP — provision per-agent namespaces and stamp the
         # connection-string env-var map onto the context. Absence of a
         # manifest (the common case in bones / pre-SA projects) yields

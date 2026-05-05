@@ -691,6 +691,27 @@ class VisualComplianceFailed(_EventBase):
     severity: Literal["critical", "important", "notable"]
 
 
+# ---- Phase 4.11 — graph impact event ------------------------------------
+
+
+class TicketGraphImpact(_EventBase):
+    """Graph-impact summary emitted at agent spawn time (Phase 4.11).
+
+    Captures the crossed_boundaries and touched-node counts so the
+    quartermaster can detect "complex tickets" patterns (tickets
+    crossing many module boundaries) without reading the full graph.
+    Emitted by the orchestrator when the ticket has a non-empty graph
+    neighborhood (crossed_boundaries > 0 or touched > 1 node).
+    """
+
+    kind: Literal["ticket_graph_impact"] = "ticket_graph_impact"
+    ticket_id: str
+    crossed_boundaries: int = Field(default=0, ge=0)
+    touched_node_count: int = Field(default=0, ge=0)
+    consumer_count: int = Field(default=0, ge=0)
+    exercised_tracer_count: int = Field(default=0, ge=0)
+
+
 # ---- discriminated union --------------------------------------------------
 
 
@@ -729,6 +750,7 @@ AnalyticsEvent = Annotated[
         VisualComplianceFailed,
         OntologyTermEdited,
         OntologyTermRemoved,
+        TicketGraphImpact,
     ],
     Field(discriminator="kind"),
 ]

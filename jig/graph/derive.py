@@ -110,7 +110,7 @@ def build_graph(project_root: Path) -> DependencyGraph:
         # Per-module contracts file
         try:
             cf = load_module_contracts(project_root, module.id)
-        except FileNotFoundError:
+        except Exception:
             continue
 
         for api in cf.exposes:

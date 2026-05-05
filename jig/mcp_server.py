@@ -1532,6 +1532,108 @@ def create_agent_mcp_server(
 
         all_tools.append(list_tradeoffs)
 
+    # ---- Phase 3.8 — dependency graph MCP tools ---------------------------
+
+    if "graph_get_impact" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp
+
+        @tool(
+            "graph_get_impact",
+            "Return the TicketImpact for a ticket — touched nodes, consumers, "
+            "crossed_boundaries, exercised tracers. Use for context selection "
+            "and tier-promotion heuristics.",
+            {"ticket_id": str, "depth": int},
+        )
+        async def graph_get_impact(args):
+            import json
+            result = await graph_mcp.handle_graph_get_impact(
+                project_path,
+                args["ticket_id"],
+                depth=int(args.get("depth") or 1),
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_get_impact)
+
+    if "graph_neighbors" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_neighbors",
+            "Return outgoing neighbor nodes of node_id within depth hops. "
+            "Optional kind filter restricts to nodes of that kind.",
+            {"node_id": str, "depth": int, "kind": str},
+        )
+        async def graph_neighbors(args):
+            import json
+            result = await graph_mcp.handle_graph_neighbors(
+                project_path,
+                args["node_id"],
+                depth=int(args.get("depth") or 1),
+                kind=args.get("kind") or None,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_neighbors)
+
+    if "graph_consumers_of" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_consumers_of",
+            "Return all nodes that have an outgoing edge pointing TO node_id. "
+            "Use to scope reviewer findings to the affected consumers.",
+            {"node_id": str},
+        )
+        async def graph_consumers_of(args):
+            import json
+            result = await graph_mcp.handle_graph_consumers_of(
+                project_path,
+                args["node_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_consumers_of)
+
+    if "graph_tracers_for" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_tracers_for",
+            "Return tracer nodes reachable from node_id. "
+            "Empty until Phase 5 lands tracer schema.",
+            {"node_id": str},
+        )
+        async def graph_tracers_for(args):
+            import json
+            result = await graph_mcp.handle_graph_tracers_for(
+                project_path,
+                args["node_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_tracers_for)
+
+    if "graph_changed_interfaces" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_changed_interfaces",
+            "Return the public interface nodes touched by ticket_id "
+            "(exposed_api, emitted_event, data_contract kinds). "
+            "Use for tier promotion and coordination.",
+            {"ticket_id": str},
+        )
+        async def graph_changed_interfaces(args):
+            import json
+            result = await graph_mcp.handle_graph_changed_interfaces(
+                project_path,
+                args["ticket_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_changed_interfaces)
+
     if "sa_finalize" in agent_cfg.allowed_tools:
 
         @tool(

@@ -170,6 +170,8 @@ allowed_tools:
   - wireframe_set_notes
   - vd_import_claude_design
   - dev_derive_manifest
+  - graph_get_impact
+  - graph_neighbors
 allowed_mcps: []
 strict_tools: true
 default_context:

@@ -2144,3 +2144,130 @@ def eval_list(project_id: str, runs_root: Path | None) -> None:
     for run_id, label, date, tickets, tracer in rows:
         click.echo(f"{run_id:<10} {label:<20} {date:<12} {tickets:<40} {tracer}")
 
+
+# ---------------------------------------------------------------------------
+# jig graph — dependency graph queries (Phase 3.8)
+# ---------------------------------------------------------------------------
+
+
+@cli.group("graph")
+def graph_group() -> None:
+    """Dependency graph queries — build, impact, neighbors, consumers, tracers."""
+
+
+@graph_group.command("build")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def graph_build(path: Path) -> None:
+    """Rebuild the dependency graph from spec artifacts."""
+    from jig.graph.derive import write_graph
+
+    out = write_graph(path)
+    click.echo(f"graph written to {out}")
+
+
+@graph_group.command("impact")
+@click.argument("ticket_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--depth", default=1, show_default=True, help="Neighborhood depth.")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON.")
+def graph_impact(ticket_id: str, path: Path, depth: int, as_json: bool) -> None:
+    """Show what a ticket touches and who consumes those nodes."""
+    import json as _json
+
+    from jig.graph.derive import build_graph, ticket_impact
+
+    graph = build_graph(path)
+    impact = ticket_impact(graph, ticket_id, depth=depth)
+    if as_json:
+        click.echo(_json.dumps(impact.model_dump(mode="json"), indent=2))
+        return
+    click.echo(f"ticket:       {impact.ticket_id}")
+    click.echo(f"boundaries:   {impact.crossed_boundaries}")
+    if impact.touched:
+        click.echo("touched:")
+        for n in impact.touched:
+            click.echo(f"  {n.id}  ({n.kind})")
+    if impact.consumers:
+        click.echo("consumers:")
+        for node_id, consumers in impact.consumers.items():
+            for c in consumers:
+                click.echo(f"  {c.id} → {node_id}")
+    if impact.exercised_tracers:
+        click.echo("exercised tracers:")
+        for t in impact.exercised_tracers:
+            click.echo(f"  {t.id}")
+
+
+@graph_group.command("neighbors")
+@click.argument("node_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--depth", default=1, show_default=True, help="Hops to walk.")
+@click.option("--kind", default=None, help="Filter by node kind.")
+def graph_neighbors(node_id: str, path: Path, depth: int, kind: str | None) -> None:
+    """List outgoing neighbors of a node within DEPTH hops."""
+    from jig.graph.derive import build_graph
+
+    graph = build_graph(path)
+    neighbor_ids = graph.neighbors(node_id, depth=depth, kind=kind)
+    node_map = {n.id: n for n in graph.nodes}
+    results = sorted(
+        (node_map[nid] for nid in neighbor_ids if nid in node_map),
+        key=lambda n: (n.kind, n.id),
+    )
+    if not results:
+        click.echo("(no neighbors)")
+        return
+    for n in results:
+        line = f"{n.id}  [{n.kind}]"
+        if n.title:
+            line += f"  — {n.title}"
+        click.echo(line)
+
+
+@graph_group.command("consumers")
+@click.argument("node_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def graph_consumers(node_id: str, path: Path) -> None:
+    """List all nodes with an edge pointing TO NODE_ID."""
+    from jig.graph.derive import build_graph
+
+    graph = build_graph(path)
+    consumer_ids = graph.consumers_of(node_id)
+    node_map = {n.id: n for n in graph.nodes}
+    results = sorted(
+        (node_map[nid] for nid in consumer_ids if nid in node_map),
+        key=lambda n: (n.kind, n.id),
+    )
+    if not results:
+        click.echo("(no consumers)")
+        return
+    for n in results:
+        line = f"{n.id}  [{n.kind}]"
+        if n.title:
+            line += f"  — {n.title}"
+        click.echo(line)
+
+
+@graph_group.command("tracers")
+@click.argument("node_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def graph_tracers(node_id: str, path: Path) -> None:
+    """List tracer nodes reachable from NODE_ID."""
+    from jig.graph.derive import build_graph
+
+    graph = build_graph(path)
+    reachable = graph.reachable_from(node_id)
+    node_map = {n.id: n for n in graph.nodes}
+    tracers = sorted(
+        (node_map[nid] for nid in reachable if nid in node_map and node_map[nid].kind == "tracer"),
+        key=lambda n: n.id,
+    )
+    if not tracers:
+        click.echo("(no tracers)")
+        return
+    for t in tracers:
+        line = f"{t.id}"
+        if t.title:
+            line += f"  — {t.title}"
+        click.echo(line)
+

@@ -110,6 +110,7 @@ allowed_tools:
   - Read
   - Bash(git diff*)
   - reviewer_post_comment
+  - graph_consumers_of
 allowed_mcps: []
 strict_tools: true
 default_context:

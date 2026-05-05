@@ -118,6 +118,11 @@ allowed_tools:
   - arch_list_fields
   - arch_list_templates
   - sa_propose_scaffold
+  - graph_get_impact
+  - graph_neighbors
+  - graph_consumers_of
+  - graph_tracers_for
+  - graph_changed_interfaces
 allowed_mcps: []
 strict_tools: true
 default_context:

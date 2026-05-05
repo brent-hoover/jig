@@ -326,6 +326,11 @@ allowed_tools:
   - module_set_open_question
   - arch_regenerate_pydantic_models
   - arch_finalize
+  - graph_get_impact
+  - graph_neighbors
+  - graph_consumers_of
+  - graph_tracers_for
+  - graph_changed_interfaces
 allowed_mcps: []
 strict_tools: true
 default_context:

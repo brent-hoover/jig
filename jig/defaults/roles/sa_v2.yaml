@@ -181,6 +181,11 @@ allowed_tools:
   - Read
   - ask_question
   - sa_finalize
+  - graph_get_impact
+  - graph_neighbors
+  - graph_consumers_of
+  - graph_tracers_for
+  - graph_changed_interfaces
 allowed_mcps: []
 strict_tools: true
 default_context:

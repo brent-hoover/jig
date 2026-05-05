@@ -238,6 +238,8 @@ allowed_tools:
   - Read
   - ask_question
   - plan_finalize
+  - graph_consumers_of
+  - graph_changed_interfaces
 allowed_mcps: []
 strict_tools: true
 cross_ticket_access: true

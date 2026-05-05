@@ -1965,3 +1965,182 @@ def ontology_find_references_cmd(term: str, path: Path) -> None:
     for ref in refs:
         click.echo(f"{ref.path}:{ref.line}: {ref.snippet}")
 
+
+# ---- eval harness --------------------------------------------------------
+
+
+@cli.group("eval")
+def eval_group() -> None:
+    """Eval harness — collect and compare metrics across jig runs."""
+
+
+@eval_group.command("collect")
+@click.argument("project_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--project-id", required=True, help="Eval project id (e.g. hn-cli).")
+@click.option("--label", default=None, help="Human-readable label for this run.")
+@click.option(
+    "--tracer-cmd",
+    "tracer_cmd",
+    default=None,
+    help="Shell command to run the tracer (e.g. 'bash tracer.sh'). "
+    "Runs inside project_path.",
+)
+@click.option(
+    "--runs-root",
+    "runs_root",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Directory where manifests are stored. Defaults to evals/runs/ "
+    "relative to the jig source root.",
+)
+def eval_collect(
+    project_path: Path,
+    project_id: str,
+    label: str | None,
+    tracer_cmd: str | None,
+    runs_root: Path | None,
+) -> None:
+    """Collect metrics from a completed project run and save a manifest.
+
+    PROJECT_PATH is the root of the jig-managed project (the directory
+    that contains .jig/).
+    """
+    import shlex
+    import uuid
+
+    import yaml
+
+    from jig.eval.collector import collect
+
+    run_id = str(uuid.uuid4())[:8]
+
+    parsed_tracer: list[str] | None = None
+    if tracer_cmd:
+        parsed_tracer = shlex.split(tracer_cmd)
+
+    manifest = asyncio.run(
+        collect(
+            project_path,
+            run_id=run_id,
+            project_id=project_id,
+            label=label,
+            tracer_cmd=parsed_tracer,
+        )
+    )
+
+    # Determine runs root — prefer explicit flag, then walk up from here
+    # to find the jig source tree's evals/runs/, otherwise use cwd.
+    if runs_root is None:
+        src_root = Path(__file__).resolve().parent.parent
+        candidate = src_root / "evals" / "runs"
+        runs_root = candidate if candidate.parent.exists() else Path("evals/runs")
+
+    out_dir = runs_root / project_id / run_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "manifest.yaml"
+    out_path.write_text(
+        yaml.dump(manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+    )
+
+    click.echo(f"run_id:   {run_id}")
+    click.echo(f"label:    {label or '(none)'}")
+    click.echo(f"manifest: {out_path}")
+    click.echo(f"tickets:  {manifest.ticket_status_counts}")
+    click.echo(f"cost_usd: {manifest.total_cost_usd:.4f}")
+    click.echo(f"spawns:   {manifest.agent_spawn_count}  fix_cycles: {manifest.fix_cycle_count}")
+    if manifest.tracer:
+        status = "PASS" if manifest.tracer.passed else "FAIL"
+        click.echo(f"tracer:   {status}")
+    error_keys = [k for k, v in manifest.system_event_counts.items() if v]
+    if error_keys:
+        click.echo(f"errors:   {manifest.system_event_counts}")
+
+
+@eval_group.command("compare")
+@click.argument("project_id")
+@click.option("--before", "before_label", required=True, help="Label or run-id of baseline run.")
+@click.option("--after", "after_label", required=True, help="Label or run-id of new run.")
+@click.option(
+    "--runs-root",
+    "runs_root",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Directory where manifests are stored.",
+)
+def eval_compare(
+    project_id: str,
+    before_label: str,
+    after_label: str,
+    runs_root: Path | None,
+) -> None:
+    """Compare two eval runs and print a markdown table.
+
+    PROJECT_ID is the eval project name (e.g. hn-cli).
+    """
+
+    from jig.eval.compare import compare_manifests, _find_manifest, _load_manifest
+
+    if runs_root is None:
+        src_root = Path(__file__).resolve().parent.parent
+        candidate = src_root / "evals" / "runs"
+        runs_root = candidate if candidate.parent.exists() else Path("evals/runs")
+
+    before_path = _find_manifest(runs_root, project_id, before_label)
+    after_path = _find_manifest(runs_root, project_id, after_label)
+
+    before = _load_manifest(before_path)
+    after = _load_manifest(after_path)
+
+    click.echo(compare_manifests(before, after))
+
+
+@eval_group.command("list")
+@click.argument("project_id")
+@click.option(
+    "--runs-root",
+    "runs_root",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Directory where manifests are stored.",
+)
+def eval_list(project_id: str, runs_root: Path | None) -> None:
+    """List all collected runs for a project."""
+    import yaml
+
+    if runs_root is None:
+        src_root = Path(__file__).resolve().parent.parent
+        candidate = src_root / "evals" / "runs"
+        runs_root = candidate if candidate.parent.exists() else Path("evals/runs")
+
+    base = runs_root / project_id
+    if not base.exists():
+        click.echo(f"no runs found for '{project_id}'")
+        return
+
+    rows = []
+    for run_dir in sorted(base.iterdir()):
+        m = run_dir / "manifest.yaml"
+        if not m.exists():
+            continue
+        data = yaml.safe_load(m.read_text()) or {}
+        rows.append(
+            (
+                data.get("run_id", run_dir.name),
+                data.get("label") or "",
+                data.get("collected_at", "")[:10],
+                str(data.get("ticket_status_counts", {})),
+                "PASS" if (data.get("tracer") or {}).get("passed") else
+                ("FAIL" if data.get("tracer") else "n/a"),
+            )
+        )
+
+    if not rows:
+        click.echo(f"no manifests under {base}")
+        return
+
+    header = f"{'run_id':<10} {'label':<20} {'date':<12} {'tickets':<40} tracer"
+    click.echo(header)
+    click.echo("-" * len(header))
+    for run_id, label, date, tickets, tracer in rows:
+        click.echo(f"{run_id:<10} {label:<20} {date:<12} {tickets:<40} {tracer}")
+

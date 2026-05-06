@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.spec_schema import _kebab_slug
 
@@ -43,7 +43,9 @@ class Tradeoff(BaseModel):
         description="Capability ids this tradeoff applies to.",
     )
 
-    def _validate_id(self, v: str) -> str:
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, v: str) -> str:
         return _kebab_slug(v)
 
 

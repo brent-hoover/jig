@@ -99,13 +99,11 @@ async def create_worktree(
         base_branch,
     )
 
-    # Track G MVP follow-on: install the per-commit reviewer hook so
-    # the dev agent's commits trigger the mechanical reviewer subset.
-    # SF-I1: install failure is a soft-fail (agent can still work; the
-    # mechanical reviewer just won't fire on commit) but it must NOT
-    # be silent. ``install_per_commit_hook_or_warn`` returns a warning
-    # string that the orchestrator surfaces as a SystemEvent so the
-    # operator notices when per-commit review is disabled.
+    # Per-commit reviewer hook installation lives at the call site
+    # (``Orchestrator._ensure_worktree``) so the orchestrator can surface
+    # ``install_per_commit_hook_or_warn``'s warning string as a SystemEvent
+    # on the ticket thread (SF-I1). Keeping create_worktree side-effect-free
+    # for that responsibility makes worktree lifecycle easier to test.
     return worktree_path
 
 

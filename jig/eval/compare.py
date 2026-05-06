@@ -10,7 +10,7 @@ from jig.eval.manifest import RunManifest
 
 
 def _load_manifest(path: Path) -> RunManifest:
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(path.read_text()) or {}
     return RunManifest.model_validate(data)
 
 

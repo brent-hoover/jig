@@ -41,7 +41,13 @@ class TradeoffComplianceReviewer:
         if not ledger.tradeoffs:
             return []
 
+        # No-op when ticket.layer is unset/unknown. _layer_index returns -1
+        # for those cases, which would otherwise be < every deferred_idx and
+        # flag every matching tradeoff as "reintroduced" on legacy tickets.
         ticket_layer_idx = _layer_index(ticket.layer)
+        if ticket_layer_idx < 0:
+            return []
+
         comments: list[ReviewerComment] = []
 
         for cap_id in ticket.capability_ids:

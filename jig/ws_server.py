@@ -537,7 +537,7 @@ class WebSocketServer:
             if self._project_path is None:
                 return None
             spec_file = (
-                self._project_path / ".jig" / "spec" / "project.structured.yaml"
+                self._project_path / "docs" / "project.structured.yaml"
             )
             if not spec_file.is_file():
                 return None
@@ -604,12 +604,20 @@ class WebSocketServer:
             "agent_text", "agent_tool", "agent_tool_result", "agent_run",
             "agent_render",    # ConsoleStream output
             "agent_thinking",  # live thinking indicator (replaces \r spinner)
+            "agent_start",     # role divider — TUI renders native full-width Rule
         ):
             return event_envelope(
                 "agents", event.type.removeprefix("agent_"), payload
             )
         if event.type == "prompt_request":  # TuiPromptHandler request
             return event_envelope("prompts", "request", payload)
+        if event.type in (
+            "ticket_completed",
+            "ticket_failed",
+            "ticket_merge_conflict",
+            "ticket_dispatched",
+        ):
+            return event_envelope("events", event.type, payload)
         # No typed projection for this event — drop it.
         # A deliberate event-tail will be added in Phase 3 once bus.recent exists.
         return None

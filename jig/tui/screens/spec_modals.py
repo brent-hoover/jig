@@ -77,7 +77,7 @@ class BriefModal(ModalScreen):
         with Container():
             yield Static("[bold]Brief[/bold] [dim](Esc to close)[/dim]", markup=True)
             with ScrollableContainer():
-                brief_path = self._project_path / ".jig" / "spec" / "project.md"
+                brief_path = self._project_path / "docs" / "brief.md"
                 if not brief_path.is_file():
                     yield Static("[dim]No brief yet — run /init <name>[/dim]", markup=True)
                 else:

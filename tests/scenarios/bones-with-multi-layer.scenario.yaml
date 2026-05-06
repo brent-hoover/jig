@@ -48,7 +48,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-multi-layer
 
   # ---- L1 / L2 (operator hand-writes; bones skips the discovery agents) ---

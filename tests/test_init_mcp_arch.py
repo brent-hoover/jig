@@ -19,9 +19,9 @@ from jig.ticket import Ticket, WorkType
 
 @pytest.fixture
 async def wired(tmp_path):
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.structured.yaml").write_text(
+    (tmp_path / ".jig" / "spec").mkdir(parents=True)
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "project.structured.yaml").write_text(
         yaml.safe_dump({"name": "myproj", "capabilities": {"due-dates": {}}})
     )
     tickets = TicketStore(tmp_path / "tickets.jsonl")
@@ -86,7 +86,7 @@ async def test_arch_set_field_creates_file(wired):
         value="because I said so",
         author="sa",
     )
-    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
+    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
     assert arch_file.is_file()
     data = yaml.safe_load(arch_file.read_text())
     assert data["rationale"] == "because I said so"
@@ -101,7 +101,7 @@ async def test_arch_set_field_nested(wired):
         value={"type": "postgres", "purpose": "primary"},
         author="sa",
     )
-    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
+    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
     data = yaml.safe_load(arch_file.read_text())
     assert data["data_stores"][0]["type"] == "postgres"
 
@@ -223,7 +223,7 @@ async def test_arch_set_field_three_segment_path_with_list_index(wired):
         value="postgres",
         author="sa",
     )
-    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
+    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
     data = yaml.safe_load(arch_file.read_text())
     assert data == {"data_stores": [{"type": "postgres"}]}
 
@@ -244,7 +244,7 @@ async def test_arch_set_field_disjoint_writes_both_persist(wired):
         value="python",
         author="sa",
     )
-    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
+    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
     data = yaml.safe_load(arch_file.read_text())
     assert data["rationale"] == "async backend"
     assert data["language"] == "python"

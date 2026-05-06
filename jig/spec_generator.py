@@ -51,7 +51,7 @@ async def run_spec_generator(
     exits without either, resume logic re-runs it on the next init.
 
     The spec-generator runs against the real project directory (not an
-    isolated worktree) because it reads ``.jig/spec/project.md`` and
+    isolated worktree) because it reads ``docs/brief.md`` and
     writes the structured spec back into the project tree.
 
     ``emitter`` is forwarded to ``run_agent`` so the init CLI can

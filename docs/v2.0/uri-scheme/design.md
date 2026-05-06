@@ -56,7 +56,7 @@ Empty fragment is treated as no fragment (existing behavior).
 
 | URI pattern | Resolves to |
 |---|---|
-| `project://spec/project` | `.jig/spec/project.md` (L0 pitch + audience + non-goals) |
+| `project://spec/project` | `docs/brief.md` (L0 pitch + audience + non-goals) |
 | `project://spec/discovery` | `.jig/spec/discovery.md` whole document |
 | `project://spec/discovery/personas/<id>` | The persona block (anchor lookup on `{#<id>}`) |
 | `project://spec/discovery/journeys/<id>` | The journey block (anchor lookup on `{#<id>}`) |

@@ -54,7 +54,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-ambivalent-needs-clarification
 
   # ---- L1 PO (one-shot finalize; the clarification loop is collapsed) ---

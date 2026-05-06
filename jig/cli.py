@@ -72,13 +72,29 @@ async def _report_section_locks(project_path: Path, ticket_id: str) -> None:
 @cli.command()
 @click.argument("name")
 @click.option("--force", is_flag=True, help="Wipe .jig/ state and restart.")
-def init(name: str, force: bool) -> None:
+@click.option(
+    "--brief",
+    "brief_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Pre-baked brief.md to use instead of running the PO conversation.",
+)
+@click.option(
+    "--auto",
+    is_flag=True,
+    help="Non-interactive mode: pick defaults for every prompt (for eval harnesses).",
+)
+def init(name: str, force: bool, brief_file: Path | None, auto: bool) -> None:
     """Initialize a new jig project: brief → spec → architecture → scaffold."""
     import asyncio
 
+    from jig.init_prompts import AutoPromptHandler
     from jig.init_workflow import run_init
 
-    asyncio.run(run_init(name=name, force=force))
+    prompts = AutoPromptHandler() if auto else None
+    asyncio.run(run_init(
+        name=name, force=force, brief_file=brief_file, prompts=prompts,
+    ))
 
 
 def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> None:
@@ -175,6 +191,53 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
             )
 
     _run_orchestrator_loop(path, ws_port, verbose=verbose)
+
+
+@cli.command()
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def plan(path: Path) -> None:
+    """Create a planning ticket so the PM agent breaks the spec into tickets.
+
+    Safe to run multiple times — a no-op if a planning ticket already exists.
+    """
+    jig_dir = path / ".jig"
+    if not (jig_dir / "spec" / "architecture.yaml").is_file():
+        raise click.ClickException(
+            "Project not initialized. Run 'jig init' first."
+        )
+
+    from jig.store.tickets import TicketStore
+    from jig.ticket import Ticket, WorkType
+
+    store_dir = jig_dir / "store"
+    tickets = TicketStore(store_dir / "tickets.jsonl")
+
+    async def _run() -> bool:
+        await tickets.load()
+        existing = await tickets.get("planning")
+        if existing is not None:
+            return False
+        spec_path = jig_dir / "spec" / "project.structured.yaml"
+        await tickets.create(
+            Ticket(
+                id="planning",
+                work_type=WorkType.PLANNING,
+                title="Project planning",
+                description=(
+                    "Break down the project spec into implementation tickets.\n\n"
+                    f"Spec: {spec_path}"
+                ),
+                workflow="project",
+                created_by="cli",
+            )
+        )
+        return True
+
+    created = asyncio.run(_run())
+    if created:
+        click.echo("Planning ticket created. Start the orchestrator to begin.")
+    else:
+        click.echo("Planning ticket already exists.")
 
 
 @cli.command()

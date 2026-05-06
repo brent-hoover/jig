@@ -50,7 +50,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-vd
 
   # ---- L1 PO --------------------------------------------------------

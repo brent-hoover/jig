@@ -15,7 +15,7 @@ phase_prompt: >
   Read in order before authoring anything:
 
 
-  - ``.jig/spec/project.md`` — L0 pitch + audience + product-level
+  - ``docs/brief.md`` — L0 pitch + audience + product-level
     non-goals.
 
   - ``.jig/spec/discovery.md`` — L1 personas + journeys + capability
@@ -188,7 +188,7 @@ phase_prompt: >
   ## Mechanics — non-negotiable
 
 
-  - **Read first.** project.md, discovery.md, suites.yaml, every
+  - **Read first.** brief.md, discovery.md, suites.yaml, every
     relevant suite's spec.structured.yaml, ontology.md.
 
   - **One question per turn.** Two questions = the operator answers
@@ -267,7 +267,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, discovery.md, suites.yaml, suite
+  - ``Read`` — read brief.md, discovery.md, suites.yaml, suite
     spec.structured.yaml files, ontology.md.
 
   - ``ask_question(ticket_id="architecture", questions=[...])`` —

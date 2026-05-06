@@ -98,7 +98,7 @@ def test_l3_po_role_config_loads(tmp_path):
     assert cfg.strict_tools is True
     assert "l3_finalize" in cfg.allowed_tools
     assert "ask_question" in cfg.allowed_tools
-    # L3 needs Read so the agent can pull project.md / discovery.md /
+    # L3 needs Read so the agent can pull brief.md / discovery.md /
     # suites.yaml from the worktree without going through MCP.
     assert "Read" in cfg.allowed_tools
     # L3 must not see other phases' authoring tools — strict scoping

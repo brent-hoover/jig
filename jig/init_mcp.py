@@ -32,15 +32,15 @@ if TYPE_CHECKING:
 
 
 def _brief_path(project_path: Path) -> Path:
-    return project_path / ".jig" / "spec" / "project.md"
+    return project_path / "docs" / "brief.md"
 
 
 def _spec_path(project_path: Path) -> Path:
-    return project_path / ".jig" / "spec" / "project.structured.yaml"
+    return project_path / "docs" / "project.structured.yaml"
 
 
 def _arch_path(project_path: Path) -> Path:
-    return project_path / ".jig" / "spec" / "architecture.yaml"
+    return project_path / "docs" / "architecture.yaml"
 
 
 def _yaml_get(data: Any, path: str) -> Any:
@@ -163,7 +163,7 @@ async def handle_po_finish_brief(
         ticket_id="brief",
         author=author,
         phase="spec-generator",
-        outputs=[".jig/spec/project.md"],
+        outputs=["docs/brief.md"],
         summary=summary,
     )
     entry_id = await threads.post(handoff)
@@ -371,7 +371,10 @@ async def handle_sa_propose_scaffold(
     bus: MessageBus,
     template_name: str,
     rationale: str,
-    config: dict,
+    decisions: dict | None = None,
+    constraints: list[str] | None = None,
+    open_questions: list[dict] | None = None,
+    config: dict | None = None,  # deprecated; use decisions
     author: str,
 ) -> None:
     if not rationale.strip():
@@ -383,6 +386,9 @@ async def handle_sa_propose_scaffold(
             f"Available templates: {available}. "
             "Call `arch_list_templates` for full metadata."
         )
+    # Merge legacy config into decisions for backwards compat
+    merged_decisions = dict(config or {})
+    merged_decisions.update(decisions or {})
     await threads.post(
         Note(
             ticket_id="architecture",
@@ -392,7 +398,9 @@ async def handle_sa_propose_scaffold(
                 "kind": "sa_propose_scaffold",
                 "template_name": template_name,
                 "rationale": rationale,
-                "config": config,
+                "decisions": merged_decisions,
+                "constraints": constraints or [],
+                "open_questions": open_questions or [],
             },
         )
     )
@@ -534,7 +542,7 @@ async def handle_spec_generate_from_brief(
             "gaps": [{
                 "kind": "missing",
                 "location": str(brief_path),
-                "description": "no project.md found",
+                "description": "no brief.md found",
                 "severity": "blocking",
             }],
         }
@@ -546,7 +554,7 @@ async def handle_spec_generate_from_brief(
             "spec": None,
             "gaps": [{
                 "kind": "format_error",
-                "location": "project.md",
+                "location": "brief.md",
                 "description": str(e),
                 "severity": "blocking",
             }],

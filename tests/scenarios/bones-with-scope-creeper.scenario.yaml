@@ -53,7 +53,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-scope-creeper
 
   - kind: write_suites_yaml
@@ -237,7 +237,7 @@ final_assertions:
       to_state: resolved
   - kind: cost_under_budget
     usd: 1.0
-  # Scope held: project.md must record the deferred extras as non-goals.
+  # Scope held: brief.md must record the deferred extras as non-goals.
   - kind: artifact_written
-    path: .jig/spec/project.md
+    path: docs/brief.md
     contains: no-email-notifications

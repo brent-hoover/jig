@@ -97,7 +97,7 @@ script:
       input: "An async standup tool for engineering managers."
     assertions:
       - kind: artifact_exists
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: "async standup"
 
   - turn:

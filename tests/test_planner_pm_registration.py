@@ -100,7 +100,7 @@ def test_planner_pm_role_config_loads(tmp_path):
     assert cfg.strict_tools is True
     assert "plan_finalize" in cfg.allowed_tools
     assert "ask_question" in cfg.allowed_tools
-    # Planner needs Read so the agent can pull project.md, suites.yaml,
+    # Planner needs Read so the agent can pull brief.md, suites.yaml,
     # spec.structured.yaml, architecture.yaml, and contracts.yaml from
     # the worktree without going through MCP.
     assert "Read" in cfg.allowed_tools

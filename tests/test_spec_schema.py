@@ -21,7 +21,7 @@ def _ts() -> dict:
 
 def test_capability_state_values():
     assert {s.value for s in CapabilityState} == {
-        "backlog", "planned", "in_progress", "built", "archived",
+        "backlog", "planned_uncommitted", "planned", "in_progress", "built", "archived",
     }
 
 

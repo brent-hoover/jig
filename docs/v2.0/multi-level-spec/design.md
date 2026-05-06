@@ -28,7 +28,7 @@ reuses today's brief format intact.
 
 | Level | Artifact | What's there | "Done" means |
 |---|---|---|---|
-| L0 | `.jig/spec/project.md` | Pitch (1 sentence), Problem (1 paragraph), Audience (1 paragraph), product-level Non-goals | Operator confirms; pitch is testable ("does this match what we're building?"). |
+| L0 | `docs/brief.md` | Pitch (1 sentence), Problem (1 paragraph), Audience (1 paragraph), product-level Non-goals | Operator confirms; pitch is testable ("does this match what we're building?"). |
 | L1 | `.jig/spec/discovery.md` | Personas (1-line each) + Journeys (narrative, per persona) + Capability roster (flat list, traceable to journeys) | Operator declares "all personas covered." No persona has unresolved journeys. |
 | L2 | `.jig/spec/suites.yaml` | Ordered list of suites: name, summary, list of L1 capability ids assigned to it | Every L1 capability is in exactly one suite. Suites are 3-5 capabilities each (soft target). |
 | L3 | `.jig/spec/suites/<s>/brief.md` | The existing simple-brief format, scoped to one suite's capabilities. | The existing simple-brief "done" — capabilities elaborated, behaviors + AC where state requires them. |
@@ -760,7 +760,7 @@ URI scheme:
   next" suggestions drawn from common ecommerce/SaaS patterns. (Risk: prejudicing the design. Watch for this.)
 - **L2 grouping is ambiguous.** Operator might disagree with PO's proposal. Mitigation: PO proposes; operator owns the
   final shape. Multiple iterations supported.
-- **Existing simple-brief workflow.** Backward-compat: a project that has `.jig/spec/project.md` in old format (with `##
+- **Existing simple-brief workflow.** Backward-compat: a project that has `docs/brief.md` in old format (with `##
   Built` etc. and enumerated capabilities) keeps working — there's just no L1/L2 artifacts. New projects use the
   multi-level path. Detection: presence of `discovery.md`.
 

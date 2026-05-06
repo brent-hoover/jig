@@ -35,11 +35,36 @@ async def cmd_init(
     if args and args[0] in ("--proceed", "proceed"):
         return await _proceed(orch=orch, project_path=project_path)
 
+    # Parse --brief PATH and --auto out of args first so they don't get
+    # mistaken for the project name.
+    from pathlib import Path as _Path
+
+    brief_file: _Path | None = None
+    auto = False
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--brief" and i + 1 < len(args):
+            brief_file = _Path(args[i + 1])
+            i += 2
+            continue
+        if a.startswith("--brief="):
+            brief_file = _Path(a.split("=", 1)[1])
+            i += 1
+            continue
+        if a == "--auto":
+            auto = True
+            i += 1
+            continue
+        positional.append(a)
+        i += 1
+
     # /init with no name defaults to "this directory" — uses project_path
     # as the target, with its basename as the project name. This is the
     # natural flow after `jig create <name>` where the operator is already
     # inside the new directory.
-    init_in_cwd = not args
+    init_in_cwd = not positional
     if init_in_cwd:
         if project_path is None:
             return {
@@ -54,15 +79,33 @@ async def cmd_init(
             }
         force = False
     else:
-        name = args[0]
-        force = "--force" in args[1:]
+        name = positional[0]
+        force = "--force" in positional[1:]
 
+    # Resolve --brief PATH relative to project_path so the operator can
+    # write `/init demo --brief evals/projects/hn-cli/brief.md` without
+    # caring about the daemon's cwd.
+    if brief_file is not None and not brief_file.is_absolute():
+        if project_path is not None:
+            brief_file = (project_path / brief_file).resolve()
+        else:
+            brief_file = brief_file.resolve()
+    if brief_file is not None and not brief_file.is_file():
+        return {
+            "ok": False,
+            "error": f"--brief: file not found: {brief_file}",
+        }
+
+    from jig.init_prompts import AutoPromptHandler
     from jig.init_workflow import run_init
     from jig.tui.console_stream import make_streaming_console
     from jig.tui.tui_prompts import TuiPromptHandler
 
     console = make_streaming_console(emitter)
-    prompts = TuiPromptHandler(emitter=emitter, registry=prompt_registry)
+    prompts = (
+        AutoPromptHandler() if auto
+        else TuiPromptHandler(emitter=emitter, registry=prompt_registry)
+    )
 
     # Resolve the target as ABSOLUTE relative to the daemon's project_path
     # so the daemon process's cwd (which can differ from where the operator
@@ -82,7 +125,8 @@ async def cmd_init(
 
     try:
         await run_init(
-            name=target_str, force=force, console=console, prompts=prompts
+            name=target_str, force=force, console=console, prompts=prompts,
+            brief_file=brief_file,
         )
     except Exception as exc:  # noqa: BLE001
         # Log the full traceback to the daemon log so we can debug what
@@ -107,7 +151,7 @@ async def cmd_init(
                 "orchestrator reload after init failed: %s", exc, exc_info=True
             )
 
-    return {"ok": True, "data": {"name": name}}
+    return {"ok": True}
 
 
 async def _proceed(*, orch, project_path) -> dict[str, Any]:
@@ -145,7 +189,7 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
     from jig.ticket import Ticket, TicketStatus, WorkType
 
     # L0 gate.
-    if not (project_path / ".jig" / "spec" / "project.md").is_file() and not spec_path(
+    if not (project_path / "docs" / "brief.md").is_file() and not spec_path(
         project_path
     ).is_file():
         return {

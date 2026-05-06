@@ -49,14 +49,14 @@ class TestInitProject:
         assert (jig_dir / "archive").is_dir()
 
     def test_creates_project_spec_stub(self, tmp_project: Path) -> None:
-        """`.jig/spec/project.md` ships as a PO-facing template.
+        """`docs/brief.md` ships as a PO-facing template.
 
         Per docs/02-project-spec.md §"Human format example" the PO's
         brief has state-category level-2 headers. The stub mirrors that
         shape so the PO has somewhere concrete to start writing.
         """
         init_project(tmp_project)
-        spec_path = tmp_project / ".jig" / "spec" / "project.md"
+        spec_path = tmp_project / "docs" / "brief.md"
         assert spec_path.is_file()
         body = spec_path.read_text()
         # Every state-category header from doc 02 must be present.
@@ -67,7 +67,7 @@ class TestInitProject:
             "## Backlog",
             "## Non-goals",
         ):
-            assert header in body, f"missing {header!r} in project.md stub"
+            assert header in body, f"missing {header!r} in brief.md stub"
         # Top-level heading is derived from the project's directory name
         # so a git clone doesn't come with a title that claims to be a
         # different project.

@@ -41,7 +41,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-fast-and-shippy
       # Gate confirmation reached cleanly: the L0 ticket transitions
       # to resolved without re-opening (the methodical refusal-then-

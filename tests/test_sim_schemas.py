@@ -40,7 +40,7 @@ from jig.sim.scenario import (
 
 def test_artifact_written_assertion_round_trips():
     a = ArtifactWrittenAssertion(
-        path=".jig/spec/project.md",
+        path="docs/brief.md",
         contains="bones",
     )
     payload = a.model_dump(mode="json")
@@ -48,7 +48,7 @@ def test_artifact_written_assertion_round_trips():
     restored = ScenarioAssertion.validate_python(payload)
     assert isinstance(restored, ArtifactWrittenAssertion)
     assert restored.kind == AssertionKind.ARTIFACT_WRITTEN.value
-    assert restored.path == ".jig/spec/project.md"
+    assert restored.path == "docs/brief.md"
     assert restored.contains == "bones"
 
 
@@ -322,7 +322,7 @@ def test_scenario_round_trips_through_yaml(tmp_path: Path):
                         "assertions": [
                             {
                                 "kind": "artifact_written",
-                                "path": ".jig/spec/project.md",
+                                "path": "docs/brief.md",
                             }
                         ],
                     },

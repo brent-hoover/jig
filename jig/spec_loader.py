@@ -54,7 +54,7 @@ from jig.schemas.po import (
 )
 from jig.spec_schema import StructuredSpec
 
-_SPEC_RELATIVE = Path(".jig") / "spec" / "project.structured.yaml"
+_SPEC_RELATIVE = Path("docs") / "project.structured.yaml"
 _SUITES_INDEX_RELATIVE = Path(".jig") / "spec" / "suites.yaml"
 _ARCHITECTURE_RELATIVE = Path(".jig") / "spec" / "architecture.yaml"
 _BUILD_PLAN_RELATIVE = Path(".jig") / "plan" / "build-plan.yaml"

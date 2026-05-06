@@ -225,6 +225,7 @@ class Orchestrator:
                 self._orchestrator_cfg = OrchestratorSection()
             self._running = True
             await self._resume_in_progress()
+            await self._ensure_planning_ticket()
             await self._start_ready_tickets()
             self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
             self._service_task = asyncio.create_task(self._run_service_loop())
@@ -1000,6 +1001,14 @@ class Orchestrator:
                     return
         _logger.info("scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow)
         await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+        if self._emitter is not None:
+            from jig.events import JigEvent
+            await self._emitter.emit(
+                JigEvent(
+                    type="ticket_dispatched",
+                    data={"ticket_id": ticket_id, "title": ticket.title},
+                )
+            )
         task = asyncio.create_task(self._run_ticket(ticket_id))
         self._running_tickets[ticket_id] = task
         task.add_done_callback(self._ticket_task_done)
@@ -1501,6 +1510,41 @@ class Orchestrator:
                 blocked_id,
             )
             await self._handle_schedule(blocked_id)
+
+    async def _ensure_planning_ticket(self) -> None:
+        """Create a planning ticket if the project is initialized but has none."""
+        if self.tickets is None:
+            return
+        arch = self._project_path / "docs" / "architecture.yaml"
+        if not arch.is_file():
+            return  # project not initialized
+        existing = await self.tickets.get("planning")
+        if existing is not None:
+            return  # already created
+        # Check whether any non-init tickets exist (i.e. planning already happened)
+        from jig.ticket import WorkType as _WorkType
+        init_types = {_WorkType.BRIEF, _WorkType.ARCHITECTURE, _WorkType.PLANNING}
+        all_tickets = await self.tickets.list_all()
+        dev_tickets = [t for t in all_tickets if t.work_type not in init_types]
+        if dev_tickets:
+            return  # planning already produced tickets
+
+        from jig.ticket import Ticket
+        spec_path = self._project_path / "docs" / "project.structured.yaml"
+        await self.tickets.create(
+            Ticket(
+                id="planning",
+                work_type=_WorkType.PLANNING,
+                title="Project planning",
+                description=(
+                    "Break down the project spec into implementation tickets.\n\n"
+                    f"Spec: {spec_path}"
+                ),
+                workflow="project",
+                created_by="orchestrator",
+            )
+        )
+        _logger.info("auto-created planning ticket")
 
     async def _start_ready_tickets(self) -> None:
         """Find ALL open tickets with satisfied dependencies and start them."""

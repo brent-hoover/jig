@@ -61,7 +61,8 @@ def test_classify_in_progress_brief_only(tmp_path: Path):
     (tmp_path / ".jig" / "project.yaml").write_text(
         "id: x\nname: x\ncreated_at: 2026-01-01T00:00:00Z\n"
     )
-    (tmp_path / ".jig" / "spec" / "project.md").write_text("# x\n")
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text("# x\n")
     assert classify_directory(tmp_path) == DirState.IN_PROGRESS
 
 
@@ -93,7 +94,7 @@ def test_create_stub(tmp_path: Path):
     target = tmp_path / "new"
     create_stub(target, name="new")
     assert (target / ".jig" / "project.yaml").is_file()
-    assert (target / ".jig" / "spec" / "project.md").is_file()
+    assert (target / "docs" / "brief.md").is_file()
     import yaml
     data = yaml.safe_load((target / ".jig" / "project.yaml").read_text())
     assert data["name"] == "new"
@@ -141,7 +142,7 @@ def test_create_stub_idempotent_for_config_yaml(tmp_path: Path):
 def test_create_stub_default_brief_content(tmp_path: Path):
     target = tmp_path / "myproj"
     create_stub(target, name="myproj")
-    brief = (target / ".jig" / "spec" / "project.md").read_text()
+    brief = (target / "docs" / "brief.md").read_text()
     assert brief.startswith("# myproj")
 
 
@@ -404,7 +405,7 @@ async def test_apply_scaffold_direct_path_writes_architecture_yaml(tmp_path: Pat
             threads=threads,
         )
 
-    arch_file = project / ".jig" / "spec" / "architecture.yaml"
+    arch_file = project / "docs" / "architecture.yaml"
     assert arch_file.is_file()
     data = yaml.safe_load(arch_file.read_text())
     assert data["template"] == "python"
@@ -426,7 +427,7 @@ async def test_apply_scaffold_direct_path_writes_architecture_yaml(tmp_path: Pat
 async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
     create_stub(tmp_path / "p", name="p")
     project = tmp_path / "p"
-    arch_dir = project / ".jig" / "spec"
+    arch_dir = project / "docs"
     yaml_text = yaml.safe_dump({
         "rationale": "fastapi is a good fit",
         "data_stores": [{"type": "postgres", "purpose": "primary"}],
@@ -456,13 +457,13 @@ async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
             threads=threads,
         )
 
-    data = yaml.safe_load((arch_dir / "architecture.yaml").read_text())
+    data = yaml.safe_load((project / "docs" / "architecture.yaml").read_text())
     assert data["rationale"] == "fastapi is a good fit"
     assert data["sa_path"] is True
     assert data["template"] == "fastapi"
     assert data["language"] == "python"
     assert data["framework"] == "fastapi"
-    assert data["config"] == {"port": 8000}
+    assert data["decisions"] == {"port": 8000}
     assert data["data_stores"][0]["type"] == "postgres"
 
 
@@ -534,10 +535,10 @@ async def test_apply_scaffold_warns_and_succeeds_when_hook_install_fails(
         )
 
     out = capsys.readouterr().out
-    assert "Warning: hook install failed" in out
+    assert "hook install skipped" in out
     assert "simulated failure" in out
     # Scaffold's happy path still completed:
-    assert (project / ".jig" / "spec" / "architecture.yaml").is_file()
+    assert (project / "docs" / "architecture.yaml").is_file()
 
 
 def test_print_summary_includes_path_when_target_not_cwd(capsys):

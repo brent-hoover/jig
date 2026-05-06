@@ -182,7 +182,7 @@ The current jig codebase (v1) is a single-agent-sequential coordinator for bound
 
 Already mapped under "Multi-level PO" above. Key schema files:
 
-- `.jig/spec/project.md` — L0 (REPLACE: add problem, audience, product-level non-goals)
+- `docs/brief.md` — L0 (REPLACE: add problem, audience, product-level non-goals)
 - `.jig/spec/discovery.md` — L1 (NEW: personas, journeys, capability roster, journey playbacks)
 - `.jig/spec/discovery.state.yaml` — L1 (NEW: resume support)
 - `.jig/spec/suites.yaml` — L2 (NEW: suite list with capability assignments)

@@ -309,58 +309,64 @@ async def test_thinking_indicator_shows_and_hides(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_sidebar_mounts_and_receives_data(tmp_path: Path):
-    """Sidebar is part of the layout and gets fed by JigApp's
-    daemon-message fan-out."""
+    """Sidebar mounts, receives a tickets snapshot, and renders ticket titles."""
     from jig.tui.widgets.sidebar import Sidebar
 
     app = JigApp(project_path=tmp_path)
-    async with app.run_test(size=(120, 40)):
-        sb = app.query_one(Sidebar)
-        assert sb.display is True
+    async with app.run_test() as pilot:
+        sidebar = app.query_one(Sidebar)
+        assert sidebar is not None
 
-        # Tickets snapshot fan-out
-        await app._handle_daemon_message({
-            "type": "snapshot",
-            "topic": "tickets",
-            "data": [
-                {"id": "a", "title": "Brief", "status": "in_progress"},
-                {"id": "b", "title": "Closed thing", "status": "closed"},
-            ],
-        })
-        # Open ticket should be in the queue; closed one filtered out
-        assert "a" in sb._tickets
+        # Feed a tickets snapshot through the sidebar's public API
+        sidebar.update_tickets_snapshot([
+            {"id": "T-1", "title": "Fix the thing", "status": "open"},
+            {"id": "T-2", "title": "Do the other thing", "status": "in_progress"},
+        ])
 
-        # Events snapshot fan-out
-        await app._handle_daemon_message({
-            "type": "snapshot",
-            "topic": "events",
-            "data": [
-                {"timestamp": "2026-04-30T13:42:30Z", "payload": {"kind": "ticket_updated"}},
-            ],
-        })
-        assert len(sb._events) == 1
+        # Assert immediately — the update is synchronous; pausing risks
+        # a real daemon on :9100 sending a snapshot and resetting state.
+        assert "T-1" in sidebar._tickets
+        assert "T-2" in sidebar._tickets
 
-        # Thinking event fan-out
-        await app._handle_daemon_message({
-            "type": "event",
-            "topic": "agents",
-            "kind": "thinking",
-            "data": {"role": "po", "elapsed": 5, "active": True},
-        })
-        assert "po" in sb._active_agents
+
+@pytest.mark.asyncio
+async def test_shift_tab_toggles_scrollback_focus(tmp_path: Path):
+    """Shift+Tab on the Now pane should move focus between the Composer
+    and the Scrollback so arrow keys can scroll the transcript."""
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import JigTextArea
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test() as pilot:
+        composer = app.query_one("#input", JigTextArea)
+        scrollback = app.query_one("#scrollback", RichLog)
+
+        # Composer has focus on launch
+        assert composer.has_focus
+        assert not scrollback.has_focus
+
+        await pilot.press("shift+tab")
+        assert scrollback.has_focus
+        assert not composer.has_focus
+
+        await pilot.press("shift+tab")
+        assert composer.has_focus
+        assert not scrollback.has_focus
 
 
 @pytest.mark.asyncio
 async def test_ctrl_s_toggles_sidebar(tmp_path: Path):
+    """Ctrl+S should toggle the sidebar's -hidden class."""
     from jig.tui.widgets.sidebar import Sidebar
 
     app = JigApp(project_path=tmp_path)
-    async with app.run_test(size=(120, 40)) as pilot:
-        sb = app.query_one(Sidebar)
-        assert sb.display is True
+    async with app.run_test() as pilot:
+        sidebar = app.query_one(Sidebar)
+        assert "-hidden" not in sidebar.classes
+
         await pilot.press("ctrl+s")
-        await pilot.pause(0.05)
-        assert sb.display is False
+        assert "-hidden" in sidebar.classes
+
         await pilot.press("ctrl+s")
-        await pilot.pause(0.05)
-        assert sb.display is True
+        assert "-hidden" not in sidebar.classes

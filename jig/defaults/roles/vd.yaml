@@ -15,7 +15,7 @@ phase_prompt: >
   Read in order before authoring:
 
 
-  - ``.jig/spec/project.md`` — L0 pitch + audience.
+  - ``docs/brief.md`` — L0 pitch + audience.
 
   - ``.jig/spec/discovery.md`` — L1 personas + journeys.
 
@@ -115,7 +115,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, discovery.md, suites.yaml, the suite
+  - ``Read`` — read brief.md, discovery.md, suites.yaml, the suite
     spec.structured.yaml files.
 
   - ``Write`` / ``Edit`` — for the rare hand-edit case (e.g. updating

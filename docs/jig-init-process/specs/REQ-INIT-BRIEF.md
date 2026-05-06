@@ -14,7 +14,7 @@ implements: [../problem.md]
 
 ## Context
 
-The brief is the human-authored Markdown at `.jig/spec/project.md`.
+The brief is the human-authored Markdown at `docs/brief.md`.
 PO is the agent that collaborates with the user to author and evolve
 it during init. The brief ticket (`WorkType.BRIEF`, reserved id
 `"brief"`) is the persistence surface for every PO turn, user reply,

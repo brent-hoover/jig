@@ -40,7 +40,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: regression-example-stub
 
   - kind: write_suites_yaml

@@ -929,7 +929,7 @@ def create_agent_mcp_server(
             "l0_finalize",
             "Capture the L0 pitch + problem + audience + product-level "
             "non-goals and finalize the project. Writes both "
-            ".jig/spec/project.md (markdown form) and "
+            "docs/brief.md (markdown form) and "
             ".jig/spec/project.structured.yaml (Pydantic dump). "
             "Hands off to the L1 PO. Call this exactly once when the "
             "operator has confirmed all four fields.",
@@ -2500,7 +2500,7 @@ def create_agent_mcp_server(
         @tool(
             "spec_list_capabilities",
             "List capabilities in the project spec. Optional `state` filter "
-            "('backlog', 'planned', 'in_progress', 'built', 'archived'). "
+            "('backlog', 'planned_uncommitted', 'planned', 'in_progress', 'built', 'archived'). "
             "Returns id, title, state for each — lightweight summary; "
             "use `spec_get_capability` for full content.",
             {"state": str},
@@ -2708,10 +2708,19 @@ def create_agent_mcp_server(
 
         @tool(
             "sa_propose_scaffold",
-            "Propose a project scaffold template for the orchestrator to apply. "
-            "`template_name` must match one of the names returned by "
-            "`arch_list_templates`.",
-            {"template_name": str, "rationale": str, "config": dict},
+            "Propose a project scaffold template. "
+            "`template_name` must match one of the names returned by `arch_list_templates`. "
+            "`rationale` is prose explaining the architectural fit. "
+            "`decisions` is a dict of structured tech choices (e.g. cli_framework, http_client, async_io). "
+            "`constraints` is a list of architectural invariants dev agents must follow. "
+            "`open_questions` is a list of {id, question, blocking} dicts for unresolved decisions.",
+            {
+                "template_name": str,
+                "rationale": str,
+                "decisions": dict,
+                "constraints": list,
+                "open_questions": list,
+            },
         )
         async def sa_propose_scaffold(args):
             await init_mcp.handle_sa_propose_scaffold(
@@ -2720,7 +2729,9 @@ def create_agent_mcp_server(
                 bus=bus,
                 template_name=args["template_name"],
                 rationale=args["rationale"],
-                config=args.get("config", {}),
+                decisions=args.get("decisions", {}),
+                constraints=args.get("constraints", []),
+                open_questions=args.get("open_questions", []),
                 author=agent_role,
             )
             return {"content": [{"type": "text", "text": "ok"}]}

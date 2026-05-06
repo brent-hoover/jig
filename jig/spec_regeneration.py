@@ -33,7 +33,7 @@ from jig.spec_schema import (
 _SECTION_TO_STATE: dict[str, CapabilityState] = {
     "built": CapabilityState.BUILT,
     "planned_committed": CapabilityState.PLANNED,
-    "planned_not_committed": CapabilityState.PLANNED,
+    "planned_not_committed": CapabilityState.PLANNED_UNCOMMITTED,
     "backlog": CapabilityState.BACKLOG,
     "archived": CapabilityState.ARCHIVED,
 }

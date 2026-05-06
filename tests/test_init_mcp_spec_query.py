@@ -42,9 +42,8 @@ def spec_path(tmp_path):
         non_goals=[NonGoal(id="no-multi-user", text="Multi-user")],
         generated_at=_ts(),
     )
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.structured.yaml").write_text(
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "project.structured.yaml").write_text(
         yaml.safe_dump(spec.model_dump(mode="json", by_alias=True))
     )
     return tmp_path
@@ -133,9 +132,8 @@ async def test_spec_generate_from_brief_first_time(tmp_path):
     from jig.init_mcp import handle_spec_generate_from_brief
     from jig.store.tickets import TicketStore
 
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.md").write_text(
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text(
         "# todoapp\n\nA simple todo manager.\n\n"
         "## Backlog\n\n- {#mobile-app} Mobile app\n"
     )
@@ -159,9 +157,8 @@ async def test_spec_generate_from_brief_returns_format_gaps(tmp_path):
     from jig.init_mcp import handle_spec_generate_from_brief
     from jig.store.tickets import TicketStore
 
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.md").write_text(
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text(
         "# x\n\nintro\n\n## Backlog\n\n- Mobile app\n"  # missing {#id}
     )
     tickets = TicketStore(tmp_path / "tickets.jsonl")
@@ -186,8 +183,7 @@ async def test_spec_generate_from_brief_preserves_metadata_on_regen(tmp_path):
     )
     import yaml
 
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
     earlier = datetime(2026, 1, 1, tzinfo=timezone.utc)
     existing = StructuredSpec(
         name="x", summary="y",
@@ -201,10 +197,10 @@ async def test_spec_generate_from_brief_preserves_metadata_on_regen(tmp_path):
         ],
         generated_at=earlier,
     )
-    (spec_dir / "project.structured.yaml").write_text(
+    (tmp_path / "docs" / "project.structured.yaml").write_text(
         yaml.safe_dump(existing.model_dump(mode="json", by_alias=True))
     )
-    (spec_dir / "project.md").write_text(
+    (tmp_path / "docs" / "brief.md").write_text(
         "# x\n\nintro\n\n## Backlog\n\n- {#mobile-app} Mobile app\n"
     )
     tickets = TicketStore(tmp_path / "tickets.jsonl")

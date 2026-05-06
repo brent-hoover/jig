@@ -17,7 +17,8 @@ from jig.ticket import Ticket, WorkType
 async def _bootstrap_project(tmp_path: Path):
     """Create the .jig directory shape needed for a spawn."""
     (tmp_path / ".jig" / "spec").mkdir(parents=True)
-    (tmp_path / ".jig" / "spec" / "project.md").write_text(
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text(
         "# p\n\n## Built\n\n- one\n"
     )
     (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)

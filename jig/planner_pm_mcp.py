@@ -3,7 +3,7 @@
 The Planner PM consumes upstream PO + SA artifacts and produces the
 build plan that the Coordinator dispatches against:
 
-- Reads: ``.jig/spec/project.md``, ``.jig/spec/suites.yaml``,
+- Reads: ``docs/brief.md``, ``.jig/spec/suites.yaml``,
   ``.jig/spec/suites/<id>/spec.structured.yaml`` per suite,
   ``.jig/spec/architecture.yaml``, ``.jig/spec/modules/<m>/contracts.yaml``
   per module.

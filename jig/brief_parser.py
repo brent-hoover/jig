@@ -1,4 +1,4 @@
-"""Parser for the brief markdown (``.jig/spec/project.md``).
+"""Parser for the brief markdown (``docs/brief.md``).
 
 Hand-rolled so we control the anchor syntax (``{#id}`` for definitions,
 ``[id]`` for references) precisely. Output is an intermediate

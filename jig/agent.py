@@ -102,11 +102,12 @@ _LOG_TRUNCATE_BYTES = 32 * 1024
 # Built-in Claude Code tools that strict-tools roles (PO, SA,
 # spec-generator) should never reach for. These are exploratory or
 # mutating tools that are out of scope for narrow-conversation roles
-# whose entire job is to talk through MCP. ``Read`` and ``ToolSearch``
-# stay allowed: Read is sometimes needed (e.g. PO reading project.md
-# directly), ToolSearch is required to load deferred MCP tool schemas.
-# A role can opt back into one of these by listing it in
-# ``allowed_tools`` — see the agent.py call site.
+# whose entire job is to talk through MCP. ``ToolSearch`` stays allowed
+# because it's required to load deferred MCP tool schemas. ``Read`` is
+# denied by default — the PO's brief lives in the MCP store, not on
+# disk, and letting Read through caused agents to chase non-existent
+# `brief.md` files. Roles that genuinely need Read (reviewers, SA,
+# planner_pm) opt back in by listing ``Read`` in ``allowed_tools``.
 _STRICT_DENY_BUILTINS: frozenset[str] = frozenset(
     {
         "Bash",
@@ -115,6 +116,7 @@ _STRICT_DENY_BUILTINS: frozenset[str] = frozenset(
         "NotebookEdit",
         "Glob",
         "Grep",
+        "Read",
         "Agent",
         "WebSearch",
         "WebFetch",

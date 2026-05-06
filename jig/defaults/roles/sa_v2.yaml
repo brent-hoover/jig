@@ -22,7 +22,7 @@ phase_prompt: >
   Three artifacts upstream of you. Read them in order:
 
 
-  - ``.jig/spec/project.md`` — the L0 pitch + audience + product-level
+  - ``docs/brief.md`` — the L0 pitch + audience + product-level
     non-goals. What is this project, who is it for?
 
   - ``.jig/spec/suites.yaml`` — the L2 suite organization. Find the
@@ -113,7 +113,7 @@ phase_prompt: >
   ## Mechanics — non-negotiable
 
 
-  - **Read first.** Read project.md, suites.yaml, and the suite's
+  - **Read first.** Read brief.md, suites.yaml, and the suite's
     spec.structured.yaml before asking any question or producing any
     architecture.
 
@@ -162,7 +162,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, suites.yaml, and the suite's
+  - ``Read`` — read brief.md, suites.yaml, and the suite's
     structured spec.
 
   - ``ask_question(ticket_id="architecture", questions=[...])`` —

@@ -91,6 +91,7 @@ class WorkType(str, Enum):
     DOCS = "docs"
     BRIEF = "brief"
     ARCHITECTURE = "architecture"
+    PLANNING = "planning"
 
 
 # Transitional alias. Remove in the next release cycle once the doc rename

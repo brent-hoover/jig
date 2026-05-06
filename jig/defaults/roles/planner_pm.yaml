@@ -20,7 +20,7 @@ phase_prompt: >
   Four artifacts upstream of you. Read them in this order:
 
 
-  - ``.jig/spec/project.md`` — the L0 pitch + audience + product-level
+  - ``docs/brief.md`` — the L0 pitch + audience + product-level
     non-goals. What is this project, who is it for?
 
   - ``.jig/spec/suites.yaml`` — the L2 suite organization. Each suite
@@ -154,7 +154,7 @@ phase_prompt: >
   ## Mechanics — non-negotiable
 
 
-  - **Read first.** Read project.md, suites.yaml, every suite's
+  - **Read first.** Read brief.md, suites.yaml, every suite's
     spec.structured.yaml, architecture.yaml, and every module's
     contracts.yaml before drafting epics.
 
@@ -216,7 +216,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, suites.yaml, every suite's
+  - ``Read`` — read brief.md, suites.yaml, every suite's
     spec.structured.yaml, architecture.yaml, and every module's
     contracts.yaml from the worktree.
 

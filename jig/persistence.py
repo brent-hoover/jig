@@ -32,8 +32,8 @@ def _jig_dir(project_path: Path) -> Path:
     return project_path / ".jig"
 
 
-def _project_md_stub(project_name: str) -> str:
-    """Return the initial body for ``.jig/spec/project.md``.
+def _brief_md_stub(project_name: str) -> str:
+    """Return the initial body for ``docs/brief.md``.
 
     Matches the human-format example in ``docs/02-project-spec.md``.
     Each category header is present but empty, so the PO has clear
@@ -123,8 +123,9 @@ def init_project(project_path: Path, default_branch: str = "main") -> None:
     # §"Human format example" — state-category headers the PO fills in
     # over time. Deriving the title from the directory name beats
     # shipping a stub that calls every project "myproject".
-    spec_path = jig_dir / "spec" / "project.md"
-    spec_path.write_text(_project_md_stub(project_path.resolve().name))
+    docs_dir = project_path / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    (docs_dir / "brief.md").write_text(_brief_md_stub(project_path.resolve().name))
 
 
 # ---- roles ----------------------------------------------------------------

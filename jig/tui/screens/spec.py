@@ -26,6 +26,7 @@ from textual.widgets import Static, Tree
 
 _STATE_GROUPS = [
     ("backlog", "Backlog", "#888888"),
+    ("planned_uncommitted", "Planned (uncommitted)", "#5588aa"),
     ("planned", "Planned", "#00aaff"),
     ("in_progress", "In Progress", "#ffcc00"),
     ("built", "Built", "#00cc00"),

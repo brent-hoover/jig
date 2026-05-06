@@ -2,7 +2,7 @@
 (``.jig/spec/project.structured.yaml``).
 
 Owned by the spec-generator agent — humans do NOT edit the structured
-form directly. The brief (``.jig/spec/project.md``) is the source of
+form directly. The brief (``docs/brief.md``) is the source of
 truth for content and IDs; this module validates the projection
 spec-gen produces from the brief.
 
@@ -34,6 +34,7 @@ def _kebab_slug(value: str, field: str = "id") -> str:
 class CapabilityState(str, Enum):
     BACKLOG = "backlog"
     PLANNED = "planned"
+    PLANNED_UNCOMMITTED = "planned_uncommitted"
     IN_PROGRESS = "in_progress"
     BUILT = "built"
     ARCHIVED = "archived"

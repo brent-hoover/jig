@@ -219,7 +219,7 @@ _Plan: Phase 2 §Explicitly deferred._
   layering. Lands when a phase actually needs per-phase
   context — probably alongside the evaluator prompt work above.
 
-### Project-level spec (doc 02 `.jig/spec/project.md`)
+### Project-level spec (doc 02 `docs/brief.md`)
 _Plan: Phase 3 §Explicitly deferred. Also blocks spec-agent role
 and cross-ticket proposal routing._
 

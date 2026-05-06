@@ -73,7 +73,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'jig.spec_schema'`.
 (``.jig/spec/project.structured.yaml``).
 
 Owned by the spec-generator agent — humans do NOT edit the structured
-form directly. The brief (``.jig/spec/project.md``) is the source of
+form directly. The brief (``docs/brief.md``) is the source of
 truth for content and IDs; this module validates the projection
 spec-gen produces from the brief.
 
@@ -833,7 +833,7 @@ Expected: FAIL — module doesn't exist.
 
 ```python
 # jig/brief_parser.py
-"""Parser for the brief markdown (``.jig/spec/project.md``).
+"""Parser for the brief markdown (``docs/brief.md``).
 
 Hand-rolled so we control the anchor syntax (``{#id}`` for definitions,
 ``[id]`` for references) precisely. Output is an intermediate
@@ -3711,7 +3711,7 @@ phase_prompt: >
 
 
   You are talking with the operator to author a project brief at
-  `.jig/spec/project.md`. The brief is the source of truth for product
+  `docs/brief.md`. The brief is the source of truth for product
   shape AND for stable IDs that downstream agents reference. You and
   the spec-generator are the only agents that read the brief markdown
   directly; every other agent works off a structured projection.
@@ -3913,7 +3913,7 @@ phase_prompt: >
   ## What you're doing
 
 
-  Run the brief at `.jig/spec/project.md` through the deterministic
+  Run the brief at `docs/brief.md` through the deterministic
   generation pipeline, then either publish or report gaps. Most of
   your work is mechanical and lives in the
   `spec_generate_from_brief` tool — your role is orchestration plus a
@@ -3933,7 +3933,7 @@ phase_prompt: >
   2. If `spec is None`: the parser or merger found blocking issues.
      Pass `gaps` straight to `spec_report_gaps(gaps)` and exit.
 
-  3. If `spec` is set: optionally Read `.jig/spec/project.md` to look
+  3. If `spec` is set: optionally Read `docs/brief.md` to look
      for SEMANTIC issues the parser cannot catch:
 
      - A non-goal text contradicting a planned/built capability
@@ -3962,7 +3962,7 @@ phase_prompt: >
   ## Your tools (these are the only ones you have)
 
 
-  - `Read` (built-in) → read `.jig/spec/project.md` for the semantic
+  - `Read` (built-in) → read `docs/brief.md` for the semantic
     pass (step 3). The path is exactly that — no need to search.
 
   - `spec_generate_from_brief()` → run the full pipeline, returns
@@ -4437,7 +4437,7 @@ git commit -m "feat(init): BRIEF_APPROVAL prompt + handler"
 ```markdown
 # 02a — Project Spec Format Reference
 
-Format spec for the project brief (`.jig/spec/project.md`) and the
+Format spec for the project brief (`docs/brief.md`) and the
 structured projection (`.jig/spec/project.structured.yaml`). For the
 conceptual material on what a project spec is and why, see
 [02 — Project Spec](./02-project-spec.md).
@@ -4632,7 +4632,7 @@ git commit -m "docs(reference): split format reference from conceptual project-s
 
 **Why:** Final integration validation. Catches anything the unit tests missed.
 
-**Verify:** A complete `jig init dogfood --force` run produces `.jig/spec/project.md` with `{#id}` anchors, `.jig/spec/project.structured.yaml` that parses as `StructuredSpec`, and `.jig/spec/architecture.yaml`.
+**Verify:** A complete `jig init dogfood --force` run produces `docs/brief.md` with `{#id}` anchors, `.jig/spec/project.structured.yaml` that parses as `StructuredSpec`, and `.jig/spec/architecture.yaml`.
 
 ### 9.1 Smoke run
 
@@ -4656,7 +4656,7 @@ Answer PO's questions in a way that exercises:
 - [ ] **Step 2: Verify the brief**
 
 ```bash
-cat dogfood/.jig/spec/project.md
+cat dogfood/docs/brief.md
 ```
 
 Look for: `### <title> {#id}` heading anchors; `**Behaviors:**` blocks with `- {#id}` bullets; `**Acceptance criteria:**` blocks with `- [behavior-id]` bullets.

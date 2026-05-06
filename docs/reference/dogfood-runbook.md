@@ -87,13 +87,13 @@ validation errors before continuing.
 
 ## 3. Write a project brief (PO step)
 
-`jig init` scaffolds `.jig/spec/project.md` with the doc-02 section headers
+`jig init` scaffolds `docs/brief.md` with the doc-02 section headers
 already in place — open it and fill in the one-paragraph premise plus whatever
 you have under each state category.
 
 ```bash
-$EDITOR /tmp/jig-dogfood/.jig/spec/project.md
-git -C /tmp/jig-dogfood add .jig/spec/project.md
+$EDITOR /tmp/jig-dogfood/docs/brief.md
+git -C /tmp/jig-dogfood add docs/brief.md
 git -C /tmp/jig-dogfood commit -qm "po: initial project brief"
 ```
 
@@ -188,7 +188,7 @@ headlessly), `jig ticket create` talks to the same WS endpoint:
 jig ticket create \
   --title "add the thing" \
   --work-type feature --size s \
-  --description-file /tmp/jig-dogfood/.jig/spec/project.md
+  --description-file /tmp/jig-dogfood/docs/brief.md
 # prints the ticket_id to stdout on success
 ```
 

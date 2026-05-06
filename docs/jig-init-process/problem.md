@@ -20,7 +20,7 @@ agents can consume.
 
 The reference docs (`docs/reference/02-project-spec.md`,
 `docs/reference/04-ownership.md`) already describe the target state:
-a human-authored brief at `.jig/spec/project.md` owned by the user and
+a human-authored brief at `docs/brief.md` owned by the user and
 a Product Owner (PO) agent, plus a machine-generated structured spec
 at `.jig/spec/project.structured.yaml` that downstream agents consume.
 The Systems Architect (SA) owns `.jig/spec/architecture.yaml`. None of
@@ -79,7 +79,7 @@ of jig is designed to consume. Specifically:
 
 ## Requirements
 
-- `jig init <name>` produces three artifacts: `.jig/spec/project.md`
+- `jig init <name>` produces three artifacts: `docs/brief.md`
   (brief), `.jig/spec/project.structured.yaml` (spec), and
   `.jig/spec/architecture.yaml`.
 - The PO conversation is persisted as thread entries on a reserved

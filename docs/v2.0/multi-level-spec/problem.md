@@ -10,7 +10,7 @@ created: 2026-04-30
 
 ## Context
 
-Today `jig init` runs a single PO conversation that produces one brief at `.jig/spec/project.md`, with all capabilities,
+Today `jig init` runs a single PO conversation that produces one brief at `docs/brief.md`, with all capabilities,
 behaviors, non-goals, and AC enumerated in one document. Spec-gen produces one structured projection. SA picks one
 template. Done.
 

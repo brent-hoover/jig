@@ -15,9 +15,9 @@ from jig.ticket import Ticket, WorkType
 
 @pytest.fixture
 async def wired(tmp_path):
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    brief_path = spec_dir / "project.md"
+    (tmp_path / ".jig" / "spec").mkdir(parents=True)
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    brief_path = tmp_path / "docs" / "brief.md"
     brief_path.write_text(
         "# myproj\n\n"
         "Intro paragraph.\n\n"

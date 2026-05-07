@@ -70,15 +70,34 @@ It produces `evals/runs/<run-id>/analysis.md` with:
 
 - **Outcome** — succeeded / stalled / failed, time taken, ticket count.
 - **Trajectory** — bullet timeline of major events (phases entered,
-  questions asked, retries, merges).
-- **Friction points** — where the run wasted turns or wall time
-  (agents asking verifiable facts, retried phases, long-running tool
-  calls, oscillations).
-- **Quality observations** — even on successful runs: were any tickets
-  scoped poorly? Was the dependency graph too linear? Did review
-  catch real issues or rubber-stamp?
-- **Recommendations** — concrete prompt or workflow tweaks that would
-  shorten or improve the next run.
+  questions asked, retries, merges, key decisions).
+- **Operator-question quality** — for each `ask_question`, judge
+  whether the question was verifiable with `WebFetch` / `Read` /
+  `Bash` (PM should have looked it up itself per `pm.yaml` step 3).
+  Sets `metrics.operator_questions.verifiable_in_hindsight`.
+- **Friction (efficiency)** — retried phases, tickets that ran
+  disproportionately long, agents re-reading the same file, expensive
+  individual agent runs, phase oscillations.
+- **Brief fidelity** — were any items from `brief.md` dropped without
+  notice? List behaviors / acceptance criteria / non-goals from the
+  brief that don't appear in any resulting ticket, commit, or test.
+  Distinguish "deferred with rationale" from "silently dropped."
+- **Right-sizing the build** — does code complexity match project
+  breadth? Flag both over-engineering (premature abstractions,
+  unused config layers, factories around one-call sites, scope creep
+  beyond the ticket) and under-engineering (missing error handling
+  at boundaries, edge cases from spec acceptance criteria not covered,
+  one-file dumps for systems that warrant separation).
+- **Tool-use anti-patterns** — repeated identical reads, missed bulk
+  operations (Grep/Glob instead of N reads), bash for things with
+  dedicated tools, large ToolSearch result sets that weren't used.
+- **Quality observations** — even on successful runs: was the
+  dependency graph too linear when work could have parallelized? Did
+  `review` catch real issues or rubber-stamp? Are tests proportional
+  to risk?
+- **Recommendations** — concrete, actionable. Tagged `blocking` /
+  `improvement` / `nit`. Each one names the specific file, prompt,
+  workflow phase, or brief section to change.
 
 The analyzer prompt should be explicit that successful runs still get
 the full review treatment — "what could have been approved more

@@ -327,13 +327,43 @@ def _parse_bullet_lines(text: str | None) -> list[str]:
 
 
 def _bullet_lines(text: str):
+    """Yield each bullet's body. Accepts standard Markdown bullet form
+    where a continuation line (indented, no leading ``- ``) is folded
+    into the previous bullet with a single space separator. An empty
+    line ends the current bullet. Text that appears before any bullet
+    is rejected so format errors still surface.
+    """
+    current: list[str] | None = None
+
+    def _flush() -> str | None:
+        if current is None:
+            return None
+        return " ".join(s for s in current if s).strip()
+
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
+            done = _flush()
+            if done:
+                yield done
+            current = None
             continue
-        if not stripped.startswith("- "):
-            raise BriefParseError(f"expected bullet line, got: {line!r}")
-        yield stripped[2:].strip()
+        if stripped.startswith("- "):
+            done = _flush()
+            if done:
+                yield done
+            current = [stripped[2:].strip()]
+            continue
+        # Continuation line — indented prose under a bullet.
+        if current is None:
+            raise BriefParseError(
+                f"expected bullet line (starting with '- '), got: {line!r}"
+            )
+        current.append(stripped)
+
+    done = _flush()
+    if done:
+        yield done
 
 
 def _split_ac_reference(line: str) -> tuple[str | None, str]:

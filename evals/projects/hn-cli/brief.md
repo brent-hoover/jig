@@ -18,13 +18,19 @@ As a developer in the terminal, I want to fetch the top HN stories quickly so I 
 
 **Acceptance criteria:**
 - [run-top-cmd] Exit code is 0 on success.
-- [run-top-cmd] `--limit N` sets the size of the candidate pool fetched from the HN API; it is NOT a guarantee of output row count.
-- [run-top-cmd] Filters (`--min-score`, `--type`) are applied AFTER the limit-N fetch and MAY reduce the output to fewer than N rows.
-- [run-top-cmd] Output contains AT MOST N lines; fewer is correct when the API returned fewer than N stories OR filters rejected some candidates.
-- [run-top-cmd] The tool MUST NOT over-fetch or paginate to backfill filtered rows — operators wanting more chances after filtering raise `--limit`.
-- [run-top-cmd] Each line matches the format `<rank>.  <score>  <title>  <url>` (e.g. `1.  428  Show HN: ...  https://...`).
-- [run-top-cmd] Ranks in the final output are renumbered 1..K contiguously, where K is the post-filter row count (NOT the original HN rank).
-- [run-top-cmd] In eval mode, story IDs and titles match the fixture corpus deterministically (tracer: `hn-cli top --limit 3`).
+- [run-top-cmd] `--limit N` is the size of the candidate pool fetched from the HN API,
+  not a guarantee of output row count. Filters (`--min-score`, `--type`) are applied
+  AFTER the limit-N fetch and MAY reduce the output to fewer than N rows. The tool
+  MUST NOT over-fetch or paginate to backfill filtered rows — operators wanting more
+  chances after filtering raise `--limit`.
+- [run-top-cmd] Output contains AT MOST N lines; fewer is correct when the API
+  returned fewer than N stories OR filters rejected some candidates.
+- [run-top-cmd] Each line matches the format `<rank>.  <score>  <title>  <url>`
+  (e.g. `1.  428  Show HN: ...  https://...`).
+- [run-top-cmd] Ranks in the final output are renumbered 1..K contiguously, where K
+  is the post-filter row count (NOT the original HN rank).
+- [run-top-cmd] In eval mode, story IDs and titles match the fixture corpus
+  deterministically (tracer: `hn-cli top --limit 3`).
 
 ---
 

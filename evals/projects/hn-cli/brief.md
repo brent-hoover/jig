@@ -16,21 +16,12 @@ As a developer in the terminal, I want to fetch the top HN stories quickly so I 
 **Behaviors:**
 - {#run-top-cmd} `hn-cli top --limit N` prints N stories ranked by HN score, one per line.
 
-**Behavior — limit / filter interaction:**
-
-`--limit N` is the size of the candidate pool fetched from the HN API,
-not a guarantee of the output row count. Filters (`--min-score`,
-`--type`) are applied AFTER the limit-N fetch and may reduce the
-output to fewer than N rows. The tool MUST NOT over-fetch or paginate
-to backfill the missing rows — fewer-than-N output is correct
-behavior when filters reject some of the candidates. If the operator
-wants a higher chance of N rows after filtering, they raise `--limit`.
-
 **Acceptance criteria:**
 - [run-top-cmd] Exit code is 0 on success.
-- [run-top-cmd] Output contains AT MOST N lines. Fewer than N is correct
-  when (a) the API returned fewer than N stories, or (b) `--min-score`
-  / `--type` filters rejected some of the candidates.
+- [run-top-cmd] `--limit N` sets the size of the candidate pool fetched from the HN API; it is NOT a guarantee of output row count.
+- [run-top-cmd] Filters (`--min-score`, `--type`) are applied AFTER the limit-N fetch and MAY reduce the output to fewer than N rows.
+- [run-top-cmd] Output contains AT MOST N lines; fewer is correct when the API returned fewer than N stories OR filters rejected some candidates.
+- [run-top-cmd] The tool MUST NOT over-fetch or paginate to backfill filtered rows — operators wanting more chances after filtering raise `--limit`.
 - [run-top-cmd] Each line matches the format `<rank>.  <score>  <title>  <url>` (e.g. `1.  428  Show HN: ...  https://...`).
 - [run-top-cmd] Ranks in the final output are renumbered 1..K contiguously, where K is the post-filter row count (NOT the original HN rank).
 - [run-top-cmd] In eval mode, story IDs and titles match the fixture corpus deterministically (tracer: `hn-cli top --limit 3`).
@@ -100,7 +91,7 @@ As a developer, I want JSON output so I can pipe `hn-cli` into other tools.
 - {#no-auth} Submit stories, comment, vote, or authenticate — read-only tool
 - {#no-realtime} Realtime polling — each invocation is one-shot, not a live feed
 - {#no-rich-tui} Rich TUI with panels or colors — plain text by default; JSON for scripts
-- {#no-filter-backfill} Over-fetching or paginating the HN API to backfill filtered-out rows — `--limit N` sets the candidate pool size, not a guaranteed output row count. Operator raises `--limit` if they want more chances after filtering.
+- {#no-filter-backfill} Over-fetching or paginating the HN API to backfill filtered-out rows — `--limit N` is the candidate pool size, not a guaranteed output row count.
 
 ## Tracer
 

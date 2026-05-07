@@ -663,9 +663,9 @@ class NowScreen(Container):
 
                 # Build a centered banner: full name on top line, then a
                 # dim subtitle with what they're working on. Color-coded
-                # border + title so role colors are consistent across
-                # the banner, the subsequent role labels, and the rule.
-                title_text = Text(full_name, style=f"bold {color}")
+                # border + colored background tint so each agent's
+                # output is grouped under a visible header.
+                title_text = Text(full_name, style=f"bold black on {color}")
                 subtitle_lines: list[Text] = []
                 if ticket_title:
                     subtitle_lines.append(
@@ -685,11 +685,17 @@ class NowScreen(Container):
                 inner: list = [Align.center(title_text)]
                 for line in subtitle_lines:
                     inner.append(Align.center(line))
+                # ``expand=True`` makes the panel span the full
+                # RichLog width so the right border lines up with the
+                # scrollback edge. The user's report of a misaligned
+                # banner was the panel rendering at content-width and
+                # leaving a gap on the right.
                 scrollback.write(
                     Panel(
                         Group(*inner),
                         border_style=color,
-                        padding=(1, 2),
+                        padding=(0, 2),
+                        expand=True,
                     )
                 )
                 # Force the next text turn to print its role label even

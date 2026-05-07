@@ -69,7 +69,8 @@ class Sidebar(Widget):
         min-height: 3;
         max-height: 10;
         padding: 0 1 1 1;
-        border-bottom: dashed yellow;
+        background: #2a2418;
+        border-bottom: dashed $warning;
     }
     Sidebar #queue {
         height: 1fr;
@@ -79,10 +80,6 @@ class Sidebar(Widget):
     Sidebar #tail {
         height: 12;
         padding: 0 1;
-    }
-    Sidebar #needs-you .zone-header {
-        color: black;
-        background: yellow;
     }
     .zone-header {
         height: 1;

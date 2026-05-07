@@ -112,8 +112,34 @@ _ROLE_COLORS: dict[str, str] = {
 }
 
 
+_ROLE_FULL_NAMES: dict[str, str] = {
+    "pm": "Project Manager",
+    "po": "Product Owner",
+    "po-l0": "Product Owner — L0 (Domain)",
+    "po-l1": "Product Owner — L1 (Discovery)",
+    "po-l2": "Product Owner — L2 (Suite)",
+    "po-l3": "Product Owner — L3 (Capability)",
+    "sa": "Solutions Architect",
+    "sa-mvp": "Solutions Architect — MVP",
+    "sa-v2": "Solutions Architect — v2",
+    "spec": "Spec Author",
+    "spec-generator": "Spec Generator",
+    "test": "Test Author",
+    "dev": "Developer",
+    "review": "Reviewer",
+    "validate": "Validator",
+    "document": "Documentation",
+    "concierge": "Concierge",
+    "quartermaster": "Quartermaster",
+}
+
+
 def _role_color(role: str) -> str:
     return _ROLE_COLORS.get(role, "bright_white")
+
+
+def _role_full_name(role: str) -> str:
+    return _ROLE_FULL_NAMES.get(role, role.replace("-", " ").replace("_", " ").title())
 
 
 def _strip_rich_markup(text: str) -> str:
@@ -623,13 +649,51 @@ class NowScreen(Container):
                     scrollback.write(Text.from_ansi(content))
                 return
             if kind == "start":
-                from rich.rule import Rule
+                from rich.align import Align
+                from rich.console import Group
+                from rich.panel import Panel
+                from rich.text import Text
+
                 role = data.get("role", "agent")
                 color = _role_color(role)
-                scrollback.write(Rule(f"[bold {color}]{role}[/bold {color}]", style=color))
+                full_name = _role_full_name(role)
+                ticket_id = data.get("ticket_id") or ""
+                ticket_title = data.get("ticket_title") or ""
+                phase = data.get("phase") or ""
+
+                # Build a centered banner: full name on top line, then a
+                # dim subtitle with what they're working on. Color-coded
+                # border + title so role colors are consistent across
+                # the banner, the subsequent role labels, and the rule.
+                title_text = Text(full_name, style=f"bold {color}")
+                subtitle_lines: list[Text] = []
+                if ticket_title:
+                    subtitle_lines.append(
+                        Text.assemble(
+                            ("Working on: ", "dim"),
+                            (ticket_title, f"bold {color}"),
+                        )
+                    )
+                meta_bits: list[str] = []
+                if phase:
+                    meta_bits.append(f"phase: {phase}")
+                if ticket_id:
+                    meta_bits.append(f"ticket: {ticket_id[:8]}")
+                if meta_bits:
+                    subtitle_lines.append(Text("  ·  ".join(meta_bits), style="dim"))
+
+                inner: list = [Align.center(title_text)]
+                for line in subtitle_lines:
+                    inner.append(Align.center(line))
+                scrollback.write(
+                    Panel(
+                        Group(*inner),
+                        border_style=color,
+                        padding=(1, 2),
+                    )
+                )
                 # Force the next text turn to print its role label even
-                # if it matches the rule's role (the rule is visual, the
-                # label stays informational).
+                # if it matches the banner's role.
                 self._last_role = None
                 return
             if kind == "text":

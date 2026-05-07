@@ -623,6 +623,20 @@ async def run_agent(
             ctx.worktree_path,
         )
 
+        # Banner: announce this agent run to the TUI with enough context
+        # for it to draw a labeled section divider (role, ticket, phase).
+        # Without this the operator can't tell which output belongs to
+        # which agent in a multi-agent transcript.
+        await _emit(
+            "agent_start",
+            {
+                "role": ctx.role,
+                "ticket_id": ctx.ticket.id,
+                "ticket_title": ctx.ticket.title or "",
+                "phase": ctx.phase.name if ctx.phase else None,
+            },
+        )
+
         # Heartbeat: emit agent_thinking events every second so the TUI's
         # Activity zone (driven by agent_thinking) reflects that the agent
         # is alive even before the SDK streams any tool/text blocks back.

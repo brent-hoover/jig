@@ -229,6 +229,75 @@ class Sidebar(Widget):
             del self._events[: len(self._events) - 50]
         self._render_tail()
 
+    _KIND_LABELS: dict[str, str] = {
+        "ticket_dispatched": "▶ dispatched",
+        "ticket_completed":  "✓ completed",
+        "ticket_failed":     "✗ failed",
+        "ticket_merge_conflict": "⚡ merge conflict",
+        "ticket_updated":    "↻ updated",
+        "ticket_created":    "+ created",
+        "comment_posted":    "💬 comment",
+        "phase_start":       "▷ phase start",
+        "phase_end":         "▶ phase end",
+        "agent_run":         "✓ agent run",
+        "scaffold_applied":  "🏗 scaffold",
+        "spec_generated":    "📜 spec",
+        "brief_approved":    "✓ brief approved",
+    }
+
+    def _extract_kind(self, ev: dict) -> str:
+        """Pick the most informative event-kind label from a heterogeneous
+        event payload. Sidebar receives a mix of bus messages, typed
+        envelopes, and bare ticket dicts — all with different shapes."""
+        # Prefer explicit ``event_type`` on system events.
+        for path in (
+            ev.get("event_type"),
+            ev.get("kind"),
+            (ev.get("payload") or {}).get("kind"),
+            (ev.get("payload") or {}).get("event_type"),
+            (ev.get("data") or {}).get("kind"),
+        ):
+            if path and isinstance(path, str):
+                return path
+        # If we got a bare ticket dict, label by its status if present.
+        status = ev.get("status") or (ev.get("payload") or {}).get("status")
+        if isinstance(status, str) and status:
+            return f"ticket → {status}"
+        return ""
+
+    def _extract_timestamp(self, ev: dict) -> str:
+        """Find HH:MM:SS in any of the common timestamp paths."""
+        for path in (
+            ev.get("timestamp"),
+            (ev.get("payload") or {}).get("timestamp"),
+            (ev.get("data") or {}).get("timestamp"),
+            ev.get("created_at"),
+            ev.get("updated_at"),
+        ):
+            if isinstance(path, str) and len(path) >= 19:
+                return path[11:19]
+        return ""
+
+    def _extract_subject(self, ev: dict) -> str:
+        """A short subject (ticket title fragment, id, or role) so each
+        tail line is meaningful at a glance."""
+        for path in (
+            ev.get("title"),
+            (ev.get("data") or {}).get("title"),
+            (ev.get("payload") or {}).get("title"),
+        ):
+            if isinstance(path, str) and path.strip():
+                return path[:24] + ("…" if len(path) > 24 else "")
+        for path in (
+            ev.get("ticket_id"),
+            (ev.get("data") or {}).get("ticket_id"),
+            (ev.get("payload") or {}).get("ticket_id"),
+            ev.get("id"),
+        ):
+            if isinstance(path, str) and path.strip():
+                return path[:8]
+        return ""
+
     def _render_tail(self) -> None:
         try:
             zone = self.query_one("#tail", _Zone)
@@ -236,9 +305,13 @@ class Sidebar(Widget):
             return
         lines = []
         for ev in self._events[-8:]:
-            ts = (ev.get("timestamp") or "")[11:19] or "??:??:??"
-            kind = (ev.get("payload") or {}).get("kind") or ev.get("type") or "?"
-            if len(kind) > 18:
-                kind = kind[:15] + "…"
-            lines.append(f"[dim]{ts}[/dim] [cyan]{kind}[/cyan]")
+            ts = self._extract_timestamp(ev)
+            raw_kind = self._extract_kind(ev)
+            label = self._KIND_LABELS.get(raw_kind, raw_kind or "·")
+            subject = self._extract_subject(ev)
+            ts_part = f"[dim]{ts}[/dim] " if ts else ""
+            subject_part = f" [dim]{subject}[/dim]" if subject else ""
+            if len(label) > 18:
+                label = label[:15] + "…"
+            lines.append(f"{ts_part}[cyan]{label}[/cyan]{subject_part}")
         zone.set_lines(lines)

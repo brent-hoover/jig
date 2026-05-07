@@ -196,6 +196,18 @@ class JigApp(App):
                     self._sidebar_safe(
                         lambda s: s.update_thinking(msg.get("data") or {})
                     )
+                # Lifecycle events (ticket_dispatched / ticket_completed /
+                # ticket_failed / ticket_merge_conflict) feed the Recent
+                # subzone so the operator sees what's happening in real
+                # time, not just on snapshot refresh.
+                if topic == "events":
+                    kind = msg.get("kind", "")
+                    payload = msg.get("data") or {}
+                    self._sidebar_safe(
+                        lambda s: s.append_event(
+                            {"event_type": kind, "payload": payload}
+                        )
+                    )
                 return
             if topic == "tickets":
                 try:

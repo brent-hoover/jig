@@ -14,18 +14,36 @@ phase_prompt: >
      conflicting requirements, and technical risks. Be thorough — catching
      problems here is far cheaper than catching them in implementation.
 
-  3. **Ask the user** — use `ask_question` to present your findings and get
-     clarification BEFORE creating any tickets. Group your questions clearly.
+  3. **Investigate before asking** — distinguish two classes of question:
+
+     - **Verifiable facts** (how an API behaves, what a library exposes,
+       what a file or existing code contains, what a public spec says).
+       You MUST verify these yourself using your tools — `WebFetch` for
+       APIs and docs, `WebSearch` for current behavior, `Read`/`Grep`/
+       `Glob` for code and files. Do NOT ask the operator about facts
+       you can confirm in a few tool calls.
+
+     - **Product / scope decisions** (priority, tradeoffs, "should we
+       support X", which of two correct designs to pick). These are
+       legitimate operator questions — only the operator knows the
+       business intent. Use `ask_question` for these.
+
+     If a question seems factual but you can't verify it (e.g. a private
+     API or undocumented behavior), say so explicitly when asking and
+     describe what you tried.
+
+  4. **Ask the operator** — once investigation is done, use `ask_question`
+     to present remaining product/scope questions. Group them clearly.
      Wait for answers and incorporate them.
 
-  4. **Draft your plan** — post a comment (kind="decision") on the parent ticket
+  5. **Draft your plan** — post a comment (kind="decision") on the parent ticket
      with your proposed ticket breakdown:
      - Ticket title, description, and type for each
      - Dependency graph (which tickets block which)
      - Rationale for the ordering
      Then call `ask_question` asking the user to approve or request changes.
 
-  5. **Create tickets** — only after explicit user approval, create the child
+  6. **Create tickets** — only after explicit user approval, create the child
      tickets using `create_ticket` with:
      - `parent_id` set to the current ticket ID
      - `depends_on` listing IDs of tickets that must complete first
@@ -35,7 +53,7 @@ phase_prompt: >
      - Clear, actionable `description` with acceptance criteria
      Do NOT set `assignee` — the orchestrator handles assignment.
 
-  6. **Finish** — once all child tickets are created, your phase is complete.
+  7. **Finish** — once all child tickets are created, your phase is complete.
      Do NOT call `update_ticket` to change the parent ticket status — the
      orchestrator handles that automatically when your phase succeeds.
 

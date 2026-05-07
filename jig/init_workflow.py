@@ -1027,6 +1027,77 @@ def _apply_template_files(
             dest_file.write_bytes(raw)
 
 
+def _commit_scaffold(
+    project_path: Path,
+    template_name: str,
+    *,
+    console: "Console | None" = None,
+) -> None:
+    """Commit any uncommitted scaffold output on the host branch.
+
+    Ensures ``.jig/`` is gitignored before staging so daemon state never
+    enters the project's git history. Best-effort: a failure here logs a
+    note but does not block init.
+    """
+    import os
+    import subprocess
+
+    c = console or _spawn_console()
+
+    # Make sure .jig/ is in .gitignore so the daemon's runtime state
+    # doesn't get committed alongside the scaffold.
+    gitignore = project_path / ".gitignore"
+    existing = gitignore.read_text() if gitignore.is_file() else ""
+    to_add = [
+        entry
+        for entry in (".jig/",)
+        if entry not in existing.splitlines()
+    ]
+    if to_add:
+        prefix = existing.rstrip() + "\n" if existing.strip() else ""
+        atomic_write_text(gitignore, prefix + "\n".join(to_add) + "\n")
+
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    try:
+        subprocess.run(
+            ["git", "add", "-A"],
+            cwd=str(project_path),
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+        # Nothing staged → nothing to commit (idempotent re-run).
+        diff_check = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(project_path),
+            capture_output=True,
+            env=env,
+        )
+        if diff_check.returncode == 0:
+            return
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                f"chore: initial scaffold from jig init ({template_name})",
+                "--no-verify",
+            ],
+            cwd=str(project_path),
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or b"").decode(errors="ignore").strip()
+        c.print(
+            f"Note: scaffold commit skipped ({stderr or exc})",
+            markup=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        c.print(f"Note: scaffold commit skipped ({exc})", markup=False)
+
+
 async def apply_scaffold(
     *,
     project_path: Path,
@@ -1097,7 +1168,14 @@ async def apply_scaffold(
     except (HookInstallError, RuntimeError) as exc:
         c.print(f"Note: git hook install skipped ({exc})", markup=False)
 
-    # 5. Ensure architecture ticket exists, then emit scaffold_applied.
+    # 5. Commit the scaffold so the host branch is a clean baseline for
+    # future ticket merges. Without this commit, every PM-created ticket
+    # that touches a scaffolded file fails its merge with
+    # "main checkout has uncommitted changes" because the host tree is
+    # full of untracked scaffold output.
+    _commit_scaffold(project_path, template_name, console=console)
+
+    # 6. Ensure architecture ticket exists, then emit scaffold_applied.
     arch = await tickets.get("architecture")
     if arch is None:
         await tickets.create(

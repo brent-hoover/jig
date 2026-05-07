@@ -362,6 +362,47 @@ async def _do_merge(
             "Stash, commit, or discard the local changes first."
         )
 
+    # Integrate the latest base_branch into the ticket branch BEFORE
+    # we attempt to merge the ticket branch into base. Without this,
+    # parallel tickets that touch overlapping files always conflict on
+    # the second merge: ticket-A merges, base advances; ticket-B was
+    # branched off the older base, so its merge sees a 3-way conflict
+    # against ticket-A's overlapping changes. Pulling base into the
+    # ticket branch first lets git's 3-way merge resolve cleanly when
+    # changes are non-overlapping, and surfaces real overlap as a
+    # MERGE_CONFLICT here (where the ticket branch is preserved for
+    # manual or agent-driven resolution).
+    worktree = project_path / ".jig" / "worktrees" / ticket_id
+    if worktree.is_dir():
+        wt_status = await _run_git(worktree, "status", "--porcelain")
+        if wt_status.strip():
+            # Agent left dirty state; auto-commit fence should have
+            # caught this. Refuse rather than discard work.
+            raise RuntimeError(
+                f"ticket worktree {worktree} has uncommitted changes; "
+                "refusing to integrate before merge. The auto-commit "
+                "fence should have committed any leftover changes."
+            )
+        try:
+            await _run_git(
+                worktree,
+                "merge",
+                base_branch,
+                "-m",
+                f"chore: integrate {base_branch} into {source_branch}",
+            )
+        except RuntimeError as exc:
+            _logger.warning(
+                "merge conflict integrating %s into %s — aborting",
+                base_branch,
+                source_branch,
+            )
+            try:
+                await _run_git(worktree, "merge", "--abort")
+            except RuntimeError:
+                pass
+            raise MergeConflictError(ticket_id, source_branch) from exc
+
     try:
         await _run_git(project_path, "checkout", base_branch)
     except RuntimeError:

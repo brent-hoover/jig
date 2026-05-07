@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """Reset a jig project to a fresh git repo, optionally installing a brief.
 
-Usage:
+Usage (eval shorthand — recommended):
+    scripts/project_reset.py --project hn-cli
+    scripts/project_reset.py --project recipe-browser
+
+    Resolves brief from   <jig_source>/evals/projects/<NAME>/brief.md
+    Resets workspace at   <jig_source>/../jig_evals/<NAME>/
+    Creates the workspace dir if it doesn't exist yet.
+
+Usage (explicit paths):
     scripts/project_reset.py /absolute/path/to/project
     scripts/project_reset.py /abs/path/to/project --brief /abs/path/to/brief.md
 
 What it does (in order):
-1. Stops any running jig daemon for the project (best-effort).
-2. Reads the brief content into memory (from ``--brief PATH`` if given,
-   else from the project's own ``docs/brief.md`` if present).
+1. Stops any running jig daemon for the project (best-effort), and
+   kills any orphan listener on the daemon port.
+2. Reads the brief content into memory (from ``--brief PATH`` /
+   ``--project NAME`` if given, else from the project's own
+   ``docs/brief.md`` if present).
 3. Removes EVERYTHING in the project directory, including ``.git/`` —
    so old commit history and refs from prior eval runs cannot leak into
    the next run and confuse the agents.
@@ -16,11 +26,8 @@ What it does (in order):
    ``chore: initialize repository`` commit so HEAD is valid.
 5. Writes the preserved brief content (if any) to ``docs/brief.md``.
 
-Intended for the eval workflow: keep a library of brief files
-(``evals/briefs/hn-cli.md`` etc.) and call this script to install one
-into a target project after a clean reset.
-
-Refuses to run if the project path isn't absolute or isn't a directory.
+Refuses to run if the project path isn't absolute or isn't a directory
+(unless ``--project`` is used, in which case the workspace is created).
 ``--brief`` (when given) must point to an existing readable file.
 """
 from __future__ import annotations
@@ -74,11 +81,38 @@ def _kill_orphan_on_port(port: int) -> None:
             print(f"[daemon] cannot kill pid={pid} on :{port} (permission)")
 
 
+def _resolve_eval_project(name: str) -> tuple[Path, Path]:
+    """Resolve --project NAME → (workspace_path, brief_path).
+
+    Convention: jig source lives at <repo>/, and eval workspaces live
+    at <repo>/../jig_evals/<NAME>/. Brief files are checked into the
+    jig repo at <repo>/evals/projects/<NAME>/brief.md.
+    """
+    here = Path(__file__).resolve().parent.parent  # scripts/.. → jig source
+    workspace = here.parent / "jig_evals" / name
+    brief = here / "evals" / "projects" / name / "brief.md"
+    return workspace, brief
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument(
         "project_path",
-        help="absolute path to the jig project directory",
+        nargs="?",
+        help=(
+            "absolute path to the jig project directory. "
+            "Required unless --project is given."
+        ),
+    )
+    parser.add_argument(
+        "--project",
+        metavar="NAME",
+        help=(
+            "eval-project shorthand: resolves project_path to "
+            "<repo>/../jig_evals/<NAME>/ and --brief to "
+            "<repo>/evals/projects/<NAME>/brief.md. Mutually exclusive "
+            "with --brief and a positional project_path."
+        ),
     )
     parser.add_argument(
         "--brief",
@@ -93,7 +127,38 @@ def main(argv: list[str] | None = None) -> int:
 
     import shutil
 
-    proj = Path(args.project_path)
+    # --project resolves both project_path and --brief from convention.
+    if args.project:
+        if args.project_path or args.brief:
+            print(
+                "error: --project is mutually exclusive with project_path "
+                "and --brief",
+                file=sys.stderr,
+            )
+            return 2
+        workspace, resolved_brief = _resolve_eval_project(args.project)
+        if not resolved_brief.is_file():
+            print(
+                f"error: no brief for project {args.project!r} at "
+                f"{resolved_brief}",
+                file=sys.stderr,
+            )
+            return 2
+        # Create the workspace dir on first run for a project.
+        if not workspace.exists():
+            workspace.mkdir(parents=True)
+            print(f"[workspace] created {workspace}")
+        proj = workspace
+        args.brief = str(resolved_brief)
+    else:
+        if not args.project_path:
+            print(
+                "error: project_path is required (or use --project NAME)",
+                file=sys.stderr,
+            )
+            return 2
+        proj = Path(args.project_path)
+
     if not proj.is_absolute():
         print(f"error: project_path must be absolute, got {proj}", file=sys.stderr)
         return 2

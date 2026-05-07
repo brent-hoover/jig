@@ -287,6 +287,8 @@ def analyze(
     jig_repo: Path,
     project_name: str,
     tags: list[str] | None = None,
+    use_llm: bool = True,
+    brief_path: Path | None = None,
 ) -> RunMetrics:
     store = project_path / ".jig" / "store"
     tickets_rows = _read_jsonl(store / "tickets.jsonl")
@@ -323,14 +325,54 @@ def analyze(
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    metrics_path = out_dir / "metrics.json"
-    metrics_path.write_text(
+
+    # Optionally run the LLM-driven narrative pass. Lazily imported so
+    # the programmatic mode doesn't pull claude-agent-sdk on every run.
+    llm_summary_extras: list[str] = []
+    if use_llm:
+        try:
+            from evals.watcher.llm import run_llm_analysis
+
+            llm = run_llm_analysis(
+                project_path=project_path,
+                metrics=metrics.model_dump(),
+                brief_path=brief_path,
+            )
+            # Merge structured update into metrics (additive only).
+            update = llm.metrics_update or {}
+            if "operator_questions" in update and isinstance(
+                update["operator_questions"], dict
+            ):
+                for k, v in update["operator_questions"].items():
+                    if hasattr(metrics.operator_questions, k):
+                        setattr(metrics.operator_questions, k, v)
+            if "tags" in update and isinstance(update["tags"], list):
+                for t in update["tags"]:
+                    if isinstance(t, str) and t not in metrics.tags:
+                        metrics.tags.append(t)
+            (out_dir / "analysis.md").write_text(llm.analysis_md + "\n")
+            llm_summary_extras.append(
+                f"[analyzer] LLM cost=${llm.cost_usd:.4f} "
+                f"tokens_in={llm.tokens_in:,} tokens_out={llm.tokens_out:,}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[analyzer] LLM pass failed: {exc!r}; falling back to "
+                "programmatic narrative",
+                file=sys.stderr,
+            )
+            (out_dir / "analysis.md").write_text(_render_summary_md(metrics))
+    else:
+        (out_dir / "analysis.md").write_text(_render_summary_md(metrics))
+
+    # Write metrics.json AFTER the LLM merge so verifiable_in_hindsight
+    # / extra tags appear in the persisted file.
+    (out_dir / "metrics.json").write_text(
         json.dumps(metrics.model_dump(), indent=2, sort_keys=False) + "\n"
     )
 
-    # Programmatic narrative — placeholder until LLM analyzer lands.
-    summary = _render_summary_md(metrics)
-    (out_dir / "analysis.md").write_text(summary)
+    for line in llm_summary_extras:
+        print(line)
 
     return metrics
 
@@ -431,6 +473,23 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="free-form label (repeatable) — written to metrics.tags",
     )
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help=(
+            "skip the LLM narrative pass and emit only programmatic "
+            "metrics + a template analysis.md. Default: run the LLM."
+        ),
+    )
+    parser.add_argument(
+        "--brief",
+        metavar="PATH",
+        help=(
+            "path to the source brief.md used by the LLM for fidelity "
+            "analysis. Defaults to <jig_repo>/evals/projects/<NAME>/brief.md "
+            "when --project is given."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.project:
@@ -468,6 +527,14 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out_dir) if args.out_dir else jig_repo / "evals" / "runs" / run_id
     )
 
+    brief_path: Path | None = None
+    if args.brief:
+        brief_path = Path(args.brief)
+    elif args.project:
+        candidate = jig_repo / "evals" / "projects" / args.project / "brief.md"
+        if candidate.is_file():
+            brief_path = candidate
+
     metrics = analyze(
         project_path=proj,
         run_id=run_id,
@@ -475,6 +542,8 @@ def main(argv: list[str] | None = None) -> int:
         jig_repo=jig_repo,
         project_name=project_name,
         tags=args.tag,
+        use_llm=not args.no_llm,
+        brief_path=brief_path,
     )
 
     print(f"[analyzer] outcome={metrics.outcome} duration={metrics.duration_s:.0f}s")

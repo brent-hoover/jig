@@ -804,6 +804,15 @@ async def run_agent(
                         (message.duration_ms or 0) / 1000,
                         cost_usd or 0.0,
                     )
+                    # Tell ``_prompt_stream`` to exhaust so the SDK can
+                    # close stdin and the bundled ``claude`` subprocess
+                    # can exit. Without this we deadlock between
+                    # phases: the agent emits ResultMessage, but the
+                    # generator keeps polling for a terminal ticket
+                    # status that never arrives (orchestrator only sets
+                    # it AFTER run_agent returns), so the subprocess
+                    # waits forever for the next stdin line.
+                    done.set()
                     # Post an agent_run SystemEvent so the story view
                     # gets per-spawn timing without having to parse logs.
                     # SF-I5: a failure to post here means we lose the

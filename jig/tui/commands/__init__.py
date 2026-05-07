@@ -34,6 +34,8 @@ def known_commands() -> list[str]:
 
 # Import command modules so their @register decorators run at import time.
 from jig.tui.commands import status  # noqa: F401, E402
+from jig.tui.commands import start  # noqa: F401, E402
+from jig.tui.commands import plan  # noqa: F401, E402
 from jig.tui.commands import prompt_reply  # noqa: F401, E402
 from jig.tui.commands import init  # noqa: F401, E402
 from jig.tui.commands import concierge  # noqa: F401, E402

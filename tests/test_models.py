@@ -1,5 +1,8 @@
 """Tests for jig.models — role_cfg, phase, and workflow configs."""
 
+import pytest
+from pydantic import ValidationError
+
 from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 
 
@@ -84,15 +87,14 @@ class TestRoleConfig:
         assert restored.response_prompt == config.response_prompt
         assert restored.allowed_tools == config.allowed_tools
 
-    def test_ignores_legacy_can_message(self) -> None:
-        """Existing role yamls with stale can_message field keep loading."""
+    def test_rejects_unknown_fields(self) -> None:
+        """RoleConfig is now ``extra="forbid"`` (SEC-I3) so YAML typos
+        and stale fields like the long-removed ``can_message`` fail
+        loud at load instead of silently no-opping."""
         data = {
             "role": "dev",
             "phase_prompt": "test",
             "can_message": ["spec"],
         }
-        # Pydantic default is to ignore unknown fields; this test guards
-        # against a future config change that would break existing yamls.
-        config = RoleConfig.model_validate(data)
-        assert config.role == "dev"
-        assert not hasattr(config, "can_message")
+        with pytest.raises(ValidationError, match="can_message"):
+            RoleConfig.model_validate(data)

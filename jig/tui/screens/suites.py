@@ -1,6 +1,6 @@
 """Suites screen — list of L2 suites + their L3 brief status.
 
-Per ``docs/multi-level-spec/design.md`` §"L2 — Suite Organizer" + §"L3
+Per ``docs/v2.0/multi-level-spec/design.md`` §"L2 — Suite Organizer" + §"L3
 — Suite Brief": the operator wants to see the full suite list at a
 glance, with each suite's brief status (pending / brief_ready /
 resolved) and capability list.

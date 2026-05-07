@@ -5,7 +5,7 @@ Pure function ``derive_manifest(architecture) -> DevManifest`` that walks
 store with a non-None ``dev_provisioning`` block. Stores without a
 provisioning block are skipped (operator-shared / no isolation needed).
 
-Per ``docs/dev-environment/design.md``: the manifest is a generated
+Per ``docs/v2.0/dev-environment/design.md``: the manifest is a generated
 artifact, never hand-edited. ``dev_derive_manifest`` MCP tool re-runs
 this and rewrites the on-disk file every time the architecture changes.
 """

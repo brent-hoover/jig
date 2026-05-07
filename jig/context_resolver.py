@@ -389,7 +389,7 @@ async def _resolve_project(
 ) -> str:
     # NEW: spec/... routes through the structured-spec resolver.
     if body == "spec" or body.startswith("spec/") or body.startswith("spec#"):
-        spec_file = project_path / ".jig" / "spec" / "project.structured.yaml"
+        spec_file = project_path / "docs" / "project.structured.yaml"
         if not spec_file.is_file():
             return f"# project://{body}\n\n(no project.structured.yaml exists yet)\n"
         data = yaml.safe_load(spec_file.read_text()) or {}

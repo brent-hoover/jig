@@ -1,6 +1,6 @@
 """Project ontology MCP tool handlers (Track B6 MVP).
 
-Per ``docs/multi-level-spec/design.md`` §"Project ontology — capturing
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Project ontology — capturing
 the operator's domain vocabulary": every project has a
 ``.jig/spec/ontology.md`` capturing the operator's domain words as they
 emerge during PO discovery. The L1 PO is the primary author; downstream

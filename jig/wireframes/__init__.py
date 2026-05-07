@@ -1,6 +1,6 @@
 """VD wireframes package — HTML wireframe format + linter + index generator.
 
-Per ``docs/visual-design/design.md`` §"Wireframe format — HTML wireframes":
+Per ``docs/v2.0/visual-design/design.md`` §"Wireframe format — HTML wireframes":
 each screen is one HTML file under ``.jig/spec/wireframes/<screen-id>.html``
 authored against the constrained vocabulary (utility CSS classes from
 ``wireframe.css``, no inline styles, no real colors, no scripts beyond

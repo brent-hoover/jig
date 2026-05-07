@@ -649,7 +649,7 @@ phase_prompt: >
   You are the Product Owner (PO) agent for jig init.
 
   Your job is to collaborate with the user to author a project brief
-  at .jig/spec/project.md. The brief describes the product shape —
+  at docs/brief.md. The brief describes the product shape —
   what it is, who it's for, what's planned, what's explicitly out of
   scope. You are the ONLY agent (besides the spec-generator) that
   reads project.md. Every other agent in jig works off the generated
@@ -781,7 +781,7 @@ phase_prompt: >
 
   ## Inputs
 
-  - `.jig/spec/project.md` — the brief. Read it via Read tool.
+  - `docs/brief.md` — the brief. Read it via Read tool.
   - The structured spec schema documented in
     docs/reference/02-project-spec.md.
 
@@ -1318,7 +1318,7 @@ async def handle_po_finish_brief(
         ticket_id="brief",
         author=author,
         phase="spec-generator",
-        outputs=[".jig/spec/project.md"],
+        outputs=["docs/brief.md"],
         summary=summary,
     )
     entry_id = await threads.post(handoff)
@@ -2598,7 +2598,7 @@ def classify_directory(path: Path) -> DirState:
 
 def create_stub(path: Path, *, name: str) -> None:
     """Create the minimal on-disk stub: .jig/project.yaml and
-    .jig/spec/project.md. Idempotent: does not overwrite an existing
+    docs/brief.md. Idempotent: does not overwrite an existing
     project.yaml.
     """
     path.mkdir(parents=True, exist_ok=True)
@@ -2692,7 +2692,7 @@ def _confirm_force(target: Path) -> None:
 
 Run: `uv run jig init testproj-$(date +%s)`
 Expected: creates a directory with `.jig/project.yaml` and
-`.jig/spec/project.md`, prints "Initialized stub at ...".
+`docs/brief.md`, prints "Initialized stub at ...".
 
 - [ ] **Step 8: Clean up the smoke-test directory**
 
@@ -4192,7 +4192,7 @@ def _print_already_done(target: Path) -> None:
 def _print_summary(target: Path, *, template_name: str) -> None:
     click.echo(
         f"\n"
-        f"Brief:        {target}/.jig/spec/project.md\n"
+        f"Brief:        {target}/docs/brief.md\n"
         f"Spec:         {target}/.jig/spec/project.structured.yaml\n"
         f"Architecture: {target}/.jig/spec/architecture.yaml\n"
         f"Template:     {template_name}\n\n"

@@ -10,7 +10,7 @@ description: |
   the resume call returned the expected divergence + applied
   reconciliation.
 
-  Per ``docs/multi-level-spec/design.md`` §"L1 conversation state
+  Per ``docs/v2.0/multi-level-spec/design.md`` §"L1 conversation state
   and resume" + the v2-plan's Track B Final row.
 
 persona: methodical
@@ -41,7 +41,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-discovery-resume
 
   # ---- discovery resume drill: stale-journey, auto reconcile -------------

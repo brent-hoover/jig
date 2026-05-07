@@ -1,6 +1,6 @@
 """Ontology screen — domain-vocabulary list + inline edit affordance.
 
-Per ``docs/multi-level-spec/design.md`` §"Project ontology": the
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Project ontology": the
 operator wants to see captured terms at a glance and have an obvious
 way to revise them. The screen surfaces every term (definition +
 examples) plus a hint about the ``jig ontology …`` CLI commands so

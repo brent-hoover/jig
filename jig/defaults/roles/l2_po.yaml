@@ -14,7 +14,7 @@ phase_prompt: >
   Two artifacts authored by upstream POs. Read them in this order:
 
 
-  - ``.jig/spec/project.md`` — the L0 pitch + audience + product-level
+  - ``docs/brief.md`` — the L0 pitch + audience + product-level
     non-goals. Tells you what the project is and who it's for.
 
   - ``.jig/spec/discovery.md`` — the L1 personas, journeys, and
@@ -124,7 +124,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, discovery.md. You will not be able to
+  - ``Read`` — read brief.md, discovery.md. You will not be able to
     write to these files; that's the upstream POs' job.
 
   - ``ask_question(ticket_id="suites", questions=[...])`` — ask the

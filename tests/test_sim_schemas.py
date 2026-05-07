@@ -1,11 +1,11 @@
 """Pydantic schemas for the synthetic operator (Track H1+H3+H4, bones).
 
-Bones scope per ``docs/implementation/v2-plan.md`` Track H row:
+Bones scope per ``docs/v2.0/implementation/v2-plan.md`` Track H row:
 - H1 scenario schema (subset)
 - H3 methodical persona schema
 - H4 the 4-5 assertion kinds the bones scenario needs
 
-The full scenario format from ``docs/synthetic-operator/design.md`` is a
+The full scenario format from ``docs/v2.0/synthetic-operator/design.md`` is a
 superset (policy-driven turns, coverage_tags, realism budget, etc.). The
 bones subset captures only what the bones scenario actually needs;
 extension fields land alongside the workflows that need them.
@@ -40,7 +40,7 @@ from jig.sim.scenario import (
 
 def test_artifact_written_assertion_round_trips():
     a = ArtifactWrittenAssertion(
-        path=".jig/spec/project.md",
+        path="docs/brief.md",
         contains="bones",
     )
     payload = a.model_dump(mode="json")
@@ -48,7 +48,7 @@ def test_artifact_written_assertion_round_trips():
     restored = ScenarioAssertion.validate_python(payload)
     assert isinstance(restored, ArtifactWrittenAssertion)
     assert restored.kind == AssertionKind.ARTIFACT_WRITTEN.value
-    assert restored.path == ".jig/spec/project.md"
+    assert restored.path == "docs/brief.md"
     assert restored.contains == "bones"
 
 
@@ -322,7 +322,7 @@ def test_scenario_round_trips_through_yaml(tmp_path: Path):
                         "assertions": [
                             {
                                 "kind": "artifact_written",
-                                "path": ".jig/spec/project.md",
+                                "path": "docs/brief.md",
                             }
                         ],
                     },

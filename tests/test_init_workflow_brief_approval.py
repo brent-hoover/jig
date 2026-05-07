@@ -12,9 +12,8 @@ def test_render_brief_for_approval_includes_section_headers(tmp_path: Path):
     """Rich-rendered output strips the literal `#` markdown markers but
     preserves heading text (with ANSI styling). Check the visible text
     content, not the markdown source."""
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.md").write_text(
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text(
         "# todoapp\n\nintro\n\n## Built\n\n(empty)\n\n## Non-goals\n\n- {#ng} no\n"
     )
     out = render_brief_for_approval(tmp_path)
@@ -31,9 +30,8 @@ def test_render_brief_for_approval_handles_missing_file(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_prompt_brief_approval_yes(monkeypatch, tmp_path):
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.md").write_text("# x\n")
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text("# x\n")
     monkeypatch.setattr(click, "prompt", lambda *a, **kw: "Y")
     monkeypatch.setattr(click, "echo", lambda *a, **kw: None)
     decision = await prompt_brief_approval(tmp_path)
@@ -42,9 +40,8 @@ async def test_prompt_brief_approval_yes(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_prompt_brief_approval_resume(monkeypatch, tmp_path):
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.md").write_text("# x\n")
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text("# x\n")
     monkeypatch.setattr(click, "prompt", lambda *a, **kw: "r")
     monkeypatch.setattr(click, "echo", lambda *a, **kw: None)
     decision = await prompt_brief_approval(tmp_path)
@@ -53,9 +50,8 @@ async def test_prompt_brief_approval_resume(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_prompt_brief_approval_no(monkeypatch, tmp_path):
-    spec_dir = tmp_path / ".jig" / "spec"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "project.md").write_text("# x\n")
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text("# x\n")
     monkeypatch.setattr(click, "prompt", lambda *a, **kw: "n")
     monkeypatch.setattr(click, "echo", lambda *a, **kw: None)
     decision = await prompt_brief_approval(tmp_path)

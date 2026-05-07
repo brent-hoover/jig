@@ -3,7 +3,7 @@ id: bones-with-cascade-staged
 description: |
   Extends ``bones-with-cascade`` with the operator splitting the
   cascade into stages and approving each — Track C Final mitigation #2
-  per ``docs/sa-architecture/design.md`` §"Failure modes and
+  per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes and
   mitigations". The cascade resolves only when every stage is in.
 
 persona: methodical

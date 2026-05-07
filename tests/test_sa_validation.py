@@ -1,7 +1,7 @@
 """Behavioral-contract authoring quality + module checklist (Track C MVP commit 3).
 
 Both validators are mechanical (no LLM): per
-``docs/sa-architecture/design.md`` §"Behavioral contracts" and
+``docs/v2.0/sa-architecture/design.md`` §"Behavioral contracts" and
 §"The SA checklist". They return data (warnings list / missing-set);
 callers decide whether to raise or surface inline.
 """
@@ -371,12 +371,18 @@ async def test_arch_finalize_posts_bc_warnings_as_note(tmp_path):
         module_id="m",
         integration_ac={"capability": "cap", "must": ["does the thing"]},
     )
-    # Author a deliberately-flawed BC: no anchor, no postcondition.
+    # Author a deliberately-flawed BC: no anchor (no applies_to / scope).
+    # A postcondition is required by the schema-level invariant (Block
+    # A.1) — a contract with zero constraints can't be constructed at
+    # all — so the warning we exercise is the no-anchor one.
     await handle_module_set_behavioral_contract(
         project_path=tmp_path,
         module_id="m",
         behavioral_contract={
             "id": "flawed-bc",
+            "postcondition": (
+                "every batch transitions to processed exactly once"
+            ),
             "intent": _intent().model_dump(),
         },
     )

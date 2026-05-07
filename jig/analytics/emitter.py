@@ -47,7 +47,7 @@ class EventEmitter:
     ``JIG_SIMULATOR=true``), every event emitted gets its
     ``simulator`` field flipped to ``True`` before persistence so
     consumer queries can filter the simulator corpus out of real
-    analytics. See ``docs/synthetic-operator/design.md``.
+    analytics. See ``docs/v2.0/synthetic-operator/design.md``.
     """
 
     def __init__(

@@ -1,6 +1,6 @@
 """Cycle visualization data model (Track F Final, deliverable 4).
 
-Per ``docs/pm-workflow/design.md`` §"Iteration": the operator wants
+Per ``docs/v2.0/pm-workflow/design.md`` §"Iteration": the operator wants
 one view that shows the current cycle state — per-epic layer progress,
 the Coordinator's view of what's next, pending escalations, recent
 tier promotions, and the calibration envelopes Planner reads when

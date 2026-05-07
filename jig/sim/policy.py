@@ -1,6 +1,6 @@
 """Policy-driven turn generation (Track H Final).
 
-Per ``docs/synthetic-operator/design.md`` §"Scripted vs policy-driven
+Per ``docs/v2.0/synthetic-operator/design.md`` §"Scripted vs policy-driven
 turns":
 
 > Pure scripts are deterministic but tedious; policy-driven ('this

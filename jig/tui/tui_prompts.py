@@ -209,3 +209,14 @@ class TuiPromptHandler:
             }
         )
         return reply.strip().lower() == "y"
+
+    async def ask_init_complete(self, *, console: "Console") -> None:
+        await self._round_trip(
+            {
+                "prompt_type": "init_complete",
+                "question": "Project is ready. The orchestrator will begin dispatching tickets.",
+                "options": [
+                    {"key": "Y", "label": "Continue", "default": True},
+                ],
+            }
+        )

@@ -9,7 +9,7 @@ from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import TabbedContent, TabPane
 
-from jig.daemon import daemon_paths
+from jig.daemon import DaemonAlreadyRunning, daemon_paths, daemon_start, daemon_status
 from jig.tui.daemon_client import ConnectionState, DaemonClient
 from jig.tui.screens.discovery import DiscoveryScreen
 from jig.tui.screens.events import EventsScreen
@@ -60,11 +60,13 @@ class JigApp(App):
         # is active; check_action() returns False on other panes so the event
         # falls through to the focused widget unchanged.
         Binding("enter", "open_event_detail", "Detail", show=False, priority=True),
-        # Sidebar visibility toggle.
-        Binding("ctrl+s", "toggle_sidebar", "Toggle Sidebar", show=False, priority=True),
         # Paste clipboard image into the focused Composer (saves to
         # .jig/uploads/ and inserts a [image: PATH] reference).
         Binding("ctrl+i", "paste_image", "Paste image", show=False, priority=True),
+        Binding("ctrl+s", "toggle_sidebar", "Sidebar", show=False, priority=True),
+        # Shift+Tab on Now pane: toggle focus between Composer and Scrollback
+        # so the operator can scroll the transcript with arrow keys.
+        Binding("shift+tab", "toggle_scroll_focus", "Scroll", show=False, priority=True),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -84,8 +86,6 @@ class JigApp(App):
         self.client = DaemonClient(addr_provider=_resolve_addr)
 
     def compose(self) -> ComposeResult:
-        # Layout: tabbed panes on the left, persistent Sidebar on the right,
-        # JigFooter docked at the bottom of the whole app.
         with Horizontal():
             with TabbedContent(initial="now-pane"):
                 with TabPane("Now", id="now-pane"):
@@ -94,10 +94,6 @@ class JigApp(App):
                     yield TicketsScreen()
                 with TabPane("Spec", id="spec-pane"):
                     yield SpecScreen()
-                # Track B Final — multi-level PO operator-facing panes.
-                # Discovery / Suites / Ontology are read-only views over
-                # the L1/L2/L3 artifacts; mutations route through the
-                # corresponding slash commands + MCP tools.
                 with TabPane("Discovery", id="discovery-pane"):
                     yield DiscoveryScreen()
                 with TabPane("Suites", id="suites-pane"):
@@ -123,6 +119,8 @@ class JigApp(App):
             except Exception:
                 pass
 
+        self._maybe_autostart_daemon()
+
         self.run_worker(
             self.client.run_with_reconnect(
                 on_message=self._handle_daemon_message,
@@ -132,6 +130,19 @@ class JigApp(App):
             exclusive=True,
             name="daemon-client",
         )
+
+    def _maybe_autostart_daemon(self) -> None:
+        """Start the daemon automatically when the project is initialized but idle."""
+        arch = self.project_path / "docs" / "architecture.yaml"
+        if not arch.is_file():
+            return  # project not initialized yet
+        status = daemon_status(self.project_path)
+        if status.running:
+            return
+        try:
+            daemon_start(self.project_path, docker=False)
+        except (DaemonAlreadyRunning, RuntimeError):
+            pass
 
     async def _handle_daemon_message(self, msg: dict) -> None:
         msg_type = msg.get("type")
@@ -153,7 +164,6 @@ class JigApp(App):
                     pass
                 else:
                     await tickets.handle_snapshot(msg.get("data"))
-                # Also feed Sidebar's Queue subzone
                 self._sidebar_safe(
                     lambda s: s.update_tickets_snapshot(msg.get("data"))
                 )
@@ -170,14 +180,13 @@ class JigApp(App):
                     pass
                 else:
                     await ev_screen.handle_snapshot(msg.get("data"))
-                # Also feed Sidebar's Tail subzone
                 self._sidebar_safe(
                     lambda s: s.update_events_snapshot(msg.get("data"))
                 )
             return
 
         if msg_type == "event":
-            if topic in ("agents", "prompts"):
+            if topic in ("agents", "prompts", "events"):
                 try:
                     now = self.query_one(NowScreen)
                 except Exception:
@@ -210,23 +219,14 @@ class JigApp(App):
                 return
 
     def _sidebar_safe(self, fn) -> None:
-        """Apply ``fn(sidebar)`` if the Sidebar is mounted; no-op otherwise."""
         try:
-            sb = self.query_one(Sidebar)
+            sidebar = self.query_one(Sidebar)
         except Exception:
             return
-        try:
-            fn(sb)
-        except Exception:
-            pass
+        fn(sidebar)
 
     def action_toggle_sidebar(self) -> None:
-        """Hide / show the right-side Sidebar."""
-        try:
-            sb = self.query_one(Sidebar)
-        except Exception:
-            return
-        sb.display = not sb.display
+        self._sidebar_safe(lambda s: s.toggle_class("-hidden"))
 
     def action_paste_image(self) -> None:
         """Read an image from the system clipboard, save it under
@@ -294,6 +294,10 @@ class JigApp(App):
         """
         if action == "open_event_detail":
             return True if self._events_pane_active() else False
+        # Shift+Tab toggle only fires on the Now pane; elsewhere fall through
+        # to Textual's default focus-previous traversal.
+        if action == "toggle_scroll_focus":
+            return True if self._now_pane_active() else False
         # Bare-digit jump bindings: yield when the focused widget would
         # consume the digit (Now's Input is focused and the operator is
         # typing). Returning False makes the key fall through to the
@@ -335,6 +339,37 @@ class JigApp(App):
         except Exception:
             return False
         return tabs.active == "spec-pane"
+
+    def _now_pane_active(self) -> bool:
+        try:
+            tabs = self.query_one(TabbedContent)
+        except Exception:
+            return False
+        return tabs.active == "now-pane"
+
+    def action_toggle_scroll_focus(self) -> None:
+        """Move focus between the Now Composer and the Scrollback.
+
+        With the scrollbar gone, the operator scrolls the transcript by
+        focusing the RichLog and using up/down/page-up/page-down.
+        """
+        from textual.widgets import RichLog
+
+        from jig.tui.screens.now import JigTextArea
+
+        try:
+            now = self.query_one(NowScreen)
+        except Exception:
+            return
+        try:
+            scrollback = now.query_one("#scrollback", RichLog)
+            composer = now.query_one("#input", JigTextArea)
+        except Exception:
+            return
+        if scrollback.has_focus:
+            composer.focus()
+        else:
+            scrollback.focus()
 
     def _events_pane_active(self) -> bool:
         try:

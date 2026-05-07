@@ -1,6 +1,6 @@
 """Render a ``DataContract`` as a self-contained Pydantic class source string.
 
-Per ``docs/agent-leverage/problem.md`` §6 (Track I MVP): the first
+Per ``docs/v2.0/agent-leverage/problem.md`` §6 (Track I MVP): the first
 renderer in the translation-between-formalisms commitment. One source
 (``DataContract``), one derived view (Pydantic class). The next
 renderers (OpenAPI, SQL DDL, GraphQL SDL, sequence diagrams) ship
@@ -127,7 +127,7 @@ def render_pydantic_from_data_contract(contract: DataContract) -> str:
         f"# Source contract: {contract.id}\n"
         f"# Source URI:      {source_uri}\n"
         f"#\n"
-        f"# Per docs/agent-leverage/problem.md §6, every rendered\n"
+        f"# Per docs/v2.0/agent-leverage/problem.md §6, every rendered\n"
         f"# artifact carries the source URI so divergence between\n"
         f"# the generated view and the contract stays detectable.\n"
         f"#\n"

@@ -44,7 +44,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-performance-reviewer
 
   - kind: write_suites_yaml

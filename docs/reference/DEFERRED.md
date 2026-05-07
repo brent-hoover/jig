@@ -19,7 +19,7 @@ task.
   here's when it landed."
 * New defers go at the top of their section, most recent first.
 * For planned per-phase scoping, see the plan itself:
-  `docs/implementation-plan.md` → `### Explicitly deferred out of
+  `docs/v2.0/implementation-plan.md` → `### Explicitly deferred out of
   Phase N`.
 
 ---
@@ -219,7 +219,7 @@ _Plan: Phase 2 §Explicitly deferred._
   layering. Lands when a phase actually needs per-phase
   context — probably alongside the evaluator prompt work above.
 
-### Project-level spec (doc 02 `.jig/spec/project.md`)
+### Project-level spec (doc 02 `docs/brief.md`)
 _Plan: Phase 3 §Explicitly deferred. Also blocks spec-agent role
 and cross-ticket proposal routing._
 

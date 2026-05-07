@@ -7,6 +7,7 @@ PO/spec-gen/SA are wired in later tasks.
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -81,17 +82,42 @@ def classify_directory(path: Path) -> DirState:
 
 def create_stub(path: Path, *, name: str) -> None:
     """Create the minimal on-disk stub: ``.jig/project.yaml``,
-    ``.jig/config.yaml``, and ``.jig/spec/project.md``. Idempotent: never
+    ``.jig/config.yaml``, and ``docs/brief.md``. Idempotent: never
     overwrites an existing project.yaml or config.yaml.
 
     The lightweight ``project.yaml`` is the init-state marker read by
     ``classify_directory``; ``config.yaml`` is the runtime project config
     read by ``load_project`` once the workflow advances past stub creation.
     Both share the same ``id``.
+
+    Also runs ``git init`` if the directory is not already inside a git
+    repository, so hooks and worktrees work regardless of whether the
+    user came via ``jig create`` or ``/init`` directly.
     """
+    import subprocess
+
     path.mkdir(parents=True, exist_ok=True)
     (path / ".jig").mkdir(exist_ok=True)
-    (path / ".jig" / "spec").mkdir(exist_ok=True)
+    (path / "docs").mkdir(exist_ok=True)
+
+    # Initialise a git repo if one doesn't already exist here.
+    try:
+        subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(path),
+            check=True,
+            capture_output=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        try:
+            subprocess.run(
+                ["git", "init", "-q"],
+                cwd=str(path),
+                check=True,
+                capture_output=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass  # no git available — hooks won't work, but init proceeds
     project_yaml = path / ".jig" / "project.yaml"
     if not project_yaml.is_file():
         project_id = str(uuid.uuid4())
@@ -105,7 +131,7 @@ def create_stub(path: Path, *, name: str) -> None:
             path,
             Project(id=project_id, name=name, path=str(path.resolve())),
         )
-    brief = path / ".jig" / "spec" / "project.md"
+    brief = path / "docs" / "brief.md"
     if not brief.is_file():
         atomic_write_text(brief, f"# {name}\n")
 
@@ -116,8 +142,16 @@ async def run_init(
     force: bool,
     console: "Console | None" = None,
     prompts: "PromptHandler | None" = None,
+    brief_file: Path | None = None,
 ) -> None:
-    """Top-level init flow. Dispatches fresh vs resume by classification."""
+    """Top-level init flow. Dispatches fresh vs resume by classification.
+
+    When ``brief_file`` is set, the file is copied to ``docs/brief.md``
+    and the brief ticket is pre-resolved with a Handoff + brief_approved
+    SystemEvent so ``classify_resume`` skips ``PO_CONVERSATION`` and
+    falls straight into ``SPEC_GENERATION``. Used by ``jig init --brief``
+    for eval harnesses.
+    """
     from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
 
     console = console or _spawn_console()
@@ -145,7 +179,14 @@ async def run_init(
 
     create_stub(target, name=project_name)
     log_file = configure_logging(target, verbose=False, console=False)
-    console.print(f"Logging to {log_file}", markup=False)
+    # Subdued + highlight=False so Rich doesn't auto-stylize the path
+    # (default highlighting renders file paths in red+underline, which
+    # in the TUI's RichLog reads as an error).
+    console.print(
+        f"[dim]Logging to {log_file}[/dim]",
+        markup=True,
+        highlight=False,
+    )
     store_dir = target / ".jig" / "store"
     store_dir.mkdir(parents=True, exist_ok=True)
     tickets = TicketStore(store_dir / "tickets.jsonl")
@@ -154,6 +195,19 @@ async def run_init(
     bus = MessageBus(store_dir / "messages.jsonl")
     for s in (tickets, threads, memory, bus):
         await s.load()
+
+    # --brief: seed a baked brief and skip the PO conversation. Idempotent —
+    # if the brief ticket already exists (e.g. on a re-run without --force),
+    # the seed is a no-op and the resume loop picks up where we left off.
+    if brief_file is not None:
+        await _seed_baked_brief(
+            project_path=target,
+            brief_file=brief_file,
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            console=console,
+        )
 
     # Iterate: each pass classifies the resume state and advances one step.
     while True:
@@ -202,7 +256,7 @@ async def run_init(
             console.print("Brief not approved. State saved.", markup=False)
             return
         if rs == ResumeState.SPEC_GENERATION:
-            async with _cli_emitter("spec-generator", console=console) as emitter:
+            async with _cli_emitter("Spec Generator", console=console) as emitter:
                 await run_spec_generator(
                     project_path=target, tickets=tickets,
                     threads=threads, memory=memory, bus=bus,
@@ -283,11 +337,15 @@ async def run_init(
                 project_path=target,
                 template_name=proposal["template_name"],
                 sa_path=True,
-                config=proposal.get("config", {}),
+                config=proposal.get("decisions", proposal.get("config", {})),
+                constraints=proposal.get("constraints", []),
+                open_questions=proposal.get("open_questions", []),
                 tickets=tickets, threads=threads,
                 console=console,
             )
             _print_summary(target, template_name=proposal["template_name"], console=console)
+            await _create_planning_ticket(tickets, target)
+            await prompts.ask_init_complete(console=console)
             return
         if rs == ResumeState.DIRECT_TEMPLATE_PICK:
             tpl = await prompt_direct_template(console=console, prompts=prompts)
@@ -300,8 +358,32 @@ async def run_init(
                 console=console,
             )
             _print_summary(target, template_name=tpl, console=console)
+            await _create_planning_ticket(tickets, target)
+            await prompts.ask_init_complete(console=console)
             return
         raise RuntimeError(f"unreachable resume state: {rs}")
+
+
+async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> None:
+    """Create the planning ticket if one doesn't already exist."""
+    existing = await tickets.get("planning")
+    if existing is not None:
+        return
+    spec_path = project_path / "docs" / "project.structured.yaml"
+    description = (
+        "Break down the project spec into implementation tickets.\n\n"
+        f"Spec: {spec_path}"
+    )
+    await tickets.create(
+        Ticket(
+            id="planning",
+            work_type=WorkType.PLANNING,
+            title="Project planning",
+            description=description,
+            workflow="project",
+            created_by="cli",
+        )
+    )
 
 
 def _print_already_done(target: Path, *, console: "Console | None" = None) -> None:
@@ -325,14 +407,105 @@ def _print_summary(
     path_arg = f" --path {target_str}" if needs_path else ""
     c.print(
         f"\n"
-        f"Brief:        {target}/.jig/spec/project.md\n"
-        f"Spec:         {target}/.jig/spec/project.structured.yaml\n"
-        f"Architecture: {target}/.jig/spec/architecture.yaml\n"
+        f"Brief:        {target}/docs/brief.md\n"
+        f"Spec:         {target}/docs/project.structured.yaml\n"
+        f"Architecture: {target}/docs/architecture.yaml\n"
         f"Template:     {template_name}\n\n"
         f"Setup log:    jig story brief{path_arg}\n"
-        f"              jig story architecture{path_arg}\n",
+        f"              jig story architecture{path_arg}\n\n"
+        f"Init complete. Run `jig start` (or type /status) to begin orchestration.\n",
         markup=False,
     )
+
+
+async def _seed_baked_brief(
+    *,
+    project_path: Path,
+    brief_file: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    console: "Console",
+) -> None:
+    """Pre-seed a brief from disk so classify_resume skips PO_CONVERSATION.
+
+    Steps (all idempotent):
+      1. Copy ``brief_file`` to ``docs/brief.md`` if not already there.
+      2. Create the ``brief`` ticket if it doesn't exist.
+      3. Post a Handoff (phase=spec-generator) and a ``brief_approved``
+         SystemEvent so classify_resume falls through to SPEC_GENERATION.
+      4. Resolve the brief ticket.
+
+    On a re-run (e.g. resuming after spec-gen had gaps) any of these
+    steps may already be done; the function detects that and skips.
+    """
+    from jig.handoff_resolve import resolve_after_handoff as _resolve_after_handoff
+
+    brief_path = project_path / "docs" / "brief.md"
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    src_text = brief_file.read_text()
+    if not brief_path.is_file() or brief_path.read_text() != src_text:
+        atomic_write_text(brief_path, src_text)
+        console.print(
+            f"[dim]Loaded brief from {brief_file}[/dim]",
+            markup=True,
+            highlight=False,
+        )
+
+    brief = await tickets.get("brief")
+    if brief is None:
+        brief = Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="Project brief",
+            created_by="cli",
+        )
+        await tickets.create(brief)
+
+    entries = await threads.for_ticket("brief")
+    has_handoff = any(isinstance(e, Handoff) for e in entries)
+    has_approved = any(
+        isinstance(e, SystemEvent) and e.event_type == "brief_approved"
+        for e in entries
+    )
+
+    if not has_handoff:
+        await threads.post(
+            Handoff(
+                ticket_id="brief",
+                author="cli",
+                phase="spec-generator",
+                outputs=["docs/brief.md"],
+                summary="Brief loaded from --brief.",
+            )
+        )
+        await bus.publish(
+            Message(
+                sender="cli",
+                to="orchestrator",
+                type=MessageType.CONTEXT_UPDATE,
+                payload={
+                    "kind": "handoff_posted",
+                    "ticket_id": "brief",
+                    "phase": "spec-generator",
+                },
+                topic="orchestrator",
+            )
+        )
+        await _resolve_after_handoff(
+            tickets=tickets, threads=threads, bus=bus,
+            ticket_id="brief", author="cli",
+        )
+
+    if not has_approved:
+        await threads.post(
+            SystemEvent(
+                ticket_id="brief",
+                author="cli",
+                event_type="brief_approved",
+                content="brief auto-approved (--brief)",
+            )
+        )
 
 
 async def run_po_conversation(
@@ -378,7 +551,7 @@ async def run_po_conversation(
         memory=memory,
         bus=bus,
     )
-    await _run_agent_with_cli_output(ctx, role_label="po", console=console)
+    await _run_agent_with_cli_output(ctx, role_label="Product Owner", console=console)
 
 
 async def _run_agent_with_cli_output(
@@ -419,15 +592,30 @@ async def _cli_emitter(role_label: str, *, console: "Console | None" = None):
     structured prompt (question, gap report, branch choice) takes
     over the screen cleanly.
     """
-    from rich.rule import Rule
-
     c = console or _spawn_console()
     emitter = EventEmitter()
 
-    c.print()
-    c.print(Rule(f"[bold cyan]{role_label}[/bold cyan]", style="cyan"))
+    # If the console is a streaming console, its backing EventEmitter is
+    # stashed as _jig_event_emitter. Pass it to _spawn_status so that
+    # agent_thinking events reach the TUI's Activity subzone.
+    tui_emitter = getattr(c, "_jig_event_emitter", None)
 
-    status_task = asyncio.create_task(_spawn_status(emitter, role_label, c))
+    if tui_emitter is not None:
+        # TUI mode: emit a structured event so the TUI can render a
+        # native full-width Rule rather than a pre-baked ANSI string.
+        from jig.events import JigEvent
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            tui_emitter.emit(JigEvent(type="agent_start", data={"role": role_label}))
+        )
+    else:
+        from rich.rule import Rule
+        c.print()
+        c.print(Rule(f"[bold cyan]{role_label}[/bold cyan]", style="cyan"))
+
+    status_task = asyncio.create_task(
+        _spawn_status(emitter, role_label, c, tui_emitter=tui_emitter)
+    )
     try:
         yield emitter
     finally:
@@ -438,62 +626,51 @@ async def _cli_emitter(role_label: str, *, console: "Console | None" = None):
             pass
 
 
-async def _spawn_status(emitter: EventEmitter, role_label: str, console) -> None:
+async def _spawn_status(
+    emitter: EventEmitter,
+    role_label: str,
+    console,
+    *,
+    tui_emitter: "EventEmitter | None" = None,
+) -> None:
     """Emit a structured ``agent_thinking`` event once per second while a
     spawn is alive, plus surface real error events to the console.
 
-    The CLI used to render a rich Status spinner here, but in daemon mode
-    the spinner's ``\\r``-overwriting frames hit the streaming Console,
-    became separate ``agent_render`` events on the wire, and got written
-    as new scrollback lines (no in-place update). The TUI now renders the
-    indicator from the structured event — Static widget that updates in
-    place. The CLI path still works because the same event is logged
-    (no visible spinner, but no crash either; init in CLI mode is
-    rarely needed now that the TUI handles it).
+    ``tui_emitter``, when provided, receives agent_thinking events in
+    addition to the local emitter so the TUI's Activity subzone updates.
     """
     queue = emitter.subscribe()
     loop = asyncio.get_event_loop()
     start = loop.time()
+
+    async def _emit_thinking(data: dict) -> None:
+        ev = JigEvent(type="agent_thinking", data=data)
+        await emitter.emit(ev)
+        if tui_emitter is not None:
+            try:
+                await tui_emitter.emit(ev)
+            except Exception:
+                pass
+
     try:
-        # Announce we're thinking right away.
-        await emitter.emit(
-            JigEvent(
-                type="agent_thinking",
-                data={"role": role_label, "elapsed": 0, "active": True},
-            )
-        )
+        await _emit_thinking({"role": role_label, "elapsed": 0, "active": True})
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 elapsed = int(loop.time() - start)
-                await emitter.emit(
-                    JigEvent(
-                        type="agent_thinking",
-                        data={
-                            "role": role_label,
-                            "elapsed": elapsed,
-                            "active": True,
-                        },
-                    )
+                await _emit_thinking(
+                    {"role": role_label, "elapsed": elapsed, "active": True}
                 )
                 continue
-            # Skip our own emits to avoid a tight loop (emitter broadcasts
-            # to all subscribers, including this one).
             if event.type == "agent_thinking":
                 continue
             line = _format_event(event)
             if line is not None:
                 console.print(line)
     finally:
-        # Spawn ending: tell the TUI to hide the indicator.
         try:
-            await emitter.emit(
-                JigEvent(
-                    type="agent_thinking",
-                    data={"role": role_label, "elapsed": 0, "active": False},
-                )
-            )
+            await _emit_thinking({"role": role_label, "elapsed": 0, "active": False})
         except Exception:
             pass
         try:
@@ -569,7 +746,7 @@ def render_brief_for_approval(project_path: Path) -> str:
     rendering with visual separators so the operator can scan where the
     brief starts and ends.
     """
-    brief_path = project_path / ".jig" / "spec" / "project.md"
+    brief_path = project_path / "docs" / "brief.md"
     if not brief_path.is_file():
         body = "(brief is missing)"
     else:
@@ -586,9 +763,12 @@ def render_brief_for_approval(project_path: Path) -> str:
             file=buf,
             force_terminal=True,
             color_system="truecolor",
-            width=100,
+            width=72,
         )
-        console.print(Markdown(brief_path.read_text()))
+        # Strip pandoc-style heading anchors ({#id}) that Rich doesn't
+        # understand and would render as literal text.
+        text = re.sub(r"\s*\{#[^}]+\}", "", brief_path.read_text())
+        console.print(Markdown(text))
         body = buf.getvalue().rstrip()
     return (
         "─── Brief preview ──────────────────────────────────────\n"
@@ -746,7 +926,7 @@ async def run_sa_conversation(
         memory=memory,
         bus=bus,
     )
-    await _run_agent_with_cli_output(ctx, role_label="sa", console=console)
+    await _run_agent_with_cli_output(ctx, role_label="Solutions Architect", console=console)
 
 
 def render_template_list(names: list[str]) -> str:
@@ -842,6 +1022,8 @@ async def apply_scaffold(
     template_name: str,
     sa_path: bool,
     config: dict[str, Any] | None,
+    constraints: list[str] | None = None,
+    open_questions: list[dict] | None = None,
     tickets: TicketStore,
     threads: ThreadStore,
     console: "Console | None" = None,
@@ -860,7 +1042,8 @@ async def apply_scaffold(
     )
 
     # 2. Finalize architecture.yaml — preserve any SA-authored fields.
-    arch_file = project_path / ".jig" / "spec" / "architecture.yaml"
+    arch_file = project_path / "docs" / "architecture.yaml"
+    arch_file.parent.mkdir(parents=True, exist_ok=True)
     if arch_file.is_file():
         data = yaml.safe_load(arch_file.read_text()) or {}
     else:
@@ -873,8 +1056,13 @@ async def apply_scaffold(
         data.setdefault("framework", md.framework)
     if md.deploy_target is not None:
         data.setdefault("deploy_target", md.deploy_target)
-    if sa_path and config is not None:
-        data["config"] = config
+    if sa_path:
+        if config:
+            data["decisions"] = config
+        if constraints:
+            data["constraints"] = constraints
+        if open_questions:
+            data["open_questions"] = open_questions
     atomic_write_text(arch_file, yaml.safe_dump(data, sort_keys=False))
 
     # 3. Update project.yaml with template_name and template_applied_at.
@@ -896,7 +1084,7 @@ async def apply_scaffold(
     try:
         install_hooks(project_path)
     except (HookInstallError, RuntimeError) as exc:
-        c.print(f"Warning: hook install failed: {exc}", markup=False)
+        c.print(f"Note: git hook install skipped ({exc})", markup=False)
 
     # 5. Ensure architecture ticket exists, then emit scaffold_applied.
     arch = await tickets.get("architecture")

@@ -1,6 +1,6 @@
 """Severity-tier disposition policy (Track G Final).
 
-Per ``docs/pm-workflow/design.md`` §"Severity tiers and disposition":
+Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition":
 
 - critical → block (ticket FAILED with reason ``reviewer-critical``)
 - important → consult SA (``Handoff(phase="sa-consult")`` posted)

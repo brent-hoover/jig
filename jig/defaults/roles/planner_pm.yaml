@@ -20,7 +20,7 @@ phase_prompt: >
   Four artifacts upstream of you. Read them in this order:
 
 
-  - ``.jig/spec/project.md`` — the L0 pitch + audience + product-level
+  - ``docs/brief.md`` — the L0 pitch + audience + product-level
     non-goals. What is this project, who is it for?
 
   - ``.jig/spec/suites.yaml`` — the L2 suite organization. Each suite
@@ -66,7 +66,7 @@ phase_prompt: >
   ## How to layer the work
 
 
-  Per ``docs/pm-workflow/design.md`` §"The three completeness layers":
+  Per ``docs/v2.0/pm-workflow/design.md`` §"The three completeness layers":
 
 
   - **Bones** — per-epic tracer bullet. ONE happy-path slice through
@@ -94,7 +94,7 @@ phase_prompt: >
   ## Ticket fields you set per ticket
 
 
-  Per ``docs/pm-workflow/design.md`` §"Ticket structure (extensions)"
+  Per ``docs/v2.0/pm-workflow/design.md`` §"Ticket structure (extensions)"
   every ticket the build plan owns carries (in the ticket store, not in
   the plan body):
 
@@ -154,7 +154,7 @@ phase_prompt: >
   ## Mechanics — non-negotiable
 
 
-  - **Read first.** Read project.md, suites.yaml, every suite's
+  - **Read first.** Read brief.md, suites.yaml, every suite's
     spec.structured.yaml, architecture.yaml, and every module's
     contracts.yaml before drafting epics.
 
@@ -216,7 +216,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, suites.yaml, every suite's
+  - ``Read`` — read brief.md, suites.yaml, every suite's
     spec.structured.yaml, architecture.yaml, and every module's
     contracts.yaml from the worktree.
 
@@ -238,7 +238,10 @@ allowed_tools:
   - Read
   - ask_question
   - plan_finalize
+  - graph_consumers_of
+  - graph_changed_interfaces
 allowed_mcps: []
 strict_tools: true
+cross_ticket_access: true
 default_context:
   - "ticket://description"

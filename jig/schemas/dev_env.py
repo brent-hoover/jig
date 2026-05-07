@@ -6,7 +6,7 @@ namespace to provision per agent on which service. Operators never edit
 the manifest directly; ``derive_manifest`` re-projects it from the
 architecture every time it changes.
 
-Per ``docs/dev-environment/design.md`` §"The dev environment manifest
+Per ``docs/v2.0/dev-environment/design.md`` §"The dev environment manifest
 (derived)":
 
     .jig/dev/manifest.yaml — generated, not hand-authored
@@ -21,9 +21,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from jig.schemas._validators import validate_kebab_id, validate_tz_aware
+from jig.schemas._validators import (
+    ServiceKind,
+    validate_kebab_id,
+    validate_tz_aware,
+)
 
 __all__ = [
     "DevManifest",
@@ -45,8 +49,8 @@ class ManifestService(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(..., min_length=1)
-    kind: str = Field(
-        ..., min_length=1, description="postgres | nats | redis | s3 | sqlite | ..."
+    kind: ServiceKind = Field(
+        ..., description="Bounded vocabulary shared with DataStore.kind."
     )
     strategy: Literal[
         "shared_namespaced", "per_agent_ephemeral", "operator_supplied"
@@ -83,6 +87,43 @@ class DevManifest(BaseModel):
     @classmethod
     def _tz_generated_at(cls, v: datetime) -> datetime:
         return validate_tz_aware(v, "DevManifest.generated_at")
+
+    @model_validator(mode="after")
+    def _enforce_uniqueness_and_template_coverage(self) -> DevManifest:
+        """Two invariants the provisioner depends on:
+
+        1. Service ids unique — the per-service connection-string lookup
+           is keyed on ``service.id``; duplicates pick the wrong one.
+        2. Every service id has a corresponding entry in
+           ``connection_string_templates``. The provisioner reads the
+           template at provision time; a missing entry is a runtime
+           KeyError on the agent's first I/O.
+        """
+        seen_ids: set[str] = set()
+        dupes: set[str] = set()
+        for s in self.services:
+            if s.id in seen_ids:
+                dupes.add(s.id)
+            else:
+                seen_ids.add(s.id)
+        if dupes:
+            raise ValueError(
+                f"DevManifest.services: duplicate service id(s) "
+                f"{sorted(dupes)!r}. The provisioner keys off service.id."
+            )
+        missing = [
+            s.id for s in self.services
+            if s.id not in self.connection_string_templates
+        ]
+        if missing:
+            raise ValueError(
+                f"DevManifest: service id(s) "
+                f"{sorted(missing)!r} are missing from "
+                f"connection_string_templates. The provisioner reads "
+                f"the template at provision time; the manifest must "
+                f"carry a template for every service it lists."
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------

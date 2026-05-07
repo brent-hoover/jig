@@ -390,7 +390,7 @@ flows for humans can hook into the same authorization codepath.
   description to reference capabilities.
 - `docs/16-policy-and-enforcement.md` — add a short section on
   waiver capability shape (token mapping to waiveable events).
-- `docs/implementation-plan.md` — check the four Task H boxes at
+- `docs/v2.0/implementation-plan.md` — check the four Task H boxes at
   implementation time; strike through the migration line.
 
 ## Tests

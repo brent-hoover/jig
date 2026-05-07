@@ -1,6 +1,6 @@
 """VisualComplianceReviewer — Track D MVP basic mechanical version.
 
-Per ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+Per ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
 logic": "Visual compliance — when ticket implements UI (has
 ``visual_references.wireframes`` set); tier: senior. Vision-based diff
 between implementation screenshot and the wireframe; design-system
@@ -156,6 +156,7 @@ class VisualComplianceReviewer:
                             "may be stale."
                         ),
                         ticket_id=ticket.id,
+                        file=str(wf_path.relative_to(project_root)),
                     )
                 )
                 continue
@@ -191,6 +192,7 @@ class VisualComplianceReviewer:
                             "implementation."
                         ),
                         ticket_id=ticket.id,
+                        file=str(wf_path.relative_to(project_root)),
                     )
                 )
 

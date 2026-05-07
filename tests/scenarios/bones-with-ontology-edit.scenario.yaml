@@ -14,7 +14,7 @@ description: |
   5. Remove ``blocker`` with ``replace-with impediment`` — references
      in the contract get rewritten in place.
 
-  Per ``docs/multi-level-spec/design.md`` §"Project ontology" + the
+  Per ``docs/v2.0/multi-level-spec/design.md`` §"Project ontology" + the
   v2-plan's Track B Final row.
 
 persona: methodical
@@ -45,7 +45,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-ontology-edit
 
   # ---- seed two ontology terms -------------------------------------------

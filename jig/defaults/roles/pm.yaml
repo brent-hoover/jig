@@ -64,5 +64,6 @@ allowed_tools:
   - WebFetch
 allowed_mcps:
   - context7
+cross_ticket_access: true
 default_context:
   - "ticket://description"

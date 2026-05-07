@@ -1,7 +1,7 @@
 """Risk register MCP tool (Track C MVP follow-on commit 1).
 
 ``arch_set_risk`` mirrors the existing upsert pattern but adds two
-non-trivial validation rules per ``docs/sa-architecture/design.md``
+non-trivial validation rules per ``docs/v2.0/sa-architecture/design.md``
 §"Risk schema requires `dependent_contracts`":
 
 - ``dependent_contracts`` MUST be non-empty when ``status >=

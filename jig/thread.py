@@ -42,6 +42,15 @@ from pydantic import BaseModel, Field
 from jig.store.models import StoreModel
 
 
+# Per-field cap on agent-controllable prose. Single thread comments,
+# answers, decisions, etc. should fit comfortably in 64 KiB; rejecting
+# anything larger bounds a misbehaving (or malicious) agent's ability
+# to drive store growth one record at a time. JsonlStore already caps
+# the whole serialized record at 1 MiB — this is the per-field belt
+# under that suspenders. SEC-I2 in v2-review-findings-security.md.
+_MAX_AGENT_PROSE_LEN: int = 65_536
+
+
 # ---- shared value objects -------------------------------------------------
 
 
@@ -119,7 +128,7 @@ class Question(_ThreadEntryBase):
 
     kind: Literal["question"] = "question"
     target: str  # actor name, role name, or "any_human"
-    question: str
+    question: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
     blocking: bool = False
     resolved_by: str | None = None  # asker's id when closed
     accepted_answer_id: str | None = None  # optional pointer
@@ -136,7 +145,7 @@ class Answer(_ThreadEntryBase):
 
     kind: Literal["answer"] = "answer"
     question_id: str
-    text: str
+    text: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
 
 
 # ---- Objection / Resolution / Waiver --------------------------------------
@@ -151,7 +160,7 @@ class Objection(_ThreadEntryBase):
 
     kind: Literal["objection"] = "objection"
     target_artifact: str  # file path, PR link, prior entry id, etc.
-    text: str
+    text: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
     resolved_by: str | None = None
     waived_by: str | None = None
 
@@ -183,7 +192,7 @@ class Resolution(_ThreadEntryBase):
 
     kind: Literal["resolution"] = "resolution"
     objection_id: str
-    text: str
+    text: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
 
 
 class Waiver(_ThreadEntryBase):
@@ -204,7 +213,7 @@ class Waiver(_ThreadEntryBase):
     kind: Literal["waiver"] = "waiver"
     objection_id: str | None = None
     check_failure_id: str | None = None
-    justification: str
+    justification: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
 
     def model_post_init(self, __context: object) -> None:  # type: ignore[override]
         set_fields = [
@@ -231,8 +240,8 @@ class Decision(_ThreadEntryBase):
     """
 
     kind: Literal["decision"] = "decision"
-    decision: str
-    rationale: str
+    decision: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
+    rationale: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
 
 
 class Note(_ThreadEntryBase):
@@ -251,7 +260,7 @@ class Note(_ThreadEntryBase):
     """
 
     kind: Literal["note"] = "note"
-    text: str
+    text: str = Field(max_length=_MAX_AGENT_PROSE_LEN)
     responds_to: str | None = None
     payload: dict[str, object] = Field(default_factory=dict)
 
@@ -309,6 +318,37 @@ class Handoff(_ThreadEntryBase):
     outputs: list[str] = Field(default_factory=list)
     summary: str = ""
     deferred_items: list[DeferredItem] = Field(default_factory=list)
+    # Phase 2 — integration checkpoint fields. All optional (defaults []
+    # preserve backward compat with existing Handoff records). Downstream
+    # phases inspect these so integration drift is visible before runtime.
+    new_public_surfaces: list[str] = Field(
+        default_factory=list,
+        description=(
+            "New routes, events, APIs, env vars, or migrations this phase "
+            "exposed. Signals to the next phase what new contracts to test."
+        ),
+    )
+    changed_assumptions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Assumptions that changed vs. what was planned — e.g. a module "
+            "changed its owned collection shape mid-phase."
+        ),
+    )
+    required_followups: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Work that must happen before the next phase can succeed — "
+            "e.g. 'consumer-driven test for event X must be added'."
+        ),
+    )
+    unknowns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Open questions not resolved during this phase — carry them "
+            "forward so the next phase owner is aware."
+        ),
+    )
     acceptance_state: Literal["pending", "accepted", "rejected"] = "pending"
     accepted_by: str | None = None
     rejection_reason: str | None = None
@@ -416,6 +456,19 @@ class SystemEvent(_ThreadEntryBase):
         "sa_skipped",
         "scaffold_applied",
         "brief_approved",
+        # SF-1: dev-env provisioning failure surfaced as a spawn failure
+        # rather than swallowed.
+        "provisioning_failed",
+        # SF-2 / SF-3: durable signals when reviewer-spawn or auto-commit
+        # would otherwise be silent log lines.
+        "reviewer_spawn_failed",
+        "auto_commit_failed",
+        # SF-I1: per-commit hook install failure leaves per-commit review
+        # disabled for that ticket; surface so the operator notices.
+        "per_commit_hook_install_failed",
+        # SF-I4: per-commit runner crashed (still non-blocking) so the
+        # operator can distinguish "review passed" from "runner crashed".
+        "per_commit_runner_crashed",
     ]
     content: str = ""
     commit_sha: str | None = None

@@ -2,7 +2,7 @@
 
 The L1 Discovery PO walks the operator through the 5-phase
 journey-walk pattern (Frame / Elicit / Walk / Probe / Playback) per
-``docs/multi-level-spec/design.md`` §"L1 PO behavior". Per-journey
+``docs/v2.0/multi-level-spec/design.md`` §"L1 PO behavior". Per-journey
 playbacks land under ``.jig/spec/discovery/playbacks/`` for audit
 trail; the synthesized doc lives at ``.jig/spec/discovery.md`` and
 in-flight conversation state at ``.jig/spec/discovery.state.yaml``.

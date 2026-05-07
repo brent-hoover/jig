@@ -1,6 +1,6 @@
 """TUI slash commands for the multi-level PO (Track B Final).
 
-Per ``docs/multi-level-spec/design.md`` §"Workflow integration": the
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Workflow integration": the
 operator can drive the L1 / L2 / L3 PO from the TUI via slash
 commands. Tests cover dispatch parsing + the daemon-side handler
 behavior with mocked stores.
@@ -412,8 +412,8 @@ async def test_init_proceed_requires_l0(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_init_proceed_advances_to_l1_when_l0_present(tmp_path: Path):
-    # Seed an L0 project.md so the L0 gate passes.
-    p = tmp_path / ".jig" / "spec" / "project.md"
+    # Seed an L0 brief.md so the L0 gate passes.
+    p = tmp_path / "docs" / "brief.md"
     p.parent.mkdir(parents=True)
     p.write_text("# project\n")
     orch = MagicMock()
@@ -440,7 +440,8 @@ async def test_init_proceed_advances_to_l1_when_l0_present(tmp_path: Path):
 async def test_init_proceed_advances_to_l2_when_l1_present(tmp_path: Path):
     p = tmp_path / ".jig" / "spec"
     p.mkdir(parents=True)
-    (p / "project.md").write_text("# project\n")
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "brief.md").write_text("# project\n")
     (p / "discovery.md").write_text("# discovery\n")
     orch = MagicMock()
     orch.tickets = MagicMock()

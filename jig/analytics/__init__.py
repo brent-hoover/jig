@@ -1,6 +1,6 @@
 """Analytics event capture for jig.
 
-Per ``docs/analytics/problem.md``: every operation worth observing
+Per ``docs/v2.0/analytics/problem.md``: every operation worth observing
 emits a structured event into an append-only stream. Capture
 decisions can't be retrofitted, so the schema is locked from v1
 forward — additive changes only; breaking changes require an

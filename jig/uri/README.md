@@ -1,7 +1,7 @@
 # `jig.uri` — multi-authority `project://` URIs
 
 Surface for parsing, resolving, and constructing `project://<authority>/<path>[@revision:N][#fragment]` URIs. See
-`docs/uri-scheme/design.md` for the full design.
+`docs/v2.0/uri-scheme/design.md` for the full design.
 
 ## Submodules
 
@@ -50,7 +50,7 @@ jig/uri/constructors/
 - Resolving a URI to its loaded artifact: `resolve_project_uri(s, project_root, cache=...)` — pass a
   `UriResolverCache` to opt into caching; omit it for one-shot calls.
 
-### Design notes (from `docs/uri-scheme/design.md`)
+### Design notes (from `docs/v2.0/uri-scheme/design.md`)
 
 - **Caching is opt-in** via the `cache=` kwarg. Default behaviour is unchanged for callers that don't pass one.
 - **Cache is event-driven** — `cache.subscribe_to_events(emitter)` wires invalidation to `ContractAmended` /

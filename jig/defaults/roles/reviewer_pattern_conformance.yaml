@@ -2,7 +2,7 @@ role: reviewer-pattern-conformance
 phase_prompt: >
   You are the **Pattern-Conformance Reviewer** — a judgment reviewer
   in the federation per
-  ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+  ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
   logic". Your job is to flag deviations from the **local conventions**
   established in the area of code the ticket touched. You see the diff
   the dev agent produced; the surrounding files set the bar.
@@ -93,6 +93,7 @@ allowed_tools:
   - Read
   - Bash(git diff*)
   - reviewer_post_comment
+  - graph_consumers_of
 allowed_mcps: []
 strict_tools: true
 default_context:

@@ -16,8 +16,10 @@ from jig.schemas.arch import (
 )
 from jig.schemas.dev_env import (
     DevManifest,
+    ManifestService,
     derive_default_connection_string_template,
 )
+from pydantic import ValidationError
 from jig.spec_loader import (
     dev_manifest_path,
     load_dev_manifest,
@@ -212,3 +214,61 @@ async def test_handle_dev_derive_manifest_missing_architecture_raises(
 ):
     with pytest.raises(FileNotFoundError):
         await handle_dev_derive_manifest(project_path=tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# DevManifest schema-level invariants (Block A.2)
+# ---------------------------------------------------------------------------
+
+
+def _service(svc_id: str = "main-db") -> ManifestService:
+    return ManifestService(
+        id=svc_id,
+        kind="postgres",
+        strategy="shared_namespaced",
+        namespace_template="agent_{ticket_id}",
+    )
+
+
+def test_dev_manifest_rejects_duplicate_service_ids():
+    with pytest.raises(ValidationError, match="duplicate service id"):
+        DevManifest(
+            services=[_service("svc"), _service("svc")],
+            connection_string_templates={
+                "svc": "postgresql://localhost:5432/jigdev?x={namespace}",
+            },
+        )
+
+
+def test_dev_manifest_rejects_service_without_template():
+    """Reference-integrity gate: every service id must appear in
+    ``connection_string_templates``. The provisioner reads the
+    template at provision time; a missing entry is a runtime
+    KeyError on the agent's first I/O.
+    """
+    with pytest.raises(ValidationError, match="missing from connection_string_templates"):
+        DevManifest(
+            services=[_service("svc-a"), _service("svc-b")],
+            connection_string_templates={
+                "svc-a": "postgresql://localhost:5432/jigdev?x={namespace}",
+            },
+        )
+
+
+def test_dev_manifest_accepts_unique_services_with_full_templates():
+    m = DevManifest(
+        services=[_service("svc-a"), _service("svc-b")],
+        connection_string_templates={
+            "svc-a": "postgresql://localhost:5432/a?x={namespace}",
+            "svc-b": "postgresql://localhost:5432/b?x={namespace}",
+        },
+    )
+    assert {s.id for s in m.services} == {"svc-a", "svc-b"}
+
+
+def test_dev_manifest_empty_round_trip():
+    """No services → no template requirements; both invariants
+    vacuously hold."""
+    m = DevManifest()
+    assert m.services == []
+    assert m.connection_string_templates == {}

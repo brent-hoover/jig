@@ -1,7 +1,7 @@
 """Tests for vcr-style external-API fixture recording (Track E Final).
 
 Covers the FixtureStore / FixtureMiddleware / signature contract per
-``docs/dev-environment/design.md`` §"External-API recorded fixtures":
+``docs/v2.0/dev-environment/design.md`` §"External-API recorded fixtures":
 
 * round-trip record + replay produces identical bodies
 * signatures are stable across calls and discriminate on (method, url,

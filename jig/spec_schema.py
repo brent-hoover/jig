@@ -2,7 +2,7 @@
 (``.jig/spec/project.structured.yaml``).
 
 Owned by the spec-generator agent — humans do NOT edit the structured
-form directly. The brief (``.jig/spec/project.md``) is the source of
+form directly. The brief (``docs/brief.md``) is the source of
 truth for content and IDs; this module validates the projection
 spec-gen produces from the brief.
 
@@ -14,7 +14,9 @@ import re
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Kebab-case slug: starts with letter or digit, ends with letter or digit,
 # interior may contain hyphens. Single-char slugs (e.g. "a") are allowed.
@@ -32,6 +34,7 @@ def _kebab_slug(value: str, field: str = "id") -> str:
 class CapabilityState(str, Enum):
     BACKLOG = "backlog"
     PLANNED = "planned"
+    PLANNED_UNCOMMITTED = "planned_uncommitted"
     IN_PROGRESS = "in_progress"
     BUILT = "built"
     ARCHIVED = "archived"
@@ -88,6 +91,35 @@ _AC_REQUIRED_STATES = {
 }
 
 
+class GivenWhenThen(BaseModel):
+    """Structured example for a capability or ticket.
+
+    Provides concrete scenarios (given a precondition, when an action occurs,
+    then an outcome is expected). Reviewers and the sim driver can consume
+    these directly instead of parsing prose AC.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    given: str = Field(..., min_length=1)
+    when: str = Field(..., min_length=1)
+    then: str = Field(..., min_length=1)
+
+
+class DoneEnoughBlock(BaseModel):
+    """Layer-scoped definition of what 'done enough' means for a capability.
+
+    The PM reads these when planning tickets to populate ``done_when``
+    for each layer. Having three blocks (bones / mvp / final) makes the
+    layering decision explicit and queryable rather than buried in prose.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    layer: Literal["bones", "mvp", "final"]
+    criteria: list[str] = Field(..., min_length=1)
+
+
 class Capability(BaseModel):
     id: str
     title: str
@@ -96,6 +128,8 @@ class Capability(BaseModel):
     user_story: UserStory | None = None
     behaviors: list[Behavior] = []
     acceptance_criteria: list[str] = []   # capability-level, used when no behaviors
+    examples: list[GivenWhenThen] = []
+    done_enough: list[DoneEnoughBlock] = []
     excluded: list[str] = []
     open_questions: list[str] = []
     tickets: list[str] = []                # rebuilt by spec-gen from ticket store

@@ -72,13 +72,29 @@ async def _report_section_locks(project_path: Path, ticket_id: str) -> None:
 @cli.command()
 @click.argument("name")
 @click.option("--force", is_flag=True, help="Wipe .jig/ state and restart.")
-def init(name: str, force: bool) -> None:
+@click.option(
+    "--brief",
+    "brief_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Pre-baked brief.md to use instead of running the PO conversation.",
+)
+@click.option(
+    "--auto",
+    is_flag=True,
+    help="Non-interactive mode: pick defaults for every prompt (for eval harnesses).",
+)
+def init(name: str, force: bool, brief_file: Path | None, auto: bool) -> None:
     """Initialize a new jig project: brief → spec → architecture → scaffold."""
     import asyncio
 
+    from jig.init_prompts import AutoPromptHandler
     from jig.init_workflow import run_init
 
-    asyncio.run(run_init(name=name, force=force))
+    prompts = AutoPromptHandler() if auto else None
+    asyncio.run(run_init(
+        name=name, force=force, brief_file=brief_file, prompts=prompts,
+    ))
 
 
 def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> None:
@@ -175,6 +191,53 @@ def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
             )
 
     _run_orchestrator_loop(path, ws_port, verbose=verbose)
+
+
+@cli.command()
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def plan(path: Path) -> None:
+    """Create a planning ticket so the PM agent breaks the spec into tickets.
+
+    Safe to run multiple times — a no-op if a planning ticket already exists.
+    """
+    jig_dir = path / ".jig"
+    if not (jig_dir / "spec" / "architecture.yaml").is_file():
+        raise click.ClickException(
+            "Project not initialized. Run 'jig init' first."
+        )
+
+    from jig.store.tickets import TicketStore
+    from jig.ticket import Ticket, WorkType
+
+    store_dir = jig_dir / "store"
+    tickets = TicketStore(store_dir / "tickets.jsonl")
+
+    async def _run() -> bool:
+        await tickets.load()
+        existing = await tickets.get("planning")
+        if existing is not None:
+            return False
+        spec_path = jig_dir / "spec" / "project.structured.yaml"
+        await tickets.create(
+            Ticket(
+                id="planning",
+                work_type=WorkType.PLANNING,
+                title="Project planning",
+                description=(
+                    "Break down the project spec into implementation tickets.\n\n"
+                    f"Spec: {spec_path}"
+                ),
+                workflow="project",
+                created_by="cli",
+            )
+        )
+        return True
+
+    created = asyncio.run(_run())
+    if created:
+        click.echo("Planning ticket created. Start the orchestrator to begin.")
+    else:
+        click.echo("Planning ticket already exists.")
 
 
 @cli.command()
@@ -1692,7 +1755,7 @@ def pm_plan_unblock(
     Records an entry in ``.jig/plan/overrides.jsonl`` and emits a
     ``BonesPromotedIncomplete`` analytics event so the consequences
     are visible later if the still-running bones forces a contract
-    change. Per docs/pm-workflow/design.md §"Bones-first ordering".
+    change. Per docs/v2.0/pm-workflow/design.md §"Bones-first ordering".
     """
     from jig.analytics.emitter import EventEmitter
     from jig.analytics.store import AnalyticsStore
@@ -1964,4 +2027,384 @@ def ontology_find_references_cmd(term: str, path: Path) -> None:
         return
     for ref in refs:
         click.echo(f"{ref.path}:{ref.line}: {ref.snippet}")
+
+
+# ---- eval harness --------------------------------------------------------
+
+
+@cli.group("eval")
+def eval_group() -> None:
+    """Eval harness — collect and compare metrics across jig runs."""
+
+
+@eval_group.command("collect")
+@click.argument("project_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--project-id", required=True, help="Eval project id (e.g. hn-cli).")
+@click.option("--label", default=None, help="Human-readable label for this run.")
+@click.option(
+    "--tracer-cmd",
+    "tracer_cmd",
+    default=None,
+    help="Shell command to run the tracer (e.g. 'bash tracer.sh'). "
+    "Runs inside project_path.",
+)
+@click.option(
+    "--runs-root",
+    "runs_root",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Directory where manifests are stored. Defaults to evals/runs/ "
+    "relative to the jig source root.",
+)
+def eval_collect(
+    project_path: Path,
+    project_id: str,
+    label: str | None,
+    tracer_cmd: str | None,
+    runs_root: Path | None,
+) -> None:
+    """Collect metrics from a completed project run and save a manifest.
+
+    PROJECT_PATH is the root of the jig-managed project (the directory
+    that contains .jig/).
+    """
+    import shlex
+    import uuid
+
+    import yaml
+
+    from jig.eval.collector import collect
+
+    run_id = str(uuid.uuid4())[:8]
+
+    parsed_tracer: list[str] | None = None
+    if tracer_cmd:
+        parsed_tracer = shlex.split(tracer_cmd)
+
+    manifest = asyncio.run(
+        collect(
+            project_path,
+            run_id=run_id,
+            project_id=project_id,
+            label=label,
+            tracer_cmd=parsed_tracer,
+        )
+    )
+
+    # Determine runs root — prefer explicit flag, then walk up from here
+    # to find the jig source tree's evals/runs/, otherwise use cwd.
+    if runs_root is None:
+        src_root = Path(__file__).resolve().parent.parent
+        candidate = src_root / "evals" / "runs"
+        runs_root = candidate if candidate.parent.exists() else Path("evals/runs")
+
+    out_dir = runs_root / project_id / run_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "manifest.yaml"
+    out_path.write_text(
+        yaml.dump(manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+    )
+
+    click.echo(f"run_id:   {run_id}")
+    click.echo(f"label:    {label or '(none)'}")
+    click.echo(f"manifest: {out_path}")
+    click.echo(f"tickets:  {manifest.ticket_status_counts}")
+    click.echo(f"cost_usd: {manifest.total_cost_usd:.4f}")
+    click.echo(f"spawns:   {manifest.agent_spawn_count}  fix_cycles: {manifest.fix_cycle_count}")
+    if manifest.tracer:
+        status = "PASS" if manifest.tracer.passed else "FAIL"
+        click.echo(f"tracer:   {status}")
+    error_keys = [k for k, v in manifest.system_event_counts.items() if v]
+    if error_keys:
+        click.echo(f"errors:   {manifest.system_event_counts}")
+
+
+@eval_group.command("compare")
+@click.argument("project_id")
+@click.option("--before", "before_label", required=True, help="Label or run-id of baseline run.")
+@click.option("--after", "after_label", required=True, help="Label or run-id of new run.")
+@click.option(
+    "--runs-root",
+    "runs_root",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Directory where manifests are stored.",
+)
+def eval_compare(
+    project_id: str,
+    before_label: str,
+    after_label: str,
+    runs_root: Path | None,
+) -> None:
+    """Compare two eval runs and print a markdown table.
+
+    PROJECT_ID is the eval project name (e.g. hn-cli).
+    """
+
+    from jig.eval.compare import compare_manifests, _find_manifest, _load_manifest
+
+    if runs_root is None:
+        src_root = Path(__file__).resolve().parent.parent
+        candidate = src_root / "evals" / "runs"
+        runs_root = candidate if candidate.parent.exists() else Path("evals/runs")
+
+    before_path = _find_manifest(runs_root, project_id, before_label)
+    after_path = _find_manifest(runs_root, project_id, after_label)
+
+    before = _load_manifest(before_path)
+    after = _load_manifest(after_path)
+
+    click.echo(compare_manifests(before, after))
+
+
+@eval_group.command("list")
+@click.argument("project_id")
+@click.option(
+    "--runs-root",
+    "runs_root",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Directory where manifests are stored.",
+)
+def eval_list(project_id: str, runs_root: Path | None) -> None:
+    """List all collected runs for a project."""
+    import yaml
+
+    if runs_root is None:
+        src_root = Path(__file__).resolve().parent.parent
+        candidate = src_root / "evals" / "runs"
+        runs_root = candidate if candidate.parent.exists() else Path("evals/runs")
+
+    base = runs_root / project_id
+    if not base.exists():
+        click.echo(f"no runs found for '{project_id}'")
+        return
+
+    rows = []
+    for run_dir in sorted(base.iterdir()):
+        m = run_dir / "manifest.yaml"
+        if not m.exists():
+            continue
+        data = yaml.safe_load(m.read_text()) or {}
+        rows.append(
+            (
+                data.get("run_id", run_dir.name),
+                data.get("label") or "",
+                data.get("collected_at", "")[:10],
+                str(data.get("ticket_status_counts", {})),
+                "PASS" if (data.get("tracer") or {}).get("passed") else
+                ("FAIL" if data.get("tracer") else "n/a"),
+            )
+        )
+
+    if not rows:
+        click.echo(f"no manifests under {base}")
+        return
+
+    header = f"{'run_id':<10} {'label':<20} {'date':<12} {'tickets':<40} tracer"
+    click.echo(header)
+    click.echo("-" * len(header))
+    for run_id, label, date, tickets, tracer in rows:
+        click.echo(f"{run_id:<10} {label:<20} {date:<12} {tickets:<40} {tracer}")
+
+
+# ---------------------------------------------------------------------------
+# jig graph — dependency graph queries (Phase 3.8)
+# ---------------------------------------------------------------------------
+
+
+@cli.group("graph")
+def graph_group() -> None:
+    """Dependency graph queries — build, impact, neighbors, consumers, tracers."""
+
+
+@graph_group.command("build")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def graph_build(path: Path) -> None:
+    """Rebuild the dependency graph from spec artifacts."""
+    from jig.graph.derive import write_graph
+
+    out = write_graph(path)
+    click.echo(f"graph written to {out}")
+
+
+@graph_group.command("impact")
+@click.argument("ticket_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--depth", default=1, show_default=True, help="Neighborhood depth.")
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON.")
+def graph_impact(ticket_id: str, path: Path, depth: int, as_json: bool) -> None:
+    """Show what a ticket touches and who consumes those nodes."""
+    import json as _json
+
+    from jig.graph.derive import build_graph, ticket_impact
+
+    graph = build_graph(path)
+    impact = ticket_impact(graph, ticket_id, depth=depth)
+    if as_json:
+        click.echo(_json.dumps(impact.model_dump(mode="json"), indent=2))
+        return
+    click.echo(f"ticket:       {impact.ticket_id}")
+    click.echo(f"boundaries:   {impact.crossed_boundaries}")
+    if impact.touched:
+        click.echo("touched:")
+        for n in impact.touched:
+            click.echo(f"  {n.id}  ({n.kind})")
+    if impact.consumers:
+        click.echo("consumers:")
+        for node_id, consumers in impact.consumers.items():
+            for c in consumers:
+                click.echo(f"  {c.id} → {node_id}")
+    if impact.exercised_tracers:
+        click.echo("exercised tracers:")
+        for t in impact.exercised_tracers:
+            click.echo(f"  {t.id}")
+
+
+@graph_group.command("neighbors")
+@click.argument("node_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--depth", default=1, show_default=True, help="Hops to walk.")
+@click.option("--kind", default=None, help="Filter by node kind.")
+def graph_neighbors(node_id: str, path: Path, depth: int, kind: str | None) -> None:
+    """List outgoing neighbors of a node within DEPTH hops."""
+    from jig.graph.derive import build_graph
+
+    graph = build_graph(path)
+    neighbor_ids = graph.neighbors(node_id, depth=depth, kind=kind)
+    node_map = {n.id: n for n in graph.nodes}
+    results = sorted(
+        (node_map[nid] for nid in neighbor_ids if nid in node_map),
+        key=lambda n: (n.kind, n.id),
+    )
+    if not results:
+        click.echo("(no neighbors)")
+        return
+    for n in results:
+        line = f"{n.id}  [{n.kind}]"
+        if n.title:
+            line += f"  — {n.title}"
+        click.echo(line)
+
+
+@graph_group.command("consumers")
+@click.argument("node_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def graph_consumers(node_id: str, path: Path) -> None:
+    """List all nodes with an edge pointing TO NODE_ID."""
+    from jig.graph.derive import build_graph
+
+    graph = build_graph(path)
+    consumer_ids = graph.consumers_of(node_id)
+    node_map = {n.id: n for n in graph.nodes}
+    results = sorted(
+        (node_map[nid] for nid in consumer_ids if nid in node_map),
+        key=lambda n: (n.kind, n.id),
+    )
+    if not results:
+        click.echo("(no consumers)")
+        return
+    for n in results:
+        line = f"{n.id}  [{n.kind}]"
+        if n.title:
+            line += f"  — {n.title}"
+        click.echo(line)
+
+
+@graph_group.command("tracers")
+@click.argument("node_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def graph_tracers(node_id: str, path: Path) -> None:
+    """List tracer nodes reachable from NODE_ID."""
+    from jig.graph.derive import build_graph
+
+    graph = build_graph(path)
+    reachable = graph.reachable_from(node_id)
+    node_map = {n.id: n for n in graph.nodes}
+    tracers = sorted(
+        (node_map[nid] for nid in reachable if nid in node_map and node_map[nid].kind == "tracer"),
+        key=lambda n: n.id,
+    )
+    if not tracers:
+        click.echo("(no tracers)")
+        return
+    for t in tracers:
+        line = f"{t.id}"
+        if t.title:
+            line += f"  — {t.title}"
+        click.echo(line)
+
+
+# ---- tracer group (Phase 5.12) ------------------------------------------
+
+
+@cli.group("tracer")
+def tracer_group() -> None:
+    """Manage tracer-bullet specs (.jig/spec/tracers/)."""
+
+
+@tracer_group.command("list")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tracer_list(path: Path) -> None:
+    """List all authored tracers."""
+    from jig.spec_loader import load_all_tracers
+
+    tracers = load_all_tracers(path)
+    if not tracers:
+        click.echo("(no tracers authored)")
+        return
+    for tr in tracers:
+        click.echo(f"{tr.id}  — {tr.description}")
+
+
+@tracer_group.command("show")
+@click.argument("tracer_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tracer_show(tracer_id: str, path: Path) -> None:
+    """Show a tracer spec in detail."""
+    import yaml as _yaml
+    from jig.spec_loader import load_tracer
+
+    try:
+        tr = load_tracer(path, tracer_id)
+    except FileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1) from exc
+    click.echo(_yaml.safe_dump(tr.model_dump(mode="json"), sort_keys=False))
+
+
+@tracer_group.command("run")
+@click.argument("tracer_id")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def tracer_run(tracer_id: str, path: Path) -> None:
+    """Run a tracer's smoke command and report pass/fail."""
+    import subprocess
+    from jig.spec_loader import load_tracer
+
+    try:
+        tr = load_tracer(path, tracer_id)
+    except FileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1) from exc
+
+    click.echo(f"Running tracer {tr.id!r}: {' '.join(tr.command)}")
+    try:
+        result = subprocess.run(
+            tr.command,
+            cwd=str(path),
+            timeout=tr.timeout_seconds,
+            capture_output=False,
+        )
+    except subprocess.TimeoutExpired:
+        click.echo(f"TIMEOUT after {tr.timeout_seconds}s", err=True)
+        raise SystemExit(1)
+    except FileNotFoundError as exc:
+        click.echo(f"Command not found: {exc}", err=True)
+        raise SystemExit(1)
+
+    if result.returncode == 0:
+        click.echo(f"PASS (exit {result.returncode})")
+    else:
+        click.echo(f"FAIL (exit {result.returncode})")
+        raise SystemExit(result.returncode)
 

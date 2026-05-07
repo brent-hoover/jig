@@ -53,14 +53,30 @@ def _wrap_with_context(
     phase: str | None,
     role: str | None,
     agent_id: str | None,
+    enforce_ticket_scope: bool = False,
 ) -> ToolHandler:
     """Wrap an MCP tool handler so each call runs with the given
     correlation context. The MCP SDK invokes each tool in a fresh
     asyncio task that does NOT inherit our per-ticket contextvars,
     so handlers must set them explicitly at the call boundary.
+
+    When ``enforce_ticket_scope`` is true and the spawn was bound to
+    a ``ticket_id``, the wrapper rejects tool calls whose ``ticket_id``
+    arg points at a different ticket. This stops a malicious agent
+    from reading or commenting on arbitrary tickets just by passing
+    another id (SEC-I1). Roles that legitimately need cross-ticket
+    access set ``RoleConfig.cross_ticket_access`` so the wrapper is
+    built without the check.
     """
 
     async def wrapper(args: dict[str, Any]) -> dict[str, Any]:
+        if enforce_ticket_scope and ticket_id is not None:
+            requested = args.get("ticket_id") if isinstance(args, dict) else None
+            if requested is not None and requested != ticket_id:
+                raise PermissionError(
+                    f"role is scoped to ticket {ticket_id!r}; "
+                    f"refusing cross-ticket access to {requested!r}"
+                )
         t_tid = _ticket_id_var.set(ticket_id)
         t_phase = _phase_var.set(phase)
         t_role = _role_var.set(role)
@@ -827,7 +843,11 @@ def create_agent_mcp_server(
                 checkpoint_promote_deferred,
             ]
         )
-    if package_manager:
+    # add_dependency runs in the orchestrator process (outside bwrap).
+    # Roles must opt in explicitly via ``allow_add_dependency`` rather
+    # than getting it implicitly because the project sets
+    # ``package_manager`` — see SEC-1 in v2-review-findings-security.md.
+    if package_manager and agent_cfg.allow_add_dependency:
         all_tools.append(add_dependency)
 
     # Init-workflow tools (brief / spec / architecture). Each is gated
@@ -909,7 +929,7 @@ def create_agent_mcp_server(
             "l0_finalize",
             "Capture the L0 pitch + problem + audience + product-level "
             "non-goals and finalize the project. Writes both "
-            ".jig/spec/project.md (markdown form) and "
+            "docs/brief.md (markdown form) and "
             ".jig/spec/project.structured.yaml (Pydantic dump). "
             "Hands off to the L1 PO. Call this exactly once when the "
             "operator has confirmed all four fields.",
@@ -940,7 +960,7 @@ def create_agent_mcp_server(
 
     # ---- L1 PO MCP tools (Track B MVP) ------------------------------------
     # The L1 Discovery PO drives the 5-phase journey-walk per
-    # docs/multi-level-spec/design.md §"L1 PO behavior". Authoring
+    # docs/v2.0/multi-level-spec/design.md §"L1 PO behavior". Authoring
     # tools render to .jig/spec/discovery.md + per-journey playbacks;
     # state-tracking tools update .jig/spec/discovery.state.yaml so
     # mid-walk pauses + daemon restarts can resume cleanly.
@@ -1212,7 +1232,7 @@ def create_agent_mcp_server(
     # The L1 PO is the primary author — terms surface during journey
     # walks; downstream agents (SA / VD / PM / dev / reviewer) read the
     # same file so terminology stays consistent across the project's
-    # artifacts and code. See docs/multi-level-spec/design.md
+    # artifacts and code. See docs/v2.0/multi-level-spec/design.md
     # §"Project ontology — capturing the operator's domain vocabulary".
 
     if "ontology_stash_term" in agent_cfg.allowed_tools:
@@ -1462,6 +1482,158 @@ def create_agent_mcp_server(
 
         all_tools.append(l3_finalize)
 
+    if "add_tradeoff" in agent_cfg.allowed_tools:
+        import jig.po_tradeoffs_mcp as po_tradeoffs_mcp
+
+        @tool(
+            "add_tradeoff",
+            "Record or update a deliberate scope decision in the tradeoff ledger "
+            "(.jig/spec/tradeoffs.yaml). The tradeoff-compliance reviewer "
+            "will flag any ticket that appears to re-add deferred work listed here. "
+            "``deferred_to`` is one of 'mvp', 'final', or 'never'.",
+            {
+                "id": str,
+                "decision_summary": str,
+                "deferred": list,
+                "deferred_to": str,
+                "rationale": str,
+                "capability_ids": list,
+            },
+        )
+        async def add_tradeoff(args):
+            result = await po_tradeoffs_mcp.handle_add_tradeoff(
+                project_path=project_path,
+                id=args["id"],
+                decision_summary=args["decision_summary"],
+                deferred=args.get("deferred", []),
+                deferred_to=args["deferred_to"],
+                rationale=args["rationale"],
+                capability_ids=args.get("capability_ids", []),
+            )
+            return {"content": [{"type": "text", "text": str(result)}]}
+
+        all_tools.append(add_tradeoff)
+
+    if "list_tradeoffs" in agent_cfg.allowed_tools:
+        import jig.po_tradeoffs_mcp as po_tradeoffs_mcp  # noqa: F811
+
+        @tool(
+            "list_tradeoffs",
+            "Return all tradeoffs from the ledger, optionally filtered by capability_id.",
+            {"capability_id": str},
+        )
+        async def list_tradeoffs(args):
+            result = await po_tradeoffs_mcp.handle_list_tradeoffs(
+                project_path=project_path,
+                capability_id=args.get("capability_id"),
+            )
+            import json
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(list_tradeoffs)
+
+    # ---- Phase 3.8 — dependency graph MCP tools ---------------------------
+
+    if "graph_get_impact" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp
+
+        @tool(
+            "graph_get_impact",
+            "Return the TicketImpact for a ticket — touched nodes, consumers, "
+            "crossed_boundaries, exercised tracers. Use for context selection "
+            "and tier-promotion heuristics.",
+            {"ticket_id": str, "depth": int},
+        )
+        async def graph_get_impact(args):
+            import json
+            result = await graph_mcp.handle_graph_get_impact(
+                project_path,
+                args["ticket_id"],
+                depth=int(args.get("depth") or 1),
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_get_impact)
+
+    if "graph_neighbors" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_neighbors",
+            "Return outgoing neighbor nodes of node_id within depth hops. "
+            "Optional kind filter restricts to nodes of that kind.",
+            {"node_id": str, "depth": int, "kind": str},
+        )
+        async def graph_neighbors(args):
+            import json
+            result = await graph_mcp.handle_graph_neighbors(
+                project_path,
+                args["node_id"],
+                depth=int(args.get("depth") or 1),
+                kind=args.get("kind") or None,
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_neighbors)
+
+    if "graph_consumers_of" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_consumers_of",
+            "Return all nodes that have an outgoing edge pointing TO node_id. "
+            "Use to scope reviewer findings to the affected consumers.",
+            {"node_id": str},
+        )
+        async def graph_consumers_of(args):
+            import json
+            result = await graph_mcp.handle_graph_consumers_of(
+                project_path,
+                args["node_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_consumers_of)
+
+    if "graph_tracers_for" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_tracers_for",
+            "Return tracer nodes reachable from node_id. "
+            "Empty until Phase 5 lands tracer schema.",
+            {"node_id": str},
+        )
+        async def graph_tracers_for(args):
+            import json
+            result = await graph_mcp.handle_graph_tracers_for(
+                project_path,
+                args["node_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_tracers_for)
+
+    if "graph_changed_interfaces" in agent_cfg.allowed_tools:
+        import jig.graph_mcp as graph_mcp  # noqa: F811
+
+        @tool(
+            "graph_changed_interfaces",
+            "Return the public interface nodes touched by ticket_id "
+            "(exposed_api, emitted_event, data_contract kinds). "
+            "Use for tier promotion and coordination.",
+            {"ticket_id": str},
+        )
+        async def graph_changed_interfaces(args):
+            import json
+            result = await graph_mcp.handle_graph_changed_interfaces(
+                project_path,
+                args["ticket_id"],
+            )
+            return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+        all_tools.append(graph_changed_interfaces)
+
     if "sa_finalize" in agent_cfg.allowed_tools:
 
         @tool(
@@ -1500,7 +1672,7 @@ def create_agent_mcp_server(
     # (re-set with the same id replaces the entry) so the agent can
     # iterate freely. ``arch_finalize`` re-validates + hands off to PM
     # via the same path the bones one-shot uses. See
-    # ``docs/sa-architecture/design.md`` §"SA workflow — discovery loop".
+    # ``docs/v2.0/sa-architecture/design.md`` §"SA workflow — discovery loop".
 
     if "arch_set_module" in agent_cfg.allowed_tools:
 
@@ -1749,7 +1921,7 @@ def create_agent_mcp_server(
         @tool(
             "arch_set_cascade_risk_low",
             "Mark a Module's ``cascade_risk_low`` flag. Per "
-            "docs/pm-workflow/design.md §'Bones-first ordering': when "
+            "docs/v2.0/pm-workflow/design.md §'Bones-first ordering': when "
             "True, PM Coordinator may suggest MVP promotion on "
             "unblocked epics even if blocked epics' bones touch this "
             "module. ``rationale`` is required when ``low=True`` so "
@@ -1963,7 +2135,7 @@ def create_agent_mcp_server(
         all_tools.append(arch_finalize)
 
     # ---- v2 VD MVP — wireframes + design system + frontend.yaml ----------
-    # Per docs/visual-design/design.md the VD agent edits HTML directly via
+    # Per docs/v2.0/visual-design/design.md the VD agent edits HTML directly via
     # Read/Write/Edit and uses these MCP wrappers for incremental upserts +
     # the linter + the finalize handoff. Each upsert is idempotent on its
     # natural id; vd_finalize is the one-shot atomic write + handoff.
@@ -2328,7 +2500,7 @@ def create_agent_mcp_server(
         @tool(
             "spec_list_capabilities",
             "List capabilities in the project spec. Optional `state` filter "
-            "('backlog', 'planned', 'in_progress', 'built', 'archived'). "
+            "('backlog', 'planned_uncommitted', 'planned', 'in_progress', 'built', 'archived'). "
             "Returns id, title, state for each — lightweight summary; "
             "use `spec_get_capability` for full content.",
             {"state": str},
@@ -2536,10 +2708,19 @@ def create_agent_mcp_server(
 
         @tool(
             "sa_propose_scaffold",
-            "Propose a project scaffold template for the orchestrator to apply. "
-            "`template_name` must match one of the names returned by "
-            "`arch_list_templates`.",
-            {"template_name": str, "rationale": str, "config": dict},
+            "Propose a project scaffold template. "
+            "`template_name` must match one of the names returned by `arch_list_templates`. "
+            "`rationale` is prose explaining the architectural fit. "
+            "`decisions` is a dict of structured tech choices (e.g. cli_framework, http_client, async_io). "
+            "`constraints` is a list of architectural invariants dev agents must follow. "
+            "`open_questions` is a list of {id, question, blocking} dicts for unresolved decisions.",
+            {
+                "template_name": str,
+                "rationale": str,
+                "decisions": dict,
+                "constraints": list,
+                "open_questions": list,
+            },
         )
         async def sa_propose_scaffold(args):
             await init_mcp.handle_sa_propose_scaffold(
@@ -2548,7 +2729,9 @@ def create_agent_mcp_server(
                 bus=bus,
                 template_name=args["template_name"],
                 rationale=args["rationale"],
-                config=args.get("config", {}),
+                decisions=args.get("decisions", {}),
+                constraints=args.get("constraints", []),
+                open_questions=args.get("open_questions", []),
                 author=agent_role,
             )
             return {"content": [{"type": "text", "text": "ok"}]}
@@ -2651,6 +2834,9 @@ def create_agent_mcp_server(
     # each incoming call. MCP tool calls arrive in fresh asyncio tasks
     # that don't inherit the factory's contextvars.
     _agent_id_stamp = f"{agent_role}:{(ticket_id or '')[:8]}"
+    # Single-ticket roles get the scope check; coordinator roles opt
+    # in to cross-ticket access via RoleConfig.cross_ticket_access.
+    enforce_scope = bool(ticket_id) and not agent_cfg.cross_ticket_access
     for t in all_tools:
         t.handler = _wrap_with_context(
             t.handler,
@@ -2658,6 +2844,7 @@ def create_agent_mcp_server(
             phase=phase_name or None,
             role=agent_role,
             agent_id=_agent_id_stamp,
+            enforce_ticket_scope=enforce_scope,
         )
 
     return create_sdk_mcp_server(

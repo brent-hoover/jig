@@ -975,11 +975,11 @@ git commit -m "test(phase5p): blocking question past T2 escalates and flips need
 ## Task 6: Document the parked tests and check off Task P
 
 **Files:**
-- Modify: `docs/implementation-plan.md`
+- Modify: `docs/v2.0/implementation-plan.md`
 
 - [ ] **Step 1: Update Task P test checklist**
 
-Find the Task P test list in `docs/implementation-plan.md` (search for "Integration: ticket reaches implement handoff"). Replace the section:
+Find the Task P test list in `docs/v2.0/implementation-plan.md` (search for "Integration: ticket reaches implement handoff"). Replace the section:
 
 ```markdown
 - [ ] Integration: ticket reaches implement handoff → required
@@ -1052,13 +1052,13 @@ With:
 
 - [ ] **Step 2: Verify the markdown renders**
 
-Run: `grep -A 2 "test_phase5p_" docs/implementation-plan.md | head -40`
+Run: `grep -A 2 "test_phase5p_" docs/v2.0/implementation-plan.md | head -40`
 Expected: lines referencing all four new test files appear under Task P.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/implementation-plan.md
+git add docs/v2.0/implementation-plan.md
 git commit -m "docs(phase5p): check off integration tests, park hook-boundary cases"
 ```
 
@@ -1096,7 +1096,7 @@ Ran through this before handoff to implementation:
 - Task P bullets 3–4 (hook-boundary tests) → Parked section with existing-unit-test pointers.
 - Task P bullet 5 (deferred-promoted→child) → Task 4.
 - Task P bullet 6 (blocking question > T2) → Task 5.
-- Task 6 updates `docs/implementation-plan.md` so the plan's Task P section reflects reality.
+- Task 6 updates `docs/v2.0/implementation-plan.md` so the plan's Task P section reflects reality.
 
 **Placeholder scan:** No TBDs, all code blocks complete, all file paths concrete.
 

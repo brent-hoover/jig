@@ -1,6 +1,6 @@
 """ResponsiveDesignReviewer — Track D Final mechanical responsive checks.
 
-Per ``docs/visual-design/design.md`` §"Responsive design enforcement":
+Per ``docs/v2.0/visual-design/design.md`` §"Responsive design enforcement":
 a Final-layer mechanical reviewer that audits each authored wireframe
 for the markers of a responsive layout. No LLM, no vision.
 
@@ -167,7 +167,11 @@ def _violation(
     ticket_id: str,
     severity: Severity = Severity.IMPORTANT,
     breakpoint: str | None = None,
+    screen_id: str | None = None,
 ) -> ReviewerComment:
+    # The wireframe screen id is the natural anchor for responsive
+    # findings — there's rarely a useful line number inside generated
+    # HTML, but the screen tells the operator which artifact to fix.
     return ReviewerComment(
         type=ReviewerCommentType.RESPONSIVE_DESIGN_VIOLATION,
         severity=severity,
@@ -175,6 +179,7 @@ def _violation(
         prose=message,
         ticket_id=ticket_id,
         breakpoint=breakpoint,
+        file=screen_id,
     )
 
 
@@ -193,6 +198,7 @@ def _check_viewport_meta(
                 ),
                 ticket_id=ticket_id,
                 severity=Severity.CRITICAL,
+                screen_id=screen_id,
             )
         ]
 
@@ -210,6 +216,7 @@ def _check_viewport_meta(
                 ),
                 ticket_id=ticket_id,
                 severity=Severity.CRITICAL,
+                screen_id=screen_id,
             )
         ]
     content = content_match.group(1)
@@ -225,6 +232,7 @@ def _check_viewport_meta(
                 ),
                 ticket_id=ticket_id,
                 severity=Severity.CRITICAL,
+                screen_id=screen_id,
             )
         )
     if _VIEWPORT_INITIAL_SCALE_RE.search(content) is None:
@@ -237,6 +245,7 @@ def _check_viewport_meta(
                 ),
                 ticket_id=ticket_id,
                 severity=Severity.IMPORTANT,
+                screen_id=screen_id,
             )
         )
     return out
@@ -260,6 +269,7 @@ def _check_no_fixed_widths(
                 ),
                 ticket_id=ticket_id,
                 breakpoint="mobile",
+                screen_id=screen_id,
             )
         )
     # Inline style="... width: <px> ..."
@@ -273,6 +283,7 @@ def _check_no_fixed_widths(
                 ),
                 ticket_id=ticket_id,
                 breakpoint="mobile",
+                screen_id=screen_id,
             )
         )
     # Style-block declarations.
@@ -289,6 +300,7 @@ def _check_no_fixed_widths(
                     ),
                     ticket_id=ticket_id,
                     breakpoint="mobile",
+                    screen_id=screen_id,
                 )
             )
     return out
@@ -316,6 +328,7 @@ def _check_breakpoints_declared(
                     "knows which viewports to enforce."
                 ),
                 ticket_id=ticket_id,
+                screen_id=screen_id,
             )
         ]
     return []
@@ -350,6 +363,7 @@ def _check_fluid_typography(
                     "breakpoints."
                 ),
                 ticket_id=ticket_id,
+                screen_id=screen_id,
             )
         ]
     return []

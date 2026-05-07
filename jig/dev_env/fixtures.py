@@ -1,6 +1,6 @@
 """External-API recorded fixtures (Track E Final).
 
-Per ``docs/dev-environment/design.md`` §"External-API recorded fixtures":
+Per ``docs/v2.0/dev-environment/design.md`` §"External-API recorded fixtures":
 default ``replay_only`` mode + phase-gated ``record_new`` mode for
 Shopify-style external dependencies. Final scope ships:
 
@@ -202,26 +202,42 @@ class FixtureStore:
         return match
 
     async def list_for_service(
-        self, service_id: str
+        self, service_id: str, *, salvage: bool = False
     ) -> list[FixtureCassette]:
-        """Return every cassette recorded for ``service_id``."""
+        """Return every cassette recorded for ``service_id``.
+
+        SF-I3: a malformed cassette is a corruption signal, not noise
+        — by default we raise so the caller (replay path / SA review)
+        sees the corruption at the test/runtime boundary. Pass
+        ``salvage=True`` to recover the still-valid rows during
+        operator-driven repair work.
+        """
         path = self._path(service_id)
         if not path.is_file():
             return []
         out: list[FixtureCassette] = []
-        for line in path.read_text().splitlines():
-            line = line.strip()
+        for line_no, raw in enumerate(path.read_text().splitlines(), start=1):
+            line = raw.strip()
             if not line:
                 continue
             try:
                 out.append(FixtureCassette.model_validate_json(line))
-            except Exception:
-                _logger.warning(
-                    "FixtureStore.list_for_service: skipping malformed "
-                    "cassette in %s",
-                    path,
-                    exc_info=True,
-                )
+            except Exception as exc:
+                if salvage:
+                    _logger.warning(
+                        "FixtureStore.list_for_service: skipping "
+                        "malformed cassette in %s line %d (salvage mode)",
+                        path,
+                        line_no,
+                        exc_info=True,
+                    )
+                    continue
+                raise ValueError(
+                    f"{path.name}:{line_no}: malformed cassette JSON; "
+                    "fixture corpus is corrupt. Re-record the service "
+                    "or call list_for_service(salvage=True) to skip "
+                    f"corrupt rows. ({exc})"
+                ) from exc
         return out
 
     async def list_services(self) -> list[str]:

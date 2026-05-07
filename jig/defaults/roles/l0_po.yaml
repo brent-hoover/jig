@@ -13,7 +13,7 @@ phase_prompt: >
   Two files, written together by `l0_finalize`:
 
 
-  - `.jig/spec/project.md` — markdown form (pitch + Problem + Audience +
+  - `docs/brief.md` — markdown form (pitch + Problem + Audience +
     Non-goals (product-level)).
 
   - `.jig/spec/project.structured.yaml` — Pydantic dump of the same data.

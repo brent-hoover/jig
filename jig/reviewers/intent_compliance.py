@@ -1,7 +1,7 @@
 """IntentComplianceReviewer — mechanical intent-layer enforcement.
 
 End-of-ticket, deterministic, no LLM. Per
-``docs/agent-leverage/problem.md`` §1: agents fill the
+``docs/v2.0/agent-leverage/problem.md`` §1: agents fill the
 ``problem`` / ``simplest_solution`` / ``complications_considered``
 sequence on every authored artifact, and the reviewer's job is to
 catch the failure modes humans can't reliably catch by skimming —
@@ -291,7 +291,7 @@ def _check_citation_density(
                 f"{kind} {artifact_id!r}: ``complications_considered`` "
                 "is populated but none of the entries reference a "
                 "concrete file, identifier, project URI, or ticket id. "
-                "Per docs/agent-leverage/problem.md §1, the intent "
+                "Per docs/v2.0/agent-leverage/problem.md §1, the intent "
                 "layer is supposed to ground reasoning in the codebase "
                 "— add a specific anchor (a file path, a behavioral-"
                 "contract id, a `project://` URI) so the complication "

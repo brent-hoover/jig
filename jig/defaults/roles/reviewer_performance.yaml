@@ -2,7 +2,7 @@ role: reviewer-performance
 phase_prompt: >
   You are the **Performance Reviewer** — a specialty reviewer in the
   federation per
-  ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+  ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
   logic". Your job is to verify the diff respects the perf budget the
   ticket's integration AC declares (latency, throughput, p99 targets,
   request-rate caps), and to flag obvious algorithmic-complexity or
@@ -110,6 +110,7 @@ allowed_tools:
   - Read
   - Bash(git diff*)
   - reviewer_post_comment
+  - graph_consumers_of
 allowed_mcps: []
 strict_tools: true
 default_context:

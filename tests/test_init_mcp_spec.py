@@ -57,7 +57,7 @@ async def test_spec_publish_writes_file_and_emits_event(wired):
         advisory_notes=[],
         author="spec-generator",
     )
-    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
     assert spec_file.is_file()
     assert yaml.safe_load(spec_file.read_text())["name"] == "myproj"
     entries = await wired["threads"].for_ticket("brief")
@@ -107,7 +107,7 @@ async def test_spec_report_gaps_posts_note_with_payload(wired):
     assert notes[0].payload["gaps"][0]["kind"] == "missing"
     events = [e for e in entries if isinstance(e, SystemEvent)]
     assert any(e.event_type == "spec_gaps_reported" for e in events)
-    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
     assert not spec_file.exists()
 
 
@@ -168,7 +168,7 @@ async def test_spec_publish_rejects_unparseable_yaml(wired):
             author="spec-generator",
         )
     # Atomicity: spec file must NOT exist after a failed publish.
-    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
     assert not spec_file.exists()
     # Atomicity: no spec_generated SystemEvent on the brief thread.
     entries = await wired["threads"].for_ticket("brief")
@@ -193,5 +193,5 @@ async def test_spec_publish_rejects_schema_invalid_yaml(wired):
             advisory_notes=[],
             author="spec-generator",
         )
-    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
     assert not spec_file.exists()

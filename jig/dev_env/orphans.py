@@ -5,7 +5,7 @@ or IN_PROGRESS — the agent finished long ago, but the namespace was
 left behind (cleanup hook never fired, operator paused, daemon
 crashed, ...).
 
-Per ``docs/dev-environment/design.md`` §"Cleanup discipline" failure
+Per ``docs/v2.0/dev-environment/design.md`` §"Cleanup discipline" failure
 mode 1 + the design's `cleanup_on_failure: archive` default, archived
 namespaces accumulate until the operator inspects + drops them. This
 module surfaces them via ``list_orphans`` / ``drop_orphan`` and

@@ -12,11 +12,12 @@ if TYPE_CHECKING:
 
 from jig.agent import run_agent
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
-from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChanged
+from jig.analytics.events import AgentCompleted, AgentSpawned, TicketGraphImpact, TicketStateChanged
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, OrchestratorSection, load_config
 from jig.deadlock import sweep_blocking_entries
 from jig.dev_env.orchestrator_hook import (
+    DevProvisioningError,
     build_fixture_env,
     cleanup_for_agent,
     provision_for_agent,
@@ -105,7 +106,7 @@ class Orchestrator:
         self.bus: MessageBus | None = None
         self.check_results: CheckResultsStore | None = None
         # v2 analytics — append-only event capture for the consumer half
-        # described in docs/analytics/. Initialized in startup once the
+        # described in docs/v2.0/analytics/. Initialized in startup once the
         # store directory exists.
         self.analytics: AnalyticsStore | None = None
         self._analytics_emitter: AnalyticsEmitter | None = None
@@ -224,6 +225,7 @@ class Orchestrator:
                 self._orchestrator_cfg = OrchestratorSection()
             self._running = True
             await self._resume_in_progress()
+            await self._ensure_planning_ticket()
             await self._start_ready_tickets()
             self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
             self._service_task = asyncio.create_task(self._run_service_loop())
@@ -289,19 +291,67 @@ class Orchestrator:
                     spawned_by=spawned_by,
                 )
             )
+            # Phase 4.11 — emit graph impact at spawn time so the
+            # Quartermaster can surface complex-ticket patterns. Best-effort:
+            # projects without architecture.yaml produce no event.
+            try:
+                from jig.graph.derive import build_graph, ticket_impact
+
+                _graph = build_graph(self._project_path)
+                _impact = ticket_impact(_graph, ctx.ticket.id)
+                emitter.emit_nowait(
+                    TicketGraphImpact(
+                        ticket_id=ctx.ticket.id,
+                        crossed_boundaries=_impact.crossed_boundaries,
+                        touched_node_count=len(_impact.touched),
+                        consumer_count=sum(
+                            len(v) for v in _impact.consumers.values()
+                        ),
+                        exercised_tracer_count=len(_impact.exercised_tracers),
+                    )
+                )
+            except Exception:
+                pass
         # Track E MVP — provision per-agent namespaces and stamp the
         # connection-string env-var map onto the context. Absence of a
         # manifest (the common case in bones / pre-SA projects) yields
-        # an empty map; absence of services likewise. Failures here
-        # don't block the spawn — the agent just runs without the
-        # extra env vars.
-        env_map = await provision_for_agent(
-            self._project_path,
-            agent_id=agent_id,
-            ticket_id=ctx.ticket.id,
-        )
+        # an empty map; absence of services likewise.
+        #
+        # SF-1: when the manifest declares services and provisioning
+        # fails, mark the ticket ``failed`` instead of running the agent
+        # against default services with an empty env map. The thread
+        # entry surfaces the cause so the operator sees what broke.
+        try:
+            env_map = await provision_for_agent(
+                self._project_path,
+                agent_id=agent_id,
+                ticket_id=ctx.ticket.id,
+            )
+        except DevProvisioningError as exc:
+            _logger.error(
+                "dev-env provisioning failed for ticket %s: %s",
+                ctx.ticket.id,
+                exc,
+            )
+            await ctx.threads.post(
+                SystemEvent(
+                    ticket_id=ctx.ticket.id,
+                    author="orchestrator",
+                    event_type="provisioning_failed",
+                    content=str(exc),
+                )
+            )
+            await ctx.tickets.update(
+                ctx.ticket.id, status=TicketStatus.FAILED
+            )
+            from jig.agent import RunAgentResult
+
+            return RunAgentResult(
+                status="failed",
+                final_text=f"dev-env provisioning failed: {exc}",
+            )
         # Block 2 — also stamp ``JIG_FIXTURE_MODE`` per
-        # ``docs/dev-environment/design.md`` §"External-API recorded
+        # ``docs/v2.0/dev-environment/design.md`` §"External-API recorded
         # fixtures": SPIKE tickets default to ``record_new`` (the
         # spike's job is to grow the fixture corpus); everything else
         # defaults to ``replay_only``. Merged into the same extra_env
@@ -494,7 +544,7 @@ class Orchestrator:
     ) -> None:
         """Run the review federation as a **gate** on ticket resolution.
 
-        Per ``docs/pm-workflow/design.md`` §"Severity tiers and
+        Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and
         disposition", the federation is not an observation hook — its
         outcome determines whether the ticket actually resolves:
 
@@ -736,7 +786,11 @@ class Orchestrator:
         )
         try:
             await self._run_agent_with_analytics(ctx)
-        except Exception:
+        except Exception as exc:
+            # SF-2: a reviewer that fails to spawn must not look like
+            # "reviewer found no issues". Post a durable thread entry
+            # so the dispatcher / federation gate sees the failure and
+            # the operator has an audit trail.
             _logger.warning(
                 "spawn_review_agent_for_id: reviewer %s spawn failed for "
                 "ticket %s",
@@ -744,6 +798,24 @@ class Orchestrator:
                 ticket.id,
                 exc_info=True,
             )
+            try:
+                await self.threads.post(
+                    SystemEvent(
+                        ticket_id=ticket.id,
+                        author="orchestrator",
+                        event_type="reviewer_spawn_failed",
+                        content=(
+                            f"reviewer {reviewer_id!r} failed to run: {exc}"
+                        ),
+                    )
+                )
+            except Exception:
+                _logger.exception(
+                    "spawn_review_agent_for_id: failed to post "
+                    "reviewer_spawn_failed thread entry for %s",
+                    ticket.id,
+                )
+            raise
 
     async def _emergency_reset(self) -> None:
         self._running = False
@@ -929,6 +1001,14 @@ class Orchestrator:
                     return
         _logger.info("scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow)
         await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+        if self._emitter is not None:
+            from jig.events import JigEvent
+            await self._emitter.emit(
+                JigEvent(
+                    type="ticket_dispatched",
+                    data={"ticket_id": ticket_id, "title": ticket.title},
+                )
+            )
         task = asyncio.create_task(self._run_ticket(ticket_id))
         self._running_tickets[ticket_id] = task
         task.add_done_callback(self._ticket_task_done)
@@ -1156,8 +1236,21 @@ class Orchestrator:
                             await self._update_ticket_status(
                                 ticket_id, TicketStatus.IN_PROGRESS
                             )
-                        # Safety net: commit any uncommitted changes the agent left behind
-                        await self._auto_commit_worktree(worktree, phase.name, ticket_id)
+                        # Safety net: commit any uncommitted changes the agent
+                        # left behind. SF-3: if the auto-commit fails the phase
+                        # output isn't captured, so we fail the ticket instead
+                        # of continuing onto the next phase against a stale
+                        # tree. The thread entry posted by _auto_commit_worktree
+                        # surfaces the cause to the operator.
+                        committed = await self._auto_commit_worktree(
+                            worktree, phase.name, ticket_id
+                        )
+                        if not committed:
+                            await self._update_ticket_status(
+                                ticket_id, TicketStatus.FAILED
+                            )
+                            await self._on_ticket_failed(ticket_id, ticket)
+                            return
                         if phase_idx < len(workflow.phases):
                             ticket = await self.tickets.get(ticket_id)
                         continue
@@ -1320,7 +1413,7 @@ class Orchestrator:
         _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
 
         # Review-federation gate — runs as a **gate** on resolution per
-        # ``docs/pm-workflow/design.md`` §"Severity tiers and disposition".
+        # ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition".
         # When enabled, ``_run_review_federation`` may roll the ticket
         # back to FAILED (critical comments / federation crash) or
         # BLOCKED (important comments). Notable comments on a clean
@@ -1418,6 +1511,41 @@ class Orchestrator:
             )
             await self._handle_schedule(blocked_id)
 
+    async def _ensure_planning_ticket(self) -> None:
+        """Create a planning ticket if the project is initialized but has none."""
+        if self.tickets is None:
+            return
+        arch = self._project_path / "docs" / "architecture.yaml"
+        if not arch.is_file():
+            return  # project not initialized
+        existing = await self.tickets.get("planning")
+        if existing is not None:
+            return  # already created
+        # Check whether any non-init tickets exist (i.e. planning already happened)
+        from jig.ticket import WorkType as _WorkType
+        init_types = {_WorkType.BRIEF, _WorkType.ARCHITECTURE, _WorkType.PLANNING}
+        all_tickets = await self.tickets.list_all()
+        dev_tickets = [t for t in all_tickets if t.work_type not in init_types]
+        if dev_tickets:
+            return  # planning already produced tickets
+
+        from jig.ticket import Ticket
+        spec_path = self._project_path / "docs" / "project.structured.yaml"
+        await self.tickets.create(
+            Ticket(
+                id="planning",
+                work_type=_WorkType.PLANNING,
+                title="Project planning",
+                description=(
+                    "Break down the project spec into implementation tickets.\n\n"
+                    f"Spec: {spec_path}"
+                ),
+                workflow="project",
+                created_by="orchestrator",
+            )
+        )
+        _logger.info("auto-created planning ticket")
+
     async def _start_ready_tickets(self) -> None:
         """Find ALL open tickets with satisfied dependencies and start them."""
         if self.tickets is None:
@@ -1438,7 +1566,11 @@ class Orchestrator:
         agent sees all prerequisite code — even if those branches haven't
         been merged into main yet.
         """
-        from jig.worktree import create_worktree, merge_dep_into_worktree
+        from jig.worktree import (
+            create_worktree,
+            install_per_commit_hook_or_warn,
+            merge_dep_into_worktree,
+        )
 
         if self._project is None:
             raise RuntimeError("Orchestrator not started")
@@ -1450,6 +1582,26 @@ class Orchestrator:
             ticket_id=ticket.id,
             base_branch=self._project.default_branch,
         )
+        # SF-I1: install the per-commit reviewer hook out-of-line so a
+        # failure surfaces on the ticket thread rather than a stderr
+        # log line nobody reads. Hook install is informational —
+        # don't fail the worktree on it, but do tell the operator.
+        warning = install_per_commit_hook_or_warn(worktree_path, ticket.id)
+        if warning is not None and self.threads is not None:
+            try:
+                await self.threads.post(
+                    SystemEvent(
+                        ticket_id=ticket.id,
+                        author="orchestrator",
+                        event_type="per_commit_hook_install_failed",
+                        content=warning,
+                    )
+                )
+            except Exception:
+                _logger.exception(
+                    "could not record per_commit_hook_install_failed for %s",
+                    ticket.id,
+                )
         # Merge dependency branches so the agent starts with their
         # code. A failure here means the worktree is missing its
         # prereqs — running the agent on an inconsistent tree would
@@ -1728,30 +1880,64 @@ class Orchestrator:
 
     async def _auto_commit_worktree(
         self, worktree: Path, phase_name: str, ticket_id: str
-    ) -> None:
-        """Commit any uncommitted changes left by an agent after a phase completes."""
+    ) -> bool:
+        """Commit any uncommitted changes left by an agent after a phase.
+
+        Returns True on success (or when there was nothing to commit),
+        False when the commit itself failed. SF-3: callers must inspect
+        the result before advancing the phase — a failed auto-commit
+        means the phase output isn't captured, so progressing would
+        leave subsequent phases reading from a stale tree.
+        """
         from jig.worktree import commit_worktree
 
         try:
             sha = await commit_worktree(
                 worktree, f"chore({phase_name}): auto-commit after phase"
             )
-            if sha:
-                _logger.info(
-                    "auto-committed leftover changes after %s: %s", phase_name, sha
-                )
-                if self.threads is not None:
+        except Exception as exc:
+            _logger.warning(
+                "auto-commit failed after %s: %s",
+                phase_name,
+                exc,
+                exc_info=True,
+            )
+            if self.threads is not None:
+                try:
                     await self.threads.post(
                         SystemEvent(
                             ticket_id=ticket_id,
                             author="orchestrator",
-                            event_type="commit",
-                            content=f"auto-committed leftover changes: {sha[:7]}",
-                            commit_sha=sha,
+                            event_type="auto_commit_failed",
+                            content=(
+                                f"auto-commit after {phase_name!r} failed: "
+                                f"{exc}"
+                            ),
                         )
                     )
-        except Exception:
-            _logger.warning("auto-commit failed after %s", phase_name, exc_info=True)
+                except Exception:
+                    _logger.exception(
+                        "failed to post auto_commit_failed thread entry"
+                    )
+            return False
+
+        if sha:
+            _logger.info(
+                "auto-committed leftover changes after %s: %s",
+                phase_name,
+                sha,
+            )
+            if self.threads is not None:
+                await self.threads.post(
+                    SystemEvent(
+                        ticket_id=ticket_id,
+                        author="orchestrator",
+                        event_type="commit",
+                        content=f"auto-committed leftover changes: {sha[:7]}",
+                        commit_sha=sha,
+                    )
+                )
+        return True
 
     async def _emit_phase_event(
         self,

@@ -10,6 +10,10 @@ from jig.intent import ComplicationsConsidered, Intent
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    CascadeContractDisposition,
+    CascadeProposal,
+    CascadeStage,
+    CascadeState,
     ChangeLogEntry,
     ContractsFile,
     DataContract,
@@ -410,31 +414,23 @@ def test_risk_spike_proposed_with_bad_uri_rejected():
 
 # ---- Architecture: cross-field — non-duplicate module ids -----------------
 #
-# The architecture schema doesn't currently enforce module-id uniqueness
-# at the schema layer (modules is just a list). The deliverable asks us
-# to add a cross-field semantic test "where applicable": for Architecture
-# the applicable claim is that a downstream consumer (PM, reviewer) keys
-# off ``Module.id`` and depends on uniqueness. We don't add the uniqueness
-# constraint here (that's a real-semantic-validation v2.x concern), but
-# we DO pin the construction-side reality: today the schema accepts
-# duplicates silently. The test name documents the gap so a future
-# tightening is one assertion-flip away.
+# Block A.2 hoists module-id uniqueness from the SA finalize pass to
+# the schema layer. Downstream consumers (PM Coordinator, reviewer
+# federation, MCP handlers) all key off ``Module.id`` — duplicates
+# silently route work to the wrong entry, so the schema rejects the
+# YAML at load time instead of letting the breakage surface inside
+# a reviewer.
 
 
-def test_architecture_currently_accepts_duplicate_module_ids():
-    """Documents schema-layer claim: uniqueness lives in the SA finalize
-    pass, not in the Pydantic model. If the schema gains a uniqueness
-    constraint, flip the assert and re-name the test."""
-    a = Architecture(
-        modules=[
-            Module(id="m", title="t", summary="s", intent=_intent()),
-            Module(id="m", title="t2", summary="s2", intent=_intent()),
-        ]
-    )
-    ids = [m.id for m in a.modules]
-    # The schema accepts this; SA finalize is the real gate. Pin both
-    # halves of the chain explicitly.
-    assert ids == ["m", "m"]
+def test_architecture_rejects_duplicate_module_ids():
+    """Schema-level uniqueness gate per Block A.2."""
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            modules=[
+                Module(id="m", title="t", summary="s", intent=_intent()),
+                Module(id="m", title="t2", summary="s2", intent=_intent()),
+            ]
+        )
 
 
 # ---- ContractsFile: rejection coverage ------------------------------------
@@ -479,3 +475,481 @@ def test_change_log_entry_rejects_revision_zero():
 def test_change_log_entry_rejects_negative_revision():
     with pytest.raises(ValidationError, match="revision"):
         ChangeLogEntry(revision=-1, date=date(2026, 5, 1), summary="x")
+
+
+# ---- Risk: schema-level conditional invariants ----------------------------
+#
+# Before Block A.1 the cascade-prep gates lived in ``jig.sa_incremental_mcp``
+# and only fired on the upsert path; constructing a Risk directly let an
+# invalid combination land in the architecture. The schema-level
+# ``model_validator`` mirrors the same rule on every construction path.
+
+
+_VALID_DEP_URI = "project://arch/modules/m/contracts#owns/products"
+
+
+def _spike_proposed_kwargs() -> dict:
+    return dict(
+        id="r-x",
+        text="x",
+        impact=RiskImpact.MEDIUM,
+        likelihood=RiskLikelihood.MEDIUM,
+        status=RiskStatus.SPIKE_PROPOSED,
+        dependent_contracts=[_VALID_DEP_URI],
+        intent=_intent(),
+    )
+
+
+def test_risk_spike_proposed_happy_path():
+    r = Risk(**_spike_proposed_kwargs())
+    assert r.dependent_contracts == [_VALID_DEP_URI]
+    assert r.intent is not None
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        RiskStatus.SPIKE_PROPOSED,
+        RiskStatus.SPIKE_RUNNING,
+        RiskStatus.MITIGATED,
+        RiskStatus.MITIGATED_WITH_CONSTRAINTS,
+        RiskStatus.ACCEPTED,
+        RiskStatus.CONFIRMED_IMPOSSIBLE,
+    ],
+)
+def test_risk_post_open_status_requires_dependent_contracts(status):
+    kwargs = _spike_proposed_kwargs() | {
+        "status": status,
+        "dependent_contracts": [],
+    }
+    with pytest.raises(ValidationError, match="dependent_contracts"):
+        Risk(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        RiskStatus.SPIKE_PROPOSED,
+        RiskStatus.SPIKE_RUNNING,
+        RiskStatus.MITIGATED,
+        RiskStatus.MITIGATED_WITH_CONSTRAINTS,
+        RiskStatus.ACCEPTED,
+        RiskStatus.CONFIRMED_IMPOSSIBLE,
+    ],
+)
+def test_risk_post_open_status_requires_intent(status):
+    kwargs = _spike_proposed_kwargs() | {"status": status, "intent": None}
+    with pytest.raises(ValidationError, match="intent"):
+        Risk(**kwargs)
+
+
+def test_risk_open_allows_no_dependents_and_no_intent():
+    """``OPEN`` is the early-capture state — both gates must stay off."""
+    r = Risk(
+        id="r-open",
+        text="x",
+        impact=RiskImpact.LOW,
+        likelihood=RiskLikelihood.LOW,
+        status=RiskStatus.OPEN,
+    )
+    assert r.dependent_contracts == []
+    assert r.intent is None
+
+
+# ---- Module: cascade_risk_low_rationale conditional invariant ------------
+#
+# When the SA flips the ``cascade_risk_low`` hint to True, the rationale
+# must be substantive enough for the PM coordinator (and audit trail)
+# to read; a bare boolean toggle defeats that purpose. The minimum
+# floor (>= 10 chars after strip) keeps "ok" / "n/a" out of the artifact.
+
+
+def test_module_cascade_risk_low_false_does_not_require_rationale():
+    m = Module(
+        id="m",
+        title="t",
+        summary="s",
+        intent=_intent(),
+    )
+    assert m.cascade_risk_low is False
+    assert m.cascade_risk_low_rationale is None
+
+
+def test_module_cascade_risk_low_true_with_rationale_accepted():
+    m = Module(
+        id="m",
+        title="t",
+        summary="s",
+        intent=_intent(),
+        cascade_risk_low=True,
+        cascade_risk_low_rationale=(
+            "no shared shapes, no new contracts, internal-only"
+        ),
+    )
+    assert m.cascade_risk_low is True
+
+
+def test_module_cascade_risk_low_true_without_rationale_rejected():
+    with pytest.raises(ValidationError, match="cascade_risk_low_rationale"):
+        Module(
+            id="m",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            cascade_risk_low=True,
+        )
+
+
+def test_module_cascade_risk_low_true_with_short_rationale_rejected():
+    """Single-token / "ok" prose defeats the audit trail's purpose."""
+    with pytest.raises(ValidationError, match="cascade_risk_low_rationale"):
+        Module(
+            id="m",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            cascade_risk_low=True,
+            cascade_risk_low_rationale="ok",
+        )
+
+
+def test_module_cascade_risk_low_true_with_whitespace_rationale_rejected():
+    """The 10-char floor applies after stripping leading/trailing ws."""
+    with pytest.raises(ValidationError, match="cascade_risk_low_rationale"):
+        Module(
+            id="m",
+            title="t",
+            summary="s",
+            intent=_intent(),
+            cascade_risk_low=True,
+            cascade_risk_low_rationale="    ok    ",
+        )
+
+
+# ---- BehavioralContract: must constrain at least one thing ----------------
+
+
+def test_behavioral_contract_with_postcondition_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        applies_to={"module": "m"},
+        postcondition="row exists with the right tenant",
+        intent=_intent(),
+    )
+    assert bc.postcondition is not None
+
+
+def test_behavioral_contract_with_invariant_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        scope="cross_cutting",
+        invariant="status transitions are forward-only",
+        intent=_intent(),
+    )
+    assert bc.invariant is not None
+
+
+def test_behavioral_contract_with_only_side_effects_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        scope="cross_cutting",
+        side_effects=["audit_log appended"],
+        intent=_intent(),
+    )
+    assert bc.side_effects == ["audit_log appended"]
+
+
+def test_behavioral_contract_with_only_side_effect_required_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        scope="cross_cutting",
+        side_effect_required="audit row created",
+        intent=_intent(),
+    )
+    assert bc.side_effect_required is not None
+
+
+def test_behavioral_contract_with_only_precondition_accepted():
+    bc = BehavioralContract(
+        id="bc-x",
+        applies_to={"module": "m"},
+        precondition="incoming row has canonical shape",
+        intent=_intent(),
+    )
+    assert bc.precondition is not None
+
+
+def test_behavioral_contract_with_no_constraints_rejected():
+    """A behavioral contract that constrains nothing is meaningless."""
+    with pytest.raises(ValidationError, match="constrain"):
+        BehavioralContract(
+            id="bc-empty",
+            applies_to={"module": "m"},
+            intent=_intent(),
+        )
+
+
+# ---- DataContract: must declare a shape ----------------------------------
+
+
+def test_data_contract_with_schema_ref_accepted():
+    dc = DataContract(
+        id="dc-x",
+        schema_ref="project://arch/contracts/shared/x",
+        intent=_intent(),
+    )
+    assert dc.schema_ref is not None
+
+
+def test_data_contract_with_fields_accepted():
+    dc = DataContract(
+        id="dc-x",
+        fields={"id": "str", "name": "str"},
+        intent=_intent(),
+    )
+    assert dc.fields is not None
+
+
+def test_data_contract_with_neither_schema_ref_nor_fields_rejected():
+    with pytest.raises(ValidationError, match="schema_ref or fields"):
+        DataContract(id="dc-empty", intent=_intent())
+
+
+def test_data_contract_with_empty_fields_dict_and_no_schema_ref_rejected():
+    """Empty fields dict is functionally absent — must reject."""
+    with pytest.raises(ValidationError, match="schema_ref or fields"):
+        DataContract(id="dc-empty", fields={}, intent=_intent())
+
+
+# ---- CascadeProposal: state-driven required fields -----------------------
+
+
+def _cascade_kwargs(**overrides) -> dict:
+    base = dict(
+        cascade_id="r-x-2026-05-01t00-00-00",
+        risk_id="r-x",
+        spike_ticket_id="spike-x",
+        finding="x",
+        contracts=[
+            CascadeContractDisposition(
+                uri="project://arch/modules/m/contracts#owns/x",
+                proposed_disposition="still_holds",
+            )
+        ],
+    )
+    base.update(overrides)
+    return base
+
+
+def test_cascade_proposal_pending_state_default_accepted():
+    cp = CascadeProposal(**_cascade_kwargs())
+    assert cp.state == CascadeState.PENDING
+
+
+def test_cascade_proposal_holding_state_requires_holding_for():
+    with pytest.raises(ValidationError, match="holding_for"):
+        CascadeProposal(**_cascade_kwargs(state=CascadeState.HOLDING))
+
+
+def test_cascade_proposal_holding_state_with_holding_for_accepted():
+    cp = CascadeProposal(
+        **_cascade_kwargs(
+            state=CascadeState.HOLDING,
+            holding_for="r-other-2026-01-01t00-00-00",
+        )
+    )
+    assert cp.holding_for is not None
+
+
+def test_cascade_proposal_rejected_state_requires_rejected_reason():
+    with pytest.raises(ValidationError, match="rejected_reason"):
+        CascadeProposal(**_cascade_kwargs(state=CascadeState.REJECTED))
+
+
+def test_cascade_proposal_rejected_state_with_reason_accepted():
+    cp = CascadeProposal(
+        **_cascade_kwargs(
+            state=CascadeState.REJECTED,
+            rejected_reason="operator override after architectural review",
+        )
+    )
+    assert cp.rejected_reason is not None
+
+
+def test_cascade_proposal_staged_state_requires_stages():
+    with pytest.raises(ValidationError, match="stages"):
+        CascadeProposal(**_cascade_kwargs(state=CascadeState.STAGED))
+
+
+def test_cascade_proposal_staged_state_with_stages_accepted():
+    cp = CascadeProposal(
+        **_cascade_kwargs(
+            state=CascadeState.STAGED,
+            stages=[
+                CascadeStage(
+                    stage_id="r-x-2026-05-01t00-00-00-stage-1",
+                    contracts=[
+                        CascadeContractDisposition(
+                            uri="project://arch/modules/m/contracts#owns/x",
+                            proposed_disposition="still_holds",
+                        )
+                    ],
+                )
+            ],
+        )
+    )
+    assert cp.stages != []
+
+
+def test_cascade_proposal_resolved_state_no_extra_fields_required():
+    """``resolved`` doesn't carry an extra-field gate by itself; the
+    workflow only reaches it after every stage approves, which the
+    stage-approve handler enforces. The schema allows resolved with
+    no extra fields so the round-trip from the file works.
+    """
+    cp = CascadeProposal(
+        **_cascade_kwargs(state=CascadeState.RESOLVED)
+    )
+    assert cp.state == CascadeState.RESOLVED
+
+
+# ---- Architecture: id-uniqueness across every collection ----------------
+
+
+def test_architecture_rejects_duplicate_data_store_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            data_stores=[
+                DataStore(id="db", kind="postgres"),
+                DataStore(id="db", kind="sqlite"),
+            ]
+        )
+
+
+def test_architecture_rejects_duplicate_shared_contract_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            shared_contracts=[
+                SharedContract(id="sc", type="data"),
+                SharedContract(id="sc", type="event"),
+            ]
+        )
+
+
+def test_architecture_rejects_duplicate_risk_ids():
+    valid_uri = "project://arch/modules/m/contracts#owns/x"
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            risks=[
+                Risk(
+                    id="r1", text="x",
+                    impact=RiskImpact.LOW,
+                    likelihood=RiskLikelihood.LOW,
+                    status=RiskStatus.SPIKE_PROPOSED,
+                    dependent_contracts=[valid_uri],
+                    intent=_intent(),
+                ),
+                Risk(
+                    id="r1", text="y",
+                    impact=RiskImpact.MEDIUM,
+                    likelihood=RiskLikelihood.MEDIUM,
+                    status=RiskStatus.SPIKE_PROPOSED,
+                    dependent_contracts=[valid_uri],
+                    intent=_intent(),
+                ),
+            ]
+        )
+
+
+def test_architecture_rejects_duplicate_open_question_ids():
+    from jig.schemas.arch import OpenQuestion as OQ
+    with pytest.raises(ValidationError, match="duplicate id"):
+        Architecture(
+            open_questions=[
+                OQ(id="q1", text="x"),
+                OQ(id="q1", text="y"),
+            ]
+        )
+
+
+def test_architecture_accepts_unique_ids_across_every_collection():
+    """Happy path — distinct ids in every collection."""
+    a = Architecture(
+        data_stores=[DataStore(id="db", kind="postgres")],
+        modules=[
+            Module(id="m1", title="t", summary="s", intent=_intent()),
+            Module(id="m2", title="t", summary="s", intent=_intent()),
+        ],
+        shared_contracts=[SharedContract(id="sc", type="data")],
+    )
+    assert len(a.modules) == 2
+
+
+# ---- ContractsFile: id-uniqueness across every collection ---------------
+
+
+def test_contracts_file_rejects_duplicate_behavioral_contract_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        ContractsFile(
+            module="m",
+            behavioral_contracts=[
+                BehavioralContract(
+                    id="bc", postcondition="x", intent=_intent(),
+                ),
+                BehavioralContract(
+                    id="bc", postcondition="y", intent=_intent(),
+                ),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_data_contract_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        ContractsFile(
+            module="m",
+            data_contracts=[
+                DataContract(
+                    id="dc",
+                    schema_ref="project://arch/contracts/shared/x",
+                    intent=_intent(),
+                ),
+                DataContract(
+                    id="dc",
+                    schema_ref="project://arch/contracts/shared/y",
+                    intent=_intent(),
+                ),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_owns_collection_names():
+    with pytest.raises(ValidationError, match="duplicate collection"):
+        ContractsFile(
+            module="m",
+            owns=[
+                OwnedCollection(collection="things", db="main-db"),
+                OwnedCollection(collection="things", db="aux-db"),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_external_dependency_ids():
+    with pytest.raises(ValidationError, match="duplicate id"):
+        ContractsFile(
+            module="m",
+            external_dependencies=[
+                ExternalDependency(id="ext", kind="external_http"),
+                ExternalDependency(id="ext", kind="external_queue"),
+            ],
+        )
+
+
+def test_contracts_file_rejects_duplicate_integration_ac_capabilities():
+    with pytest.raises(ValidationError, match="duplicate capability"):
+        ContractsFile(
+            module="m",
+            integration_ac=[
+                IntegrationAcceptance(capability="cap-x", must=["a"]),
+                IntegrationAcceptance(capability="cap-x", must=["b"]),
+            ],
+        )

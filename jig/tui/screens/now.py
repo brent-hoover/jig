@@ -145,6 +145,7 @@ class NowScreen(Container):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._active_prompt_id: str | None = None
+        self._active_prompt_type: str | None = None
         # Input history — up/down arrow recall.
         self._history: list[str] = []
         self._history_idx: int | None = None  # None = at the live edit; 0..len-1 = recall
@@ -309,7 +310,13 @@ class NowScreen(Container):
             if kind == "render":
                 content = data.get("content", "")
                 if content:
-                    scrollback.write(content)
+                    from rich.text import Text
+                    scrollback.write(Text.from_ansi(content))
+                return
+            if kind == "start":
+                from rich.rule import Rule
+                role = data.get("role", "agent")
+                scrollback.write(Rule(f"[bold cyan]{role}[/bold cyan]", style="cyan"))
                 return
             if kind == "text":
                 # Concierge / agent narration. Render with a role label.
@@ -323,6 +330,9 @@ class NowScreen(Container):
                 return
         if topic == "prompts" and msg.get("kind") == "request":
             await self._render_prompt_request(data)
+            return
+        if topic == "events":
+            self._render_lifecycle_event(msg.get("kind", ""), data, scrollback)
             return
 
     def _update_thinking_indicator(self, data: dict) -> None:
@@ -348,6 +358,20 @@ class NowScreen(Container):
         )
         indicator.set_class(True, "visible")
 
+    def _render_lifecycle_event(self, kind: str, data: dict, scrollback) -> None:
+        ticket_id = data.get("ticket_id", "?")
+        title = data.get("title", ticket_id)
+        if kind == "ticket_dispatched":
+            scrollback.write(f"[cyan]▶[/cyan] dispatching [bold]{title}[/bold] ({ticket_id})")
+        elif kind == "ticket_completed":
+            scrollback.write(f"[green]✓[/green] completed [bold]{title}[/bold] ({ticket_id})")
+        elif kind == "ticket_failed":
+            reason = data.get("reason", "")
+            suffix = f" — {reason}" if reason else ""
+            scrollback.write(f"[red]✗[/red] failed [bold]{title}[/bold] ({ticket_id}){suffix}")
+        elif kind == "ticket_merge_conflict":
+            scrollback.write(f"[yellow]⚡[/yellow] merge conflict [bold]{title}[/bold] ({ticket_id})")
+
     async def _render_prompt_request(self, data: dict) -> None:
         """Render a prompt request inline and switch to answering mode."""
         scrollback = self.query_one("#scrollback", RichLog)
@@ -356,6 +380,7 @@ class NowScreen(Container):
         if not prompt_id:
             return  # malformed
         self._active_prompt_id = prompt_id
+        self._active_prompt_type = prompt_type
 
         if prompt_type == "question_answer":
             from rich.panel import Panel
@@ -378,7 +403,15 @@ class NowScreen(Container):
         else:
             rendered = data.get("rendered")
             if rendered:
-                scrollback.write(rendered)
+                if prompt_type == "brief_approval":
+                    # Brief can be long — disable auto-scroll and restore
+                    # the view to the top of the preview so the operator
+                    # reads from the start rather than landing at the end.
+                    scrollback.auto_scroll = False
+                    scrollback.write(rendered)
+                    self.call_after_refresh(scrollback.scroll_home)
+                else:
+                    scrollback.write(rendered)
             question = data.get("question")
             if question:
                 scrollback.write(f"[bold]{question}[/bold]")
@@ -412,9 +445,9 @@ class NowScreen(Container):
         scrollback = self.query_one("#scrollback", RichLog)
         if msg.get("ok"):
             data = msg.get("data")
-            if data is None:
-                scrollback.write("[green]✓ done[/green]")
-            else:
+            # Only surface human-readable string results; dict payloads are
+            # internal plumbing (e.g. {prompt_id: ...}) and should not appear.
+            if isinstance(data, str) and data:
                 scrollback.write(f"[green]✓[/green] {data}")
         else:
             scrollback.write(f"[red]error:[/red] {msg.get('error', 'unknown')}")
@@ -437,7 +470,9 @@ class NowScreen(Container):
         # ANSWERING mode: route to prompt_reply
         if self._active_prompt_id is not None:
             prompt_id = self._active_prompt_id
+            prompt_type = self._active_prompt_type
             self._active_prompt_id = None
+            self._active_prompt_type = None
             if text:
                 _render_user_input(scrollback, text)
             else:
@@ -450,6 +485,10 @@ class NowScreen(Container):
                 scrollback.write(
                     f"[red]error:[/red] failed to send answer ({exc})"
                 )
+            if prompt_type == "brief_approval":
+                scrollback.auto_scroll = True
+            if prompt_type == "init_complete":
+                self.app._maybe_autostart_daemon()
             self._clear_input()
             return
 
@@ -488,7 +527,9 @@ class NowScreen(Container):
 
         if self._active_prompt_id is not None:
             prompt_id = self._active_prompt_id
+            prompt_type = self._active_prompt_type
             self._active_prompt_id = None
+            self._active_prompt_type = None
             if text:
                 _render_user_input(scrollback, text)
             else:
@@ -501,6 +542,10 @@ class NowScreen(Container):
                 scrollback.write(
                     f"[red]error:[/red] failed to send answer ({exc})"
                 )
+            if prompt_type == "brief_approval":
+                scrollback.auto_scroll = True
+            if prompt_type == "init_complete":
+                self.app._maybe_autostart_daemon()
             try:
                 event.input.clear()
             except Exception:

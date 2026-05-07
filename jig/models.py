@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from jig.capabilities import CapabilityDeclaration
 
@@ -16,6 +16,8 @@ class MergeStrategy(str, Enum):
 
 
 class RoleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     role: str
     phase_prompt: str = ""
     response_prompt: str = ""
@@ -49,6 +51,20 @@ class RoleConfig(BaseModel):
     # hook enforcement is effectively permissive. Phase overrides on
     # ``PhaseConfig.capability_overrides`` layer on top.
     capabilities: CapabilityDeclaration | None = None
+    # Phase 6 (security review): explicit opt-in for the
+    # ``add_dependency`` MCP tool. The handler runs the project's
+    # package manager (uv/npm/...) from the orchestrator process
+    # — outside the bwrap sandbox — so install/postinstall code
+    # can execute with the orchestrator environment. Roles must
+    # opt in deliberately rather than getting it implicitly because
+    # the project sets ``package_manager``.
+    allow_add_dependency: bool = False
+    # Phase 6 (security review): roles default to single-ticket scope —
+    # MCP tools that take a ``ticket_id`` arg must target the spawn's
+    # own ticket. Coordinator-style roles (orchestrator, planner_pm)
+    # set this True to read/update tickets across the project. See
+    # SEC-I1 in v2-review-findings-security.md.
+    cross_ticket_access: bool = False
 
 
 # ---- Evaluator assignment (doc 10, Phase 5 Task C) --------------------------
@@ -131,6 +147,8 @@ EvaluatorSpec = Annotated[
 
 
 class PhaseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     role: str
     task_template: str = ""
@@ -164,5 +182,7 @@ class PhaseConfig(BaseModel):
 
 
 class WorkflowConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     phases: list[PhaseConfig]

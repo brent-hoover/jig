@@ -170,7 +170,7 @@ CLI spawns the **spec-generator agent** — short-lived, single-
 purpose, no user interaction.
 
 Inputs:
-- Read-only access to `.jig/spec/project.md`.
+- Read-only access to `docs/brief.md`.
 - Read-only access to the spec schema referenced in
   `docs/reference/02-project-spec.md`.
 
@@ -331,7 +331,7 @@ architecture ticket for the `jig story` trail.
 CLI prints:
 
 ```
-Brief:        .jig/spec/project.md
+Brief:        docs/brief.md
 Spec:         .jig/spec/project.structured.yaml
 Architecture: .jig/spec/architecture.yaml
 Template:     python-api
@@ -430,7 +430,7 @@ field-based on both sides.
 - `.jig/project.yaml` — `{ id, name, path, created_at,
   template_name?, template_applied_at? }`. Template fields populated
   only after scaffold.
-- `.jig/spec/project.md` — the brief. Human-authoring format
+- `docs/brief.md` — the brief. Human-authoring format
   defined by `docs/reference/02-project-spec.md`: intro paragraph
   describing product shape, then `## Built`, `## Planned
   (committed)`, `## Planned (not yet committed)`, `## Backlog`,

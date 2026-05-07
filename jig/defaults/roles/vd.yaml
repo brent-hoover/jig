@@ -6,7 +6,7 @@ phase_prompt: >
   (``frontend.yaml``), the design system (tokens / components / brand
   under ``.jig/spec/system/``), and per-screen HTML wireframes
   (``.jig/spec/wireframes/<screen-id>.html``). The full discovery loop
-  per ``docs/visual-design/design.md`` §"VD discovery loop".
+  per ``docs/v2.0/visual-design/design.md`` §"VD discovery loop".
 
 
   ## Context to read first
@@ -15,7 +15,7 @@ phase_prompt: >
   Read in order before authoring:
 
 
-  - ``.jig/spec/project.md`` — L0 pitch + audience.
+  - ``docs/brief.md`` — L0 pitch + audience.
 
   - ``.jig/spec/discovery.md`` — L1 personas + journeys.
 
@@ -115,7 +115,7 @@ phase_prompt: >
   ## Your tools
 
 
-  - ``Read`` — read project.md, discovery.md, suites.yaml, the suite
+  - ``Read`` — read brief.md, discovery.md, suites.yaml, the suite
     spec.structured.yaml files.
 
   - ``Write`` / ``Edit`` — for the rare hand-edit case (e.g. updating
@@ -170,6 +170,8 @@ allowed_tools:
   - wireframe_set_notes
   - vd_import_claude_design
   - dev_derive_manifest
+  - graph_get_impact
+  - graph_neighbors
 allowed_mcps: []
 strict_tools: true
 default_context:

@@ -1,6 +1,6 @@
 """Discovery screen — L1 PO state + captured personas / journeys / playbacks.
 
-Per ``docs/multi-level-spec/design.md`` §"L1 — Discovery": the operator
+Per ``docs/v2.0/multi-level-spec/design.md`` §"L1 — Discovery": the operator
 can see the current persona / journey / phase, the captured capability
 roster, and the per-journey playbacks at a glance. The screen is
 read-only; mutations go through the L1 PO MCP tools (driven from the

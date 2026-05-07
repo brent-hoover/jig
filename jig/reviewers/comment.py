@@ -1,6 +1,6 @@
 """Structured reviewer comment — federation-wide schema.
 
-The full schema (per ``docs/pm-workflow/design.md`` §"Comment structure
+The full schema (per ``docs/v2.0/pm-workflow/design.md`` §"Comment structure
 (machine-first)") includes the mechanical types (``contract-violation``,
 ``cross-cutting-policy-violation``, ``spec-violation``) and the judgment
 types (``pattern-divergence``, ``error-handling``, ``test-adequacy``,
@@ -41,7 +41,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Severity(str, Enum):
@@ -65,7 +65,7 @@ class ReviewerCommentType(str, Enum):
     """The subset of comment types currently emitted across the federation.
 
     Full taxonomy lands incrementally — see
-    ``docs/pm-workflow/design.md`` §"Comment structure". Adding a new
+    ``docs/v2.0/pm-workflow/design.md`` §"Comment structure". Adding a new
     reviewer means adding its comment-type enum entries here so the
     union stays exhaustive and ``extra="forbid"`` validation catches
     typos in operator-authored fixtures.
@@ -112,6 +112,17 @@ class ReviewerCommentType(str, Enum):
     # against the suite's structured spec, plus capability-id sanity.
     BEHAVIOR_AC_NOT_REFERENCED = "behavior-ac-not-referenced"
     CAPABILITY_NOT_FOUND_IN_SPEC = "capability-not-found-in-spec"
+    # Tradeoff compliance (Phase 1). Fired when a ticket re-adds work
+    # that was explicitly deferred to a later layer in the tradeoff ledger.
+    DEFERRED_WORK_REINTRODUCED = "deferred-work-reintroduced"
+    # Contract test coverage (Phase 3). Fired when a module consumes an API
+    # or event from another module but neither side's integration_ac mentions
+    # the contract name — makes the gap visible so the SA can add a MUST entry.
+    CONTRACT_TEST_COVERAGE_GAP = "contract-test-coverage-gap"
+    # Tracer preservation (Phase 5). Fired when a ticket touches a node
+    # covered by a tracer — the tracer should be re-run to confirm the
+    # smoke still passes after the change.
+    TRACER_PRESERVATION_RISK = "tracer-preservation-risk"
     # Judgment reviewers (Track G MVP follow-on). One per role; the
     # comment-type maps 1:1 to the reviewer that produces it. Confidence
     # < 1.0 by convention.
@@ -141,6 +152,13 @@ class ReviewerCommentType(str, Enum):
 # use ``ReviewerCommentType``. Removed in a future cleanup once all
 # call sites have migrated.
 BonesCommentType = ReviewerCommentType
+
+
+# Comment types that legitimately can't carry a ``file`` / ``line``
+# anchor because they describe the worktree as a whole rather than
+# a specific source location. The mechanical-critical anchor invariant
+# in ``ReviewerComment._enforce_type_field_constraints`` skips these.
+_WORKTREE_LEVEL_TYPES: frozenset[str] = frozenset({"empty-diff"})
 
 
 class Evidence(BaseModel):
@@ -334,6 +352,98 @@ class ReviewerComment(BaseModel):
             "every breakpoint."
         ),
     )
+
+    @model_validator(mode="after")
+    def _enforce_type_field_constraints(self) -> ReviewerComment:
+        """Pin the type → required-fields invariants the design carries
+        in prose at the schema layer (type-design Block B).
+
+        ``ReviewerComment`` stays a single envelope rather than a true
+        discriminated union of subtypes — the existing callers and
+        store layer build it with kwargs, and a true ADT split touches
+        every reviewer. The cheap validator path catches the same
+        misuses (an accessibility comment with no WCAG rule id,
+        an auto-apply window with no diff to apply) at construction
+        time without forcing the refactor.
+        """
+        # Read ``type`` as its raw string value because
+        # ``use_enum_values=True`` already coerced the enum down to
+        # its str form when the model finished construction.
+        type_value = (
+            self.type.value
+            if isinstance(self.type, ReviewerCommentType)
+            else str(self.type)
+        )
+        if (
+            type_value == ReviewerCommentType.ACCESSIBILITY_VIOLATION.value
+            and self.wcag_rule_id is None
+        ):
+            raise ValueError(
+                "ReviewerComment.wcag_rule_id is required when "
+                "type='accessibility-violation'. The comment cites a "
+                "specific WCAG rule; the operator needs the rule id "
+                "to map back to the spec."
+            )
+        # Note: ``breakpoint`` is intentionally allowed to be ``None``
+        # for responsive-design comments that apply across every
+        # breakpoint (per the field docstring) — viewport-meta and
+        # similar "single root cause, every device" findings shouldn't
+        # be forced to pick a label.
+        # ``contract-violation`` is also used for meta-findings the
+        # contract reviewer surfaces when it can't run (e.g. a ticket
+        # with no module_id, or a module with no contracts.yaml). Those
+        # carry ``severity == notable`` and don't have a specific
+        # contract URI to cite. Only require the URI on actionable
+        # critical/important findings.
+        severity_value_for_contract = (
+            self.severity.value
+            if isinstance(self.severity, Severity)
+            else str(self.severity)
+        )
+        if (
+            type_value == ReviewerCommentType.CONTRACT_VIOLATION.value
+            and self.contract_uri is None
+            and severity_value_for_contract
+            in {Severity.CRITICAL.value, Severity.IMPORTANT.value}
+        ):
+            raise ValueError(
+                "ReviewerComment.contract_uri is required when "
+                "type='contract-violation' and severity is "
+                "critical/important. The comment names a specific "
+                "contract URI; without it the violation has no anchor."
+            )
+        if self.auto_apply_after is not None and self.suggested_diff is None:
+            raise ValueError(
+                "ReviewerComment.auto_apply_after requires "
+                "suggested_diff. Auto-applying nothing is nonsense; "
+                "the orchestrator needs a diff to commit."
+            )
+        # Mechanical critical (confidence==1.0, severity=='critical'):
+        # the operator triages by jumping to the file:line. Without
+        # an anchor the comment is nearly unactionable.
+        #
+        # Worktree-level finding types are exempt: ``empty-diff`` IS the
+        # comment that there's no code to anchor to, and forcing a
+        # synthetic file/line on it would only obscure the reason.
+        severity_value = (
+            self.severity.value
+            if isinstance(self.severity, Severity)
+            else str(self.severity)
+        )
+        if (
+            type_value not in _WORKTREE_LEVEL_TYPES
+            and self.confidence == 1.0
+            and severity_value == Severity.CRITICAL.value
+            and self.file is None
+            and self.contract_uri is None
+        ):
+            raise ValueError(
+                "ReviewerComment with confidence=1.0 and "
+                "severity='critical' must set file or contract_uri. "
+                "Mechanical critical findings without an anchor are "
+                "nearly unactionable for the operator."
+            )
+        return self
 
 
 # ---- markdown rendering --------------------------------------------------

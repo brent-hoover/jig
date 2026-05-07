@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.sim.assertions import ScenarioAssertionUnion
 from jig.sim.coverage import CANONICAL_TAGS
@@ -55,7 +55,7 @@ class StepKind(str, Enum):
     INVOKE_L2_FINALIZE = "invoke_l2_finalize"
 
     # Manual writes for stages bones doesn't run via agents (per
-    # ``docs/implementation/v2-plan.md`` Bones scope: L1/L2 + SA
+    # ``docs/v2.0/implementation/v2-plan.md`` Bones scope: L1/L2 + SA
     # artifacts hand-written by the operator).
     WRITE_SUITES_YAML = "write_suites_yaml"
     WRITE_ARCHITECTURE = "write_architecture"
@@ -268,13 +268,27 @@ class StepKind(str, Enum):
     INVOKE_OPERATOR_SUPPLIED = "invoke_operator_supplied_provisioning"
 
 
+# Required-param keys per step kind. Catches the most common typos
+# in YAML at load time without forcing a full per-kind model split
+# (TD-2 targets the discriminated-union shape; the per-kind body is
+# left to the driver until each branch's param shape stabilises).
+_REQUIRED_PARAM_KEYS: dict[str, frozenset[str]] = {
+    "write_module_contracts": frozenset({"module_id", "contracts"}),
+    "write_architecture": frozenset({"architecture"}),
+    "write_suites_yaml": frozenset({"suites_index"}),
+    "write_build_plan": frozenset({"plan"}),
+    "invoke_l3_finalize": frozenset({"suite_id"}),
+    "defer_ticket": frozenset({"ticket_id"}),
+}
+
+
 class ScenarioStep(BaseModel):
     """One step in a bones scenario.
 
-    ``params`` is loosely typed (``dict[str, Any]``) because each step
-    kind takes a different shape; the driver does its own validation
-    when dispatching. Bones uses YAML for authoring so structured
-    per-kind models would force more hops than they're worth.
+    ``params`` is a free-form dict because the 30+ step kinds each
+    have different shapes; a full discriminated-union split lives in
+    a follow-up. For now ``_REQUIRED_PARAM_KEYS`` catches the most
+    common authoring typos at load time (TD-2).
     """
 
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
@@ -282,6 +296,24 @@ class ScenarioStep(BaseModel):
     kind: StepKind
     params: dict[str, Any] = Field(default_factory=dict)
     assertions: list[ScenarioAssertionUnion] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _enforce_known_required_params(self) -> "ScenarioStep":
+        kind_value = (
+            self.kind.value
+            if isinstance(self.kind, StepKind)
+            else str(self.kind)
+        )
+        required = _REQUIRED_PARAM_KEYS.get(kind_value)
+        if required is None:
+            return self
+        missing = sorted(required - set(self.params))
+        if missing:
+            raise ValueError(
+                f"ScenarioStep(kind={kind_value!r}) missing required "
+                f"param keys: {missing}. Got: {sorted(self.params)}."
+            )
+        return self
 
 
 class Scenario(BaseModel):

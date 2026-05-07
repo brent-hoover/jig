@@ -2,7 +2,7 @@
 
 Stub for v2 bones — raises ``UnimplementedAuthorityError``. Wired up in
 Track C as ``architecture.yaml`` and ``modules/<m>/contracts.yaml`` schemas
-land. See ``docs/uri-scheme/design.md`` §"`project://arch/...`".
+land. See ``docs/v2.0/uri-scheme/design.md`` §"`project://arch/...`".
 """
 from __future__ import annotations
 

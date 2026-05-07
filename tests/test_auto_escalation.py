@@ -1,6 +1,6 @@
 """Auto-escalation threshold checker (Track F MVP).
 
-Per ``docs/pm-workflow/design.md`` §"Auto-escalation thresholds": the
+Per ``docs/v2.0/pm-workflow/design.md`` §"Auto-escalation thresholds": the
 Coordinator monitors mechanical signals to force-escalate dev agents
 that systematically underclaim being stuck. The checker is single-digit-
 second latency (no LLM) and runs over the existing analytics events.

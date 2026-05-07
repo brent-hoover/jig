@@ -197,9 +197,19 @@ def test_strict_disallowed_tools_blocks_dangerous_builtins():
     for name in ("Bash", "Edit", "Write", "Glob", "Grep", "Agent",
                  "WebSearch", "WebFetch", "NotebookEdit"):
         assert name in out, f"{name} should be blocked: {out}"
-    # Read isn't a dangerous builtin so it never appears in the deny
-    # list — being in allowed_tools is irrelevant.
+    # Read is in the deny list by default; this role opted in by
+    # listing Read in allowed_tools, so it's removed from the deny list.
     assert "Read" not in out
+
+
+def test_strict_disallowed_tools_blocks_read_when_not_opted_in():
+    """Read is denied by default for strict roles — the PO's brief
+    lives in MCP, and letting Read through caused agents to chase
+    non-existent brief.md files."""
+    from jig.agent import _strict_disallowed_tools
+
+    out = _strict_disallowed_tools(["ask_question", "brief_get_section"])
+    assert "Read" in out, f"Read should be blocked when not opted in: {out}"
 
 
 def test_strict_disallowed_tools_respects_explicit_optin():

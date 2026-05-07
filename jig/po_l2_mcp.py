@@ -3,7 +3,7 @@
 The L2 Suite Organizer reads ``.jig/spec/discovery.structured.yaml``
 (the L1 capability roster) and authors ``.jig/spec/suites.yaml``
 grouping the capabilities into 4-6 suites. Per
-``docs/multi-level-spec/design.md`` §"L2 — Suite organization" + §"L2
+``docs/v2.0/multi-level-spec/design.md`` §"L2 — Suite organization" + §"L2
 PO behavior" + §"L2 PO tools".
 
 For MVP scope this surfaces ONE handler — ``l2_finalize`` — that

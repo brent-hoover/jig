@@ -1,6 +1,6 @@
 """DEFERRED queue + Coordinator triage helpers (Track F MVP).
 
-Per ``docs/pm-workflow/design.md`` §"DEFERRED queue triage": some
+Per ``docs/v2.0/pm-workflow/design.md`` §"DEFERRED queue triage": some
 tickets get deferred mid-flight (e.g., a reviewer flagged a Notable
 issue but the dev finished). Coordinator MVP creates entries; the
 Planner triages at re-plan time. Mid-MVP triage is mechanical (no

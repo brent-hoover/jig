@@ -1,6 +1,6 @@
 """L1 discovery resume-from-state edge case handling (Track B Final).
 
-Per ``docs/multi-level-spec/design.md`` §"L1 conversation state and
+Per ``docs/v2.0/multi-level-spec/design.md`` §"L1 conversation state and
 resume": the L1 PO can resume mid-walk. Final hardens the edge cases:
 
 - mid-Phase-3 (Walk) crash recovery — the partial_walk list of

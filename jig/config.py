@@ -102,7 +102,7 @@ class OrchestratorSection(BaseModel):
     """Orchestrator-level runtime knobs.
 
     ``run_review_federation`` controls the review-federation gate per
-    ``docs/pm-workflow/design.md`` §"Severity tiers and disposition".
+    ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition".
     When ``True`` (the default), the orchestrator runs
     ``dispatch_with_llm_spawn`` against every ticket that reaches the
     post-merge RESOLVED state and routes the returned reviewer

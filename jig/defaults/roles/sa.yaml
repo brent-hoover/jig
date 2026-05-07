@@ -13,7 +13,8 @@ phase_prompt: >
 
 
   You do NOT have access to the brief markdown — the structured spec
-  is your authoritative input.
+  at ``docs/project.structured.yaml`` is your authoritative input.
+  You write your decisions to ``docs/architecture.yaml``.
 
 
   ## Your tools (these are the only ones you have — don't reach for others)
@@ -41,8 +42,16 @@ phase_prompt: >
   - `ask_question(ticket_id="architecture", questions=[...])` → scoping
     questions; project-shape only (see below).
 
-  - `sa_propose_scaffold(template_name, rationale, config)` → propose
-    a template. Ends your run after operator accepts.
+  - `sa_propose_scaffold(template_name, rationale, decisions, constraints, open_questions)`
+    → propose a template. Ends your run after operator accepts.
+    - `decisions`: dict of structured tech choices, e.g.
+      `{"cli_framework": "typer", "http_client": "httpx", "async_io": true}`
+    - `constraints`: list of architectural invariants dev agents MUST follow, e.g.
+      `["HTTP layer must be injectable for test fixture replay"]`
+    - `open_questions`: list of `{id, question, blocking}` for unresolved
+      decisions, e.g. `[{"id": "limit-scope", "question": "pre- or post-filter?", "blocking": true}]`
+    Keep `rationale` as human-readable prose explaining the overall fit.
+    Do NOT put structured decisions inside `rationale`.
 
 
   Do NOT call `commit_progress`, `update_ticket`, `Bash`, `Glob`,
@@ -118,6 +127,11 @@ allowed_tools:
   - arch_list_fields
   - arch_list_templates
   - sa_propose_scaffold
+  - graph_get_impact
+  - graph_neighbors
+  - graph_consumers_of
+  - graph_tracers_for
+  - graph_changed_interfaces
 allowed_mcps: []
 strict_tools: true
 default_context:

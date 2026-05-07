@@ -33,6 +33,7 @@ from jig.atomic import atomic_write_text
 from jig.safe_path import validate_safe_path_segment
 from jig.schemas.arch import Architecture, ContractsFile
 from jig.schemas.dev_env import DevManifest
+from jig.schemas.tracer import TracerSpec
 from jig.schemas.design_system import (
     DEFAULT_BRAND,
     DEFAULT_COMPONENTS,
@@ -53,7 +54,7 @@ from jig.schemas.po import (
 )
 from jig.spec_schema import StructuredSpec
 
-_SPEC_RELATIVE = Path(".jig") / "spec" / "project.structured.yaml"
+_SPEC_RELATIVE = Path("docs") / "project.structured.yaml"
 _SUITES_INDEX_RELATIVE = Path(".jig") / "spec" / "suites.yaml"
 _ARCHITECTURE_RELATIVE = Path(".jig") / "spec" / "architecture.yaml"
 _BUILD_PLAN_RELATIVE = Path(".jig") / "plan" / "build-plan.yaml"
@@ -217,7 +218,7 @@ def save_module_contracts(
 
 
 def cascades_dir(project_root: Path) -> Path:
-    """``.jig/arch/cascades/`` — per ``docs/sa-architecture/design.md``.
+    """``.jig/arch/cascades/`` — per ``docs/v2.0/sa-architecture/design.md``.
 
     Each ``confirmed_impossible`` spike emits one cascade-proposal YAML
     here named ``<risk-id>-<timestamp>.yaml``. Operator hand-edits the
@@ -250,7 +251,7 @@ def cascade_proposal_path(
 def cascade_audit_path(project_root: Path) -> Path:
     """``.jig/arch/cascades/audit.jsonl`` — per-action append-only log.
 
-    Track C Final per ``docs/sa-architecture/design.md`` §"Failure modes
+    Track C Final per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes
     and mitigations" mitigation #1: every operator-facing cascade action
     (proposed, staged, stage-approved, rejected, holding) lands here so
     cross-project analytics can scan for rejection patterns and audit-
@@ -497,7 +498,7 @@ def save_ontology(
 def frontend_spec_path(project_root: Path) -> Path:
     """``.jig/spec/frontend.yaml`` — VD's top-level frontend declaration.
 
-    Per ``docs/visual-design/design.md`` §"Frontend architecture (VD
+    Per ``docs/v2.0/visual-design/design.md`` §"Frontend architecture (VD
     owns this)": one file per project, set once at VD discovery start
     (defaults applied immediately so a freshly-initialized project has
     a valid spec without operator interaction), modified rarely.
@@ -632,7 +633,7 @@ def save_brand(project_root: Path, brand: Brand) -> None:
 def generated_contracts_dir(project_root: Path) -> Path:
     """``.jig/generated/contracts/`` — Pydantic-from-DataContract output dir.
 
-    Per ``docs/agent-leverage/problem.md`` §6: rendered artifacts
+    Per ``docs/v2.0/agent-leverage/problem.md`` §6: rendered artifacts
     live under ``.jig/generated/`` so the operator can inspect them
     without confusing them with hand-written code under ``src/``.
     The Track I Final SA hook writes one file per data contract
@@ -710,3 +711,53 @@ def save_wireframe(project_root: Path, screen_id: str, html: str) -> None:
     file-write rejection).
     """
     atomic_write_text(wireframe_path(project_root, screen_id), html)
+
+
+# ---- tracer helpers (Phase 5.12) ----------------------------------------
+
+
+def tracers_dir(project_root: Path) -> Path:
+    """``.jig/spec/tracers/`` — directory containing per-tracer YAML files."""
+    return project_root / ".jig" / "spec" / "tracers"
+
+
+def tracer_path(project_root: Path, tracer_id: str) -> Path:
+    """``.jig/spec/tracers/<tracer_id>.yaml``."""
+    validate_safe_path_segment(tracer_id, "tracer_id")
+    return tracers_dir(project_root) / f"{tracer_id}.yaml"
+
+
+def load_tracer(project_root: Path, tracer_id: str) -> TracerSpec:
+    """Load and validate a tracer spec; raise ``FileNotFoundError`` if absent."""
+    src = tracer_path(project_root, tracer_id)
+    if not src.is_file():
+        raise FileNotFoundError(f"tracer {tracer_id!r} not found at {src}")
+    data = yaml.safe_load(src.read_text()) or {}
+    return TracerSpec.model_validate(data)
+
+
+def load_all_tracers(project_root: Path) -> list[TracerSpec]:
+    """Return every tracer spec under ``.jig/spec/tracers/``.
+
+    Silently skips files that fail validation so a corrupt tracer doesn't
+    block the caller (e.g. ``build_graph``). Returns an empty list when the
+    directory doesn't exist.
+    """
+    d = tracers_dir(project_root)
+    if not d.is_dir():
+        return []
+    out: list[TracerSpec] = []
+    for p in sorted(d.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(p.read_text()) or {}
+            out.append(TracerSpec.model_validate(data))
+        except Exception:
+            continue
+    return out
+
+
+def save_tracer(project_root: Path, tracer: TracerSpec) -> None:
+    """Atomically write a tracer spec to ``.jig/spec/tracers/<id>.yaml``."""
+    path = tracer_path(project_root, tracer.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, yaml.safe_dump(tracer.model_dump(mode="json"), sort_keys=False))

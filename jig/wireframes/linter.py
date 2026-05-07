@@ -1,6 +1,6 @@
 """Wireframe-HTML linter — enforces the constrained vocabulary.
 
-Per ``docs/visual-design/design.md`` §"What's prohibited (wireframe-HTML
+Per ``docs/v2.0/visual-design/design.md`` §"What's prohibited (wireframe-HTML
 linter rejects with a structured comment)":
 
 - No inline ``style=`` attributes.

@@ -98,8 +98,8 @@ async def test_bones_scenario_writes_every_canonical_artifact(tmp_path: Path):
     assert report.passed, report.failure_summary()
 
     expected = [
-        ".jig/spec/project.md",
-        ".jig/spec/project.structured.yaml",
+        "docs/brief.md",
+        "docs/project.structured.yaml",
         ".jig/spec/suites.yaml",
         ".jig/spec/suites/catalog/brief.md",
         ".jig/spec/suites/catalog/spec.structured.yaml",

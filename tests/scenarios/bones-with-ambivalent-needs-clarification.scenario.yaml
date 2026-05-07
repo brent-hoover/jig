@@ -3,7 +3,7 @@ id: bones-with-ambivalent-needs-clarification
 description: |
   Exercises a path where the ambivalent persona's vague answers
   require the agent to push for clarification before proceeding. Per
-  ``docs/synthetic-operator/design.md`` §"Persona library", the
+  ``docs/v2.0/synthetic-operator/design.md`` §"Persona library", the
   ambivalent persona gives non-committal answers, defers to agent
   suggestions, and confirms gates passively without engaging deeply.
 
@@ -54,7 +54,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-ambivalent-needs-clarification
 
   # ---- L1 PO (one-shot finalize; the clarification loop is collapsed) ---

@@ -42,6 +42,15 @@ NowScreen, TicketsScreen, SpecScreen, EventsScreen {
 /* DISPLAY widgets: the read zone. */
 RichLog, ListView, Tree {
     background: #1a2030;
+    scrollbar-size: 0 0;
+}
+
+/* When the scrollback gets focus (Shift+Tab), highlight it so the
+   operator knows arrow keys now scroll instead of moving cursor. */
+RichLog:focus {
+    background: #1f2738;
+    border-left: tall $accent;
+    padding-left: 1;
 }
 
 /* COMPOSER widgets: the type zone. Lighter so it stands out. */

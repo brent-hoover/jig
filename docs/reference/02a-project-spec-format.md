@@ -1,6 +1,6 @@
 # 02a — Project Spec Format Reference
 
-Format spec for the project brief (`.jig/spec/project.md`) and the
+Format spec for the project brief (`docs/brief.md`) and the
 structured projection (`.jig/spec/project.structured.yaml`). For the
 conceptual material on what a project spec is and why, see
 [02 — Project Spec](./02-project-spec.md).

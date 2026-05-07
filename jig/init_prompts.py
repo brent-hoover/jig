@@ -54,6 +54,10 @@ class PromptHandler(Protocol):
         self, *, target: Path, console: "Console"
     ) -> bool: ...  # True = proceed with reset
 
+    async def ask_init_complete(
+        self, *, console: "Console"
+    ) -> None: ...
+
 
 # Import enums here so init_prompts.py can be imported without circular issues.
 # They live in init_workflow; we re-export them for convenience but the
@@ -176,3 +180,63 @@ class CliPromptHandler:
             show_default=False,
         )
         return reply == "force"
+
+    async def ask_init_complete(self, *, console: "Console") -> None:
+        click.prompt(
+            "Project ready. Press Enter to continue",
+            default="",
+            show_default=False,
+            prompt_suffix="",
+        )
+
+
+class AutoPromptHandler:
+    """Non-interactive PromptHandler — picks each default for unattended runs.
+
+    Used by ``jig init --auto`` for eval harnesses where there's no operator
+    to answer. Choices match the ``[Y]`` defaults of the CLI handler:
+    approve the brief, hand off to SA, accept the SA scaffold. Free-text
+    questions raise — an unattended run that needs an answer is a
+    misconfiguration, not something to silently default.
+    """
+
+    async def ask_brief_approval(
+        self, *, project_path: Path, console: "Console"
+    ) -> BriefApprovalChoice:
+        return BriefApprovalChoice.YES
+
+    async def ask_branch_choice(self, *, console: "Console") -> BranchChoice:
+        return BranchChoice.SA
+
+    async def ask_sa_confirm(
+        self, *, template_name: str, rationale: str, console: "Console"
+    ) -> ConfirmChoice:
+        return ConfirmChoice.YES
+
+    async def ask_gap_decision(
+        self, *, gaps: "list[Gap]", console: "Console"
+    ) -> str:
+        # Quit — re-running PO unattended would loop forever. Fail loud
+        # by exiting; the eval harness can inspect the gaps in state.
+        return "Q"
+
+    async def ask_direct_template(
+        self, *, template_names: list[str], console: "Console"
+    ) -> str:
+        return template_names[0]
+
+    async def ask_question_answer(
+        self, *, question: "Question", index: int, total: int, console: "Console"
+    ) -> str:
+        raise RuntimeError(
+            f"unattended init cannot answer agent question: {question.question!r} "
+            "(brief is incomplete or spec-gen needs follow-up)"
+        )
+
+    async def ask_force_confirm(
+        self, *, target: Path, console: "Console"
+    ) -> bool:
+        return True
+
+    async def ask_init_complete(self, *, console: "Console") -> None:
+        return

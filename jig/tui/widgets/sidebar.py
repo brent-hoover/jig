@@ -208,7 +208,7 @@ class Sidebar(Widget):
             title = t.get("title", "(untitled)")
             if len(title) > 26:
                 title = title[:23] + "…"
-            lines.append(f"[{color}]{glyph}[/{color}] {title}")
+            lines.append(f"[{color}]{glyph}[/] {title}")
         zone.set_lines(lines)
 
     # ---------------------------------------------------------------------

@@ -38,7 +38,7 @@ Spec-generator agent MCP tools, §Data model → Gap payload,
 When the CLI observes a `Handoff` with
 `target_role="spec-generator"` on the brief ticket, the CLI shall
 spawn the spec-generator agent with read-only access to
-`.jig/spec/project.md` and the spec schema definition.
+`docs/brief.md` and the spec schema definition.
 
 **Acceptance:** The generator process starts within one dispatch
 cycle of the handoff. The generator has no write access to

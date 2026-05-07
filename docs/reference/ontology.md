@@ -10,7 +10,7 @@ the authoritative design doc.
 ## Project artifacts
 
 ### Brief
-The human-authored Markdown at `.jig/spec/project.md`. First-class. Evolves
+The human-authored Markdown at `docs/brief.md`. First-class. Evolves
 over the life of the project. The PO and the user edit it directly. All
 other project-level artifacts derive from it.
 

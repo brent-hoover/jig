@@ -72,7 +72,11 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
     async def fake_remove(*args, **kwargs):
         return None
 
+    async def fake_commit(*args, **kwargs):
+        return None
+
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
 
     await orch.startup()
     try:
@@ -250,8 +254,12 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
     async def fake_remove(*args, **kwargs):
         remove_calls.append("called")
 
+    async def fake_commit(*args, **kwargs):
+        return None
+
     monkeypatch.setattr("jig.worktree.merge_ticket", conflicting_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
 
     await orch.startup()
     try:

@@ -150,7 +150,7 @@ def _l0_step() -> ScenarioStep:
             "author": "po-l0",
         },
         assertions=[
-            ArtifactWrittenAssertion(path=".jig/spec/project.md"),
+            ArtifactWrittenAssertion(path="docs/brief.md"),
         ],
     )
 
@@ -371,7 +371,7 @@ async def test_driver_invokes_l0_finalize_and_writes_artifact(tmp_path: Path):
     )
     report = await driver.run(scn, project_root=tmp_path)
     assert report.passed, report.failure_summary()
-    project_md = tmp_path / ".jig" / "spec" / "project.md"
+    project_md = tmp_path / "docs" / "brief.md"
     assert project_md.is_file()
     assert "bones-demo" in project_md.read_text()
 
@@ -478,7 +478,7 @@ async def test_artifact_written_assertion_fails_when_path_missing(tmp_path: Path
             ScenarioStep(
                 kind=StepKind.MATERIALIZE_TICKETS,
                 assertions=[
-                    ArtifactWrittenAssertion(path=".jig/spec/project.md"),
+                    ArtifactWrittenAssertion(path="docs/brief.md"),
                 ],
             ),
         ],
@@ -486,7 +486,7 @@ async def test_artifact_written_assertion_fails_when_path_missing(tmp_path: Path
     )
     report = await Driver().run(scn, project_root=tmp_path)
     assert not report.passed
-    assert any("project.md" in r.detail for r in report.failed_assertions())
+    assert any("brief.md" in r.detail for r in report.failed_assertions())
 
 
 @pytest.mark.asyncio
@@ -504,11 +504,11 @@ async def test_artifact_written_with_contains_substring(tmp_path: Path):
                 kind=StepKind.MATERIALIZE_TICKETS,
                 assertions=[
                     ArtifactWrittenAssertion(
-                        path=".jig/spec/project.md",
+                        path="docs/brief.md",
                         contains="bones-demo",
                     ),
                     ArtifactWrittenAssertion(
-                        path=".jig/spec/project.md",
+                        path="docs/brief.md",
                         contains="not-in-the-pitch",
                     ),
                 ],
@@ -1071,6 +1071,8 @@ async def test_contract_validated_data_contract_round_trip(tmp_path: Path):
                 DataContract(
                     id="product-row",
                     description="x",
+                    # Block A.1: a data contract must declare a shape.
+                    fields={"id": "str", "name": "str"},
                     intent=_intent_obj(),
                 ),
             ],
@@ -1184,6 +1186,9 @@ async def test_risk_status_passes_when_match(tmp_path: Path):
                     impact=RiskImpact.MEDIUM,
                     likelihood=RiskLikelihood.MEDIUM,
                     status=RiskStatus.SPIKE_PROPOSED,
+                    dependent_contracts=[
+                        "project://arch/modules/m/contracts#owns/x",
+                    ],
                     intent=_intent_obj(),
                 )
             ]

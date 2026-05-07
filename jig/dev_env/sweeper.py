@@ -1,6 +1,6 @@
 """Orphan sweeper with operator-confirmation (Track E Final).
 
-Per ``docs/dev-environment/design.md`` §"Cleanup discipline" failure
+Per ``docs/v2.0/dev-environment/design.md`` §"Cleanup discipline" failure
 mode 1: a periodic sweep finds orphan namespaces older than X days and
 proposes them for cleanup. The MVP shipped the orphan tracker + CLI
 list/drop/purge surface; Final adds the categorizing sweeper +

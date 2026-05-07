@@ -2,7 +2,7 @@
 
 Stub for v2 bones — raises ``UnimplementedAuthorityError``. Wired up in
 Track D as ``frontend.yaml``, ``system/``, and ``wireframes/`` land.
-See ``docs/uri-scheme/design.md`` §"`project://design/...`".
+See ``docs/v2.0/uri-scheme/design.md`` §"`project://design/...`".
 """
 from __future__ import annotations
 

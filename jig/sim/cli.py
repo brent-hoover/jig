@@ -10,7 +10,7 @@ Two run modes for ``jig sim run``:
   with a deterministic helper that satisfies the bones reviewer's
   checks. This is what ``test_sim_bones_scenario.py`` exercises.
 - **real** (operator-invoked; bones cost target < $1, runtime < 10
-  min per ``docs/implementation/v2-plan.md``) — the dev step spawns a
+  min per ``docs/v2.0/implementation/v2-plan.md``) — the dev step spawns a
   real Claude agent via the orchestrator's existing dispatch path
   rooted at the simulator's tmp project. Requires
   ``CLAUDE_CODE_OAUTH_TOKEN`` to be set (run ``claude setup-token``
@@ -450,7 +450,7 @@ def _regression_template(
 def regression() -> None:
     """Regression scenario discipline (Track H Final).
 
-    Per ``docs/synthetic-operator/design.md`` §"Failure-mode regression
+    Per ``docs/v2.0/synthetic-operator/design.md`` §"Failure-mode regression
     scenarios", every bug fix lands with a regression scenario that
     would have caught it. This command group scaffolds + lists those.
     """
@@ -550,7 +550,7 @@ def regression_new(
     if realism_gap_id:
         header_lines.append(f"# Originating realism-gap: {realism_gap_id}")
     header_lines.append(
-        "# Per docs/synthetic-operator/design.md §'Failure-mode regression "
+        "# Per docs/v2.0/synthetic-operator/design.md §'Failure-mode regression "
         "scenarios':"
     )
     header_lines.append(

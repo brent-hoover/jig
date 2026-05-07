@@ -2,7 +2,7 @@ spec_version: 1
 id: bones-with-deferred-ticket
 description: |
   Exercises the Coordinator DEFERRED queue path. Per
-  ``docs/pm-workflow/design.md`` §"DEFERRED queue triage", the
+  ``docs/v2.0/pm-workflow/design.md`` §"DEFERRED queue triage", the
   Coordinator (or the operator) defers a ticket that cannot
   currently make progress; the row lands in
   ``.jig/plan/deferred-queue.jsonl`` for later operator triage.
@@ -49,7 +49,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-deferred-ticket
 
   # ---- L1 / L2 (operator hand-writes) ---

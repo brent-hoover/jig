@@ -99,11 +99,20 @@ async def create_worktree(
         base_branch,
     )
 
-    # Track G MVP follow-on: install the per-commit reviewer hook so
-    # the dev agent's commits trigger the mechanical reviewer subset.
-    # Best-effort: a hook-install failure must not block worktree
-    # creation (the agent can still work; reviewers just won't fire
-    # on commit). Errors are logged but swallowed.
+    # Per-commit reviewer hook installation lives at the call site
+    # (``Orchestrator._ensure_worktree``) so the orchestrator can surface
+    # ``install_per_commit_hook_or_warn``'s warning string as a SystemEvent
+    # on the ticket thread (SF-I1). Keeping create_worktree side-effect-free
+    # for that responsibility makes worktree lifecycle easier to test.
+    return worktree_path
+
+
+def install_per_commit_hook_or_warn(
+    worktree_path: Path, ticket_id: str
+) -> str | None:
+    """Install the per-commit reviewer hook; return a warning string
+    on failure or None on success. The caller is expected to surface
+    the warning as a SystemEvent on the ticket thread (SF-I1)."""
     try:
         from jig.hooks.per_commit import install_per_commit_hook
 
@@ -112,8 +121,12 @@ async def create_worktree(
         _logger.warning(
             "per-commit hook install failed for %s: %r", ticket_id, exc
         )
-
-    return worktree_path
+        return (
+            f"per-commit reviewer hook install failed: {exc}. The "
+            "agent can still work, but mechanical reviewers will not "
+            "fire on each commit for this ticket."
+        )
+    return None
 
 
 async def _auto_lint(worktree_path: Path) -> list[str]:
@@ -137,9 +150,15 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     )
     stdout, _ = await proc.communicate()
     if proc.returncode != 0:
+        # SF-I2: ``ruff format`` failing means a broken toolchain or
+        # config, not a stylistic issue — raise so the caller can't
+        # treat the run as clean just because a later ``ruff check``
+        # happened to pass.
+        message = stdout.decode().strip() or f"ruff format rc={proc.returncode}"
         _logger.warning(
-            "ruff format failed (rc=%d): %s", proc.returncode, stdout.decode().strip()
+            "ruff format failed (rc=%d): %s", proc.returncode, message
         )
+        raise LintError([f"ruff format failed: {message}"])
 
     # 2. Auto-fix lint violations
     proc = await asyncio.create_subprocess_exec(
@@ -319,15 +338,29 @@ async def _do_merge(
     strategy: MergeStrategy,
 ) -> str:
     """Perform the actual merge under the lock."""
-    # Clean up any leftover dirty state from a previous failed merge
+    # Clean up any leftover dirty state from a previous failed merge.
+    # Only ``merge --abort`` here — destroying the operator's
+    # uncommitted work in the main checkout (the historical
+    # ``reset --hard HEAD``) is too operationally hostile. If the
+    # checkout is genuinely dirty for some reason other than an
+    # aborted merge, we surface that as a clean refusal below
+    # rather than silently overwrite. SEC-I5 in
+    # v2-review-findings-security.md.
     try:
         await _run_git(project_path, "merge", "--abort")
     except RuntimeError:
         pass
-    try:
-        await _run_git(project_path, "reset", "--hard", "HEAD")
-    except RuntimeError:
-        pass
+
+    # Refuse to merge if the main checkout still has uncommitted
+    # changes. The operator may have in-progress work; a hard reset
+    # would lose it.
+    status = await _run_git(project_path, "status", "--porcelain")
+    if status.strip():
+        raise RuntimeError(
+            "main checkout has uncommitted changes; refusing to merge "
+            f"ticket {ticket_id} until it is clean. "
+            "Stash, commit, or discard the local changes first."
+        )
 
     try:
         await _run_git(project_path, "checkout", base_branch)

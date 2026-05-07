@@ -120,7 +120,7 @@ async def test_l0_finalize_writes_project_md(wired):
         non_goals=[],
         author="po-l0",
     )
-    md_path = wired["spec_dir"] / "project.md"
+    md_path = wired["project_path"] / "docs" / "brief.md"
     assert md_path.is_file()
     body = md_path.read_text()
     assert "# jig-search" in body
@@ -144,7 +144,7 @@ async def test_l0_finalize_writes_structured_yaml(wired):
         ],
         author="po-l0",
     )
-    yaml_path = wired["spec_dir"] / "project.structured.yaml"
+    yaml_path = wired["project_path"] / "docs" / "project.structured.yaml"
     assert yaml_path.is_file()
     data = yaml.safe_load(yaml_path.read_text())
     assert data["spec_version"] == 2
@@ -195,8 +195,8 @@ async def test_l0_finalize_emits_handoff(wired):
     handoffs = [e for e in entries if e.kind == "handoff"]
     assert len(handoffs) == 1
     assert handoffs[0].phase == "po-l1"
-    assert ".jig/spec/project.md" in handoffs[0].outputs
-    assert ".jig/spec/project.structured.yaml" in handoffs[0].outputs
+    assert "docs/brief.md" in handoffs[0].outputs
+    assert "docs/project.structured.yaml" in handoffs[0].outputs
 
 
 @pytest.mark.asyncio
@@ -267,10 +267,10 @@ async def test_l0_finalize_idempotent_overwrite(wired):
         non_goals=[],
         author="po-l0",
     )
-    md = (wired["spec_dir"] / "project.md").read_text()
+    md = (wired["project_path"] / "docs" / "brief.md").read_text()
     assert "second" in md
     assert "first pitch" not in md
     data = yaml.safe_load(
-        (wired["spec_dir"] / "project.structured.yaml").read_text()
+        (wired["project_path"] / "docs" / "project.structured.yaml").read_text()
     )
     assert data["name"] == "second"

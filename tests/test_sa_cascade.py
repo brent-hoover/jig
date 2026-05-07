@@ -1,6 +1,6 @@
 """Cascade-after-confirmed-impossible workflow (Track C MVP follow-on commit 3).
 
-Per ``docs/sa-architecture/design.md`` §"Cascade after confirmed-impossible
+Per ``docs/v2.0/sa-architecture/design.md`` §"Cascade after confirmed-impossible
 spike": when ``arch_complete_spike`` lands with ``status='confirmed_impossible'``
 the system MUST:
 
@@ -14,7 +14,7 @@ the system MUST:
 4. Emit a ``RiskStatusChanged`` analytics event with the cascade-proposal
    path in the payload.
 
-For MVP scope per ``docs/implementation/v2-plan.md`` Track C row, the
+For MVP scope per ``docs/v2.0/implementation/v2-plan.md`` Track C row, the
 operator-confirm step is NOT built — they hand-edit the cascade YAML
 and re-run the SA agent. The full transactional confirmation +
 failure-mode mitigations land in Final.

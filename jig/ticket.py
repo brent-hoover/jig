@@ -2,18 +2,77 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.safe_path import validate_safe_path_segment
 from jig.schemas._validators import validate_kebab_id, validate_tz_aware
 from jig.store.models import StoreModel
 
 # v2 build-plan fields carry a small literal vocabulary the schemas team
-# explicitly enumerates (see ``docs/pm-workflow/design.md`` §"Layer model"
+# explicitly enumerates (see ``docs/v2.0/pm-workflow/design.md`` §"Layer model"
 # and §"Dev tier"). We keep the allowed sets as module-level frozensets
 # so the validator and downstream consumers can share one source of truth.
 _ALLOWED_LAYERS = frozenset({"bones", "mvp", "final"})
 _ALLOWED_DEV_TIERS = frozenset({"standard", "senior", "sa"})
+
+
+class TicketTouches(BaseModel):
+    """Explicit cross-boundary touch declarations for a ticket.
+
+    Phase 2 dep-graph PR #1: supplements the flat module_id + capability_ids
+    pair. The graph builder uses these to root the impact view. Optional;
+    defaults to all-empty. Tickets without an explicit touches get a best-
+    effort impact view from (module_id, capability_ids).
+
+    SA-tier tickets with empty touches are flagged by the dispatch logic
+    as a notable reviewer finding — they probably need explicit declaration.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    modules: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    exposed_apis: list[str] = Field(
+        default_factory=list, description="'<module>:<name>'"
+    )
+    emitted_events: list[str] = Field(default_factory=list)
+    consumed_events: list[str] = Field(default_factory=list)
+    data_stores: list[str] = Field(default_factory=list)
+    behavioral_contracts: list[str] = Field(default_factory=list)
+    data_contracts: list[str] = Field(default_factory=list)
+    routes: list[str] = Field(
+        default_factory=list, description="'<METHOD> <path>'"
+    )
+    migrations: list[str] = Field(default_factory=list)
+    env_vars: list[str] = Field(default_factory=list)
+
+
+class TicketPlanMetadata(BaseModel):
+    """Read-only typed view over the v2 build-plan fields on Ticket.
+
+    TD-5: Ticket has accumulated a sizeable v2 planning surface
+    (suite_id / module_id / epic_id / layer / dev_tier / etc.).
+    Callers that want a typed value object — e.g. reviewers building
+    plan-aware prompts or analytics rolling up by module — can read
+    ``ticket.plan_metadata`` instead of touching the flat fields.
+
+    Storage stays flat for now (a wholesale migration would touch
+    every read site in the project). Future work can flip the
+    canonical representation, then remove the flat fields once all
+    callers move to ``plan_metadata``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    suite_id: str | None = None
+    module_id: str | None = None
+    capability_ids: tuple[str, ...] = ()
+    epic_id: str | None = None
+    layer: str | None = None
+    dev_tier: str | None = None
+    reviewer_set: tuple[str, ...] = ()
+    risks_addressed: tuple[str, ...] = ()
+    done_when: str | None = None
 
 
 class WorkType(str, Enum):
@@ -32,6 +91,7 @@ class WorkType(str, Enum):
     DOCS = "docs"
     BRIEF = "brief"
     ARCHITECTURE = "architecture"
+    PLANNING = "planning"
 
 
 # Transitional alias. Remove in the next release cycle once the doc rename
@@ -53,7 +113,7 @@ class Size(str, Enum):
 
 
 # Mapping from the pre-doc-03 `type` values to the new `work_type`.
-# See docs/implementation-plan.md Phase 1 Task B.
+# See docs/v2.0/implementation-plan.md Phase 1 Task B.
 _LEGACY_TYPE_MIGRATION: dict[str, str] = {
     "feature": "feature",
     "bug": "bugfix",
@@ -83,6 +143,16 @@ class TicketStatus(str, Enum):
 
 
 class Ticket(StoreModel):
+    # ``extra="forbid"`` (Block A.3) — typos in operator-edited YAML
+    # (e.g. ``visulal_references``) used to land on the model as
+    # silently-discarded keys; now they raise at load time. The schema
+    # is otherwise additive: every legacy field stays.
+    #
+    # We MUST NOT set ``populate_by_name=False`` here — ``StoreModel``
+    # turns it on so callers can pass ``id=`` (the alias is ``_id``)
+    # interchangeably. Re-declare both explicitly.
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     work_type: WorkType
     size: Size = Size.M
     status: TicketStatus = TicketStatus.OPEN
@@ -91,27 +161,31 @@ class Ticket(StoreModel):
     assignee: str | None = None
     derived_from: str | None = None  # e.g. "project://spec/capabilities/due-dates"
     parent_id: str | None = None
-    blocks: list[str] = []
-    blocked_by: list[str] = []
+    blocks: list[str] = Field(default_factory=list)
+    blocked_by: list[str] = Field(default_factory=list)
     workflow: str = "default"
-    labels: list[str] = []
+    labels: list[str] = Field(default_factory=list)
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # v2 build-plan extensions. Optional during the v2 build so v1 records
     # still load; populated by the Planner PM when the build plan owns the
-    # ticket. See docs/pm-workflow/design.md §"Ticket structure (extensions)".
+    # ticket. See docs/v2.0/pm-workflow/design.md §"Ticket structure (extensions)".
     suite_id: str | None = None
     module_id: str | None = None
-    capability_ids: list[str] = []
+    capability_ids: list[str] = Field(default_factory=list)
     epic_id: str | None = None
     layer: str | None = None  # bones | mvp | final
     dev_tier: str | None = None  # standard | senior | sa
-    reviewer_set: list[str] = []
-    context_hints: dict[str, Any] = {}
-    risks_addressed: list[str] = []
+    reviewer_set: list[str] = Field(default_factory=list)
+    context_hints: dict[str, Any] = Field(default_factory=dict)
+    risks_addressed: list[str] = Field(default_factory=list)
     done_when: str | None = None
+    examples: list[dict[str, str]] = Field(default_factory=list)
+    # Phase 2 dep-graph PR #1 — explicit cross-boundary declarations.
+    # Optional; graph falls back to (module_id, capability_ids) when empty.
+    touches: TicketTouches = Field(default_factory=TicketTouches)
 
     # v2 Track D MVP — VD wireframes referenced by this ticket. Each
     # entry is a screen-id matching a ``.jig/spec/wireframes/<id>.html``
@@ -119,17 +193,17 @@ class Ticket(StoreModel):
     # the wireframe exists, lints clean, and is referenced in the dev's
     # diff. Empty list means "this ticket implements no UI" — the
     # reviewer is skipped per dispatch logic.
-    visual_references: list[str] = []
+    visual_references: list[str] = Field(default_factory=list)
 
     # Set when the Coordinator defers this ticket via the DEFERRED queue
-    # (per docs/pm-workflow/design.md §"DEFERRED queue triage"). The
+    # (per docs/v2.0/pm-workflow/design.md §"DEFERRED queue triage"). The
     # ticket itself stays in the store; this stamp lets downstream views
     # filter "currently deferred" without needing to consult the queue.
     deferred_at: datetime | None = None
 
     # v2 Track G Final — set when this ticket amends an existing
     # behavioral / data contract as part of its work (per
-    # ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+    # ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
     # logic"). When populated, the dispatch logic auto-selects
     # ``reviewer-architectural`` so the SA-tier reviewer can verify
     # the amendment was deliberate. The string is a short rationale
@@ -140,7 +214,7 @@ class Ticket(StoreModel):
 
     # v2 Hardening — structured reason set when the ticket lands in a
     # non-OK terminal state driven by the review-federation gate (per
-    # ``docs/pm-workflow/design.md`` §"Severity tiers and disposition").
+    # ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition").
     # Known values:
     #   ``"reviewer-critical"``  — federation found one or more critical
     #                              comments; ticket FAILED.
@@ -155,6 +229,27 @@ class Ticket(StoreModel):
     # to distinguish review-blocked tickets from operator-blocked ones
     # without reading prose.
     block_reason: str | None = None
+
+    @property
+    def plan_metadata(self) -> TicketPlanMetadata:
+        """Typed read-only view over the v2 build-plan fields (TD-5).
+
+        New code should prefer this over reaching into the flat
+        ``suite_id`` / ``module_id`` / etc. attributes; the underlying
+        storage may move to a nested representation in a future cleanup
+        without changing this property's contract.
+        """
+        return TicketPlanMetadata(
+            suite_id=self.suite_id,
+            module_id=self.module_id,
+            capability_ids=tuple(self.capability_ids),
+            epic_id=self.epic_id,
+            layer=self.layer,
+            dev_tier=self.dev_tier,
+            reviewer_set=tuple(self.reviewer_set),
+            risks_addressed=tuple(self.risks_addressed),
+            done_when=self.done_when,
+        )
 
     @field_validator("id")
     @classmethod

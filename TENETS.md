@@ -9,7 +9,7 @@ work.
 
 Jig seeks to achieve two things:
 
-1. Make agents better at what they already do well
+### Make agents better at what they already do well
 
 Coding agents are good at small, well-scoped tasks and bad at big ones. Left to their own devices on a medium-or-larger
 project, an agent will produce a plausible-looking pile of code that doesn't actually do what the app is supposed to do.
@@ -17,7 +17,7 @@ Jig's job is to keep the agent on the small-task side of that line, while still 
 fit together. **Correctness — does the app actually do what it's supposed to do — is the bar.** Everything below is in
 the service of that.
 
-2. Make Humans better at what they do well
+### Make Humans better at what they do well
 Projects often require more thought than most people think. The second goal is to make humans better at what they do
 well, which is thinking deeply and driving the project. Jig applies a layer of thinking discipline that smaller projects
 don't usually have. Humans understand the "why" of the project. They see how it helps people in the real world. They
@@ -79,7 +79,7 @@ Implications:
 - Roles have **strict tool surfaces** (`strict_tools: true`) — they can only call what their job requires.
 - Briefs are **scoped** — a dev agent on a catalog ticket reads catalog's suite brief, not the whole product spec.
 - Suites exist as a context-scoping primitive at the spec level; modules (the SA's architectural units) are a separate
-  concern. (See `docs/multi-level-spec/design.md`.)
+  concern. (See `docs/v2.0/multi-level-spec/design.md`.)
 - The structured spec is **federated** — looking up a single capability doesn't drag in the whole project.
 - Decision records, comments, learnings get pulled in **on demand** via URIs, not flooded into the prompt.
 
@@ -133,7 +133,7 @@ If the schema asks for a `simplest_solution` before a `proposed_solution`, the a
 baseline before earning any complexity — short-circuiting the most common agent failure mode of jumping straight to the
 elegant-engineering answer pulled from training data. The flat `rationale` field would let the agent fill thinly; the
 disciplined sequence (problem → simplest → complications considered) does cognitive scaffolding work even if nobody ever
-reads the field afterward. This is why the intent- layer design (`docs/agent-leverage/problem.md`) earns its keep — not
+reads the field afterward. This is why the intent- layer design (`docs/v2.0/agent-leverage/problem.md`) earns its keep — not
 because the captured rationale is so valuable to consumers, but because the *act of filling the sequence* makes the
 agent think better. Schema design as cognitive scaffolding, not just as data shape.
 
@@ -242,7 +242,7 @@ it's supposed to do — and that requires both sides bringing their best.
 
 ## How this design fits
 
-The multi-level spec proposal (`docs/multi-level-spec/`) was tested against these tenets as it was being designed:
+The multi-level spec proposal (`docs/v2.0/multi-level-spec/`) was tested against these tenets as it was being designed:
 
 - **Bite-sized + coherent (1):** L1 journey-driven discovery is slower than ad-hoc capability listing, but produces a
   complete capability roster with provenance — the operator can't accidentally skip a swath of the product, and the L3

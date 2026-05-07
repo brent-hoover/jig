@@ -83,9 +83,9 @@ emerges during PO discovery. See "Project ontology" below.)
 | **Acceptance Criteria** (**AC**) | One-sentence, testable statement of what "done" means. Two flavors: **behavior AC** (PO-authored, user-visible — "Natural language inputs 'today', 'tomorrow', and 'next week' are accepted and stored as resolved dates"); **integration AC** (SA-authored, system-visible — "Writes to the `orders` collection in the main db, indexed on `user_id`"). Referenced by id (`[set-due-date]`) so tests can cite the AC they cover. |
 | **Non-goal** | Something explicitly out of scope. Has an id + rationale. Operator-owned. |
 | **User story** | Optional `As X, I want Y, so that Z` framing on a capability. |
-| **Persona** | An actor who uses the product — customer / merchant / maintainer / etc. (See `docs/multi-level-spec/`.) |
-| **Journey** | A narrative walkthrough of one persona's path through the product. (See `docs/multi-level-spec/`.) |
-| **Suite** | A grouping of related capabilities. Operator/PO-owned, organizational. The L2 unit in the multi-level spec. "The catalog suite." (See `docs/multi-level-spec/`.) |
+| **Persona** | An actor who uses the product — customer / merchant / maintainer / etc. (See `docs/v2.0/multi-level-spec/`.) |
+| **Journey** | A narrative walkthrough of one persona's path through the product. (See `docs/v2.0/multi-level-spec/`.) |
+| **Suite** | A grouping of related capabilities. Operator/PO-owned, organizational. The L2 unit in the multi-level spec. "The catalog suite." (See `docs/v2.0/multi-level-spec/`.) |
 | **Module** | An implementation unit — service / package / deployment boundary. SA-owned, architectural. A suite's capabilities may be implemented across multiple modules; one module may implement parts of multiple suites. "The ingest-worker module." |
 | **Contract** | An SA-authored constraint at an integration boundary — schemas, API shapes, message envelopes, ownership of collections. Lives in `modules/<m>/contracts.yaml`. The thing code review enforces. |
 
@@ -93,7 +93,7 @@ emerges during PO discovery. See "Project ontology" below.)
 
 | Term | What it is |
 |---|---|
-| **Planner PM** | Strategic PM agent. Runs in passes after SA-done. Reads PO + SA artifacts, decomposes capabilities into tickets, produces the build plan. Senior or SA tier. (See `docs/pm-workflow/`.) |
+| **Planner PM** | Strategic PM agent. Runs in passes after SA-done. Reads PO + SA artifacts, decomposes capabilities into tickets, produces the build plan. Senior or SA tier. (See `docs/v2.0/pm-workflow/`.) |
 | **Coordinator PM** | Tactical PM agent. Runs continuously. Dispatches tickets per the plan, routes dev escalations, tracks stalled work. Standard tier; mostly deterministic with thin LLM judgment. |
 | **Build plan** | Living artifact at `.jig/plan/build-plan.yaml`. Organizes work into epics × completeness layers (bones / MVP / final). Owned by Planner PM, updated as work surfaces gaps. |
 | **Epic** | A unit of the build plan — typically a module's worth of work, or a coherent capability cluster. Each epic has its own bones / MVP / final progression. |
@@ -113,7 +113,7 @@ emerges during PO discovery. See "Project ontology" below.)
 
 | Term | What it is |
 |---|---|
-| **Visual Designer (VD)** | Agent role parallel to PO / SA / PM. Owns visual artifacts AND frontend architecture (stack, build, component pattern). The architect for the frontend, not just the visual designer. Runs in parallel with SA after PO discovery completes. (See `docs/visual-design/`.) |
+| **Visual Designer (VD)** | Agent role parallel to PO / SA / PM. Owns visual artifacts AND frontend architecture (stack, build, component pattern). The architect for the frontend, not just the visual designer. Runs in parallel with SA after PO discovery completes. (See `docs/v2.0/visual-design/`.) |
 | **Frontend architecture** | VD-owned technical decisions for the UI: stack (HTMX + Alpine + custom CSS by default), build tooling, component pattern, accessibility target. Lives in `.jig/design/frontend.yaml`. SA owns backend architecture; VD owns frontend. |
 | **Wireframe** | Grey-styled HTML describing one screen's structural layout — semantic elements, region markers, affordance labels, no real styling beyond the shared `wireframe.css`. Lives in `.jig/design/wireframes/<screen-id>.html` with a sidecar `<screen-id>.notes.md` for behaviors / states / cross-references. The HTML wireframe is also the starting code for the bones-layer implementation — additive transition, not throw-away. |
 | **Screen** | One operator-facing surface in the product. Derived from L1 journeys + L3 capabilities. Each screen gets one wireframe; the union covers every user-visible journey step. |
@@ -136,8 +136,8 @@ emerges during PO discovery. See "Project ontology" below.)
 
 | Term | What it is |
 |---|---|
-| **Synthetic operator** | Agent role (`synthetic-operator`) that drives jig's daemon end-to-end as if a human operator were using it. Used by the simulator to validate v2 workflow design choices through scripted scenarios. Lightweight (small model, narrow tools, persona-driven). See `docs/synthetic-operator/`. |
-| **Scenario** | YAML script describing a project shape + persona + sequence of operator turns + assertions. Lives in `docs/synthetic-operator/scenarios/{smoke,full,nightly}/`. Played end-to-end by the simulator driver against a fresh isolated daemon. |
+| **Synthetic operator** | Agent role (`synthetic-operator`) that drives jig's daemon end-to-end as if a human operator were using it. Used by the simulator to validate v2 workflow design choices through scripted scenarios. Lightweight (small model, narrow tools, persona-driven). See `docs/v2.0/synthetic-operator/`. |
+| **Scenario** | YAML script describing a project shape + persona + sequence of operator turns + assertions. Lives in `docs/v2.0/synthetic-operator/scenarios/{smoke,full,nightly}/`. Played end-to-end by the simulator driver against a fresh isolated daemon. |
 | **Persona** (simulator) | A behavior profile loaded as the synthetic-operator agent's system prompt. Initial 5: methodical, fast-and-shippy, scope-creeper, ambivalent, hostile. Each has structured response patterns + gate-confirmation policy + override probability + avoid-behaviors. |
 | **Realism budget** | Discipline tracking real-operator behaviors the simulator wouldn't have produced. Logged via `/realism log` slash command; periodically reviewed; gaps trigger persona-library extensions or new scenarios. Realism-divergence metric tracks simulator-vs-reality drift over time. |
 | **Coverage tag** | Free-form string on a scenario naming the workflow path it exercises (`po-l1-five-phase-conversation`, `sa-cascade-confirmed-impossible`, etc.). Aggregate coverage report identifies workflow paths that no scenario tests. |
@@ -147,7 +147,7 @@ emerges during PO discovery. See "Project ontology" below.)
 
 | Term | What it is |
 |---|---|
-| **`project://` URI** | Stable address for any artifact or sub-element in a jig project. Multi-authority: `project://spec/...` (PO output), `project://arch/...` (SA contracts), `project://design/...` (VD wireframes + system), `project://plan/...` (PM build plan), `project://store/...` (runtime state). See `docs/uri-scheme/`. |
+| **`project://` URI** | Stable address for any artifact or sub-element in a jig project. Multi-authority: `project://spec/...` (PO output), `project://arch/...` (SA contracts), `project://design/...` (VD wireframes + system), `project://plan/...` (PM build plan), `project://store/...` (runtime state). See `docs/v2.0/uri-scheme/`. |
 | **Authority** (URI) | The first segment after `project://` — names the namespace. One of `spec` / `arch` / `design` / `plan` / `store`. Each has its own per-authority resolver. |
 | **Path-style fragment** | `#a/b/c` after a URI; resolves as nested-key lookup into the YAML/JSON content. New for v2 (sub-contract anchoring). Example: `project://arch/modules/catalog-ingest/contracts#owns/products/write_access`. Distinct from anchor-style fragments (`#single-id`) which match `{#anchor}` definitions in markdown sources. |
 | **Revision pin** (URI) | `@revision:N` between path and fragment. Resolves to the historical version of the artifact at that revision via the artifact's `change_log`. Used in cascade audit trails, ticket `implements_against` references, reviewer comments — anywhere a stable reference to a specific revision matters. |

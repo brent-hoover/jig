@@ -2,7 +2,7 @@
 
 The L0 PO captures pitch + problem + audience + product-level non-goals
 in a 3-5 turn conversation, then calls ``l0_finalize`` to write both
-``project.md`` (markdown form per ``docs/multi-level-spec/design.md``
+``brief.md`` (markdown form per ``docs/v2.0/multi-level-spec/design.md``
 §"L0 — Pitch") and ``project.structured.yaml`` (Pydantic dump of
 ``jig.schemas.po.Project``).
 
@@ -29,11 +29,11 @@ L0_TICKET_ID = "project"
 
 
 def _project_md_path(project_path: Path) -> Path:
-    return project_path / ".jig" / "spec" / "project.md"
+    return project_path / "docs" / "brief.md"
 
 
 def _project_structured_path(project_path: Path) -> Path:
-    return project_path / ".jig" / "spec" / "project.structured.yaml"
+    return project_path / "docs" / "project.structured.yaml"
 
 
 def render_project_md(project: Project) -> str:
@@ -145,8 +145,8 @@ async def handle_l0_finalize(
         author=author,
         phase="po-l1",
         outputs=[
-            ".jig/spec/project.md",
-            ".jig/spec/project.structured.yaml",
+            "docs/brief.md",
+            "docs/project.structured.yaml",
         ],
         summary=f"L0 captured: {project.name}",
     )

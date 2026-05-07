@@ -1,6 +1,6 @@
 """Reviewer self-check gate before comment persistence (Track G Final).
 
-Per ``docs/pm-workflow/design.md`` §"Reviewer self-check before
+Per ``docs/v2.0/pm-workflow/design.md`` §"Reviewer self-check before
 posting", every reviewer agent reviews its own output before publishing
 comments — a cheap filter for false positives. Final ships the
 **mechanical** gate that the reviewer's ``reviewer_post_comment`` MCP

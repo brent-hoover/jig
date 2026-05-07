@@ -501,7 +501,7 @@ Concretely:
 
 Out of scope (explicit):
 
-- Project-level spec (`.jig/spec/project.md` + `.structured.yaml`)
+- Project-level spec (`docs/brief.md` + `.structured.yaml`)
   with capability tree. Doc 02 is its own sizeable chunk of work;
   lives in a later phase once the ticket-spec plumbing has bedded
   in.
@@ -724,7 +724,7 @@ surface.
 
 ### Explicitly deferred out of Phase 3
 
-- **Project-level spec.** `.jig/spec/project.md` +
+- **Project-level spec.** `docs/brief.md` +
   `project.structured.yaml` with the capability tree, state
   transitions, and spec-agent synchronization. Needs its own
   sizeable implementation pass; owning a later phase.

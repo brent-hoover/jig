@@ -90,7 +90,7 @@ def _coerce_module_contracts(raw: Any) -> ContractsFile:
 def _validate_bones_minimums(
     arch: Architecture, contracts: ContractsFile
 ) -> None:
-    """Enforce the bones floor per ``docs/implementation/v2-plan.md``.
+    """Enforce the bones floor per ``docs/v2.0/implementation/v2-plan.md``.
 
     The Pydantic schemas allow empty lists everywhere — convenient for
     later authoring tools that build the artifact incrementally — but

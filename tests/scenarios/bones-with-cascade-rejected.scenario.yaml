@@ -3,7 +3,7 @@ id: bones-with-cascade-rejected
 description: |
   Extends ``bones-with-cascade`` with the operator rejecting the
   cascade proposal — Track C Final mitigation #1 per
-  ``docs/sa-architecture/design.md`` §"Failure modes and mitigations".
+  ``docs/v2.0/sa-architecture/design.md`` §"Failure modes and mitigations".
 
   The operator's rejection lands as a structured ``rejected`` row in
   ``.jig/arch/cascades/audit.jsonl`` so cross-project analytics can

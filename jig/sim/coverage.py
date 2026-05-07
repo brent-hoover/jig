@@ -1,6 +1,6 @@
 """Scenario coverage taxonomy + aggregation (Track H MVP follow-on).
 
-Per ``docs/synthetic-operator/design.md`` §"Coverage metrics", each
+Per ``docs/v2.0/synthetic-operator/design.md`` §"Coverage metrics", each
 scenario tags itself with ``coverage_tags`` naming the workflow paths
 it exercises. The aggregate coverage view answers:
 
@@ -54,8 +54,8 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "sa-spike-confirmed-impossible",
     "sa-cascade",
     # Track C Final — cascade failure-mode mitigations + Coordinator
-    # bones-first override per docs/sa-architecture/design.md
-    # §"Failure modes and mitigations" + docs/pm-workflow/design.md
+    # bones-first override per docs/v2.0/sa-architecture/design.md
+    # §"Failure modes and mitigations" + docs/v2.0/pm-workflow/design.md
     # §"Bones-first ordering".
     "cascade-rejected",
     "cascade-staged",
@@ -111,7 +111,7 @@ CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
     "severity-disposition",
     "comment-self-check",
     # Hardening — review federation runs as a **gate** on ticket
-    # resolution per docs/pm-workflow/design.md §"Severity tiers and
+    # resolution per docs/v2.0/pm-workflow/design.md §"Severity tiers and
     # disposition". Scenarios claiming this tag exercise at least one
     # disposition branch (critical→FAILED, important→BLOCKED+Handoff,
     # notable→RESOLVED+DEFERRED, or no-comments→RESOLVED).

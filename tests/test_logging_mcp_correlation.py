@@ -19,6 +19,45 @@ from jig.mcp_server import _wrap_with_context
 
 
 @pytest.mark.asyncio
+async def test_wrap_with_context_enforces_ticket_scope() -> None:
+    """SEC-I1: when the spawn is scoped to a ticket and the role does
+    not have cross-ticket access, MCP tool calls that reference a
+    different ticket_id must be rejected before reaching the handler."""
+
+    handler_called = False
+
+    async def handler(args):
+        nonlocal handler_called
+        handler_called = True
+        return {"ok": True}
+
+    wrapped = _wrap_with_context(
+        handler,
+        ticket_id="tid-abc",
+        phase="spec",
+        role="dev",
+        agent_id="dev:tid-abc",
+        enforce_ticket_scope=True,
+    )
+
+    # Same ticket: passes through.
+    await wrapped({"ticket_id": "tid-abc"})
+    assert handler_called
+
+    # Different ticket: refused.
+    handler_called = False
+    with pytest.raises(PermissionError, match="cross-ticket"):
+        await wrapped({"ticket_id": "tid-other"})
+    assert handler_called is False
+
+    # No ticket_id arg (e.g. create_ticket / list_tickets / record_learning):
+    # handler runs normally.
+    handler_called = False
+    await wrapped({"some_other": "value"})
+    assert handler_called
+
+
+@pytest.mark.asyncio
 async def test_wrap_with_context_sets_and_resets_contextvars() -> None:
     captured: dict = {}
 

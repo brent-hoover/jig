@@ -1,6 +1,6 @@
 """``/suite`` slash command — list / init / refresh suites (Track B Final).
 
-Per ``docs/multi-level-spec/design.md`` §"Workflow integration":
+Per ``docs/v2.0/multi-level-spec/design.md`` §"Workflow integration":
 
 - ``/suite list`` — list every suite with its brief status (pending /
   brief_ready / resolved).

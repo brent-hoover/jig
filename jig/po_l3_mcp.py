@@ -2,7 +2,7 @@
 
 The L3 PO writes ONE suite's brief and structured spec, scoped to the
 capabilities listed for that suite in ``.jig/spec/suites.yaml``.
-Per ``docs/multi-level-spec/design.md`` §"L3 — Suite brief", the L3
+Per ``docs/v2.0/multi-level-spec/design.md`` §"L3 — Suite brief", the L3
 PO reuses the existing simple-brief format but at suite scope:
 
 - ``.jig/spec/suites/<suite_id>/brief.md`` — markdown brief

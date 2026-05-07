@@ -1,6 +1,6 @@
 """Translation renderers — Track I MVP §6.
 
-Per ``docs/agent-leverage/problem.md`` §6: given any contract, render
+Per ``docs/v2.0/agent-leverage/problem.md`` §6: given any contract, render
 it as Pydantic / SQL / OpenAPI / sequence diagram / etc. — all from
 one source of truth. MVP ships **one** renderer
 (Pydantic-from-data-contract); the others land opportunistically when

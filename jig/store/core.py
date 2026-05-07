@@ -6,8 +6,27 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+# Default per-record byte cap for JSONL stores. 1 MiB is generous
+# enough for typical thread entries, ticket payloads, and analytics
+# events while being small enough to refuse a malicious agent that
+# tries to write a multi-megabyte blob in one call (SEC-I2 in
+# v2-review-findings-security.md). Stores that legitimately need
+# larger records can pass ``max_record_bytes=...``.
+DEFAULT_MAX_RECORD_BYTES: int = 1_048_576
+
+
+class RecordTooLargeError(ValueError):
+    """Raised when an insert / update record exceeds the store's cap."""
+
+
 class JsonlStore:
-    def __init__(self, path: Path, index_fields: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        index_fields: list[str] | None = None,
+        *,
+        max_record_bytes: int = DEFAULT_MAX_RECORD_BYTES,
+    ) -> None:
         self._path = path
         self._index_fields = list(index_fields or [])
         self._docs: dict[str, dict] = {}
@@ -16,6 +35,7 @@ class JsonlStore:
         }
         self._lock = asyncio.Lock()
         self._loaded = False
+        self._max_record_bytes = max_record_bytes
 
     async def load(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,8 +91,15 @@ class JsonlStore:
         self._loaded = True
 
     def _append_line(self, record: dict) -> None:
+        line = json.dumps(record)
+        if len(line.encode("utf-8")) > self._max_record_bytes:
+            raise RecordTooLargeError(
+                f"{self._path.name}: record exceeds "
+                f"{self._max_record_bytes} bytes "
+                f"(_id={record.get('_id')!r})"
+            )
         with self._path.open("a") as f:
-            f.write(json.dumps(record) + "\n")
+            f.write(line + "\n")
 
     def _index_insert(self, doc: dict) -> None:
         for field in self._index_fields:

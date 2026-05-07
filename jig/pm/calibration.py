@@ -1,6 +1,6 @@
 """Estimation calibration loop (Track F Final).
 
-Per ``docs/pm-workflow/design.md`` §"Estimation calibration":
+Per ``docs/v2.0/pm-workflow/design.md`` §"Estimation calibration":
 
 > Once the project has run a handful of tickets, observed cycles feed
 > back into Planner PM's estimation prompts. The metrics that matter:

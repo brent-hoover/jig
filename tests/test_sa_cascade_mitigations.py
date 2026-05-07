@@ -1,6 +1,6 @@
 """Cascade failure-mode mitigations (Track C Final).
 
-Per ``docs/sa-architecture/design.md`` §"Failure modes and mitigations":
+Per ``docs/v2.0/sa-architecture/design.md`` §"Failure modes and mitigations":
 the MVP cascade-after-impossible workflow lacks four mitigations the
 Final scope adds:
 

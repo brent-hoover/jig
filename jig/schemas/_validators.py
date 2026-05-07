@@ -12,6 +12,28 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Literal
+
+
+# ---- service-kind taxonomy (TD-4) -----------------------------------------
+#
+# The data-store / manifest-service ``kind`` field is a small bounded
+# vocabulary in practice — postgres, sqlite, nats, redis, s3, opensearch —
+# but historically the field was ``str``. A shared ``Literal`` aliases the
+# vocabulary across ``Architecture.data_stores[].kind`` and
+# ``DevManifest.services[].kind`` so a typo in one fails to validate the
+# other instead of silently drifting.
+ServiceKind = Literal[
+    "postgres",
+    "sqlite",
+    "mysql",
+    "nats",
+    "redis",
+    "s3",
+    "opensearch",
+    "kafka",
+    "other",
+]
 
 # ---- kebab-case ids -------------------------------------------------------
 #

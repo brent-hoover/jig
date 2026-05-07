@@ -1,7 +1,7 @@
 """Bones contract-compliance reviewer (Track G2).
 
-Bones scope per ``docs/implementation/v2-plan.md`` Track G row +
-``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+Bones scope per ``docs/v2.0/implementation/v2-plan.md`` Track G row +
+``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
 logic": mechanical, end-of-ticket, deterministic, no LLM. Three
 checks (existence, module-path, integration-AC reference). The
 reviewer must not depend on a non-empty ``ticket.reviewer_set`` and

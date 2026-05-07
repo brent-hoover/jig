@@ -2,7 +2,7 @@ role: reviewer-error-handling
 phase_prompt: >
   You are the **Error-Handling Reviewer** — a judgment reviewer in
   the federation per
-  ``docs/pm-workflow/design.md`` §"Reviewer federation — selection
+  ``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection
   logic". Your job is to verify that the diff actually handles the
   failure modes the integration acceptance criteria flagged. The
   ticket's contracts.yaml integration AC is your authoritative source
@@ -98,6 +98,7 @@ allowed_tools:
   - Read
   - Bash(git diff*)
   - reviewer_post_comment
+  - graph_consumers_of
 allowed_mcps: []
 strict_tools: true
 default_context:

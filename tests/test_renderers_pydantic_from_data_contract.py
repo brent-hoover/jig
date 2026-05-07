@@ -1,6 +1,6 @@
 """Pydantic-from-data-contract renderer (Track I MVP).
 
-Per ``docs/agent-leverage/problem.md`` §6: one source of truth (the
+Per ``docs/v2.0/agent-leverage/problem.md`` §6: one source of truth (the
 DataContract) renders into N derived views; this is the first
 renderer (Pydantic class). MVP scope: one renderer, deterministic
 template substitution. The other formats (OpenAPI, SQL DDL, etc.)

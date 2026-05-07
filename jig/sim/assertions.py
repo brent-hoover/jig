@@ -12,7 +12,7 @@ Bones ships the five assertion kinds the bones scenario actually checks:
 - ``cost_under_budget`` — total cost stayed under N USD (skipped in
   mock mode where there's no LLM cost)
 
-The full assertion taxonomy from ``docs/synthetic-operator/design.md``
+The full assertion taxonomy from ``docs/v2.0/synthetic-operator/design.md``
 §"Assertion framework" is a 13-kind superset; bones implements only
 what the bones scenario actually needs. Adding new kinds is one entry
 in the union + a check function in ``driver.evaluate_assertion``.

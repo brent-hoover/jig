@@ -74,10 +74,13 @@ def make_streaming_console(emitter: "EventEmitter"):
     """
     from rich.console import Console
 
-    return Console(
+    console = Console(
         file=_StreamFile(emitter),
         force_terminal=True,
         color_system="truecolor",
-        width=72,
-        soft_wrap=True,
+        width=88,
     )
+    # Stash the backing emitter so callers (e.g. _cli_emitter) can emit
+    # structured events (agent_thinking) through the same global channel.
+    console._jig_event_emitter = emitter  # type: ignore[attr-defined]
+    return console

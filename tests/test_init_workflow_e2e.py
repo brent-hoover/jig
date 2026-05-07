@@ -76,7 +76,7 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
     @agent.handle(role="po", ticket_id="brief")
     async def _po(ctx: AgentSpawnContext) -> None:
         proj = ctx.worktree_path
-        (proj / ".jig" / "spec" / "project.md").write_text(
+        (proj / "docs" / "brief.md").write_text(
             "# proj\n\nintro\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
@@ -119,8 +119,8 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             author="sa",
         )
 
-    # Auto-accept prompts: brief_approval=Y, branch=Y (SA), confirm=Y (accept proposal).
-    answers = iter(["Y", "Y", "Y"])
+    # Auto-accept prompts: brief_approval=Y, branch=Y (SA), confirm=Y, init_complete="".
+    answers = iter(["Y", "Y", "Y", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     # Both modules bind run_agent at import time (`from jig.agent import run_agent`),
@@ -130,11 +130,11 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
         await run_init(name="proj", force=False)
 
     project = tmp_path / "proj"
-    assert (project / ".jig" / "spec" / "project.md").is_file()
-    assert (project / ".jig" / "spec" / "project.structured.yaml").is_file()
-    assert (project / ".jig" / "spec" / "architecture.yaml").is_file()
+    assert (project / "docs" / "brief.md").is_file()
+    assert (project / "docs" / "project.structured.yaml").is_file()
+    assert (project / "docs" / "architecture.yaml").is_file()
     arch = yaml.safe_load(
-        (project / ".jig" / "spec" / "architecture.yaml").read_text()
+        (project / "docs" / "architecture.yaml").read_text()
     )
     assert arch["template"] == "python"
     assert arch["sa_path"] is True
@@ -148,7 +148,7 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
     @agent.handle(role="po", ticket_id="brief")
     async def _po(ctx: AgentSpawnContext) -> None:
         proj = ctx.worktree_path
-        (proj / ".jig" / "spec" / "project.md").write_text(
+        (proj / "docs" / "brief.md").write_text(
             "# directproj\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
@@ -172,8 +172,8 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
             author="spec-generator",
         )
 
-    # brief_approval=Y, branch="p" (direct), template pick="1" (first in sorted list).
-    answers = iter(["Y", "p", "1"])
+    # brief_approval=Y, branch="p" (direct), template pick="1", init_complete="".
+    answers = iter(["Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with patch("jig.init_workflow.run_agent", new=agent.run), \
@@ -181,7 +181,7 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
         await run_init(name="directproj", force=False)
 
     project = tmp_path / "directproj"
-    arch_file = project / ".jig" / "spec" / "architecture.yaml"
+    arch_file = project / "docs" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False
@@ -199,7 +199,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
     @agent.handle(role="po", ticket_id="brief")
     async def _po(ctx: AgentSpawnContext) -> None:
         proj = ctx.worktree_path
-        (proj / ".jig" / "spec" / "project.md").write_text(
+        (proj / "docs" / "brief.md").write_text(
             "# resumeproj\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
@@ -227,7 +227,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
     # BRANCH_PROMPT fires (call 2 → KeyboardInterrupt).
     # Second run: resumes at BRANCH_PROMPT (brief already approved +
     # spec already generated), picks direct path + template 1.
-    second_answers = iter(["p", "1"])
+    second_answers = iter(["p", "1", ""])
     call_count = {"n": 0}
 
     def fake_prompt(*a, **kw):
@@ -248,7 +248,7 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
         await run_init(name="resumeproj", force=False)
 
     project = tmp_path / "resumeproj"
-    arch_file = project / ".jig" / "spec" / "architecture.yaml"
+    arch_file = project / "docs" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False
@@ -268,7 +268,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
     @agent.handle(role="po", ticket_id="brief")
     async def _po(ctx: AgentSpawnContext) -> None:
         proj = ctx.worktree_path
-        (proj / ".jig" / "spec" / "project.md").write_text(
+        (proj / "docs" / "brief.md").write_text(
             "# storyproj\n\n## Planned (committed)\n\n### X\nprose\n"
         )
         await handle_po_finish_brief(
@@ -292,7 +292,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
             author="spec-generator",
         )
 
-    answers = iter(["Y", "p", "1"])
+    answers = iter(["Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with patch("jig.init_workflow.run_agent", new=agent.run), \
@@ -345,7 +345,7 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
             "# gapproj\n\n## Planned (committed)\n\n"
             f"### X{po_calls['n']}\nprose v{po_calls['n']}\n"
         )
-        (proj / ".jig" / "spec" / "project.md").write_text(body)
+        (proj / "docs" / "brief.md").write_text(body)
         await handle_po_finish_brief(
             tickets=ctx.tickets,
             threads=ctx.threads,
@@ -384,8 +384,8 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
             author="spec-generator",
         )
 
-    # Sequence: brief_approval→Y, gap-prompt→R, brief_approval→Y, branch→p (direct), template→1.
-    answers = iter(["Y", "R", "Y", "p", "1"])
+    # Sequence: brief_approval→Y, gap-prompt→R, brief_approval→Y, branch→p (direct), template→1, init_complete→"".
+    answers = iter(["Y", "R", "Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with patch("jig.init_workflow.run_agent", new=agent.run), \
@@ -393,7 +393,7 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
         await run_init(name="gapproj", force=False)
 
     project = tmp_path / "gapproj"
-    arch_file = project / ".jig" / "spec" / "architecture.yaml"
+    arch_file = project / "docs" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False

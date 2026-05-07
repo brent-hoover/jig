@@ -87,7 +87,7 @@ mutation.
 
 The CLI shall create the initial on-disk stub before spawning any
 agent: `.jig/project.yaml` (with `id`, `name`, `created_at`) and
-`.jig/spec/project.md` (empty or containing only `# <name>`).
+`docs/brief.md` (empty or containing only `# <name>`).
 
 **Acceptance:** After step 2 of the flow, both files exist and
 parse; `.jig/spec/architecture.yaml` and

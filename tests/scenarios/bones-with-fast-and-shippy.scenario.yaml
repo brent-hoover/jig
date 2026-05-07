@@ -2,7 +2,7 @@ spec_version: 1
 id: bones-with-fast-and-shippy
 description: |
   Same shape as ``bones-with-planner`` but driven by the
-  fast-and-shippy persona. Per ``docs/synthetic-operator/design.md``
+  fast-and-shippy persona. Per ``docs/v2.0/synthetic-operator/design.md``
   §"Persona library", fast-and-shippy accepts gates without scrutiny,
   pushes for MVP minimums, and willingly defers complications.
 
@@ -41,7 +41,7 @@ steps:
       author: po-l0
     assertions:
       - kind: artifact_written
-        path: .jig/spec/project.md
+        path: docs/brief.md
         contains: bones-with-fast-and-shippy
       # Gate confirmation reached cleanly: the L0 ticket transitions
       # to resolved without re-opening (the methodical refusal-then-

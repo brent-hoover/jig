@@ -3,7 +3,7 @@
 Extends ``bones-with-mvp-sa`` with a tracer-bullet ticket carrying
 ``labels: ["touches-auth"]`` so the specialty-reviewer dispatch step
 verifies ``reviewer-security`` is selected per
-``docs/pm-workflow/design.md`` §"Reviewer federation — selection logic".
+``docs/v2.0/pm-workflow/design.md`` §"Reviewer federation — selection logic".
 Mock-mode only — the specialty reviewer's LLM agent isn't spawned;
 this test pins the dispatch contract.
 """

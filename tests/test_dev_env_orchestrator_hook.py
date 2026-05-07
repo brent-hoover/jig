@@ -143,8 +143,12 @@ async def test_provision_for_agent_returns_env_var_map(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_provision_for_agent_swallows_errors(tmp_path: Path):
-    """Provisioner exceptions short-circuit to an empty env map."""
+async def test_provision_for_agent_raises_on_failure(tmp_path: Path):
+    """SF-1: provisioner exceptions surface as ``DevProvisioningError``
+    so the orchestrator can mark the spawn failed instead of running
+    the agent against default services with an empty env map."""
+    from jig.dev_env.orchestrator_hook import DevProvisioningError
+
     _seed_arch_and_manifest(tmp_path)
 
     class _Boom(PostgresSchemaProvisioner):
@@ -153,10 +157,10 @@ async def test_provision_for_agent_swallows_errors(tmp_path: Path):
 
     reg = ProvisioningRegistry()
     reg.register("postgres", _Boom())
-    out = await provision_for_agent(
-        tmp_path, agent_id="d", ticket_id="t-1", registry=reg,
-    )
-    assert out == {}
+    with pytest.raises(DevProvisioningError, match="provisioning failed"):
+        await provision_for_agent(
+            tmp_path, agent_id="d", ticket_id="t-1", registry=reg,
+        )
 
 
 @pytest.mark.asyncio

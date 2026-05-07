@@ -1,11 +1,12 @@
-"""Right-docked Sidebar with three subzones (Activity / Queue / Tail).
+"""Right-docked Sidebar with four subzones (Activity / Needs You / Queue / Tail).
 
 Per ``ontology.md`` "Sidebar" terminology. Visible regardless of which
 Pane is active so the operator always has a peripheral view of:
 
-  - Activity: which agents are currently thinking / running
-  - Queue:    which tickets are open / waiting
-  - Tail:     the most recent bus events
+  - Activity:  which agents are currently thinking / running
+  - Needs You: tickets currently blocked on operator input
+  - Queue:     which tickets are open / waiting
+  - Tail:      the most recent bus events
 
 Each subzone is fed by JigApp's ``_handle_daemon_message`` fan-out
 when relevant snapshots / events arrive.
@@ -59,9 +60,16 @@ class Sidebar(Widget):
     Sidebar #activity {
         height: auto;
         min-height: 4;
-        max-height: 12;
+        max-height: 10;
         padding: 0 1 1 1;
         border-bottom: dashed $accent-darken-2;
+    }
+    Sidebar #needs-you {
+        height: auto;
+        min-height: 3;
+        max-height: 10;
+        padding: 0 1 1 1;
+        border-bottom: dashed yellow;
     }
     Sidebar #queue {
         height: 1fr;
@@ -71,6 +79,10 @@ class Sidebar(Widget):
     Sidebar #tail {
         height: 12;
         padding: 0 1;
+    }
+    Sidebar #needs-you .zone-header {
+        color: black;
+        background: yellow;
     }
     .zone-header {
         height: 1;
@@ -90,6 +102,11 @@ class Sidebar(Widget):
                 zone_id="activity",
                 title="Activity",
                 empty="no agents running",
+            )
+            yield _Zone(
+                zone_id="needs-you",
+                title="Needs You",
+                empty="nothing waiting on you",
             )
             yield _Zone(
                 zone_id="queue",
@@ -146,6 +163,7 @@ class Sidebar(Widget):
         else:
             self._tickets = {t["id"]: t for t in data if "id" in t}
         self._render_queue()
+        self._render_needs_you()
 
     def update_ticket_event(self, kind: str, data: dict) -> None:
         ticket_payload = (
@@ -162,6 +180,7 @@ class Sidebar(Widget):
             merged["id"] = ticket_id
         self._tickets[ticket_id] = merged
         self._render_queue()
+        self._render_needs_you()
 
     _STATUS_GLYPH = {
         "open": "○",
@@ -186,6 +205,38 @@ class Sidebar(Widget):
     _OPEN_STATUSES = frozenset(
         {"open", "in_progress", "blocked", "needs_info", "merge_conflict"}
     )
+
+    def _render_needs_you(self) -> None:
+        """Render tickets currently blocked on operator input.
+
+        Driven from the tickets snapshot — every ticket with status
+        ``needs_info`` (or ``merge_conflict``, which also requires
+        operator action) shows up here so the operator can see at a
+        glance what's actually waiting on them.
+        """
+        try:
+            zone = self.query_one("#needs-you", _Zone)
+        except Exception:
+            return
+        actionable = [
+            t
+            for t in self._tickets.values()
+            if t.get("status") in ("needs_info", "merge_conflict")
+        ]
+        # Sort: needs_info before merge_conflict (input is less destructive
+        # than resolving a conflict, do the easy ones first).
+        actionable.sort(key=lambda t: 0 if t.get("status") == "needs_info" else 1)
+        lines = []
+        for t in actionable[:6]:
+            status = t.get("status", "")
+            title = t.get("title", "(untitled)")
+            if len(title) > 24:
+                title = title[:21] + "…"
+            if status == "needs_info":
+                lines.append(f"[bold yellow]?[/bold yellow] {title}")
+            else:
+                lines.append(f"[bold yellow]⚠[/bold yellow] {title}")
+        zone.set_lines(lines)
 
     def _render_queue(self) -> None:
         try:

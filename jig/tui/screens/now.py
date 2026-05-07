@@ -112,6 +112,32 @@ _ROLE_COLORS: dict[str, str] = {
 }
 
 
+_ROLE_BG_TINTS: dict[str, str] = {
+    "pm": "#0e2026",
+    "po": "#0a1c20",
+    "po-l0": "#0a1c20",
+    "po-l1": "#0a1c20",
+    "po-l2": "#0a1c20",
+    "po-l3": "#0a1c20",
+    "sa": "#22102a",
+    "sa-mvp": "#22102a",
+    "sa-v2": "#22102a",
+    "spec": "#0e2410",
+    "spec-generator": "#0e2410",
+    "test": "#22220a",
+    "dev": "#0a1024",
+    "review": "#26200a",
+    "validate": "#22220a",
+    "document": "#1c1c1c",
+    "concierge": "#22102a",
+    "quartermaster": "#1c1c1c",
+}
+
+
+def _role_bg_tint(role: str) -> str:
+    return _ROLE_BG_TINTS.get(role, "#1c1c1c")
+
+
 _ROLE_FULL_NAMES: dict[str, str] = {
     "pm": "Project Manager",
     "po": "Product Owner",
@@ -656,22 +682,34 @@ class NowScreen(Container):
 
                 role = data.get("role", "agent")
                 color = _role_color(role)
+                bg_tint = _role_bg_tint(role)
                 full_name = _role_full_name(role)
                 ticket_id = data.get("ticket_id") or ""
                 ticket_title = data.get("ticket_title") or ""
                 phase = data.get("phase") or ""
 
                 # Build a centered banner: full name on top line, then a
-                # dim subtitle with what they're working on. Color-coded
-                # border + colored background tint so each agent's
-                # output is grouped under a visible header.
-                title_text = Text(full_name, style=f"bold black on {color}")
+                # dim subtitle with what the agent is working on. The
+                # whole panel gets a subtle role-tinted background so
+                # subsequent output beneath the banner reads as "this
+                # agent's work" until the next banner appears.
+                title_text = Text(full_name, style=f"bold {color} on {bg_tint}")
                 subtitle_lines: list[Text] = []
                 if ticket_title:
                     subtitle_lines.append(
                         Text.assemble(
-                            ("Working on: ", "dim"),
-                            (ticket_title, f"bold {color}"),
+                            ("Working on: ", f"dim on {bg_tint}"),
+                            (ticket_title, f"bold {color} on {bg_tint}"),
+                        )
+                    )
+                else:
+                    # Fallback when the role didn't pass a subtitle —
+                    # rather than leave the banner silent, label it with
+                    # the role's default activity.
+                    subtitle_lines.append(
+                        Text(
+                            "(no ticket context)",
+                            style=f"dim on {bg_tint}",
                         )
                     )
                 meta_bits: list[str] = []
@@ -680,20 +718,22 @@ class NowScreen(Container):
                 if ticket_id:
                     meta_bits.append(f"ticket: {ticket_id[:8]}")
                 if meta_bits:
-                    subtitle_lines.append(Text("  ·  ".join(meta_bits), style="dim"))
+                    subtitle_lines.append(
+                        Text("  ·  ".join(meta_bits), style=f"dim on {bg_tint}")
+                    )
 
                 inner: list = [Align.center(title_text)]
                 for line in subtitle_lines:
                     inner.append(Align.center(line))
                 # ``expand=True`` makes the panel span the full
                 # RichLog width so the right border lines up with the
-                # scrollback edge. The user's report of a misaligned
-                # banner was the panel rendering at content-width and
-                # leaving a gap on the right.
+                # scrollback edge. ``style`` paints the inner area
+                # with the role's background tint.
                 scrollback.write(
                     Panel(
                         Group(*inner),
                         border_style=color,
+                        style=f"on {bg_tint}",
                         padding=(0, 2),
                         expand=True,
                     )

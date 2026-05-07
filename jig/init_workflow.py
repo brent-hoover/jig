@@ -267,7 +267,11 @@ async def run_init(
             console.print("Brief not approved. State saved.", markup=False)
             return
         if rs == ResumeState.SPEC_GENERATION:
-            async with _cli_emitter("Spec Generator", console=console) as emitter:
+            async with _cli_emitter(
+                "Spec Generator",
+                console=console,
+                subtitle="Generating structured spec from docs/brief.md",
+            ) as emitter:
                 await run_spec_generator(
                     project_path=target, tickets=tickets,
                     threads=threads, memory=memory, bus=bus,
@@ -562,15 +566,24 @@ async def run_po_conversation(
         memory=memory,
         bus=bus,
     )
-    await _run_agent_with_cli_output(ctx, role_label="Product Owner", console=console)
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="Product Owner",
+        console=console,
+        subtitle="Refining the project brief with the operator",
+    )
 
 
 async def _run_agent_with_cli_output(
-    ctx: AgentSpawnContext, *, role_label: str, console: "Console | None" = None
+    ctx: AgentSpawnContext,
+    *,
+    role_label: str,
+    console: "Console | None" = None,
+    subtitle: str | None = None,
 ) -> None:
     """Spawn ``run_agent(ctx)`` with a CLI-side emitter that streams
     text/tool/result events to stdout. Used by PO and SA spawn helpers."""
-    async with _cli_emitter(role_label, console=console) as emitter:
+    async with _cli_emitter(role_label, console=console, subtitle=subtitle) as emitter:
         await run_agent(ctx, emitter=emitter)
 
 
@@ -588,7 +601,12 @@ _CONSOLE = None  # type: ignore[var-annotated]
 
 
 @asynccontextmanager
-async def _cli_emitter(role_label: str, *, console: "Console | None" = None):
+async def _cli_emitter(
+    role_label: str,
+    *,
+    console: "Console | None" = None,
+    subtitle: str | None = None,
+):
     """Context manager that yields an ``EventEmitter`` and runs a rich
     Status spinner for the spawn duration.
 
@@ -613,11 +631,17 @@ async def _cli_emitter(role_label: str, *, console: "Console | None" = None):
 
     if tui_emitter is not None:
         # TUI mode: emit a structured event so the TUI can render a
-        # native full-width Rule rather than a pre-baked ANSI string.
+        # native full-width banner rather than a pre-baked ANSI string.
+        # Pass a subtitle (what this agent is working on) so the banner
+        # has a "Working on: …" line beneath the role name — operators
+        # then see what's happening, not just "an agent started."
         from jig.events import JigEvent
         loop = asyncio.get_running_loop()
+        data = {"role": role_label}
+        if subtitle:
+            data["ticket_title"] = subtitle
         loop.create_task(
-            tui_emitter.emit(JigEvent(type="agent_start", data={"role": role_label}))
+            tui_emitter.emit(JigEvent(type="agent_start", data=data))
         )
     else:
         from rich.rule import Rule
@@ -937,7 +961,12 @@ async def run_sa_conversation(
         memory=memory,
         bus=bus,
     )
-    await _run_agent_with_cli_output(ctx, role_label="Solutions Architect", console=console)
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="Solutions Architect",
+        console=console,
+        subtitle="Picking template + framing the architecture",
+    )
 
 
 def render_template_list(names: list[str]) -> str:

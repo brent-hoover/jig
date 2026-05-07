@@ -175,7 +175,7 @@ class NowScreen(Container):
     }
     #prompt-panel {
         height: auto;
-        max-height: 14;
+        max-height: 22;
         dock: bottom;
         padding: 0 1;
         border: round yellow;
@@ -445,27 +445,7 @@ class NowScreen(Container):
         if len(body) > 600:
             body = body[:597].rstrip() + "…"
 
-        if options:
-            opt_parts = []
-            for opt in options:
-                key = opt.get("key", "")
-                label = opt.get("label", "")
-                if opt.get("default"):
-                    opt_parts.append(
-                        f"[bold black on bright_yellow] {key} [/bold black on bright_yellow] {label} (default)"
-                    )
-                else:
-                    opt_parts.append(
-                        f"[bold black on bright_cyan] {key} [/bold black on bright_cyan] {label}"
-                    )
-            hint = "   ".join(opt_parts)
-        elif prompt_type == "direct_template" and templates:
-            hint = "[bold]Pick a number 1–%d below.[/bold]" % len(templates)
-        else:
-            hint = "[bold]Type your answer below and press Enter.[/bold]"
-
-        # Header line + (optional) question body + hint. Use Rich markup
-        # throughout so all three pieces render with consistent styling.
+        # Build the panel content.
         lines = [
             f"[bold black on bright_yellow] » ANSWER NEEDED [/bold black on bright_yellow] "
             f"[bold]{header_label}[/bold]"
@@ -473,8 +453,34 @@ class NowScreen(Container):
         if body:
             lines.append("")
             lines.append(body)
-        lines.append("")
-        lines.append(hint)
+
+        if options:
+            lines.append("")
+            for opt in options:
+                key = opt.get("key", "")
+                label = opt.get("label", "")
+                if opt.get("default"):
+                    badge = (
+                        f"[bold black on bright_yellow] {key} [/bold black on bright_yellow]"
+                    )
+                    lines.append(f"  {badge} {label} [dim](default)[/dim]")
+                else:
+                    badge = (
+                        f"[bold black on bright_cyan] {key} [/bold black on bright_cyan]"
+                    )
+                    lines.append(f"  {badge} {label}")
+            lines.append("")
+            lines.append(
+                "[dim]Type the key (e.g. " + ", ".join(
+                    f"[bold]{o.get('key','')}[/bold]" for o in options
+                ) + ") and press Enter.[/dim]"
+            )
+        elif prompt_type == "direct_template" and templates:
+            lines.append("")
+            lines.append(f"[bold]Pick a number 1–{len(templates)} below.[/bold]")
+        else:
+            lines.append("")
+            lines.append("[bold]Type your answer below and press Enter.[/bold]")
 
         panel.update("\n".join(lines))
         panel.set_class(True, "visible")

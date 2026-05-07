@@ -90,6 +90,32 @@ class JigTextArea(TextArea):
 _RICH_TAG_RE = re.compile(r"\[/?[a-zA-Z][a-zA-Z0-9_ ]*\]")
 
 
+# Stable color per role so the operator's eye can pick out which agent
+# is talking at a glance. Falls back to bright_white for unknown roles.
+_ROLE_COLORS: dict[str, str] = {
+    "pm": "bright_cyan",
+    "po": "cyan",
+    "po-l0": "cyan",
+    "po-l1": "cyan",
+    "po-l2": "cyan",
+    "po-l3": "cyan",
+    "sa": "magenta",
+    "spec": "bright_green",
+    "spec-generator": "bright_green",
+    "test": "bright_yellow",
+    "dev": "bright_blue",
+    "review": "yellow",
+    "validate": "bright_yellow",
+    "document": "white",
+    "concierge": "bright_magenta",
+    "quartermaster": "bright_white",
+}
+
+
+def _role_color(role: str) -> str:
+    return _ROLE_COLORS.get(role, "bright_white")
+
+
 def _strip_rich_markup(text: str) -> str:
     """Remove Rich markup tags so Markdown rendering doesn't show them literally.
 
@@ -227,6 +253,10 @@ class NowScreen(Container):
         self._history_idx: int | None = None  # None = at the live edit; 0..len-1 = recall
         self._pending_value: str = ""
         self._scroll_paused: bool = False
+        # Last agent role rendered to scrollback. Suppresses repeated
+        # ``role:`` labels when the same agent emits consecutive turns
+        # so the eye can scan multi-turn reasoning as one thought.
+        self._last_role: str | None = None
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="scrollback", auto_scroll=True, markup=True, wrap=True)
@@ -482,9 +512,31 @@ class NowScreen(Container):
             lines.append("")
             lines.append("[bold]Type your answer below and press Enter.[/bold]")
 
-        panel.update("\n".join(lines))
+        content = "\n".join(lines)
+        panel.update(content)
         panel.set_class(True, "visible")
         self.set_class(True, "answering")
+
+        # Compute the height needed for the actual content (incl. wrapping
+        # of long question text) so the panel never clips its hint or
+        # options. Falls back to a reasonable default if size isn't known
+        # yet (first render before layout has run).
+        screen_width = (self.size.width or 100)
+        # Panel inner width = screen − sidebar − border − padding − slack.
+        # We don't know the exact sidebar width here, so estimate
+        # generously; a too-tall panel is fine, a too-short one clips.
+        panel_inner = max(30, screen_width - 40)
+        hard_lines = 0
+        wrap_lines = 0
+        # Strip Rich markup tags for length measurement only.
+        plain_re = re.compile(r"\[/?[^\]]+\]")
+        for line in content.splitlines() or [""]:
+            hard_lines += 1
+            visible_len = len(plain_re.sub("", line))
+            if visible_len > panel_inner:
+                wrap_lines += -(-visible_len // panel_inner) - 1  # ceil
+        # +2 for the round border, +1 slack to avoid edge-case clipping.
+        panel.styles.height = hard_lines + wrap_lines + 3
 
     def action_toggle_pause_scroll(self) -> None:
         """Pause / resume scrollback auto-scroll.
@@ -573,7 +625,12 @@ class NowScreen(Container):
             if kind == "start":
                 from rich.rule import Rule
                 role = data.get("role", "agent")
-                scrollback.write(Rule(f"[bold cyan]{role}[/bold cyan]", style="cyan"))
+                color = _role_color(role)
+                scrollback.write(Rule(f"[bold {color}]{role}[/bold {color}]", style=color))
+                # Force the next text turn to print its role label even
+                # if it matches the rule's role (the rule is visual, the
+                # label stays informational).
+                self._last_role = None
                 return
             if kind == "text":
                 # Concierge / agent narration. Render with a role label.
@@ -581,7 +638,15 @@ class NowScreen(Container):
                 role = data.get("role", "agent")
                 if text:
                     from rich.markdown import Markdown
-                    scrollback.write(f"[bold]{role}:[/bold]")
+                    # Suppress the role label if the previous turn was
+                    # from the same agent — multi-turn reasoning reads
+                    # better as one block than as repeated "pm:" headers.
+                    if role != self._last_role:
+                        color = _role_color(role)
+                        scrollback.write(
+                            f"[bold {color}]{role}:[/bold {color}]"
+                        )
+                        self._last_role = role
                     # Agents emit a mix of Markdown (**bold**) and Rich
                     # markup ([bold]X[/bold]). Markdown rendering treats
                     # the Rich tags as literal text — strip them so the
@@ -647,22 +712,16 @@ class NowScreen(Container):
         self._active_prompt_type = prompt_type
 
         if prompt_type == "question_answer":
-            from rich.panel import Panel
-            from rich.text import Text
-
-            q_text = data.get("question_text", "")
+            # Question text is shown in the pinned prompt panel below;
+            # don't duplicate it as a scrollback Panel. We do leave a
+            # short dim breadcrumb so a scrolled-back history shows
+            # *that* a question was asked, even if it's been answered.
             asker = data.get("asker", "agent")
             idx = data.get("index", 1)
             total = data.get("total", 1)
             suffix = f" ({idx}/{total})" if total > 1 else ""
             scrollback.write(
-                Panel(
-                    Text(q_text, style="bold"),
-                    title=f"[cyan]{asker} asks{suffix}[/cyan]",
-                    title_align="left",
-                    border_style="cyan",
-                    padding=(0, 2),
-                )
+                f"[dim cyan]› {asker} asked{suffix} — see prompt below[/dim cyan]"
             )
         else:
             rendered = data.get("rendered")

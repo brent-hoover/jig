@@ -5,11 +5,12 @@ Usage:
     scripts/project_reset.py /absolute/path/to/project
 
 What it does (in order):
-1. Reads ``docs/brief.md`` into memory if present.
-2. Stops any running jig daemon for the project (best-effort).
-3. Removes git worktrees and deletes every ``jig/*`` branch.
-4. Hard-resets to the repo's root commit and cleans untracked files.
-5. Restores ``docs/brief.md`` from the preserved content (if any).
+1. Stops any running jig daemon for the project (best-effort).
+2. Removes git worktrees and deletes every ``jig/*`` branch.
+3. Hard-resets to the repo's root commit.
+4. Runs ``git clean -fdx`` while excluding ``docs/brief.md`` (and its
+   parent ``docs/`` dir if that's the only file in it) so the brief is
+   never touched on disk.
 
 Intended for the eval workflow: drop a fresh brief into a project, run
 ``jig init``, do an eval pass, then this script lets you start over from
@@ -56,16 +57,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: not a git repository: {proj}", file=sys.stderr)
         return 2
 
-    # 1. Preserve docs/brief.md.
     brief_path = proj / "docs" / "brief.md"
-    brief_content: str | None = None
-    if brief_path.is_file():
-        brief_content = brief_path.read_text()
-        print(f"[preserve] docs/brief.md ({len(brief_content)} chars)")
+    brief_present = brief_path.is_file()
+    if brief_present:
+        print(f"[preserve] docs/brief.md ({brief_path.stat().st_size} bytes)")
     else:
-        print("[preserve] no docs/brief.md to preserve")
+        print("[preserve] no docs/brief.md present")
 
-    # 2. Stop daemon if running. Best-effort: a missing daemon shouldn't
+    # Stop daemon if running. Best-effort: a missing daemon shouldn't
     # block the reset.
     if (proj / ".jig" / "run" / "daemon.pid").is_file():
         result = subprocess.run(
@@ -78,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"[daemon] stop returned {result.returncode} (ignoring)")
 
-    # 3. Prune worktrees and delete jig/* branches BEFORE reset so refs
+    # Prune worktrees and delete jig/* branches BEFORE reset so refs
     # are still resolvable.
     try:
         _run(["git", "worktree", "prune"], cwd=proj)
@@ -104,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"[git] could not delete {name}: {result.stderr.strip()}")
 
-    # 4. Hard-reset to the repo's root commit and clean untracked files.
+    # Hard-reset to the repo's root commit. This only affects TRACKED
+    # files — the brief is untracked so it's not touched here.
     root_out = _run(
         ["git", "rev-list", "--max-parents=0", "HEAD"], cwd=proj
     ).stdout
@@ -115,13 +115,37 @@ def main(argv: list[str] | None = None) -> int:
     root = roots[0]
     print(f"[git] resetting to root commit {root[:8]}")
     _run(["git", "reset", "--hard", root], cwd=proj)
-    _run(["git", "clean", "-fdx"], cwd=proj)
 
-    # 5. Restore docs/brief.md.
-    if brief_content is not None:
-        brief_path.parent.mkdir(parents=True, exist_ok=True)
-        brief_path.write_text(brief_content)
-        print(f"[restore] wrote docs/brief.md ({len(brief_content)} chars)")
+    # Clean untracked files but exclude docs/brief.md so it stays on
+    # disk untouched. ``git clean -d`` would otherwise remove the docs/
+    # directory along with the brief; ``-e docs/brief.md`` excludes the
+    # specific file, and excluding ``docs/`` keeps the directory.
+    clean_args = ["git", "clean", "-fdx"]
+    if brief_present:
+        clean_args.extend(["-e", "docs/brief.md", "-e", "docs/"])
+    _run(clean_args, cwd=proj)
+    print(f"[git] cleaned untracked files (brief preserved: {brief_present})")
+
+    # If brief.md was preserved, the docs/ dir still has it. If anything
+    # else was in docs/ besides brief.md, it's still there too — remove
+    # those leftovers manually so docs/ contains only the brief.
+    if brief_present:
+        docs_dir = proj / "docs"
+        for child in docs_dir.iterdir():
+            if child.resolve() == brief_path.resolve():
+                continue
+            if child.is_dir():
+                import shutil
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        # Sanity check
+        if not brief_path.is_file():
+            print(
+                "error: docs/brief.md was lost during clean — investigate",
+                file=sys.stderr,
+            )
+            return 1
 
     print("done.")
     return 0

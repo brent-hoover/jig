@@ -42,6 +42,38 @@ def _run(
     )
 
 
+def _kill_orphan_on_port(port: int) -> None:
+    """Best-effort: SIGTERM any process listening on the given TCP port.
+
+    Catches the case where a prior ``jig`` launch left a daemon running
+    but the PID file was wiped before ``jig daemon stop`` could find
+    it. Without this, the next ``jig`` launch hits "address already in
+    use" with no obvious recovery path. macOS-only (``lsof -ti``); on
+    other platforms this silently no-ops.
+    """
+    import os
+    import signal
+
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return  # no lsof available; nothing to do
+    pids = [int(p) for p in result.stdout.split() if p.strip().isdigit()]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"[daemon] killed orphan listener pid={pid} on :{port}")
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            print(f"[daemon] cannot kill pid={pid} on :{port} (permission)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument(
@@ -95,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("[brief] no brief to preserve and no --brief given")
 
-    # Stop daemon if running. Best-effort: a missing daemon shouldn't
+    # Stop daemon if tracked. Best-effort: a missing PID file shouldn't
     # block the reset. Read pid file BEFORE we wipe .jig/.
     if (proj / ".jig" / "run" / "daemon.pid").is_file():
         result = subprocess.run(
@@ -104,9 +136,15 @@ def main(argv: list[str] | None = None) -> int:
             text=True,
         )
         if result.returncode == 0:
-            print("[daemon] stopped")
+            print("[daemon] stopped via PID file")
         else:
             print(f"[daemon] stop returned {result.returncode} (ignoring)")
+
+    # Belt-and-suspenders: kill any orphan daemon listening on the
+    # default WS port (9100). This catches the case where a previous
+    # launch left a daemon running but its PID file was already wiped
+    # by a partial reset, so ``jig daemon stop`` couldn't find it.
+    _kill_orphan_on_port(9100)
 
     # Wipe EVERYTHING in the project directory, including .git/. Old
     # commit history (e.g. the previous scaffold commit, T1's branch

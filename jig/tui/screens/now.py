@@ -518,6 +518,30 @@ class NowScreen(Container):
             except Exception:
                 pass
 
+    async def _send_command_safely(self, name: str, args: dict) -> bool:
+        """Send a command to the daemon, surfacing errors to scrollback.
+
+        Returns True on success, False on failure. The TUI would
+        otherwise raise (e.g. ``RuntimeError: not connected``) up to
+        Textual and crash the app — particularly bad when the daemon
+        couldn't auto-start (port collision) and the operator just
+        types ``/start``.
+        """
+        try:
+            await self.app.client.send_command(name, args)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            try:
+                scrollback = self.query_one("#scrollback", RichLog)
+                state = getattr(self.app.daemon_state, "value", "unknown")
+                scrollback.write(
+                    f"[red]error:[/red] could not send /{name}: {exc} "
+                    f"[dim](daemon: {state})[/dim]"
+                )
+            except Exception:
+                pass
+            return False
+
     def _hide_prompt_panel(self) -> None:
         try:
             panel = self.query_one("#prompt-panel", Static)
@@ -761,7 +785,7 @@ class NowScreen(Container):
         else:
             # Free-text → spawn the concierge with the input as the query.
             # The agent's text response streams back as agents/text events.
-            await self.app.client.send_command("concierge", {"args": [text]})
+            await self._send_command_safely("concierge", {"args": [text]})
         self._clear_input()
 
     # Keep a shim for tests / callers that still use the old Input.Submitted
@@ -820,7 +844,7 @@ class NowScreen(Container):
             else:
                 await self._dispatch_slash(parsed)
         else:
-            await self.app.client.send_command("concierge", {"args": [text]})
+            await self._send_command_safely("concierge", {"args": [text]})
         try:
             event.input.clear()
         except Exception:
@@ -873,4 +897,4 @@ class NowScreen(Container):
             # Delegate everything else (including /init, future commands) to
             # the daemon dispatcher. Result/error envelope arrives via
             # handle_command_result.
-            await self.app.client.send_command(parsed.name, {"args": parsed.args})
+            await self._send_command_safely(parsed.name, {"args": parsed.args})

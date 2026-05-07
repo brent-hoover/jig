@@ -676,40 +676,32 @@ class NowScreen(Container):
                 return
             if kind == "start":
                 from rich.align import Align
-                from rich.console import Group
-                from rich.panel import Panel
+                from rich.rule import Rule
                 from rich.text import Text
 
                 role = data.get("role", "agent")
                 color = _role_color(role)
-                bg_tint = _role_bg_tint(role)
                 full_name = _role_full_name(role)
                 ticket_id = data.get("ticket_id") or ""
                 ticket_title = data.get("ticket_title") or ""
                 phase = data.get("phase") or ""
 
-                # Build a centered banner: full name on top line, then a
-                # dim subtitle with what the agent is working on. The
-                # whole panel gets a subtle role-tinted background so
-                # subsequent output beneath the banner reads as "this
-                # agent's work" until the next banner appears.
-                title_text = Text(full_name, style=f"bold {color} on {bg_tint}")
-                subtitle_lines: list[Text] = []
+                # Render the banner as a Rule + centered Text + Rule
+                # rather than a Rich Panel. RichLog with wrap=True doesn't
+                # render Panel boxes cleanly (border characters drop out
+                # at non-default widths), but Rule + Align.center work
+                # consistently and span the full scrollback width.
+                scrollback.write(Rule(style=color))
+                scrollback.write(
+                    Align.center(Text(full_name, style=f"bold {color}"))
+                )
                 if ticket_title:
-                    subtitle_lines.append(
-                        Text.assemble(
-                            ("Working on: ", f"dim on {bg_tint}"),
-                            (ticket_title, f"bold {color} on {bg_tint}"),
-                        )
-                    )
-                else:
-                    # Fallback when the role didn't pass a subtitle —
-                    # rather than leave the banner silent, label it with
-                    # the role's default activity.
-                    subtitle_lines.append(
-                        Text(
-                            "(no ticket context)",
-                            style=f"dim on {bg_tint}",
+                    scrollback.write(
+                        Align.center(
+                            Text.assemble(
+                                ("Working on: ", "dim"),
+                                (ticket_title, f"bold {color}"),
+                            )
                         )
                     )
                 meta_bits: list[str] = []
@@ -718,28 +710,11 @@ class NowScreen(Container):
                 if ticket_id:
                     meta_bits.append(f"ticket: {ticket_id[:8]}")
                 if meta_bits:
-                    subtitle_lines.append(
-                        Text("  ·  ".join(meta_bits), style=f"dim on {bg_tint}")
+                    scrollback.write(
+                        Align.center(Text("  ·  ".join(meta_bits), style="dim"))
                     )
-
-                inner: list = [Align.center(title_text)]
-                for line in subtitle_lines:
-                    inner.append(Align.center(line))
-                # ``expand=True`` makes the panel span the full
-                # RichLog width so the right border lines up with the
-                # scrollback edge. ``style`` paints the inner area
-                # with the role's background tint.
-                scrollback.write(
-                    Panel(
-                        Group(*inner),
-                        border_style=color,
-                        style=f"on {bg_tint}",
-                        padding=(0, 2),
-                        expand=True,
-                    )
-                )
-                # Force the next text turn to print its role label even
-                # if it matches the banner's role.
+                scrollback.write(Rule(style=color))
+                # Force the next text turn to print its role label.
                 self._last_role = None
                 return
             if kind == "text":

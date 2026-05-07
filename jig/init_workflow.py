@@ -416,49 +416,34 @@ def _print_summary(
     # so the project lives at `<cwd>/<target>`, not the cwd itself. The
     # `jig story` command defaults to `--path .` and would fail there;
     # surface the right invocation explicitly.
-    from rich.panel import Panel
-    from rich.table import Table
-
     c = console or _spawn_console()
     target_str = str(target)
     needs_path = target_str not in (".", "")
     path_arg = f" --path {target_str}" if needs_path else ""
 
-    artifacts = Table.grid(padding=(0, 2))
-    artifacts.add_column(style="bold cyan", no_wrap=True)
-    artifacts.add_column(style="bright_white")
-    artifacts.add_row("Brief", f"{target}/docs/brief.md")
-    artifacts.add_row("Spec", f"{target}/docs/project.structured.yaml")
-    artifacts.add_row("Architecture", f"{target}/docs/architecture.yaml")
-    artifacts.add_row("Template", f"[bright_green]{template_name}[/bright_green]")
-
-    setup_log = Table.grid(padding=(0, 2))
-    setup_log.add_column(style="dim", no_wrap=True)
-    setup_log.add_column(style="bright_white")
-    setup_log.add_row("Setup log", f"jig story brief{path_arg}")
-    setup_log.add_row("", f"jig story architecture{path_arg}")
-
-    from rich.console import Group
-
-    body = Group(
-        artifacts,
-        "",
-        setup_log,
-        "",
-        "[bold green]✓ Init complete.[/bold green] "
-        "Run [bold]jig start[/bold] (or type [bold]/status[/bold]) "
-        "to begin orchestration.",
+    # Use plain styled markup rather than a Rich Panel so the rendering
+    # is robust against ANSI-roundtrip width mismatch (the daemon's
+    # console width is typically 80; the TUI's scrollback is wider, so
+    # box-drawing characters get clipped or repeated).
+    c.print()
+    c.print("[bold black on green] ✓ Init complete [/bold black on green]")
+    c.print()
+    c.print(f"  [bold cyan]Brief[/bold cyan]         {target}/docs/brief.md")
+    c.print(f"  [bold cyan]Spec[/bold cyan]          {target}/docs/project.structured.yaml")
+    c.print(f"  [bold cyan]Architecture[/bold cyan]  {target}/docs/architecture.yaml")
+    c.print(
+        f"  [bold cyan]Template[/bold cyan]      "
+        f"[bright_green]{template_name}[/bright_green]"
     )
     c.print()
+    c.print(f"  [dim]Setup log[/dim]     jig story brief{path_arg}")
+    c.print(f"               jig story architecture{path_arg}")
+    c.print()
     c.print(
-        Panel(
-            body,
-            title="[bold bright_white on green] init complete [/bold bright_white on green]",
-            title_align="left",
-            border_style="green",
-            padding=(1, 2),
-        )
+        "  Run [bold]jig start[/bold] (or type [bold]/status[/bold]) "
+        "to begin orchestration."
     )
+    c.print()
 
 
 async def _seed_baked_brief(

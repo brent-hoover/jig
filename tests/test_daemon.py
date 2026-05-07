@@ -1,8 +1,15 @@
 """Tests for jig.daemon — background process management."""
 import os
+import socket
 import time
 
 from jig.daemon import daemon_paths, daemon_status, daemon_start, daemon_stop
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def test_daemon_paths_returns_pid_and_socket_under_jig_run(tmp_path):
@@ -69,9 +76,12 @@ def test_daemon_start_raises_when_child_dies_immediately(tmp_path):
     import pytest
 
     # `false` exits immediately with rc=1; bash echoes a marker to stderr.
+    # Use a free ephemeral port so the _port_in_use check doesn't false-positive
+    # against any real daemon running on the default port during tests.
     with pytest.raises(RuntimeError, match=r"daemon exited immediately"):
         daemon_start(
             tmp_path,
+            ws_port=_free_port(),
             _command_override=["bash", "-c", "echo 'BOOM' >&2; exit 7"],
         )
     paths = daemon_paths(tmp_path)

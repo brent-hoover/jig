@@ -78,6 +78,9 @@ class WebSocketServer:
         self._history_replayed: set[ServerConnection] = set()
         self._subscriptions: dict[ServerConnection, set[str]] = {}
         self.prompt_registry = PromptRegistry()
+        # prompt_id → full data payload for prompts not yet replied to.
+        # Replayed as live events to clients that connect after the emit.
+        self._pending_prompts: dict[str, dict] = {}
 
     @property
     def port(self) -> int:
@@ -159,6 +162,21 @@ class WebSocketServer:
                 await self._safe_send(
                     websocket, json.dumps(snapshot_envelope(topic, snapshot))
                 )
+                # Replay any prompts that were emitted before this client connected.
+                # Send as live "event" envelopes so NowScreen handles them identically
+                # to real-time prompt_request events — no TUI-side changes needed.
+                if topic == "prompts":
+                    stale: list[str] = []
+                    for pid, data in list(self._pending_prompts.items()):
+                        if pid not in self.prompt_registry._pending:
+                            stale.append(pid)
+                            continue
+                        await self._safe_send(
+                            websocket,
+                            json.dumps(event_envelope("prompts", "request", data)),
+                        )
+                    for pid in stale:
+                        del self._pending_prompts[pid]
             return
 
         if msg_type == "command":
@@ -576,6 +594,11 @@ class WebSocketServer:
                     await client.send(message)
                 except websockets.ConnectionClosed:
                     self._clients.discard(client)
+            # Track pending prompt requests for reconnect replay.
+            if event.type == "prompt_request":
+                pid = (event.data or {}).get("prompt_id")
+                if pid:
+                    self._pending_prompts[pid] = event.data
             # Typed broadcast: only to subscribers, filtered by topic.
             typed = self._classify_event(event)
             if typed is not None:

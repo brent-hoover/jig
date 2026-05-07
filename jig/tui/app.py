@@ -77,11 +77,9 @@ class JigApp(App):
 
         def _resolve_addr() -> str:
             addr_file = daemon_paths(self.project_path).socket_addr_file
-            return (
-                addr_file.read_text().strip()
-                if addr_file.is_file()
-                else "ws://127.0.0.1:9100"
-            )
+            if not addr_file.is_file():
+                raise FileNotFoundError(f"daemon not running: {addr_file} missing")
+            return addr_file.read_text().strip()
 
         self.client = DaemonClient(addr_provider=_resolve_addr)
 

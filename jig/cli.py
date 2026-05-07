@@ -129,6 +129,7 @@ def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> N
         ws_server = WebSocketServer(
             emitter, port=ws_port, orchestrator=orchestrator, project_path=path
         )
+        orchestrator._prompt_registry = ws_server.prompt_registry
         await ws_server.start()
         click.echo(f"WebSocket server listening on ws://127.0.0.1:{ws_server.port}")
         try:

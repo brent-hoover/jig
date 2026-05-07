@@ -90,10 +90,11 @@ class TicketStore:
     async def find_in_progress_top_level(self) -> list[Ticket]:
         results: list[Ticket] = []
         for wt in TOP_LEVEL_WORK_TYPES:
-            found = await self._collection.find_where(
-                work_type=wt, status=TicketStatus.IN_PROGRESS
-            )
-            results.extend(t for t in found if t.workflow != "thread")
+            for status in (TicketStatus.IN_PROGRESS, TicketStatus.NEEDS_INFO):
+                found = await self._collection.find_where(
+                    work_type=wt, status=status
+                )
+                results.extend(t for t in found if t.workflow != "thread")
         return results
 
     async def find_by_assignee(self, assignee: str) -> list[Ticket]:

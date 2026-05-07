@@ -134,11 +134,27 @@ class NowScreen(Container):
     #slash-popup.visible {
         display: block;
     }
+    #prompt-panel {
+        height: auto;
+        max-height: 6;
+        dock: bottom;
+        padding: 0 1;
+        border: round yellow;
+        background: $panel;
+        color: $text;
+        display: none;
+    }
+    #prompt-panel.visible {
+        display: block;
+    }
     #input {
         height: auto;
         min-height: 3;
         max-height: 10;
         dock: bottom;
+    }
+    NowScreen.answering #input {
+        border: round yellow;
     }
     """
 
@@ -152,11 +168,12 @@ class NowScreen(Container):
         self._pending_value: str = ""
 
     def compose(self) -> ComposeResult:
-        yield RichLog(id="scrollback", auto_scroll=True, markup=True)
+        yield RichLog(id="scrollback", auto_scroll=True, markup=True, wrap=True)
         # Thinking indicator (live, in-place updates — replaces the broken
         # \r-overwriting rich Status spinner).
         yield Static("", id="thinking", markup=True)
         yield Static("", id="slash-popup", markup=True)
+        yield Static("", id="prompt-panel", markup=True)
         yield JigTextArea(
             id="input",
             # TextArea doesn't support a placeholder; the welcome message
@@ -207,7 +224,19 @@ class NowScreen(Container):
         Only intercepts up/down when the cursor is at the boundary of the
         textarea — at the first line for up, last line for down. This lets
         multi-line editing work naturally via cursor movement.
+
+        Also handles 'y' on the focused scrollback to copy content to clipboard.
         """
+        # Copy scrollback to clipboard when 'y' is pressed on the focused RichLog.
+        try:
+            scrollback = self.query_one("#scrollback", RichLog)
+        except Exception:
+            scrollback = None
+        if scrollback is not None and scrollback.has_focus and event.key == "y":
+            self._copy_scrollback_to_clipboard()
+            event.stop()
+            return
+
         try:
             ta = self.query_one("#input", JigTextArea)
         except Exception:
@@ -255,6 +284,21 @@ class NowScreen(Container):
             event.stop()
             event.prevent_default()
 
+    def _copy_scrollback_to_clipboard(self) -> None:
+        """Copy all scrollback text to the macOS clipboard via pbcopy."""
+        import subprocess
+
+        try:
+            scrollback = self.query_one("#scrollback", RichLog)
+        except Exception:
+            return
+        text = "\n".join(strip.text for strip in scrollback.lines)
+        try:
+            subprocess.run(["pbcopy"], input=text.encode(), check=False, timeout=2)
+            self.app.notify("Scrollback copied", timeout=2)
+        except Exception as exc:
+            self.app.notify(f"Copy failed: {exc}", severity="warning", timeout=3)
+
     def _record_history(self, text: str) -> None:
         """Append ``text`` to history (deduping consecutive identical entries)."""
         if not text:
@@ -300,6 +344,67 @@ class NowScreen(Container):
         except Exception:
             pass
 
+    def _show_prompt_panel(self, data: dict) -> None:
+        """Render the pinned prompt panel above the input.
+
+        Always-visible while a prompt is active so the operator can't miss
+        it. Content is a one-line summary + an options/hint line — the full
+        question stays in scrollback for long-form previews.
+        """
+        try:
+            panel = self.query_one("#prompt-panel", Static)
+        except Exception:
+            return
+
+        prompt_type = data.get("prompt_type") or "input"
+        asker = data.get("asker", "")
+        options = data.get("options") or []
+        templates = data.get("templates") or []
+
+        label_map = {
+            "question_answer": f"{asker} asks" if asker else "agent asks",
+            "brief_approval": "approve brief",
+            "init_complete": "init complete",
+            "needs_info": "needs your input",
+            "direct_template": "pick a template",
+        }
+        header = label_map.get(prompt_type, prompt_type.replace("_", " "))
+
+        if options:
+            opt_parts = []
+            for opt in options:
+                key = opt.get("key", "")
+                label = opt.get("label", "")
+                if opt.get("default"):
+                    opt_parts.append(
+                        f"[bold black on bright_yellow] {key} [/bold black on bright_yellow] {label} (default)"
+                    )
+                else:
+                    opt_parts.append(
+                        f"[bold black on bright_cyan] {key} [/bold black on bright_cyan] {label}"
+                    )
+            hint = "   ".join(opt_parts)
+        elif prompt_type == "direct_template" and templates:
+            hint = f"[bold]pick a number 1-{len(templates)}[/bold]"
+        else:
+            hint = "[bold]type your answer below[/bold]"
+
+        panel.update(
+            f"[bold bright_yellow]» ANSWER NEEDED:[/bold bright_yellow] "
+            f"[bold]{header}[/bold]\n  {hint}"
+        )
+        panel.set_class(True, "visible")
+        self.set_class(True, "answering")
+
+    def _hide_prompt_panel(self) -> None:
+        try:
+            panel = self.query_one("#prompt-panel", Static)
+            panel.set_class(False, "visible")
+            panel.update("")
+        except Exception:
+            pass
+        self.set_class(False, "answering")
+
     async def handle_daemon_event(self, msg: dict) -> None:
         """Fan-in handler called by JigApp when a relevant event arrives."""
         topic = msg.get("topic")
@@ -323,7 +428,9 @@ class NowScreen(Container):
                 text = data.get("text", "")
                 role = data.get("role", "agent")
                 if text:
-                    scrollback.write(f"[bold]{role}:[/bold] {text}")
+                    from rich.markdown import Markdown
+                    scrollback.write(f"[bold]{role}:[/bold]")
+                    scrollback.write(Markdown(text))
                 return
             if kind == "thinking":
                 self._update_thinking_indicator(data)
@@ -414,11 +521,16 @@ class NowScreen(Container):
                     scrollback.write(rendered)
             question = data.get("question")
             if question:
-                scrollback.write(f"[bold]{question}[/bold]")
+                from rich.markdown import Markdown
+                scrollback.write(Markdown(question))
 
+        # Show the dedicated, always-visible prompt panel above the input.
+        # The full question stays in scrollback above; the panel is a small
+        # consistent indicator so the operator can't miss that an answer is
+        # needed even if the scrollback has scrolled past.
+        self._show_prompt_panel(data)
         hint = self._placeholder_hint(data)
-        # TextArea doesn't have a placeholder attribute; write the hint to scrollback.
-        scrollback.write(f"[dim]› {hint}[/dim]")
+        scrollback.write(f"[dim]› {hint} (see prompt below)[/dim]")
 
     @staticmethod
     def _placeholder_hint(data: dict) -> str:
@@ -469,10 +581,20 @@ class NowScreen(Container):
 
         # ANSWERING mode: route to prompt_reply
         if self._active_prompt_id is not None:
+            # Guard: slash commands are never valid prompt answers.
+            # The user likely forgot they were in answer mode.
+            if text.startswith("/"):
+                scrollback.write(
+                    "[yellow]answer mode:[/yellow] type your answer (e.g. [bold]y[/bold] or [bold]n[/bold]) and press Enter. "
+                    "Slash commands are disabled while a prompt is active."
+                )
+                self._clear_input()
+                return
             prompt_id = self._active_prompt_id
             prompt_type = self._active_prompt_type
             self._active_prompt_id = None
             self._active_prompt_type = None
+            self._hide_prompt_panel()
             if text:
                 _render_user_input(scrollback, text)
             else:
@@ -530,6 +652,7 @@ class NowScreen(Container):
             prompt_type = self._active_prompt_type
             self._active_prompt_id = None
             self._active_prompt_type = None
+            self._hide_prompt_panel()
             if text:
                 _render_user_input(scrollback, text)
             else:

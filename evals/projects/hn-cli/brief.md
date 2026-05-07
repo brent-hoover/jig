@@ -2,72 +2,91 @@
 
 A small command-line tool that prints Hacker News top stories.
 
-## Audience
+## Built
 
-- Developers who live in the terminal and want to skim HN headlines
-  without opening a browser tab.
-- People who already read HN regularly and want lower-friction reads
-  during a focused work session.
+## Planned (committed)
 
-## Pitch
+### Fetch top stories {#fetch-top-stories}
 
-```
-$ hn-cli top --limit 10
-1.  428  Show HN: ...                  https://news.ycombinator.com/item?id=...
-2.  391  Why your build is slow        https://news.ycombinator.com/item?id=...
-...
-```
+`hn-cli top --limit N` fetches the top N Hacker News stories from the HN API and prints them as a ranked list with score, title, and URL.
 
-`hn-cli top --limit N` is the headline feature: get the top N stories
-with score and link. Optional filters (`--min-score`, `--type`)
-narrow the list. Optional `--format json` emits structured output for
-scripts.
+**User story:**
+As a developer in the terminal, I want to fetch the top HN stories quickly so I can skim headlines without opening a browser.
 
-## Non-goals (product-level)
+**Behaviors:**
+- {#run-top-cmd} `hn-cli top --limit N` prints N stories ranked by HN score, one per line.
 
-- Browsing comment threads. This is a "skim the headlines" tool, not
-  a full reader.
-- Submitting stories, commenting, voting, authentication.
-- Realtime polling. Each invocation is one-shot.
-- Rich TUI / panels / colors. Plain text by default; JSON for scripts.
-- Caching. Each invocation hits the API (or, in eval mode, the
-  recorded fixture corpus).
+**Acceptance criteria:**
+- [run-top-cmd] Exit code is 0 on success.
+- [run-top-cmd] Output contains exactly N lines (or fewer if fewer stories are available).
+- [run-top-cmd] Each line matches the format `<rank>.  <score>  <title>  <url>` (e.g. `1.  428  Show HN: ...  https://...`).
+- [run-top-cmd] In eval mode, story IDs and titles match the fixture corpus deterministically (tracer: `hn-cli top --limit 3`).
 
-## Intended scope
+---
 
-Bones:
-- Operator runs `hn-cli top --limit N`. The CLI fetches story ids and
-  prints `<rank>  <score>  <title>  <url>` for each.
+### Filter by score {#filter-by-score}
 
-MVP:
-- `--min-score N` filters out low-score stories.
-- `--type {story,job,ask,show}` filters by HN item type.
-- `--format {text,json}` switches output shape.
+`--min-score N` drops any story whose score falls below N, leaving only high-signal items.
 
-Final (out of MVP scope; sketched here for layered "done-enough"):
-- Caching with TTL.
-- Pagination beyond top 30.
+**User story:**
+As a developer, I want to filter out low-score stories so I only see popular content.
 
-## Capabilities (what the user can do)
+**Behaviors:**
+- {#min-score-flag} `--min-score N` removes stories with score < N from the output.
 
-- `fetch-top-stories` — given a `--limit`, return the top N stories.
-- `filter-by-score` — given `--min-score`, drop stories below the
-  threshold.
-- `filter-by-type` — given `--type`, drop stories of other types.
-- `format-output` — render the result as text or JSON.
+**Acceptance criteria:**
+- [min-score-flag] No story with score below N appears in the output.
+- [min-score-flag] Stories with score >= N are retained and not removed.
 
-## Modules (architecture)
+---
 
-- `api-client`: wraps the HN Firebase API. Single responsibility:
-  given a request, return parsed `Story` objects. Replays from
-  fixtures during eval runs.
-- `cli-frontend`: parses argv, calls `api-client`, formats and prints.
+### Filter by type {#filter-by-type}
 
-## External dependencies
+`--type {story,job,ask,show}` restricts results to a single HN item type.
 
-- HN Firebase API (`https://hacker-news.firebaseio.com`).
-- For eval reproducibility, recorded into
-  `evals/projects/hn-cli/fixtures/hn-api.jsonl` and replayed.
+**User story:**
+As a developer, I want to see only "Show HN" posts (or only jobs, etc.) so I can focus on relevant content.
+
+**Behaviors:**
+- {#type-flag} `--type <type>` removes items that don't match the given HN item type from the output.
+
+**Acceptance criteria:**
+- [type-flag] Only items of the specified type appear in output.
+- [type-flag] Items of other types are absent from output.
+
+---
+
+### Format output {#format-output}
+
+The default output is human-readable plain text; `--format json` switches to structured JSON for scripting.
+
+**User story:**
+As a developer, I want JSON output so I can pipe `hn-cli` into other tools.
+
+**Behaviors:**
+- {#text-format} Default output (no `--format` flag) is plain text, one story per line.
+- {#json-format} `--format json` emits a JSON array of story objects.
+
+**Acceptance criteria:**
+- [text-format] Default output lines match `^\d+\.\s+\d+\s+\S.*\s+https?://\S+$`.
+- [json-format] `--format json` output is valid JSON.
+- [json-format] Each JSON object contains rank, score, title, and url fields.
+
+## Planned (not yet committed)
+
+- {#caching} Caching with TTL — cache API responses to avoid redundant fetches within a short window
+- {#pagination} Pagination beyond top 30 — fetch more than the default HN top-30 window
+
+## Backlog
+
+## Archived
+
+## Non-goals
+
+- {#no-comments} Browse comment threads — hn-cli is a "skim the headlines" tool, not a full reader
+- {#no-auth} Submit stories, comment, vote, or authenticate — read-only tool
+- {#no-realtime} Realtime polling — each invocation is one-shot, not a live feed
+- {#no-rich-tui} Rich TUI with panels or colors — plain text by default; JSON for scripts
 
 ## Tracer
 

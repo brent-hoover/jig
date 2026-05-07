@@ -75,10 +75,25 @@ def _defaults_dir() -> Path:
     return Path(__file__).resolve().parent / "defaults"
 
 
-def init_project(project_path: Path, default_branch: str = "main") -> None:
+def _detect_git_branch(project_path: Path) -> str:
+    """Return the current HEAD branch name, falling back to 'main'."""
+    import subprocess
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=project_path,
+        capture_output=True,
+        text=True,
+    )
+    branch = result.stdout.strip()
+    return branch if branch and branch != "HEAD" else "main"
+
+
+def init_project(project_path: Path, default_branch: str | None = None) -> None:
     """Initialize `.jig/` with the doc-17 directory layout."""
     if not (project_path / ".git").is_dir():
         raise ValueError(f"{project_path} is not a git repository")
+    if default_branch is None:
+        default_branch = _detect_git_branch(project_path)
 
     jig_dir = _jig_dir(project_path)
     if jig_dir.exists():

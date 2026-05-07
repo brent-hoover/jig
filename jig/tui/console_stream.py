@@ -19,43 +19,46 @@ if TYPE_CHECKING:
 
 
 class _StreamFile:
-    """File-like sink that wraps each ``write`` call into a JigEvent
-    and emits it through the EventEmitter.
+    """File-like sink that batches writes per flush and emits one JigEvent
+    per ``Console.print`` call through the EventEmitter.
 
-    Rich's Console writes ANSI-rendered text per ``Console.print`` call
-    (potentially multiple writes per call, one per segment). We emit
-    each write as-is — no re-buffering — so the TUI sees content with
-    minimal latency. Empty writes are skipped.
+    Rich calls ``write()`` multiple times per ``print()`` call (once per
+    ANSI segment) and then calls ``flush()``. Emitting on each write
+    fragments ANSI escape sequences across separate events, which breaks
+    ``Text.from_ansi`` on the TUI side and causes visual garbage on
+    resize. Buffering until flush emits a single, complete ANSI string
+    per print call.
     """
 
     def __init__(self, emitter: "EventEmitter") -> None:
         self._emitter = emitter
+        self._buf: list[str] = []
 
     def write(self, text: str) -> int:
         if not text:
             return 0
-        # The emitter's emit is async; we schedule it and don't await.
-        # Console.write must be sync-safe, so use create_task on the
-        # running loop. If no loop is running (e.g. called from sync
-        # code outside an event loop), drop the write — this should
-        # never happen in practice because the daemon owns the loop.
-        from jig.events import JigEvent
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return len(text)
-        loop.create_task(
-            self._emitter.emit(
-                JigEvent(type="agent_render", data={"content": text})
-            )
-        )
+        self._buf.append(text)
         return len(text)
 
     def flush(self) -> None:
-        # Nothing buffered; rich expects flush() to exist but we
-        # already emitted on each write.
-        return
+        if not self._buf:
+            return
+        content = "".join(self._buf)
+        self._buf.clear()
+        from jig.events import JigEvent
+
+        # The emitter's emit is async; schedule it without blocking.
+        # If no loop is running (called from sync code outside the event
+        # loop), drop the write — the daemon always owns the loop.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(
+            self._emitter.emit(
+                JigEvent(type="agent_render", data={"content": content})
+            )
+        )
 
     def isatty(self) -> bool:
         # Force rich to render colors / ANSI for us.
@@ -66,11 +69,11 @@ def make_streaming_console(emitter: "EventEmitter"):
     """Build a rich.Console that ships its output through ``emitter``.
 
     ANSI escape sequences are emitted as part of the content; the
-    TUI's ``RichLog`` writes them and the receiving terminal interprets
-    the colors. Width is intentionally narrow so rules / panels fit
-    within the typical TUI Display column even after the right-side
-    Sidebar takes ~36 cols. soft_wrap=True so any overflow wraps
-    cleanly instead of producing visual artifacts.
+    TUI's ``RichLog`` parses them via ``Text.from_ansi`` and renders
+    them with ``wrap=True`` at the widget's actual width. highlight=False
+    prevents Rich from auto-detecting URLs/paths and emitting OSC hyperlink
+    sequences, which Textual does not sanitize and which corrupt the
+    display on terminal resize.
     """
     from rich.console import Console
 
@@ -78,7 +81,7 @@ def make_streaming_console(emitter: "EventEmitter"):
         file=_StreamFile(emitter),
         force_terminal=True,
         color_system="truecolor",
-        width=88,
+        highlight=False,
     )
     # Stash the backing emitter so callers (e.g. _cli_emitter) can emit
     # structured events (agent_thinking) through the same global channel.

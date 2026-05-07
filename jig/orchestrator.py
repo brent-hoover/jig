@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
+    from jig.prompt_registry import PromptRegistry
 
 from jig.agent import run_agent
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
@@ -94,10 +95,14 @@ class Orchestrator:
     """
 
     def __init__(
-        self, project_path: Path, emitter: "EventEmitter | None" = None
+        self,
+        project_path: Path,
+        emitter: "EventEmitter | None" = None,
+        prompt_registry: "PromptRegistry | None" = None,
     ) -> None:
         self._project_path = project_path
         self._emitter = emitter
+        self._prompt_registry = prompt_registry
         self._project: Project | None = None
         self.tickets: TicketStore | None = None
         self.threads: ThreadStore | None = None
@@ -239,11 +244,17 @@ class Orchestrator:
 
         Called by cmd_init after a successful /init so the daemon
         transitions from unconfigured to configured mode without restart.
-        Safe to call when already configured — no-ops if stores already
-        loaded for the same project_path.
+
+        When already configured (e.g. --force re-init on an existing
+        project), startup() is skipped but we still re-check for the
+        planning ticket and start any ready tickets — init may have just
+        created the planning ticket with no bus event to wake the service
+        loop.
         """
         if self._project is not None and self._running:
-            return  # already configured for this project
+            await self._ensure_planning_ticket()
+            await self._start_ready_tickets()
+            return
         await self.startup()
 
     # ---- analytics --------------------------------------------------------
@@ -1094,6 +1105,22 @@ class Orchestrator:
             phase_idx = await self._current_phase_index(ticket_id, workflow)
             _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
 
+            # Daemon-restart guard: if the ticket is paused waiting on the
+            # operator (needs_info), wait for the answer BEFORE re-running
+            # the phase. Without this, restart re-dispatches the ticket and
+            # the agent re-executes against an unresolved question — which
+            # is what causes "the PM started working without me answering".
+            if ticket.status == TicketStatus.NEEDS_INFO:
+                _logger.info(
+                    "ticket %s is needs_info on dispatch — re-prompting and waiting before phase %d",
+                    ticket_id,
+                    phase_idx,
+                )
+                await self._wait_for_resume(ticket_id)
+                ticket = await self.tickets.get(ticket_id)
+                if ticket is None:
+                    return
+
             # Track how many times a phase has been retried after a blocked result.
             # Prevents infinite review→dev→review loops.
             max_fix_cycles = 3
@@ -1633,10 +1660,68 @@ class Orchestrator:
     async def _wait_for_resume(self, ticket_id: str) -> None:
         """Block until the ticket transitions out of needs_info status.
 
-        Subscribes to the ticket's bus topic and waits for a ticket_updated
-        event with a non-needs_info status, or polls every few seconds as
-        a fallback (in case the status change happened before we subscribed).
+        When a TUI channel is available (emitter + prompt_registry), surfaces
+        the blocking question as a prompt and awaits the operator's reply.
+        Otherwise falls back to silent bus polling.
         """
+        if self._emitter is not None and self._prompt_registry is not None:
+            await self._prompt_for_needs_info(ticket_id)
+            return
+        await self._silent_wait_for_resume(ticket_id)
+
+    async def _prompt_for_needs_info(self, ticket_id: str) -> None:
+        """Emit a TUI prompt for the blocking question on a needs_info ticket.
+
+        Finds the most recent unresolved blocking question, round-trips
+        through the PromptRegistry, posts an Answer, closes the question,
+        and transitions the ticket back to IN_PROGRESS.
+        """
+        from jig.events import JigEvent
+        from jig.thread import Answer, Question
+
+        blocking = await self.threads.has_unresolved_blocking(ticket_id)
+        questions = [e for e in blocking if isinstance(e, Question)]
+        if not questions:
+            # No actionable question — fall back to silent polling so the
+            # orchestrator doesn't hang if something else will unblock it.
+            await self._silent_wait_for_resume(ticket_id)
+            return
+
+        question = questions[-1]
+        prompt_id, future = self._prompt_registry.register()
+        await self._emitter.emit(
+            JigEvent(
+                type="prompt_request",
+                data={
+                    "prompt_id": prompt_id,
+                    "prompt_type": "needs_info",
+                    "ticket_id": ticket_id,
+                    "question": question.question,
+                    "options": [
+                        {"key": "y", "label": "Approve"},
+                        {"key": "n", "label": "Request changes"},
+                    ],
+                },
+            )
+        )
+        _logger.info("needs_info prompt emitted for ticket %s (prompt_id=%s)", ticket_id, prompt_id)
+
+        reply = await future
+        _logger.info("needs_info reply received for ticket %s: %r", ticket_id, reply[:80])
+
+        await self.threads.post(
+            Answer(
+                ticket_id=ticket_id,
+                author="operator",
+                question_id=question.id,
+                text=reply,
+            )
+        )
+        await self.threads.update(question.id, {"resolved_by": "operator"})
+        await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+
+    async def _silent_wait_for_resume(self, ticket_id: str) -> None:
+        """Polling fallback: wait for ticket to leave needs_info without prompting."""
         topic = f"tickets.{ticket_id}"
         queue = await self.bus.subscribe_agent(
             topic=topic,
@@ -1654,7 +1739,6 @@ class Orchestrator:
                     ):
                         return
                 except asyncio.TimeoutError:
-                    # Poll as fallback
                     current = await self.tickets.get(ticket_id)
                     if current and current.status != TicketStatus.NEEDS_INFO:
                         return

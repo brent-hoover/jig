@@ -61,6 +61,15 @@ def _sanitize_for_tui(text: str, limit: int = 120) -> str:
     return text
 
 
+def _sanitize_prose_for_tui(text: str) -> str:
+    """Strip ANSI/control chars but keep newlines and full content for prose."""
+    if not text:
+        return ""
+    text = _ANSI_RE.sub("", text)
+    text = _CTRL_RE.sub("", text)
+    return text.strip()
+
+
 def _tool_detail(tool_name: str, tool_input: dict) -> str:
     """Extract a short human-readable detail from a tool call."""
     if tool_name in ("Read", "Write", "Edit"):
@@ -613,6 +622,42 @@ async def run_agent(
             ctx.ticket.id,
             ctx.worktree_path,
         )
+
+        # Heartbeat: emit agent_thinking events every second so the TUI's
+        # Activity zone (driven by agent_thinking) reflects that the agent
+        # is alive even before the SDK streams any tool/text blocks back.
+        # Without this the sidebar shows "no agents running" until the
+        # first AssistantMessage arrives — which can be many seconds.
+        heartbeat_loop = asyncio.get_running_loop()
+        heartbeat_start = heartbeat_loop.time()
+        heartbeat_done = asyncio.Event()
+
+        async def _heartbeat() -> None:
+            await _emit(
+                "agent_thinking",
+                {"role": ctx.role, "elapsed": 0, "active": True},
+            )
+            try:
+                while not heartbeat_done.is_set():
+                    try:
+                        await asyncio.wait_for(heartbeat_done.wait(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        elapsed = int(heartbeat_loop.time() - heartbeat_start)
+                        await _emit(
+                            "agent_thinking",
+                            {"role": ctx.role, "elapsed": elapsed, "active": True},
+                        )
+            finally:
+                try:
+                    await _emit(
+                        "agent_thinking",
+                        {"role": ctx.role, "elapsed": 0, "active": False},
+                    )
+                except Exception:
+                    pass
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+
         try:
             # Map ToolUseBlock.id → tool name so we can label
             # ToolResultBlocks (which only carry the use id, not the name)
@@ -644,8 +689,8 @@ async def run_agent(
                                 },
                             )
                         elif isinstance(block, TextBlock):
-                            short = _sanitize_for_tui(block.text)
-                            if short:
+                            full_text = _sanitize_prose_for_tui(block.text)
+                            if full_text:
                                 _logger.info(
                                     "[%s] text: %s",
                                     tag,
@@ -656,7 +701,7 @@ async def run_agent(
                                     {
                                         "role": ctx.role,
                                         "ticket_id": ctx.ticket.id,
-                                        "text": short,
+                                        "text": full_text,
                                     },
                                 )
                         elif isinstance(block, ThinkingBlock):
@@ -785,6 +830,13 @@ async def run_agent(
             raise
         finally:
             done.set()
+            # Stop the heartbeat task and wait for it to emit the final
+            # active:False event so the TUI Activity zone clears the role.
+            heartbeat_done.set()
+            try:
+                await heartbeat_task
+            except Exception:
+                _logger.warning("heartbeat task raised", exc_info=True)
             # Remove the queue from the topic fan-out list to prevent a slow leak
             # in the orchestrator's per-ticket lifecycle.
             # NOTE: _agent_subscriptions in bus.py still retains the key; cleaning

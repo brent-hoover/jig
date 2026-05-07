@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
@@ -104,6 +105,12 @@ def _tail_err(paths: DaemonPaths) -> str | None:
     if not text:
         return None
     return text.splitlines()[-1]
+
+
+def _port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.1)
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _process_alive(pid: int) -> bool:
@@ -249,14 +256,27 @@ def daemon_start(
     deadline = time.time() + 1.5
     while time.time() < deadline:
         if proc.poll() is not None:
-            # Child exited; clean up files and surface the error tail.
-            paths.pid_file.unlink(missing_ok=True)
+            # Child exited — only clean up the files we wrote. If the pid
+            # file was overwritten by a concurrently started daemon, don't
+            # delete it (that would orphan the other daemon from status checks).
+            try:
+                written = int(paths.pid_file.read_text().strip())
+                if written == proc.pid:
+                    paths.pid_file.unlink(missing_ok=True)
+            except (ValueError, OSError):
+                paths.pid_file.unlink(missing_ok=True)
             paths.socket_addr_file.unlink(missing_ok=True)
-            tail = ""
+            err_text = ""
             if paths.stderr_log.is_file():
                 err_text = paths.stderr_log.read_text(errors="replace").strip()
-                if err_text:
-                    tail = "\n  " + err_text.splitlines()[-1]
+            tail = ("\n  " + err_text.splitlines()[-1]) if err_text else ""
+            # If the port is still occupied after the child died, something
+            # else already owns it — treat as a running daemon rather than
+            # surfacing a confusing EADDRINUSE error.
+            if _port_in_use(ws_port):
+                raise DaemonAlreadyRunning(
+                    f"port {ws_port} already in use — daemon may already be running"
+                )
             raise RuntimeError(
                 f"daemon exited immediately (rc={proc.returncode}); "
                 f"see {paths.stderr_log}{tail}"

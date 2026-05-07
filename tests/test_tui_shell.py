@@ -138,8 +138,8 @@ async def test_now_routes_input_to_prompt_reply_in_answering_mode(tmp_path: Path
             for name, args in sent_commands
         ), f"expected prompt_reply with abc-123; got {sent_commands}"
 
-        # After answering, prompt id should be cleared
-        assert now._active_prompt_id is None
+        # After answering, the submitted prompt id should be cleared
+        assert now._active_prompt_id != "abc-123"
 
 
 @pytest.mark.asyncio

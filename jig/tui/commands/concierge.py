@@ -38,7 +38,7 @@ async def cmd_concierge(
     from jig.persistence import load_role
     from jig.project import load_project
     from jig.runtime import AgentSpawnContext, SpawnReason
-    from jig.ticket import Ticket, WorkType
+    from jig.ticket import Ticket, TicketStatus, WorkType
 
     try:
         role_cfg = load_role(project_path, "concierge")
@@ -50,10 +50,18 @@ async def cmd_concierge(
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"concierge project not loadable: {exc}"}
 
+    # Create the concierge ticket with workflow="thread" and status=RESOLVED
+    # so the orchestrator never picks it up for the full spec→test→…→document
+    # pipeline. The concierge is a one-shot read-only Q&A run — it does not
+    # generate workflow tickets. Without this guard, every free-text query
+    # the operator submits seeds a 6-phase implementation pipeline against
+    # the literal text of their question.
     ticket_id = f"concierge-{uuid.uuid4().hex[:8]}"
     ticket = Ticket(
         id=ticket_id,
         work_type=WorkType.SPIKE,
+        workflow="thread",
+        status=TicketStatus.RESOLVED,
         title=query[:80],
         description=query,
         created_by="user",

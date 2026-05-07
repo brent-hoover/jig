@@ -63,6 +63,45 @@ class JigTextArea(TextArea):
     def action_newline(self) -> None:
         self.insert("\n")
 
+    def _on_paste(self, event) -> None:
+        """Insert pasted text directly, preserving embedded newlines.
+
+        Without this, terminals that don't support bracketed paste (or
+        when Textual fails to detect it) translate each ``\\n`` in the
+        paste buffer into a synthetic ``enter`` key event, which our
+        priority Enter→submit binding catches and fires submit on. The
+        result: a multi-line paste gets split and submitted in pieces.
+        Handling Paste explicitly here inserts the full payload as text
+        and stops the event before any Enter binding can fire on the
+        embedded newlines.
+        """
+        text = getattr(event, "text", None)
+        if text is None:
+            return
+        try:
+            self.insert(text)
+        finally:
+            try:
+                event.stop()
+            except Exception:
+                pass
+
+
+_RICH_TAG_RE = re.compile(r"\[/?[a-zA-Z][a-zA-Z0-9_ ]*\]")
+
+
+def _strip_rich_markup(text: str) -> str:
+    """Remove Rich markup tags so Markdown rendering doesn't show them literally.
+
+    Agents sometimes emit Rich-style ``[bold]X[/bold]`` / ``[dim]Y[/dim]``
+    tags inline with Markdown prose. ``rich.markdown.Markdown`` doesn't
+    interpret those tags, so they leak into the rendered output as raw
+    text. Stripping them here keeps the underlying content (e.g.
+    ``X``, ``Y``) and lets Markdown handle ``**bold**`` / ``_italic_``
+    properly.
+    """
+    return _RICH_TAG_RE.sub("", text)
+
 
 def _render_user_input(scrollback: RichLog, text: str) -> None:
     """Write the operator's submission to scrollback, rendering ```fenced```
@@ -136,7 +175,7 @@ class NowScreen(Container):
     }
     #prompt-panel {
         height: auto;
-        max-height: 6;
+        max-height: 14;
         dock: bottom;
         padding: 0 1;
         border: round yellow;
@@ -156,7 +195,28 @@ class NowScreen(Container):
     NowScreen.answering #input {
         border: round yellow;
     }
+    #scroll-pause {
+        height: 1;
+        dock: bottom;
+        padding: 0 1;
+        color: black;
+        background: ansi_bright_yellow;
+        display: none;
+    }
+    #scroll-pause.visible {
+        display: block;
+    }
     """
+
+    BINDINGS = [
+        Binding(
+            "ctrl+p",
+            "toggle_pause_scroll",
+            "Pause/resume scrollback auto-scroll",
+            show=False,
+            priority=True,
+        ),
+    ]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -166,6 +226,7 @@ class NowScreen(Container):
         self._history: list[str] = []
         self._history_idx: int | None = None  # None = at the live edit; 0..len-1 = recall
         self._pending_value: str = ""
+        self._scroll_paused: bool = False
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="scrollback", auto_scroll=True, markup=True, wrap=True)
@@ -174,6 +235,7 @@ class NowScreen(Container):
         yield Static("", id="thinking", markup=True)
         yield Static("", id="slash-popup", markup=True)
         yield Static("", id="prompt-panel", markup=True)
+        yield Static("", id="scroll-pause", markup=True)
         yield JigTextArea(
             id="input",
             # TextArea doesn't support a placeholder; the welcome message
@@ -348,8 +410,9 @@ class NowScreen(Container):
         """Render the pinned prompt panel above the input.
 
         Always-visible while a prompt is active so the operator can't miss
-        it. Content is a one-line summary + an options/hint line — the full
-        question stays in scrollback for long-form previews.
+        it. The panel shows the *actual question* (truncated if very long)
+        plus an options/answer hint — operator should never have to scroll
+        the scrollback to remember what they're answering.
         """
         try:
             panel = self.query_one("#prompt-panel", Static)
@@ -357,18 +420,30 @@ class NowScreen(Container):
             return
 
         prompt_type = data.get("prompt_type") or "input"
-        asker = data.get("asker", "")
+        asker = (data.get("asker") or "agent").strip()
         options = data.get("options") or []
         templates = data.get("templates") or []
+        question_text = (
+            data.get("question_text")
+            or data.get("question")
+            or ""
+        ).strip()
 
-        label_map = {
-            "question_answer": f"{asker} asks" if asker else "agent asks",
-            "brief_approval": "approve brief",
-            "init_complete": "init complete",
-            "needs_info": "needs your input",
-            "direct_template": "pick a template",
+        type_map = {
+            "question_answer": f"Question from {asker}",
+            "brief_approval": "Approve brief",
+            "init_complete": "Init complete",
+            "needs_info": f"{asker} needs input",
+            "direct_template": "Pick a template",
+            "sa_confirm": "Confirm template",
         }
-        header = label_map.get(prompt_type, prompt_type.replace("_", " "))
+        header_label = type_map.get(prompt_type, prompt_type.replace("_", " ").title())
+
+        # Truncate very long questions so the panel doesn't blow past
+        # max-height. The full text remains in scrollback above.
+        body = question_text
+        if len(body) > 600:
+            body = body[:597].rstrip() + "…"
 
         if options:
             opt_parts = []
@@ -385,16 +460,63 @@ class NowScreen(Container):
                     )
             hint = "   ".join(opt_parts)
         elif prompt_type == "direct_template" and templates:
-            hint = f"[bold]pick a number 1-{len(templates)}[/bold]"
+            hint = "[bold]Pick a number 1–%d below.[/bold]" % len(templates)
         else:
-            hint = "[bold]type your answer below[/bold]"
+            hint = "[bold]Type your answer below and press Enter.[/bold]"
 
-        panel.update(
-            f"[bold bright_yellow]» ANSWER NEEDED:[/bold bright_yellow] "
-            f"[bold]{header}[/bold]\n  {hint}"
-        )
+        # Header line + (optional) question body + hint. Use Rich markup
+        # throughout so all three pieces render with consistent styling.
+        lines = [
+            f"[bold black on bright_yellow] » ANSWER NEEDED [/bold black on bright_yellow] "
+            f"[bold]{header_label}[/bold]"
+        ]
+        if body:
+            lines.append("")
+            lines.append(body)
+        lines.append("")
+        lines.append(hint)
+
+        panel.update("\n".join(lines))
         panel.set_class(True, "visible")
         self.set_class(True, "answering")
+
+    def action_toggle_pause_scroll(self) -> None:
+        """Pause / resume scrollback auto-scroll.
+
+        When paused: auto_scroll is off, focus moves to the scrollback so
+        PgUp/PgDn/arrow keys navigate it natively, and a "PAUSED" status
+        bar appears just above the input.
+        When resumed: auto_scroll re-enables, focus returns to the input,
+        and the scrollback jumps to the latest content.
+        """
+        try:
+            scrollback = self.query_one("#scrollback", RichLog)
+            indicator = self.query_one("#scroll-pause", Static)
+        except Exception:
+            return
+        self._scroll_paused = not self._scroll_paused
+        scrollback.auto_scroll = not self._scroll_paused
+        if self._scroll_paused:
+            indicator.update(
+                "[bold]⏸ SCROLL PAUSED[/bold]  PgUp/PgDn/↑↓ to navigate · "
+                "[bold]y[/bold] copy all · [bold]Ctrl+P[/bold] resume"
+            )
+            indicator.set_class(True, "visible")
+            try:
+                scrollback.focus()
+            except Exception:
+                pass
+        else:
+            indicator.set_class(False, "visible")
+            indicator.update("")
+            try:
+                scrollback.scroll_end(animate=False)
+            except Exception:
+                pass
+            try:
+                self.query_one("#input", JigTextArea).focus()
+            except Exception:
+                pass
 
     def _hide_prompt_panel(self) -> None:
         try:
@@ -430,7 +552,12 @@ class NowScreen(Container):
                 if text:
                     from rich.markdown import Markdown
                     scrollback.write(f"[bold]{role}:[/bold]")
-                    scrollback.write(Markdown(text))
+                    # Agents emit a mix of Markdown (**bold**) and Rich
+                    # markup ([bold]X[/bold]). Markdown rendering treats
+                    # the Rich tags as literal text — strip them so the
+                    # underlying content renders cleanly.
+                    cleaned = _strip_rich_markup(text)
+                    scrollback.write(Markdown(cleaned))
                 return
             if kind == "thinking":
                 self._update_thinking_indicator(data)
@@ -730,6 +857,7 @@ class NowScreen(Container):
                 "  Up / Down arrows      recall previous / next submission\n"
                 "                        (or move within multi-line text)\n"
                 "  Ctrl+I                paste clipboard image (saves to .jig/uploads/)\n"
+                "  Ctrl+P                pause/resume scrollback auto-scroll\n"
                 "  Ctrl+S                toggle right-side Sidebar\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."

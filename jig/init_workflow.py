@@ -127,9 +127,20 @@ def create_stub(path: Path, *, name: str) -> None:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         atomic_write_text(project_yaml, yaml.safe_dump(data, sort_keys=False))
+        # Detect the actual default branch (HEAD) of the host repo so
+        # worktrees branch off the right base. Without this we always
+        # write "main" and worktree creation fails on repos using
+        # "develop", "master", "trunk", etc.
+        from jig.persistence import _detect_git_branch
+        default_branch = _detect_git_branch(path)
         save_project(
             path,
-            Project(id=project_id, name=name, path=str(path.resolve())),
+            Project(
+                id=project_id,
+                name=name,
+                path=str(path.resolve()),
+                default_branch=default_branch,
+            ),
         )
     brief = path / "docs" / "brief.md"
     if not brief.is_file():

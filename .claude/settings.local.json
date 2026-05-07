@@ -180,7 +180,9 @@
       "Bash(git -C /Users/brent/Projects/personal/jig pull)",
       "Bash(git -C /Users/brent/Projects/personal/jig branch -d feat/init-workflow)",
       "Bash(git -C /Users/brent/Projects/personal/jig push origin --delete feat/init-workflow)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Read(//Users/brent/Projects/personal/jig_evals/hn-cli/.jig/**)",
+      "Read(//Users/brent/Projects/personal/jig_evals/hn-cli/.jig/run/**)"
     ]
   }
 }

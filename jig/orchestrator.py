@@ -1101,6 +1101,29 @@ class Orchestrator:
                 await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
                 await self._on_ticket_failed(ticket_id, ticket)
                 return
+            except Exception as exc:
+                # Generic worktree-setup failure (e.g. invalid base branch,
+                # git not initialized, disk full). Without this catch the
+                # exception escapes to the task done callback and the user
+                # sees nothing in the TUI — the ticket appears stuck.
+                _logger.error(
+                    "worktree setup failed for ticket %s: %s — failing ticket",
+                    ticket_id,
+                    exc,
+                    exc_info=True,
+                )
+                if self.threads is not None:
+                    await self.threads.post(
+                        SystemEvent(
+                            ticket_id=ticket_id,
+                            author="harness",
+                            event_type="provisioning_failed",
+                            content=f"Worktree setup failed: {exc}",
+                        )
+                    )
+                await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                await self._on_ticket_failed(ticket_id, ticket)
+                return
             _logger.info("worktree ready at %s", worktree)
             phase_idx = await self._current_phase_index(ticket_id, workflow)
             _logger.info("resuming from phase %d/%d", phase_idx, len(workflow.phases))
@@ -1689,18 +1712,21 @@ class Orchestrator:
 
         question = questions[-1]
         prompt_id, future = self._prompt_registry.register()
+        # Agent-asked questions are open-ended prose ("How does X work?",
+        # "Should we use A or B?"). Don't synthesize y/n options — that
+        # confuses the operator about what each choice means and forces a
+        # binary answer onto a free-text question. The TUI will show a
+        # "type your answer below" hint instead.
         await self._emitter.emit(
             JigEvent(
                 type="prompt_request",
                 data={
                     "prompt_id": prompt_id,
-                    "prompt_type": "needs_info",
+                    "prompt_type": "question_answer",
                     "ticket_id": ticket_id,
+                    "asker": question.author or "agent",
+                    "question_text": question.question,
                     "question": question.question,
-                    "options": [
-                        {"key": "y", "label": "Approve"},
-                        {"key": "n", "label": "Request changes"},
-                    ],
                 },
             )
         )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reset a jig project to its pre-init baseline, optionally installing a brief.
+"""Reset a jig project to a fresh git repo, optionally installing a brief.
 
 Usage:
     scripts/project_reset.py /absolute/path/to/project
@@ -7,21 +7,21 @@ Usage:
 
 What it does (in order):
 1. Stops any running jig daemon for the project (best-effort).
-2. Removes git worktrees and deletes every ``jig/*`` branch.
-3. Hard-resets to the repo's root commit.
-4. Runs ``git clean -fdx`` while excluding ``docs/brief.md`` (and its
-   parent ``docs/`` dir) so the brief is never touched on disk.
-5. If ``--brief PATH`` is given, copies that file to ``docs/brief.md``
-   (replacing any existing brief). Without ``--brief``, the existing
-   ``docs/brief.md`` (if any) is preserved in place.
+2. Reads the brief content into memory (from ``--brief PATH`` if given,
+   else from the project's own ``docs/brief.md`` if present).
+3. Removes EVERYTHING in the project directory, including ``.git/`` —
+   so old commit history and refs from prior eval runs cannot leak into
+   the next run and confuse the agents.
+4. Re-initializes git on branch ``develop`` and creates an empty
+   ``chore: initialize repository`` commit so HEAD is valid.
+5. Writes the preserved brief content (if any) to ``docs/brief.md``.
 
 Intended for the eval workflow: keep a library of brief files
 (``evals/briefs/hn-cli.md`` etc.) and call this script to install one
 into a target project after a clean reset.
 
-Refuses to run if the project path isn't absolute, isn't a directory,
-or isn't a git repository. ``--brief`` (when given) must point to an
-existing readable file.
+Refuses to run if the project path isn't absolute or isn't a directory.
+``--brief`` (when given) must point to an existing readable file.
 """
 from __future__ import annotations
 
@@ -59,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    import shutil
+
     proj = Path(args.project_path)
     if not proj.is_absolute():
         print(f"error: project_path must be absolute, got {proj}", file=sys.stderr)
@@ -66,11 +68,12 @@ def main(argv: list[str] | None = None) -> int:
     if not proj.is_dir():
         print(f"error: not a directory: {proj}", file=sys.stderr)
         return 2
-    if not (proj / ".git").exists():
-        print(f"error: not a git repository: {proj}", file=sys.stderr)
-        return 2
 
-    source_brief: Path | None = None
+    # Resolve the source brief BEFORE we delete anything — the source
+    # path may point inside the project (e.g. ``--brief docs/brief.md``)
+    # and we're about to nuke everything.
+    brief_content: bytes | None = None
+    brief_origin = ""
     if args.brief:
         source_brief = Path(args.brief)
         if not source_brief.is_file():
@@ -79,18 +82,21 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-
-    brief_path = proj / "docs" / "brief.md"
-    brief_present = brief_path.is_file()
-    if source_brief is not None:
-        print(f"[brief] will install from {source_brief}")
-    elif brief_present:
-        print(f"[preserve] docs/brief.md ({brief_path.stat().st_size} bytes)")
+        brief_content = source_brief.read_bytes()
+        brief_origin = f"--brief {source_brief}"
     else:
-        print("[preserve] no docs/brief.md present and no --brief given")
+        in_place = proj / "docs" / "brief.md"
+        if in_place.is_file():
+            brief_content = in_place.read_bytes()
+            brief_origin = f"existing {in_place.relative_to(proj)}"
+
+    if brief_content is not None:
+        print(f"[brief] preserved {len(brief_content)} bytes from {brief_origin}")
+    else:
+        print("[brief] no brief to preserve and no --brief given")
 
     # Stop daemon if running. Best-effort: a missing daemon shouldn't
-    # block the reset.
+    # block the reset. Read pid file BEFORE we wipe .jig/.
     if (proj / ".jig" / "run" / "daemon.pid").is_file():
         result = subprocess.run(
             ["uv", "run", "jig", "daemon", "stop", "--path", str(proj)],
@@ -102,87 +108,40 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"[daemon] stop returned {result.returncode} (ignoring)")
 
-    # Prune worktrees and delete jig/* branches BEFORE reset so refs
-    # are still resolvable.
-    try:
-        _run(["git", "worktree", "prune"], cwd=proj)
-        print("[git] pruned worktrees")
-    except subprocess.CalledProcessError as exc:
-        print(f"[git] worktree prune failed: {exc.stderr.strip()}")
-
-    branches_out = _run(
-        ["git", "branch", "--format=%(refname:short)"], cwd=proj
-    ).stdout
-    for raw in branches_out.splitlines():
-        name = raw.strip()
-        if not name.startswith("jig/"):
-            continue
-        result = subprocess.run(
-            ["git", "branch", "-D", name],
-            cwd=str(proj),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            print(f"[git] deleted branch {name}")
+    # Wipe EVERYTHING in the project directory, including .git/. Old
+    # commit history (e.g. the previous scaffold commit, T1's branch
+    # commits) would confuse agents on the next run.
+    for child in proj.iterdir():
+        if child.is_symlink() or child.is_file():
+            child.unlink()
         else:
-            print(f"[git] could not delete {name}: {result.stderr.strip()}")
+            shutil.rmtree(child)
+    print("[wipe] removed all project contents (incl. .git/)")
 
-    # Hard-reset to the repo's root commit. This only affects TRACKED
-    # files — the brief is untracked so it's not touched here.
-    root_out = _run(
-        ["git", "rev-list", "--max-parents=0", "HEAD"], cwd=proj
-    ).stdout
-    roots = [ln.strip() for ln in root_out.splitlines() if ln.strip()]
-    if not roots:
-        print("error: no root commit found; refusing to reset", file=sys.stderr)
-        return 1
-    root = roots[0]
-    print(f"[git] resetting to root commit {root[:8]}")
-    _run(["git", "reset", "--hard", root], cwd=proj)
-
-    # Clean untracked files. When --brief is given we'll write the brief
-    # ourselves afterwards so we can let git clean wipe everything; when
-    # preserving in place, exclude docs/brief.md (and docs/) so the file
-    # stays on disk untouched.
-    clean_args = ["git", "clean", "-fdx"]
-    if source_brief is None and brief_present:
-        clean_args.extend(["-e", "docs/brief.md", "-e", "docs/"])
-    _run(clean_args, cwd=proj)
-    preserved_in_place = source_brief is None and brief_present
-    print(
-        f"[git] cleaned untracked files "
-        f"(brief preserved in place: {preserved_in_place})"
+    # Re-initialize git on develop, with an empty initial commit so HEAD
+    # is valid before any further work. ``--no-verify`` and explicit
+    # author/email envs would only matter if hooks were installed; an
+    # empty repo has none, so skip them.
+    _run(["git", "init", "-q", "-b", "develop"], cwd=proj)
+    _run(
+        [
+            "git",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "chore: initialize repository",
+        ],
+        cwd=proj,
     )
+    print("[git] re-initialized on develop with empty root commit")
 
-    # If we preserved in place and there are leftovers in docs/ besides
-    # the brief itself, remove them so docs/ contains only the brief.
-    if preserved_in_place:
-        docs_dir = proj / "docs"
-        for child in docs_dir.iterdir():
-            if child.resolve() == brief_path.resolve():
-                continue
-            if child.is_dir():
-                import shutil
-
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-        if not brief_path.is_file():
-            print(
-                "error: docs/brief.md was lost during clean — investigate",
-                file=sys.stderr,
-            )
-            return 1
-
-    # Install the source brief if --brief was given.
-    if source_brief is not None:
+    # Restore the brief (if we had one).
+    if brief_content is not None:
+        brief_path = proj / "docs" / "brief.md"
         brief_path.parent.mkdir(parents=True, exist_ok=True)
-        import shutil
-
-        shutil.copyfile(source_brief, brief_path)
-        size = brief_path.stat().st_size
-        print(f"[brief] installed docs/brief.md from {source_brief} ({size} bytes)")
+        brief_path.write_bytes(brief_content)
+        print(f"[brief] wrote docs/brief.md ({len(brief_content)} bytes)")
 
     print("done.")
     return 0

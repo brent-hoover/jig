@@ -284,11 +284,17 @@ def test_render_gap_prompt_formats_gaps():
     assert "Y" in text
 
 
-def test_render_branch_prompt_contains_choices():
+def test_render_branch_prompt_returns_brief_context():
+    """render_branch_prompt no longer enumerates choices — those are
+    rendered as button-style badges by the TUI prompt panel. The
+    function emits only the informational context line so the same
+    info isn't duplicated in scrollback."""
     text = render_branch_prompt()
-    assert "[Y]" in text and "SA" in text
-    assert "[p]" in text and "template" in text.lower()
-    assert "[s]" in text and "PO" in text
+    assert "Brief accepted" in text
+    # Options are NOT in the rendered text anymore.
+    assert "[Y]" not in text
+    assert "[p]" not in text
+    assert "[s]" not in text
 
 
 def test_branch_choice_parsing():
@@ -314,7 +320,9 @@ def test_render_sa_confirm_prompt_shows_rationale():
     )
     assert "fastapi" in text
     assert "real-time API, async needs." in text
-    assert "[Y/n/swap]" in text
+    # Options (Y/n/swap) come from the prompt panel — the rendered
+    # text no longer duplicates them.
+    assert "[Y/n/swap]" not in text
 
 
 async def test_latest_scaffold_proposal_returns_most_recent(tmp_path: Path):
@@ -555,10 +563,12 @@ def test_print_summary_includes_path_when_target_not_cwd(capsys):
 
 def test_print_summary_omits_path_when_target_is_cwd(capsys):
     """When init was run in-place (`jig init .` style), no --path
-    needed — the bare command works."""
+    needed — the bare command works. The summary now renders through
+    a Rich panel, so we check the captured stdout text rather than a
+    specific newline placement."""
     from jig.init_workflow import _print_summary
 
     _print_summary(Path("."), template_name="fastapi")
     out = capsys.readouterr().out
-    assert "jig story brief\n" in out
+    assert "jig story brief" in out
     assert "--path" not in out

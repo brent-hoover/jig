@@ -416,20 +416,48 @@ def _print_summary(
     # so the project lives at `<cwd>/<target>`, not the cwd itself. The
     # `jig story` command defaults to `--path .` and would fail there;
     # surface the right invocation explicitly.
+    from rich.panel import Panel
+    from rich.table import Table
+
     c = console or _spawn_console()
     target_str = str(target)
     needs_path = target_str not in (".", "")
     path_arg = f" --path {target_str}" if needs_path else ""
+
+    artifacts = Table.grid(padding=(0, 2))
+    artifacts.add_column(style="bold cyan", no_wrap=True)
+    artifacts.add_column(style="bright_white")
+    artifacts.add_row("Brief", f"{target}/docs/brief.md")
+    artifacts.add_row("Spec", f"{target}/docs/project.structured.yaml")
+    artifacts.add_row("Architecture", f"{target}/docs/architecture.yaml")
+    artifacts.add_row("Template", f"[bright_green]{template_name}[/bright_green]")
+
+    setup_log = Table.grid(padding=(0, 2))
+    setup_log.add_column(style="dim", no_wrap=True)
+    setup_log.add_column(style="bright_white")
+    setup_log.add_row("Setup log", f"jig story brief{path_arg}")
+    setup_log.add_row("", f"jig story architecture{path_arg}")
+
+    from rich.console import Group
+
+    body = Group(
+        artifacts,
+        "",
+        setup_log,
+        "",
+        "[bold green]✓ Init complete.[/bold green] "
+        "Run [bold]jig start[/bold] (or type [bold]/status[/bold]) "
+        "to begin orchestration.",
+    )
+    c.print()
     c.print(
-        f"\n"
-        f"Brief:        {target}/docs/brief.md\n"
-        f"Spec:         {target}/docs/project.structured.yaml\n"
-        f"Architecture: {target}/docs/architecture.yaml\n"
-        f"Template:     {template_name}\n\n"
-        f"Setup log:    jig story brief{path_arg}\n"
-        f"              jig story architecture{path_arg}\n\n"
-        f"Init complete. Run `jig start` (or type /status) to begin orchestration.\n",
-        markup=False,
+        Panel(
+            body,
+            title="[bold bright_white on green] init complete [/bold bright_white on green]",
+            title_align="left",
+            border_style="green",
+            padding=(1, 2),
+        )
     )
 
 
@@ -843,12 +871,10 @@ class BranchChoice(str, Enum):
 
 
 def render_branch_prompt() -> str:
-    return (
-        "Brief accepted. Choose your path:\n"
-        "  [Y] Hand off to SA for architecture + template  (default)\n"
-        "  [p] Pick a template yourself from the list\n"
-        "  [s] Stay on PO — brief needs more work\n"
-    )
+    # The options (Y / p / s) are rendered by the TUI's prompt panel as
+    # button-style badges; emit only the context line here so we don't
+    # duplicate them in scrollback.
+    return "Brief accepted."
 
 
 async def prompt_branch_choice(
@@ -881,11 +907,9 @@ class ConfirmChoice(str, Enum):
 
 
 def render_sa_confirm_prompt(*, template_name: str, rationale: str) -> str:
-    return (
-        f"SA proposes: {template_name}\n\n"
-        f"Rationale:\n{rationale}\n\n"
-        "[Y/n/swap]  (Y = accept, n = cancel, swap = re-consult SA)"
-    )
+    # Options (Y/n/swap) come from the prompt panel; emit only the
+    # informational context here so it doesn't duplicate in scrollback.
+    return f"SA proposes: [bold bright_green]{template_name}[/bold bright_green]\n\nRationale:\n{rationale}"
 
 
 async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:

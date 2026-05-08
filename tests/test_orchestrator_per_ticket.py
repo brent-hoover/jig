@@ -460,3 +460,38 @@ async def test_try_resolve_conflict_returns_true_when_agent_succeeds(
         assert result is True
     finally:
         await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_conflict_returns_false_when_agent_reports_failed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_resolve_conflict returns False when the agent completes but reports
+    status='failed' (e.g., agent gave up on the conflict)."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+        from jig.agent import RunAgentResult
+
+        monkeypatch.setattr(
+            orch_module,
+            "load_role",
+            lambda *a, **k: RoleConfig(role="conflict_resolver", phase_prompt="x"),
+        )
+
+        async def fake_run_failed(ctx, spawned_by="orchestrator"):
+            return RunAgentResult(status="failed", final_text="gave up")
+
+        orch._run_agent_with_analytics = fake_run_failed  # type: ignore[method-assign]
+        result = await orch._try_resolve_conflict(tid, ticket)
+        assert result is False
+    finally:
+        await orch.shutdown()

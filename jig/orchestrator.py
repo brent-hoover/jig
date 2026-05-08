@@ -16,7 +16,6 @@ from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
 from jig.analytics.events import AgentCompleted, AgentSpawned, TicketGraphImpact, TicketStateChanged
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, OrchestratorSection, load_config
-from jig.persistence import load_role
 from jig.deadlock import sweep_blocking_entries
 from jig.dev_env.orchestrator_hook import (
     DevProvisioningError,
@@ -25,6 +24,7 @@ from jig.dev_env.orchestrator_hook import (
     provision_for_agent,
 )
 from jig.logging_setup import _phase_var, _role_var, _ticket_id_var
+from jig.persistence import load_role
 from jig.project import Project, load_project
 from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
@@ -1435,8 +1435,8 @@ class Orchestrator:
             },
         )
         try:
-            await self._run_agent_with_analytics(ctx, spawned_by="conflict_resolver")
-            return True
+            result = await self._run_agent_with_analytics(ctx, spawned_by="conflict_resolver")
+            return result.status == "success"
         except Exception:
             _logger.warning(
                 "_try_resolve_conflict: agent failed for %s",

@@ -328,7 +328,16 @@ class Sidebar(Widget):
 
     def _extract_subject(self, ev: dict) -> str:
         """A short subject (ticket title fragment, id, or role) so each
-        tail line is meaningful at a glance."""
+        tail line is meaningful at a glance.
+
+        Order of preference:
+        1. Inline ``title`` on the event payload (some envelopes carry
+           it).
+        2. Lookup the ticket id in our cached ``self._tickets`` dict
+           (populated from the tickets snapshot) — gives us a title
+           even when the event only carried the id.
+        3. Short ticket id as the last resort (better than nothing).
+        """
         for path in (
             ev.get("title"),
             (ev.get("data") or {}).get("title"),
@@ -336,6 +345,9 @@ class Sidebar(Widget):
         ):
             if isinstance(path, str) and path.strip():
                 return path[:24] + ("…" if len(path) > 24 else "")
+
+        # Resolve via the cached ticket store.
+        ticket_id = None
         for path in (
             ev.get("ticket_id"),
             (ev.get("data") or {}).get("ticket_id"),
@@ -343,7 +355,14 @@ class Sidebar(Widget):
             ev.get("id"),
         ):
             if isinstance(path, str) and path.strip():
-                return path[:8]
+                ticket_id = path
+                break
+        if ticket_id:
+            t = self._tickets.get(ticket_id)
+            if t and t.get("title"):
+                title = t["title"]
+                return title[:24] + ("…" if len(title) > 24 else "")
+            return ticket_id[:8]
         return ""
 
     def _render_tail(self) -> None:

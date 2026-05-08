@@ -221,6 +221,11 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     evaluator_bundle = (
         ctx.initial_bus_message if ctx.spawn_reason == SpawnReason.EVALUATOR else None
     )
+    conflict_bundle = (
+        ctx.initial_bus_message
+        if ctx.spawn_reason == SpawnReason.CONFLICT_RESOLVER
+        else None
+    )
 
     return build_initial_prompt(
         role_cfg=ctx.role_cfg,
@@ -237,6 +242,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         worktree_path=str(ctx.worktree_path),
         phase=ctx.phase,
         evaluator_bundle=evaluator_bundle,
+        conflict_bundle=conflict_bundle,
     )
 
 

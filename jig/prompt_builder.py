@@ -177,17 +177,33 @@ def _instructions_section(
     ticket: Ticket,
     reason: SpawnReason,
     evaluator_bundle: dict[str, Any] | None = None,
+    conflict_bundle: dict[str, Any] | None = None,
     role: str | None = None,
 ) -> str:
     if role in _INIT_ROLES_WITH_OWN_INSTRUCTIONS and reason not in (
         SpawnReason.QA_RESPONDER,
         SpawnReason.EVALUATOR,
+        SpawnReason.CONFLICT_RESOLVER,
     ):
         # The role's phase_prompt enumerates tools, files, and the
         # situational next step. Adding the generic block would
         # instruct the agent to call commit_progress / update_ticket,
         # neither of which applies to the init flow.
         return ""
+    if reason == SpawnReason.CONFLICT_RESOLVER:
+        base_branch = (conflict_bundle or {}).get("base_branch", "develop")
+        return (
+            "## Instructions\n\n"
+            f"A merge conflict occurred while integrating `{base_branch}` into this "
+            "ticket's branch. The merge was aborted; the worktree is clean.\n\n"
+            "Steps:\n"
+            f"1. Run `git merge {base_branch}` to re-introduce the conflict markers.\n"
+            "2. Run `git diff --name-only --diff-filter=U` to list conflicted files.\n"
+            "3. Use `read_comments` to understand what each side was trying to do.\n"
+            "4. For each conflicted file, read it, understand both sides, and resolve.\n"
+            "5. Run `git add -A` then `git commit --no-edit` to complete the merge.\n"
+            f'6. Call `update_ticket(ticket_id="{ticket.id}", status="resolved")`.\n'
+        )
     if reason == SpawnReason.QA_RESPONDER:
         return (
             "## Instructions\n\n"
@@ -450,6 +466,7 @@ def build_initial_prompt(
     worktree_path: str | None = None,
     phase: PhaseConfig | None = None,
     evaluator_bundle: dict[str, Any] | None = None,
+    conflict_bundle: dict[str, Any] | None = None,
 ) -> str:
     # Evaluator spawns carry a pre-assembled bundle (handoff id +
     # structured check results) from the orchestrator; Phase 5 Task C/E/J.
@@ -476,6 +493,7 @@ def build_initial_prompt(
             ticket,
             spawn_reason,
             evaluator_bundle=evaluator_bundle,
+            conflict_bundle=conflict_bundle,
             role=role_cfg.role,
         ),
     ]

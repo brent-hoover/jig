@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
     from jig.prompt_registry import PromptRegistry
+    from jig.ticket import Ticket
 
 from jig.agent import run_agent
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
@@ -1385,7 +1386,7 @@ class Orchestrator:
         finally:
             _ticket_id_var.reset(tid_token)
 
-    async def _try_resolve_conflict(self, ticket_id: str, ticket) -> bool:
+    async def _try_resolve_conflict(self, ticket_id: str, ticket: "Ticket") -> bool:
         """Spawn the built-in conflict_resolver agent to fix conflict markers.
 
         Returns True if the agent completes without exception (caller should

@@ -246,7 +246,10 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
 
     orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
 
+    resolver_calls: list[str] = []
+
     async def fake_try_resolve(ticket_id, ticket):
+        resolver_calls.append(ticket_id)
         return False
 
     orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
@@ -283,6 +286,9 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
         assert ticket is not None
         assert ticket.status == TicketStatus.MERGE_CONFLICT, (
             f"expected MERGE_CONFLICT, got {ticket.status}"
+        )
+        assert len(resolver_calls) == 1, (
+            f"expected resolver called once, got {len(resolver_calls)}"
         )
         # Worktree is preserved on conflict so a human can resolve it.
         assert remove_calls == [], (
@@ -548,7 +554,10 @@ async def test_resolver_success_routes_to_resolved(
 
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_wt)
 
+    resolver_called: list[str] = []
+
     async def fake_try_resolve(ticket_id, ticket):
+        resolver_called.append(ticket_id)
         return True
 
     orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
@@ -572,6 +581,7 @@ async def test_resolver_success_routes_to_resolved(
             f"expected RESOLVED, got {ticket.status}"
         )
         assert call_count == 2, f"expected merge_ticket called twice, got {call_count}"
+        assert resolver_called == [tid]
     finally:
         await orch.shutdown()
 
@@ -611,7 +621,10 @@ async def test_resolver_failure_routes_to_merge_conflict(
 
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_wt2)
 
+    resolver_called: list[str] = []
+
     async def fake_try_resolve(ticket_id, ticket):
+        resolver_called.append(ticket_id)
         return False
 
     orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
@@ -634,5 +647,6 @@ async def test_resolver_failure_routes_to_merge_conflict(
         assert ticket.status == TicketStatus.MERGE_CONFLICT, (
             f"expected MERGE_CONFLICT, got {ticket.status}"
         )
+        assert resolver_called == [tid]
     finally:
         await orch.shutdown()

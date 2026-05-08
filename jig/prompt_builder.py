@@ -183,7 +183,6 @@ def _instructions_section(
     if role in _INIT_ROLES_WITH_OWN_INSTRUCTIONS and reason not in (
         SpawnReason.QA_RESPONDER,
         SpawnReason.EVALUATOR,
-        SpawnReason.CONFLICT_RESOLVER,
     ):
         # The role's phase_prompt enumerates tools, files, and the
         # situational next step. Adding the generic block would
@@ -191,7 +190,7 @@ def _instructions_section(
         # neither of which applies to the init flow.
         return ""
     if reason == SpawnReason.CONFLICT_RESOLVER:
-        base_branch = (conflict_bundle or {}).get("base_branch", "develop")
+        base_branch = (conflict_bundle or {}).get("base_branch", "main")
         return (
             "## Instructions\n\n"
             f"A merge conflict occurred while integrating `{base_branch}` into this "
@@ -201,7 +200,7 @@ def _instructions_section(
             "2. Run `git diff --name-only --diff-filter=U` to list conflicted files.\n"
             "3. Use `read_comments` to understand what each side was trying to do.\n"
             "4. For each conflicted file, read it, understand both sides, and resolve.\n"
-            "5. Run `git add -A` then `git commit --no-edit` to complete the merge.\n"
+            "5. Run `git diff --check` to confirm no markers remain, then `git add -A` and `git commit --no-edit` to complete the merge.\n"
             f'6. Call `update_ticket(ticket_id="{ticket.id}", status="resolved")`.\n'
         )
     if reason == SpawnReason.QA_RESPONDER:

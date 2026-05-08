@@ -21,6 +21,7 @@ class SpawnReason(str, Enum):
     # PHASE_PRIMARY so prompt_builder can key off the reason to compose
     # an evaluator-specific prompt (not the phase's normal work prompt).
     EVALUATOR = "evaluator"
+    CONFLICT_RESOLVER = "conflict_resolver"
 
 
 @dataclass

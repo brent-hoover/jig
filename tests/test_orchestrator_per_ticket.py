@@ -246,6 +246,11 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
 
     orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
 
+    async def fake_try_resolve(ticket_id, ticket):
+        return False
+
+    orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
+
     async def conflicting_merge(project_path, ticket_id, base, strategy):
         raise MergeConflictError(ticket_id, f"jig/{ticket_id}")
 
@@ -493,5 +498,141 @@ async def test_try_resolve_conflict_returns_false_when_agent_reports_failed(
         orch._run_agent_with_analytics = fake_run_failed  # type: ignore[method-assign]
         result = await orch._try_resolve_conflict(tid, ticket)
         assert result is False
+    finally:
+        await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C6: _on_ticket_completed auto-resolves merge conflicts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolver_success_routes_to_resolved(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When _try_resolve_conflict returns True and the retry merge succeeds,
+    the ticket reaches RESOLVED."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+    from jig.worktree import MergeConflictError
+
+    async def fake_run_agent(ctx, emitter=None):
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    call_count = 0
+
+    async def merge_first_conflicts_then_succeeds(project_path, ticket_id, base, strategy):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise MergeConflictError(ticket_id, f"jig/{ticket_id}")
+        return f"Merged jig/{ticket_id}"
+
+    monkeypatch.setattr("jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds)
+    monkeypatch.setattr("jig.worktree.remove_worktree", lambda *a, **k: None)
+
+    async def fake_commit_wt(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_wt)
+
+    async def fake_try_resolve(ticket_id, ticket):
+        return True
+
+    orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch._handle_schedule(tid)
+        running_task = orch._running_tickets.get(tid)
+        if running_task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(running_task), timeout=2.0)
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.RESOLVED, (
+            f"expected RESOLVED, got {ticket.status}"
+        )
+        assert call_count == 2, f"expected merge_ticket called twice, got {call_count}"
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_resolver_failure_routes_to_merge_conflict(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When _try_resolve_conflict returns False, the ticket still routes to
+    MERGE_CONFLICT (existing human path unchanged)."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+    from jig.worktree import MergeConflictError
+
+    async def fake_run_agent(ctx, emitter=None):
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    async def always_conflicts(project_path, ticket_id, base, strategy):
+        raise MergeConflictError(ticket_id, f"jig/{ticket_id}")
+
+    monkeypatch.setattr("jig.worktree.merge_ticket", always_conflicts)
+    monkeypatch.setattr("jig.worktree.remove_worktree", lambda *a, **k: None)
+
+    async def fake_commit_wt2(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_wt2)
+
+    async def fake_try_resolve(ticket_id, ticket):
+        return False
+
+    orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch._handle_schedule(tid)
+        running_task = orch._running_tickets.get(tid)
+        if running_task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(running_task), timeout=2.0)
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.MERGE_CONFLICT, (
+            f"expected MERGE_CONFLICT, got {ticket.status}"
+        )
     finally:
         await orch.shutdown()

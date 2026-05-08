@@ -1479,14 +1479,48 @@ class Orchestrator:
                 )
                 _logger.info("merge complete: %s", merge_result)
             except MergeConflictError as exc:
-                merge_conflict = True
                 merge_result = str(exc)
                 _logger.warning(
-                    "merge conflict for %s — routing to MERGE_CONFLICT; "
+                    "merge conflict for %s — attempting auto-resolution; "
                     "branch %s preserved",
                     ticket_id,
                     branch_name,
                 )
+                resolved_by_agent = await self._try_resolve_conflict(ticket_id, ticket)
+                if resolved_by_agent:
+                    try:
+                        merge_result = await merge_ticket(
+                            self._project_path,
+                            ticket_id,
+                            self._project.default_branch,
+                            strategy,
+                        )
+                        _logger.info(
+                            "conflict resolved by agent, merge retry succeeded: %s",
+                            merge_result,
+                        )
+                    except MergeConflictError as retry_exc:
+                        merge_conflict = True
+                        merge_result = str(retry_exc)
+                        _logger.warning(
+                            "merge conflict persists after agent resolution for %s "
+                            "— routing to MERGE_CONFLICT",
+                            ticket_id,
+                        )
+                    except Exception:
+                        merge_failed = True
+                        merge_result = f"merge retry failed (branch {branch_name} preserved)"
+                        _logger.warning(
+                            "merge retry failed for %s after conflict resolution",
+                            ticket_id,
+                            exc_info=True,
+                        )
+                else:
+                    merge_conflict = True
+                    _logger.warning(
+                        "conflict resolver gave up for %s — routing to MERGE_CONFLICT",
+                        ticket_id,
+                    )
             except Exception:
                 merge_failed = True
                 merge_result = f"merge failed (branch {branch_name} preserved)"

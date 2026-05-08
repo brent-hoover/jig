@@ -16,6 +16,7 @@ from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
 from jig.analytics.events import AgentCompleted, AgentSpawned, TicketGraphImpact, TicketStateChanged
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, OrchestratorSection, load_config
+from jig.persistence import load_role
 from jig.deadlock import sweep_blocking_entries
 from jig.dev_env.orchestrator_hook import (
     DevProvisioningError,
@@ -1383,6 +1384,66 @@ class Orchestrator:
             await self._on_ticket_completed(ticket_id, ticket)
         finally:
             _ticket_id_var.reset(tid_token)
+
+    async def _try_resolve_conflict(self, ticket_id: str, ticket) -> bool:
+        """Spawn the built-in conflict_resolver agent to fix conflict markers.
+
+        Returns True if the agent completes without exception (caller should
+        retry the merge). Returns False on any failure — missing role,
+        spawn error, agent crash — so a resolver failure never turns a
+        conflict into an orchestrator crash.
+        """
+        from jig.runtime import AgentSpawnContext, SpawnReason
+
+        if (
+            self._project is None
+            or self.tickets is None
+            or self.threads is None
+            or self.memory is None
+            or self.bus is None
+        ):
+            return False
+
+        try:
+            role_cfg = load_role(self._project_path, "conflict_resolver")
+        except FileNotFoundError:
+            _logger.warning(
+                "_try_resolve_conflict: conflict_resolver role not found; "
+                "falling back to human resolution for %s",
+                ticket_id,
+            )
+            return False
+
+        worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
+        ctx = AgentSpawnContext(
+            role="conflict_resolver",
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.CONFLICT_RESOLVER,
+            ticket=ticket,
+            parent=None,
+            worktree_path=worktree_path,
+            project=self._project,
+            tickets=self.tickets,
+            threads=self.threads,
+            memory=self.memory,
+            bus=self.bus,
+            checkpoints=self.checkpoints,
+            initial_bus_message={
+                "kind": "conflict_resolve_spawn",
+                "ticket_id": ticket_id,
+                "base_branch": self._project.default_branch,
+            },
+        )
+        try:
+            await self._run_agent_with_analytics(ctx, spawned_by="conflict_resolver")
+            return True
+        except Exception:
+            _logger.warning(
+                "_try_resolve_conflict: agent failed for %s",
+                ticket_id,
+                exc_info=True,
+            )
+            return False
 
     async def _on_ticket_completed(self, ticket_id: str, ticket) -> None:
         """Post-completion: merge branch, set final status, emit event,

@@ -358,3 +358,105 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
         assert "jig/dep-123" in dep_events[0].content
     finally:
         await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C5: _try_resolve_conflict — unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_conflict_returns_false_when_role_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_resolve_conflict returns False (not raises) when the
+    conflict_resolver role file does not exist."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+
+        def raise_not_found(project_path, name):
+            raise FileNotFoundError(f"role {name!r} not found")
+
+        monkeypatch.setattr(orch_module, "load_role", raise_not_found)
+        result = await orch._try_resolve_conflict(tid, ticket)
+        assert result is False
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_conflict_returns_false_when_agent_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_resolve_conflict returns False (not raises) when the agent spawn
+    raises an unexpected exception."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+
+        monkeypatch.setattr(
+            orch_module,
+            "load_role",
+            lambda *a, **k: RoleConfig(role="conflict_resolver", phase_prompt="x"),
+        )
+
+        async def boom(ctx, spawned_by="orchestrator"):
+            raise RuntimeError("agent exploded")
+
+        orch._run_agent_with_analytics = boom  # type: ignore[method-assign]
+        result = await orch._try_resolve_conflict(tid, ticket)
+        assert result is False
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_conflict_returns_true_when_agent_succeeds(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_resolve_conflict returns True when the agent completes without
+    raising."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+        from jig.agent import RunAgentResult
+
+        monkeypatch.setattr(
+            orch_module,
+            "load_role",
+            lambda *a, **k: RoleConfig(role="conflict_resolver", phase_prompt="x"),
+        )
+
+        async def fake_run(ctx, spawned_by="orchestrator"):
+            return RunAgentResult(status="success", final_text="done")
+
+        orch._run_agent_with_analytics = fake_run  # type: ignore[method-assign]
+        result = await orch._try_resolve_conflict(tid, ticket)
+        assert result is True
+    finally:
+        await orch.shutdown()

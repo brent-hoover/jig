@@ -25,7 +25,11 @@ When `merge_ticket` raises `MergeConflictError`, the orchestrator spawns a built
 3. Call `commit_progress` to commit the resolution.
 4. Call `update_ticket(status="resolved")` to signal completion.
 
-Tool set: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash`. No `context7`, no `default_context`, no `allow_add_dependency`. The agent needs nothing beyond its own tools — the conflict markers are self-describing.
+Tool set: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash`. No `context7`, no `allow_add_dependency`.
+
+No `allowed_mcps` entry — the jig MCP is implicit (all roles get it by default). This gives the agent access to ticket read, thread read, and `commit_progress`/`update_ticket` without adding any external MCPs like `context7`. The agent can read the ticket thread to understand the intent behind each conflicting change before deciding how to resolve.
+
+No `default_context` — the agent loads ticket context explicitly via MCP tools rather than having it injected, since it may want to read both tickets' threads.
 
 ### New spawn reason: `CONFLICT_RESOLVER`
 

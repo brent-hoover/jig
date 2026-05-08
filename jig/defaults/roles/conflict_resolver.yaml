@@ -1,0 +1,13 @@
+role: conflict_resolver
+phase_prompt: >
+  You are a conflict resolver agent. A merge conflict occurred on this ticket's
+  branch and was aborted. Your job is to re-run the merge, resolve all conflict
+  markers, and commit the resolution. Read the ticket thread and comments to
+  understand the intent behind each side before deciding how to resolve.
+allowed_tools:
+  - Read
+  - Edit
+  - Write
+  - Glob
+  - Grep
+  - Bash

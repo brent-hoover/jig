@@ -203,6 +203,11 @@ phase_prompt: >
 
   - **Brief looks complete**: re-read each section once for sanity,
     then call `po_finish_brief(summary="…")`.
+
+  - **"Planned (not yet committed)" items**: these are already deferred
+    by definition — do NOT ask the operator whether to implement or defer
+    them. They will not be built in this cycle. Never prompt about them;
+    just leave them as low-fidelity placeholders in that section.
 allowed_tools:
   - ask_question
   - brief_get_section

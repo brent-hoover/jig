@@ -80,7 +80,11 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
                     ["ps", "-p", str(pid), "-o", "command="],
                     capture_output=True, text=True, check=False,
                 ).stdout.strip()
-                if "claude" not in cmd:
+                # Match only processes whose argv[0] basename is "claude"
+                # so we don't accidentally SIGTERM unrelated tools that happen
+                # to have "claude" elsewhere in their command line.
+                cmd_basename = os.path.basename(cmd.split()[0]) if cmd.split() else ""
+                if cmd_basename != "claude":
                     continue
                 try:
                     os.kill(pid, signal.SIGTERM)
@@ -170,6 +174,7 @@ class Orchestrator:
         self._service_task: asyncio.Task | None = None
         self._deadlock_task: asyncio.Task | None = None
         self._stall_task: asyncio.Task | None = None
+        self._analyzer_task: asyncio.Task | None = None
         self._stall_detector: StallDetector = StallDetector()
         self._analyzer_last_terminal_ids: frozenset[str] = frozenset()
         # Phase 5 Task L thresholds — loaded from config at startup
@@ -892,7 +897,7 @@ class Orchestrator:
 
     async def _emergency_reset(self) -> None:
         self._running = False
-        for task in (self._dispatch_task, self._service_task, self._deadlock_task, self._stall_task):
+        for task in (self._dispatch_task, self._service_task, self._deadlock_task, self._stall_task, self._analyzer_task):
             if task is not None:
                 task.cancel()
                 try:
@@ -915,6 +920,7 @@ class Orchestrator:
         self._service_task = None
         self._deadlock_task = None
         self._stall_task = None
+        self._analyzer_task = None
         self._project = None
         self.tickets = None
         self.threads = None
@@ -934,6 +940,8 @@ class Orchestrator:
             tasks_to_cancel.append(self._deadlock_task)
         if self._stall_task is not None:
             tasks_to_cancel.append(self._stall_task)
+        if self._analyzer_task is not None:
+            tasks_to_cancel.append(self._analyzer_task)
         tasks_to_cancel.extend(self._running_tickets.values())
         tasks_to_cancel.extend(self._live_subscribers.values())
         for task in tasks_to_cancel:
@@ -951,6 +959,7 @@ class Orchestrator:
         self._service_task = None
         self._deadlock_task = None
         self._stall_task = None
+        self._analyzer_task = None
         # Flush in-flight analytics writes so the tail of the event
         # stream isn't lost when the loop closes.
         if self._analytics_emitter is not None:
@@ -1907,7 +1916,7 @@ class Orchestrator:
                     "tickets_total": len(all_tickets),
                 },
             ))
-        asyncio.create_task(self._run_analyzer_bg())
+        self._analyzer_task = asyncio.create_task(self._run_analyzer_bg())
 
     async def _run_analyzer_bg(self) -> None:
         """Run the post-run analyzer in a thread and emit analysis_complete."""

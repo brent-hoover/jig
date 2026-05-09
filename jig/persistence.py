@@ -316,8 +316,15 @@ def resolve_workflow_name(
                     pass
             if schema.workflow:
                 return schema.workflow
-        except (FileNotFoundError, Exception):
+        except FileNotFoundError:
             pass
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "failed to load work_type schema for %r — falling back to 'default'",
+                work_type,
+                exc_info=True,
+            )
     return "default"
 
 

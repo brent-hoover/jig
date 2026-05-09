@@ -671,6 +671,8 @@ async def run_agent(
                             "agent_thinking",
                             {"role": ctx.role, "elapsed": elapsed, "active": True},
                         )
+                        if ctx.on_thinking is not None:
+                            ctx.on_thinking()
             finally:
                 try:
                     await _emit(

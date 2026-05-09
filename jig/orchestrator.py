@@ -2,6 +2,9 @@
 
 import asyncio
 import logging
+import os
+import signal
+import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,6 +16,7 @@ if TYPE_CHECKING:
     from jig.ticket import Ticket
 
 from jig.agent import run_agent
+from jig.stall_detector import StallDetector
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
 from jig.analytics.events import AgentCompleted, AgentSpawned, TicketGraphImpact, TicketStateChanged
 from jig.analytics.store import AnalyticsStore
@@ -44,6 +48,47 @@ _logger = logging.getLogger(__name__)
 # healthy project. Tests that want fast iteration create tight
 # sweeps by calling ``sweep_blocking_entries`` directly.
 DEADLOCK_SWEEP_INTERVAL_S = 60.0
+
+
+def _kill_orphan_claude_processes(project_path: Path) -> int:
+    """SIGTERM any ``claude`` CLI subprocess whose CWD is inside the
+    project's worktrees directory. Returns the number of PIDs signalled.
+
+    macOS-only (uses lsof). Falls back to a no-op on platforms without it.
+    """
+    worktrees_root = project_path / ".jig" / "worktrees"
+    if not worktrees_root.is_dir():
+        return 0
+    killed = 0
+    try:
+        for child in worktrees_root.iterdir():
+            if not child.is_dir():
+                continue
+            result = subprocess.run(
+                ["lsof", "-d", "cwd", "-Fp", "+D", str(child)],
+                capture_output=True, text=True, check=False,
+            )
+            for line in result.stdout.splitlines():
+                if not line.startswith("p"):
+                    continue
+                try:
+                    pid = int(line[1:])
+                except ValueError:
+                    continue
+                cmd = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "command="],
+                    capture_output=True, text=True, check=False,
+                ).stdout.strip()
+                if "claude" not in cmd:
+                    continue
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    killed += 1
+                except ProcessLookupError:
+                    pass
+    except FileNotFoundError:
+        pass  # lsof not available
+    return killed
 
 
 def _summarize_critical_note(comments: list) -> str:
@@ -123,6 +168,8 @@ class Orchestrator:
         self._dispatch_task: asyncio.Task | None = None
         self._service_task: asyncio.Task | None = None
         self._deadlock_task: asyncio.Task | None = None
+        self._stall_task: asyncio.Task | None = None
+        self._stall_detector: StallDetector = StallDetector()
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -237,6 +284,7 @@ class Orchestrator:
             self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
             self._service_task = asyncio.create_task(self._run_service_loop())
             self._deadlock_task = asyncio.create_task(self._run_deadlock_loop())
+            self._stall_task = asyncio.create_task(self._run_stall_loop())
         except Exception:
             await self._emergency_reset()
             raise
@@ -265,6 +313,10 @@ class Orchestrator:
         self, ticket_id: str, from_state: str | None, to_state: str
     ) -> None:
         """Status-change callback wired into TicketStore for analytics."""
+        if to_state == "needs_info":
+            self._stall_detector.record_needs_info(ticket_id)
+        else:
+            self._stall_detector.clear_needs_info(ticket_id)
         if self._analytics_emitter is None:
             return
         self._analytics_emitter.emit_nowait(
@@ -392,6 +444,8 @@ class Orchestrator:
             _logger.debug(
                 "could not stamp analytics_emitter on ctx (frozen / slots?)",
             )
+        ctx.on_thinking = lambda: self._stall_detector.record_heartbeat(ctx.role)
+        self._stall_detector.record_agent_start(ctx.role)
         start = time.monotonic()
         result_status = "failed"
         cost_usd: float | None = None
@@ -405,6 +459,7 @@ class Orchestrator:
             tokens_out = result.tokens_out
             return result
         finally:
+            self._stall_detector.record_agent_done(ctx.role)
             if emitter is not None:
                 emitter.emit_nowait(
                     AgentCompleted(
@@ -832,7 +887,7 @@ class Orchestrator:
 
     async def _emergency_reset(self) -> None:
         self._running = False
-        for task in (self._dispatch_task, self._service_task, self._deadlock_task):
+        for task in (self._dispatch_task, self._service_task, self._deadlock_task, self._stall_task):
             if task is not None:
                 task.cancel()
                 try:
@@ -854,6 +909,7 @@ class Orchestrator:
         self._dispatch_task = None
         self._service_task = None
         self._deadlock_task = None
+        self._stall_task = None
         self._project = None
         self.tickets = None
         self.threads = None
@@ -871,6 +927,8 @@ class Orchestrator:
             tasks_to_cancel.append(self._service_task)
         if self._deadlock_task is not None:
             tasks_to_cancel.append(self._deadlock_task)
+        if self._stall_task is not None:
+            tasks_to_cancel.append(self._stall_task)
         tasks_to_cancel.extend(self._running_tickets.values())
         tasks_to_cancel.extend(self._live_subscribers.values())
         for task in tasks_to_cancel:
@@ -887,6 +945,7 @@ class Orchestrator:
         self._dispatch_task = None
         self._service_task = None
         self._deadlock_task = None
+        self._stall_task = None
         # Flush in-flight analytics writes so the tail of the event
         # stream isn't lost when the loop closes.
         if self._analytics_emitter is not None:
@@ -976,6 +1035,42 @@ class Orchestrator:
                 raise
             except Exception:
                 _logger.warning("deadlock sweep raised; continuing", exc_info=True)
+
+    async def _run_stall_loop(self) -> None:
+        """Background task: poll StallDetector and act on verdicts.
+
+        Fires every ``poll_interval_seconds``. When a stall is detected:
+        1. Logs a warning with the signal + detail.
+        2. SIGTERMs orphan ``claude`` subprocesses in the project's
+           worktrees (the most common cause of heartbeat-gap stalls).
+        3. Observes a cooldown before firing again so one stall event
+           doesn't cascade into repeated kills.
+        """
+        thresholds = self._stall_detector.thresholds
+        last_action_at: float | None = None
+        while self._running:
+            try:
+                await asyncio.sleep(thresholds.poll_interval_seconds)
+            except asyncio.CancelledError:
+                raise
+            if not self._running:
+                return
+            verdict = self._stall_detector.check()
+            if verdict is None:
+                continue
+            now = time.monotonic()
+            if last_action_at is not None and (now - last_action_at) < thresholds.cooldown_seconds:
+                continue
+            last_action_at = now
+            _logger.warning(
+                "stall detected: signal=%s elapsed=%.0fs detail=%s",
+                verdict.signal,
+                verdict.seconds_since_last_event,
+                verdict.detail,
+            )
+            killed = _kill_orphan_claude_processes(self._project_path)
+            if killed:
+                _logger.info("stall recovery: SIGTERMed %d orphan claude process(es)", killed)
 
     async def _handle_schedule(self, ticket_id: str) -> None:
         """Schedule a ticket if its dependencies are satisfied.

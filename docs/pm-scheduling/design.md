@@ -6,6 +6,7 @@ owner: brent
 created: 2026-05-08
 updated: 2026-05-08
 problem: ./problem.md
+
 ---
 
 # PM Scheduling — Design
@@ -24,7 +25,7 @@ Two new rules replace the unconditional "Maximize parallelism" instruction:
 
 **Bones-first rule:** The first implementation ticket in any group of related features acts as a sequential gate. Do not create parallel tickets that depend on the same setup ticket until that first ticket has been identified and placed at the front of the chain. Other tickets depend on it, not on each other's predecessors.
 
-These rules are enforced by the LLM following instructions. The `max_parallel` cap (below) is the mechanical backstop.
+These rules are enforced by the LLM following instructions. The `max_parallel` cap (below) is the mechanical backstop. The prompt rule targets near-zero conflicts; a zero-conflict guarantee on small projects requires `max_parallel: 1`.
 
 ### 2. `max_parallel` cap (`jig/models.py` + `jig/orchestrator.py`)
 
@@ -49,24 +50,28 @@ Tickets that are ready but blocked by the cap remain in the ready queue and are 
 
 A new `SpawnReason.REPLAN` is added alongside `CONFLICT_RESOLVER`.
 
+**Capturing conflicted files:** `MergeConflictError` gains a `conflicted_files: list[str]` field. When a conflict is detected in `_do_merge` (before calling `merge --abort`), the orchestrator runs `git diff --name-only --diff-filter=U` in the worktree to enumerate conflicted files and stores the result on the exception. This gives the replan PM structured, actionable data rather than an unstructured git stderr string.
+
 After `_try_resolve_conflict` returns `True` and the retry merge succeeds, the orchestrator spawns a replan agent (fire-and-forget, non-blocking):
 
 ```
-_try_replan(ticket_id, conflicted_files, pending_ticket_ids) -> None
+_try_replan(ticket_id, conflicted_files) -> None
 ```
 
 - Loads the `pm` role via `load_role` (project override first, then default).
-- Builds `AgentSpawnContext` with `spawn_reason=REPLAN` and an `initial_bus_message` carrying the conflict info: which files conflicted and which pending ticket IDs exist.
-- Dispatches `_run_agent_with_analytics` without awaiting its result (or awaits in a background task).
+- Builds `AgentSpawnContext` with `spawn_reason=REPLAN` and an `initial_bus_message` carrying `ticket_id` and `conflicted_files`.
+- Dispatches `_run_agent_with_analytics` in a background task (does not block `_on_ticket_completed`).
 - Never raises — any failure is logged and scheduling continues as-is.
 
 The replan PM is prompted to:
-1. Read the conflict info from its initial bus message.
-2. List pending tickets using `list_tickets(status="pending")`.
+1. Read the conflict info (conflicted files) from its initial bus message.
+2. List pending tickets using `list_tickets(status="pending")` — this is the authoritative source; no snapshot is passed.
 3. For each pending ticket likely to touch the conflicted files, add a `depends_on` constraint using `update_ticket` to serialize it behind tickets that already resolved the conflict area.
-4. Exit when done — no ticket status to update (the replan agent is not tied to a ticket).
+4. Exit when done — the replan agent is not tied to a ticket and has no status to update.
 
 The replan PM may **not** create or delete tickets. Its only output is `update_ticket` calls adjusting `depends_on` on not-yet-started tickets.
+
+**Loop invariant:** `_try_replan` is called at most once per `_on_ticket_completed` invocation, and `_on_ticket_completed` is called once per ticket. Concurrent conflict resolutions on different tickets may each spawn a replan; since both only add `depends_on` constraints, the result is conservative but correct (last writer wins on overlapping updates; both updates are safe).
 
 ## Interfaces
 
@@ -109,6 +114,7 @@ PM prompt handles the common case semantically. `max_parallel` is a simple, expl
 - The replan PM may add overly conservative `depends_on` constraints, serializing tickets that could have run safely in parallel. Mitigated: the replan is one-shot and only fires after an actual conflict — it addresses a confirmed problem, not a hypothetical one.
 - The replan PM may fail to identify pending tickets correctly if the ticket store is large. Mitigated: it uses `list_tickets` with a status filter; the PM has cross-ticket access.
 - A project with `max_parallel: 1` and a slow ticket pipeline may be noticeably slower than before. Mitigated: this is an explicit operator choice; the default is `None` (no cap).
+- The PM may not follow the small-project linear chain rule despite prompt instructions. Mitigated: `max_parallel` is the mechanical backstop. Operators on projects where deterministic sequencing is required should set `max_parallel: 1`.
 
 ## Out of scope
 

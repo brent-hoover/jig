@@ -64,7 +64,7 @@ Change the PM prompt to tell it not to parallelize when it's creating ≤ 10 tic
 
 ## Success criteria
 
-- Eval runs on small projects (≤ 10 tickets) produce zero or near-zero merge conflicts caused by over-parallelism.
+- Eval runs on small projects (≤ 10 tickets) produce near-zero merge conflicts caused by over-parallelism. Zero-conflict guarantee requires `max_parallel: 1`; the prompt rule targets near-zero by default.
 - Large projects are unaffected (parallelism still fans out after bones gates).
 - Operators can cap concurrency via `max_parallel` without code changes.
 

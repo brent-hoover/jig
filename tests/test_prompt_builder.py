@@ -681,3 +681,43 @@ def test_dev_still_gets_generic_instructions() -> None:
     )
     assert "commit_progress" in prompt
     assert "update_ticket" in prompt
+
+
+def test_replan_instructions_include_conflicted_files() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.REPLAN,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        replan_bundle={
+            "kind": "replan_spawn",
+            "ticket_id": "abc123",
+            "conflicted_files": ["src/cli.py", "pyproject.toml"],
+        },
+    )
+    assert "src/cli.py" in prompt
+    assert "pyproject.toml" in prompt
+    assert "list_tickets" in prompt
+    assert "update_ticket" in prompt
+
+
+def test_replan_instructions_empty_files() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.REPLAN,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        replan_bundle={"kind": "replan_spawn", "conflicted_files": []},
+    )
+    assert "list_tickets" in prompt
+    assert "no specific files recorded" in prompt

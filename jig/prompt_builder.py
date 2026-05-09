@@ -178,6 +178,7 @@ def _instructions_section(
     reason: SpawnReason,
     evaluator_bundle: dict[str, Any] | None = None,
     conflict_bundle: dict[str, Any] | None = None,
+    replan_bundle: dict[str, Any] | None = None,
     role: str | None = None,
 ) -> str:
     if role in _INIT_ROLES_WITH_OWN_INSTRUCTIONS and reason not in (
@@ -202,6 +203,28 @@ def _instructions_section(
             "4. For each conflicted file, read it, understand both sides, and resolve.\n"
             "5. Run `git diff --check` to confirm no markers remain, then `git add -A` and `git commit --no-edit` to complete the merge.\n"
             f'6. Call `update_ticket(ticket_id="{ticket.id}", status="resolved")`.\n'
+        )
+    if reason == SpawnReason.REPLAN:
+        conflicted_files = (replan_bundle or {}).get("conflicted_files", [])
+        if conflicted_files:
+            files_str = "\n".join(f"- `{f}`" for f in conflicted_files)
+        else:
+            files_str = "- (no specific files recorded)"
+        return (
+            "## Instructions\n\n"
+            f"A merge conflict was auto-resolved for ticket `{ticket.id}`. "
+            "The files that conflicted were:\n\n"
+            f"{files_str}\n\n"
+            "Your job: prevent similar conflicts by serializing pending tickets "
+            "likely to touch the same files.\n\n"
+            "Steps:\n"
+            '1. Use `list_tickets(status="pending")` to list all not-yet-started tickets.\n'
+            "2. For each pending ticket likely to touch any of the files above, use "
+            '`update_ticket(ticket_id="<id>", depends_on=["<dependency-id>", ...])` '
+            "to add ordering constraints.\n"
+            "3. Do NOT create or delete tickets. Your only output is `update_ticket` "
+            "calls adjusting `depends_on`.\n"
+            "4. Exit when done — do not call `update_ticket` on this ticket.\n"
         )
     if reason == SpawnReason.QA_RESPONDER:
         return (
@@ -466,6 +489,7 @@ def build_initial_prompt(
     phase: PhaseConfig | None = None,
     evaluator_bundle: dict[str, Any] | None = None,
     conflict_bundle: dict[str, Any] | None = None,
+    replan_bundle: dict[str, Any] | None = None,
 ) -> str:
     # Evaluator spawns carry a pre-assembled bundle (handoff id +
     # structured check results) from the orchestrator; Phase 5 Task C/E/J.
@@ -493,6 +517,7 @@ def build_initial_prompt(
             spawn_reason,
             evaluator_bundle=evaluator_bundle,
             conflict_bundle=conflict_bundle,
+            replan_bundle=replan_bundle,
             role=role_cfg.role,
         ),
     ]

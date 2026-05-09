@@ -22,6 +22,7 @@ class SpawnReason(str, Enum):
     # an evaluator-specific prompt (not the phase's normal work prompt).
     EVALUATOR = "evaluator"
     CONFLICT_RESOLVER = "conflict_resolver"
+    REPLAN = "replan"
 
 
 @dataclass

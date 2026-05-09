@@ -48,8 +48,10 @@ phase_prompt: >
      - `parent_id` set to the current ticket ID
      - `depends_on` listing IDs of tickets that must complete first
      - `type` should be "feature", "bug", or "chore" as appropriate
-     - `workflow` should be "default" (each child goes through the standard
-       spec → test → implement → review → validate → document pipeline)
+     - `workflow` should be "default" for feature/bug tickets (spec → test →
+       implement → review → validate → document pipeline), OR "validation" for
+       the final integration/smoke-test ticket that produces no new code — only
+       runs the test suite and confirms the assembled system works end-to-end
      - Clear, actionable `description` with acceptance criteria
      Do NOT set `assignee` — the orchestrator handles assignment.
 

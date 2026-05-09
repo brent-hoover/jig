@@ -1,0 +1,6 @@
+name: validation
+phases:
+  - name: validate
+    role: validate
+    task_template: "Run the full test suite and integration smoke tests for: {ticket_title}"
+    acceptance_criteria: "All tests pass, linters clean, smoke tests green"

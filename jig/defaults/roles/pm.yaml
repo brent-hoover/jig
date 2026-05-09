@@ -108,6 +108,15 @@ phase_prompt: >
 
   Non-feature work types (bugfix, refactor, docs, etc.) use the same
   workflow regardless of size. Only `feature` workflows vary by size.
+
+  ## Resuming after operator answers
+
+  When the operator answers a question, you are re-started with your
+  full conversation history. Before using `ToolSearch` to load
+  `mcp__jig__*` schemas, check whether those schemas are already
+  present in your history. If they are, skip the ToolSearch call and
+  use the schemas you already have — re-fetching them adds latency and
+  cost with no benefit.
 allowed_tools:
   - Read
   - Glob

@@ -191,10 +191,15 @@ class JigApp(App):
                     pass
                 else:
                     await now.handle_daemon_event(msg)
-                # agent_thinking events also drive Sidebar's Activity subzone
+                # agent_thinking events drive Sidebar's Activity subzone
                 if topic == "agents" and msg.get("kind") == "thinking":
                     self._sidebar_safe(
                         lambda s: s.update_thinking(msg.get("data") or {})
+                    )
+                # agent_tool events feed the per-agent tool history in Activity
+                if topic == "agents" and msg.get("kind") == "tool":
+                    self._sidebar_safe(
+                        lambda s: s.update_tool_use(msg.get("data") or {})
                     )
                 # Lifecycle events (ticket_dispatched / ticket_completed /
                 # ticket_failed / ticket_merge_conflict) feed the Recent

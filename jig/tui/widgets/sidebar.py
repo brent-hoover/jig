@@ -13,6 +13,7 @@ when relevant snapshots / events arrive.
 """
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 from textual.app import ComposeResult
@@ -60,7 +61,7 @@ class Sidebar(Widget):
     Sidebar #activity {
         height: auto;
         min-height: 4;
-        max-height: 10;
+        max-height: 20;
         padding: 0 1 1 1;
         border-bottom: dashed $accent-darken-2;
     }
@@ -90,6 +91,7 @@ class Sidebar(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._active_agents: dict[str, dict[str, Any]] = {}  # role → state
+        self._agent_tools: dict[str, deque[tuple[str, str]]] = {}  # role → [(tool, detail)]
         self._tickets: dict[str, dict[str, Any]] = {}
         self._events: list[dict[str, Any]] = []
 
@@ -125,11 +127,24 @@ class Sidebar(Widget):
         role = data.get("role", "agent")
         if not data.get("active", False):
             self._active_agents.pop(role, None)
+            self._agent_tools.pop(role, None)
         else:
             self._active_agents[role] = {
                 "role": role,
                 "elapsed": int(data.get("elapsed", 0)),
             }
+        self._render_activity()
+
+    def update_tool_use(self, data: dict) -> None:
+        """Record a tool call under the agent's role for Activity display."""
+        role = data.get("role", "agent")
+        tool = data.get("tool", "")
+        detail = data.get("detail", "")
+        if not tool:
+            return
+        if role not in self._agent_tools:
+            self._agent_tools[role] = deque(maxlen=5)
+        self._agent_tools[role].appendleft((tool, detail))
         self._render_activity()
 
     def _render_activity(self) -> None:
@@ -148,6 +163,13 @@ class Sidebar(Widget):
             lines.append(
                 f"[dim]{spin}[/dim] [bold]{role}[/bold] [dim]({elapsed}s)[/dim]"
             )
+            for tool, detail in list(self._agent_tools.get(role, [])):
+                # Sidebar inner width ≈ 34 chars; tool indent takes 4,
+                # tool name up to 12, leaving ~18 for the detail.
+                detail_trunc = detail[:18] + "…" if len(detail) > 18 else detail
+                lines.append(
+                    f"  [dim]▸ {tool:<10} {detail_trunc}[/dim]"
+                )
         zone.set_lines(lines)
 
     # ---------------------------------------------------------------------

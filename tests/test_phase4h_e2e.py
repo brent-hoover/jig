@@ -207,7 +207,10 @@ async def test_blocking_objection_resolves_then_advances_with_deferred_item(
             if current and current.status == TicketStatus.RESOLVED:
                 break
 
-        assert run_calls == ["spec", "dev"]
+        from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
+        assert run_calls[:2] == ["spec", "dev"]
+        for jid in _JUDGMENT_DEFAULTS:
+            assert jid in run_calls
         final = await orch.tickets.get(tid)
         assert final is not None
         assert final.status == TicketStatus.RESOLVED

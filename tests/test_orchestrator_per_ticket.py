@@ -89,7 +89,11 @@ async def test_per_ticket_loop_walks_phases_to_resolved(
             current = await orch.tickets.get(tid)
             if current and current.status == TicketStatus.RESOLVED:
                 break
-        assert run_calls == ["spec-writer", "dev", "qa"]
+        # Workflow phases run first; judgment federation reviewers follow.
+        from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
+        assert run_calls[:3] == ["spec-writer", "dev", "qa"]
+        for jid in _JUDGMENT_DEFAULTS:
+            assert jid in run_calls
         final = await orch.tickets.get(tid)
         assert final is not None
         assert final.status == TicketStatus.RESOLVED

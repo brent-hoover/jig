@@ -93,6 +93,9 @@ ARCHITECTURAL_REVIEWER_ID = "reviewer-architectural"
 
 # Track G MVP follow-on — judgment reviewers (LLM-driven). Role configs
 # live in ``jig/defaults/roles/reviewer_<name>.yaml``.
+# Default-on for all tickets regardless of layer — they review code
+# quality (error paths, patterns, test adequacy) without needing v2
+# artifacts like architecture.yaml or contracts.yaml.
 PATTERN_CONFORMANCE_REVIEWER_ID = "reviewer-pattern-conformance"
 ERROR_HANDLING_REVIEWER_ID = "reviewer-error-handling"
 TEST_ADEQUACY_REVIEWER_ID = "reviewer-test-adequacy"
@@ -261,6 +264,16 @@ _MVP_FINAL_DEFAULTS: list[str] = [
     TRACER_PRESERVATION_REVIEWER_ID,
 ]
 
+# Judgment reviewers — default-on for every ticket regardless of layer.
+# These are LLM-driven but require no v2 artifacts (architecture.yaml,
+# contracts.yaml) — they review the diff itself for error-handling gaps,
+# pattern conformance, and test adequacy.
+_JUDGMENT_DEFAULTS: list[str] = [
+    ERROR_HANDLING_REVIEWER_ID,
+    PATTERN_CONFORMANCE_REVIEWER_ID,
+    TEST_ADEQUACY_REVIEWER_ID,
+]
+
 
 def select_reviewers_for_ticket(
     ticket: Ticket,
@@ -281,9 +294,8 @@ def select_reviewers_for_ticket(
     - ``layer in ("mvp", "final")`` with empty reviewer_set → the
       MVP/final mechanical defaults, plus visual-compliance when the
       ticket implements UI.
-    - ``layer`` unset and empty reviewer_set → empty list. The
-      Coordinator materializes tickets with ``layer="bones"``; a
-      missing layer means we can't tell what defaults apply.
+    - ``layer`` unset and empty reviewer_set → starts empty; judgment
+      reviewers (below) are still appended.
 
     Specialty reviewer auto-selection (Track G Final) runs on top of
     whichever branch fired above, additive only:
@@ -294,6 +306,12 @@ def select_reviewers_for_ticket(
       contains perf-budget keywords.
     - Architectural: ``touches-contract`` label OR ``dev_tier == "sa"``
       OR ``contract_amendment`` populated.
+
+    Judgment reviewers (``_JUDGMENT_DEFAULTS``) are appended
+    unconditionally for every ticket regardless of layer or
+    reviewer_set. They need no v2 artifacts and provide real code
+    review (error handling, pattern conformance, test adequacy) on any
+    diff.
 
     ``project_root`` is optional — when omitted the dispatch falls back
     to ticket-only signals (labels + dev_tier + contract_amendment).
@@ -366,12 +384,14 @@ def select_reviewers_for_ticket(
         if _touches_consumed_interface(ticket, project_root):
             selected.append(ARCHITECTURAL_REVIEWER_ID)
 
-    # Specialty reviewers fired on a layer-unset ticket should not
-    # promote the ticket to "no reviewers when none asked for one";
-    # the empty-list branch above already returned []. But if any
-    # specialty reviewer was added we now have a meaningful list, so
-    # return it. If still empty (no defaults, no specialties), preserve
-    # the bones-era contract: return [] so callers see "nothing to run".
+    # Judgment reviewers are default-on for every ticket — they review
+    # the diff for error-handling gaps, pattern conformance, and test
+    # adequacy without needing v2 artifacts. Add them regardless of layer
+    # or reviewer_set so standard jig tickets get real code review.
+    for reviewer_id in _JUDGMENT_DEFAULTS:
+        if reviewer_id not in selected:
+            selected.append(reviewer_id)
+
     return selected
 
 

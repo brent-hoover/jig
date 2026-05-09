@@ -422,10 +422,16 @@ class TestDispatchWithLlmSpawn:
         assert out[SECURITY_REVIEWER_ID] == []
 
     @pytest.mark.asyncio
-    async def test_no_pendings_no_orchestrator_calls(
+    async def test_judgment_defaults_always_spawn(
         self, tmp_path: Path
     ) -> None:
-        """Vanilla MVP ticket with no triggers → no orchestrator spawns."""
+        """Judgment reviewers (error-handling, pattern-conformance, test-adequacy)
+        spawn for every ticket regardless of layer or labels."""
+        from jig.reviewers.dispatch import (
+            ERROR_HANDLING_REVIEWER_ID,
+            PATTERN_CONFORMANCE_REVIEWER_ID,
+            TEST_ADEQUACY_REVIEWER_ID,
+        )
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
         _write_spec(tmp_path)
@@ -442,7 +448,10 @@ class TestDispatchWithLlmSpawn:
             worktree_path=worktree,
         )
 
-        assert orch.calls == []
+        spawned_ids = {call[0] for call in orch.calls}
+        assert ERROR_HANDLING_REVIEWER_ID in spawned_ids
+        assert PATTERN_CONFORMANCE_REVIEWER_ID in spawned_ids
+        assert TEST_ADEQUACY_REVIEWER_ID in spawned_ids
         # Mechanical reviewers still ran.
         assert BONES_REVIEWER_ID in out
 

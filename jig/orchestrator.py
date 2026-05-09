@@ -1934,7 +1934,7 @@ class Orchestrator:
                     out_dir=out_dir,
                     jig_repo=jig_repo,
                     project_name=project_name,
-                    use_llm=False,
+                    use_llm=True,
                 ),
             )
             _logger.info(

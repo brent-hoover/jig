@@ -263,6 +263,41 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
     )
 
 
+def resolve_workflow_name(
+    project_path: Path,
+    ticket_workflow: str,
+    work_type: str | None,
+    size: str | None = None,
+) -> str:
+    """Return the workflow name to use for a ticket.
+
+    Resolution order:
+    1. If ticket_workflow is anything other than "default", honour it
+       (explicit PM choice or legacy ticket).
+    2. If the work_type schema has a workflow_by_size entry for this size, use it.
+    3. If the work_type schema declares a default workflow, use that.
+    4. Fall back to "default".
+    """
+    if ticket_workflow and ticket_workflow != "default":
+        return ticket_workflow
+    if work_type:
+        try:
+            from jig.work_types import Size, load_work_type_schema
+            schema = load_work_type_schema(project_path, work_type)
+            if size and schema.workflow_by_size:
+                try:
+                    size_enum = Size(size)
+                    if size_enum in schema.workflow_by_size:
+                        return schema.workflow_by_size[size_enum]
+                except ValueError:
+                    pass
+            if schema.workflow:
+                return schema.workflow
+        except (FileNotFoundError, Exception):
+            pass
+    return "default"
+
+
 def list_workflow_names(project_path: Path) -> list[str]:
     """Return every workflow name resolvable by this project (project + defaults)."""
     names: set[str] = set()

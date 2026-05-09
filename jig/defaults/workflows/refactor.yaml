@@ -1,0 +1,10 @@
+name: refactor
+phases:
+  - name: implement
+    role: dev
+    task_template: "Refactor as specified, keeping all existing tests passing for: {ticket_title}"
+    acceptance_criteria: "Restructured code with no behavior change, all tests green"
+  - name: validate
+    role: validate
+    task_template: "Confirm equivalence — all tests pass, linters clean for: {ticket_title}"
+    acceptance_criteria: "Test suite green, no regressions, linters clean"

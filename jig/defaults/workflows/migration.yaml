@@ -1,0 +1,14 @@
+name: migration
+phases:
+  - name: spec
+    role: spec
+    task_template: "Design the migration plan and rollback procedure for: {ticket_title}"
+    acceptance_criteria: "Migration and rollback steps documented"
+  - name: implement
+    role: dev
+    task_template: "Execute the migration following the design doc for: {ticket_title}"
+    acceptance_criteria: "Migration complete, system in target state"
+  - name: validate
+    role: validate
+    task_template: "Verify migration succeeded and rollback path is viable for: {ticket_title}"
+    acceptance_criteria: "System in target state, tests green, rollback tested"

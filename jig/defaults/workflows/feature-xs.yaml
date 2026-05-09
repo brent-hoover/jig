@@ -1,0 +1,10 @@
+name: feature-xs
+phases:
+  - name: implement
+    role: dev
+    task_template: "Implement the feature for: {ticket_title}"
+    acceptance_criteria: "Feature works as described, existing tests still pass"
+  - name: validate
+    role: validate
+    task_template: "Validate the implementation for: {ticket_title}"
+    acceptance_criteria: "All tests pass, linters clean"

@@ -1,6 +1,7 @@
 # docs — documentation-only work. Minimal schema per doc 03.
 # No behaviors / design / technical_risks.
 work_type: docs
+workflow: docs
 
 required:
   - summary

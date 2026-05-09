@@ -1,5 +1,6 @@
 # refactor — internal restructuring, no behavior change. Doc 03.
 work_type: refactor
+workflow: refactor
 
 required:
   - summary

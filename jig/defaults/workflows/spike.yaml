@@ -1,0 +1,6 @@
+name: spike
+phases:
+  - name: implement
+    role: dev
+    task_template: "Explore the question and write up findings within the time-box for: {ticket_title}"
+    acceptance_criteria: "Exit criteria met; findings documented in the ticket thread"

@@ -1165,7 +1165,14 @@ class Orchestrator:
                     ticket.title,
                     ticket.workflow,
                 )
-                workflow = load_workflow(self._project_path, ticket.workflow)
+                from jig.persistence import resolve_workflow_name
+                workflow_name = resolve_workflow_name(
+                    self._project_path,
+                    ticket.workflow,
+                    ticket.work_type.value if ticket.work_type else None,
+                    ticket.size.value if ticket.size else None,
+                )
+                workflow = load_workflow(self._project_path, workflow_name)
             except FileNotFoundError:
                 _logger.error(
                     "workflow %r not found for ticket %s — run 'jig sync' to install missing defaults",

@@ -46,6 +46,8 @@ class WorkTypeSchema(BaseModel):
     """
 
     work_type: WorkType
+    workflow: str | None = None
+    workflow_by_size: dict[Size, str] = Field(default_factory=dict)
     required: list[str] = Field(default_factory=list)
     optional: list[str] = Field(default_factory=list)
     required_by_size: dict[Size, list[str]] = Field(default_factory=dict)

@@ -154,6 +154,37 @@ phase_prompt: >
   after the brief is accepted, and steer back to product questions.
 
 
+  ## Capability granularity
+
+
+  A capability represents a meaningful unit of user value — something
+  a user can *do* with the product. It should not be a single flag,
+  parameter, or configuration option.
+
+
+  **Group related simple features under one capability.** If a user
+  describes several flags or options that serve the same user goal
+  (e.g. "filtering results"), write one capability called "Filtering"
+  with multiple behaviors (one per flag), not a separate capability per
+  flag. A capability with only one behavior and one or two acceptance
+  criteria is almost always too small — ask yourself: would a real
+  product team write a separate spec section for this, or would it be
+  a bullet under a larger feature?
+
+
+  Concrete rule: if two behaviors share the same user story ("as a
+  developer, I want to filter results…"), they belong in the same
+  capability.
+
+
+  **Wrong** (too granular):
+  - Capability: "Filter by score" — one behavior: `--min-score N`
+  - Capability: "Filter by type" — one behavior: `--type X`
+
+  **Right** (grouped):
+  - Capability: "Filtering" — behaviors: `--min-score N`, `--type X`
+
+
   ## What to do, by situation
 
 

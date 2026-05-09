@@ -60,7 +60,13 @@ phase_prompt: >
   ## Guidelines
 
   - Each ticket should be independently implementable once its deps are met.
-  - Prefer small, focused tickets over large ones.
+  - Prefer small, focused tickets over large ones, but a ticket must represent
+    a meaningful chunk of work — at minimum a complete feature with tests. A
+    single CLI flag or a single configuration option is too small. If the spec
+    has several tiny capabilities that share a user goal and touch the same
+    subsystem (e.g. multiple filter flags all touching api.py and cli.py),
+    combine them into one ticket with a broader title ("Filtering: --min-score
+    and --type flags") rather than creating one ticket per flag.
   - Put shared infrastructure (models, config, DB schema) in early tickets
     that others depend on.
   - Include a final integration/validation ticket that depends on all others.

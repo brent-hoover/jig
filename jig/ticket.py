@@ -92,6 +92,7 @@ class WorkType(str, Enum):
     BRIEF = "brief"
     ARCHITECTURE = "architecture"
     PLANNING = "planning"
+    CANONICALIZE = "canonicalize"
 
 
 # Transitional alias. Remove in the next release cycle once the doc rename

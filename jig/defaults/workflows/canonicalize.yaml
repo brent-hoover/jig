@@ -1,0 +1,6 @@
+name: canonicalize
+phases:
+  - name: canonicalize
+    role: canonicalizer
+    task_template: "Canonicalize merged output for: {ticket_title}"
+    acceptance_criteria: "Formatters/semgrep applied; issues logged for unfixables"

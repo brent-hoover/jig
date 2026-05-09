@@ -216,6 +216,8 @@ class TestDefaultRoles:
             "vd",
             # Conflict resolver — spawned by the orchestrator to fix merge conflicts.
             "conflict_resolver",
+            # Canonicalizer — runs formatters / semgrep / deprecations after merge.
+            "canonicalizer",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

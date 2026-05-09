@@ -2820,6 +2820,73 @@ def create_agent_mcp_server(
 
         all_tools.append(reviewer_post_comment)
 
+    if "log_audit_entry" in agent_cfg.allowed_tools:
+
+        @tool(
+            "log_audit_entry",
+            "Record that a canonicalization rule (formatter / semgrep / "
+            "deprecation) applied a fix to a file. Pass the SHA-256 of the "
+            "file's contents before and after the fix. ``rule_source`` must "
+            "be one of 'formatter', 'semgrep', 'deprecation'. The MCP factory "
+            "stamps ``ticket_id`` from your agent context.",
+            {
+                "rule_id": str,
+                "rule_source": str,
+                "file_path": str,
+                "before_hash": str,
+                "after_hash": str,
+                "run_id": str,
+            },
+        )
+        async def log_audit_entry(args):
+            entry_id = await ticket_mcp.handle_log_audit_entry(
+                project_path=project_path,
+                ticket_id=ticket_id,
+                run_id=args["run_id"],
+                rule_id=args["rule_id"],
+                rule_source=args["rule_source"],
+                file_path=args["file_path"],
+                before_hash=args["before_hash"],
+                after_hash=args["after_hash"],
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(log_audit_entry)
+
+    if "create_canonicalization_issue" in agent_cfg.allowed_tools:
+
+        @tool(
+            "create_canonicalization_issue",
+            "Create a tracked canonicalization issue for a rule match that "
+            "could not be auto-fixed. ``issue_type`` is one of "
+            "'convention_violation', 'structural_violation', 'rule_conflict'. "
+            "``suggested_fixes`` is a list of human-readable fix candidates. "
+            "Routing (human_review vs agent_resolution) is resolved from "
+            ".jig/escalation.yml.",
+            {
+                "issue_type": str,
+                "rule_id": str,
+                "rule_message": str,
+                "diff_hunk": str,
+                "file_path": str,
+                "suggested_fixes": list,
+            },
+        )
+        async def create_canonicalization_issue(args):
+            issue_id = await ticket_mcp.handle_create_canonicalization_issue(
+                project_path=project_path,
+                ticket_id=ticket_id,
+                issue_type=args["issue_type"],
+                rule_id=args["rule_id"],
+                rule_message=args["rule_message"],
+                diff_hunk=args["diff_hunk"],
+                file_path=args["file_path"],
+                suggested_fixes=args.get("suggested_fixes", []),
+            )
+            return {"content": [{"type": "text", "text": issue_id}]}
+
+        all_tools.append(create_canonicalization_issue)
+
     # Strict-tools mode: drop any tool whose short name isn't in the
     # role's ``allowed_tools``. Init roles (po, sa, spec-generator)
     # opt into this so e.g. PO can't reach for commit_progress via

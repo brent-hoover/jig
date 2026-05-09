@@ -639,6 +639,7 @@ class WebSocketServer:
             "ticket_failed",
             "ticket_merge_conflict",
             "ticket_dispatched",
+            "project_complete",
             "analysis_complete",
         ):
             return event_envelope("events", event.type, payload)

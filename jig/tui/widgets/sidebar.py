@@ -313,6 +313,7 @@ class Sidebar(Widget):
         "scaffold_applied":  "🏗 scaffold",
         "spec_generated":    "📜 spec",
         "brief_approved":    "✓ brief approved",
+        "project_complete":  "✅ project done",
         "analysis_complete": "📊 analysis done",
     }
 

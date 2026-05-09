@@ -282,6 +282,7 @@ class Orchestrator:
             await self._resume_in_progress()
             await self._ensure_planning_ticket()
             await self._start_ready_tickets()
+            await self._maybe_run_analyzer()
             self._dispatch_task = asyncio.create_task(self._run_dispatch_loop())
             self._service_task = asyncio.create_task(self._run_service_loop())
             self._deadlock_task = asyncio.create_task(self._run_deadlock_loop())
@@ -1877,6 +1878,18 @@ class Orchestrator:
         if any(t.status in non_terminal for t in all_tickets):
             return
         self._analyzer_fired = True
+
+        resolved = sum(1 for t in all_tickets if t.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED))
+        if self._emitter is not None:
+            from jig.events import JigEvent
+            await self._emitter.emit(JigEvent(
+                type="project_complete",
+                data={
+                    "kind": "project_complete",
+                    "tickets_resolved": resolved,
+                    "tickets_total": len(all_tickets),
+                },
+            ))
         asyncio.create_task(self._run_analyzer_bg())
 
     async def _run_analyzer_bg(self) -> None:
@@ -1904,7 +1917,7 @@ class Orchestrator:
                     out_dir=out_dir,
                     jig_repo=jig_repo,
                     project_name=project_name,
-                    use_llm=False,
+                    use_llm=True,
                 ),
             )
             _logger.info(

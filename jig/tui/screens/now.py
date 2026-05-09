@@ -785,6 +785,26 @@ class NowScreen(Container):
             scrollback.write(f"[red]✗[/red] failed [bold]{title}[/bold] ({ticket_id}){suffix}")
         elif kind == "ticket_merge_conflict":
             scrollback.write(f"[yellow]⚡[/yellow] merge conflict [bold]{title}[/bold] ({ticket_id})")
+        elif kind == "project_complete":
+            from rich.align import Align
+            from rich.rule import Rule
+            from rich.text import Text
+            resolved = data.get("tickets_resolved", 0)
+            total = data.get("tickets_total", 0)
+            scrollback.write(Rule(style="bold green"))
+            scrollback.write(Align.center(Text("PROJECT COMPLETE", style="bold green")))
+            if total:
+                scrollback.write(
+                    Align.center(Text(f"{resolved}/{total} tickets resolved", style="dim green"))
+                )
+            scrollback.write(Rule(style="bold green"))
+        elif kind == "analysis_complete":
+            outcome = data.get("outcome", "")
+            out_dir = data.get("out_dir", "")
+            suffix = f" — outcome: {outcome}" if outcome else ""
+            scrollback.write(f"[dim green]📊 analysis complete{suffix}[/dim green]")
+            if out_dir:
+                scrollback.write(f"[dim]   report: {out_dir}[/dim]")
 
     async def _render_prompt_request(self, data: dict) -> None:
         """Render a prompt request inline and switch to answering mode."""

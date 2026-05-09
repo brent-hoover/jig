@@ -54,7 +54,8 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
     """SIGTERM any ``claude`` CLI subprocess whose CWD is inside the
     project's worktrees directory. Returns the number of PIDs signalled.
 
-    macOS-only (uses lsof). Falls back to a no-op on platforms without it.
+    Uses lsof; falls back to a no-op on platforms where lsof is unavailable.
+    Runs synchronously — callers must offload to a thread executor.
     """
     worktrees_root = project_path / ".jig" / "worktrees"
     if not worktrees_root.is_dir():
@@ -170,7 +171,7 @@ class Orchestrator:
         self._deadlock_task: asyncio.Task | None = None
         self._stall_task: asyncio.Task | None = None
         self._stall_detector: StallDetector = StallDetector()
-        self._analyzer_fired: bool = False
+        self._analyzer_last_terminal_ids: frozenset[str] = frozenset()
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -307,7 +308,7 @@ class Orchestrator:
             await self._ensure_planning_ticket()
             await self._start_ready_tickets()
             return
-        self._analyzer_fired = False
+        self._analyzer_last_terminal_ids = frozenset()
         await self.startup()
 
     # ---- analytics --------------------------------------------------------
@@ -447,8 +448,9 @@ class Orchestrator:
             _logger.debug(
                 "could not stamp analytics_emitter on ctx (frozen / slots?)",
             )
-        ctx.on_thinking = lambda: self._stall_detector.record_heartbeat(ctx.role)
-        self._stall_detector.record_agent_start(ctx.role)
+        agent_key = f"{ctx.ticket.id}:{ctx.role}"
+        ctx.on_thinking = lambda: self._stall_detector.record_heartbeat(agent_key)
+        self._stall_detector.record_agent_start(agent_key)
         start = time.monotonic()
         result_status = "failed"
         cost_usd: float | None = None
@@ -462,7 +464,7 @@ class Orchestrator:
             tokens_out = result.tokens_out
             return result
         finally:
-            self._stall_detector.record_agent_done(ctx.role)
+            self._stall_detector.record_agent_done(agent_key)
             if emitter is not None:
                 emitter.emit_nowait(
                     AgentCompleted(
@@ -1071,9 +1073,13 @@ class Orchestrator:
                 verdict.seconds_since_last_event,
                 verdict.detail,
             )
-            killed = _kill_orphan_claude_processes(self._project_path)
-            if killed:
-                _logger.info("stall recovery: SIGTERMed %d orphan claude process(es)", killed)
+            if verdict.signal == "heartbeat_gap":
+                loop = asyncio.get_running_loop()
+                killed = await loop.run_in_executor(
+                    None, _kill_orphan_claude_processes, self._project_path
+                )
+                if killed:
+                    _logger.info("stall recovery: SIGTERMed %d orphan claude process(es)", killed)
 
     async def _handle_schedule(self, ticket_id: str) -> None:
         """Schedule a ticket if its dependencies are satisfied.
@@ -1864,13 +1870,14 @@ class Orchestrator:
         _logger.info("auto-created planning ticket")
 
     async def _maybe_run_analyzer(self) -> None:
-        """Fire the post-run analyzer exactly once when all tickets are terminal.
+        """Fire the post-run analyzer when all tickets reach terminal state.
 
         Terminal = every ticket is resolved, closed, or failed (nothing still
-        open / in-progress / needs-info / blocked / merge-conflict). Skipped
-        if the store has no tickets yet (startup race) or if it already fired.
+        open / in-progress / needs-info / blocked / merge-conflict). Tracks
+        the set of terminal ticket IDs so it re-fires if new tickets are added
+        and subsequently resolved in the same daemon session.
         """
-        if self._analyzer_fired or self.tickets is None:
+        if self.tickets is None:
             return
         if self._running_tickets:
             return
@@ -1884,7 +1891,10 @@ class Orchestrator:
         }
         if any(t.status in non_terminal for t in all_tickets):
             return
-        self._analyzer_fired = True
+        terminal_ids = frozenset(t.id for t in all_tickets)
+        if terminal_ids == self._analyzer_last_terminal_ids:
+            return
+        self._analyzer_last_terminal_ids = terminal_ids
 
         resolved = sum(1 for t in all_tickets if t.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED))
         if self._emitter is not None:

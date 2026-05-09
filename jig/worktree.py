@@ -26,9 +26,15 @@ class MergeConflictError(RuntimeError):
     silently treating the ticket as resolved.
     """
 
-    def __init__(self, ticket_id: str, source_branch: str) -> None:
+    def __init__(
+        self,
+        ticket_id: str,
+        source_branch: str,
+        conflicted_files: list[str] | None = None,
+    ) -> None:
         self.ticket_id = ticket_id
         self.source_branch = source_branch
+        self.conflicted_files: list[str] = conflicted_files or []
         super().__init__(
             f"Merge conflict for {source_branch} (branch preserved for manual merge)"
         )
@@ -398,10 +404,17 @@ async def _do_merge(
                 source_branch,
             )
             try:
+                conflicted_raw = await _run_git(
+                    worktree, "diff", "--name-only", "--diff-filter=U"
+                )
+                conflicted = [f for f in conflicted_raw.splitlines() if f]
+            except RuntimeError:
+                conflicted = []
+            try:
                 await _run_git(worktree, "merge", "--abort")
             except RuntimeError:
                 pass
-            raise MergeConflictError(ticket_id, source_branch) from exc
+            raise MergeConflictError(ticket_id, source_branch, conflicted) from exc
 
     try:
         await _run_git(project_path, "checkout", base_branch)
@@ -438,7 +451,14 @@ async def _do_merge(
         # can route to MERGE_CONFLICT instead of RESOLVED.
         _logger.warning("merge conflict for %s — aborting", ticket_id)
         try:
+            conflicted_raw = await _run_git(
+                project_path, "diff", "--name-only", "--diff-filter=U"
+            )
+            conflicted = [f for f in conflicted_raw.splitlines() if f]
+        except RuntimeError:
+            conflicted = []
+        try:
             await _run_git(project_path, "merge", "--abort")
         except RuntimeError:
             await _run_git(project_path, "reset", "--hard", "HEAD")
-        raise MergeConflictError(ticket_id, source_branch) from exc
+        raise MergeConflictError(ticket_id, source_branch, conflicted) from exc

@@ -3,7 +3,22 @@ from pathlib import Path
 
 import pytest
 
-from jig.worktree import create_worktree, remove_worktree, commit_worktree
+from jig.worktree import MergeConflictError, commit_worktree, create_worktree, remove_worktree
+
+
+def test_merge_conflict_error_conflicted_files_default_empty() -> None:
+    err = MergeConflictError("t1", "jig/t1")
+    assert err.conflicted_files == []
+
+
+def test_merge_conflict_error_conflicted_files_passed_through() -> None:
+    err = MergeConflictError("t1", "jig/t1", conflicted_files=["src/a.py", "src/b.py"])
+    assert err.conflicted_files == ["src/a.py", "src/b.py"]
+
+
+def test_merge_conflict_error_none_becomes_empty_list() -> None:
+    err = MergeConflictError("t1", "jig/t1", conflicted_files=None)
+    assert err.conflicted_files == []
 
 
 @pytest.fixture

@@ -721,3 +721,53 @@ def test_replan_instructions_empty_files() -> None:
     )
     assert "list_tickets" in prompt
     assert "no specific files recorded" in prompt
+
+
+def test_conventions_section_injected_when_provided() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        conventions_md="## HTTP\n- Use httpx for all outbound calls.",
+    )
+    assert "## Project Conventions" in prompt
+    assert "Use httpx for all outbound calls." in prompt
+
+
+def test_conventions_section_absent_when_none() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        conventions_md=None,
+    )
+    assert "## Project Conventions" not in prompt
+
+
+def test_conventions_appears_after_project_context() -> None:
+    prompt = build_initial_prompt(
+        role_cfg=_cfg(),
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=_ticket(),
+        parent=None,
+        entries=[],
+        memories=[],
+        project=_project(),
+        skills=[],
+        environment_md="",
+        conventions_md="- always use ruff",
+    )
+    assert prompt.index("## Project Context") < prompt.index("## Project Conventions")
+    assert prompt.index("## Project Conventions") < prompt.index("implement X")

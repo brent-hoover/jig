@@ -263,6 +263,29 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
     )
 
 
+def load_conventions(project_path: Path) -> str | None:
+    """Load .jig/conventions.md for the project.
+
+    Returns the file content (stripped) when present and non-empty.
+    Returns None when the file is missing or empty — callers treat that
+    as "no conventions configured" rather than an error.
+    """
+    import logging as _logging
+    path = _jig_dir(project_path) / "conventions.md"
+    if not path.is_file():
+        _logging.getLogger(__name__).debug(
+            ".jig/conventions.md not found — skipping convention injection"
+        )
+        return None
+    content = path.read_text().strip()
+    if not content:
+        _logging.getLogger(__name__).warning(
+            ".jig/conventions.md is empty — skipping convention injection"
+        )
+        return None
+    return content
+
+
 def resolve_workflow_name(
     project_path: Path,
     ticket_workflow: str,
@@ -332,8 +355,10 @@ __all__ = [
     "list_role_names",
     "list_roles",
     "list_workflow_names",
+    "load_conventions",
     "load_role",
     "load_workflow",
+    "resolve_workflow_name",
     "save_role",
     "save_default_roles",
     "save_default_workflow",

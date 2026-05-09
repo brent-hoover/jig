@@ -100,6 +100,12 @@ def _memories_section(memories: list[str]) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _conventions_section(conventions_md: str | None) -> str:
+    if not conventions_md:
+        return ""
+    return f"## Project Conventions\n\n{conventions_md.rstrip()}\n\n"
+
+
 def _team_roles_section(current_role: str, all_roles: list["RoleConfig"]) -> str:
     """List available roles so agents know exact names for messaging/assignment."""
     if not all_roles:
@@ -490,6 +496,7 @@ def build_initial_prompt(
     evaluator_bundle: dict[str, Any] | None = None,
     conflict_bundle: dict[str, Any] | None = None,
     replan_bundle: dict[str, Any] | None = None,
+    conventions_md: str | None = None,
 ) -> str:
     # Evaluator spawns carry a pre-assembled bundle (handoff id +
     # structured check results) from the orchestrator; Phase 5 Task C/E/J.
@@ -504,6 +511,7 @@ def build_initial_prompt(
         _role_section(role_cfg, spawn_reason),
         _worktree_section(worktree_path),
         _project_section(project),
+        _conventions_section(conventions_md),
         _team_roles_section(role_cfg.role, all_roles or []),
         _skills_section(skills),
         _environment_section(environment_md),

@@ -8,6 +8,7 @@ from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 from jig.persistence import (
     init_project,
     list_roles,
+    load_conventions,
     load_role,
     load_workflow,
     save_role,
@@ -311,3 +312,21 @@ class TestDefaultWorkflow:
             "validate": "validate",
             "document": "document",
         }
+
+
+class TestLoadConventions:
+    def test_returns_none_when_file_missing(self, tmp_new_jig_project: Path) -> None:
+        assert load_conventions(tmp_new_jig_project) is None
+
+    def test_returns_none_when_file_empty(self, tmp_new_jig_project: Path) -> None:
+        (tmp_new_jig_project / ".jig" / "conventions.md").write_text("   \n")
+        assert load_conventions(tmp_new_jig_project) is None
+
+    def test_returns_content_when_present(self, tmp_new_jig_project: Path) -> None:
+        content = "# Conventions\n\n- Use httpx for HTTP."
+        (tmp_new_jig_project / ".jig" / "conventions.md").write_text(content)
+        assert load_conventions(tmp_new_jig_project) == content
+
+    def test_strips_trailing_whitespace(self, tmp_new_jig_project: Path) -> None:
+        (tmp_new_jig_project / ".jig" / "conventions.md").write_text("rule one\n\n\n")
+        assert load_conventions(tmp_new_jig_project) == "rule one"

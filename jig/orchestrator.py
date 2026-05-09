@@ -170,6 +170,7 @@ class Orchestrator:
         self._deadlock_task: asyncio.Task | None = None
         self._stall_task: asyncio.Task | None = None
         self._stall_detector: StallDetector = StallDetector()
+        self._analyzer_fired: bool = False
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -305,6 +306,7 @@ class Orchestrator:
             await self._ensure_planning_ticket()
             await self._start_ready_tickets()
             return
+        self._analyzer_fired = False
         await self.startup()
 
     # ---- analytics --------------------------------------------------------
@@ -1778,6 +1780,7 @@ class Orchestrator:
 
         await self._unblock_dependents(ticket_id, ticket)
         await self._start_ready_tickets()
+        await self._maybe_run_analyzer()
 
     async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
         """Post-failure: emit event, clean up, pick up next ticket."""
@@ -1799,6 +1802,7 @@ class Orchestrator:
 
         self._running_tickets.pop(ticket_id, None)
         await self._start_ready_tickets()
+        await self._maybe_run_analyzer()
 
     async def _unblock_dependents(self, completed_id: str, ticket) -> None:
         """After a ticket resolves, check its `blocks` list and schedule any
@@ -1850,6 +1854,80 @@ class Orchestrator:
             )
         )
         _logger.info("auto-created planning ticket")
+
+    async def _maybe_run_analyzer(self) -> None:
+        """Fire the post-run analyzer exactly once when all tickets are terminal.
+
+        Terminal = every ticket is resolved, closed, or failed (nothing still
+        open / in-progress / needs-info / blocked / merge-conflict). Skipped
+        if the store has no tickets yet (startup race) or if it already fired.
+        """
+        if self._analyzer_fired or self.tickets is None:
+            return
+        if self._running_tickets:
+            return
+        all_tickets = await self.tickets.list_all()
+        if not all_tickets:
+            return
+        non_terminal = {
+            TicketStatus.OPEN, TicketStatus.IN_PROGRESS,
+            TicketStatus.BLOCKED, TicketStatus.NEEDS_INFO,
+            TicketStatus.MERGE_CONFLICT,
+        }
+        if any(t.status in non_terminal for t in all_tickets):
+            return
+        self._analyzer_fired = True
+        asyncio.create_task(self._run_analyzer_bg())
+
+    async def _run_analyzer_bg(self) -> None:
+        """Run the post-run analyzer in a thread and emit analysis_complete."""
+        from datetime import datetime, timezone
+
+        try:
+            from evals.watcher.analyzer import analyze
+        except ImportError:
+            _logger.warning("analyzer not available (evals package not installed)")
+            return
+
+        project_name = self._project_path.resolve().name
+        run_id = f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        out_dir = self._project_path / ".jig" / "analysis" / run_id
+        jig_repo = Path(__file__).resolve().parents[1]  # jig pkg → repo root
+
+        loop = asyncio.get_running_loop()
+        try:
+            metrics = await loop.run_in_executor(
+                None,
+                lambda: analyze(
+                    project_path=self._project_path,
+                    run_id=run_id,
+                    out_dir=out_dir,
+                    jig_repo=jig_repo,
+                    project_name=project_name,
+                    use_llm=False,
+                ),
+            )
+            _logger.info(
+                "analysis complete: outcome=%s duration=%.0fs out=%s",
+                metrics.outcome,
+                metrics.duration_s,
+                out_dir,
+            )
+            if self._emitter is not None:
+                from jig.events import JigEvent
+                await self._emitter.emit(JigEvent(
+                    type="analysis_complete",
+                    data={
+                        "kind": "analysis_complete",
+                        "outcome": metrics.outcome,
+                        "duration_s": metrics.duration_s,
+                        "tickets_resolved": metrics.tickets.resolved,
+                        "tickets_total": metrics.tickets.total,
+                        "out_dir": str(out_dir),
+                    },
+                ))
+        except Exception:
+            _logger.warning("post-run analyzer failed", exc_info=True)
 
     async def _start_ready_tickets(self) -> None:
         """Find ALL open tickets with satisfied dependencies and start them.

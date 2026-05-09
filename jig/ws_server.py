@@ -639,6 +639,7 @@ class WebSocketServer:
             "ticket_failed",
             "ticket_merge_conflict",
             "ticket_dispatched",
+            "analysis_complete",
         ):
             return event_envelope("events", event.type, payload)
         # No typed projection for this event — drop it.

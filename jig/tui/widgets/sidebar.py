@@ -313,6 +313,7 @@ class Sidebar(Widget):
         "scaffold_applied":  "🏗 scaffold",
         "spec_generated":    "📜 spec",
         "brief_approved":    "✓ brief approved",
+        "analysis_complete": "📊 analysis done",
     }
 
     def _extract_kind(self, ev: dict) -> str:

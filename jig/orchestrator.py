@@ -1693,7 +1693,12 @@ class Orchestrator:
         _logger.info("auto-created planning ticket")
 
     async def _start_ready_tickets(self) -> None:
-        """Find ALL open tickets with satisfied dependencies and start them."""
+        """Find ALL open tickets with satisfied dependencies and start them.
+
+        Respects ``project.max_parallel`` when set — stops dispatching once
+        the running-ticket count reaches the cap. Capped tickets stay open
+        and are picked up on the next call (triggered by any ticket completion).
+        """
         if self.tickets is None:
             return
         ready = await self.tickets.find_ready()
@@ -1701,6 +1706,17 @@ class Orchestrator:
             _logger.info("no ready tickets in queue")
             return
         for t in ready:
+            if (
+                self._project is not None
+                and self._project.max_parallel is not None
+                and len(self._running_tickets) >= self._project.max_parallel
+            ):
+                _logger.debug(
+                    "max_parallel=%d reached; deferring %s",
+                    self._project.max_parallel,
+                    t.id,
+                )
+                break
             if t.id not in self._running_tickets:
                 _logger.info("picking up ready ticket: %s — %s", t.id, t.title)
                 await self._handle_schedule(t.id)

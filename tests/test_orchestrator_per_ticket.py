@@ -650,3 +650,115 @@ async def test_resolver_failure_routes_to_merge_conflict(
         assert resolver_called == [tid]
     finally:
         await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C7: _start_ready_tickets respects max_parallel
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_ready_tickets_respects_max_parallel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_start_ready_tickets stops dispatching when max_parallel running tickets exist."""
+    from jig.project import Project, save_project
+
+    # Create workflow + roles first, then overwrite project with max_parallel set.
+    _make_project_and_workflow(tmp_path, ["spec"])
+    save_project(
+        tmp_path,
+        Project(
+            id="p",
+            name="p",
+            path=str(tmp_path),
+            language="python",
+            package_manager="uv",
+            max_parallel=1,
+        ),
+    )
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+
+    gate = asyncio.Event()
+
+    async def slow_run_agent(ctx, emitter=None):
+        await gate.wait()
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", slow_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        tid1 = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t1", created_by="user")
+        )
+        tid2 = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t2", created_by="user")
+        )
+
+        await orch._start_ready_tickets()
+        await asyncio.sleep(0)
+
+        assert len(orch._running_tickets) == 1, (
+            f"expected 1 running ticket, got {len(orch._running_tickets)}"
+        )
+        t2 = await orch.tickets.get(tid2)
+        assert t2 is not None
+        assert t2.status == TicketStatus.OPEN
+
+        gate.set()
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_start_ready_tickets_no_cap_when_max_parallel_none(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When max_parallel is None (default), all ready tickets are dispatched."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+
+    gate = asyncio.Event()
+
+    async def slow_run_agent(ctx, emitter=None):
+        await gate.wait()
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", slow_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t1", created_by="user")
+        )
+        await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t2", created_by="user")
+        )
+
+        await orch._start_ready_tickets()
+        await asyncio.sleep(0)
+
+        assert len(orch._running_tickets) == 2
+
+        gate.set()
+    finally:
+        await orch.shutdown()

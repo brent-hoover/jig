@@ -172,17 +172,20 @@ phase_prompt: >
   a bullet under a larger feature?
 
 
-  Concrete rule: if two behaviors share the same user story ("as a
-  developer, I want to filter results…"), they belong in the same
-  capability.
+  Concrete rule: if two behaviors share the same user story or user
+  goal, they belong in the same capability.
 
 
-  **Wrong** (too granular):
+  **Wrong** (too granular — one flag or option per capability):
   - Capability: "Filter by score" — one behavior: `--min-score N`
   - Capability: "Filter by type" — one behavior: `--type X`
+  - Capability: "Dark mode" — one behavior: toggle theme
+  - Capability: "Email notifications" — one behavior: send email on event
 
-  **Right** (grouped):
+  **Right** (grouped by user goal / subsystem):
   - Capability: "Filtering" — behaviors: `--min-score N`, `--type X`
+  - Capability: "User preferences" — behaviors: theme, notification settings
+  - Capability: "Notifications" — behaviors: email, in-app, digest frequency
 
 
   ## What to do, by situation

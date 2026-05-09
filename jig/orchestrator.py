@@ -1446,6 +1446,66 @@ class Orchestrator:
             )
             return False
 
+    async def _try_replan(
+        self,
+        ticket_id: str,
+        ticket: "Ticket",
+        conflicted_files: list[str],
+    ) -> None:
+        """Spawn a PM agent in REPLAN mode after a conflict is auto-resolved.
+
+        Fire-and-forget — never raises. Tightens depends_on on pending tickets
+        that are likely to touch the same files that just conflicted.
+        """
+        from jig.runtime import AgentSpawnContext, SpawnReason
+
+        if (
+            self._project is None
+            or self.tickets is None
+            or self.threads is None
+            or self.memory is None
+            or self.bus is None
+        ):
+            return
+
+        try:
+            role_cfg = load_role(self._project_path, "pm")
+        except FileNotFoundError:
+            _logger.warning(
+                "_try_replan: pm role not found; skipping replan for %s",
+                ticket_id,
+            )
+            return
+
+        worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
+        ctx = AgentSpawnContext(
+            role="pm",
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.REPLAN,
+            ticket=ticket,
+            parent=None,
+            worktree_path=worktree_path,
+            project=self._project,
+            tickets=self.tickets,
+            threads=self.threads,
+            memory=self.memory,
+            bus=self.bus,
+            checkpoints=self.checkpoints,
+            initial_bus_message={
+                "kind": "replan_spawn",
+                "ticket_id": ticket_id,
+                "conflicted_files": conflicted_files,
+            },
+        )
+        try:
+            await self._run_agent_with_analytics(ctx, spawned_by="replan")
+        except Exception:
+            _logger.warning(
+                "_try_replan: agent failed for %s",
+                ticket_id,
+                exc_info=True,
+            )
+
     async def _on_ticket_completed(self, ticket_id: str, ticket) -> None:
         """Post-completion: merge branch, set final status, emit event,
         clean up, pick up next ticket.
@@ -1481,6 +1541,7 @@ class Orchestrator:
                 _logger.info("merge complete: %s", merge_result)
             except MergeConflictError as exc:
                 merge_result = str(exc)
+                conflicted_files = exc.conflicted_files
                 _logger.warning(
                     "merge conflict for %s — attempting auto-resolution; "
                     "branch %s preserved",
@@ -1499,6 +1560,9 @@ class Orchestrator:
                         _logger.info(
                             "conflict resolved by agent, merge retry succeeded: %s",
                             merge_result,
+                        )
+                        asyncio.create_task(
+                            self._try_replan(ticket_id, ticket, conflicted_files)
                         )
                     except MergeConflictError as retry_exc:
                         merge_conflict = True

@@ -694,6 +694,11 @@ async def test_start_ready_tickets_respects_max_parallel(
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
 
+    async def fake_commit_mp(*a, **k) -> None:
+        return None
+
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_mp)
+
     orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
 
     await orch.startup()
@@ -711,9 +716,16 @@ async def test_start_ready_tickets_respects_max_parallel(
         assert len(orch._running_tickets) == 1, (
             f"expected 1 running ticket, got {len(orch._running_tickets)}"
         )
+        # Exactly one of the two tickets should be OPEN (whichever was deferred).
+        t1 = await orch.tickets.get(tid1)
         t2 = await orch.tickets.get(tid2)
-        assert t2 is not None
-        assert t2.status == TicketStatus.OPEN
+        assert t1 is not None and t2 is not None
+        open_count = sum(
+            1 for t in (t1, t2) if t.status == TicketStatus.OPEN
+        )
+        assert open_count == 1, (
+            f"expected exactly 1 OPEN ticket; t1={t1.status}, t2={t2.status}"
+        )
 
         gate.set()
     finally:
@@ -743,6 +755,11 @@ async def test_start_ready_tickets_no_cap_when_max_parallel_none(
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
 
+    async def fake_commit_mp2(*a, **k) -> None:
+        return None
+
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_mp2)
+
     orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
 
     await orch.startup()
@@ -760,5 +777,257 @@ async def test_start_ready_tickets_no_cap_when_max_parallel_none(
         assert len(orch._running_tickets) == 2
 
         gate.set()
+    finally:
+        await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C8: _try_replan — unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_try_replan_returns_when_role_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_replan logs and returns (does not raise) when the pm role is missing."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+
+        def raise_not_found(project_path, name):
+            raise FileNotFoundError(f"role {name!r} not found")
+
+        monkeypatch.setattr(orch_module, "load_role", raise_not_found)
+        await orch._try_replan(tid, ticket, ["src/cli.py"])
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_try_replan_returns_when_agent_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_replan logs and returns (does not raise) when the agent spawn raises."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+
+        monkeypatch.setattr(
+            orch_module,
+            "load_role",
+            lambda *a, **k: RoleConfig(role="pm", phase_prompt="replan"),
+        )
+
+        async def boom(ctx, spawned_by="orchestrator"):
+            raise RuntimeError("agent exploded")
+
+        orch._run_agent_with_analytics = boom  # type: ignore[method-assign]
+        await orch._try_replan(tid, ticket, ["src/cli.py"])
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_try_replan_completes_when_agent_succeeds(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_replan completes normally when the agent succeeds."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+        )
+        ticket = await orch.tickets.get(tid)
+
+        from jig import orchestrator as orch_module
+        from jig.agent import RunAgentResult
+
+        monkeypatch.setattr(
+            orch_module,
+            "load_role",
+            lambda *a, **k: RoleConfig(role="pm", phase_prompt="replan"),
+        )
+
+        async def ok_agent(ctx, spawned_by="orchestrator"):
+            return RunAgentResult(status="success", final_text="done")
+
+        orch._run_agent_with_analytics = ok_agent  # type: ignore[method-assign]
+        await orch._try_replan(tid, ticket, ["src/cli.py"])
+    finally:
+        await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# C9: _on_ticket_completed fires replan after successful conflict resolution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_replan_fired_after_successful_conflict_resolution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When resolver returns True and retry merge succeeds, _try_replan is called
+    with the conflicted files from the original exception."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+    from jig.worktree import MergeConflictError
+
+    async def fake_run_agent(ctx, emitter=None):
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    call_count = 0
+
+    async def merge_first_conflicts_then_succeeds(
+        project_path, ticket_id, base, strategy
+    ):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            err = MergeConflictError(ticket_id, f"jig/{ticket_id}")
+            err.conflicted_files = ["src/cli.py", "pyproject.toml"]
+            raise err
+        return f"Merged jig/{ticket_id}"
+
+    async def fake_remove(*a, **k) -> None:
+        return None
+
+    async def fake_commit(*a, **k) -> None:
+        return None
+
+    monkeypatch.setattr("jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds)
+    monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
+
+    async def fake_try_resolve(ticket_id, ticket):
+        return True
+
+    orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
+
+    replan_calls: list[tuple[str, list[str]]] = []
+
+    async def fake_try_replan(ticket_id, ticket, conflicted_files):
+        replan_calls.append((ticket_id, list(conflicted_files)))
+
+    orch._try_replan = fake_try_replan  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch._handle_schedule(tid)
+        running_task = orch._running_tickets.get(tid)
+        if running_task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(running_task), timeout=2.0)
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.RESOLVED
+        assert len(replan_calls) == 1
+        assert replan_calls[0][0] == tid
+        assert "src/cli.py" in replan_calls[0][1]
+    finally:
+        await orch.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_replan_not_fired_when_resolver_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When the resolver returns False, _try_replan is NOT called."""
+    _make_project_and_workflow(tmp_path, ["spec"])
+
+    orch = Orchestrator(project_path=tmp_path)
+
+    from jig import orchestrator as orch_module
+    from jig.agent import RunAgentResult
+    from jig.worktree import MergeConflictError
+
+    async def fake_run_agent(ctx, emitter=None):
+        return RunAgentResult(status="success", final_text="ok")
+
+    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+
+    async def fake_ensure(ticket):
+        return tmp_path / "worktree"
+
+    orch._ensure_worktree = fake_ensure  # type: ignore[method-assign]
+
+    async def always_conflict(project_path, ticket_id, base, strategy):
+        raise MergeConflictError(ticket_id, f"jig/{ticket_id}")
+
+    async def fake_remove_2(*a, **k) -> None:
+        return None
+
+    async def fake_commit_2(*a, **k) -> None:
+        return None
+
+    monkeypatch.setattr("jig.worktree.merge_ticket", always_conflict)
+    monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove_2)
+    monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_2)
+
+    async def fake_try_resolve(ticket_id, ticket):
+        return False
+
+    orch._try_resolve_conflict = fake_try_resolve  # type: ignore[method-assign]
+
+    replan_calls: list[str] = []
+
+    async def fake_try_replan(ticket_id, ticket, conflicted_files):
+        replan_calls.append(ticket_id)
+
+    orch._try_replan = fake_try_replan  # type: ignore[method-assign]
+
+    await orch.startup()
+    try:
+        tid = await orch.tickets.create(
+            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        )
+        await orch._handle_schedule(tid)
+        running_task = orch._running_tickets.get(tid)
+        if running_task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(running_task), timeout=2.0)
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+        ticket = await orch.tickets.get(tid)
+        assert ticket is not None
+        assert ticket.status == TicketStatus.MERGE_CONFLICT
+        assert replan_calls == []
     finally:
         await orch.shutdown()

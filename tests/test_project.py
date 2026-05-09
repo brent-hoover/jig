@@ -29,6 +29,39 @@ def test_save_and_load_project(tmp_path: Path) -> None:
     assert loaded == project
 
 
+def test_max_parallel_round_trips(tmp_path: Path) -> None:
+    project = Project(
+        id="p",
+        name="p",
+        path=str(tmp_path),
+        max_parallel=2,
+    )
+    save_project(tmp_path, project)
+    loaded = load_project(tmp_path)
+    assert loaded.max_parallel == 2
+
+
+def test_max_parallel_defaults_to_none(tmp_path: Path) -> None:
+    project = Project(id="p", name="p", path=str(tmp_path))
+    save_project(tmp_path, project)
+    loaded = load_project(tmp_path)
+    assert loaded.max_parallel is None
+
+
+def test_existing_config_without_max_parallel_loads_as_none(tmp_path: Path) -> None:
+    """Projects saved before max_parallel was added deserialize with None."""
+    import yaml
+
+    project = Project(id="p", name="p", path=str(tmp_path))
+    save_project(tmp_path, project)
+    config_path = tmp_path / ".jig" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text())
+    raw.get("project", {}).pop("max_parallel", None)
+    config_path.write_text(yaml.safe_dump(raw))
+    loaded = load_project(tmp_path)
+    assert loaded.max_parallel is None
+
+
 def test_load_project_missing_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_project(tmp_path)

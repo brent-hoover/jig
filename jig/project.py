@@ -44,6 +44,7 @@ class Project(BaseModel):
     # default branch. FEATURE_BRANCH is correct when the human wants to
     # open a PR / review before integration — opt in via `jig init`.
     merge_strategy: MergeStrategy = MergeStrategy.SQUASH
+    max_parallel: int | None = None
     hooks: HooksConfig = Field(default_factory=HooksConfig)
 
     def path_or_default(self) -> Path:

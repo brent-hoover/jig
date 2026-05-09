@@ -64,11 +64,20 @@ phase_prompt: >
   - Put shared infrastructure (models, config, DB schema) in early tickets
     that others depend on.
   - Include a final integration/validation ticket that depends on all others.
-  - **Maximize parallelism** — a ticket should only depend on tickets whose
-    output it truly needs. Do NOT create linear chains when work can fan out.
-    Example: if tickets A, B, C all need a shared model from ticket S, they
-    each depend on S but NOT on each other — they run in parallel.
-    A common pattern is: setup → fan-out of independent features → integration.
+  - **Small projects run linearly** — if the breakdown produces 10 or fewer
+    tickets, make them a simple linear chain (each ticket depends on the
+    previous one). This eliminates merge conflicts without meaningful
+    throughput loss at small scale. Only fan out in parallel for projects
+    with more than 10 tickets.
+  - **Bones first, then fan-out** — when parallelism is warranted (>10
+    tickets), the very first implementation ticket must establish the
+    skeleton: shared models, DB schema, core config, base interfaces. All
+    other implementation tickets depend on the bones ticket before they
+    fan out. Never start a parallel fan-out without a bones gate.
+    Example: setup → bones → (feature-A ∥ feature-B ∥ feature-C) → integration.
+  - A ticket should only depend on tickets whose output it truly needs.
+    Within a fan-out group, prefer no cross-dependencies unless one ticket
+    genuinely needs another's output.
   - When presenting the dependency graph, explicitly show which tickets can
     run in parallel and explain why.
   - NEVER create tickets without user approval of the plan first.

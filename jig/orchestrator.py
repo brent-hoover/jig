@@ -85,7 +85,7 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
                 try:
                     os.kill(pid, signal.SIGTERM)
                     killed += 1
-                except ProcessLookupError:
+                except OSError:
                     pass
     except FileNotFoundError:
         pass  # lsof not available
@@ -1934,7 +1934,7 @@ class Orchestrator:
                     out_dir=out_dir,
                     jig_repo=jig_repo,
                     project_name=project_name,
-                    use_llm=True,
+                    use_llm=False,
                 ),
             )
             _logger.info(

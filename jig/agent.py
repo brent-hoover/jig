@@ -661,7 +661,7 @@ async def run_agent(
         async def _heartbeat() -> None:
             await _emit(
                 "agent_thinking",
-                {"role": ctx.role, "elapsed": 0, "active": True},
+                {"role": ctx.role, "ticket_id": ctx.ticket.id, "elapsed": 0, "active": True},
             )
             try:
                 while not heartbeat_done.is_set():
@@ -671,7 +671,7 @@ async def run_agent(
                         elapsed = int(heartbeat_loop.time() - heartbeat_start)
                         await _emit(
                             "agent_thinking",
-                            {"role": ctx.role, "elapsed": elapsed, "active": True},
+                            {"role": ctx.role, "ticket_id": ctx.ticket.id, "elapsed": elapsed, "active": True},
                         )
                         if ctx.on_thinking is not None:
                             ctx.on_thinking()
@@ -679,7 +679,7 @@ async def run_agent(
                 try:
                     await _emit(
                         "agent_thinking",
-                        {"role": ctx.role, "elapsed": 0, "active": False},
+                        {"role": ctx.role, "ticket_id": ctx.ticket.id, "elapsed": 0, "active": False},
                     )
                 except Exception:
                     pass

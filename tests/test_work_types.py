@@ -37,6 +37,7 @@ class TestShippedDefaults:
             "perf",
             "migration",
             "docs",
+            "canonicalize",
         }
 
     def test_each_shipped_loads(self, tmp_path: Path) -> None:
@@ -77,8 +78,15 @@ class TestShippedDefaults:
         assert "behaviors" not in s.allowed_fields()
 
     def test_ownership_references_po_or_sa(self, tmp_path: Path) -> None:
-        """Shipped defaults only lean on the two built-in roles per doc 04."""
+        """Shipped defaults only lean on the two built-in roles per doc 04.
+
+        ``canonicalize`` is owned by the orchestrator (the canonicalize
+        ticket is created by ``jig canonicalize``, not by an L0/L1 PO),
+        so it gets a special-case carve-out.
+        """
         for name in list_work_type_names(tmp_path):
+            if name == "canonicalize":
+                continue
             s = load_work_type_schema(tmp_path, name)
             for field, owner in s.ownership.items():
                 assert owner in {"po", "sa"}, (

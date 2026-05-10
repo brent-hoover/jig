@@ -24,6 +24,8 @@ from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
 if TYPE_CHECKING:
+    from jig.store.audit import AuditStore
+    from jig.store.canon_issues import CanonicalizationIssueStore
     from jig.store.checkpoints import CheckpointStore
 
 _logger = logging.getLogger(__name__)
@@ -661,3 +663,61 @@ async def handle_add_dependency(
 
     _logger.info("add_dependency succeeded: %s", packages)
     return {"success": True, "packages": packages, "output": output}
+
+
+async def handle_log_audit_entry(
+    *,
+    store: "AuditStore",
+    ticket_id: str,
+    run_id: str,
+    rule_id: str,
+    rule_source: str,
+    file_path: str,
+    before_hash: str,
+    after_hash: str,
+) -> str:
+    """Persist an AuditEntry recording a rule applying a fix to a file."""
+    from jig.store.audit import AuditEntry
+
+    entry = AuditEntry(
+        run_id=run_id,
+        rule_id=rule_id,
+        rule_source=rule_source,  # type: ignore[arg-type]
+        file_path=file_path,
+        before_hash=before_hash,
+        after_hash=after_hash,
+        ticket_id=ticket_id,
+    )
+    return await store.append(entry)
+
+
+async def handle_create_canonicalization_issue(
+    *,
+    store: "CanonicalizationIssueStore",
+    project_path: Path,
+    ticket_id: str,
+    issue_type: str,
+    rule_id: str,
+    rule_message: str,
+    diff_hunk: str,
+    file_path: str,
+    suggested_fixes: list[str],
+) -> str:
+    """Persist a CanonicalizationIssue with routing resolved from config."""
+    from jig.canonicalize import load_escalation_config, resolve_route
+
+    esc = load_escalation_config(project_path)
+    route = resolve_route(esc, rule_id, issue_type)
+    from jig.store.canon_issues import CanonicalizationIssue
+
+    issue = CanonicalizationIssue(
+        type=issue_type,  # type: ignore[arg-type]
+        rule_id=rule_id,
+        rule_message=rule_message,
+        diff_hunk=diff_hunk,
+        file_path=file_path,
+        ticket_id=ticket_id,
+        suggested_fixes=suggested_fixes,
+        routing=route,  # type: ignore[arg-type]
+    )
+    return await store.append(issue)

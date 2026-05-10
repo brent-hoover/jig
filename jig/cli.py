@@ -2409,3 +2409,137 @@ def tracer_run(tracer_id: str, path: Path) -> None:
         click.echo(f"FAIL (exit {result.returncode})")
         raise SystemExit(result.returncode)
 
+
+# ---- canonicalize --------------------------------------------------------
+
+
+@cli.command("canonicalize")
+@click.option(
+    "--ticket-id",
+    "ticket_id",
+    default=None,
+    help="Attach the canonicalize ticket as a child of this ticket.",
+)
+@click.option(
+    "--sweep",
+    is_flag=True,
+    help="Sweep the whole repo instead of a specific change set.",
+)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def canonicalize_cmd(ticket_id: str | None, sweep: bool, path: Path) -> None:
+    """Create a ticket that runs the canonicalizer agent."""
+    from jig.store.tickets import TicketStore
+    from jig.ticket import Size, Ticket, TicketStatus, WorkType
+
+    async def _run() -> str:
+        store = TicketStore(path / ".jig" / "store" / "tickets.jsonl")
+        await store.load()
+
+        if sweep:
+            title = "Canonicalize sweep (whole repo)"
+            labels = ["sweep"]
+        else:
+            try:
+                proc = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    cwd=str(path),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                branch = proc.stdout.strip() or "HEAD"
+            except Exception:
+                branch = "HEAD"
+            title = f"Canonicalize: {branch}"
+            labels = []
+
+        ticket = Ticket(
+            title=title,
+            description="",
+            work_type=WorkType.CANONICALIZE,
+            workflow="canonicalize",
+            size=Size.S,
+            status=TicketStatus.OPEN,
+            parent_id=ticket_id,
+            labels=labels,
+            created_by="cli",
+        )
+        return await store.create(ticket)
+
+    new_id = asyncio.run(_run())
+    click.echo(new_id)
+
+
+# ---- audit report --------------------------------------------------------
+
+
+@cli.group("audit")
+def audit_group() -> None:
+    """Canonicalization audit reporting."""
+
+
+@audit_group.command("report")
+@click.option("--run-id", "run_id", default=None, help="Filter to a single run id.")
+@click.option(
+    "--ticket-id",
+    "ticket_id",
+    default=None,
+    help="Filter to entries from a single ticket.",
+)
+@click.option(
+    "--days",
+    default=None,
+    type=int,
+    help="Filter to entries applied in the last N days.",
+)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def audit_report(
+    run_id: str | None,
+    ticket_id: str | None,
+    days: int | None,
+    path: Path,
+) -> None:
+    """Print a summary of canonicalization audit entries."""
+    from datetime import datetime, timedelta, timezone
+
+    from jig.store.audit import AuditStore
+
+    audit_path = path / ".jig" / "store" / "audit.jsonl"
+    if not audit_path.is_file():
+        click.echo("no audit entries found (.jig/store/audit.jsonl missing)")
+        return
+
+    async def _load() -> list:
+        store = AuditStore(audit_path)
+        await store.load()
+        if run_id is not None:
+            return await store.for_run(run_id)
+        if ticket_id is not None:
+            return await store.for_ticket(ticket_id)
+        return await store.all()
+
+    entries = asyncio.run(_load())
+
+    if days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        entries = [e for e in entries if e.applied_at >= cutoff]
+
+    if not entries:
+        click.echo("no audit entries match the given filters")
+        return
+
+    by_rule: dict[str, dict[str, int]] = {}
+    for e in entries:
+        bucket = by_rule.setdefault(e.rule_id, {"files": set(), "count": 0})
+        bucket["files"].add(e.file_path)  # type: ignore[union-attr]
+        bucket["count"] += 1
+
+    rule_w = max(8, max(len(r) for r in by_rule))
+    click.echo(f"{'rule_id':<{rule_w}}  {'files':>5}  {'count':>5}")
+    click.echo(f"{'-' * rule_w}  {'-----':>5}  {'-----':>5}")
+    for rule, info in sorted(by_rule.items()):
+        files = info["files"]
+        count = info["count"]
+        n_files = len(files) if isinstance(files, set) else int(files)
+        click.echo(f"{rule:<{rule_w}}  {n_files:>5}  {count:>5}")
+

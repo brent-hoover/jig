@@ -402,7 +402,7 @@ async def _keyboard_loop(
     server: DemoServer,
     advance_queue: asyncio.Queue[bool],
 ) -> None:
-    """Drain advance_queue items: True = advance, False = quit."""
+    """Drain advance_queue items: True = quit, False = advance."""
     while True:
         quit_signal = await advance_queue.get()
         if quit_signal:

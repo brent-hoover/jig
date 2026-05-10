@@ -1,0 +1,20 @@
+# canonicalize — apply formatters / semgrep / deprecation rules to merged output.
+work_type: canonicalize
+workflow: canonicalize
+
+required:
+  - summary
+
+optional:
+  - notes
+
+required_by_size:
+  xs: [summary]
+  s: [summary]
+  m: [summary]
+  l: [summary]
+  xl: [summary]
+
+ownership:
+  summary: orchestrator
+  notes: orchestrator

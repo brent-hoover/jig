@@ -40,9 +40,9 @@ _ROLE_COLORS: dict[str, str] = {
 
 
 class _AgentListItem(ListItem):
-    def __init__(self, agent: AgentState) -> None:
+    def __init__(self, agent: AgentState, agent_key: str) -> None:
         super().__init__()
-        self.agent_key = agent.role  # stable key
+        self.agent_key = agent_key  # "ticket_id:role" — unique per concurrent agent
         self._agent = agent
 
     def compose(self) -> ComposeResult:
@@ -193,8 +193,8 @@ class AgentsScreen(Widget):
 
     def __init__(self) -> None:
         super().__init__()
-        self._agents: dict[str, AgentState] = {}  # role → state
-        self._selected_role: str | None = None
+        self._agents: dict[str, AgentState] = {}  # "ticket_id:role" → state
+        self._selected_key: str | None = None
 
     def set_project_path(self, path: Path | None) -> None:
         self.project_path = path
@@ -212,6 +212,7 @@ class AgentsScreen(Widget):
         ticket_id = data.get("ticket_id", "")
         ticket_title = data.get("ticket_title", "")
         phase = data.get("phase")
+        agent_key = f"{ticket_id}:{role}" if ticket_id else role
 
         agent = AgentState(
             role=role,
@@ -220,52 +221,54 @@ class AgentsScreen(Widget):
             phase=phase,
         )
         self._load_role_config(agent)
-        self._agents[role] = agent
-        self._selected_role = role
+        self._agents[agent_key] = agent
+        self._selected_key = agent_key
         self._rebuild_list()
         self._refresh_detail()
 
     def handle_agent_thinking(self, data: dict) -> None:
         role = data.get("role", "agent")
+        ticket_id = data.get("ticket_id", "")
+        agent_key = f"{ticket_id}:{role}" if ticket_id else role
         active = data.get("active", True)
         elapsed = int(data.get("elapsed", 0))
-        if role not in self._agents:
+        if agent_key not in self._agents:
             return
-        agent = self._agents[role]
+        agent = self._agents[agent_key]
         agent.elapsed = elapsed
         agent.active = active
-        if not active:
-            # Keep the agent visible briefly after it finishes so the
-            # operator can read the detail, but mark it done.
-            pass
         self._rebuild_list()
-        if self._selected_role == role:
+        if self._selected_key == agent_key:
             self._refresh_detail()
 
     def handle_agent_tool(self, data: dict) -> None:
         role = data.get("role", "agent")
+        ticket_id = data.get("ticket_id", "")
+        agent_key = f"{ticket_id}:{role}" if ticket_id else role
         tool = data.get("tool", "")
         detail = data.get("detail", "")
-        if role not in self._agents:
+        if agent_key not in self._agents:
             return
-        agent = self._agents[role]
+        agent = self._agents[agent_key]
         agent.current_tool = f"{tool}  {detail[:50]}" if detail else tool
         agent.recent_tools.insert(0, (tool, detail))
         agent.recent_tools = agent.recent_tools[:10]
-        if self._selected_role == role:
+        if self._selected_key == agent_key:
             self._refresh_detail()
 
     def handle_agent_tool_result(self, data: dict) -> None:
         role = data.get("role", "agent")
-        if role in self._agents:
-            self._agents[role].current_tool = None
-        if self._selected_role == role:
+        ticket_id = data.get("ticket_id", "")
+        agent_key = f"{ticket_id}:{role}" if ticket_id else role
+        if agent_key in self._agents:
+            self._agents[agent_key].current_tool = None
+        if self._selected_key == agent_key:
             self._refresh_detail()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         if isinstance(item, _AgentListItem):
-            self._selected_role = item.agent_key
+            self._selected_key = item.agent_key
             self._refresh_detail()
 
     # ── Internal helpers ──────────────────────────────────────────────────
@@ -289,15 +292,12 @@ class AgentsScreen(Widget):
             lv = self.query_one("#agents-list", ListView)
         except Exception:
             return
-        # Keep only active agents in the list; inactive ones fade out after
-        # the next cycle. For now show all agents we've seen this session.
         existing_keys = {
             item.agent_key
             for item in lv.children
             if isinstance(item, _AgentListItem)
         }
-        agents_to_show = list(self._agents.values())
-        new_keys = {a.role for a in agents_to_show}
+        new_keys = set(self._agents.keys())
 
         # Remove stale
         for item in list(lv.children):
@@ -305,11 +305,10 @@ class AgentsScreen(Widget):
                 item.remove()
 
         # Update or add
-        for agent in agents_to_show:
-            if agent.role in existing_keys:
-                # Refresh the static inside the existing item
+        for agent_key, agent in self._agents.items():
+            if agent_key in existing_keys:
                 for item in lv.children:
-                    if isinstance(item, _AgentListItem) and item.agent_key == agent.role:
+                    if isinstance(item, _AgentListItem) and item.agent_key == agent_key:
                         item._agent = agent
                         try:
                             label = item.query_one(Static)
@@ -325,14 +324,14 @@ class AgentsScreen(Widget):
                         except Exception:
                             pass
             else:
-                lv.append(_AgentListItem(agent))
+                lv.append(_AgentListItem(agent, agent_key))
 
     def _refresh_detail(self) -> None:
         try:
             panel = self.query_one(_DetailPanel)
         except Exception:
             return
-        agent = self._agents.get(self._selected_role or "") if self._selected_role else None
+        agent = self._agents.get(self._selected_key or "") if self._selected_key else None
         if agent is None and self._agents:
             agent = next(iter(self._agents.values()))
         panel.show_agent(agent)

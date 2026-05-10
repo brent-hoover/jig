@@ -277,13 +277,13 @@ def load_conventions(project_path: Path) -> str | None:
             ".jig/conventions.md not found — skipping convention injection"
         )
         return None
-    content = path.read_text().strip()
-    if not content:
+    content = path.read_text()
+    if not content.strip():
         _logging.getLogger(__name__).warning(
             ".jig/conventions.md is empty — skipping convention injection"
         )
         return None
-    return content
+    return content.rstrip()
 
 
 def resolve_workflow_name(
@@ -316,8 +316,15 @@ def resolve_workflow_name(
                     pass
             if schema.workflow:
                 return schema.workflow
-        except (FileNotFoundError, Exception):
+        except FileNotFoundError:
             pass
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "failed to load work_type schema for %r — falling back to 'default'",
+                work_type,
+                exc_info=True,
+            )
     return "default"
 
 

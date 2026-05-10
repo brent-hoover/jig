@@ -60,22 +60,23 @@ class StallDetector:
 
     # Updated on every agent_thinking pulse via on_thinking callback.
     last_heartbeat_at: float | None = None
-    # role → monotonic start time (set on agent spawn, cleared on finish).
+    # "ticket_id:role" → monotonic start time (set on agent spawn, cleared on finish).
+    # Keyed by ticket_id:role so concurrent agents sharing a role don't collide.
     in_flight_agents: dict[str, float] = field(default_factory=dict)
     # ticket_id → monotonic time when ticket entered needs_info.
     needs_info_since: dict[str, float] = field(default_factory=dict)
 
-    def record_heartbeat(self, role: str) -> None:
-        """Call on every agent_thinking event."""
+    def record_heartbeat(self, agent_key: str) -> None:
+        """Call on every agent_thinking event. agent_key = 'ticket_id:role'."""
         now = time.monotonic()
         self.last_heartbeat_at = now
-        self.in_flight_agents.setdefault(role, now)
+        self.in_flight_agents.setdefault(agent_key, now)
 
-    def record_agent_start(self, role: str) -> None:
-        self.in_flight_agents.setdefault(role, time.monotonic())
+    def record_agent_start(self, agent_key: str) -> None:
+        self.in_flight_agents.setdefault(agent_key, time.monotonic())
 
-    def record_agent_done(self, role: str) -> None:
-        self.in_flight_agents.pop(role, None)
+    def record_agent_done(self, agent_key: str) -> None:
+        self.in_flight_agents.pop(agent_key, None)
 
     def record_needs_info(self, ticket_id: str) -> None:
         self.needs_info_since.setdefault(ticket_id, time.monotonic())

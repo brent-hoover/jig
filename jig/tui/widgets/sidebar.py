@@ -90,8 +90,8 @@ class Sidebar(Widget):
 
     def __init__(self) -> None:
         super().__init__()
-        self._active_agents: dict[str, dict[str, Any]] = {}  # role → state
-        self._agent_tools: dict[str, deque[tuple[str, str]]] = {}  # role → [(tool, detail)]
+        self._active_agents: dict[str, dict[str, Any]] = {}  # "ticket_id:role" → state
+        self._agent_tools: dict[str, deque[tuple[str, str]]] = {}  # "ticket_id:role" → [(tool, detail)]
         self._tickets: dict[str, dict[str, Any]] = {}
         self._events: list[dict[str, Any]] = []
 
@@ -123,28 +123,32 @@ class Sidebar(Widget):
     # ---------------------------------------------------------------------
 
     def update_thinking(self, data: dict) -> None:
-        """Add / refresh / remove an entry per role from Activity."""
+        """Add / refresh / remove an entry per agent from Activity."""
         role = data.get("role", "agent")
+        ticket_id = data.get("ticket_id", "")
+        agent_key = f"{ticket_id}:{role}" if ticket_id else role
         if not data.get("active", False):
-            self._active_agents.pop(role, None)
-            self._agent_tools.pop(role, None)
+            self._active_agents.pop(agent_key, None)
+            self._agent_tools.pop(agent_key, None)
         else:
-            self._active_agents[role] = {
+            self._active_agents[agent_key] = {
                 "role": role,
                 "elapsed": int(data.get("elapsed", 0)),
             }
         self._render_activity()
 
     def update_tool_use(self, data: dict) -> None:
-        """Record a tool call under the agent's role for Activity display."""
+        """Record a tool call under the agent's key for Activity display."""
         role = data.get("role", "agent")
+        ticket_id = data.get("ticket_id", "")
+        agent_key = f"{ticket_id}:{role}" if ticket_id else role
         tool = data.get("tool", "")
         detail = data.get("detail", "")
         if not tool:
             return
-        if role not in self._agent_tools:
-            self._agent_tools[role] = deque(maxlen=5)
-        self._agent_tools[role].appendleft((tool, detail))
+        if agent_key not in self._agent_tools:
+            self._agent_tools[agent_key] = deque(maxlen=5)
+        self._agent_tools[agent_key].appendleft((tool, detail))
         self._render_activity()
 
     def _render_activity(self) -> None:
@@ -157,13 +161,14 @@ class Sidebar(Widget):
             return
         spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         lines = []
-        for role, state in self._active_agents.items():
+        for agent_key, state in self._active_agents.items():
+            role = state["role"]
             elapsed = state["elapsed"]
             spin = spinners[elapsed % len(spinners)]
             lines.append(
                 f"[dim]{spin}[/dim] [bold]{role}[/bold] [dim]({elapsed}s)[/dim]"
             )
-            for tool, detail in list(self._agent_tools.get(role, [])):
+            for tool, detail in list(self._agent_tools.get(agent_key, [])):
                 # Sidebar inner width ≈ 34 chars; tool indent takes 4,
                 # tool name up to 12, leaving ~18 for the detail.
                 detail_trunc = detail[:18] + "…" if len(detail) > 18 else detail

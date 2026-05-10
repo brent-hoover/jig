@@ -54,7 +54,8 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
     """SIGTERM any ``claude`` CLI subprocess whose CWD is inside the
     project's worktrees directory. Returns the number of PIDs signalled.
 
-    macOS-only (uses lsof). Falls back to a no-op on platforms without it.
+    Uses lsof; falls back to a no-op on platforms where lsof is unavailable.
+    Runs synchronously — callers must offload to a thread executor.
     """
     worktrees_root = project_path / ".jig" / "worktrees"
     if not worktrees_root.is_dir():
@@ -64,8 +65,10 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
         for child in worktrees_root.iterdir():
             if not child.is_dir():
                 continue
+            # Use lsof without +D to avoid expensive recursive dir scans;
+            # -d cwd with an exact path finds processes whose cwd == child.
             result = subprocess.run(
-                ["lsof", "-d", "cwd", "-Fp", "+D", str(child)],
+                ["lsof", "-d", "cwd", "-Fp", "--", str(child)],
                 capture_output=True, text=True, check=False,
             )
             for line in result.stdout.splitlines():
@@ -79,12 +82,16 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
                     ["ps", "-p", str(pid), "-o", "command="],
                     capture_output=True, text=True, check=False,
                 ).stdout.strip()
-                if "claude" not in cmd:
+                # Match only processes whose argv[0] basename is "claude"
+                # so we don't accidentally SIGTERM unrelated tools that happen
+                # to have "claude" elsewhere in their command line.
+                cmd_basename = os.path.basename(cmd.split()[0]) if cmd.split() else ""
+                if cmd_basename != "claude":
                     continue
                 try:
                     os.kill(pid, signal.SIGTERM)
                     killed += 1
-                except ProcessLookupError:
+                except OSError:
                     pass
     except FileNotFoundError:
         pass  # lsof not available
@@ -169,8 +176,9 @@ class Orchestrator:
         self._service_task: asyncio.Task | None = None
         self._deadlock_task: asyncio.Task | None = None
         self._stall_task: asyncio.Task | None = None
+        self._analyzer_task: asyncio.Task | None = None
         self._stall_detector: StallDetector = StallDetector()
-        self._analyzer_fired: bool = False
+        self._analyzer_last_terminal_ids: frozenset[str] = frozenset()
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -307,7 +315,7 @@ class Orchestrator:
             await self._ensure_planning_ticket()
             await self._start_ready_tickets()
             return
-        self._analyzer_fired = False
+        self._analyzer_last_terminal_ids = frozenset()
         await self.startup()
 
     # ---- analytics --------------------------------------------------------
@@ -447,8 +455,9 @@ class Orchestrator:
             _logger.debug(
                 "could not stamp analytics_emitter on ctx (frozen / slots?)",
             )
-        ctx.on_thinking = lambda: self._stall_detector.record_heartbeat(ctx.role)
-        self._stall_detector.record_agent_start(ctx.role)
+        agent_key = f"{ctx.ticket.id}:{ctx.role}"
+        ctx.on_thinking = lambda: self._stall_detector.record_heartbeat(agent_key)
+        self._stall_detector.record_agent_start(agent_key)
         start = time.monotonic()
         result_status = "failed"
         cost_usd: float | None = None
@@ -462,7 +471,7 @@ class Orchestrator:
             tokens_out = result.tokens_out
             return result
         finally:
-            self._stall_detector.record_agent_done(ctx.role)
+            self._stall_detector.record_agent_done(agent_key)
             if emitter is not None:
                 emitter.emit_nowait(
                     AgentCompleted(
@@ -890,7 +899,7 @@ class Orchestrator:
 
     async def _emergency_reset(self) -> None:
         self._running = False
-        for task in (self._dispatch_task, self._service_task, self._deadlock_task, self._stall_task):
+        for task in (self._dispatch_task, self._service_task, self._deadlock_task, self._stall_task, self._analyzer_task):
             if task is not None:
                 task.cancel()
                 try:
@@ -913,6 +922,7 @@ class Orchestrator:
         self._service_task = None
         self._deadlock_task = None
         self._stall_task = None
+        self._analyzer_task = None
         self._project = None
         self.tickets = None
         self.threads = None
@@ -932,6 +942,8 @@ class Orchestrator:
             tasks_to_cancel.append(self._deadlock_task)
         if self._stall_task is not None:
             tasks_to_cancel.append(self._stall_task)
+        if self._analyzer_task is not None:
+            tasks_to_cancel.append(self._analyzer_task)
         tasks_to_cancel.extend(self._running_tickets.values())
         tasks_to_cancel.extend(self._live_subscribers.values())
         for task in tasks_to_cancel:
@@ -949,6 +961,7 @@ class Orchestrator:
         self._service_task = None
         self._deadlock_task = None
         self._stall_task = None
+        self._analyzer_task = None
         # Flush in-flight analytics writes so the tail of the event
         # stream isn't lost when the loop closes.
         if self._analytics_emitter is not None:
@@ -1071,9 +1084,13 @@ class Orchestrator:
                 verdict.seconds_since_last_event,
                 verdict.detail,
             )
-            killed = _kill_orphan_claude_processes(self._project_path)
-            if killed:
-                _logger.info("stall recovery: SIGTERMed %d orphan claude process(es)", killed)
+            if verdict.signal == "heartbeat_gap":
+                loop = asyncio.get_running_loop()
+                killed = await loop.run_in_executor(
+                    None, _kill_orphan_claude_processes, self._project_path
+                )
+                if killed:
+                    _logger.info("stall recovery: SIGTERMed %d orphan claude process(es)", killed)
 
     async def _handle_schedule(self, ticket_id: str) -> None:
         """Schedule a ticket if its dependencies are satisfied.
@@ -1864,13 +1881,14 @@ class Orchestrator:
         _logger.info("auto-created planning ticket")
 
     async def _maybe_run_analyzer(self) -> None:
-        """Fire the post-run analyzer exactly once when all tickets are terminal.
+        """Fire the post-run analyzer when all tickets reach terminal state.
 
         Terminal = every ticket is resolved, closed, or failed (nothing still
-        open / in-progress / needs-info / blocked / merge-conflict). Skipped
-        if the store has no tickets yet (startup race) or if it already fired.
+        open / in-progress / needs-info / blocked / merge-conflict). Tracks
+        the set of terminal ticket IDs so it re-fires if new tickets are added
+        and subsequently resolved in the same daemon session.
         """
-        if self._analyzer_fired or self.tickets is None:
+        if self.tickets is None:
             return
         if self._running_tickets:
             return
@@ -1884,7 +1902,10 @@ class Orchestrator:
         }
         if any(t.status in non_terminal for t in all_tickets):
             return
-        self._analyzer_fired = True
+        terminal_ids = frozenset(t.id for t in all_tickets)
+        if terminal_ids == self._analyzer_last_terminal_ids:
+            return
+        self._analyzer_last_terminal_ids = terminal_ids
 
         resolved = sum(1 for t in all_tickets if t.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED))
         if self._emitter is not None:
@@ -1897,7 +1918,7 @@ class Orchestrator:
                     "tickets_total": len(all_tickets),
                 },
             ))
-        asyncio.create_task(self._run_analyzer_bg())
+        self._analyzer_task = asyncio.create_task(self._run_analyzer_bg())
 
     async def _run_analyzer_bg(self) -> None:
         """Run the post-run analyzer in a thread and emit analysis_complete."""

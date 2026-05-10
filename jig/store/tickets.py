@@ -27,6 +27,7 @@ class TicketStore:
             index_fields=["work_type", "status", "assignee", "parent_id"],
         )
         self._on_status_change: StatusChangeCallback | None = None
+        self._background_tasks: set[asyncio.Task] = set()
 
     def set_status_change_callback(self, cb: StatusChangeCallback | None) -> None:
         """Register a callback fired on every observed status transition.
@@ -82,7 +83,9 @@ class TicketStore:
             return
         result = cb(ticket_id, from_state, to_state)
         if inspect.isawaitable(result):
-            asyncio.create_task(result)  # type: ignore[arg-type]
+            task = asyncio.create_task(result)  # type: ignore[arg-type]
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
     async def update_status(self, ticket_id: str, status: TicketStatus) -> Ticket:
         return await self.update(ticket_id, status=status)

@@ -78,6 +78,7 @@ class WebSocketServer:
         self._history_replayed: set[ServerConnection] = set()
         self._subscriptions: dict[ServerConnection, set[str]] = {}
         self.prompt_registry = PromptRegistry()
+        self._background_tasks: set[asyncio.Task] = set()
         # prompt_id → full data payload for prompts not yet replied to.
         # Replayed as live events to clients that connect after the emit.
         self._pending_prompts: dict[str, dict] = {}
@@ -195,10 +196,12 @@ class WebSocketServer:
             # prompt_reply can't run because we haven't returned to read
             # the next frame. Spawn the dispatch as a background task so
             # the read loop stays responsive.
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._dispatch_command_safe(websocket, name, args),
                 name=f"ws-cmd-{name}",
             )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             return
 
         # Non-subscribe message from a legacy client: replay history once.

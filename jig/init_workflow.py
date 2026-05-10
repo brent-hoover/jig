@@ -611,6 +611,7 @@ def _spawn_console():
 
 
 _CONSOLE = None  # type: ignore[var-annotated]
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 @asynccontextmanager
@@ -653,9 +654,11 @@ async def _cli_emitter(
         data = {"role": role_label}
         if subtitle:
             data["ticket_title"] = subtitle
-        loop.create_task(
+        _t = loop.create_task(
             tui_emitter.emit(JigEvent(type="agent_start", data=data))
         )
+        _BACKGROUND_TASKS.add(_t)
+        _t.add_done_callback(_BACKGROUND_TASKS.discard)
     else:
         from rich.rule import Rule
         c.print()

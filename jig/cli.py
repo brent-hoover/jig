@@ -2581,6 +2581,8 @@ def audit_coverage(path: Path, fail: bool) -> None:
         for msg in result["missing_conventions"]:
             click.echo(f"warning: {msg}")
         return
+    for msg in result.get("parse_errors", []):
+        click.echo(f"warning: {msg}")
     undocumented = result["undocumented"]
     if not undocumented:
         click.echo("ok — all rule IDs are mentioned in .jig/conventions.md")

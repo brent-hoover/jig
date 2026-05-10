@@ -1833,6 +1833,7 @@ class Orchestrator:
         )
         new_id = await self.tickets.create(canon_ticket)
         _logger.info("per-merge canonicalize ticket %s created for %s", new_id, ticket_id)
+        await self._handle_schedule(new_id)
 
     async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
         """Post-failure: emit event, clean up, pick up next ticket."""

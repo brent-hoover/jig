@@ -2547,12 +2547,17 @@ def audit_report(
 @audit_group.command("rules")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 def audit_rules(path: Path) -> None:
-    """List active semgrep rule files for this project."""
+    """List active canonicalization rule sources for this project.
+
+    Includes .jig/rules/semgrep/*.yml (semgrep-format rules) and
+    .jig/rules/deprecations.yml (deprecations manifest, converted to
+    semgrep rules at runtime via to_semgrep_rules()).
+    """
     from jig.canonicalize import list_semgrep_rule_paths
 
     rule_paths = list_semgrep_rule_paths(path)
     if not rule_paths:
-        click.echo("no semgrep rules found (.jig/rules/semgrep/ is absent or empty, and .jig/rules/deprecations.yml is missing)")
+        click.echo("no rule sources found (.jig/rules/semgrep/ is absent or empty, and .jig/rules/deprecations.yml is missing)")
         return
     for p in rule_paths:
         click.echo(str(p.relative_to(path)))

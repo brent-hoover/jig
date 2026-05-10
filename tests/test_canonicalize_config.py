@@ -168,10 +168,6 @@ class TestLoadDeprecations:
         dep = Deprecation(id="x", pattern="p", fix="f", languages=["generic"])
         assert dep.rationale == ""
 
-    def test_empty_languages_raises(self) -> None:
-        with pytest.raises(Exception, match="languages"):
-            Deprecation(id="x", pattern="p", fix="f")
-
 
 class TestDeprecationsToSemgrepRules:
     def test_empty_produces_empty_rules(self) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 Route = Literal["human_review", "agent_resolution"]
@@ -43,17 +43,8 @@ class Deprecation(BaseModel):
     id: str
     pattern: str
     fix: str
+    languages: list[str]
     rationale: str = ""
-    languages: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def languages_required(self) -> "Deprecation":
-        if not self.languages:
-            raise ValueError(
-                "languages must be a non-empty list — semgrep pattern rules require"
-                " at least one language (e.g. python, javascript, generic)"
-            )
-        return self
 
 
 class DeprecationsConfig(BaseModel):

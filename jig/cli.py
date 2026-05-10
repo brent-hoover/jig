@@ -2543,3 +2543,17 @@ def audit_report(
         n_files = len(files) if isinstance(files, set) else int(files)
         click.echo(f"{rule:<{rule_w}}  {n_files:>5}  {count:>5}")
 
+
+@audit_group.command("rules")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def audit_rules(path: Path) -> None:
+    """List active semgrep rule files for this project."""
+    from jig.canonicalize import list_semgrep_rule_paths
+
+    rule_paths = list_semgrep_rule_paths(path)
+    if not rule_paths:
+        click.echo("no semgrep rules found (.jig/rules/semgrep/ and .jig/rules/deprecations.yml missing)")
+        return
+    for p in rule_paths:
+        click.echo(str(p.relative_to(path)))
+

@@ -160,11 +160,15 @@ def check_conventions(project_path: Path) -> list[str]:
 
 
 def _rule_ids_from_semgrep_file(path: Path) -> list[str]:
-    """Parse rule IDs from a semgrep-format .yml file."""
+    """Parse rule IDs from a semgrep-format .yml file.
+
+    Raises ``ValueError`` if the file cannot be parsed, so callers can
+    surface broken rule files rather than silently returning empty results.
+    """
     try:
         data = yaml.safe_load(path.read_text()) or {}
-    except Exception:
-        return []
+    except Exception as exc:
+        raise ValueError(f"failed to parse semgrep rule file {path}: {exc}") from exc
     rules = data.get("rules", [])
     return [r["id"] for r in rules if isinstance(r, dict) and "id" in r]
 
@@ -173,30 +177,42 @@ def check_rule_coverage(project_path: Path) -> dict[str, list[str]]:
     """Cross-reference rules in .jig/rules/ against .jig/conventions.md.
 
     Returns a dict with two keys:
-    - ``undocumented``: rule IDs present in rule files but not mentioned in
-      conventions.md (agents won't see guidance for these at task start).
-    - ``missing_conventions``: empty list when conventions.md is absent
-      (coverage check is skipped).
+    - ``undocumented``: sorted, deduplicated rule IDs present in rule files
+      but not mentioned in conventions.md (agents won't see guidance for
+      these at task start).
+    - ``missing_conventions``: non-empty list with a skip message when
+      conventions.md is absent; empty list when the check ran normally.
+
+    Parse errors in individual semgrep rule files are collected and included
+    in ``missing_conventions`` so operators see broken files rather than
+    false "all covered" results.
     """
     conventions_path = project_path / ".jig" / "conventions.md"
     if not conventions_path.is_file():
-        return {"undocumented": [], "missing_conventions": [".jig/conventions.md not found — skipping coverage check"]}
+        return {
+            "undocumented": [],
+            "missing_conventions": [".jig/conventions.md not found — skipping coverage check"],
+        }
 
     conventions_text = conventions_path.read_text()
+    parse_errors: list[str] = []
 
-    rule_ids: list[str] = []
+    rule_ids: set[str] = set()
     semgrep_dir = project_path / ".jig" / "rules" / "semgrep"
     if semgrep_dir.is_dir():
         for rule_file in sorted(p for p in semgrep_dir.glob("*.yml") if p.is_file()):
-            rule_ids.extend(_rule_ids_from_semgrep_file(rule_file))
+            try:
+                rule_ids.update(_rule_ids_from_semgrep_file(rule_file))
+            except ValueError as exc:
+                parse_errors.append(str(exc))
 
     deprecations_path = project_path / ".jig" / "rules" / "deprecations.yml"
     if deprecations_path.is_file():
         dep_cfg = load_deprecations(project_path)
-        rule_ids.extend(dep.id for dep in dep_cfg.deprecations)
+        rule_ids.update(dep.id for dep in dep_cfg.deprecations)
 
-    undocumented = [rid for rid in rule_ids if rid not in conventions_text]
-    return {"undocumented": undocumented, "missing_conventions": []}
+    undocumented = sorted(rid for rid in rule_ids if rid not in conventions_text)
+    return {"undocumented": undocumented, "missing_conventions": parse_errors}
 
 
 def resolve_route(

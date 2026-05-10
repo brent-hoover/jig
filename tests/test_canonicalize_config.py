@@ -270,7 +270,7 @@ class TestCheckConventions:
         (jig_dir / "conventions.md").write_text("# Conventions\n\n- Use ruff.\n")
         assert check_conventions(tmp_path) == []
 
-    def test_oversized_file_warns(self, tmp_path: Path) -> None:
+    def test_oversized_file_errors(self, tmp_path: Path) -> None:
         jig_dir = tmp_path / ".jig"
         jig_dir.mkdir()
         content = "\n".join(f"line {i}" for i in range(501))
@@ -345,3 +345,28 @@ class TestCheckRuleCoverage:
         (jig_dir / "conventions.md").write_text("# Conventions\n\nold-logger is deprecated.\n")
         result = check_rule_coverage(tmp_path)
         assert result["undocumented"] == []
+
+    def test_undocumented_is_sorted_and_deduped(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "rules.yml").write_text(
+            "rules:\n"
+            "  - id: z-rule\n    pattern: z()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+            "  - id: a-rule\n    pattern: a()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+            "  - id: z-rule\n    pattern: z()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == ["a-rule", "z-rule"]
+
+    def test_malformed_semgrep_file_surfaced(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "bad.yml").write_text(":\tinvalid: yaml: content\n")
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == []
+        assert result["missing_conventions"]
+        assert "bad.yml" in result["missing_conventions"][0]

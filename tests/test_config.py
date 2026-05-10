@@ -230,5 +230,5 @@ class TestOrchestratorSection:
         assert loaded.orchestrator.canonicalize_mode == "per_merge"
 
     def test_invalid_canonicalize_mode_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             OrchestratorSection(canonicalize_mode="bad_value")

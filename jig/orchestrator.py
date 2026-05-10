@@ -1803,8 +1803,8 @@ class Orchestrator:
         except Exception:
             _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
 
-        await self._unblock_dependents(ticket_id, ticket)
         await self._maybe_spawn_per_merge_canonicalize(ticket_id, ticket)
+        await self._unblock_dependents(ticket_id, ticket)
         await self._start_ready_tickets()
         await self._maybe_run_analyzer()
 

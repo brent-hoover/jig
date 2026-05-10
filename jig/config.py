@@ -124,6 +124,7 @@ class OrchestratorSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_review_federation: bool = True
+    canonicalize_mode: Literal["workflow_end", "per_merge"] = "workflow_end"
 
 
 class DeadlockSection(BaseModel):

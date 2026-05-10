@@ -13,6 +13,8 @@ from jig.canonicalize import (
     EscalationRoute,
     Formatter,
     FormattersConfig,
+    check_conventions,
+    check_rule_coverage,
     list_semgrep_rule_paths,
     load_deprecations,
     load_escalation_config,
@@ -245,3 +247,151 @@ class TestListSemgrepRulePaths:
         paths = list_semgrep_rule_paths(tmp_path)
         semgrep_names = [p.name for p in paths if p.parent.name == "semgrep"]
         assert semgrep_names == sorted(semgrep_names)
+
+
+class TestCheckConventions:
+    def test_missing_file(self, tmp_path: Path) -> None:
+        (tmp_path / ".jig").mkdir()
+        errors = check_conventions(tmp_path)
+        assert len(errors) == 1
+        assert "missing" in errors[0]
+
+    def test_empty_file(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        jig_dir.mkdir()
+        (jig_dir / "conventions.md").write_text("   \n")
+        errors = check_conventions(tmp_path)
+        assert len(errors) == 1
+        assert "empty" in errors[0]
+
+    def test_valid_file(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        jig_dir.mkdir()
+        (jig_dir / "conventions.md").write_text("# Conventions\n\n- Use ruff.\n")
+        assert check_conventions(tmp_path) == []
+
+    def test_oversized_file_errors(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        jig_dir.mkdir()
+        content = "\n".join(f"line {i}" for i in range(501))
+        (jig_dir / "conventions.md").write_text(content)
+        errors = check_conventions(tmp_path)
+        assert len(errors) == 1
+        assert "501" in errors[0]
+
+    def test_exactly_500_lines_is_ok(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        jig_dir.mkdir()
+        content = "\n".join(f"line {i}" for i in range(500))
+        (jig_dir / "conventions.md").write_text(content)
+        assert check_conventions(tmp_path) == []
+
+
+class TestCheckRuleCoverage:
+    def test_no_conventions_returns_warning(self, tmp_path: Path) -> None:
+        (tmp_path / ".jig").mkdir()
+        result = check_rule_coverage(tmp_path)
+        assert result["missing_conventions"]
+        assert result["undocumented"] == []
+
+    def test_no_rules_returns_empty(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        jig_dir.mkdir()
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == []
+        assert result["missing_conventions"] == []
+        assert result["parse_errors"] == []
+
+    def test_rule_mentioned_in_conventions(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "no-print.yml").write_text(
+            "rules:\n  - id: no-print\n    pattern: print(...)\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n\nno-print is enforced.\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == []
+
+    def test_rule_not_mentioned_flagged(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "no-print.yml").write_text(
+            "rules:\n  - id: no-print\n    pattern: print(...)\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n\nUse logging.\n")
+        result = check_rule_coverage(tmp_path)
+        assert "no-print" in result["undocumented"]
+
+    def test_deprecation_ids_checked(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        rules_dir = jig_dir / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "deprecations.yml").write_text(
+            "deprecations:\n  - id: old-logger\n    pattern: log.warn(...)\n    fix: log.warning(...)\n    languages: [python]\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n\nUse log.warning.\n")
+        result = check_rule_coverage(tmp_path)
+        assert "old-logger" in result["undocumented"]
+
+    def test_deprecation_mentioned_not_flagged(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        rules_dir = jig_dir / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "deprecations.yml").write_text(
+            "deprecations:\n  - id: old-logger\n    pattern: log.warn(...)\n    fix: log.warning(...)\n    languages: [python]\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n\nold-logger is deprecated.\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == []
+
+    def test_undocumented_is_sorted_and_deduped(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "rules.yml").write_text(
+            "rules:\n"
+            "  - id: z-rule\n    pattern: z()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+            "  - id: a-rule\n    pattern: a()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+            "  - id: z-rule\n    pattern: z()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == ["a-rule", "z-rule"]
+
+    def test_malformed_semgrep_file_surfaced(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "bad.yml").write_text(":\tinvalid: yaml: content\n")
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["undocumented"] == []
+        assert result["missing_conventions"] == []
+        assert result["parse_errors"]
+        assert "bad.yml" in result["parse_errors"][0]
+
+    def test_malformed_deprecations_surfaced(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        rules_dir = jig_dir / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "deprecations.yml").write_text("deprecations:\n  - id: x\n    bogus: true\n")
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["missing_conventions"] == []
+        assert result["parse_errors"]
+
+    def test_parse_errors_do_not_suppress_undocumented(self, tmp_path: Path) -> None:
+        jig_dir = tmp_path / ".jig"
+        semgrep_dir = jig_dir / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "bad.yml").write_text(":\tinvalid: yaml: content\n")
+        (semgrep_dir / "good.yml").write_text(
+            "rules:\n  - id: my-rule\n    pattern: x()\n    message: x\n    languages: [python]\n    severity: WARNING\n"
+        )
+        (jig_dir / "conventions.md").write_text("# Conventions\n")
+        result = check_rule_coverage(tmp_path)
+        assert result["parse_errors"]
+        assert "my-rule" in result["undocumented"]

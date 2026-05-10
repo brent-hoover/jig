@@ -12,7 +12,7 @@ from jig.store.collection import Collection
 from jig.store.models import StoreModel
 
 
-RuleSource = Literal["formatter", "semgrep", "deprecation"]
+RuleSource = Literal["formatter", "semgrep", "deprecation", "idempotency_check"]
 
 
 class AuditEntry(StoreModel):

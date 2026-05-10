@@ -92,12 +92,17 @@ phase_prompt: >
   ## Step 4 — idempotency check
 
 
-  Re-run every formatter from Step 1 against ``CHANGED_FILES``. If any
-  file is modified by the second pass, the formatter is not idempotent
-  in this codebase. Post a single comment via ``comment_on_ticket`` with
-  ``kind="note"`` describing which formatter and which files keep
-  changing — this is a configuration smell that the operator needs to
-  investigate. Do NOT block on it.
+  Re-run every formatter from Step 1 against ``CHANGED_FILES``. For each
+  formatter that modifies a file on the second pass:
+
+  1. Call ``log_audit_entry`` with ``rule_source="idempotency_check"``,
+     ``rule_id=<formatter-id>``, the file path, both hashes, and your
+     run id. This surfaces the violation in the audit log.
+  2. Post a single ``comment_on_ticket`` with ``kind="note"`` naming
+     which formatter and which files keep changing — this is a
+     configuration smell for the operator to investigate.
+
+  Do NOT block on idempotency failures — log and continue.
 
 
   ## Step 5 — finish

@@ -145,6 +145,84 @@ def load_escalation_config(project_path: Path) -> EscalationConfig:
     return EscalationConfig.model_validate(data)
 
 
+def check_conventions(project_path: Path) -> list[str]:
+    """Validate .jig/conventions.md; return a list of error strings (empty = OK)."""
+    path = project_path / ".jig" / "conventions.md"
+    if not path.is_file():
+        return [".jig/conventions.md is missing"]
+    content = path.read_text()
+    if not content.strip():
+        return [".jig/conventions.md is empty"]
+    lines = content.splitlines()
+    if len(lines) > 500:
+        return [f".jig/conventions.md is {len(lines)} lines — recommended maximum is 500 (long contexts degrade agent quality)"]
+    return []
+
+
+def _rule_ids_from_semgrep_file(path: Path) -> list[str]:
+    """Parse rule IDs from a semgrep-format .yml file.
+
+    Raises ``ValueError`` if the file cannot be parsed, so callers can
+    surface broken rule files rather than silently returning empty results.
+    """
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except Exception as exc:
+        raise ValueError(f"failed to parse semgrep rule file {path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"semgrep rule file {path} parsed to {type(raw).__name__}, expected a mapping"
+        )
+    rules = raw.get("rules", [])
+    return [r["id"] for r in rules if isinstance(r, dict) and "id" in r]
+
+
+def check_rule_coverage(project_path: Path) -> dict:
+    """Cross-reference rules in .jig/rules/ against .jig/conventions.md.
+
+    Returns a dict with three keys:
+    - ``undocumented``: sorted, deduplicated rule IDs present in rule files
+      but not mentioned in conventions.md (agents won't see guidance for
+      these at task start).
+    - ``missing_conventions``: non-empty when conventions.md is absent; the
+      caller should skip the coverage check in this case. Empty when the
+      check ran (even if there were parse errors).
+    - ``parse_errors``: error messages for individual rule files that could
+      not be parsed. These are warnings — undocumented rules from healthy
+      files are still reported.
+    """
+    conventions_path = project_path / ".jig" / "conventions.md"
+    if not conventions_path.is_file():
+        return {
+            "undocumented": [],
+            "missing_conventions": [".jig/conventions.md not found — skipping coverage check"],
+            "parse_errors": [],
+        }
+
+    conventions_text = conventions_path.read_text()
+    parse_errors: list[str] = []
+
+    rule_ids: set[str] = set()
+    semgrep_dir = project_path / ".jig" / "rules" / "semgrep"
+    if semgrep_dir.is_dir():
+        for rule_file in sorted(p for p in semgrep_dir.glob("*.yml") if p.is_file()):
+            try:
+                rule_ids.update(_rule_ids_from_semgrep_file(rule_file))
+            except ValueError as exc:
+                parse_errors.append(str(exc))
+
+    deprecations_path = project_path / ".jig" / "rules" / "deprecations.yml"
+    if deprecations_path.is_file():
+        try:
+            dep_cfg = load_deprecations(project_path)
+            rule_ids.update(dep.id for dep in dep_cfg.deprecations)
+        except Exception as exc:
+            parse_errors.append(f"failed to load deprecations.yml: {exc}")
+
+    undocumented = sorted(rid for rid in rule_ids if rid not in conventions_text)
+    return {"undocumented": undocumented, "missing_conventions": [], "parse_errors": parse_errors}
+
+
 def resolve_route(
     config: EscalationConfig, rule_id: str, issue_type: str
 ) -> Route:
@@ -171,6 +249,8 @@ __all__ = [
     "FormattersConfig",
     "Route",
     "SemgrepRule",
+    "check_conventions",
+    "check_rule_coverage",
     "list_semgrep_rule_paths",
     "load_deprecations",
     "load_escalation_config",

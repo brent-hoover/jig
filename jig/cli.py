@@ -2562,3 +2562,61 @@ def audit_rules(path: Path) -> None:
     for p in rule_paths:
         click.echo(str(p.relative_to(path)))
 
+
+@audit_group.command("coverage")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--fail/--no-fail", default=True, help="Exit 1 when undocumented rules are found (default: on).")
+def audit_coverage(path: Path, fail: bool) -> None:
+    """Check that every rule ID is mentioned in .jig/conventions.md.
+
+    Rules not mentioned in conventions.md won't be seen by agents at task
+    start — convention injection only injects the prose file, not the rule
+    files themselves.  Exit code 1 when undocumented rules are found (use
+    --no-fail to suppress for informational runs).
+    """
+    from jig.canonicalize import check_rule_coverage
+
+    result = check_rule_coverage(path)
+    if result["missing_conventions"]:
+        for msg in result["missing_conventions"]:
+            click.echo(f"warning: {msg}")
+        return
+    for msg in result.get("parse_errors", []):
+        click.echo(f"warning: {msg}")
+    undocumented = result["undocumented"]
+    if not undocumented:
+        click.echo("ok — all rule IDs are mentioned in .jig/conventions.md")
+        return
+    click.echo(f"{len(undocumented)} rule(s) not mentioned in .jig/conventions.md:")
+    for rid in undocumented:
+        click.echo(f"  {rid}")
+    if fail:
+        raise SystemExit(1)
+
+
+@cli.group("validate")
+def validate_group() -> None:
+    """Project configuration validators."""
+
+
+@validate_group.command("conventions")
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option("--fail/--no-fail", default=True, help="Exit 1 on validation failure (default: on).")
+def validate_conventions(path: Path, fail: bool) -> None:
+    """Validate .jig/conventions.md is present, non-empty, and within the recommended size.
+
+    Recommended maximum is 500 lines — longer files degrade agent context
+    quality.  Missing or empty files prevent convention injection entirely.
+    Exit code 1 on any error (use --no-fail for informational runs).
+    """
+    from jig.canonicalize import check_conventions
+
+    errors = check_conventions(path)
+    if not errors:
+        click.echo("ok — .jig/conventions.md is valid")
+        return
+    for err in errors:
+        click.echo(f"error: {err}")
+    if fail:
+        raise SystemExit(1)
+

@@ -1,6 +1,7 @@
 # spike — exploratory work, unclear scope. Doc 03.
 # Explicitly has no behaviors section (time-box + exit criteria drive it).
 work_type: spike
+workflow: spike
 
 required:
   - summary

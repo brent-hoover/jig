@@ -385,10 +385,14 @@ def test_bones_layer_does_not_default_intent_reviewer():
 
 
 def test_explicit_reviewer_set_still_honored():
-    """If the planner authored a reviewer_set, it wins (even on MVP)."""
+    """If the planner authored a reviewer_set, it's honored; judgment
+    defaults are appended on top."""
+    from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
     t = _ticket(layer="mvp", reviewer_set=["spec-compliance"])
     ids = select_reviewers_for_ticket(t)
-    assert ids == ["spec-compliance"]
+    assert "spec-compliance" in ids
+    for jid in _JUDGMENT_DEFAULTS:
+        assert jid in ids
 
 
 # ---- Final-scope: citation density --------------------------------------

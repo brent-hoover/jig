@@ -63,6 +63,11 @@ class JigFooter(Widget):
         width: 1fr;
         padding: 0 1;
     }
+    JigFooter #footer-keys {
+        width: auto;
+        padding: 0 2;
+        text-align: center;
+    }
     JigFooter #footer-right {
         width: auto;
         padding: 0 1;
@@ -70,16 +75,22 @@ class JigFooter(Widget):
     }
     """
 
+    _KEYS_TEXT = (
+        "[dim]? help  1-4 tabs  ctrl+5 agents  b board  n new  ctrl+s sidebar  q quit[/dim]"
+    )
+
     def __init__(self, *, project_path: Path | None = None) -> None:
         super().__init__()
         self._project_path = project_path
         self._project_text = Static("", id="footer-left", markup=True)
+        self._keys_text = Static(self._KEYS_TEXT, id="footer-keys", markup=True)
         self._daemon_text = Static("daemon: ?", id="footer-right", markup=True)
         self._project_state: tuple[str, str | None, bool] | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield self._project_text
+            yield self._keys_text
             yield self._daemon_text
 
     def on_mount(self) -> None:

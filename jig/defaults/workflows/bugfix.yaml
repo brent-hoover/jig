@@ -1,0 +1,14 @@
+name: bugfix
+phases:
+  - name: test
+    role: test
+    task_template: "Write a failing regression test for: {ticket_title}"
+    acceptance_criteria: "Regression test captures the defect"
+  - name: implement
+    role: dev
+    task_template: "Fix the defect so the regression test passes for: {ticket_title}"
+    acceptance_criteria: "All tests pass including the new regression test"
+  - name: validate
+    role: validate
+    task_template: "Validate the fix and confirm no regressions for: {ticket_title}"
+    acceptance_criteria: "Test suite green, no regressions"

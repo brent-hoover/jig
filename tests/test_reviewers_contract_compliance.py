@@ -437,29 +437,43 @@ def test_select_reviewers_for_ticket_defaults_for_bones_layer_empty_set():
     assert "cross-cutting-policy" in ids
 
 
-def test_select_reviewers_for_ticket_returns_empty_for_non_bones_empty_set():
-    """MVP/final tickets with empty reviewer_set get the Track-I-MVP defaults
-    (contract-compliance + intent-compliance), not nothing — see
-    bones_dispatch._MVP_FINAL_DEFAULTS. Tickets with no layer at all still
-    return empty (we can't pick defaults without knowing the layer).
+def test_select_reviewers_for_ticket_returns_judgment_defaults_for_layer_unset():
+    """Tickets with no layer and empty reviewer_set still get the three
+    judgment reviewers (error-handling, pattern-conformance, test-adequacy)
+    which are default-on for every ticket regardless of layer.
     """
+    from jig.reviewers.dispatch import (
+        ERROR_HANDLING_REVIEWER_ID,
+        PATTERN_CONFORMANCE_REVIEWER_ID,
+        TEST_ADEQUACY_REVIEWER_ID,
+    )
     t = _ticket(layer=None, reviewer_set=[])
-    assert select_reviewers_for_ticket(t) == []
+    result = select_reviewers_for_ticket(t)
+    assert set(result) == {
+        ERROR_HANDLING_REVIEWER_ID,
+        PATTERN_CONFORMANCE_REVIEWER_ID,
+        TEST_ADEQUACY_REVIEWER_ID,
+    }
 
 
 def test_select_reviewers_for_ticket_honors_explicit_reviewer_set():
+    """Explicit reviewer_set is honored; judgment defaults are appended on top."""
+    from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
     t = _ticket(layer="bones", reviewer_set=["contract-compliance", "spec-compliance"])
-    assert select_reviewers_for_ticket(t) == ["contract-compliance", "spec-compliance"]
+    result = select_reviewers_for_ticket(t)
+    assert result[:2] == ["contract-compliance", "spec-compliance"]
+    for jid in _JUDGMENT_DEFAULTS:
+        assert jid in result
 
 
 def test_select_reviewers_for_ticket_honors_explicit_set_on_non_bones():
+    """Explicit reviewer_set is honored; judgment defaults are appended on top."""
+    from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
     t = _ticket(layer="final", reviewer_set=["pattern-conformance"])
-    assert select_reviewers_for_ticket(t) == ["pattern-conformance"]
-
-
-def test_select_reviewers_for_ticket_returns_empty_when_layer_unset():
-    t = _ticket(layer=None, reviewer_set=[])
-    assert select_reviewers_for_ticket(t) == []
+    result = select_reviewers_for_ticket(t)
+    assert "pattern-conformance" in result
+    for jid in _JUDGMENT_DEFAULTS:
+        assert jid in result
 
 
 # ---- comment serialization ----------------------------------------------

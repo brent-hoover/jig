@@ -47,9 +47,12 @@ phase_prompt: >
      tickets using `create_ticket` with:
      - `parent_id` set to the current ticket ID
      - `depends_on` listing IDs of tickets that must complete first
-     - `type` should be "feature", "bug", or "chore" as appropriate
-     - `workflow` should be "default" (each child goes through the standard
-       spec → test → implement → review → validate → document pipeline)
+     - `work_type` should reflect the nature of the work: "feature", "bugfix",
+       "refactor", "docs", "migration", "perf", or "spike"
+     - `workflow` should be "default" unless this is the final integration
+       ticket (use "validation") or you have a specific reason to override;
+       the orchestrator automatically selects the right phase sequence from
+       the work_type, so leaving it as "default" is almost always correct
      - Clear, actionable `description` with acceptance criteria
      Do NOT set `assignee` — the orchestrator handles assignment.
 
@@ -60,7 +63,13 @@ phase_prompt: >
   ## Guidelines
 
   - Each ticket should be independently implementable once its deps are met.
-  - Prefer small, focused tickets over large ones.
+  - Prefer small, focused tickets over large ones, but a ticket must represent
+    a meaningful chunk of work — at minimum a complete feature with tests. A
+    single CLI flag or a single configuration option is too small. If the spec
+    has several tiny capabilities that share a user goal and touch the same
+    subsystem (e.g. multiple filter flags all touching api.py and cli.py),
+    combine them into one ticket with a broader title ("Filtering: --min-score
+    and --type flags") rather than creating one ticket per flag.
   - Put shared infrastructure (models, config, DB schema) in early tickets
     that others depend on.
   - Include a final integration/validation ticket that depends on all others.
@@ -82,6 +91,32 @@ phase_prompt: >
     run in parallel and explain why.
   - NEVER create tickets without user approval of the plan first.
   - If the user asks for changes to the plan, revise and re-present.
+
+  ## Ticket sizing
+
+  Size determines which workflow phases run. Choose carefully — undersizing
+  skips phases that catch real bugs; oversizing wastes agent budget on
+  ceremony for trivial changes.
+
+  | Size | When to use | Workflow for `feature` |
+  |------|-------------|----------------------|
+  | xs   | A single, obvious change. No design decisions. <30 lines of real code. Example: rename a field, add one config knob with no branching logic. | implement → validate |
+  | s    | A focused capability with 1–2 behaviors and clear requirements. No architectural decisions needed. Example: a new API endpoint that follows an established pattern, a single filter flag plus its tests. | test → implement → validate |
+  | m    | A meaningful feature with 2–4 behaviors, requires thinking about edge cases and design. Touches 2–4 files. Example: a filtering subsystem, a new CLI subcommand with options. | full pipeline |
+  | l    | A substantial feature with multiple interconnected behaviors or architectural decisions. Touches several subsystems. Example: auth integration, a new storage backend. | full pipeline |
+  | xl   | High complexity or high risk. If a ticket reaches xl, strongly consider splitting it. | full pipeline |
+
+  Non-feature work types (bugfix, refactor, docs, etc.) use the same
+  workflow regardless of size. Only `feature` workflows vary by size.
+
+  ## Resuming after operator answers
+
+  When the operator answers a question, you are re-started with your
+  full conversation history. Before using `ToolSearch` to load
+  `mcp__jig__*` schemas, check whether those schemas are already
+  present in your history. If they are, skip the ToolSearch call and
+  use the schemas you already have — re-fetching them adds latency and
+  cost with no benefit.
 allowed_tools:
   - Read
   - Glob

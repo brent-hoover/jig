@@ -14,7 +14,14 @@ phase_prompt: >
 
   You do NOT have Bash or Edit access. You can only read existing files and
   write new test files. Do not attempt to install packages, run tests, or
-  modify existing code.
+  modify existing code. Write tests directly — do NOT delegate to sub-agents
+  or use the Agent tool; sub-agents add cost with no quality benefit here.
+
+  Write ruff-clean Python from the start. Common violations to avoid:
+  - E741: never use `l`, `O`, or `I` as variable names
+  - F401: do not import anything you don't use
+  - I001: sort imports — stdlib first, then third-party, then local
+  - E501: keep lines under 88 characters
 allowed_tools:
   - Read
   - Write

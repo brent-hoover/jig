@@ -1,0 +1,14 @@
+name: perf
+phases:
+  - name: spec
+    role: spec
+    task_template: "Document baseline, target, and measurement plan for: {ticket_title}"
+    acceptance_criteria: "Baseline measured, target defined, measurement plan clear"
+  - name: implement
+    role: dev
+    task_template: "Apply the optimization following the design doc for: {ticket_title}"
+    acceptance_criteria: "Optimization implemented, existing tests still pass"
+  - name: validate
+    role: validate
+    task_template: "Measure performance and confirm target is hit for: {ticket_title}"
+    acceptance_criteria: "Performance target met, no regressions"

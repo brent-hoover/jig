@@ -1,5 +1,6 @@
 # migration — structural migration (schema change, library swap). Doc 03.
 work_type: migration
+workflow: migration
 
 required:
   - summary

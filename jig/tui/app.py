@@ -11,6 +11,7 @@ from textual.widgets import TabbedContent, TabPane
 
 from jig.daemon import DaemonAlreadyRunning, daemon_paths, daemon_start, daemon_status
 from jig.tui.daemon_client import ConnectionState, DaemonClient
+from jig.tui.screens.agents import AgentsScreen
 from jig.tui.screens.discovery import DiscoveryScreen
 from jig.tui.screens.events import EventsScreen
 from jig.tui.screens.now import NowScreen
@@ -48,6 +49,7 @@ class JigApp(App):
         Binding("ctrl+2", "switch_screen('tickets')", "Tickets", show=False, priority=True),
         Binding("ctrl+3", "switch_screen('spec')", "Spec", show=False, priority=True),
         Binding("ctrl+4", "switch_screen('events')", "Events", show=False, priority=True),
+        Binding("ctrl+5", "switch_screen('agents')", "Agents", show=False, priority=True),
         # Pane-local bindings routed here because ContentTabs holds focus
         Binding("b", "toggle_board", "List/Board", show=False),
         Binding("n", "new_ticket", "New", show=False),
@@ -90,6 +92,8 @@ class JigApp(App):
                     yield NowScreen()
                 with TabPane("Tickets", id="tickets-pane"):
                     yield TicketsScreen()
+                with TabPane("Agents", id="agents-pane"):
+                    yield AgentsScreen()
                 with TabPane("Spec", id="spec-pane"):
                     yield SpecScreen()
                 with TabPane("Discovery", id="discovery-pane"):
@@ -107,7 +111,7 @@ class JigApp(App):
         # Track B Final — hand the project_path to the multi-level PO
         # screens so they can read their on-disk artifacts directly.
         # Each screen's set_project_path triggers a re-render.
-        for screen_cls in (DiscoveryScreen, SuitesScreen, OntologyScreen):
+        for screen_cls in (AgentsScreen, DiscoveryScreen, SuitesScreen, OntologyScreen):
             try:
                 screen = self.query_one(screen_cls)
             except Exception:
@@ -191,11 +195,18 @@ class JigApp(App):
                     pass
                 else:
                     await now.handle_daemon_event(msg)
-                # agent_thinking events also drive Sidebar's Activity subzone
+                # agent_thinking events drive Sidebar's Activity subzone
                 if topic == "agents" and msg.get("kind") == "thinking":
                     self._sidebar_safe(
                         lambda s: s.update_thinking(msg.get("data") or {})
                     )
+                # agent_tool events feed the per-agent tool history in Activity
+                if topic == "agents" and msg.get("kind") == "tool":
+                    self._sidebar_safe(
+                        lambda s: s.update_tool_use(msg.get("data") or {})
+                    )
+                # Route all agent events to the Agents screen
+                self._agents_screen_safe(msg.get("kind", ""), msg.get("data") or {})
                 # Lifecycle events (ticket_dispatched / ticket_completed /
                 # ticket_failed / ticket_merge_conflict) feed the Recent
                 # subzone so the operator sees what's happening in real
@@ -234,6 +245,21 @@ class JigApp(App):
         except Exception:
             return
         fn(sidebar)
+
+    def _agents_screen_safe(self, kind: str, data: dict) -> None:
+        try:
+            screen = self.query_one(AgentsScreen)
+        except Exception:
+            return
+        dispatch = {
+            "start": screen.handle_agent_start,
+            "thinking": screen.handle_agent_thinking,
+            "tool": screen.handle_agent_tool,
+            "tool_result": screen.handle_agent_tool_result,
+        }
+        handler = dispatch.get(kind)
+        if handler is not None:
+            handler(data)
 
     def action_toggle_sidebar(self) -> None:
         self._sidebar_safe(lambda s: s.toggle_class("-hidden"))

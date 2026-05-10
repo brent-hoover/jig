@@ -1,5 +1,12 @@
 # feature — new user-facing capability. Doc 03 §Work types.
 work_type: feature
+workflow: default
+workflow_by_size:
+  xs: feature-xs   # implement → validate only
+  s: feature-s     # test → implement → validate
+  m: default       # full pipeline
+  l: default
+  xl: default
 
 required:
   - summary

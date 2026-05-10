@@ -1,5 +1,6 @@
 # bugfix — fix for a specific defect. Doc 03 §Work types.
 work_type: bugfix
+workflow: bugfix
 
 required:
   - summary

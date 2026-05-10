@@ -350,7 +350,13 @@ async def test_end_of_ticket_comments_carry_default_cadence(tmp_path: Path):
 
     out = await dispatch_for_cadence(_ticket(), tmp_path, "end_of_ticket")
 
-    all_comments = [c for comments in out.values() for c in comments]
+    from jig.reviewers.dispatch import LlmReviewerPending
+    all_comments = [
+        c
+        for comments in out.values()
+        if not isinstance(comments, LlmReviewerPending)
+        for c in comments
+    ]
     assert all_comments  # at least one fired
     assert all(c.cadence == "end_of_ticket" for c in all_comments)
 

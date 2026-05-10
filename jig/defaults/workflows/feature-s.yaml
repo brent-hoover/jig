@@ -1,0 +1,14 @@
+name: feature-s
+phases:
+  - name: test
+    role: test
+    task_template: "Write tests for: {ticket_title}"
+    acceptance_criteria: "Tests cover the specified behavior"
+  - name: implement
+    role: dev
+    task_template: "Implement the feature so tests pass for: {ticket_title}"
+    acceptance_criteria: "All tests pass"
+  - name: validate
+    role: validate
+    task_template: "Validate the implementation for: {ticket_title}"
+    acceptance_criteria: "All tests pass, linters clean"

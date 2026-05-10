@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -59,3 +60,6 @@ class AgentSpawnContext:
     # to avoid pulling the analytics module into the runtime import
     # graph; ``mcp_server.create_agent_mcp_server`` narrows back.
     analytics_emitter: object | None = None
+    # Called on every agent_thinking heartbeat so the orchestrator's
+    # StallDetector can track liveness without going through the WS layer.
+    on_thinking: Callable[[], None] | None = field(default=None, repr=False)

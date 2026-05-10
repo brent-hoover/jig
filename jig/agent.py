@@ -32,7 +32,7 @@ from jig.logging_setup import (
     _ticket_id_var,
 )
 from jig.mcp_server import create_agent_mcp_server
-from jig.persistence import list_roles
+from jig.persistence import list_roles, load_conventions
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
@@ -213,6 +213,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
             pass  # Narrowing is best-effort; fall through on any error
 
     all_roles = list_roles(ctx.project.path_or_default())
+    conventions_md = load_conventions(project_path)
 
     # For evaluator spawns the orchestrator stamps a structured bundle
     # (handoff id + check results) onto ``initial_bus_message``; the
@@ -247,6 +248,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         evaluator_bundle=evaluator_bundle,
         conflict_bundle=conflict_bundle,
         replan_bundle=replan_bundle,
+        conventions_md=conventions_md,
     )
 
 
@@ -671,6 +673,8 @@ async def run_agent(
                             "agent_thinking",
                             {"role": ctx.role, "elapsed": elapsed, "active": True},
                         )
+                        if ctx.on_thinking is not None:
+                            ctx.on_thinking()
             finally:
                 try:
                     await _emit(

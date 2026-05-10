@@ -393,19 +393,6 @@ def list_ephemeral_instances(project_root: Path) -> list[EphemeralInstance]:
     return out
 
 
-def _split_instance_id(instance_id: str) -> tuple[str, str]:
-    if ":" not in instance_id:
-        raise ValueError(
-            f"ephemeral instance id {instance_id!r} must be "
-            "<service_id>:<namespace>"
-        )
-    service_id, _, namespace = instance_id.partition(":")
-    if not service_id or not namespace:
-        raise ValueError(
-            f"ephemeral instance id {instance_id!r} must be "
-            "<service_id>:<namespace>"
-        )
-    return service_id, namespace
 
 
 def _find_instance(

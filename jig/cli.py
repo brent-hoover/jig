@@ -374,11 +374,17 @@ def reset(path: Path) -> None:
                     if wt == str(path.resolve()):
                         continue
                     click.echo(f"  Removing worktree: {wt}")
-                    subprocess.run(
+                    r = subprocess.run(
                         ["git", "worktree", "remove", "--force", wt],
                         cwd=path,
                         capture_output=True,
+                        text=True,
                     )
+                    if r.returncode != 0:
+                        click.echo(
+                            f"  Warning: worktree remove failed for {wt}: {r.stderr.strip()}",
+                            err=True,
+                        )
         except Exception as exc:
             click.echo(f"  Warning: could not remove worktrees: {exc}", err=True)
 

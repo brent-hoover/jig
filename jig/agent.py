@@ -920,9 +920,13 @@ def _format_bus_event(msg: Message) -> str:
 
 
 def _status_to_result(status: TicketStatus) -> str:
-    # Ticket is IN_PROGRESS when run_agent returns (orchestrator resolves it
-    # after all phases complete). A non-failure status means the agent ran
-    # without explicitly blocking or failing, so report success.
+    # The orchestrator resolves the ticket AFTER run_agent returns, so the
+    # ticket is still IN_PROGRESS when this is called even after a successful
+    # agent run. Map only the states that agents explicitly set; anything
+    # else (IN_PROGRESS, OPEN, MERGE_CONFLICT, …) means the agent completed
+    # without flagging a problem — treat as success.
+    if status == TicketStatus.RESOLVED or status == TicketStatus.CLOSED:
+        return "success"
     if status == TicketStatus.BLOCKED:
         return "blocked"
     if status == TicketStatus.NEEDS_INFO:

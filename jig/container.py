@@ -86,8 +86,8 @@ def exec_in_docker(
 
     Mounts:
     - project directory → ``/project`` (rw)
-    - ``~/.claude/`` → ``/home/jig/.claude`` (rw, settings/plugins)
-    - ``~/.claude.json`` → ``/home/jig/.claude.json`` (rw)
+    - ``~/.claude/`` → ``/home/jig/.claude`` (ro, settings/plugins)
+    - ``~/.claude.json`` → ``/home/jig/.claude.json`` (ro)
     - ``~/.gitconfig`` → ``/home/jig/.gitconfig`` (ro)
     - ``~/.ssh/`` → ``/home/jig/.ssh`` (ro, for git-over-SSH)
 

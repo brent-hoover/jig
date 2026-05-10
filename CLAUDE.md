@@ -110,9 +110,7 @@ Docs are organized by feature/component under `feature-work/<feature>/`:
 
 Cross-cutting docs live at the top level:
 
-- `docs/adrs/` — ADRs (numbered, e.g. `0001-<slug>.md`)
-- `docs/runbooks/` — operational guides
-- `docs/reference/` — long-lived reference material
+- `docs/reference/` — long-lived reference material and ADRs
 - `feature-work/_templates/` — templates for new docs; copy these when creating
 
 Full conventions in `feature-work/README.md` — read it before creating or modifying

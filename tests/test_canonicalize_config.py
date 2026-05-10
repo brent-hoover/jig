@@ -7,10 +7,14 @@ from pathlib import Path
 import pytest
 
 from jig.canonicalize import (
+    Deprecation,
+    DeprecationsConfig,
     EscalationConfig,
     EscalationRoute,
     Formatter,
     FormattersConfig,
+    list_semgrep_rule_paths,
+    load_deprecations,
     load_escalation_config,
     load_formatters,
     resolve_route,
@@ -125,3 +129,119 @@ class TestResolveRoute:
             ],
         )
         assert resolve_route(cfg, "critical-rule", "convention_violation") == "human_review"
+
+
+class TestLoadDeprecations:
+    def test_missing_returns_empty(self, tmp_path: Path) -> None:
+        cfg = load_deprecations(tmp_path)
+        assert isinstance(cfg, DeprecationsConfig)
+        assert cfg.deprecations == []
+
+    def test_present(self, tmp_path: Path) -> None:
+        rules_dir = tmp_path / ".jig" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "deprecations.yml").write_text(
+            "deprecations:\n"
+            "  - id: logger-warn-renamed\n"
+            "    pattern: logger.warn(...)\n"
+            "    fix: logger.warning(...)\n"
+            "    rationale: Standardized on .warning()\n"
+            "    languages: [python]\n"
+        )
+        cfg = load_deprecations(tmp_path)
+        assert len(cfg.deprecations) == 1
+        dep = cfg.deprecations[0]
+        assert dep.id == "logger-warn-renamed"
+        assert dep.fix == "logger.warning(...)"
+        assert dep.languages == ["python"]
+
+    def test_invalid_field_raises(self, tmp_path: Path) -> None:
+        rules_dir = tmp_path / ".jig" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "deprecations.yml").write_text(
+            "deprecations:\n  - id: x\n    pattern: p\n    fix: f\n    unknown_field: bad\n"
+        )
+        with pytest.raises(Exception):
+            load_deprecations(tmp_path)
+
+    def test_defaults(self) -> None:
+        dep = Deprecation(id="x", pattern="p", fix="f", languages=["generic"])
+        assert dep.rationale == ""
+
+
+class TestDeprecationsToSemgrepRules:
+    def test_empty_produces_empty_rules(self) -> None:
+        cfg = DeprecationsConfig()
+        result = cfg.to_semgrep_rules()
+        assert result == {"rules": []}
+
+    def test_rule_structure(self) -> None:
+        cfg = DeprecationsConfig(deprecations=[
+            Deprecation(id="old-logger", pattern="log.warn(...)", fix="log.warning(...)",
+                        rationale="Use .warning()", languages=["python"]),
+        ])
+        result = cfg.to_semgrep_rules()
+        assert len(result["rules"]) == 1
+        rule = result["rules"][0]
+        assert rule["id"] == "old-logger"
+        assert rule["pattern"] == "log.warn(...)"
+        assert rule["fix"] == "log.warning(...)"
+        assert rule["message"] == "Use .warning()"
+        assert rule["languages"] == ["python"]
+        assert rule["severity"] == "WARNING"
+
+    def test_fallback_message_when_no_rationale(self) -> None:
+        cfg = DeprecationsConfig(deprecations=[
+            Deprecation(id="my-rule", pattern="old()", fix="new()", languages=["python"]),
+        ])
+        rule = cfg.to_semgrep_rules()["rules"][0]
+        assert "my-rule" in rule["message"]
+
+    def test_languages_always_emitted(self) -> None:
+        cfg = DeprecationsConfig(deprecations=[
+            Deprecation(id="x", pattern="p", fix="f", languages=["generic"]),
+        ])
+        rule = cfg.to_semgrep_rules()["rules"][0]
+        assert rule["languages"] == ["generic"]
+
+
+class TestListSemgrepRulePaths:
+    def test_no_rules_dir_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / ".jig").mkdir()
+        assert list_semgrep_rule_paths(tmp_path) == []
+
+    def test_semgrep_dir_with_rules(self, tmp_path: Path) -> None:
+        semgrep_dir = tmp_path / ".jig" / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "rule-a.yml").write_text("rules: []")
+        (semgrep_dir / "rule-b.yml").write_text("rules: []")
+        paths = list_semgrep_rule_paths(tmp_path)
+        names = [p.name for p in paths]
+        assert "rule-a.yml" in names
+        assert "rule-b.yml" in names
+
+    def test_deprecations_included_when_present(self, tmp_path: Path) -> None:
+        rules_dir = tmp_path / ".jig" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "deprecations.yml").write_text("deprecations: []")
+        paths = list_semgrep_rule_paths(tmp_path)
+        assert any(p.name == "deprecations.yml" for p in paths)
+
+    def test_semgrep_and_deprecations_combined(self, tmp_path: Path) -> None:
+        semgrep_dir = tmp_path / ".jig" / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        (semgrep_dir / "my-rule.yml").write_text("rules: []")
+        (tmp_path / ".jig" / "rules" / "deprecations.yml").write_text("deprecations: []")
+        paths = list_semgrep_rule_paths(tmp_path)
+        names = [p.name for p in paths]
+        assert "my-rule.yml" in names
+        assert "deprecations.yml" in names
+
+    def test_returns_sorted_semgrep_rules(self, tmp_path: Path) -> None:
+        semgrep_dir = tmp_path / ".jig" / "rules" / "semgrep"
+        semgrep_dir.mkdir(parents=True)
+        for name in ["z-rule.yml", "a-rule.yml", "m-rule.yml"]:
+            (semgrep_dir / name).write_text("rules: []")
+        paths = list_semgrep_rule_paths(tmp_path)
+        semgrep_names = [p.name for p in paths if p.parent.name == "semgrep"]
+        assert semgrep_names == sorted(semgrep_names)

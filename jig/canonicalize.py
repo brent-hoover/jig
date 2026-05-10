@@ -31,6 +31,49 @@ class FormattersConfig(BaseModel):
     formatters: list[Formatter] = Field(default_factory=list)
 
 
+class Deprecation(BaseModel):
+    """One convention-drift rule: a superseded pattern and its replacement.
+
+    Loaded from ``.jig/rules/deprecations.yml`` and passed to semgrep
+    as an inline rule set for autofix sweeps.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    pattern: str
+    fix: str
+    languages: list[str]
+    rationale: str = ""
+
+
+class DeprecationsConfig(BaseModel):
+    """Top-level deprecations config — list of deprecation rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    deprecations: list[Deprecation] = Field(default_factory=list)
+
+    def to_semgrep_rules(self) -> dict:
+        """Render as a semgrep rule manifest (``rules`` list).
+
+        The returned dict can be serialised to YAML and passed to
+        ``semgrep --config <file>`` for in-process or subprocess use.
+        """
+        rules = []
+        for dep in self.deprecations:
+            rule: dict = {
+                "id": dep.id,
+                "pattern": dep.pattern,
+                "fix": dep.fix,
+                "message": dep.rationale or f"Deprecated: {dep.id}",
+                "severity": "WARNING",
+            }
+            rule["languages"] = dep.languages
+            rules.append(rule)
+        return {"rules": rules}
+
+
 class SemgrepRule(BaseModel):
     """A semgrep rule source — directory or single rule glob."""
 
@@ -67,6 +110,32 @@ def load_formatters(project_path: Path) -> FormattersConfig:
     return FormattersConfig.model_validate(data)
 
 
+def load_deprecations(project_path: Path) -> DeprecationsConfig:
+    """Load .jig/rules/deprecations.yml; return empty config when missing."""
+    path = project_path / ".jig" / "rules" / "deprecations.yml"
+    if not path.is_file():
+        return DeprecationsConfig()
+    data = yaml.safe_load(path.read_text()) or {}
+    return DeprecationsConfig.model_validate(data)
+
+
+def list_semgrep_rule_paths(project_path: Path) -> list[Path]:
+    """Return all active semgrep rule paths for this project.
+
+    Includes every ``.yml`` file under ``.jig/rules/semgrep/`` (project
+    rules) plus ``.jig/rules/deprecations.yml`` when present.  Returns an
+    empty list when neither exists.
+    """
+    paths: list[Path] = []
+    semgrep_dir = project_path / ".jig" / "rules" / "semgrep"
+    if semgrep_dir.is_dir():
+        paths.extend(sorted(p for p in semgrep_dir.glob("*.yml") if p.is_file()))
+    deprecations = project_path / ".jig" / "rules" / "deprecations.yml"
+    if deprecations.is_file():
+        paths.append(deprecations)
+    return paths
+
+
 def load_escalation_config(project_path: Path) -> EscalationConfig:
     """Load .jig/escalation.yml; return defaults when missing."""
     path = project_path / ".jig" / "escalation.yml"
@@ -94,12 +163,16 @@ def resolve_route(
 
 
 __all__ = [
+    "Deprecation",
+    "DeprecationsConfig",
     "EscalationConfig",
     "EscalationRoute",
     "Formatter",
     "FormattersConfig",
     "Route",
     "SemgrepRule",
+    "list_semgrep_rule_paths",
+    "load_deprecations",
     "load_escalation_config",
     "load_formatters",
     "resolve_route",

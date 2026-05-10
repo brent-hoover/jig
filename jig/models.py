@@ -22,10 +22,6 @@ class RoleConfig(BaseModel):
     phase_prompt: str = ""
     response_prompt: str = ""
     allowed_tools: list[str] = []
-    # NOTE: `can_message` was a stub with no enforcement and is removed
-    # in Phase 1E. Cross-role messaging policy moves to capability policy
-    # on role templates in Phase 5 (doc 16).
-    #
     # Context references per doc 07. ``default_context`` is optional —
     # failure to resolve logs a warning and the agent proceeds.
     # ``required_context`` is mandatory — any URI that fails to resolve

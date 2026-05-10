@@ -1,6 +1,6 @@
 """MCP tool handlers for the dev-environment track (Track E MVP).
 
-Currently exposes one tool:
+Exposes one tool:
 
 - ``dev_derive_manifest`` — read ``architecture.yaml``, derive the
   dev-environment manifest, atomically write it to ``.jig/dev/manifest.yaml``.

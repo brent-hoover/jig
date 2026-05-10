@@ -65,8 +65,10 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
         for child in worktrees_root.iterdir():
             if not child.is_dir():
                 continue
+            # Use lsof without +D to avoid expensive recursive dir scans;
+            # -d cwd with an exact path finds processes whose cwd == child.
             result = subprocess.run(
-                ["lsof", "-d", "cwd", "-Fp", "+D", str(child)],
+                ["lsof", "-d", "cwd", "-Fp", "--", str(child)],
                 capture_output=True, text=True, check=False,
             )
             for line in result.stdout.splitlines():

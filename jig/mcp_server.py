@@ -2821,6 +2821,10 @@ def create_agent_mcp_server(
         all_tools.append(reviewer_post_comment)
 
     if "log_audit_entry" in agent_cfg.allowed_tools:
+        from jig.store.audit import AuditStore as _AuditStore
+        # Constructed once per MCP server instance — insert() appends
+        # directly without re-reading the file, so no load() needed.
+        _audit_store = _AuditStore(project_path / ".jig" / "store" / "audit.jsonl")
 
         @tool(
             "log_audit_entry",
@@ -2840,7 +2844,7 @@ def create_agent_mcp_server(
         )
         async def log_audit_entry(args):
             entry_id = await ticket_mcp.handle_log_audit_entry(
-                project_path=project_path,
+                store=_audit_store,
                 ticket_id=ticket_id,
                 run_id=args["run_id"],
                 rule_id=args["rule_id"],
@@ -2854,6 +2858,8 @@ def create_agent_mcp_server(
         all_tools.append(log_audit_entry)
 
     if "create_canonicalization_issue" in agent_cfg.allowed_tools:
+        from jig.store.canon_issues import CanonicalizationIssueStore as _CanonIssueStore
+        _canon_issues_store = _CanonIssueStore(project_path / ".jig" / "store" / "canon_issues.jsonl")
 
         @tool(
             "create_canonicalization_issue",
@@ -2874,6 +2880,7 @@ def create_agent_mcp_server(
         )
         async def create_canonicalization_issue(args):
             issue_id = await ticket_mcp.handle_create_canonicalization_issue(
+                store=_canon_issues_store,
                 project_path=project_path,
                 ticket_id=ticket_id,
                 issue_type=args["issue_type"],

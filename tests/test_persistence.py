@@ -11,6 +11,7 @@ from jig.persistence import (
     load_conventions,
     load_role,
     load_workflow,
+    resolve_workflow_name,
     save_role,
     save_default_roles,
     save_default_workflow,
@@ -332,3 +333,51 @@ class TestLoadConventions:
     def test_strips_trailing_whitespace(self, tmp_new_jig_project: Path) -> None:
         (tmp_new_jig_project / ".jig" / "conventions.md").write_text("rule one\n\n\n")
         assert load_conventions(tmp_new_jig_project) == "rule one"
+
+
+class TestResolveWorkflowName:
+    def test_explicit_ticket_workflow_takes_precedence(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        result = resolve_workflow_name(tmp_new_jig_project, "my-custom", "feature", "m")
+        assert result == "my-custom"
+
+    def test_default_string_falls_through_to_work_type(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        # "default" ticket_workflow should resolve via work_type schema.
+        result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "xs")
+        assert result == "feature-xs"
+
+    def test_workflow_by_size_s(self, tmp_new_jig_project: Path) -> None:
+        result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "s")
+        assert result == "feature-s"
+
+    def test_workflow_by_size_m_uses_schema_default(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        # Size "m" maps to "default" explicitly in the feature schema.
+        result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "m")
+        assert result == "default"
+
+    def test_unknown_size_falls_back_to_schema_workflow(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "unknown")
+        assert result == "default"  # schema.workflow fallback
+
+    def test_missing_work_type_returns_default(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        result = resolve_workflow_name(tmp_new_jig_project, "default", "nonexistent_type", None)
+        assert result == "default"
+
+    def test_empty_ticket_workflow_falls_through(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        result = resolve_workflow_name(tmp_new_jig_project, "", "feature", "xs")
+        assert result == "feature-xs"
+
+    def test_no_work_type_returns_default(self, tmp_new_jig_project: Path) -> None:
+        result = resolve_workflow_name(tmp_new_jig_project, "default", None, None)
+        assert result == "default"

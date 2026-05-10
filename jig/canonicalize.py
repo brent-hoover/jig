@@ -78,7 +78,7 @@ def load_escalation_config(project_path: Path) -> EscalationConfig:
 
 def resolve_route(
     config: EscalationConfig, rule_id: str, issue_type: str
-) -> str:
+) -> Route:
     """Pick the route for a (rule_id, issue_type) pair.
 
     Rule-id matches take precedence over type matches; otherwise the

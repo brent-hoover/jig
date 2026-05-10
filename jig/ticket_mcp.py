@@ -24,6 +24,8 @@ from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
 if TYPE_CHECKING:
+    from jig.store.audit import AuditStore
+    from jig.store.canon_issues import CanonicalizationIssueStore
     from jig.store.checkpoints import CheckpointStore
 
 _logger = logging.getLogger(__name__)
@@ -665,7 +667,7 @@ async def handle_add_dependency(
 
 async def handle_log_audit_entry(
     *,
-    project_path: Path,
+    store: "AuditStore",
     ticket_id: str,
     run_id: str,
     rule_id: str,
@@ -675,10 +677,8 @@ async def handle_log_audit_entry(
     after_hash: str,
 ) -> str:
     """Persist an AuditEntry recording a rule applying a fix to a file."""
-    from jig.store.audit import AuditEntry, AuditStore
+    from jig.store.audit import AuditEntry
 
-    store = AuditStore(project_path / ".jig" / "store" / "audit.jsonl")
-    await store.load()
     entry = AuditEntry(
         run_id=run_id,
         rule_id=rule_id,
@@ -693,6 +693,7 @@ async def handle_log_audit_entry(
 
 async def handle_create_canonicalization_issue(
     *,
+    store: "CanonicalizationIssueStore",
     project_path: Path,
     ticket_id: str,
     issue_type: str,
@@ -704,17 +705,11 @@ async def handle_create_canonicalization_issue(
 ) -> str:
     """Persist a CanonicalizationIssue with routing resolved from config."""
     from jig.canonicalize import load_escalation_config, resolve_route
-    from jig.store.canon_issues import (
-        CanonicalizationIssue,
-        CanonicalizationIssueStore,
-    )
 
     esc = load_escalation_config(project_path)
     route = resolve_route(esc, rule_id, issue_type)
-    store = CanonicalizationIssueStore(
-        project_path / ".jig" / "store" / "canon_issues.jsonl"
-    )
-    await store.load()
+    from jig.store.canon_issues import CanonicalizationIssue
+
     issue = CanonicalizationIssue(
         type=issue_type,  # type: ignore[arg-type]
         rule_id=rule_id,

@@ -920,12 +920,13 @@ def _format_bus_event(msg: Message) -> str:
 
 
 def _status_to_result(status: TicketStatus) -> str:
-    if status == TicketStatus.RESOLVED:
-        return "success"
+    # Ticket is IN_PROGRESS when run_agent returns (orchestrator resolves it
+    # after all phases complete). A non-failure status means the agent ran
+    # without explicitly blocking or failing, so report success.
     if status == TicketStatus.BLOCKED:
         return "blocked"
     if status == TicketStatus.NEEDS_INFO:
         return "needs_info"
     if status == TicketStatus.FAILED:
         return "failed"
-    return "in_progress"
+    return "success"

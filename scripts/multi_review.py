@@ -340,6 +340,12 @@ _SCHEMA = """
 
 ## Findings
 
+### [CRITICAL] <Short title>
+- **File**: `path/to/file.py:42-58`
+- **Finding**: <what's wrong>
+- **Suggested action**: <concrete fix>
+- **Confidence**: high | medium | low
+
 ### [HIGH] <Short title>
 - **File**: `path/to/file.py:42-58`
 - **Finding**: <what's wrong>
@@ -351,7 +357,7 @@ _SCHEMA = """
 
 ## Statistics
 - Total findings: N
-- HIGH: N | MEDIUM: N | LOW: N
+- CRITICAL: N | HIGH: N | MEDIUM: N | LOW: N
 ```
 """.strip()
 
@@ -595,6 +601,8 @@ async def amain(
     parallelism: int,
     skip_synthesis: bool,
 ) -> int:
+    if parallelism < 1:
+        raise click.UsageError(f"--parallelism must be >= 1, got {parallelism}")
     ctx.output_dir.mkdir(parents=True, exist_ok=True)
     click.echo(
         f"Running {len(selected)} reviewer(s) on {ctx.repo_root} "

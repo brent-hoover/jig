@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +8,8 @@ from typing import Union
 
 from jig.store.models import TypedCollection
 from jig.ticket import Ticket, TicketStatus, WorkType
+
+logger = logging.getLogger(__name__)
 
 StatusChangeCallback = Callable[[str, Union[str, None], str], Union[Awaitable[None], None]]
 
@@ -85,7 +88,13 @@ class TicketStore:
         if inspect.isawaitable(result):
             task = asyncio.create_task(result)  # type: ignore[arg-type]
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+
+            def _on_done(t: asyncio.Task) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and (exc := t.exception()):
+                    logger.error("status-change callback raised: %s", exc, exc_info=exc)
+
+            task.add_done_callback(_on_done)
 
     async def update_status(self, ticket_id: str, status: TicketStatus) -> Ticket:
         return await self.update(ticket_id, status=status)

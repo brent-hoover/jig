@@ -1,7 +1,7 @@
 # Jig
 
 ## Instructions for Claude
-1. Follow the rules for creating documentation as defined in docs/README.md
+1. Follow the rules for creating documentation as defined in feature-work/README.md
 2. Do not write anything to ./superpowers or any other Claude-specific location
 
 Multi-agent orchestrator that spawns Claude Code agents across a codebase. Python async core + Textual TUI.

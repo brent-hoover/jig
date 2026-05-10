@@ -71,14 +71,3 @@ class AnalyticsStore:
         raws = await self._collection.find_where(kind=kind)
         return [self._load(r) for r in raws]
 
-    async def by_correlation(self, correlation_id: str) -> list[AnalyticsEvent]:
-        """All events sharing a correlation_id, ordered by timestamp.
-
-        Not index-backed — scans the full stream. Acceptable in v1;
-        if correlation queries become hot, add ``correlation_id`` to
-        ``index_fields`` above.
-        """
-        raws = await self._collection.find()
-        events = [self._load(r) for r in raws if r.get("correlation_id") == correlation_id]
-        events.sort(key=lambda e: e.timestamp)
-        return events

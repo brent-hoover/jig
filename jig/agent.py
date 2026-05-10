@@ -617,7 +617,7 @@ async def run_agent(
             # without losing access to its own files. This narrows the
             # rootfs view down toward "only its worktree" — see SEC-4
             # in v2-review-findings-security.md.
-            hide_paths = ["/project"]
+            hide_paths = ["/project", "/home/jig/.ssh", "/home/jig/.gitconfig"]
             bwrap_cfg = BwrapConfig(
                 worktree_host_path=ctx.worktree_path,
                 policy_dir_host_path=cap.policy_dir,
@@ -920,7 +920,12 @@ def _format_bus_event(msg: Message) -> str:
 
 
 def _status_to_result(status: TicketStatus) -> str:
-    if status == TicketStatus.RESOLVED:
+    # The orchestrator resolves the ticket AFTER run_agent returns, so the
+    # ticket is still IN_PROGRESS when this is called even after a successful
+    # agent run. Map only the states that agents explicitly set; anything
+    # else (IN_PROGRESS, OPEN, MERGE_CONFLICT, …) means the agent completed
+    # without flagging a problem — treat as success.
+    if status == TicketStatus.RESOLVED or status == TicketStatus.CLOSED:
         return "success"
     if status == TicketStatus.BLOCKED:
         return "blocked"
@@ -928,4 +933,4 @@ def _status_to_result(status: TicketStatus) -> str:
         return "needs_info"
     if status == TicketStatus.FAILED:
         return "failed"
-    return "success"  # still in progress — treat as success for now
+    return "success"

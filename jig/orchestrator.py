@@ -172,6 +172,7 @@ class Orchestrator:
 
         self._running_tickets: dict[str, asyncio.Task] = {}
         self._live_subscribers: dict[tuple[str, str], asyncio.Task] = {}
+        self._background_tasks: set[asyncio.Task] = set()
         self._dispatch_task: asyncio.Task | None = None
         self._service_task: asyncio.Task | None = None
         self._deadlock_task: asyncio.Task | None = None
@@ -1683,9 +1684,11 @@ class Orchestrator:
                             "conflict resolved by agent, merge retry succeeded: %s",
                             merge_result,
                         )
-                        asyncio.create_task(
+                        _task = asyncio.create_task(
                             self._try_replan(ticket_id, ticket, conflicted_files)
                         )
+                        self._background_tasks.add(_task)
+                        _task.add_done_callback(self._background_tasks.discard)
                     except MergeConflictError as retry_exc:
                         merge_conflict = True
                         merge_result = str(retry_exc)

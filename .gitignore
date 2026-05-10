@@ -248,5 +248,7 @@ cython_debug/
 .stakpak/session*
 .claude/.worktrees/
 .claude/worktrees
+.claude/scheduled_tasks.lock
 evals/runs/
+evals/analyzer-recommendations/
 .worktrees/

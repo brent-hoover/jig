@@ -1,10 +1,10 @@
 # Jig
 
 ## Instructions for Claude
-1. Follow the rules for creating documentation as defined in docs/README.md
+1. Follow the rules for creating documentation as defined in feature-work/README.md
 2. Do not write anything to ./superpowers or any other Claude-specific location
 
-Multi-agent orchestrator that spawns Claude Code agents across a codebase. Python async core + TypeScript/Bun TUI.
+Multi-agent orchestrator that spawns Claude Code agents across a codebase. Python async core + Textual TUI.
 
 ## Project Structure
 
@@ -17,19 +17,19 @@ Dockerfile            # Container image (Python 3.12 + Node 22 + bwrap)
 
 ### Key modules
 
-| Module | Purpose |
-|--------|---------|
-| `cli.py` | Click CLI: init, start, build, sync, validate, reset |
-| `orchestrator.py` | Singleton async orchestrator — ticket dispatch, agent lifecycle, bus routing |
-| `agent.py` | Spawns Claude Code agents via `claude-agent-sdk` with streaming |
-| `sandbox.py` | Bubblewrap transport — wraps each agent in a bwrap namespace |
-| `container.py` | Docker launcher — re-execs jig inside container from host |
-| `mcp_server.py` | Per-agent MCP server (ticket CRUD, comments, memory, commits) |
-| `ticket_mcp.py` | MCP tool handlers (create/update/list tickets, comments, questions) |
-| `prompt_builder.py` | Assembles agent prompts from role config, project context, skills |
-| `worktree.py` | Git worktree lifecycle — create, commit, lint, cleanup |
-| `ws_server.py` | WebSocket server (port 9100) relaying events to TUI |
-| `store/` | JSONL-backed stores: tickets, comments, memory, message bus |
+| Module              | Purpose                                                                      |
+|---------------------|------------------------------------------------------------------------------|
+| `cli.py`            | Click CLI: init, start, build, sync, validate, reset                         |
+| `orchestrator.py`   | Singleton async orchestrator — ticket dispatch, agent lifecycle, bus routing |
+| `agent.py`          | Spawns Claude Code agents via `claude-agent-sdk` with streaming              |
+| `sandbox.py`        | Bubblewrap transport — wraps each agent in a bwrap namespace                 |
+| `container.py`      | Docker launcher — re-execs jig inside container from host                    |
+| `mcp_server.py`     | Per-agent MCP server (ticket CRUD, comments, memory, commits)                |
+| `ticket_mcp.py`     | MCP tool handlers (create/update/list tickets, comments, questions)          |
+| `prompt_builder.py` | Assembles agent prompts from role config, project context, skills            |
+| `worktree.py`       | Git worktree lifecycle — create, commit, lint, cleanup                       |
+| `ws_server.py`      | WebSocket server (port 9100) relaying events to TUI                          |
+| `store/`            | JSONL-backed stores: tickets, comments, memory, message bus                  |
 
 ### Data flow
 
@@ -85,3 +85,101 @@ Auth into Docker uses `CLAUDE_CODE_OAUTH_TOKEN` env var (from `claude setup-toke
 - `BwrapTransport` overrides `SubprocessCLITransport._build_command()` to prepend bwrap args
 - The Docker container runs as non-root user `jig` (Claude Code refuses bypassPermissions as root)
 - GPG signing is disabled in the container via `GIT_CONFIG_COUNT` env vars
+
+## Workflow
+
+Non-trivial work follows: problem statement → design (if warranted) → plan → code.
+
+- Do not write a design doc until the problem statement exists and is approved.
+- Do not write a plan until the design doc is approved.
+- Do not start code until the plan is approved.
+- For trivial work (one file, obvious change), skip straight to code.
+- If unsure whether work is trivial, ask.
+
+## Documentation
+
+Documentation should be hard-wrapped at 120 characters, not 80
+
+Docs are organized by feature/component under `feature-work/<feature>/`:
+
+- `problem.md` — what we're solving and why
+- `design.md` — how we're solving it (or `design-<aspect>.md` if multiple)
+- `plan.md` — implementation plan (throwaway when work is done)
+- `specs/` — component specs, EARS-style, one per file ONLY IF NECESSARY
+- `notes.md` — scratch/working notes (not canonical)
+
+Cross-cutting docs live at the top level:
+
+- `docs/reference/` — long-lived reference material and ADRs
+- `feature-work/_templates/` — templates for new docs; copy these when creating
+
+Full conventions in `feature-work/README.md` — read it before creating or modifying
+docs if you haven't this session.
+
+### Frontmatter
+
+Every doc starts with frontmatter. Required on every doc:
+
+```yaml
+---
+title: <human-readable title>
+type: <problem | design | plan | spec | decision | runbook | reference | notes>
+status: <see vocabulary below>
+owner: <username>
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+---
+```
+
+Status vocabulary (fixed — do not invent new values):
+
+- **problem, design, plan, notes, runbook, reference:**
+  `draft | active | superseded | archived`
+- **spec:** `draft | approved | implemented | verified | superseded`
+- **decision:** `proposed | accepted | superseded | deprecated`
+
+Per-type extras:
+
+- **design:** `problem: <relative path to problem.md>`
+- **plan:** `design: <relative path to design.md>`
+- **spec:** `id: REQ-<AREA>-<NUM>`, optional `depends_on: [ids]`,
+  optional `implements: [paths]`
+- **decision:** `id: ADR-<NUM>`, `supersedes: []`, `superseded_by: null`
+- **runbook:** `service: <service-name>`
+
+### Rules
+
+- New feature work starts with `feature-work/<feature>/problem.md`.
+- Copy the appropriate template from `feature-work/_templates/` when creating a doc.
+- Do not create docs outside this structure.
+- Do not create generic-named docs (`notes.md` at top level, `thoughts.md`,
+  `ideas.md`, `implementation.md`, `TODO.md`).
+- Update the `updated` field whenever you edit a doc.
+- Specs and ADRs are not modified without explicit instruction.
+- When superseding a doc, set its `status: superseded` and fill `superseded_by`
+  before creating the replacement.
+- If unsure where a doc belongs or which type fits, ask before creating.
+
+### Legacy note
+
+`feature-work/archive/implementation-plans/` holds plans from before this
+structure. New plans go in `feature-work/<feature>/plan.md`. Don't write into
+the archive unless explicitly asked.
+
+
+## Git handling
+
+- All work runs on a worktree in `.worktrees/` at the project root unless instructed otherwise.
+- Never `git push` without permission.
+- Run other git operations freely.
+- Commit messages: use the conventional commit skill.
+- Never commit or push to `develop`, that branch is locked. You must open a PR
+
+## PR Handling
+- Submit a PR with:
+  - Conventional commit style PR Title
+  - A Problem/Fix section that explains the issue being addressed and how this PR resolves it
+  - A summary of the PR's changes
+  - Any areas that deserve special attention
+  - A checklist of tasks to be completed before merging
+  - Manual Test Steps

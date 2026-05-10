@@ -39,11 +39,7 @@ class AgentSpawnContext:
     threads: ThreadStore
     memory: MemoryStore
     bus: MessageBus
-    # Phase 4 Task G — checkpoint store plumbed through the agent context
-    # so the MCP server can record milestone / decision / deferred and
-    # the harness-triggered commit/test/pre-handoff hooks fire. Optional
-    # so call sites that don't build a checkpoint store (older tests,
-    # one-shot operator spawns) still work.
+    # Optional so call sites without a checkpoint store still work.
     checkpoints: CheckpointStore | None = None
     # Populated for PHASE_PRIMARY spawns — None for QA_RESPONDER and other
     # thread-level spawns where there is no workflow phase context.

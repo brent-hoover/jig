@@ -461,32 +461,6 @@ def _envelopes_to_bands(
     return {"standard": bands}
 
 
-# ---- convenience: compute per-size p90 turns for auto-escalation --------
-
-
-def out_of_budget_envelope_for_ticket(
-    ticket: Ticket,
-    *,
-    store: CalibrationStore,
-) -> tuple[float, float] | None:
-    """Return (median, p90) for the ticket's size, or None for default.
-
-    Used by the auto-escalation checker's ``out_of_budget`` threshold:
-    the threshold trips when observed turns exceed the per-size p90 by
-    a configurable factor. When calibration data is too thin for the
-    ticket's size, returns ``None`` so the caller falls back to the
-    shipped envelope.
-    """
-    size = (ticket.size.value if isinstance(ticket.size, Size)
-            else (ticket.size or Size.M.value))
-    envelopes = current_envelopes(store)
-    env = envelopes.get(size)
-    if env is None:
-        return None
-    if env.sample_count < MIN_SAMPLES_FOR_CALIBRATION:
-        return None
-    return (env.median_turns, env.p90_turns)
-
 
 def serialize_envelopes_for_cli(
     envelopes: dict[str, Envelope]

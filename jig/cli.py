@@ -374,13 +374,19 @@ def reset(path: Path) -> None:
                     if wt == str(path.resolve()):
                         continue
                     click.echo(f"  Removing worktree: {wt}")
-                    subprocess.run(
+                    r = subprocess.run(
                         ["git", "worktree", "remove", "--force", wt],
                         cwd=path,
                         capture_output=True,
+                        text=True,
                     )
-        except Exception:
-            pass
+                    if r.returncode != 0:
+                        click.echo(
+                            f"  Warning: worktree remove failed for {wt}: {r.stderr.strip()}",
+                            err=True,
+                        )
+        except Exception as exc:
+            click.echo(f"  Warning: could not remove worktrees: {exc}", err=True)
 
     # Detect current branch before removing .git
     branch = "develop"
@@ -1462,7 +1468,7 @@ def serve_cmd(path: Path, port: int, regenerate: bool) -> None:
         f"Serving {target} at http://localhost:{port}/index.html "
         "(Ctrl-C to stop)"
     )
-    with socketserver.TCPServer(("", port), WireframesHandler) as httpd:
+    with socketserver.TCPServer(("127.0.0.1", port), WireframesHandler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

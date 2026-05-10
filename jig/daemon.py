@@ -1,7 +1,7 @@
 """Background daemon process management for jig.
 
-The daemon is a long-running process that hosts the orchestrator,
-the agent dispatcher, and the WebSocket server. The TUI is a client
+The daemon is a long-running process that hosts the orchestrator
+and the WebSocket server. The TUI is a client
 that connects to it. Closing the TUI does not stop the daemon —
 agents in flight finish their work.
 

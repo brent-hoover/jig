@@ -386,12 +386,6 @@ class ProvisioningRegistry:
         """Register or replace a shared_namespaced provisioner."""
         self._provisioners[kind] = provisioner
 
-    def register_ephemeral(
-        self, kind: str, provisioner: "EphemeralProvisioner"
-    ) -> None:
-        """Register or replace a per_agent_ephemeral provisioner."""
-        self._ephemeral[kind] = provisioner
-
 
 # ---------------------------------------------------------------------------
 # Orchestrator entry points

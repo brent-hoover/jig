@@ -87,15 +87,6 @@ def validate_safe_path_segment(segment: str, name: str) -> str:
     return segment
 
 
-def validate_safe_filename(name: str, field: str) -> str:
-    """Raise ``ValueError`` if ``name`` is not a safe filename; return it on success."""
-    if not is_safe_filename(name):
-        raise ValueError(
-            f"{field}={name!r} is not a safe filename "
-            f"(must match ^[a-z0-9][a-z0-9_.\\-]*$, length <= {_MAX_SEGMENT_LEN})"
-        )
-    return name
-
 
 def safe_join(root: Path, *segments: str) -> Path:
     """Join ``segments`` under ``root`` with strict per-segment + containment checks.

@@ -103,6 +103,9 @@ class MessageBus:
                 return
             if not queues:
                 del self._subscribers[topic]
+            stale = [k for k, q in self._agent_subscriptions.items() if q is queue]
+            for k in stale:
+                del self._agent_subscriptions[k]
 
     async def get_history(self, topic: str, limit: int = 100) -> list[Message]:
         results = await self._collection.find_where(topic=topic)

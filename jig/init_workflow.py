@@ -16,6 +16,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import logging
+
 import click
 import yaml
 
@@ -39,6 +41,8 @@ from jig.store.tickets import TicketStore
 from jig.template_registry import list_templates, load_template_metadata
 from jig.thread import Answer, Handoff, Note, Question, SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
+
+logger = logging.getLogger(__name__)
 
 
 class DirState(str, Enum):
@@ -611,6 +615,7 @@ def _spawn_console():
 
 
 _CONSOLE = None  # type: ignore[var-annotated]
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 @asynccontextmanager
@@ -653,9 +658,17 @@ async def _cli_emitter(
         data = {"role": role_label}
         if subtitle:
             data["ticket_title"] = subtitle
-        loop.create_task(
+        _t = loop.create_task(
             tui_emitter.emit(JigEvent(type="agent_start", data=data))
         )
+        _BACKGROUND_TASKS.add(_t)
+
+        def _on_done(t: asyncio.Task) -> None:
+            _BACKGROUND_TASKS.discard(t)
+            if not t.cancelled() and (exc := t.exception()):
+                logger.error("TUI emit task raised: %s", exc, exc_info=exc)
+
+        _t.add_done_callback(_on_done)
     else:
         from rich.rule import Rule
         c.print()

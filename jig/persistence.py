@@ -266,7 +266,7 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
 def load_conventions(project_path: Path) -> str | None:
     """Load .jig/conventions.md for the project.
 
-    Returns the file content (stripped) when present and non-empty.
+    Returns the file content (right-stripped) when present and non-empty.
     Returns None when the file is missing or empty — callers treat that
     as "no conventions configured" rather than an error.
     """

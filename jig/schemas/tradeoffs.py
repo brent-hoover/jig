@@ -61,6 +61,3 @@ class TradeoffLedger(BaseModel):
         """Return tradeoffs that explicitly reference ``capability_id``."""
         return [t for t in self.tradeoffs if capability_id in t.capability_ids]
 
-    def deferred_to_layer(self, layer: str) -> list[Tradeoff]:
-        """Return tradeoffs whose deferred items are expected at ``layer``."""
-        return [t for t in self.tradeoffs if t.deferred_to == layer]

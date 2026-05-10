@@ -1,9 +1,9 @@
 """WebSocket server for broadcasting events to TUI clients."""
 
 import asyncio
+import collections
 import json
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -60,7 +60,7 @@ class WebSocketServer:
     def __init__(
         self,
         emitter: EventEmitter,
-        host: str = "0.0.0.0" if os.environ.get("JIG_IN_CONTAINER") else "127.0.0.1",
+        host: str = "127.0.0.1",
         port: int = 9100,
         orchestrator: "Orchestrator | None" = None,
         project_path: Path | None = None,
@@ -74,7 +74,7 @@ class WebSocketServer:
         self._relay_task = None
         self._clients: set[ServerConnection] = set()
         self._queue = emitter.subscribe()
-        self._history: list[str] = []
+        self._history: collections.deque[str] = collections.deque(maxlen=1000)
         self._history_replayed: set[ServerConnection] = set()
         self._subscriptions: dict[ServerConnection, set[str]] = {}
         self.prompt_registry = PromptRegistry()

@@ -112,18 +112,18 @@ def exec_in_docker(
         f"{project_path.resolve()}:/project",
         # WebSocket port for TUI
         "-p",
-        f"{ws_port}:{ws_port}",
+        f"127.0.0.1:{ws_port}:{ws_port}",
     ]
 
     # Claude settings and plugins
     claude_dir = Path.home() / ".claude"
     if claude_dir.is_dir():
-        args.extend(["-v", f"{claude_dir}:/home/jig/.claude"])
+        args.extend(["-v", f"{claude_dir}:/home/jig/.claude:ro"])
 
     # Claude Code config
     claude_json = Path.home() / ".claude.json"
     if claude_json.is_file():
-        args.extend(["-v", f"{claude_json}:/home/jig/.claude.json"])
+        args.extend(["-v", f"{claude_json}:/home/jig/.claude.json:ro"])
 
     # Git config
     gitconfig = Path.home() / ".gitconfig"
@@ -180,17 +180,17 @@ def run_detached_container(
         "--cap-add", "SYS_ADMIN",
         "--security-opt", "seccomp=unconfined",
         "-v", f"{project_path.resolve()}:/project",
-        "-p", f"{ws_port}:{ws_port}",
+        "-p", f"127.0.0.1:{ws_port}:{ws_port}",
     ]
     if name:
         args.extend(["--name", name])
 
     claude_dir = Path.home() / ".claude"
     if claude_dir.is_dir():
-        args.extend(["-v", f"{claude_dir}:/home/jig/.claude"])
+        args.extend(["-v", f"{claude_dir}:/home/jig/.claude:ro"])
     claude_json = Path.home() / ".claude.json"
     if claude_json.is_file():
-        args.extend(["-v", f"{claude_json}:/home/jig/.claude.json"])
+        args.extend(["-v", f"{claude_json}:/home/jig/.claude.json:ro"])
     gitconfig = Path.home() / ".gitconfig"
     if gitconfig.is_file():
         args.extend(["-v", f"{gitconfig}:/home/jig/.gitconfig:ro"])

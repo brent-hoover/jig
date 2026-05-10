@@ -1462,7 +1462,7 @@ def serve_cmd(path: Path, port: int, regenerate: bool) -> None:
         f"Serving {target} at http://localhost:{port}/index.html "
         "(Ctrl-C to stop)"
     )
-    with socketserver.TCPServer(("", port), WireframesHandler) as httpd:
+    with socketserver.TCPServer(("127.0.0.1", port), WireframesHandler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

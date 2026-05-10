@@ -617,7 +617,7 @@ async def run_agent(
             # without losing access to its own files. This narrows the
             # rootfs view down toward "only its worktree" — see SEC-4
             # in v2-review-findings-security.md.
-            hide_paths = ["/project"]
+            hide_paths = ["/project", "/home/jig/.ssh", "/home/jig/.gitconfig"]
             bwrap_cfg = BwrapConfig(
                 worktree_host_path=ctx.worktree_path,
                 policy_dir_host_path=cap.policy_dir,
@@ -928,4 +928,4 @@ def _status_to_result(status: TicketStatus) -> str:
         return "needs_info"
     if status == TicketStatus.FAILED:
         return "failed"
-    return "success"  # still in progress — treat as success for now
+    return "in_progress"

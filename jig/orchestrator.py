@@ -618,7 +618,7 @@ class Orchestrator:
     @staticmethod
     def _map_result_status(s: str) -> str:
         """Map RunAgentResult.status to AgentCompleted.status Literal."""
-        return {"needs_info": "blocked"}.get(s, s)
+        return {"needs_info": "blocked", "in_progress": "failed"}.get(s, s)
 
     async def _run_review_federation(
         self, ticket_id: str, ticket

@@ -380,6 +380,11 @@ class ProvisioningRegistry:
         """
         return self._operator_supplied
 
+    def register(
+        self, kind: str, provisioner: NamespaceProvisioner
+    ) -> None:
+        """Register or replace a shared_namespaced provisioner."""
+        self._provisioners[kind] = provisioner
 
 
 # ---------------------------------------------------------------------------

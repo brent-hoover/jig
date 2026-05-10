@@ -379,8 +379,8 @@ def reset(path: Path) -> None:
                         cwd=path,
                         capture_output=True,
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            click.echo(f"  Warning: could not remove worktrees: {exc}", err=True)
 
     # Detect current branch before removing .git
     branch = "develop"

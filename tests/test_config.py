@@ -7,6 +7,7 @@ import yaml
 
 from jig.config import (
     Config,
+    OrchestratorSection,
     OwnershipSection,
     RoleAssignment,
     RolesSection,
@@ -212,3 +213,22 @@ class TestValidateWorkflowReferences:
         # messages, not raise.
         msgs = validate_workflow_references(cfg, [])
         assert len(msgs) == 1
+
+
+class TestOrchestratorSection:
+    def test_canonicalize_mode_default(self) -> None:
+        cfg = OrchestratorSection()
+        assert cfg.canonicalize_mode == "workflow_end"
+
+    def test_canonicalize_mode_per_merge(self, tmp_jig: Path) -> None:
+        config = Config(
+            project=Project(id="p", name="p", path=str(tmp_jig)),
+            orchestrator=OrchestratorSection(canonicalize_mode="per_merge"),
+        )
+        save_config(tmp_jig, config)
+        loaded = load_config(tmp_jig)
+        assert loaded.orchestrator.canonicalize_mode == "per_merge"
+
+    def test_invalid_canonicalize_mode_rejected(self) -> None:
+        with pytest.raises(Exception):
+            OrchestratorSection(canonicalize_mode="bad_value")

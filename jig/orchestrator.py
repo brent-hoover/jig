@@ -1804,8 +1804,35 @@ class Orchestrator:
             _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
 
         await self._unblock_dependents(ticket_id, ticket)
+        await self._maybe_spawn_per_merge_canonicalize(ticket_id, ticket)
         await self._start_ready_tickets()
         await self._maybe_run_analyzer()
+
+    async def _maybe_spawn_per_merge_canonicalize(self, ticket_id: str, ticket) -> None:
+        """If canonicalize_mode=per_merge, create a canonicalize ticket after each merge."""
+        if self._orchestrator_cfg.canonicalize_mode != "per_merge":
+            return
+        from jig.ticket import Size, Ticket, TicketStatus, WorkType
+
+        if ticket.work_type == WorkType.CANONICALIZE:
+            return
+
+        if self.tickets is None:
+            return
+
+        canon_ticket = Ticket(
+            title=f"Canonicalize: post-merge {ticket_id}",
+            description="",
+            work_type=WorkType.CANONICALIZE,
+            workflow="canonicalize",
+            size=Size.S,
+            status=TicketStatus.OPEN,
+            parent_id=ticket_id,
+            labels=["per-merge"],
+            created_by="orchestrator",
+        )
+        new_id = await self.tickets.create(canon_ticket)
+        _logger.info("per-merge canonicalize ticket %s created for %s", new_id, ticket_id)
 
     async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
         """Post-failure: emit event, clean up, pick up next ticket."""

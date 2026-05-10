@@ -145,6 +145,60 @@ def load_escalation_config(project_path: Path) -> EscalationConfig:
     return EscalationConfig.model_validate(data)
 
 
+def check_conventions(project_path: Path) -> list[str]:
+    """Validate .jig/conventions.md; return a list of error strings (empty = OK)."""
+    path = project_path / ".jig" / "conventions.md"
+    if not path.is_file():
+        return [".jig/conventions.md is missing"]
+    content = path.read_text()
+    if not content.strip():
+        return [".jig/conventions.md is empty"]
+    lines = content.splitlines()
+    if len(lines) > 500:
+        return [f".jig/conventions.md is {len(lines)} lines — recommended maximum is 500 (long contexts degrade agent quality)"]
+    return []
+
+
+def _rule_ids_from_semgrep_file(path: Path) -> list[str]:
+    """Parse rule IDs from a semgrep-format .yml file."""
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception:
+        return []
+    rules = data.get("rules", [])
+    return [r["id"] for r in rules if isinstance(r, dict) and "id" in r]
+
+
+def check_rule_coverage(project_path: Path) -> dict[str, list[str]]:
+    """Cross-reference rules in .jig/rules/ against .jig/conventions.md.
+
+    Returns a dict with two keys:
+    - ``undocumented``: rule IDs present in rule files but not mentioned in
+      conventions.md (agents won't see guidance for these at task start).
+    - ``missing_conventions``: empty list when conventions.md is absent
+      (coverage check is skipped).
+    """
+    conventions_path = project_path / ".jig" / "conventions.md"
+    if not conventions_path.is_file():
+        return {"undocumented": [], "missing_conventions": [".jig/conventions.md not found — skipping coverage check"]}
+
+    conventions_text = conventions_path.read_text()
+
+    rule_ids: list[str] = []
+    semgrep_dir = project_path / ".jig" / "rules" / "semgrep"
+    if semgrep_dir.is_dir():
+        for rule_file in sorted(p for p in semgrep_dir.glob("*.yml") if p.is_file()):
+            rule_ids.extend(_rule_ids_from_semgrep_file(rule_file))
+
+    deprecations_path = project_path / ".jig" / "rules" / "deprecations.yml"
+    if deprecations_path.is_file():
+        dep_cfg = load_deprecations(project_path)
+        rule_ids.extend(dep.id for dep in dep_cfg.deprecations)
+
+    undocumented = [rid for rid in rule_ids if rid not in conventions_text]
+    return {"undocumented": undocumented, "missing_conventions": []}
+
+
 def resolve_route(
     config: EscalationConfig, rule_id: str, issue_type: str
 ) -> Route:
@@ -171,6 +225,8 @@ __all__ = [
     "FormattersConfig",
     "Route",
     "SemgrepRule",
+    "check_conventions",
+    "check_rule_coverage",
     "list_semgrep_rule_paths",
     "load_deprecations",
     "load_escalation_config",

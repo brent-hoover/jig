@@ -2552,7 +2552,7 @@ def audit_rules(path: Path) -> None:
 
     rule_paths = list_semgrep_rule_paths(path)
     if not rule_paths:
-        click.echo("no semgrep rules found (.jig/rules/semgrep/ and .jig/rules/deprecations.yml missing)")
+        click.echo("no semgrep rules found (.jig/rules/semgrep/ is absent or empty, and .jig/rules/deprecations.yml is missing)")
         return
     for p in rule_paths:
         click.echo(str(p.relative_to(path)))

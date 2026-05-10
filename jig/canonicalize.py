@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 Route = Literal["human_review", "agent_resolution"]
@@ -46,6 +46,15 @@ class Deprecation(BaseModel):
     rationale: str = ""
     languages: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def languages_required(self) -> "Deprecation":
+        if not self.languages:
+            raise ValueError(
+                "languages must be a non-empty list — semgrep pattern rules require"
+                " at least one language (e.g. python, javascript, generic)"
+            )
+        return self
+
 
 class DeprecationsConfig(BaseModel):
     """Top-level deprecations config — list of deprecation rules."""
@@ -69,8 +78,7 @@ class DeprecationsConfig(BaseModel):
                 "message": dep.rationale or f"Deprecated: {dep.id}",
                 "severity": "WARNING",
             }
-            if dep.languages:
-                rule["languages"] = dep.languages
+            rule["languages"] = dep.languages
             rules.append(rule)
         return {"rules": rules}
 
@@ -130,7 +138,7 @@ def list_semgrep_rule_paths(project_path: Path) -> list[Path]:
     paths: list[Path] = []
     semgrep_dir = project_path / ".jig" / "rules" / "semgrep"
     if semgrep_dir.is_dir():
-        paths.extend(sorted(semgrep_dir.glob("*.yml")))
+        paths.extend(sorted(p for p in semgrep_dir.glob("*.yml") if p.is_file()))
     deprecations = project_path / ".jig" / "rules" / "deprecations.yml"
     if deprecations.is_file():
         paths.append(deprecations)

@@ -165,9 +165,12 @@ class TestLoadDeprecations:
             load_deprecations(tmp_path)
 
     def test_defaults(self) -> None:
-        dep = Deprecation(id="x", pattern="p", fix="f")
+        dep = Deprecation(id="x", pattern="p", fix="f", languages=["generic"])
         assert dep.rationale == ""
-        assert dep.languages == []
+
+    def test_empty_languages_raises(self) -> None:
+        with pytest.raises(Exception, match="languages"):
+            Deprecation(id="x", pattern="p", fix="f")
 
 
 class TestDeprecationsToSemgrepRules:
@@ -193,17 +196,17 @@ class TestDeprecationsToSemgrepRules:
 
     def test_fallback_message_when_no_rationale(self) -> None:
         cfg = DeprecationsConfig(deprecations=[
-            Deprecation(id="my-rule", pattern="old()", fix="new()"),
+            Deprecation(id="my-rule", pattern="old()", fix="new()", languages=["python"]),
         ])
         rule = cfg.to_semgrep_rules()["rules"][0]
         assert "my-rule" in rule["message"]
 
-    def test_no_languages_key_when_empty(self) -> None:
+    def test_languages_always_emitted(self) -> None:
         cfg = DeprecationsConfig(deprecations=[
-            Deprecation(id="x", pattern="p", fix="f"),
+            Deprecation(id="x", pattern="p", fix="f", languages=["generic"]),
         ])
         rule = cfg.to_semgrep_rules()["rules"][0]
-        assert "languages" not in rule
+        assert rule["languages"] == ["generic"]
 
 
 class TestListSemgrepRulePaths:

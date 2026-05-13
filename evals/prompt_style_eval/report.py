@@ -47,6 +47,7 @@ _OUTCOMES: tuple[Outcome, ...] = (
 class CellReport:
     task_id: str
     prompt_id: str
+    prompt_version: str  # sha256:<hex>
     n: int
     outcomes: dict[Outcome, int]
     pass_rate: float
@@ -60,6 +61,7 @@ class CellReport:
         return {
             "task_id": self.task_id,
             "prompt_id": self.prompt_id,
+            "prompt_version": self.prompt_version,
             "n": self.n,
             "outcomes": dict(self.outcomes),
             "pass_rate": self.pass_rate,
@@ -109,16 +111,26 @@ def bootstrap_ci(
 
 
 def aggregate(records: Iterable[RunRecord]) -> Report:
-    grouped: dict[tuple[str, str], list[RunRecord]] = defaultdict(list)
+    """Group records by ``(task_id, prompt_id, prompt_version)`` and aggregate
+    each group. Different ``prompt_version``s (i.e. content hashes) become
+    separate cells so a prompt edit doesn't blend old + new results into a
+    single misleading row.
+    """
+    grouped: dict[tuple[str, str, str], list[RunRecord]] = defaultdict(list)
     for record in records:
-        grouped[(record.cell.task_id, record.cell.prompt_id)].append(record)
+        key = (record.cell.task_id, record.cell.prompt_id, record.cell.prompt_version)
+        grouped[key].append(record)
 
-    cells = [_aggregate_cell(task_id, prompt_id, group)
-             for (task_id, prompt_id), group in sorted(grouped.items())]
+    cells = [
+        _aggregate_cell(task_id, prompt_id, prompt_version, group)
+        for (task_id, prompt_id, prompt_version), group in sorted(grouped.items())
+    ]
     return Report(cells=cells)
 
 
-def _aggregate_cell(task_id: str, prompt_id: str, records: list[RunRecord]) -> CellReport:
+def _aggregate_cell(
+    task_id: str, prompt_id: str, prompt_version: str, records: list[RunRecord]
+) -> CellReport:
     outcome_counter: Counter[Outcome] = Counter()
     for r in records:
         outcome_counter[r.outcome] += 1
@@ -162,6 +174,7 @@ def _aggregate_cell(task_id: str, prompt_id: str, records: list[RunRecord]) -> C
     return CellReport(
         task_id=task_id,
         prompt_id=prompt_id,
+        prompt_version=prompt_version,
         n=len(records),
         outcomes=outcomes,
         pass_rate=pass_rate,
@@ -195,10 +208,11 @@ def render_text(report: Report) -> str:
 
 def _render_cell(cell: CellReport) -> list[str]:
     pct = lambda x: f"{x * 100:5.1f}%"  # noqa: E731
+    short_ver = cell.prompt_version[7:15] if cell.prompt_version.startswith("sha256:") else cell.prompt_version[:8]
     out: list[str] = []
     out.append(
-        f"  {cell.prompt_id}  (n={cell.n}, cost=${cell.total_cost_usd:.4f}, "
-        f"judge cov={cell.judge_coverage}/{cell.n})"
+        f"  {cell.prompt_id} @ {short_ver}  (n={cell.n}, "
+        f"cost=${cell.total_cost_usd:.4f}, judge cov={cell.judge_coverage}/{cell.n})"
     )
     outcome_str = "  ".join(
         f"{k}={v}" for k, v in cell.outcomes.items() if v > 0

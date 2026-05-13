@@ -48,6 +48,8 @@ class CellReport:
     task_id: str
     prompt_id: str
     prompt_version: str  # sha256:<hex>
+    model: str
+    rubric_version: str
     n: int
     outcomes: dict[Outcome, int]
     pass_rate: float
@@ -62,6 +64,8 @@ class CellReport:
             "task_id": self.task_id,
             "prompt_id": self.prompt_id,
             "prompt_version": self.prompt_version,
+            "model": self.model,
+            "rubric_version": self.rubric_version,
             "n": self.n,
             "outcomes": dict(self.outcomes),
             "pass_rate": self.pass_rate,
@@ -111,25 +115,43 @@ def bootstrap_ci(
 
 
 def aggregate(records: Iterable[RunRecord]) -> Report:
-    """Group records by ``(task_id, prompt_id, prompt_version)`` and aggregate
-    each group. Different ``prompt_version``s (i.e. content hashes) become
-    separate cells so a prompt edit doesn't blend old + new results into a
-    single misleading row.
+    """Group records by full cell identity and aggregate each group.
+
+    Cells are differentiated by ``(task_id, prompt_id, prompt_version, model,
+    rubric_version)``. Anything that changes the experiment — a prompt edit, a
+    model swap, a rubric upgrade — produces a fresh row rather than blending.
     """
-    grouped: dict[tuple[str, str, str], list[RunRecord]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str, str, str], list[RunRecord]] = defaultdict(list)
     for record in records:
-        key = (record.cell.task_id, record.cell.prompt_id, record.cell.prompt_version)
+        key = (
+            record.cell.task_id,
+            record.cell.prompt_id,
+            record.cell.prompt_version,
+            record.cell.model,
+            record.cell.rubric_version,
+        )
         grouped[key].append(record)
 
     cells = [
-        _aggregate_cell(task_id, prompt_id, prompt_version, group)
-        for (task_id, prompt_id, prompt_version), group in sorted(grouped.items())
+        _aggregate_cell(task_id, prompt_id, prompt_version, model, rubric_version, group)
+        for (
+            task_id,
+            prompt_id,
+            prompt_version,
+            model,
+            rubric_version,
+        ), group in sorted(grouped.items())
     ]
     return Report(cells=cells)
 
 
 def _aggregate_cell(
-    task_id: str, prompt_id: str, prompt_version: str, records: list[RunRecord]
+    task_id: str,
+    prompt_id: str,
+    prompt_version: str,
+    model: str,
+    rubric_version: str,
+    records: list[RunRecord],
 ) -> CellReport:
     outcome_counter: Counter[Outcome] = Counter()
     for r in records:
@@ -175,6 +197,8 @@ def _aggregate_cell(
         task_id=task_id,
         prompt_id=prompt_id,
         prompt_version=prompt_version,
+        model=model,
+        rubric_version=rubric_version,
         n=len(records),
         outcomes=outcomes,
         pass_rate=pass_rate,
@@ -211,8 +235,9 @@ def _render_cell(cell: CellReport) -> list[str]:
     short_ver = cell.prompt_version[7:15] if cell.prompt_version.startswith("sha256:") else cell.prompt_version[:8]
     out: list[str] = []
     out.append(
-        f"  {cell.prompt_id} @ {short_ver}  (n={cell.n}, "
-        f"cost=${cell.total_cost_usd:.4f}, judge cov={cell.judge_coverage}/{cell.n})"
+        f"  {cell.prompt_id} @ {short_ver}  [{cell.model}]  "
+        f"(n={cell.n}, cost=${cell.total_cost_usd:.4f}, "
+        f"judge cov={cell.judge_coverage}/{cell.n})"
     )
     outcome_str = "  ".join(
         f"{k}={v}" for k, v in cell.outcomes.items() if v > 0

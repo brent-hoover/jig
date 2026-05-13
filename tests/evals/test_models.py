@@ -157,6 +157,14 @@ def test_cell_equality_uses_all_fields() -> None:
     assert a != c
 
 
+def test_code_outcome_allows_missing_judge() -> None:
+    """Judge failures shouldn't invalidate a code-outcome run record."""
+    record = _make_code_run(judge=None)
+    assert record.outcome == "code"
+    assert record.judge is None
+    assert record.test_result is not None
+
+
 def test_derived_record_carries_derived_from() -> None:
     derived = _make_code_run(
         run_id="00000000-0000-0000-0000-000000000004",

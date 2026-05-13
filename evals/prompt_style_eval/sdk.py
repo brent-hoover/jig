@@ -15,7 +15,7 @@ consistency axis anyway.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
@@ -33,7 +33,13 @@ class InvocationResult:
 
 
 def _to_json_safe(value: Any) -> Any:
-    """Recursively coerce SDK messages and blocks into JSON-safe structures."""
+    """Recursively coerce SDK messages and blocks into JSON-safe structures.
+
+    Dataclasses are recursed field-by-field rather than via ``asdict()`` so
+    that *nested* dataclass instances (e.g. ``TextBlock`` inside an
+    ``AssistantMessage.content`` list) also get a ``"type"`` tag. The
+    classifier relies on those tags to identify text blocks.
+    """
     if value is None or isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, list | tuple):
@@ -41,7 +47,10 @@ def _to_json_safe(value: Any) -> Any:
     if isinstance(value, dict):
         return {k: _to_json_safe(v) for k, v in value.items()}
     if is_dataclass(value) and not isinstance(value, type):
-        return {"type": type(value).__name__, **_to_json_safe(asdict(value))}
+        result: dict[str, Any] = {"type": type(value).__name__}
+        for field in fields(value):
+            result[field.name] = _to_json_safe(getattr(value, field.name))
+        return result
     if hasattr(value, "__dict__"):
         return {"type": type(value).__name__, **_to_json_safe(vars(value))}
     return repr(value)

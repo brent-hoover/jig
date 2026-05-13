@@ -135,20 +135,27 @@ class RunRecord(BaseModel):
 
     @model_validator(mode="after")
     def _outcome_fields_consistent(self) -> "RunRecord":
-        code_specific = {
+        # extracted_code / test_result / static_metrics are required when the
+        # candidate produced code — those are local computations and there's
+        # no reason they would fail when the rest of the pipeline succeeded.
+        code_required = {
             "extracted_code": self.extracted_code,
             "test_result": self.test_result,
             "static_metrics": self.static_metrics,
-            "judge": self.judge,
         }
+        # judge is the only code-specific field that can plausibly be missing
+        # on a code outcome: the judge is a separate model call that can fail
+        # for its own reasons (parse error, rate limit) without invalidating
+        # the candidate's run. None ⇒ judge unavailable.
+        all_code_specific = {**code_required, "judge": self.judge}
         if self.outcome == "code":
-            missing = [name for name, value in code_specific.items() if value is None]
+            missing = [name for name, value in code_required.items() if value is None]
             if missing:
                 raise ValueError(
                     f"outcome='code' requires {', '.join(sorted(missing))} to be populated"
                 )
         else:
-            populated = [name for name, value in code_specific.items() if value is not None]
+            populated = [name for name, value in all_code_specific.items() if value is not None]
             if populated:
                 raise ValueError(
                     f"outcome='{self.outcome}' must not have code-specific fields populated "

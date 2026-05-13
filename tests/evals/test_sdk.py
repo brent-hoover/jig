@@ -95,6 +95,9 @@ async def test_invoke_serializes_nested_content_blocks(patch_query) -> None:
     result = await invoke("hi", model="claude-opus-4-7")
     blocks = result.transcript[0]["content"]
     assert [b["text"] for b in blocks] == ["line one", "line two"]
+    # Nested blocks must carry their own "type" tag — the classifier and
+    # other downstream consumers identify TextBlocks by this tag.
+    assert all(b["type"] == "TextBlock" for b in blocks)
 
 
 async def test_invoke_handles_missing_cost_and_usage(patch_query) -> None:

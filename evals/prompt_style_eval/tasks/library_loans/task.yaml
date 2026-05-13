@@ -1,0 +1,6 @@
+id: library_loans
+version: v1
+language: python
+entrypoint: app.py
+test_command: ["python", "-m", "pytest", "-q", "tests/"]
+timeout_s: 90

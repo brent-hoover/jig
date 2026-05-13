@@ -50,9 +50,9 @@ def cli() -> None:
 )
 @click.option("--seeds", type=int, default=3, show_default=True,
               help="Target sample count per cell.")
-@click.option("--model", default="claude-opus-4-7", show_default=True)
+@click.option("--model", default="claude-sonnet-4-6", show_default=True)
 @click.option("--temperature", type=float, default=0.0, show_default=True)
-@click.option("--judge-model", default="claude-sonnet-4-6", show_default=True)
+@click.option("--judge-model", default="claude-opus-4-7", show_default=True)
 @click.option("--rubric", default="v1", show_default=True)
 @click.option("--concurrency", type=int, default=3, show_default=True)
 @click.option("--force", is_flag=True,

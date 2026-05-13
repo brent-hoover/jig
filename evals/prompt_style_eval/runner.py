@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from evals.prompt_style_eval import classify, metrics, sandbox
-from evals.prompt_style_eval.classify import extract_assistant_text, extract_code
+from evals.prompt_style_eval.classify import (
+    extract_assistant_text,
+    extract_files,
+)
 from evals.prompt_style_eval.judge import JudgeError
 from evals.prompt_style_eval.judge import score as judge_score
 from evals.prompt_style_eval.models import Cell, Rubric, RunRecord, Task
@@ -78,24 +81,33 @@ async def run_cell(
         return RunRecord(outcome=outcome, **base, **candidate_fields)
 
     text = extract_assistant_text(invocation.transcript) or ""
-    code = extract_code(text)
-    if code is None:
+    files = extract_files(text, default_filename=task.entrypoint)
+    if not files:
         # Classifier said "code" but extraction came up empty — treat as
         # malformed rather than crashing.
         return RunRecord(outcome="malformed", **base, **candidate_fields)
 
-    test_result = await sandbox.run_tests(code, task, tests_dir, fixtures=fixtures)
-    static_metrics = await metrics.compute(code)
+    test_result = await sandbox.run_tests(files, task, tests_dir, fixtures=fixtures)
 
+    # Static metrics: judge the entrypoint file (the candidate's main artifact
+    # for single-file tasks; for multi-file tasks the entrypoint is the most
+    # interesting single file to measure, even if the entire candidate is
+    # bigger).
+    entrypoint_source = files.get(task.entrypoint) or next(iter(files.values()))
+    static_metrics = await metrics.compute(entrypoint_source)
+
+    # Judge: same — use the entrypoint as the representative artifact for
+    # the quality rubric. (If the judge should later see all files, we'd
+    # build a combined string here.)
     try:
-        judge = await judge_score(code, rubric, model=judge_model)
+        judge = await judge_score(entrypoint_source, rubric, model=judge_model)
     except JudgeError as exc:
         _logger.warning("Judge failed for run %s: %s", run_id, exc)
         judge = None
 
     return RunRecord(
         outcome="code",
-        extracted_code=code,
+        extracted_files=files,
         test_result=test_result,
         static_metrics=static_metrics,
         judge=judge,

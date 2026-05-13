@@ -86,6 +86,84 @@ def extract_code(text: str) -> str | None:
     return "\n\n".join(cleaned)
 
 
+_FENCE_WITH_POS_RE = re.compile(
+    r"```([a-zA-Z0-9_+\-]*)\n(.*?)```", re.DOTALL
+)
+
+
+def _filename_from_heading(text: str) -> str | None:
+    """Inspect the last non-blank line of ``text`` for a filename heading.
+
+    Matches markdown patterns the model is likely to produce:
+    ``**app.py**``, ``### app.py``, ``## app.py``, ``# app.py``,
+    ``File: app.py``, ``app.py:``.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    candidate = lines[-1]
+    patterns = (
+        r"^\*\*([a-zA-Z0-9_./-]+\.py)\*\*\s*$",
+        r"^#{1,4}\s+([a-zA-Z0-9_./-]+\.py)\s*$",
+        r"^(?:File|Filename):\s*([a-zA-Z0-9_./-]+\.py)\s*$",
+        r"^([a-zA-Z0-9_./-]+\.py)\s*:\s*$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, candidate, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _filename_from_first_line(code: str) -> str | None:
+    """If the first line of the code is ``# app.py``, return ``"app.py"``."""
+    first = code.splitlines()[0].strip() if code else ""
+    if not first.startswith("#"):
+        return None
+    rest = first.lstrip("#").strip()
+    if not rest:
+        return None
+    first_token = rest.split()[0]
+    if re.fullmatch(r"[a-zA-Z0-9_./-]+\.py", first_token):
+        return first_token
+    return None
+
+
+def extract_files(text: str, *, default_filename: str) -> dict[str, str]:
+    """Extract one or more named files from a model response.
+
+    Each fenced code block is associated with a filename in priority order:
+    (1) a markdown heading or ``**bold**`` filename immediately preceding it,
+    (2) a ``# filename.py`` comment on the first line of the block,
+    (3) ``default_filename`` for the first unlabeled block.
+
+    Subsequent unlabeled blocks are dropped — the model is expected to label
+    its files when emitting more than one. Returns an empty dict when no code
+    blocks are present.
+    """
+    files: dict[str, str] = {}
+    cursor = 0
+    default_used = False
+    for match in _FENCE_WITH_POS_RE.finditer(text):
+        preceding = text[cursor:match.start()]
+        body = match.group(2).rstrip("\n")
+
+        filename = (
+            _filename_from_heading(preceding)
+            or _filename_from_first_line(body)
+        )
+        if filename is None and not default_used:
+            filename = default_filename
+            default_used = True
+        if filename is None:
+            cursor = match.end()
+            continue
+
+        files[filename] = body
+        cursor = match.end()
+    return files
+
+
 def _looks_like_refusal(text: str) -> bool:
     head = text.lstrip().lower()
     return any(head.startswith(prefix) for prefix in _REFUSAL_PREFIXES)

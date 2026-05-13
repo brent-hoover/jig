@@ -50,7 +50,7 @@ def _code_run(
         prompt="x",
         transcript=[],
         outcome="code",
-        extracted_code="print('hi')",
+        extracted_files={"todo.py": "print('hi')"},
         test_result=TestResult(
             passed=passed,
             n_passed=5 if passed else 4,

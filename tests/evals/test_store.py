@@ -45,7 +45,7 @@ def _make_code_run(run_id: str, **overrides: object) -> RunRecord:
         "prompt": "Build a todo CLI.",
         "transcript": [{"role": "assistant", "content": "ok"}],
         "outcome": "code",
-        "extracted_code": "print('hi')",
+        "extracted_files": {"todo.py": "print('hi')"},
         "test_result": TestResult(passed=True, n_passed=5, n_failed=0, duration_s=0.5),
         "static_metrics": StaticMetrics(loc=42, ruff_findings=0, cyclomatic_max=3),
         "judge": JudgeScore(

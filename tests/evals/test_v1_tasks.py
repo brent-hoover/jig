@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from evals.prompt_style_eval.classify import extract_files
 from evals.prompt_style_eval.loaders import task_fixture_paths
 from evals.prompt_style_eval.models import Task
 from evals.prompt_style_eval.sandbox import run_tests
@@ -40,11 +41,28 @@ def _discover_task_ids() -> list[str]:
 async def test_reference_solution_passes_hidden_tests(task_id: str) -> None:
     task_dir = _TASKS_DIR / task_id
     task = Task(**yaml.safe_load((task_dir / "task.yaml").read_text(encoding="utf-8")))
-    code = (task_dir / "reference.py").read_text(encoding="utf-8")
     tests_dir = task_dir / "tests"
 
+    # reference.md (preferred): markdown response with one or more named
+    # code blocks, parsed by extract_files. Lets us exercise the full
+    # extraction pipeline against a known-good response shape.
+    # reference.py (legacy / single-file): plain Python source for the
+    # task's entrypoint.
+    reference_md = task_dir / "reference.md"
+    reference_py = task_dir / "reference.py"
+    if reference_md.exists():
+        files = extract_files(
+            reference_md.read_text(encoding="utf-8"),
+            default_filename=task.entrypoint,
+        )
+        assert files, f"{task_id}/reference.md produced no extractable files"
+    elif reference_py.exists():
+        files = {task.entrypoint: reference_py.read_text(encoding="utf-8")}
+    else:
+        pytest.fail(f"{task_id}: neither reference.md nor reference.py present")
+
     fixtures = task_fixture_paths(task)
-    result = await run_tests(code, task, tests_dir, fixtures=fixtures)
+    result = await run_tests(files, task, tests_dir, fixtures=fixtures)
     assert result.passed, (
         f"reference solution for {task_id} failed its own hidden tests:\n"
         f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
@@ -60,12 +78,14 @@ def test_task_has_required_files(task_id: str) -> None:
         "task.yaml",
         "description.md",
         "README.md",
-        "reference.py",
         "tests",
         "prompts",
     ]
     missing = [name for name in required if not (task_dir / name).exists()]
     assert not missing, f"{task_id}: missing {missing}"
+    # Either reference.md or reference.py must exist.
+    has_reference = (task_dir / "reference.md").exists() or (task_dir / "reference.py").exists()
+    assert has_reference, f"{task_id}: neither reference.md nor reference.py present"
 
 
 @pytest.mark.parametrize("task_id", _discover_task_ids())

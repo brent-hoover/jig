@@ -48,27 +48,28 @@ def parse_pytest_summary(stdout: str) -> tuple[int, int]:
 
 
 async def run_tests(
-    code: str,
+    files: dict[str, str],
     task: Task,
     tests_dir: Path,
     *,
     fixtures: list[Path] | None = None,
 ) -> TestResult:
-    """Run ``task.test_command`` against ``code`` in a tmpdir sandbox.
+    """Run ``task.test_command`` against the candidate's ``files`` in a tmpdir
+    sandbox.
 
-    ``code`` is written to ``task.entrypoint`` inside a fresh tmpdir, the
-    contents of ``tests_dir`` are copied to ``tmpdir/tests/``, any
-    ``fixtures`` (provided code the candidate must interoperate with —
-    e.g. a client module) are copied to ``tmpdir/`` so they're importable
-    alongside the candidate's entrypoint, and the subprocess runs with
-    ``cwd=tmpdir`` and ``PYTHONPATH=tmpdir``. The subprocess is killed
-    after ``task.timeout_s`` seconds.
+    ``files`` maps relative paths (e.g. ``"app.py"``, ``"client.py"``) to
+    source. Each file is written into a fresh tmpdir, the contents of
+    ``tests_dir`` are copied to ``tmpdir/tests/``, any ``fixtures`` (extra
+    provided files like sample data) are copied alongside, and the subprocess
+    runs with ``cwd=tmpdir`` and ``PYTHONPATH=tmpdir``. The subprocess is
+    killed after ``task.timeout_s`` seconds.
     """
     with tempfile.TemporaryDirectory(prefix="pse-sandbox-") as tmp:
         tmp_path = Path(tmp)
-        entrypoint = tmp_path / task.entrypoint
-        entrypoint.parent.mkdir(parents=True, exist_ok=True)
-        entrypoint.write_text(code, encoding="utf-8")
+        for rel_path, source in files.items():
+            target = tmp_path / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
 
         shutil.copytree(tests_dir, tmp_path / "tests")
         for fixture in fixtures or []:

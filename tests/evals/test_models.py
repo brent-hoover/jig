@@ -44,7 +44,7 @@ def _make_code_run(**overrides: object) -> RunRecord:
         "prompt": "Build a todo CLI.",
         "transcript": [{"role": "assistant", "content": "..."}],
         "outcome": "code",
-        "extracted_code": "print('hi')",
+        "extracted_files": {"todo.py": "print('hi')"},
         "test_result": TestResult(passed=True, n_passed=5, n_failed=0, duration_s=0.5),
         "static_metrics": StaticMetrics(loc=42, ruff_findings=0, cyclomatic_max=3),
         "judge": JudgeScore(
@@ -83,8 +83,8 @@ def test_rubric_rejects_duplicate_item_ids() -> None:
 
 def test_code_outcome_requires_all_code_specific_fields() -> None:
     with pytest.raises(ValidationError) as exc:
-        _make_code_run(extracted_code=None)
-    assert "extracted_code" in str(exc.value)
+        _make_code_run(extracted_files=None)
+    assert "extracted_files" in str(exc.value)
 
 
 def test_code_outcome_requires_test_result() -> None:

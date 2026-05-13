@@ -4,5 +4,3 @@ language: python
 entrypoint: app.py
 test_command: ["python", "-m", "pytest", "-q", "tests/"]
 timeout_s: 60
-fixtures:
-  - client.py

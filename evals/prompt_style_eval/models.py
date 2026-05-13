@@ -129,7 +129,11 @@ class RunRecord(BaseModel):
     prompt: str  # full prompt text sent to the candidate
     transcript: list[dict]  # SDK message list; opaque to the harness
     outcome: Outcome
-    extracted_code: str | None = None
+    extracted_files: dict[str, str] | None = None
+    """Filename → source for every file the model emitted. Single-file tasks
+    have one entry keyed by the task's entrypoint; multi-file tasks (where
+    the candidate emits e.g. ``app.py`` and ``client.py``) have one per file.
+    None when the candidate didn't produce code."""
     test_result: TestResult | None = None
     static_metrics: StaticMetrics | None = None
     judge: JudgeScore | None = None
@@ -139,11 +143,11 @@ class RunRecord(BaseModel):
 
     @model_validator(mode="after")
     def _outcome_fields_consistent(self) -> "RunRecord":
-        # extracted_code / test_result / static_metrics are required when the
+        # extracted_files / test_result / static_metrics are required when the
         # candidate produced code — those are local computations and there's
         # no reason they would fail when the rest of the pipeline succeeded.
         code_required = {
-            "extracted_code": self.extracted_code,
+            "extracted_files": self.extracted_files,
             "test_result": self.test_result,
             "static_metrics": self.static_metrics,
         }
@@ -158,6 +162,8 @@ class RunRecord(BaseModel):
                 raise ValueError(
                     f"outcome='code' requires {', '.join(sorted(missing))} to be populated"
                 )
+            if self.extracted_files is not None and not self.extracted_files:
+                raise ValueError("outcome='code' requires extracted_files to be non-empty")
         else:
             populated = [name for name, value in all_code_specific.items() if value is not None]
             if populated:

@@ -145,7 +145,7 @@ async def test_run_cell_question_outcome(monkeypatch: pytest.MonkeyPatch) -> Non
     assert record.outcome == "question"
     assert record.test_result is None
     assert record.judge is None
-    assert record.extracted_code is None
+    assert record.extracted_files is None
 
 
 async def test_run_cell_sdk_error_becomes_error_outcome(

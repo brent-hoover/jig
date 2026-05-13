@@ -1,9 +1,6 @@
-"""Reference solution for ``todo_api``.
+### app.py
 
-Used to sanity-check the hidden tests pass against a known-good implementation.
-Never sent to the candidate or the judge.
-"""
-
+```python
 from __future__ import annotations
 
 import json
@@ -96,3 +93,73 @@ def delete_todo(todo_id: str) -> None:
             _save(items)
             return
     raise HTTPException(status_code=404, detail="not found")
+```
+
+### client.py
+
+```python
+from __future__ import annotations
+
+import httpx
+
+
+class ItemNotFound(KeyError):
+    """Raised when no item exists for the given id."""
+
+
+class TodoClient:
+    def __init__(
+        self,
+        *,
+        base_url: str = "http://localhost:8000",
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        self._http = http_client or httpx.Client(base_url=base_url)
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> "TodoClient":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def create(self, text: str) -> dict:
+        response = self._http.post("/todos", json={"text": text})
+        response.raise_for_status()
+        return response.json()
+
+    def get(self, item_id: str) -> dict:
+        response = self._http.get(f"/todos/{item_id}")
+        if response.status_code == 404:
+            raise ItemNotFound(item_id)
+        response.raise_for_status()
+        return response.json()
+
+    def list(self, *, status: str | None = None) -> list[dict]:
+        params = {"status": status} if status is not None else None
+        response = self._http.get("/todos", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def mark_done(self, item_id: str, done: bool = True) -> dict:
+        response = self._http.put(f"/todos/{item_id}", json={"done": done})
+        if response.status_code == 404:
+            raise ItemNotFound(item_id)
+        response.raise_for_status()
+        return response.json()
+
+    def update_text(self, item_id: str, text: str) -> dict:
+        response = self._http.put(f"/todos/{item_id}", json={"text": text})
+        if response.status_code == 404:
+            raise ItemNotFound(item_id)
+        response.raise_for_status()
+        return response.json()
+
+    def delete(self, item_id: str) -> None:
+        response = self._http.delete(f"/todos/{item_id}")
+        if response.status_code == 404:
+            raise ItemNotFound(item_id)
+        response.raise_for_status()
+```

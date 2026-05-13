@@ -76,7 +76,7 @@ async def test_run_tests_passes_when_all_pass(tmp_path: Path) -> None:
         "    assert greet() == 'hi'\n",
     )
     code = "def greet() -> str:\n    return 'hi'\n"
-    result = await run_tests(code, _make_task(), tests_dir)
+    result = await run_tests({"solution.py": code}, _make_task(), tests_dir)
     assert result.passed is True
     assert result.n_passed == 1
     assert result.n_failed == 0
@@ -93,7 +93,7 @@ async def test_run_tests_fails_when_tests_fail(tmp_path: Path) -> None:
         "    assert greet() == 'bye'\n",
     )
     code = "def greet() -> str:\n    return 'hi'\n"
-    result = await run_tests(code, _make_task(), tests_dir)
+    result = await run_tests({"solution.py": code}, _make_task(), tests_dir)
     assert result.passed is False
     assert result.n_passed == 1
     assert result.n_failed == 1
@@ -107,7 +107,7 @@ async def test_run_tests_times_out_on_infinite_loop(tmp_path: Path) -> None:
         "    loop()\n",
     )
     code = "def loop() -> None:\n    while True:\n        pass\n"
-    result = await run_tests(code, _make_task(timeout_s=2), tests_dir)
+    result = await run_tests({"solution.py": code}, _make_task(timeout_s=2), tests_dir)
     assert result.passed is False
     assert "killed after 2s timeout" in result.stderr
 
@@ -124,7 +124,7 @@ async def test_subprocess_cwd_is_the_tmpdir(tmp_path: Path) -> None:
         "    assert 'pse-sandbox-' in cwd, f'cwd was {cwd}'\n",
     )
     code = "# no functions needed\n"
-    result = await run_tests(code, _make_task(), tests_dir)
+    result = await run_tests({"solution.py": code}, _make_task(), tests_dir)
     assert result.passed is True
 
 
@@ -136,7 +136,7 @@ async def test_runtime_error_in_solution_fails_loud(tmp_path: Path) -> None:
         "    boom()\n",
     )
     code = "def boom() -> None:\n    raise RuntimeError('expected')\n"
-    result = await run_tests(code, _make_task(), tests_dir)
+    result = await run_tests({"solution.py": code}, _make_task(), tests_dir)
     assert result.passed is False
     assert result.n_failed == 1
 
@@ -152,5 +152,5 @@ async def test_import_error_is_a_failure_not_a_crash(
         "def test_anything():\n"
         "    assert not_defined() == 1\n",
     )
-    result = await run_tests(snippet, _make_task(), tests_dir)
+    result = await run_tests({"solution.py": snippet}, _make_task(), tests_dir)
     assert result.passed is False

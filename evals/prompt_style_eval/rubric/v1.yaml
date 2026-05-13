@@ -1,0 +1,21 @@
+version: v1
+items:
+  - id: type_hints_present
+    prompt: "Do all function and method signatures include type hints (parameters and return types)?"
+    scale: bool
+
+  - id: no_bare_except
+    prompt: "Are all `except` clauses targeted to specific exception types (no bare `except:` or overly broad `except Exception:`)?"
+    scale: bool
+
+  - id: function_names_descriptive
+    prompt: "Are function and method names descriptive — they communicate what the function does without needing to read the body?"
+    scale: likert_5
+
+  - id: scope_appropriate
+    prompt: "Is the code appropriately scoped for the task — neither under-built (missing required behaviors) nor over-engineered (gratuitous abstractions, premature configurability)?"
+    scale: likert_5
+
+  - id: no_obvious_dead_code
+    prompt: "Is the code free of obvious dead code — unused imports, unreferenced functions/variables, commented-out blocks?"
+    scale: bool

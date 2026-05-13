@@ -1,8 +1,8 @@
-"""Tests for the prompt-style-eval CLI scaffold (plan step 1).
+"""Tests for the CLI surface.
 
-The scaffold only needs to: (a) expose three subcommands so ``--help`` is
-discoverable, and (b) fail loudly when those subcommands are invoked, since
-none of them are implemented yet.
+Originally a step-1 scaffold; now the scaffold has filled in. Still verifies
+the three subcommands are discoverable; ``rescore`` is still a stub at this
+point (plan step 13).
 """
 
 from click.testing import CliRunner
@@ -17,19 +17,21 @@ def test_help_lists_all_three_subcommands() -> None:
         assert subcommand in result.output, f"{subcommand} missing from --help"
 
 
-def test_run_fails_with_not_yet_implemented() -> None:
-    result = CliRunner().invoke(cli, ["run"])
-    assert result.exit_code != 0
-    assert "not yet implemented" in result.output
+def test_run_help_lists_required_task_option() -> None:
+    result = CliRunner().invoke(cli, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--task" in result.output
+    assert "--prompt" in result.output
+    assert "--seeds" in result.output
 
 
-def test_report_fails_with_not_yet_implemented() -> None:
-    result = CliRunner().invoke(cli, ["report"])
-    assert result.exit_code != 0
-    assert "not yet implemented" in result.output
+def test_report_help_lists_format_option() -> None:
+    result = CliRunner().invoke(cli, ["report", "--help"])
+    assert result.exit_code == 0
+    assert "--format" in result.output
 
 
-def test_rescore_fails_with_not_yet_implemented() -> None:
+def test_rescore_still_stubbed() -> None:
     result = CliRunner().invoke(cli, ["rescore"])
     assert result.exit_code != 0
     assert "not yet implemented" in result.output

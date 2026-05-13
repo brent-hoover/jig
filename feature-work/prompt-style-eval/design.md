@@ -159,6 +159,22 @@ Run alongside the judge, no model call:
 
 These are reported alongside the judge score in the per-style breakdown, never collapsed into the judge number.
 
+### Implementation-choice observation (post-hoc, not via tests)
+
+Hidden tests check behavior, not implementation choices — they do not assert that the model picked any particular
+subcommand name, output format, completion marker, or persistence file format. Those decisions are *interesting*
+(they tell us what each prompt style biases the model toward) but should not influence pass/fail.
+
+The reporter (plan step 12) surfaces these as descriptive statistics over the persisted runs:
+
+- Sampled excerpts of `extracted_code` per prompt style (first/last N chars, or a hand-picked random sample),
+  so a human reviewer can eyeball the distribution of solutions.
+- Optional heuristic histograms over `extracted_code` (e.g. detected subcommand names, output-format
+  fingerprints) — added on demand when a specific question is worth answering, not built in v1.
+
+Because the raw transcript and extracted code are persisted, retroactively asking "what subcommand names did
+prose-spec produce vs yaml-spec?" is a one-shot query, not a re-run.
+
 ## Interfaces
 
 ### CLI

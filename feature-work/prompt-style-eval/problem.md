@@ -134,9 +134,14 @@ no framework. Everything beyond it is added complexity that has to earn its plac
   is versioned and frozen for the duration of a comparison.
 - Adding a new task is a single-directory change. Adding a new prompt variant for an existing task is a
   single-file change inside that task.
-- A task is a *hidden test suite plus its prompt variants*, not a structured spec. Different prompts for the same
-  task aim to express the same requirements in different forms (YAML, prose, EARS, bullets, …); they are
-  hand-authored and reviewed for equivalence rather than rendered from a shared structured source.
+- A task is a *hidden test suite plus its prompt variants*, not a structured spec. The variants are
+  hand-authored. Two valid framings exist and each task picks one (documented in its `README.md`):
+  - *Detail-matched*: every variant encodes the same concrete requirements (format strings, exit codes,
+    error behaviors), so the only thing varying is the wire form. Isolates "form" as the eval variable.
+  - *Natural-voice*: each variant is written in the voice/density natural to its form — jig's structured
+    spec carries explicit acceptance criteria; user-story prose stays high-level and lets the model infer
+    specifics. Measures the comparison that actually matters in practice (jig's detailed spec vs the
+    user-story-level prose people would naturally write), at the cost of conflating form and detail.
 - Failed runs (timeout, malformed output, judge error, agent-asked-a-question) are recorded as outcomes, not
   dropped, and surfaced in the per-style report as their own bucket.
 

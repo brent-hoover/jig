@@ -1,64 +1,58 @@
-Build a CLI program `todo.py` in Python 3, in a single file, using only the Python standard library. Persist
-data in the current working directory in any file format you choose.
+Build a small command-line todo manager called `todo.py` in Python 3, in a single file, using only the standard
+library. Data should persist in the working directory.
 
-The product's capabilities are specified below in our project-spec format (a subset — runtime metadata fields are
-omitted).
+The product's capabilities are specified below in our project-spec format (a subset — runtime metadata fields
+are omitted).
 
 ```yaml
 name: todo
 summary: A small command-line todo manager.
 capabilities:
-  - id: add-todo
-    title: Add a todo item
+  - id: add-items
+    title: Add items
     state: planned
     user_story:
       as: user
-      want: to add a new todo item from the command line
-      benefit: I can capture things to do as they come up
+      want: to capture things to do as they come up
+      benefit: I don't have to hold them all in my head
     behaviors:
-      - id: add-command
-        description: |
-          Append a new item with the given text to the end of the list.
+      - id: add
+        description: Add a new item to the list.
         acceptance_criteria:
-          - "Running `todo.py add <text>` appends `<text>` as a new open item."
-          - "On success, stdout is empty and the exit code is 0."
+          - "After adding an item, it appears when I list."
+          - "Newly added items are not yet completed."
+          - "When I add several items, they show up in the order I added them."
 
-  - id: list-todos
-    title: List todos
+  - id: list-items
+    title: List items
     state: planned
     user_story:
       as: user
-      want: to see all my todos at the command line
-      benefit: I can review what I still need to do
+      want: to see what's still outstanding
+      benefit: I know what to work on next
     behaviors:
-      - id: list-command
-        description: |
-          Print every item, one per line, in insertion order with 1-based
-          numbering. Open items use the format `<n>. <text>`. Completed
-          items use the format `<n>. [x] <text>`. An empty list prints
-          nothing.
+      - id: list
+        description: Show every item.
         acceptance_criteria:
-          - "Running `todo.py list` prints every item, one per line, numbered from 1."
-          - "Open items appear as `<n>. <text>`."
-          - "Completed items appear as `<n>. [x] <text>`."
-          - "An empty list prints nothing."
-          - "Exit code is 0."
+          - "Every item I've added appears in the output."
+          - "Items appear in the order they were added."
+          - "Each item is numbered, so I can refer to it later."
+          - "Completed items are visually distinguishable from open items."
+          - "An empty list produces no output."
 
-  - id: complete-todo
-    title: Mark a todo done
+  - id: complete-items
+    title: Mark items complete
     state: planned
     user_story:
       as: user
-      want: to mark a todo as done
-      benefit: I can keep track of what's left
+      want: to mark items done once I've finished them
+      benefit: my list reflects where I actually am
     behaviors:
-      - id: done-command
-        description: |
-          Mark the item at the given 1-based index as complete.
+      - id: complete
+        description: Mark an item complete by referring to its position in the list.
         acceptance_criteria:
-          - "Running `todo.py done <n>` marks the item at position `n` (1-based) as complete."
-          - "On success, stdout is empty and the exit code is 0."
-          - "If `n` is non-integer or out of range, print a message to stderr and exit with a non-zero code."
+          - "After I mark item N complete, it appears as completed the next time I list."
+          - "Referring to a position that doesn't exist (or isn't a number) is treated as an error and reported clearly rather than silently doing nothing."
 
 non_goals:
   - id: no-third-party-deps

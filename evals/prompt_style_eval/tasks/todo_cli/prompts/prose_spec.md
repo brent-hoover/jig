@@ -1,23 +1,14 @@
-Build a CLI program called `todo.py` that manages a list of todo items. It should be written in Python 3, live
-in a single file, persist its data in the current working directory in any file format you choose, and use only
-the Python standard library — no third-party packages.
+Build a small command-line todo manager called `todo.py`. Python 3, single file, standard library only — data
+should persist locally in the working directory.
 
-The program supports three subcommands.
+**As a user, I want to capture things to do as they come up,** so I don't have to keep them all in my head. I
+should be able to add a new item from the command line by giving its text.
 
-The first is `add`. As a user I want to add a new todo item from the command line so I can capture things to do
-as they come up. Running `todo.py add <text>` appends `<text>` as a new open item to the end of the list. On
-success, stdout is empty and the exit code is 0.
+**As a user, I want to see what's still outstanding,** so I know what to work on next. The program should let
+me list my items — each one numbered, with completed items distinguishable from open ones at a glance.
 
-The second is `list`. As a user I want to see all my todos at the command line so I can review what I still
-need to do. Running `todo.py list` prints every item, one per line, in insertion order with 1-based numbering.
-Open items appear as `<n>. <text>`. Completed items appear as `<n>. [x] <text>`. An empty list prints nothing.
-Exit code is 0.
-
-The third is `done`. As a user I want to mark a todo as done so I can keep track of what's left. Running
-`todo.py done <n>` marks the item at position `n` (1-based) as complete. On success, stdout is empty and the
-exit code is 0. If `n` is non-integer or out of range, print a message to stderr and exit with a non-zero code.
-
-Out of scope: third-party Python packages (the standard library is sufficient) and any database or network
-persistence (a file in the working directory is sufficient).
+**As a user, I want to mark items done once I've finished them,** so my list reflects where I actually am. I
+should be able to mark an item complete by referring to its number. If I refer to a number that doesn't
+correspond to anything in my list, the program should tell me clearly rather than silently doing nothing.
 
 Output your solution as a single Python code block.

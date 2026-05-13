@@ -47,14 +47,22 @@ def parse_pytest_summary(stdout: str) -> tuple[int, int]:
     return n_passed, n_failed
 
 
-async def run_tests(code: str, task: Task, tests_dir: Path) -> TestResult:
+async def run_tests(
+    code: str,
+    task: Task,
+    tests_dir: Path,
+    *,
+    fixtures: list[Path] | None = None,
+) -> TestResult:
     """Run ``task.test_command`` against ``code`` in a tmpdir sandbox.
 
     ``code`` is written to ``task.entrypoint`` inside a fresh tmpdir, the
-    contents of ``tests_dir`` are copied to ``tmpdir/tests/``, and the
-    subprocess runs with ``cwd=tmpdir`` and ``PYTHONPATH=tmpdir`` so the
-    entrypoint module is importable from the tests. The subprocess is
-    killed after ``task.timeout_s`` seconds.
+    contents of ``tests_dir`` are copied to ``tmpdir/tests/``, any
+    ``fixtures`` (provided code the candidate must interoperate with —
+    e.g. a client module) are copied to ``tmpdir/`` so they're importable
+    alongside the candidate's entrypoint, and the subprocess runs with
+    ``cwd=tmpdir`` and ``PYTHONPATH=tmpdir``. The subprocess is killed
+    after ``task.timeout_s`` seconds.
     """
     with tempfile.TemporaryDirectory(prefix="pse-sandbox-") as tmp:
         tmp_path = Path(tmp)
@@ -63,6 +71,8 @@ async def run_tests(code: str, task: Task, tests_dir: Path) -> TestResult:
         entrypoint.write_text(code, encoding="utf-8")
 
         shutil.copytree(tests_dir, tmp_path / "tests")
+        for fixture in fixtures or []:
+            shutil.copy(fixture, tmp_path / fixture.name)
 
         env = os.environ.copy()
         existing = env.get("PYTHONPATH", "")

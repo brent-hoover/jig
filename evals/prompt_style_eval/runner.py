@@ -32,6 +32,8 @@ async def run_cell(
     tests_dir: Path,
     rubric: Rubric,
     judge_model: str,
+    *,
+    fixtures: list[Path] | None = None,
 ) -> RunRecord:
     """Produce one ``RunRecord`` for the given cell + prompt.
 
@@ -82,7 +84,7 @@ async def run_cell(
         # malformed rather than crashing.
         return RunRecord(outcome="malformed", **base, **candidate_fields)
 
-    test_result = await sandbox.run_tests(code, task, tests_dir)
+    test_result = await sandbox.run_tests(code, task, tests_dir, fixtures=fixtures)
     static_metrics = await metrics.compute(code)
 
     try:

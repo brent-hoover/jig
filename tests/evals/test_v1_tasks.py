@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from evals.prompt_style_eval.loaders import task_fixture_paths
 from evals.prompt_style_eval.models import Task
 from evals.prompt_style_eval.sandbox import run_tests
 
@@ -42,7 +43,8 @@ async def test_reference_solution_passes_hidden_tests(task_id: str) -> None:
     code = (task_dir / "reference.py").read_text(encoding="utf-8")
     tests_dir = task_dir / "tests"
 
-    result = await run_tests(code, task, tests_dir)
+    fixtures = task_fixture_paths(task)
+    result = await run_tests(code, task, tests_dir, fixtures=fixtures)
     assert result.passed, (
         f"reference solution for {task_id} failed its own hidden tests:\n"
         f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"

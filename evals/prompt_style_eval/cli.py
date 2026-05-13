@@ -153,6 +153,7 @@ async def _run_async(
     async def _one_run(task, prompt, cell):
         async with semaphore:
             tests_dir = loaders.task_tests_dir(task.id)
+            fixtures = loaders.task_fixture_paths(task)
             record = await run_cell(
                 cell=cell,
                 prompt_text=prompt.text,
@@ -160,6 +161,7 @@ async def _run_async(
                 tests_dir=tests_dir,
                 rubric=rubric,
                 judge_model=judge_model,
+                fixtures=fixtures,
             )
             await store.append(record)
             completed["n"] += 1

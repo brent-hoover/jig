@@ -37,6 +37,13 @@ def task_tests_dir(task_id: str) -> Path:
     return TASKS_DIR / task_id / "tests"
 
 
+def task_fixture_paths(task: Task) -> list[Path]:
+    """Resolve ``task.fixtures`` (strings, relative to the task dir) to
+    absolute paths for the sandbox to copy."""
+    task_dir = TASKS_DIR / task.id
+    return [task_dir / name for name in task.fixtures]
+
+
 def list_prompt_ids(task_id: str) -> list[str]:
     prompts_dir = TASKS_DIR / task_id / "prompts"
     if not prompts_dir.exists():

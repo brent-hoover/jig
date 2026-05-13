@@ -30,6 +30,10 @@ class Task(BaseModel):
     entrypoint: str
     test_command: list[str]
     timeout_s: int = Field(gt=0)
+    fixtures: list[str] = Field(default_factory=list)
+    """Filenames (relative to the task directory) copied into the sandbox tmpdir
+    alongside ``tests/``. Used for shared client code, sample data, etc. — anything
+    the candidate's solution must interoperate with."""
 
 
 class Prompt(BaseModel):

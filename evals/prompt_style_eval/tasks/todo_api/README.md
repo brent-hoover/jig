@@ -2,57 +2,59 @@
 
 ## What this task is for
 
-A meaningfully larger problem than `todo_cli`: five resource operations over HTTP, request/response validation,
-filtering, error paths (404 for missing resources, 4xx for bad input), and file-backed persistence. ~150 LoC of
-solution. Enough surface area that prompt-style detail may produce visible signal — different specs leave
-different decisions to the developer, and some of those decisions will be observable in test outcomes.
+The candidate is asked to build the *server* side of a small todo HTTP API. The contract isn't invented by the
+spec — it's inherited from a pre-existing client (`client.py`) shipped as a task fixture. The candidate sees
+the client code in the prompt and must make a server that satisfies it.
+
+This is the realistic shape for HTTP APIs: contracts come from clients (existing consumers, frontends, other
+services), not from product specs. The product spec describes what the system does for the user; the client
+encodes the wire-level details (URLs, body shapes, status conventions, error semantics).
 
 ## What the hidden tests cover (behaviorally)
 
-The fixture re-imports the candidate's `app` module per test with `cwd` set to a fresh `tmp_path`, so each test
-starts with empty storage. Then 14 tests, behaviorally focused:
+Hidden tests use the same `client.py` the candidate was shown. They don't construct raw HTTP requests; they
+call `todo.create(...)`, `todo.list(status="open")`, etc. and verify behavior:
 
-- Creating an item returns success and an identifier.
-- The created item appears in the listing.
-- Fetching by identifier works; fetching a missing identifier is a client error (4xx).
+- `create` returns an item with an `id`, the text, and `done=False`.
+- A created item appears in `list()`.
 - Multiple created items are all preserved.
-- Marking an item complete persists across reads.
-- Updating an item's text persists.
-- Updating a missing item is a 4xx.
-- Filtering the list by open / done status works.
-- Deleting an item succeeds and the item disappears from listings and subsequent reads.
-- Deleting a missing item is a 4xx.
-- State persists across separate app imports (file-backed, not in-memory).
+- `get(id)` returns the item; `get(missing_id)` raises `ItemNotFound`.
+- `mark_done(id)` persists; `update_text(id, ...)` persists; `mark_done(id, False)` re-opens.
+- Updating a missing id raises `ItemNotFound`.
+- `list(status="open")` excludes completed items; `list(status="done")` excludes open ones.
+- `delete(id)` removes the item from listings and reads; deleting a missing id raises `ItemNotFound`.
+- Items survive across separate process imports (file-backed, not in-memory).
 
-Tests check status-code *class* (`// 100 == 2` for success, `4` for client error) rather than exact codes —
-201 vs 200, 204 vs 200, 404 vs 422 are all conventions the developer chooses.
+What the tests do NOT check: HTTP status codes, URL shapes, response body field names, JSON encoding choices.
+Those are encoded once in `client.py` — the candidate gets them from there, the tests get them from there, no
+duplication.
 
 ## Prompt asymmetry is intentional
 
 Same principle as `todo_cli`:
 
-- `yaml_spec.md` is in jig's project-spec format with explicit testable acceptance criteria per behavior.
-- `prose_spec.md` is in user-story voice — what the API is for, who uses it, what they want.
+- `yaml_spec.md` is in jig's project-spec format with explicit testable behavioral acceptance criteria.
+- `prose_spec.md` is in user-story voice.
 
-Neither prompt prescribes HTTP method choices, status codes, URL shapes, or response body schemas. Those are
-the developer's call.
+Both share the same project-context prefix: the implementation constraints (Python 3, FastAPI, single file at
+`app.py`) and the client code that defines the wire contract.
 
-The eval question: does jig's structured spec produce more reliable HTTP behavior than user-story prose, on a
-problem big enough that "reliable behavior" is a non-trivial bar?
+## Sandbox setup
+
+`task.yaml` lists `client.py` as a fixture. The sandbox copies it into the sandbox tmpdir alongside the
+candidate's `app.py` and the hidden `tests/` directory. From inside the sandbox, both the candidate's app and
+the tests can `from client import TodoClient`.
 
 ## What this task discriminates between prompt styles
 
-- URL design: `/todos/{id}` vs `/todo/{id}` vs `/items/{id}` — does either form guide the model toward a more
-  conventional shape?
-- Error handling: 404 for missing resource is the convention but models sometimes do 422 or 500. The YAML's
-  "client-error response" hint is permissive but does point in the right direction.
-- Filtering: query string (`?status=open`) is conventional but other shapes (`/todos/open`, body-with-GET) are
-  possible. Does the YAML's "filtered to only those that are open or only those that are completed" make this
-  obvious?
-- Persistence shape: a single JSON file is the simplest path; will the model pick that or invent something
-  more elaborate?
+- Both prompts hand the model the same wire contract via the client code. The variable is the spec part:
+  does jig's structured AC list produce more reliable behavior than the prose user stories?
+- Plausible signal points: filter semantics (does the candidate correctly route `?status=open|done` and
+  *implement* the filter), update semantics (do PUT changes persist), error semantics (does `get` of a missing
+  id return 404 so the client raises `ItemNotFound`), persistence (do items actually hit disk?).
 
 ## Implementation-choice observation (not via tests)
 
-URL shapes, status code choices, persistence file format, validation strictness — all observable from the
-persisted `extracted_code`. Surfaced by the reporter, not the tests.
+Things the model can still vary: the persistence file format, ID generation strategy, internal data
+structures, validation strictness, code organization. All observable from the persisted `extracted_code` —
+surfaced by the reporter, not the tests.

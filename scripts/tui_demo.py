@@ -4,7 +4,7 @@
 Usage (two terminals):
 
     Terminal 1 (project dir):  uv run scripts/tui_demo.py
-    Terminal 2 (project dir):  jig --no-docker   (or just: jig)
+    Terminal 2 (project dir):  jig
 
 Press SPACE or ENTER to advance through scenes.
 Press Q to quit the demo (also kills Terminal 1 server).
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import termios
 import tty
@@ -122,6 +123,7 @@ SCENES: list[tuple[str, list[dict]]] = [
         [
             _ev("agents", "thinking", {
                 "role": "spec",
+                "ticket_id": TICKET_ID,
                 "elapsed": 3,
                 "active": True,
             }),
@@ -180,6 +182,7 @@ SCENES: list[tuple[str, list[dict]]] = [
             }),
             _ev("agents", "thinking", {
                 "role": "spec",
+                "ticket_id": TICKET_ID,
                 "elapsed": 12,
                 "active": True,
             }),
@@ -226,11 +229,13 @@ SCENES: list[tuple[str, list[dict]]] = [
             }),
             _ev("agents", "thinking", {
                 "role": "implement",
+                "ticket_id": TICKET_ID,
                 "elapsed": 2,
                 "active": True,
             }),
             _ev("agents", "thinking", {
                 "role": "test",
+                "ticket_id": TICKET_ID,
                 "elapsed": 45,
                 "active": True,
             }),
@@ -244,7 +249,10 @@ SCENES: list[tuple[str, list[dict]]] = [
                 "prompt_id": "p-brief-001",
                 "prompt_type": "brief_approval",
                 "question": "Here is the project brief I've drafted. Does this look right?",
-                "options": ["Approve", "Request changes"],
+                "options": [
+                    {"key": "y", "label": "Approve", "default": True},
+                    {"key": "n", "label": "Request changes"},
+                ],
                 "rendered": (
                     "## Project Brief\n\n"
                     "**Goal**: Build a REST API with JWT authentication.\n\n"
@@ -264,7 +272,11 @@ SCENES: list[tuple[str, list[dict]]] = [
                 "prompt_id": "p-branch-002",
                 "prompt_type": "branch_choice",
                 "question": "Which branch should I base this work on?",
-                "options": ["main", "develop", "feature/auth-v2"],
+                "options": [
+                    {"key": "1", "label": "main", "default": True},
+                    {"key": "2", "label": "develop"},
+                    {"key": "3", "label": "feature/auth-v2"},
+                ],
                 "rendered": (
                     "I found the following branches. Pick the one to base this ticket on:\n\n"
                     "- **main** (default, 3 commits behind develop)\n"
@@ -285,7 +297,11 @@ SCENES: list[tuple[str, list[dict]]] = [
                     "Should the /me endpoint return the full user object "
                     "(including email, created_at) or just the user ID?"
                 ),
-                "options": ["Full user object", "ID only", "Let me decide later"],
+                "options": [
+                    {"key": "f", "label": "Full user object", "default": True},
+                    {"key": "i", "label": "ID only"},
+                    {"key": "l", "label": "Let me decide later"},
+                ],
                 "rendered": None,
             }),
         ],
@@ -432,12 +448,17 @@ async def main(project_path: Path) -> None:
     server = DemoServer()
     advance_queue: asyncio.Queue[bool] = asyncio.Queue()
 
-    addr_file = project_path / ".jig" / "run" / "daemon.addr"
-    addr_file.parent.mkdir(parents=True, exist_ok=True)
+    run_dir = project_path / ".jig" / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    addr_file = run_dir / "daemon.addr"
+    pid_file = run_dir / "daemon.pid"
 
     async with serve(server.handler, "127.0.0.1", 0) as ws_server:
         port = ws_server.sockets[0].getsockname()[1]
         addr = f"ws://127.0.0.1:{port}"
+        # Write PID first so daemon_status() sees a live process and jig
+        # doesn't overwrite daemon.addr by starting a real daemon.
+        pid_file.write_text(str(os.getpid()))
         addr_file.write_text(addr)
         print(f"[demo] WS server on {addr}", flush=True)
         print(f"[demo] addr written to {addr_file}", flush=True)
@@ -461,6 +482,7 @@ async def main(project_path: Path) -> None:
         finally:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
             addr_file.unlink(missing_ok=True)
+            pid_file.unlink(missing_ok=True)
             print("\r[demo] cleaned up", flush=True)
 
 

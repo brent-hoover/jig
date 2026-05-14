@@ -133,9 +133,36 @@ _ROLE_BG_TINTS: dict[str, str] = {
     "quartermaster": "#1c1c1c",
 }
 
+# Mid-brightness backgrounds for agent banners — dark enough for white text
+# to be legible, bright enough to stand out from the terminal background.
+_ROLE_BANNER_BG: dict[str, str] = {
+    "pm": "#1a5a5a",
+    "po": "#155055",
+    "po-l0": "#155055",
+    "po-l1": "#155055",
+    "po-l2": "#155055",
+    "po-l3": "#155055",
+    "sa": "#56195a",
+    "sa-mvp": "#56195a",
+    "sa-v2": "#56195a",
+    "spec": "#1e5c1e",
+    "spec-generator": "#1e5c1e",
+    "test": "#5a5a10",
+    "dev": "#10205c",
+    "review": "#5a4210",
+    "validate": "#4a4a10",
+    "document": "#383838",
+    "concierge": "#4a1a5c",
+    "quartermaster": "#383838",
+}
+
 
 def _role_bg_tint(role: str) -> str:
     return _ROLE_BG_TINTS.get(role, "#1c1c1c")
+
+
+def _role_banner_bg(role: str) -> str:
+    return _ROLE_BANNER_BG.get(role, "#303030")
 
 
 _ROLE_FULL_NAMES: dict[str, str] = {
@@ -255,9 +282,9 @@ class NowScreen(Container):
         height: auto;
         max-height: 22;
         dock: bottom;
-        padding: 0 1;
-        border: round yellow;
-        background: $panel;
+        padding: 0 1 1 1;
+        border-top: thick yellow;
+        background: #252d40;
         color: $text;
         display: none;
     }
@@ -269,9 +296,6 @@ class NowScreen(Container):
         min-height: 3;
         max-height: 10;
         dock: bottom;
-    }
-    NowScreen.answering #input {
-        border: round yellow;
     }
     #scroll-pause {
         height: 1;
@@ -537,24 +561,21 @@ class NowScreen(Container):
             lines.append(body)
 
         if options:
+            opts = [self._normalize_option(o) for o in options]
             lines.append("")
-            for opt in options:
-                key = opt.get("key", "")
-                label = opt.get("label", "")
-                if opt.get("default"):
-                    badge = (
-                        f"[bold black on bright_yellow] {key} [/bold black on bright_yellow]"
-                    )
+            for o in opts:
+                key = o["key"]
+                label = o["label"]
+                if o["default"]:
+                    badge = f"[bold black on bright_yellow] {key} [/bold black on bright_yellow]"
                     lines.append(f"  {badge} {label} [dim](default)[/dim]")
                 else:
-                    badge = (
-                        f"[bold black on bright_cyan] {key} [/bold black on bright_cyan]"
-                    )
+                    badge = f"[bold black on bright_cyan] {key} [/bold black on bright_cyan]"
                     lines.append(f"  {badge} {label}")
             lines.append("")
             lines.append(
                 "[dim]Type the key (e.g. " + ", ".join(
-                    f"[bold]{o.get('key','')}[/bold]" for o in options
+                    f"[bold]{o['key']}[/bold]" for o in opts
                 ) + ") and press Enter.[/dim]"
             )
         elif prompt_type == "direct_template" and templates:
@@ -675,8 +696,6 @@ class NowScreen(Container):
                     scrollback.write(Text.from_ansi(content))
                 return
             if kind == "start":
-                from rich.align import Align
-                from rich.rule import Rule
                 from rich.text import Text
 
                 role = data.get("role", "agent")
@@ -686,22 +705,22 @@ class NowScreen(Container):
                 ticket_title = data.get("ticket_title") or ""
                 phase = data.get("phase") or ""
 
-                # Render the banner as a Rule + centered Text + Rule
-                # rather than a Rich Panel. RichLog with wrap=True doesn't
-                # render Panel boxes cleanly (border characters drop out
-                # at non-default widths), but Rule + Align.center work
-                # consistently and span the full scrollback width.
-                scrollback.write(Rule(style=color))
+                from rich.align import Align
+                from rich.rule import Rule
+
+                bg = _role_banner_bg(role)
+                scrollback.write(Rule(style="dim white"))
                 scrollback.write(
-                    Align.center(Text(full_name, style=f"bold {color}"))
+                    Align.center(
+                        Text(full_name, style=f"bold #ffffff on {bg}"),
+                        style=f"on {bg}",
+                    )
                 )
                 if ticket_title:
                     scrollback.write(
                         Align.center(
-                            Text.assemble(
-                                ("Working on: ", "dim"),
-                                (ticket_title, f"bold {color}"),
-                            )
+                            Text(ticket_title, style=f"#f0f0f0 on {bg}"),
+                            style=f"on {bg}",
                         )
                     )
                 meta_bits: list[str] = []
@@ -711,31 +730,31 @@ class NowScreen(Container):
                     meta_bits.append(f"ticket: {ticket_id[:8]}")
                 if meta_bits:
                     scrollback.write(
-                        Align.center(Text("  ·  ".join(meta_bits), style="dim"))
+                        Align.center(
+                            Text("  ·  ".join(meta_bits), style=f"#cccccc on {bg}"),
+                            style=f"on {bg}",
+                        )
                     )
-                scrollback.write(Rule(style=color))
-                # Force the next text turn to print its role label.
-                self._last_role = None
+                scrollback.write(Rule(style="dim white"))
+                # Force the next text turn to omit the role label — the banner
+                # already identifies the speaker.
+                self._last_role = role
                 return
             if kind == "text":
-                # Concierge / agent narration. Render with a role label.
                 text = data.get("text", "")
                 role = data.get("role", "agent")
                 if text:
                     from rich.markdown import Markdown
-                    # Suppress the role label if the previous turn was
-                    # from the same agent — multi-turn reasoning reads
-                    # better as one block than as repeated "pm:" headers.
+                    # If this turn is from a different agent than the banner
+                    # that was last shown, print a short colored label so the
+                    # reader can tell who's talking without hunting for the
+                    # last banner. When same-agent consecutive text arrives
+                    # (multi-turn reasoning) suppress the label — the banner
+                    # already identified the speaker.
                     if role != self._last_role:
                         color = _role_color(role)
-                        scrollback.write(
-                            f"[bold {color}]{role}:[/bold {color}]"
-                        )
+                        scrollback.write(f"[bold {color}]{role}:[/bold {color}]")
                         self._last_role = role
-                    # Agents emit a mix of Markdown (**bold**) and Rich
-                    # markup ([bold]X[/bold]). Markdown rendering treats
-                    # the Rich tags as literal text — strip them so the
-                    # underlying content renders cleanly.
                     cleaned = _strip_rich_markup(text)
                     scrollback.write(Markdown(cleaned))
                 return
@@ -776,7 +795,7 @@ class NowScreen(Container):
         ticket_id = data.get("ticket_id", "?")
         title = data.get("title", ticket_id)
         if kind == "ticket_dispatched":
-            scrollback.write(f"[cyan]▶[/cyan] dispatching [bold]{title}[/bold] ({ticket_id})")
+            pass  # shown in Recent sidebar; not needed here
         elif kind == "ticket_completed":
             scrollback.write(f"[green]✓[/green] completed [bold]{title}[/bold] ({ticket_id})")
         elif kind == "ticket_failed":
@@ -806,8 +825,17 @@ class NowScreen(Container):
             if out_dir:
                 scrollback.write(f"[dim]   report: {out_dir}[/dim]")
 
+    @staticmethod
+    def _normalize_option(opt) -> dict:
+        """Coerce a plain string or partial dict into a full option dict."""
+        if isinstance(opt, str):
+            return {"key": opt[0].upper(), "label": opt, "default": False}
+        return {"key": opt.get("key", ""), "label": opt.get("label", ""), "default": bool(opt.get("default"))}
+
     async def _render_prompt_request(self, data: dict) -> None:
         """Render a prompt request inline and switch to answering mode."""
+        from rich.rule import Rule
+
         scrollback = self.query_one("#scrollback", RichLog)
         prompt_id = data.get("prompt_id")
         prompt_type = data.get("prompt_type", "")
@@ -817,10 +845,6 @@ class NowScreen(Container):
         self._active_prompt_type = prompt_type
 
         if prompt_type == "question_answer":
-            # Question text is shown in the pinned prompt panel below;
-            # don't duplicate it as a scrollback Panel. We do leave a
-            # short dim breadcrumb so a scrolled-back history shows
-            # *that* a question was asked, even if it's been answered.
             asker = data.get("asker", "agent")
             idx = data.get("index", 1)
             total = data.get("total", 1)
@@ -832,23 +856,20 @@ class NowScreen(Container):
             rendered = data.get("rendered")
             if rendered:
                 if prompt_type == "brief_approval":
-                    # Brief can be long — disable auto-scroll and restore
-                    # the view to the top of the preview so the operator
-                    # reads from the start rather than landing at the end.
+                    from rich.markdown import Markdown
+
                     scrollback.auto_scroll = False
-                    scrollback.write(rendered)
+                    scrollback.write(Rule(title="Brief", style="yellow"))
+                    scrollback.write(Markdown(rendered))
+                    scrollback.write(Rule(style="yellow"))
                     self.call_after_refresh(scrollback.scroll_home)
                 else:
-                    scrollback.write(rendered)
+                    from rich.markdown import Markdown
+                    scrollback.write(Markdown(rendered))
             question = data.get("question")
             if question:
-                from rich.markdown import Markdown
-                scrollback.write(Markdown(question))
+                scrollback.write(f"[bold yellow]?[/bold yellow] {question}")
 
-        # Show the dedicated, always-visible prompt panel above the input.
-        # The full question stays in scrollback above; the panel is a small
-        # consistent indicator so the operator can't miss that an answer is
-        # needed even if the scrollback has scrolled past.
         self._show_prompt_panel(data)
         hint = self._placeholder_hint(data)
         scrollback.write(f"[dim]› {hint} (see prompt below)[/dim]")
@@ -858,8 +879,9 @@ class NowScreen(Container):
         """Build a per-prompt-type hint shown in the input placeholder."""
         options = data.get("options") or []
         if options:
-            keys = "/".join(o.get("key", "") for o in options if o.get("key"))
-            defaults = [o.get("key") for o in options if o.get("default")]
+            opts = [NowScreen._normalize_option(o) for o in options]
+            keys = "/".join(o["key"] for o in opts if o["key"])
+            defaults = [o["key"] for o in opts if o["default"]]
             default = defaults[0] if defaults else None
             if default:
                 return f"answer ({keys}, default {default})"

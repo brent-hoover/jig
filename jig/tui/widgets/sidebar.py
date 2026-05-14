@@ -61,7 +61,7 @@ class Sidebar(Widget):
     Sidebar #activity {
         height: auto;
         min-height: 4;
-        max-height: 20;
+        max-height: 30;
         padding: 0 1 1 1;
         border-bottom: dashed $accent-darken-2;
     }
@@ -156,24 +156,37 @@ class Sidebar(Widget):
             zone = self.query_one("#activity", _Zone)
         except Exception:
             return
-        if not self._active_agents:
+        # Union of agents that are thinking AND agents with recent tool history.
+        # Tool events may arrive without a matching thinking event (e.g. they
+        # have a ticket_id in their key while the thinking event didn't), so we
+        # show any key that has tools even if it's not currently thinking.
+        all_keys: list[str] = list(
+            dict.fromkeys(list(self._active_agents) + list(self._agent_tools))
+        )
+        if not all_keys:
             zone.set_lines([])
             return
         spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         lines = []
-        for agent_key, state in self._active_agents.items():
-            role = state["role"]
-            elapsed = state["elapsed"]
-            spin = spinners[elapsed % len(spinners)]
-            lines.append(
-                f"[dim]{spin}[/dim] [bold]{role}[/bold] [dim]({elapsed}s)[/dim]"
-            )
-            for tool, detail in list(self._agent_tools.get(agent_key, [])):
-                # Sidebar inner width ≈ 34 chars; tool indent takes 4,
-                # tool name up to 12, leaving ~18 for the detail.
-                detail_trunc = detail[:18] + "…" if len(detail) > 18 else detail
+        for agent_key in all_keys:
+            state = self._active_agents.get(agent_key)
+            # Derive the display role from the state dict or the key itself.
+            role = (state or {}).get("role") or agent_key.split(":")[-1]
+            if state:
+                elapsed = state["elapsed"]
+                spin = spinners[elapsed % len(spinners)]
                 lines.append(
-                    f"  [dim]▸ {tool:<10} {detail_trunc}[/dim]"
+                    f"[dim]{spin}[/dim] [bold]{role}[/bold] [dim]({elapsed}s)[/dim]"
+                )
+            else:
+                lines.append(f"  [bold]{role}[/bold]")
+            for tool, detail in list(self._agent_tools.get(agent_key, [])):
+                # Sidebar inner width ≈ 33 chars. Format: "  ▸ {tool}: {detail}"
+                # tool name can be up to 10 chars, leaving ~17 for detail.
+                avail = max(10, 33 - 6 - len(tool))
+                detail_trunc = detail[:avail] + "…" if len(detail) > avail else detail
+                lines.append(
+                    f"  [dim]▸[/dim] [bold dim]{tool}[/bold dim][dim]: {detail_trunc}[/dim]"
                 )
         zone.set_lines(lines)
 

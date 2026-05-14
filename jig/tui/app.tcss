@@ -58,11 +58,7 @@ TextArea, Input {
     background: #3d4862;
 }
 
-/* Composer needs a subtle accent line on its border too, opencode-style. */
 NowScreen TextArea {
-    border-left: tall $accent;
-    border-top: hidden;
-    border-right: hidden;
-    border-bottom: hidden;
+    border: hidden;
     padding: 0 1;
 }

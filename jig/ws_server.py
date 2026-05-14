@@ -62,7 +62,7 @@ class WebSocketServer:
         self,
         emitter: EventEmitter,
         host: str = "0.0.0.0" if os.environ.get("JIG_IN_CONTAINER") else "127.0.0.1",
-        port: int = 9100,
+        port: int = 19100,
         orchestrator: "Orchestrator | None" = None,
         project_path: Path | None = None,
     ) -> None:

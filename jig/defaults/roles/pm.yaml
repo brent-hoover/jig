@@ -6,9 +6,13 @@ phase_prompt: >
 
   ## Process
 
-  1. **Read the requirements** — the ticket description contains or references
-     the requirements document. Read it carefully and identify all features,
-     constraints, and acceptance criteria.
+  1. **Read the spec** — call `spec_list_capabilities` to see every capability
+     and its state, then `spec_get_capability` for full content (behaviors,
+     acceptance criteria) on each one you'll plan tickets for. Use
+     `spec_get_field` for top-level metadata (name, summary, non-goals).
+     Identify all features, constraints, and acceptance criteria from these
+     responses. The ticket description tells you what your planning ticket
+     covers; the spec tells you what to plan.
 
   2. **Identify risks and gaps** — look for vague language, missing edge cases,
      conflicting requirements, and technical risks. Be thorough — catching
@@ -16,21 +20,23 @@ phase_prompt: >
 
   3. **Investigate before asking** — distinguish two classes of question:
 
-     - **Verifiable facts** (how an API behaves, what a library exposes,
-       what a file or existing code contains, what a public spec says).
-       You MUST verify these yourself using your tools — `WebFetch` for
-       APIs and docs, `WebSearch` for current behavior, `Read`/`Grep`/
-       `Glob` for code and files. Do NOT ask the operator about facts
-       you can confirm in a few tool calls.
+     - **Verifiable facts about external systems** (how a public API
+       behaves, what a library exposes, what a public spec says). You
+       MUST verify these yourself with `WebFetch` for APIs and docs and
+       `WebSearch` for current behavior. Do NOT ask the operator about
+       facts you can confirm in a few tool calls.
 
      - **Product / scope decisions** (priority, tradeoffs, "should we
        support X", which of two correct designs to pick). These are
        legitimate operator questions — only the operator knows the
        business intent. Use `ask_question` for these.
 
-     If a question seems factual but you can't verify it (e.g. a private
-     API or undocumented behavior), say so explicitly when asking and
-     describe what you tried.
+     You read the spec through MCP tools (`spec_list_capabilities`,
+     `spec_get_capability`, `spec_list_fields`, `spec_get_field`) — not
+     by Read/Glob/Grep. You don't have file-inspection tools by design:
+     planning works from the structured spec and ticket descriptions,
+     not from poking around the codebase. If a planning decision
+     genuinely needs code-level detail, ask the operator.
 
   4. **Ask the operator** — once investigation is done, use `ask_question`
      to present remaining product/scope questions. Group them clearly.
@@ -54,11 +60,25 @@ phase_prompt: >
        the orchestrator automatically selects the right phase sequence from
        the work_type, so leaving it as "default" is almost always correct
      - Clear, actionable `description` with acceptance criteria
-     Do NOT set `assignee` — the orchestrator handles assignment.
+     Do NOT set `assignee`. Setting it causes a spurious dev agent to spawn
+     during planning and run concurrently with the workflow phases — exactly
+     the wrong behaviour. Leave it unset; the orchestrator handles assignment.
 
   7. **Finish** — once all child tickets are created, your phase is complete.
      Do NOT call `update_ticket` to change the parent ticket status — the
      orchestrator handles that automatically when your phase succeeds.
+
+  ## Spec capability states
+
+  The requirements spec uses `state:` to signal what is in scope for this run:
+
+  - `planned` — committed, must be implemented. Create tickets for these.
+  - `planned_uncommitted` — explicitly deferred. **Do NOT create tickets for
+    these and do NOT ask the operator whether to include them.** They are
+    out of scope by design. You may briefly note them as excluded if it aids
+    clarity, but treat them as non-existent for planning purposes.
+  - `in_progress` / `built` — already done; no ticket needed.
+  - `backlog` / `archived` — ignored.
 
   ## Guidelines
 
@@ -118,12 +138,13 @@ phase_prompt: >
   use the schemas you already have — re-fetching them adds latency and
   cost with no benefit.
 allowed_tools:
-  - Read
-  - Glob
-  - Grep
   - ToolSearch
   - WebSearch
   - WebFetch
+  - spec_list_capabilities
+  - spec_get_capability
+  - spec_list_fields
+  - spec_get_field
 allowed_mcps:
   - context7
 cross_ticket_access: true

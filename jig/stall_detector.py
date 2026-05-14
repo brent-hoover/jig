@@ -73,7 +73,13 @@ class StallDetector:
         self.in_flight_agents.setdefault(agent_key, now)
 
     def record_agent_start(self, agent_key: str) -> None:
-        self.in_flight_agents.setdefault(agent_key, time.monotonic())
+        now = time.monotonic()
+        self.in_flight_agents.setdefault(agent_key, now)
+        # Reset the heartbeat clock so the freshly spawned agent gets a full
+        # grace period before the gap check fires. Without this, a re-spawned
+        # agent (e.g. after needs_info is answered) inherits the stale
+        # last_heartbeat_at from the previous run and is immediately killed.
+        self.last_heartbeat_at = now
 
     def record_agent_done(self, agent_key: str) -> None:
         self.in_flight_agents.pop(agent_key, None)

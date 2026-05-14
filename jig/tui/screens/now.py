@@ -692,8 +692,11 @@ class NowScreen(Container):
             if kind == "render":
                 content = data.get("content", "")
                 if content:
-                    from rich.text import Text
-                    scrollback.write(Text.from_ansi(content))
+                    # Agents emit Rich markup strings (e.g. [bold green]…[/]).
+                    # Write directly so RichLog (markup=True) renders them.
+                    # Text.from_ansi only handles ANSI escape codes and leaves
+                    # Rich tags as literal text.
+                    scrollback.write(content)
                 return
             if kind == "start":
                 from rich.text import Text

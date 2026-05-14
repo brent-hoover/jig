@@ -79,13 +79,13 @@ def _detect_git_branch(project_path: Path) -> str:
     """Return the current HEAD branch name, falling back to 'main'."""
     import subprocess
     result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        ["git", "symbolic-ref", "--short", "HEAD"],
         cwd=project_path,
         capture_output=True,
         text=True,
     )
     branch = result.stdout.strip()
-    return branch if branch and branch != "HEAD" else "main"
+    return branch if branch else "main"
 
 
 def init_project(project_path: Path, default_branch: str | None = None) -> None:

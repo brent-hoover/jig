@@ -182,7 +182,7 @@ def test_daemon_stop_docker_calls_docker_stop(tmp_path, monkeypatch):
     """daemon_stop in docker mode calls docker stop on the container id."""
     paths = daemon_paths(tmp_path, ensure=True)
     paths.container_file.write_text("test-container-id")
-    paths.socket_addr_file.write_text("ws://127.0.0.1:9100")
+    paths.socket_addr_file.write_text("ws://127.0.0.1:19100")
     monkeypatch.setattr("jig.container.container_alive", lambda cid: True)
 
     stopped_ids: list[str] = []

@@ -41,6 +41,9 @@ RUN mkdir /workspace && chown jig:jig /workspace
 USER jig
 
 ENV CLAUDE_CODE_PERMISSION_MODE=bypassPermissions
+# Writable config dir for the bundled claude CLI (the ro-mounted ~/.claude
+# can't be written to; the CLI needs a writable location for logs/state).
+ENV CLAUDE_CONFIG_DIR=/tmp/jig-claude-config
 # Host gitconfig may enable GPG signing — not available in the container.
 # GIT_CONFIG_COUNT/KEY/VALUE override without needing a writable gitconfig.
 ENV GIT_CONFIG_COUNT=1

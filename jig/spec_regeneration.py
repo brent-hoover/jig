@@ -27,11 +27,15 @@ from jig.spec_schema import (
 )
 
 
-# Map BriefCapability.section → CapabilityState. in_progress is detected
-# in Phase 4 by ticket-store inspection, so this map only handles the
-# brief-section-to-base-state mapping.
+# Map BriefCapability.section → CapabilityState. in_progress and built
+# are detected from the ticket store (capability is "built" when all of
+# its tickets are resolved); the brief itself doesn't declare them. The
+# `## Built` section in a brief is treated as "planned, committed" at
+# generation time — operators write briefs aspirationally even when
+# they describe an existing-system carve-up, and trusting brief prose
+# to mark something built has bitten us when nothing is yet implemented.
 _SECTION_TO_STATE: dict[str, CapabilityState] = {
-    "built": CapabilityState.BUILT,
+    "built": CapabilityState.PLANNED,
     "planned_committed": CapabilityState.PLANNED,
     "planned_not_committed": CapabilityState.PLANNED_UNCOMMITTED,
     "backlog": CapabilityState.BACKLOG,

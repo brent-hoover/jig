@@ -51,7 +51,7 @@ from typing import Literal, TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from jig.reviewers.comment import ReviewerComment
-from jig.ticket import Ticket
+from jig.ticket import Ticket, WorkType
 
 if TYPE_CHECKING:  # pragma: no cover — typing-only
     from jig.orchestrator import Orchestrator
@@ -384,13 +384,18 @@ def select_reviewers_for_ticket(
         if _touches_consumed_interface(ticket, project_root):
             selected.append(ARCHITECTURAL_REVIEWER_ID)
 
-    # Judgment reviewers are default-on for every ticket — they review
+    # Judgment reviewers are default-on for code tickets — they review
     # the diff for error-handling gaps, pattern conformance, and test
-    # adequacy without needing v2 artifacts. Add them regardless of layer
-    # or reviewer_set so standard jig tickets get real code review.
-    for reviewer_id in _JUDGMENT_DEFAULTS:
-        if reviewer_id not in selected:
-            selected.append(reviewer_id)
+    # adequacy. Skip for non-code work types (planning, brief,
+    # architecture, docs) that produce no diff to review.
+    _NON_CODE_TYPES = {
+        WorkType.PLANNING, WorkType.BRIEF, WorkType.ARCHITECTURE,
+        WorkType.DOCS, WorkType.CANONICALIZE,
+    }
+    if ticket.work_type not in _NON_CODE_TYPES:
+        for reviewer_id in _JUDGMENT_DEFAULTS:
+            if reviewer_id not in selected:
+                selected.append(reviewer_id)
 
     return selected
 
@@ -890,17 +895,18 @@ async def dispatch_with_llm_spawn(
         # cycle by design.
         pre_existing_ids.add(_comment_signature(c))
 
-    for pending in pendings:
-        await orchestrator.spawn_review_agent_for_id(
-            reviewer_id=pending.reviewer_id,
+    import asyncio as _asyncio
+    await _asyncio.gather(*[
+        orchestrator.spawn_review_agent_for_id(
+            reviewer_id=p.reviewer_id,
             ticket=ticket,
-            role_file=pending.role_config_path,
+            role_file=p.role_config_path,
             project_root=project_root,
             worktree_path=worktree_path,
         )
-        # Re-load the store after each spawn so a reviewer that posts
-        # mid-spawn (rather than at the end of its run) lands cleanly.
-        await store.load()
+        for p in pendings
+    ])
+    await store.load()
 
     # Read every comment the spawned agents posted and attribute each to
     # the reviewer id that produced it. ``ReviewerComment.reviewer`` is

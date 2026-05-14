@@ -76,7 +76,7 @@ class JigFooter(Widget):
     """
 
     _KEYS_TEXT = (
-        "[dim]? help  1-4 tabs  ctrl+5 agents  b board  n new  ctrl+s sidebar  q quit[/dim]"
+        "[dim]ctrl+1-5 tabs · ctrl+s sidebar · /help · q quit[/dim]"
     )
 
     def __init__(self, *, project_path: Path | None = None) -> None:

@@ -69,6 +69,13 @@ def daemon_status(project_path: Path) -> DaemonStatus:
     process or container — caller should clean it up before starting
     a new daemon.
     """
+    from jig.container import is_in_container
+
+    # When we're running inside the container we ARE the daemon — Docker CLI
+    # is not available and the container file is meaningless from this side.
+    if is_in_container():
+        return DaemonStatus(running=True, kind="docker")
+
     paths = daemon_paths(project_path)
 
     # Docker mode: container_file present
@@ -94,6 +101,22 @@ def daemon_status(project_path: Path) -> DaemonStatus:
             return DaemonStatus(running=True, pid=pid, kind="host")
         return DaemonStatus(running=False, stale=True, last_error=_tail_err(paths))
 
+    # No PID file — check for an orphaned daemon (process still holds the
+    # port but its PID file was cleaned up).  Only check when we have a
+    # recorded address; without it we cannot distinguish a cleanly-stopped
+    # daemon from one that crashed and left a stray process.
+    if paths.socket_addr_file.is_file():
+        try:
+            ws_port = int(
+                paths.socket_addr_file.read_text().strip().rsplit(":", 1)[-1]
+            )
+        except (ValueError, IndexError):
+            ws_port = 19100
+        orphan_pid = _pid_on_port(ws_port)
+        if orphan_pid is not None:
+            return DaemonStatus(running=True, pid=orphan_pid, kind="host",
+                                last_error=_tail_err(paths))
+
     return DaemonStatus(running=False)
 
 
@@ -113,6 +136,26 @@ def _port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _pid_on_port(port: int) -> int | None:
+    """Return the PID of the process listening on ``port``, or None.
+
+    Uses ``lsof`` (available on macOS and Linux) to find the process.
+    Returns None if lsof is unavailable, the port is free, or resolution fails.
+    """
+    if not _port_in_use(port):
+        return None
+    try:
+        result = subprocess.run(
+            ["lsof", "-i", f":{port}", "-t", "-sTCP:LISTEN"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return int(result.stdout.strip().splitlines()[0])
+    except (subprocess.SubprocessError, FileNotFoundError, ValueError, OSError):
+        return None
+
+
 def _process_alive(pid: int) -> bool:
     """True if ``pid`` is a live process this user can signal."""
     try:
@@ -129,7 +172,7 @@ def _process_alive(pid: int) -> bool:
 @dataclass(frozen=True)
 class DaemonStartResult:
     pid: int
-    addr: str  # e.g. "ws://127.0.0.1:9100"
+    addr: str  # e.g. "ws://127.0.0.1:19100"
     container_id: str | None = None
 
 
@@ -140,7 +183,7 @@ class DaemonAlreadyRunning(RuntimeError):
 def daemon_start(
     project_path: Path,
     *,
-    ws_port: int = 9100,
+    ws_port: int = 19100,
     docker: bool = False,
     _command_override: Sequence[str] | None = None,
 ) -> DaemonStartResult:
@@ -319,6 +362,15 @@ def daemon_stop(project_path: Path, *, timeout: float = 5.0) -> bool:
                 os.kill(status.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        # Wait for the process to fully exit and release the port. SIGKILL
+        # delivery is nearly instant but the kernel may still have the port
+        # in TIME_WAIT for a brief moment after the process table entry is
+        # gone. Waiting here avoids "port in use" errors on immediate restart.
+        kill_deadline = time.time() + 3.0
+        while time.time() < kill_deadline:
+            if not _process_alive(status.pid):
+                break
+            time.sleep(0.05)
 
     paths.pid_file.unlink(missing_ok=True)
     paths.container_file.unlink(missing_ok=True)

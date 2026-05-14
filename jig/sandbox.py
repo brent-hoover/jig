@@ -42,10 +42,15 @@ def _normalise_mount_path(path: str) -> tuple[str, ...]:
 
 # Env vars forwarded into the sandbox by default. Anything else from
 # the orchestrator's environment is dropped by ``--clearenv`` so an
-# agent can't read CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, JIG_*,
-# GIT_*, or other host secrets just by running ``env`` or reading
-# ``/proc/self/environ``. Claude Code authenticates via the mounted
-# ``~/.claude.json`` rather than the env var inside the sandbox.
+# agent can't read JIG_*, GIT_*, or other host secrets just by running
+# ``env`` or reading ``/proc/self/environ``. The bundled claude CLI
+# (SDK >= 0.1.80) authenticates via ``CLAUDE_CODE_OAUTH_TOKEN`` since
+# the on-host credentials live in the system keychain and the
+# Docker-mounted ``~/.claude.json`` only carries profile info, not
+# access tokens. The token is no more sensitive than the agent's
+# ability to make Claude API calls — it's already implicit in the
+# agent's role — so passing it through is the minimal trust we can give
+# without breaking auth entirely.
 _DEFAULT_PASSTHROUGH_ENV: tuple[str, ...] = (
     "HOME",
     "PATH",
@@ -57,6 +62,15 @@ _DEFAULT_PASSTHROUGH_ENV: tuple[str, ...] = (
     "TERM",
     "TMPDIR",
     "SHELL",
+    # The bundled claude CLI (SDK >= 0.1.80) writes logs/state to its
+    # config dir. Inside bwrap, ~/.claude is read-only (ro-bind from the
+    # container) so we need CLAUDE_CONFIG_DIR pointing to a writable path.
+    # /tmp is tmpfs inside bwrap, so any sub-path there is writable.
+    "CLAUDE_CONFIG_DIR",
+    # OAuth token for the bundled claude CLI. The mounted ~/.claude.json
+    # only has profile info (host credentials are in the keychain), so
+    # auth inside bwrap requires this env var.
+    "CLAUDE_CODE_OAUTH_TOKEN",
 )
 
 
@@ -206,9 +220,15 @@ class BwrapConfig:
         if claude_json.is_file():
             args.extend(["--ro-bind", str(claude_json), str(claude_json)])
 
-        # Hide paths by overlaying with empty tmpfs
+        # Hide paths: tmpfs for directories, /dev/null bind for files.
+        # bwrap requires --tmpfs targets to be directories; using it on a
+        # file path (e.g. /home/jig/.gitconfig mounted as a Docker volume)
+        # causes "Can't mkdir … Not a directory".
         for path in self.hide_paths:
-            args.extend(["--tmpfs", path])
+            if Path(path).is_file():
+                args.extend(["--bind", "/dev/null", path])
+            else:
+                args.extend(["--tmpfs", path])
 
         # Capability policy artefacts (Phase 5 Task G). Bind-mount
         # read-only: the hook scripts only read these; nothing in the

@@ -152,7 +152,7 @@ def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> N
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--ws-port",
-    default=9100,
+    default=19100,
     type=int,
     help="WebSocket server port.",
     show_default=True,
@@ -284,24 +284,7 @@ def sync(path: Path) -> None:
         click.echo("Already up to date.")
 
 
-@cli.command()
-@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--ticket-id",
-    default=None,
-    help="Clean up a specific ticket's worktree. Without this flag, runs a catalog dry-run.",
-)
-def validate(path: Path, ticket_id: str | None) -> None:
-    """Validate the project catalog, or clean up a ticket's worktree.
-
-    Without ``--ticket-id``: walks roles, workflows, config, and the
-    check catalog. Reports every inconsistency and exits non-zero if
-    anything is wrong. Same checks ``jig start`` runs at boot, but
-    safe to run on a stopped service.
-
-    With ``--ticket-id``: the legacy per-ticket cleanup (removes the
-    worktree directory for that ticket).
-    """
+def _validate_impl(path: Path, ticket_id: str | None) -> None:
     jig_dir = path / ".jig"
     if not jig_dir.is_dir():
         raise click.ClickException(
@@ -359,6 +342,16 @@ def reset(path: Path) -> None:
     """Reset project to a clean state for testing."""
     jig_dir = path / ".jig"
 
+    # Stop the daemon if it's running so it releases the port before we wipe .jig/
+    try:
+        from jig.daemon import daemon_status, daemon_stop
+        status = daemon_status(path)
+        if status.running:
+            click.echo("  Stopping daemon")
+            daemon_stop(path)
+    except Exception as exc:
+        click.echo(f"  Warning: could not stop daemon: {exc}", err=True)
+
     # Remove git worktrees before deleting .git
     if (path / ".git").is_dir():
         try:
@@ -401,15 +394,18 @@ def reset(path: Path) -> None:
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
-    # Remove all files and directories except .jig (removed next) and .git (removed after)
-    click.echo("  Cleaning project files")
+    # Remove scaffold-generated files/dirs; preserve docs/ (brief, specs) and
+    # hidden dirs other than .jig/.git which are handled separately.
+    _SCAFFOLD_NAMES = {"src", "tests", "pyproject.toml", "README.md"}
     for item in path.iterdir():
-        if item.name in (".git", ".jig"):
+        if item.name in (".git", ".jig", "docs") or item.name.startswith("."):
             continue
-        if item.is_dir():
-            shutil.rmtree(item)
-        else:
-            item.unlink()
+        if item.name in _SCAFFOLD_NAMES:
+            click.echo(f"  Removing {item.name}")
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
 
     if jig_dir.is_dir():
         click.echo("  Removing .jig/")
@@ -693,7 +689,7 @@ def hooks_run(stage: str, args: tuple[str, ...], path: Path) -> None:
 # `ws_server`'s `create_ticket` command); this is a thin WebSocket client.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_WS_URL = "ws://127.0.0.1:9100"
+_DEFAULT_WS_URL = "ws://127.0.0.1:19100"
 _WORK_TYPES = ["feature", "bugfix", "refactor", "spike", "perf", "migration", "docs"]
 
 
@@ -1497,7 +1493,7 @@ def daemon_group() -> None:
 
 @daemon_group.command(name="start")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--ws-port", default=9100, type=int, show_default=True)
+@click.option("--ws-port", default=19100, type=int, show_default=True)
 @click.option(
     "--docker/--no-docker",
     default=None,
@@ -1575,7 +1571,7 @@ def daemon_status_cmd(path: Path) -> None:
 
 @daemon_group.command(name="serve", hidden=True)
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--ws-port", default=9100, type=int)
+@click.option("--ws-port", default=19100, type=int)
 def daemon_serve_cmd(path: Path, ws_port: int) -> None:
     """Internal: actually host the orchestrator. Called by daemon_start
     via the forked subprocess; not for direct user invocation."""
@@ -2600,9 +2596,22 @@ def audit_coverage(path: Path, fail: bool) -> None:
         raise SystemExit(1)
 
 
-@cli.group("validate")
-def validate_group() -> None:
-    """Project configuration validators."""
+@cli.group("validate", invoke_without_command=True)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--ticket-id",
+    default=None,
+    help="Clean up a specific ticket's worktree. Without this flag, runs a catalog dry-run.",
+)
+@click.pass_context
+def validate_group(ctx: click.Context, path: Path, ticket_id: str | None) -> None:
+    """Validate the project catalog, or clean up a ticket's worktree.
+
+    Without a subcommand: runs a catalog dry-run, or (with ``--ticket-id``) cleans
+    up a specific ticket's worktree. Subcommands validate specific aspects.
+    """
+    if ctx.invoked_subcommand is None:
+        _validate_impl(path, ticket_id)
 
 
 @validate_group.command("conventions")

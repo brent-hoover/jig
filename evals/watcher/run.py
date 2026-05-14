@@ -46,7 +46,7 @@ def _resolve_addr(project_path: Path) -> str:
     addr_file = project_path / ".jig" / "run" / "daemon.addr"
     if addr_file.is_file():
         return addr_file.read_text().strip()
-    return "ws://127.0.0.1:9100"
+    return "ws://127.0.0.1:19100"
 
 
 def _kill_orphan_subprocesses(project_path: Path, log) -> int:
@@ -206,10 +206,7 @@ async def watch(
                 jig_repo=jig_repo,
                 project_name=project_name,
                 tags=["stall", verdict.signal],
-                # Skip the LLM pass on stall: it's expensive and the
-                # operator can rerun ``analyzer`` manually if they
-                # want narrative.
-                use_llm=False,
+                use_llm=True,
             )
             # Stamp the stall signal into metrics.json so the dashboard
             # picks it up.

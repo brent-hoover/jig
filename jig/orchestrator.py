@@ -761,6 +761,77 @@ class Orchestrator:
         # Notable-only path: ticket stays RESOLVED, the Coordinator
         # already deferred it inside apply_severity_disposition.
 
+    async def _run_review_phase_federation(
+        self,
+        ticket_id: str,
+        ticket,
+        worktree_path,
+    ):
+        """Run all review-federation agents in parallel and return a RunAgentResult.
+
+        Called from the phase loop when ``phase.role == "review"`` and
+        ``run_review_federation`` is enabled.  Replaces the single review
+        agent with the full federation so all reviewers fire in the correct
+        spec→test→dev→review→document order.
+
+        Outcome mapping:
+        - Any critical or important comment  → ``"blocked"`` (routes back
+          to the nearest dev/writing phase via the existing retry path).
+        - No blocking comments               → ``"success"`` (advances to
+          the next phase, typically document).
+        - Federation crash                   → ``"success"`` (fail-open;
+          logged at WARNING so the operator can investigate without
+          stalling the pipeline).
+        """
+        from jig.agent import RunAgentResult
+        from jig.reviewers import dispatch_with_llm_spawn
+        from jig.reviewers.comment import Severity
+
+        try:
+            by_reviewer = await dispatch_with_llm_spawn(
+                ticket,
+                self._project_path,
+                "end_of_ticket",
+                self,
+                worktree_path=worktree_path,
+            )
+        except Exception:
+            _logger.warning(
+                "review federation crashed for ticket %s; treating as clean pass",
+                ticket_id,
+                exc_info=True,
+            )
+            return RunAgentResult(
+                status="success",
+                final_text="Federation error — treated as clean pass (see logs).",
+            )
+
+        all_comments = [c for comments in by_reviewer.values() for c in comments]
+        blocking = [
+            c for c in all_comments
+            if c.severity in (Severity.CRITICAL.value, Severity.IMPORTANT.value)
+        ]
+
+        if blocking:
+            n_crit = sum(1 for c in blocking if c.severity == Severity.CRITICAL.value)
+            n_imp = len(blocking) - n_crit
+            _logger.info(
+                "review federation blocked ticket %s: %d critical, %d important",
+                ticket_id,
+                n_crit,
+                n_imp,
+            )
+            return RunAgentResult(
+                status="blocked",
+                final_text=(
+                    f"Review found {n_crit} critical and {n_imp} important issue(s). "
+                    "Routing back to dev phase."
+                ),
+            )
+
+        _logger.info("review federation passed for ticket %s", ticket_id)
+        return RunAgentResult(status="success", final_text="Review passed.")
+
     async def _fail_with_federation_error(self, ticket_id: str) -> None:
         """Mark a ticket FAILED + emit a federation-error Note.
 
@@ -1305,55 +1376,74 @@ class Orchestrator:
                                 },
                             )
                         )
-                    role_cfg = load_role(self._project_path, phase.role)
-
                     # Tell the TUI which phase is running
                     await self._emit_phase_event(
                         "phase_started", ticket_id, phase, phase_idx, len(workflow.phases)
                     )
 
-                    ctx = AgentSpawnContext(
-                        role=phase.role,
-                        role_cfg=role_cfg,
-                        spawn_reason=SpawnReason.PHASE_PRIMARY,
-                        ticket=ticket,
-                        parent=None,
-                        worktree_path=worktree,
-                        project=self._project,
-                        tickets=self.tickets,
-                        threads=self.threads,
-                        memory=self.memory,
-                        bus=self.bus,
-                        checkpoints=self.checkpoints,
-                        phase=phase,
-                    )
-                    sub_key = (ticket_id, phase.role)
-                    self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
-                    try:
-                        _logger.info(
-                            "spawning agent for %s on ticket %s", phase.role, ticket_id
+                    # When the review phase is reached and review federation is
+                    # enabled, run all reviewers in parallel instead of spawning
+                    # a single review agent.  This keeps reviewers in the natural
+                    # spec→test→dev→review→document flow and allows critical /
+                    # important findings to route back to the dev phase via the
+                    # existing blocked-retry path rather than getting stuck after
+                    # document with no dispatch continuation.
+                    if (
+                        phase.role == "review"
+                        and self._orchestrator_cfg.run_review_federation
+                    ):
+                        sub_key = (ticket_id, phase.role)
+                        self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
+                        try:
+                            result = await self._run_review_phase_federation(
+                                ticket_id, ticket, worktree
+                            )
+                        finally:
+                            self._live_subscribers.pop(sub_key, None)
+                    else:
+                        role_cfg = load_role(self._project_path, phase.role)
+                        ctx = AgentSpawnContext(
+                            role=phase.role,
+                            role_cfg=role_cfg,
+                            spawn_reason=SpawnReason.PHASE_PRIMARY,
+                            ticket=ticket,
+                            parent=None,
+                            worktree_path=worktree,
+                            project=self._project,
+                            tickets=self.tickets,
+                            threads=self.threads,
+                            memory=self.memory,
+                            bus=self.bus,
+                            checkpoints=self.checkpoints,
+                            phase=phase,
                         )
-                        result = await self._run_agent_with_analytics(ctx)
-                        _logger.info("agent %s finished: %s", phase.role, result.status)
-                    except Exception:
-                        _logger.exception(
-                            "agent failed for phase %s ticket %s",
-                            phase.name,
-                            ticket_id,
-                        )
-                        await self._emit_phase_event(
-                            "phase_complete",
-                            ticket_id,
-                            phase,
-                            phase_idx,
-                            len(workflow.phases),
-                            result="failed",
-                        )
-                        await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
-                        await self._on_ticket_failed(ticket_id, ticket)
-                        return
-                    finally:
-                        self._live_subscribers.pop(sub_key, None)
+                        sub_key = (ticket_id, phase.role)
+                        self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
+                        try:
+                            _logger.info(
+                                "spawning agent for %s on ticket %s", phase.role, ticket_id
+                            )
+                            result = await self._run_agent_with_analytics(ctx)
+                            _logger.info("agent %s finished: %s", phase.role, result.status)
+                        except Exception:
+                            _logger.exception(
+                                "agent failed for phase %s ticket %s",
+                                phase.name,
+                                ticket_id,
+                            )
+                            await self._emit_phase_event(
+                                "phase_complete",
+                                ticket_id,
+                                phase,
+                                phase_idx,
+                                len(workflow.phases),
+                                result="failed",
+                            )
+                            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                            await self._on_ticket_failed(ticket_id, ticket)
+                            return
+                        finally:
+                            self._live_subscribers.pop(sub_key, None)
 
                     await self._emit_phase_event(
                         "phase_complete",
@@ -1747,38 +1837,10 @@ class Orchestrator:
         await self._update_ticket_status(ticket_id, TicketStatus.RESOLVED)
         _logger.info("ticket %s resolved — branch %s", ticket_id, branch_name)
 
-        # Review-federation gate — runs as a **gate** on resolution per
-        # ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition".
-        # When enabled, ``_run_review_federation`` may roll the ticket
-        # back to FAILED (critical comments / federation crash) or
-        # BLOCKED (important comments). Notable comments on a clean
-        # ticket leave the status RESOLVED but defer via the
-        # Coordinator. Flag-off preserves the legacy passive behavior
-        # — federation never runs.
-        if self._orchestrator_cfg.run_review_federation:
-            await self._run_review_federation(ticket_id, ticket)
-
-        # Re-load the ticket so we route the post-resolve cleanup off
-        # the gate's actual outcome rather than the pre-gate optimism.
-        if self.tickets is not None:
-            post_gate = await self.tickets.get(ticket_id)
-            if post_gate is not None and post_gate.status in (
-                TicketStatus.FAILED,
-                TicketStatus.BLOCKED,
-            ):
-                # Gate fired — defer to the failure path so the
-                # ticket_failed event lands and cleanup runs the
-                # blocked/failed branch. Worktree + branch are
-                # preserved so the operator can address the comments
-                # and re-run the federation.
-                if post_gate.status == TicketStatus.FAILED:
-                    await self._on_ticket_failed(ticket_id, ticket)
-                else:
-                    # BLOCKED — same observable cleanup; no merge
-                    # rollback (the dev branch is already merged).
-                    self._running_tickets.pop(ticket_id, None)
-                    await self._start_ready_tickets()
-                return
+        # Review federation now runs as the "review" workflow phase
+        # (see _run_review_phase_federation), so reviewers fire in the
+        # correct spec→test→dev→review→document order and run in
+        # parallel.  No post-merge re-run needed here.
 
         if self._emitter is not None:
             from jig.events import JigEvent

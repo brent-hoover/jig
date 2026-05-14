@@ -94,6 +94,7 @@ class Sidebar(Widget):
         self._agent_tools: dict[str, deque[tuple[str, str]]] = {}  # "ticket_id:role" → [(tool, detail)]
         self._tickets: dict[str, dict[str, Any]] = {}
         self._events: list[dict[str, Any]] = []
+        self._active_prompt: dict | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -243,6 +244,11 @@ class Sidebar(Widget):
         {"open", "in_progress", "blocked", "needs_info", "merge_conflict"}
     )
 
+    def update_prompt(self, data: dict | None) -> None:
+        """Called when a prompt becomes active (data) or is resolved (None)."""
+        self._active_prompt = data
+        self._render_needs_you()
+
     def _render_needs_you(self) -> None:
         """Render tickets currently blocked on operator input.
 
@@ -264,6 +270,16 @@ class Sidebar(Widget):
         # than resolving a conflict, do the easy ones first).
         actionable.sort(key=lambda t: 0 if t.get("status") == "needs_info" else 1)
         lines = []
+        if self._active_prompt:
+            _TYPE_LABELS = {
+                "brief_approval": "approve brief",
+                "question_answer": "answer question",
+                "init_complete": "confirm init",
+                "direct_template": "fill template",
+            }
+            pt = self._active_prompt.get("prompt_type", "")
+            label = _TYPE_LABELS.get(pt, pt.replace("_", " ") or "respond to prompt")
+            lines.append(f"[bold magenta]▶[/bold magenta] {label}")
         for t in actionable[:6]:
             status = t.get("status", "")
             title = t.get("title", "(untitled)")

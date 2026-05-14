@@ -32,7 +32,7 @@ class JigApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False),
-        Binding("question_mark", "help", "Help"),
+        Binding("question_mark", "help", "Help", priority=True),
         # F1 always-fires (terminal doesn't send it as a printable char,
         # so Input doesn't consume it).
         Binding("f1", "help", "Help", show=False, priority=True),
@@ -205,6 +205,14 @@ class JigApp(App):
                     self._sidebar_safe(
                         lambda s: s.update_tool_use(msg.get("data") or {})
                     )
+                # prompt request/response drives Sidebar's Needs You subzone
+                if topic == "prompts":
+                    kind = msg.get("kind")
+                    if kind == "request":
+                        data = msg.get("data") or {}
+                        self._sidebar_safe(lambda s: s.update_prompt(data))
+                    elif kind == "response":
+                        self._sidebar_safe(lambda s: s.update_prompt(None))
                 # Route all agent events to the Agents screen
                 self._agents_screen_safe(msg.get("kind", ""), msg.get("data") or {})
                 # Lifecycle events (ticket_dispatched / ticket_completed /

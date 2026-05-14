@@ -43,6 +43,9 @@ NowScreen, TicketsScreen, SpecScreen, EventsScreen {
 RichLog, ListView, Tree {
     background: #1a2030;
     scrollbar-size: 0 0;
+    scrollbar-background: #1a2030;
+    scrollbar-color: #1a2030;
+    scrollbar-corner-color: #1a2030;
 }
 
 /* When the scrollback gets focus (Shift+Tab), highlight it so the

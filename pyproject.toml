@@ -34,6 +34,15 @@ include = ["jig*"]
 # Synthetic operator persona YAMLs (Track H3, bones). bones ships only
 # methodical; MVP/Final extend with the rest.
 "jig.sim.personas" = ["*.yaml"]
+# Built-in defaults: roles, workflows, work_types shipped with the package.
+"jig.defaults.roles" = ["*.yaml"]
+"jig.defaults.workflows" = ["*.yaml"]
+"jig.defaults.work_types" = ["*.yaml"]
+# Project templates copied at scaffolding time. Each template ships
+# template.yaml at the top plus a tree of source files (src/, tests/),
+# config (pyproject.toml, README.md, .gitignore). The "**/*" glob picks
+# up everything; setuptools turns that into recursive package-data.
+"jig.defaults.project_templates" = ["**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

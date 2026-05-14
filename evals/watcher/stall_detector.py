@@ -73,7 +73,7 @@ class StallDetector:
                 role = data.get("role") or "agent"
                 self.in_flight_agents.pop(role, None)
 
-        if topic == "tickets":
+        if topic == "tickets" and msg_type == "event" and isinstance(data, dict):
             ticket_id = data.get("id") or data.get("ticket_id")
             status = data.get("status")
             if ticket_id and status:

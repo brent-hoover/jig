@@ -186,10 +186,14 @@ async def handle_create_ticket(
             topic="orchestrator",
         )
     )
+    # Always broadcast on the tickets topic — the assignee is metadata for
+    # tracking, not a routing directive for creation events.  Using the
+    # assignee as `to` here caused the dispatch loop to spawn a premature
+    # QA responder before the ticket entered the workflow pipeline.
     await bus.publish(
         Message(
             sender=sender,
-            to=ticket.assignee or "broadcast",
+            to="broadcast",
             type=MessageType.CONTEXT_UPDATE,
             payload=payload,
             topic=f"tickets.{ticket_id}",

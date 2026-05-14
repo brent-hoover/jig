@@ -114,7 +114,7 @@ def test_regenerate_bumps_state_changed_at_when_state_changes():
         capabilities=[
             BriefCapability(
                 id="due-dates", title="Due dates",
-                section="built",  # was planned, now built
+                section="archived",  # was planned, now archived
                 capability_acceptance_criteria=["a date can be set"],
             ),
         ],
@@ -124,7 +124,7 @@ def test_regenerate_bumps_state_changed_at_when_state_changes():
         ticket_lookup=lambda cid, aliases: [], now=_ts(),
     )
     cap = result.spec.capabilities[0]
-    assert cap.state == CapabilityState.BUILT
+    assert cap.state == CapabilityState.ARCHIVED
     assert cap.state_changed_at == _ts()
 
 

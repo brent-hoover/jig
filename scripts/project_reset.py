@@ -206,10 +206,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[daemon] stop returned {result.returncode} (ignoring)")
 
     # Belt-and-suspenders: kill any orphan daemon listening on the
-    # default WS port (9100). This catches the case where a previous
+    # default WS port (19100). This catches the case where a previous
     # launch left a daemon running but its PID file was already wiped
     # by a partial reset, so ``jig daemon stop`` couldn't find it.
-    _kill_orphan_on_port(9100)
+    _kill_orphan_on_port(19100)
 
     # Wipe EVERYTHING in the project directory, including .git/. Old
     # commit history (e.g. the previous scaffold commit, T1's branch

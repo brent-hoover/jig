@@ -146,6 +146,10 @@ Non-test reviewers continue to run end-of-ticket.
       configurable per-workflow, or refused outright with a clear error to the operator?
 - [ ] When a blocking finding targets a file under both `test` and `dev` ownership (e.g. shared
       fixtures), what role owns it? Likely test, but worth confirming.
+- [ ] Some findings indicate the issue is above the writing role's pay grade (the spec is wrong, an
+      architecture decision needs revisiting). Should reviewers be able to declare a target role
+      (`pm`, `sa`) on a finding, with routing consulting that *before* file→role mapping? Captured
+      for design discussion; see `design.md` once written.
 
 ## Change log
 

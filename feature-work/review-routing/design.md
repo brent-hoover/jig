@@ -44,20 +44,28 @@ phases:
   - name: review-tests
     role: review
     reviewers: ["reviewer-test-adequacy"]
-    writes: []                       # review phases write nothing; needed only for symmetry
   - name: implement
     role: dev
     writes: ["src/**", "pyproject.toml", "**/*.lock"]
   - name: review
     role: review
-    writes: []
+    reviewers:
+      - reviewer-pattern-conformance
+      - reviewer-architectural
+      - reviewer-error-handling
+      - reviewer-performance
+      - reviewer-security
   - name: validate
     role: validate
-    writes: []
   - name: document
     role: document
     writes: ["docs/**", "README*", "CHANGELOG*"]
 ```
+
+Phases without `writes:` (review-tests, review, validate) can omit it — default is `[]`, and they
+don't write files anyway. `reviewer-test-adequacy` doesn't appear in the end-of-ticket `review`
+phase's `reviewers:` list because (a) it already ran at `review-tests` against the test diff, and
+(b) the test files aren't part of the dev's changeset that the end-of-ticket review sees.
 
 Globs are matched against the comment's `file` field (relative-to-project paths) with standard
 `fnmatch`/`pathlib.PurePath.match` semantics — `**` for recursive, `*` for single-segment.
@@ -68,18 +76,17 @@ preserves today's "always route to dev" behaviour via the fallback.
 ### New phase: `review-tests`
 
 The default workflow gains a `review-tests` phase between `test` and `implement` (see YAML above).
-This phase runs only the test-focused reviewer subset — initially just `reviewer-test-adequacy`. The
-phase definition gains a new optional `reviewers: list[str]` field; when present, only those
-reviewers are dispatched (other reviewers are skipped at this phase). When absent, the federation
-runs as it does today.
 
-`reviewer-test-adequacy`'s cadence changes from `end_of_ticket` to a new cadence
-`post_phase: test` — fired immediately after the `test` phase commits. The reviewer is removed from
-the end-of-ticket cadence; it does not run twice.
+Phase definitions with `role: review` gain a new required `reviewers: list[str]` field listing which
+reviewers fire at that phase. The orchestrator dispatches exactly those reviewers — no other source
+of truth. This replaces today's implicit "all reviewers fire at every review phase" with explicit
+per-phase declaration, making the workflow YAML self-documenting and removing the need for a
+separate cadence concept on reviewer configs.
 
-Other reviewers (e.g. `reviewer-pattern-conformance`) keep their `end_of_ticket` cadence and are
-unaffected by the new phase. Their findings on `tests/**` files now route to `test` via the glob
-mechanism rather than thrashing on dev.
+The default workflow's `review-tests` phase lists only `reviewer-test-adequacy`. The end-of-ticket
+`review` phase lists the remaining five reviewers (pattern-conformance, architectural,
+error-handling, performance, security) — test-adequacy is excluded there because it already ran
+post-test and the test files aren't in the dev changeset under review.
 
 ### ReviewerComment schema extension
 
@@ -153,30 +160,24 @@ The caller (around `orchestrator.py:1550`) replaces the existing `_find_fix_phas
 posts a structured thread Note naming the chosen phase and the route reason, so the operator can see
 why a particular phase was selected for retry.
 
-### Reviewer dispatch at the new phase
+### Reviewer dispatch
 
-`run_review_federation` already takes a cadence argument (`"end_of_ticket"`). Add a new cadence
-`"post_phase"` parameterised by phase name. The dispatch path (`jig/reviewers/dispatch.py`)
-filters reviewers by cadence + matching phase before spawning. Reviewer role configs declare:
+`run_review_federation` currently takes an implicit "all reviewers" set + a cadence label. The
+change: it takes an explicit list of reviewer names from the current phase's `reviewers:` field and
+dispatches exactly those. The cadence argument is dropped — the phase identity (and its position in
+the workflow) is the dispatch context.
 
-```yaml
-# .jig/roles/reviewer-test-adequacy.yaml
-cadence:
-  post_phase: test
-```
-
-vs. the current:
-
-```yaml
-cadence: end_of_ticket
-```
+Reviewer role configs (`jig/defaults/roles/reviewer_*.yaml`) require no schema change — they keep
+their existing fields. Operators add or remove a reviewer at a given phase by editing the
+workflow YAML, not the reviewer config.
 
 ## Interfaces
 
 - **Workflow YAML (`jig/defaults/workflows/*.yaml` and `.jig/workflows/*.yaml`):** phase entries
-  gain optional `writes: list[str]` and optional `reviewers: list[str]`.
-- **Reviewer role YAML (`.jig/roles/reviewer-*.yaml`):** `cadence` field accepts either a string
-  (`"end_of_ticket"`) or an object (`{post_phase: "<phase-name>"}`).
+  gain optional `writes: list[str]`. Phases with `role: review` gain a required
+  `reviewers: list[str]` field listing which reviewers fire there.
+- **Reviewer role YAML (`jig/defaults/roles/reviewer_*.yaml`):** no schema change. Membership is
+  now declared on the workflow side, not the reviewer side.
 - **`ReviewerComment` model:** new optional `target_role: str | None` field.
 - **Orchestrator internals:** `_find_fix_phase` → `_route_blocking_comments`. Same call site, broader
   return shape (phase index + reason string). No public API impact.
@@ -280,9 +281,6 @@ logic. The orchestrator change is localised to one function.
 
 ## Open questions
 
-- [ ] `cadence: {post_phase: test}` is one shape. Should the schema be more general — e.g. allow
-      `cadence: [post_phase: test, end_of_ticket]` so a single reviewer config can declare
-      multiple firing points? Not needed for this work but cheap to forward-compat if anticipated.
 - [ ] What if a workflow has multiple phases with the same `role` (e.g. two `dev` phases for a
       multi-stage implementation)? `_most_recent_phase_with_role` returns the most recent, which
       seems right; confirm no scenario wants the first or all-of.
@@ -292,10 +290,20 @@ logic. The orchestrator change is localised to one function.
 - [ ] How are `writes:` globs interpreted relative to the worktree vs. the project root? Comments'
       `.file` field convention needs to be confirmed — likely worktree-relative paths from the
       reviewer's perspective, which should match the project root for our purposes.
-- [ ] Does the reviewer-test-adequacy prompt need any change to function pre-dev, or is its
-      current prompt already scoped to test quality alone? Read the system prompt during
-      implementation to confirm.
+- [ ] Does the `reviewer-test-adequacy` prompt need any change to function pre-dev? Its current
+      prompt mentions "the diff" generically; confirm during implementation that the diff scope it
+      receives at `review-tests` (test phase's commits only) is sufficient context. (`grep` confirms
+      the prompt is already scoped to "tests exercise the new behavior" — no implementation-side
+      assumptions, so this should be safe.)
+- [ ] Diff scope for the end-of-ticket `review` phase: the dev-only changeset (test files absent),
+      or the full ticket diff up to that point (test files present)? The design assumes dev-only —
+      that's what makes excluding `reviewer-test-adequacy` from the end-of-ticket phase coherent.
+      Verify how `dispatch_with_llm_spawn` actually scopes the diff today and align.
 
 ## Change log
 
 - 2026-05-17: Initial draft (brent)
+- 2026-05-17: Drop cadence-on-reviewer concept; phase declares its `reviewers:` list as the single
+  source of truth. Clean up redundant `writes: []` boilerplate from review/validate phases. Enumerate
+  the end-of-ticket reviewers in the example YAML so `reviewer-test-adequacy`'s exclusion is
+  explicit. Add diff-scope open question.

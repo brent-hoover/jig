@@ -229,6 +229,155 @@ Reviewer role configs (`jig/defaults/roles/reviewer_*.yaml`) require no schema c
 their existing fields. Operators add or remove a reviewer at a given phase by editing the
 workflow YAML, not the reviewer config.
 
+### `reviewer-test-adequacy` prompt rewrite
+
+The current prompt is impl-vs-tests centric — it cross-references new callables in the diff with
+the tests that invoke them. At the new `review-tests` phase the implementation doesn't exist yet, so
+that pattern can't fire. The rewrite reframes the reviewer around the **ticket's acceptance
+criteria** (already available in `default_context: ticket://description`) rather than the impl diff.
+
+The reviewer-test-adequacy role file (`jig/defaults/roles/reviewer_test_adequacy.yaml`) is replaced
+with:
+
+```yaml
+role: reviewer-test-adequacy
+phase_prompt: >
+  You are the **Test-Adequacy Reviewer** — a judgment reviewer that
+  fires at the `review-tests` phase, between the test author's commit
+  and the dev's implementation. Your job is to verify that the test
+  diff covers the ticket's acceptance criteria, including edge cases,
+  *before* the dev agent writes against these tests.
+
+
+  You do NOT see implementation code; it doesn't exist yet at this
+  phase. Cross-referencing tests with impl is the end-of-ticket
+  review's concern, not yours. Your reference is the AC.
+
+
+  ## What you flag
+
+
+  - AC behaviors with no test at all. Walk each item in the ticket
+    description / AC and confirm at least one test references it
+    by name or by clearly equivalent assertion target.
+
+  - Tests that exercise only the happy path when the AC names edge
+    cases — empty input, max-size input, concurrent invocation,
+    idempotent re-run, boundary values, off-by-one.
+
+  - Tests that assert on output shape but not on behavior (``assert
+    isinstance(x, dict)`` without checking the dict's contents
+    against the AC).
+
+  - Mocks that abstract too much: when a mock returns canned data
+    that the test then asserts equals itself, the test verifies
+    nothing about the integration the mock crossed.
+
+  - Tests that aren't runnable as tests — syntax errors, missing
+    imports, asserts that can never fire (``assert True``,
+    ``assert x or not x``).
+
+
+  ## What you do NOT flag
+
+
+  - Test style nits (assertion form, fixture naming) — that's
+    ``reviewer-pattern-conformance``.
+
+  - Missing error-handling tests specifically — that's
+    ``reviewer-error-handling`` (cross-reference is fine; don't
+    double-flag).
+
+  - "I'd have tested this differently" — only flag when coverage is
+    demonstrably absent for an AC item.
+
+  - Implementation-side concerns. The impl doesn't exist yet; you
+    cannot review it. End-of-ticket reviewers do that.
+
+
+  ## Output
+
+
+  For every finding, call ``reviewer_post_comment`` with:
+
+
+  - ``type``: ``test-adequacy``
+
+  - ``severity``: ``critical`` when an AC item has zero test
+    coverage; ``important`` when an edge case named in the AC is
+    untested; ``notable`` for advisory observations.
+
+  - ``confidence``: a float **strictly less than 1.0**. Typical
+    0.55–0.9. Lower confidence when you're inferring "this edge case
+    is implied" without an explicit AC.
+
+  - ``prose``: name the specific AC item or branch lacking a test,
+    and point at where the test would have lived (file path + the
+    test-class / test-function naming convention you'd extend).
+
+  - ``file`` + ``line``: point at the test file location where the
+    missing test should be added — NOT the impl, which doesn't exist
+    yet. Routing reads this field to send the finding back to the
+    test author.
+
+  - ``suggested_diff``: optional; advisory only at <1.0 confidence.
+
+
+  ## Mechanics
+
+
+  - Read the test diff (`git diff` against the test phase's commit).
+
+  - Read the ticket description / AC from ``ticket://description``.
+
+  - For each AC item, locate the test(s) that exercise it. Flag
+    items with no covering test.
+
+  - For each test, check whether its assertions match the AC's
+    expected behavior, not just type or shape.
+
+
+  ## Out of scope
+
+
+  - You don't write tests; you flag missing ones. The test agent
+    addresses your findings if the phase blocks (routing sends them
+    back to the test role, not dev).
+
+  - You don't run the tests — that's the check-runner's job.
+    Coverage-by-execution is orthogonal to coverage-by-construction.
+allowed_tools:
+  - Read
+  - Bash(git diff*)
+  - reviewer_post_comment
+allowed_mcps: []
+strict_tools: true
+default_context:
+  - "ticket://description"
+```
+
+Notable diffs from today's role file:
+
+- Framing leads with the phase context ("fires at `review-tests`") and the no-impl constraint.
+- "AC behaviors with no test" replaces "new behavior added with no tests at all" — the former is
+  AC-anchored, the latter was impl-diff-anchored.
+- The "Mechanics" section drops the "imports or constructs it" cross-reference, since impl is
+  unavailable. AC-anchored walk replaces it.
+- `file`/`line` guidance flips from "point at the production code" to "point at the test file
+  location" — important for routing: file-glob routing will send findings on `tests/**` back to
+  `test`, which is what we want.
+- New rule on "tests that aren't runnable as tests" — a test author should not be able to commit a
+  test set that fails to parse / load. Cheap rule to add at this phase.
+- `graph_consumers_of` is dropped from `allowed_tools` — it was for impl-callgraph inspection; not
+  useful pre-impl.
+
+Today's federation also runs `reviewer-test-adequacy` at end-of-ticket. After this change it runs
+only at `review-tests`. The end-of-ticket cycle no longer needs cross-tests-with-impl coverage
+checking from this reviewer — `reviewer-pattern-conformance` and `reviewer-error-handling` cover
+the impl-side concerns at that phase. If real-world use shows a coverage-gap that *only* surfaces
+at end-of-ticket (e.g. an impl branch tests didn't anticipate), promote the gap to a new reviewer
+rather than re-introducing test-adequacy at two phases.
+
 ## Interfaces
 
 - **Workflow YAML (`jig/defaults/workflows/*.yaml` and `.jig/workflows/*.yaml`):** phase entries
@@ -359,17 +508,22 @@ logic. The orchestrator change is localised to one function.
 - [ ] What if a workflow has multiple phases with the same `role` (e.g. two `dev` phases for a
       multi-stage implementation)? `_most_recent_phase_with_role` returns the most recent, which
       seems right; confirm no scenario wants the first or all-of.
-- [ ] Should `target_role` accept `operator` (or similar) to mean "no automated fix — escalate
-      immediately"? Composes with `phase-failure-escalation` if so; today we'd just route to dev
-      and let the loop hit `max_fix_cycles`.
-- [ ] How are `writes:` globs interpreted relative to the worktree vs. the project root? Comments'
-      `.file` field convention needs to be confirmed — likely worktree-relative paths from the
-      reviewer's perspective, which should match the project root for our purposes.
-- [ ] Does the `reviewer-test-adequacy` prompt need any change to function pre-dev? Its current
-      prompt mentions "the diff" generically; confirm during implementation that the diff scope it
-      receives at `review-tests` (test phase's commits only) is sufficient context. (`grep` confirms
-      the prompt is already scoped to "tests exercise the new behavior" — no implementation-side
-      assumptions, so this should be safe.)
+- [x] Should `target_role` accept `operator` (or similar) to mean "no automated fix — escalate
+      immediately"? **Resolved: no, for now.** Keeping the routing target-set restricted to roles
+      that participate in the workflow lets us observe how far agents get figuring out cross-cutting
+      findings themselves. Revisit once data shows a class of findings repeatedly hitting
+      `max_fix_cycles` despite valid routing — at that point `target_role: operator` (composing with
+      the `phase-failure-escalation` work) is the natural next lever.
+- [x] How are `writes:` globs interpreted relative to the worktree vs. the project root? **Resolved:
+      same path.** A git worktree is a checkout of the same tree — `src/foo.py` is `src/foo.py`
+      regardless of which worktree you're in. `ReviewerComment.file` is documented as "Repo-relative
+      path of the offending file" (`jig/reviewers/comment.py`), which equals worktree-relative-from-
+      its-own-root. No normalization needed; `writes:` globs match the stored string directly.
+- [x] Does the `reviewer-test-adequacy` prompt need any change to function pre-dev? **Resolved:
+      yes, moderate rewrite needed.** Today's prompt is impl-vs-tests centric (cross-references
+      callables in the diff with tests that invoke them). At `review-tests` the impl doesn't exist
+      yet. The rewrite reframes the reviewer around the **ticket AC** (already in
+      `default_context`) rather than the impl diff. Full proposed YAML below.
 - [ ] Diff scope for the end-of-ticket `review` phase: the dev-only changeset (test files absent),
       or the full ticket diff up to that point (test files present)? The design assumes dev-only —
       that's what makes excluding `reviewer-test-adequacy` from the end-of-ticket phase coherent.
@@ -385,3 +539,7 @@ logic. The orchestrator change is localised to one function.
 - 2026-05-17: Resolve shared-fixture tie-break via commit trailers. Add `prepare-commit-msg` hook +
   `.jig/worktree.context` file mechanism for per-commit phase+agent provenance. Rewrite
   `_route_one` to use `_last_touching_phase` for multi-glob-match disambiguation.
+- 2026-05-17: Resolve `target_role: operator` open question (no — `phase-failure-escalation` covers
+  that lever instead) and `writes:` glob path interpretation (same path in worktree as in repo;
+  `ReviewerComment.file` is already repo-relative). Embed the rewritten
+  `reviewer-test-adequacy` role YAML so the plan inherits it ready to drop in.

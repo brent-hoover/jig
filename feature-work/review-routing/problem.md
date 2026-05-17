@@ -144,8 +144,10 @@ Non-test reviewers continue to run end-of-ticket.
       central is one less thing to configure.
 - [ ] Fallback owner for unowned files (`pyproject.toml`, `README.md`, top-level configs): always dev,
       configurable per-workflow, or refused outright with a clear error to the operator?
-- [ ] When a blocking finding targets a file under both `test` and `dev` ownership (e.g. shared
-      fixtures), what role owns it? Likely test, but worth confirming.
+- [x] When a blocking finding targets a file under both `test` and `dev` ownership (e.g. shared
+      fixtures), what role owns it? **Resolved in `design.md`**: use commit trailers (`Phase:`
+      written by a `prepare-commit-msg` hook) to identify the last phase that touched the file,
+      and route to that phase among the matching candidates.
 - [ ] Some findings indicate the issue is above the writing role's pay grade (the spec is wrong, an
       architecture decision needs revisiting). Should reviewers be able to declare a target role
       (`pm`, `sa`) on a finding, with routing consulting that *before* file→role mapping? Captured

@@ -105,6 +105,47 @@ gains language describing when to use it ("if the finding indicates the spec is 
 Routing rejects unknown `target_role` values by logging a warning and falling through to glob
 routing, so a reviewer hallucinating role names degrades gracefully.
 
+### Per-commit phase + agent provenance
+
+The routing tie-break for shared files (next section) needs a reliable signal for *which phase last
+touched this file*. Today's commits don't carry that — every commit is authored as the operator
+because the orchestrator and all agents run under the operator's identity. The fix:
+
+1. **Worktree context file.** When the orchestrator enters a phase, it writes
+   `.jig/worktree.context` inside the worktree, containing the current phase name and agent role:
+
+   ```
+   phase=implement
+   agent=dev
+   ```
+
+   This file is overwritten at each phase boundary.
+
+2. **`prepare-commit-msg` hook.** Worktree creation (`jig/worktree.py`) installs an executable
+   `prepare-commit-msg` script into the worktree's `.git/hooks/`. The hook reads
+   `.jig/worktree.context` and appends standard Git trailers to any commit message:
+
+   ```
+   <original commit subject>
+
+   <original commit body>
+
+   Phase: implement
+   Agent: dev
+   ```
+
+   The hook fires on every commit in the worktree — orchestrator auto-commits and agent-authored
+   commits both. Trailers are idempotent: if a `Phase:` trailer is already present (e.g. amends),
+   the hook skips re-appending.
+
+3. **Provenance lookup.** Routing reads trailers via
+   `git log --pretty=format:%(trailers:key=Phase,valueonly) -- <file>` and takes the first hit. The
+   first non-empty line is the most-recent phase that touched the file.
+
+The mechanism is intentionally narrow — phase + agent per commit — but the provenance signal is
+generally useful (per-commit reviewers, analyzer, post-run analytics could all consume it). This
+design only commits to using it for the routing tie-break; broader consumers are out of scope.
+
 ### Fix-loop routing
 
 `_find_fix_phase(workflow, blocked_phase_idx)` is replaced by
@@ -132,7 +173,7 @@ def _route_blocking_comments(workflow, blocked_phase_idx, comments):
     return chosen, "; ".join(set(reasons))
 
 
-def _route_one(workflow, blocked_phase_idx, comment):
+def _route_one(workflow, blocked_phase_idx, comment, worktree_path):
     # 1. Reviewer-declared target role
     if comment.target_role:
         idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, comment.target_role)
@@ -144,10 +185,27 @@ def _route_one(workflow, blocked_phase_idx, comment):
 
     # 2. File-glob routing
     if comment.file:
-        for idx in range(blocked_phase_idx - 1, -1, -1):
-            phase = workflow.phases[idx]
-            if _matches_any(comment.file, phase.writes):
-                return idx, f"writes-glob {phase.name}"
+        candidates = [
+            idx for idx in range(blocked_phase_idx - 1, -1, -1)
+            if _matches_any(comment.file, workflow.phases[idx].writes)
+        ]
+        if len(candidates) == 1:
+            (idx,) = candidates
+            return idx, f"writes-glob {workflow.phases[idx].name}"
+        if len(candidates) > 1:
+            # Multi-match (shared fixture etc.). Tie-break via commit trailers:
+            # walk `git log` for the file and pick the most-recent phase whose
+            # trailer matches one of our candidates.
+            last_phase = _last_touching_phase(worktree_path, comment.file)
+            if last_phase is not None:
+                matched = [
+                    idx for idx in candidates
+                    if workflow.phases[idx].name == last_phase
+                ]
+                if matched:
+                    return matched[0], f"last-touched {last_phase}"
+            # No parseable trailer → fall through to earliest candidate
+            return candidates[-1], "ambiguous-ownership"  # backward iter → last is earliest
 
     # 3. Fallback: most-recent dev phase, marked unowned
     idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, "dev")
@@ -179,8 +237,16 @@ workflow YAML, not the reviewer config.
 - **Reviewer role YAML (`jig/defaults/roles/reviewer_*.yaml`):** no schema change. Membership is
   now declared on the workflow side, not the reviewer side.
 - **`ReviewerComment` model:** new optional `target_role: str | None` field.
+- **Worktree state:** new `.jig/worktree.context` file (overwritten per phase) with `phase=` and
+  `agent=` lines.
+- **Worktree hooks:** new executable `.git/hooks/prepare-commit-msg` script installed at worktree
+  creation. Appends `Phase: <name>` and `Agent: <role>` trailers from the context file.
+- **Commit message trailers:** `Phase: <phase-name>` and `Agent: <role>` are reserved trailer keys.
+  Operators authoring manual commits in a jig worktree should leave these alone or risk confusing
+  routing on future cycles.
 - **Orchestrator internals:** `_find_fix_phase` → `_route_blocking_comments`. Same call site, broader
-  return shape (phase index + reason string). No public API impact.
+  return shape (phase index + reason string). New helper `_last_touching_phase(worktree, file)`
+  consults git trailers. No public API impact.
 
 ## Data model
 
@@ -244,6 +310,15 @@ logic. The orchestrator change is localised to one function.
 
 ## Risks
 
+- **Hooks bypassed via `--no-verify`.** An agent or operator using `git commit --no-verify` skips
+  the `prepare-commit-msg` hook, so commits land without `Phase:` / `Agent:` trailers. Acceptable
+  for routing — the tie-break degrades to the workflow-earliest candidate, with an
+  `ambiguous-ownership` log line so the gap is observable. Worth a CLAUDE.md note that agents
+  shouldn't use `--no-verify`.
+- **Existing worktrees pre-date the hook.** Worktrees created before this work ships have no hook
+  installed and no context file. Add an idempotent installer to `jig/worktree.py` that adds the
+  hook + writes the current phase's context whenever the orchestrator enters a phase on a worktree
+  it sees, regardless of when the worktree was created.
 - **Glob authoring errors.** A typo in a `writes:` glob silently mis-routes findings. Mitigate by
   emitting `route_reason` on every routing decision (logged + posted as a thread Note); operators
   see immediately if dev keeps getting findings that should have gone to test.
@@ -307,3 +382,6 @@ logic. The orchestrator change is localised to one function.
   source of truth. Clean up redundant `writes: []` boilerplate from review/validate phases. Enumerate
   the end-of-ticket reviewers in the example YAML so `reviewer-test-adequacy`'s exclusion is
   explicit. Add diff-scope open question.
+- 2026-05-17: Resolve shared-fixture tie-break via commit trailers. Add `prepare-commit-msg` hook +
+  `.jig/worktree.context` file mechanism for per-commit phase+agent provenance. Rewrite
+  `_route_one` to use `_last_touching_phase` for multi-glob-match disambiguation.

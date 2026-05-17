@@ -3,7 +3,13 @@ import os
 import socket
 import time
 
-from jig.daemon import daemon_paths, daemon_status, daemon_start, daemon_stop
+from jig.daemon import (
+    _allocate_ws_port,
+    daemon_paths,
+    daemon_status,
+    daemon_start,
+    daemon_stop,
+)
 
 
 def _free_port() -> int:
@@ -119,6 +125,29 @@ def test_daemon_status_surfaces_last_error_for_stale_pid_file(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Port allocation
+# ---------------------------------------------------------------------------
+
+
+def test_allocate_ws_port_returns_preferred_when_free():
+    """When the preferred port is free, allocate uses it as-is."""
+    port = _free_port()  # known free at call time
+    assert _allocate_ws_port(preferred=port) == port
+
+
+def test_allocate_ws_port_falls_back_when_preferred_busy():
+    """When the preferred port is bound, allocate returns an ephemeral
+    port distinct from it — so two projects can run daemons concurrently."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        busy_port = held.getsockname()[1]
+        chosen = _allocate_ws_port(preferred=busy_port)
+        assert chosen != busy_port
+        assert 1024 <= chosen <= 65535
+
+
+# ---------------------------------------------------------------------------
 # Docker mode tests — all docker CLI calls are mocked; no real Docker needed.
 # ---------------------------------------------------------------------------
 
@@ -159,6 +188,39 @@ def test_daemon_start_docker_writes_container_file(tmp_path, monkeypatch):
     result = daemon_start(tmp_path, docker=True)
     assert result.container_id == fake_id
     assert (tmp_path / ".jig" / "run" / "daemon.container").read_text() == fake_id
+
+
+def test_daemon_start_docker_removes_orphan_containers_before_launch(
+    tmp_path, monkeypatch
+):
+    """When containers labeled with this project exist but daemon_status
+    says not running, they're orphans — remove them before launching and
+    report them in DaemonStartResult.orphans_removed."""
+    monkeypatch.setattr("jig.container.docker_available", lambda: True)
+    monkeypatch.setattr("jig.container.image_exists", lambda: True)
+    monkeypatch.setattr(
+        "jig.container.run_detached_container",
+        lambda *a, **kw: "new-container-id",
+    )
+    monkeypatch.setattr("jig.container.container_alive", lambda cid: True)
+
+    orphan_ids = ["orphan-cid-1111111111", "orphan-cid-2222222222"]
+    monkeypatch.setattr(
+        "jig.container.find_project_containers",
+        lambda path: list(orphan_ids),
+    )
+    removed: list[str] = []
+
+    def fake_remove(cid: str) -> bool:
+        removed.append(cid)
+        return True
+
+    monkeypatch.setattr("jig.container.force_remove_container", fake_remove)
+
+    result = daemon_start(tmp_path, docker=True)
+    assert removed == orphan_ids
+    assert result.orphans_removed == tuple(c[:12] for c in orphan_ids)
+    assert result.container_id == "new-container-id"
 
 
 def test_daemon_start_docker_raises_when_image_missing(tmp_path, monkeypatch):

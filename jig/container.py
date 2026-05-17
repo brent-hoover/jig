@@ -17,6 +17,11 @@ _logger = logging.getLogger(__name__)
 DEFAULT_IMAGE = "jig"
 """Default Docker image name.  Override with ``JIG_DOCKER_IMAGE`` env var."""
 
+JIG_PROJECT_LABEL = "com.jig.project"
+"""Docker label attached to each daemon container, set to the
+project's resolved absolute path. Used to find orphans left over from
+prior runs without false-matching unrelated jig containers."""
+
 # Auth env var forwarded into the container.  Generate a long-lived
 # OAuth token with ``claude setup-token`` and export it on the host as
 # CLAUDE_CODE_OAUTH_TOKEN.
@@ -181,6 +186,7 @@ def run_detached_container(
         "--security-opt", "seccomp=unconfined",
         "-v", f"{project_path.resolve()}:/project",
         "-p", f"127.0.0.1:{ws_port}:{ws_port}",
+        "--label", f"{JIG_PROJECT_LABEL}={project_path.resolve()}",
     ]
     if name:
         args.extend(["--name", name])
@@ -242,3 +248,33 @@ def container_alive(container_id: str) -> bool:
     if result.returncode != 0:
         return False
     return result.stdout.strip().lower() == "true"
+
+
+def find_project_containers(project_path: Path) -> list[str]:
+    """Return IDs of containers labeled with this project path.
+
+    Includes stopped containers (``-a``) so we also catch zombie
+    `--rm` containers whose deletion is hung. The label is set by
+    ``run_detached_container``.
+    """
+    label_value = str(project_path.resolve())
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-aq",
+             "--filter", f"label={JIG_PROJECT_LABEL}={label_value}"],
+            capture_output=True, text=True, check=False,
+        )
+    except FileNotFoundError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def force_remove_container(container_id: str) -> bool:
+    """``docker rm -f`` a container. Returns True on success."""
+    result = subprocess.run(
+        ["docker", "rm", "-f", container_id],
+        capture_output=True, text=True, check=False,
+    )
+    return result.returncode == 0

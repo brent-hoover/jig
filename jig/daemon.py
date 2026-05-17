@@ -136,6 +136,21 @@ def _port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _allocate_ws_port(preferred: int = 19100) -> int:
+    """Return ``preferred`` if free, else an OS-assigned ephemeral port.
+
+    Lets multiple projects auto-start daemons concurrently — the first
+    gets 19100; subsequent projects get their own ephemeral ports.
+    Resolved port is written to ``.jig/run/daemon.addr`` so the TUI
+    discovers it without ambient knowledge of which port to use.
+    """
+    if not _port_in_use(preferred):
+        return preferred
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 def _pid_on_port(port: int) -> int | None:
     """Return the PID of the process listening on ``port``, or None.
 
@@ -174,6 +189,9 @@ class DaemonStartResult:
     pid: int
     addr: str  # e.g. "ws://127.0.0.1:19100"
     container_id: str | None = None
+    # Container IDs (12-char short) removed prior to launch because they
+    # were orphans from a previous run. Empty in normal cases.
+    orphans_removed: tuple[str, ...] = ()
 
 
 class DaemonAlreadyRunning(RuntimeError):
@@ -183,7 +201,7 @@ class DaemonAlreadyRunning(RuntimeError):
 def daemon_start(
     project_path: Path,
     *,
-    ws_port: int = 19100,
+    ws_port: int | None = None,
     docker: bool = False,
     _command_override: Sequence[str] | None = None,
 ) -> DaemonStartResult:
@@ -194,6 +212,10 @@ def daemon_start(
     detached container. PID / container ID + socket address are written
     to ``.jig/run/`` so the TUI can find them.
 
+    ``ws_port=None`` (default) picks 19100 if free, else an ephemeral
+    port — letting multiple projects run daemons concurrently. Pass an
+    int to override.
+
     ``_command_override`` is a test-only seam — production callers
     leave it None (only honoured in host mode).
 
@@ -201,6 +223,8 @@ def daemon_start(
     Raises ``RuntimeError`` if the project is not initialized (host
     mode only) or if Docker is unavailable / image not built (docker mode).
     """
+    if ws_port is None:
+        ws_port = _allocate_ws_port()
     existing = daemon_status(project_path)
     if existing.running:
         pid_or_cid = (
@@ -227,6 +251,8 @@ def daemon_start(
             image_exists,
             run_detached_container,
             container_alive,
+            find_project_containers,
+            force_remove_container,
         )
         if not docker_available():
             raise RuntimeError(
@@ -236,6 +262,14 @@ def daemon_start(
             raise RuntimeError(
                 "jig Docker image not built. Run `jig build` first."
             )
+        # daemon_status already determined no live daemon, so any container
+        # labeled with this project is an orphan from a prior run whose
+        # state files were lost or never written. Remove before launch so
+        # the new container can bind the port.
+        orphans_removed: list[str] = []
+        for cid in find_project_containers(project_path):
+            if force_remove_container(cid):
+                orphans_removed.append(cid[:12])
         try:
             container_id = run_detached_container(project_path, ws_port, verbose=False)
         except (RuntimeError, subprocess.CalledProcessError) as exc:
@@ -267,7 +301,10 @@ def daemon_start(
                     f"see {paths.stderr_log}{tail}"
                 )
             time.sleep(0.1)
-        return DaemonStartResult(pid=0, addr=addr, container_id=container_id)
+        return DaemonStartResult(
+            pid=0, addr=addr, container_id=container_id,
+            orphans_removed=tuple(orphans_removed),
+        )
 
     # ------------------------------------------------------------------- host
     cmd = list(_command_override) if _command_override else [

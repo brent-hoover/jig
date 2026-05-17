@@ -1493,7 +1493,12 @@ def daemon_group() -> None:
 
 @daemon_group.command(name="start")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--ws-port", default=19100, type=int, show_default=True)
+@click.option(
+    "--ws-port",
+    default=None,
+    type=int,
+    help="WebSocket port (default: 19100 if free, else auto-pick ephemeral).",
+)
 @click.option(
     "--docker/--no-docker",
     default=None,
@@ -1502,7 +1507,7 @@ def daemon_group() -> None:
         "Defaults to auto-detect: docker if available + image built."
     ),
 )
-def daemon_start_cmd(path: Path, ws_port: int, docker: bool | None) -> None:
+def daemon_start_cmd(path: Path, ws_port: int | None, docker: bool | None) -> None:
     """Start the daemon in the background."""
     from jig.container import docker_available, image_exists
     from jig.daemon import DaemonAlreadyRunning, daemon_start
@@ -1517,6 +1522,13 @@ def daemon_start_cmd(path: Path, ws_port: int, docker: bool | None) -> None:
         raise click.ClickException(str(exc))
     except RuntimeError as exc:
         raise click.ClickException(str(exc))
+
+    if result.orphans_removed:
+        click.echo(
+            "warning: removed orphan jig container(s) from prior run: "
+            + ", ".join(result.orphans_removed),
+            err=True,
+        )
 
     if result.container_id:
         click.echo(

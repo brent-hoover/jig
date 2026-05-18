@@ -336,9 +336,12 @@ class TestDefaultWorkflow:
         workflow = load_workflow(tmp_new_jig_project, "default")
         assert workflow.name == "default"
         phase_names = [p.name for p in workflow.phases]
+        # review-routing step 6: review-tests phase inserted between
+        # test and implement.
         assert phase_names == [
             "spec",
             "test",
+            "review-tests",
             "implement",
             "review",
             "validate",
@@ -352,11 +355,76 @@ class TestDefaultWorkflow:
         assert roles == {
             "spec": "spec",
             "test": "test",
+            "review-tests": "review",
             "implement": "dev",
             "review": "review",
             "validate": "validate",
             "document": "document",
         }
+
+    def test_review_tests_phase_runs_only_test_adequacy(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """review-tests fires reviewer-test-adequacy only — the federation
+        for the new phase is scoped to test quality."""
+        workflow = load_workflow(tmp_new_jig_project, "default")
+        review_tests = next(p for p in workflow.phases if p.name == "review-tests")
+        assert review_tests.reviewers == ["reviewer-test-adequacy"]
+
+    def test_end_of_ticket_review_excludes_test_adequacy(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """End-of-ticket review fires the remaining five LLM reviewers.
+        test-adequacy already ran at review-tests and the test files are
+        byte-identical at end-of-ticket (TDD lock), so re-running it is
+        duplicated work."""
+        workflow = load_workflow(tmp_new_jig_project, "default")
+        review = next(
+            p for p in workflow.phases if p.name == "review" and p.role == "review"
+        )
+        assert "reviewer-test-adequacy" not in review.reviewers
+        # The other five LLM reviewers are listed.
+        assert set(review.reviewers) == {
+            "reviewer-pattern-conformance",
+            "reviewer-architectural",
+            "reviewer-error-handling",
+            "reviewer-performance",
+            "reviewer-security",
+        }
+
+    def test_writes_declared_on_writing_phases(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """spec, test, implement, document declare ``writes:``. The
+        router uses these to map a file → owning phase."""
+        workflow = load_workflow(tmp_new_jig_project, "default")
+        writes = {p.name: p.writes for p in workflow.phases}
+        assert writes["spec"]  # non-empty
+        assert "tests/**" in writes["test"]
+        assert "src/**" in writes["implement"]
+        assert writes["document"]
+
+
+class TestLoadWorkflowReviewRoleRequiresReviewers:
+    """Step 6 of feature-work/review-routing/plan.md: the strict
+    "role=='review' requires non-empty reviewers" rule is now active.
+    Step 2 deferred it because default.yaml didn't satisfy the rule yet."""
+
+    def test_review_phase_without_reviewers_rejected(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        save_workflow(
+            tmp_new_jig_project,
+            WorkflowConfig(
+                name="bad-review",
+                phases=[
+                    PhaseConfig(name="spec", role="spec"),
+                    PhaseConfig(name="review", role="review"),
+                ],
+            ),
+        )
+        with pytest.raises(ValueError, match="reviewers"):
+            load_workflow(tmp_new_jig_project, "bad-review")
 
 
 class TestLoadConventions:

@@ -4,18 +4,39 @@ phases:
     role: spec
     task_template: "Draft a design document for: {ticket_title}"
     acceptance_criteria: "Design doc covers all requirements"
+    writes:
+      - "docs/spec/**"
+      - "docs/decisions/**"
   - name: test
     role: test
     task_template: "Write tests based on the design doc for: {ticket_title}"
     acceptance_criteria: "Tests cover specified behavior and edge cases"
+    writes:
+      - "tests/**"
+  - name: review-tests
+    role: review
+    task_template: "Review the test diff against the AC for: {ticket_title}"
+    acceptance_criteria: "Tests cover the AC; no test-adequacy findings remain"
+    reviewers:
+      - "reviewer-test-adequacy"
   - name: implement
     role: dev
     task_template: "Implement code that passes the tests for: {ticket_title}"
     acceptance_criteria: "All tests pass"
+    writes:
+      - "src/**"
+      - "pyproject.toml"
+      - "**/*.lock"
   - name: review
     role: review
     task_template: "Review implementation for: {ticket_title}"
     acceptance_criteria: "No critical issues found"
+    reviewers:
+      - "reviewer-pattern-conformance"
+      - "reviewer-architectural"
+      - "reviewer-error-handling"
+      - "reviewer-performance"
+      - "reviewer-security"
   - name: validate
     role: validate
     task_template: "Validate the implementation for: {ticket_title}"
@@ -24,3 +45,7 @@ phases:
     role: document
     task_template: "Update documentation for: {ticket_title}"
     acceptance_criteria: "Documentation reflects all changes"
+    writes:
+      - "docs/**"
+      - "README*"
+      - "CHANGELOG*"

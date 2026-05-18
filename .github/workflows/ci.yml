@@ -21,8 +21,8 @@ jobs:
 
       - run: uv sync --locked
 
-      - run: uvx ruff check jig/
+      - run: uv run ruff check jig/
 
-      - run: uvx ruff format --check jig/
+      - run: uv run ruff format --check jig/
 
       - run: uv run pytest tests/ -x -q

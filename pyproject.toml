@@ -52,13 +52,14 @@ asyncio_mode = "auto"
 # (operator-only, costs LLM tokens) is invoked via
 # ``uv run jig sim run … --real`` not via pytest.
 #
-# ``sim_smoke`` selects every smoke-tier sim scenario test. CI invokes
-# ``pytest -m sim_smoke`` to run all smoke scenarios on every PR.
+# ``sim_smoke`` selects every smoke-tier sim scenario test. CI runs the full
+# suite (``pytest tests/``) on every PR; ``-m sim_smoke`` can be used to run
+# only the 80 sim scenario tests in isolation.
 # Higher tiers (full, nightly) run via ``jig sim run-tier <tier>``,
 # not pytest, because they have looser cost + runtime budgets.
 markers = [
     "real: tests that touch real-mode wiring (skipped by default; opt in with -m real)",
-    "sim_smoke: smoke-tier sim scenario tests (run on every PR via -m sim_smoke)",
+    "sim_smoke: smoke-tier sim scenario tests",
 ]
 
 [dependency-groups]

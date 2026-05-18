@@ -1429,6 +1429,29 @@ class Orchestrator:
                             checkpoints=self.checkpoints,
                             phase=phase,
                         )
+                        # Write worktree provenance context (review-routing
+                        # step 4). The prepare-commit-msg hook reads this file
+                        # to append Phase/Agent trailers to every commit made
+                        # during this phase. Overwriting per phase keeps the
+                        # trailers in sync with what's actually executing.
+                        # Import sits above the try block so a module-level
+                        # error surfaces immediately (not silently caught as
+                        # a provenance warning).
+                        from jig.hooks.commit_msg_provenance import (
+                            write_worktree_context,
+                        )
+
+                        try:
+                            write_worktree_context(
+                                worktree, phase=phase.name, agent=phase.role
+                            )
+                        except Exception:  # noqa: BLE001
+                            _logger.warning(
+                                "worktree.context write failed for %s phase %s",
+                                ticket_id,
+                                phase.name,
+                                exc_info=True,
+                            )
                         sub_key = (ticket_id, phase.role)
                         self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
                         try:
@@ -2150,6 +2173,7 @@ class Orchestrator:
         agent sees all prerequisite code — even if those branches haven't
         been merged into main yet.
         """
+        from jig.hooks.commit_msg_provenance import install_commit_msg_hook
         from jig.worktree import (
             create_worktree,
             install_per_commit_hook_or_warn,
@@ -2166,6 +2190,19 @@ class Orchestrator:
             ticket_id=ticket.id,
             base_branch=self._project.default_branch,
         )
+        # Install the commit-msg provenance hook so every commit in this
+        # worktree carries `Phase:` / `Agent:` trailers (review-routing
+        # step 4). Hook is purely additive; if install fails we log and
+        # continue — agents still work, routing degrades to the
+        # unowned-finding fallback for multi-glob matches.
+        try:
+            install_commit_msg_hook(worktree_path)
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "commit-msg provenance hook install failed for ticket %s",
+                ticket.id,
+                exc_info=True,
+            )
         # SF-I1: install the per-commit reviewer hook out-of-line so a
         # failure surfaces on the ticket thread rather than a stderr
         # log line nobody reads. Hook install is informational —

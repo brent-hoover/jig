@@ -133,6 +133,58 @@ class TestRoundTrip:
         assert c.auto_apply_after is None
 
 
+# ---- target_role (review-routing) ----------------------------------------
+
+
+class TestTargetRole:
+    """``target_role`` lets a reviewer route a finding above the writing
+    role's pay grade — e.g. flag a finding as belonging to ``pm`` or
+    ``sa`` when the issue is with the spec / architecture rather than
+    the code itself. The fix-loop router consults this field before
+    falling back to file-glob routing.
+    """
+
+    def test_target_role_defaults_to_none(self) -> None:
+        c = _comment()
+        assert c.target_role is None
+
+    def test_round_trip_with_target_role_set(self) -> None:
+        c = _comment()
+        c_with_target = c.model_copy(update={"target_role": "sa"})
+        payload = c_with_target.model_dump(mode="json")
+        restored = ReviewerComment.model_validate(payload)
+        assert restored.target_role == "sa"
+
+    def test_target_role_accepts_arbitrary_role_string(self) -> None:
+        """Validation is permissive — routing rejects unknown roles at
+        dispatch time with a fall-through to glob routing, so the model
+        layer doesn't constrain the role vocabulary. Goes through
+        ``model_validate`` so ``extra="forbid"`` is exercised."""
+        for role in ("pm", "sa", "dev", "test", "document", "spec"):
+            payload = {
+                "type": "pattern-divergence",
+                "severity": "important",
+                "reviewer": "reviewer-pattern-conformance",
+                "prose": "x",
+                "confidence": 0.8,
+                "target_role": role,
+            }
+            c = ReviewerComment.model_validate(payload)
+            assert c.target_role == role
+
+    def test_existing_records_load_without_target_role(self) -> None:
+        """JSONL records from before this field shipped must still load."""
+        legacy_payload = {
+            "type": "pattern-divergence",
+            "severity": "important",
+            "reviewer": "reviewer-pattern-conformance",
+            "prose": "x",
+            "confidence": 0.8,
+        }
+        c = ReviewerComment.model_validate(legacy_payload)
+        assert c.target_role is None
+
+
 # ---- format_comment_markdown --------------------------------------------
 
 

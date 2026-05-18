@@ -160,7 +160,7 @@ design only commits to using it for the routing tie-break; broader consumers are
 `_route_blocking_comments(workflow, blocked_phase_idx, comments)`. Pseudocode:
 
 ```python
-def _route_blocking_comments(workflow, blocked_phase_idx, comments):
+def _route_blocking_comments(workflow, blocked_phase_idx, comments, worktree_path):
     """Return (target_phase_idx, route_reason) or None if no route.
 
     Examines each blocking comment, determines its owning phase, and
@@ -171,7 +171,7 @@ def _route_blocking_comments(workflow, blocked_phase_idx, comments):
     targets: list[int] = []
     reasons: list[str] = []
     for c in comments:
-        idx, reason = _route_one(workflow, blocked_phase_idx, c)
+        idx, reason = _route_one(workflow, blocked_phase_idx, c, worktree_path)
         if idx is not None:
             targets.append(idx)
             reasons.append(reason)
@@ -514,9 +514,13 @@ logic. The orchestrator change is localised to one function.
 ## Open questions
 
 - [x] What if a workflow has multiple phases with the same `role` (e.g. two `dev` phases for a
-      multi-stage implementation)? **Resolved: most-recent wins.** Keeps the routing simple and
-      matches the natural "fix the latest broken thing first" intuition. If a real workflow surfaces
-      a case where the *first* or *all-of* matching phases is correct, revisit then.
+      multi-stage implementation)? **Resolved: most-recent wins.** Note this only matters in the
+      unowned-finding fallback (step 3); the glob-routing step (step 2) already disambiguates
+      multi-phase-same-role correctly via `writes:` declarations + trailer-based tie-break. If
+      both dev phases declare overlapping `writes:`, the trailer disambiguation kicks in and picks
+      the phase that actually wrote the file. The fallback's most-recent default applies only when
+      the finding's file matches no `writes:` glob — at that point we have no real signal, and
+      most-recent is defensible.
 - [x] Should `target_role` accept `operator` (or similar) to mean "no automated fix — escalate
       immediately"? **Resolved: no, for now.** Keeping the routing target-set restricted to roles
       that participate in the workflow lets us observe how far agents get figuring out cross-cutting
@@ -561,3 +565,7 @@ logic. The orchestrator change is localised to one function.
 - 2026-05-17: Resolve last two open questions: multi-phase-same-role uses most-recent; diff scope
   is cumulative today but routing handles the consequences via globs. Correct the rationale for
   excluding test-adequacy at end-of-ticket (TDD-lock invariance, not diff-scope exclusion).
+- 2026-05-17: Address review feedback. Fix pseudocode: `_route_blocking_comments` takes
+  `worktree_path` and forwards it to `_route_one`. Clarify that multi-phase-same-role's
+  most-recent default applies only in the unowned-finding fallback; glob routing + trailer
+  tie-break already handles the disambiguation case correctly.

@@ -101,8 +101,10 @@ escalation, cascade-block (B) is more forgiving but leaves more surface area.
   starts are subject to the normal scheduling gate, which will re-check the failed parent's status and
   defer correctly.
 - **Failure modes**:
-    - Cycle in the `blocks` graph — the visited-set guard prevents infinite recursion. Log a warning
-      because dependency cycles are a separate bug.
+    - Cycle in the `blocks` graph — the ticket store does not enforce acyclicity on write
+      (`jig/store/tickets.py` confirms — `blocked_by` is stored as-is), so the cascade walk's
+      visited-set guard is the *only* defense against infinite recursion. This is now a constraint
+      (see §Constraints), not just a nice-to-have safety net.
     - Dependent already in `RESOLVED` / `CLOSED` / `FAILED` — skip; don't reanimate or re-fail.
     - Dependent has multiple parents and only one failed — the dependent is still validly blocked on
       other parents. Cascade-block (B) suits this; cascade-fail (A) would over-fail.
@@ -122,6 +124,10 @@ escalation, cascade-block (B) is more forgiving but leaves more surface area.
 - Cascade behavior must be observable: the operator must be able to see in the TUI / via `jig story`
   that a dependent was failed/blocked specifically because of an upstream failure, not because of its
   own work.
+- The cascade walk must carry a visited-set guard. The ticket store does not enforce acyclicity on
+  `blocks` / `blocked_by` at write time, so without the guard a cycle in the dependency graph would
+  recurse infinitely. Encountering a cycle during the walk should log a WARNING (the cycle itself
+  is a separate bug worth surfacing) and abort that branch of the walk gracefully.
 
 ## Requirements
 
@@ -161,10 +167,16 @@ escalation, cascade-block (B) is more forgiving but leaves more surface area.
 
 - [ ] Cascade-fail (A) vs cascade-block (B) — assuming phase-failure-escalation lands, A is the simpler
       default. Confirm.
-- [ ] Multi-parent dependents (`blocked_by: [a, b]`, only `a` failed): under (A), do we fail the
-      dependent immediately, or wait to see if `b` also fails? Strictest answer: fail immediately (the
-      dependent can no longer complete normally because one ancestor is permanently failed); softest:
-      wait. The strict answer matches operator intuition better but bears verifying.
+- [ ] Multi-parent dependents (`blocked_by: [a, b]`, only `a` failed) under cascade-fail (A):
+      **Proposed answer: fail immediately.** Once any parent is permanently FAILED, the dependent
+      can never resolve through the normal `dep.status == RESOLVED` gate — waiting for `b` doesn't
+      change that. The "wait" alternative only helps if a failed parent can later be retried back
+      into a non-failed state, which the `phase-failure-escalation` work explicitly *doesn't*
+      provide once a ticket reaches the terminal FAILED state. Failing immediately keeps the graph
+      consistent with the scheduling gate's semantics. Confirm before implementation; if a future
+      "retry a failed ticket" capability lands, revisit (a re-opened upstream could revive
+      cascade-failed descendants if their FAILED state is marked specifically as
+      `block_reason="upstream-failed"`).
 - [ ] Eval / simulator runs need the same "all-terminal" signal to fire so test harnesses don't hang;
       already implicit if (A) is chosen.
 - [ ] Where in `_on_ticket_failed` does the cascade run — synchronously before `_start_ready_tickets`,
@@ -174,3 +186,7 @@ escalation, cascade-block (B) is more forgiving but leaves more surface area.
 ## Change log
 
 - 2026-05-17: Initial draft (brent)
+- 2026-05-17: Address review feedback. Move acyclic-graph note from §Complications to §Constraints
+  (store doesn't enforce acyclicity at write — the visited-set guard is the only defense).
+  Sharpen the multi-parent open question to state the chosen answer (fail immediately) with
+  reasoning.

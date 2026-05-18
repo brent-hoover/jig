@@ -97,9 +97,11 @@ The store, schema, and access methods all exist. This is a presentation gap, not
 - Must compose with the existing story-merging pipeline in `jig.story.build_story` — that pipeline
   already accepts multiple `StorySource`s and merges by timestamp. Adding one more source is the
   intended extension shape.
-- `ReviewerComment` records carry timestamps via the Collection-assigned ids; verify a usable
-  monotonic timestamp is available for the merge order. If not, surface the cycle index as the
-  ordering key within the ticket's segment.
+- The ordering key for review-comment events in the merged story must be deterministic and
+  monotonic. Either verify the Collection-assigned id is a usable monotonic timestamp before
+  relying on it as the sort key, or use `(cycle, reviewer, insertion-order)` as the primary
+  ordering from the start. Do not ship a design that assumes id-is-timestamp without confirming —
+  silent merge-order drift between stores is the failure mode this hardens against.
 - The CLI is the priority; the TUI surface can lag and ship in a follow-up without blocking the
   user-visible benefit.
 - Output must be readable in a terminal without ANSI tricks; use the existing formatting conventions
@@ -121,8 +123,10 @@ The store, schema, and access methods all exist. This is a presentation gap, not
 
 - New reviewer types, severity calibration, or any change to the federation itself.
 - Web UI / external dashboards — terminal-first.
-- Cross-ticket aggregation views ("show me all critical findings across the project") — that's an
-  analytics surface, not core discoverability. Can come later if the simpler views aren't enough.
+- Cross-ticket aggregation views as part of *this* work. "Show me all critical findings across the
+  project" is a common triage need and is a likely follow-up — flagged as note-for-later, not a
+  permanent exclusion. Out of scope here because it requires its own surface design (a separate
+  command, formatting decisions, filter UX) on top of the per-ticket primitives this work adds.
 - Filtering by author / committer — comments are reviewer-tagged, not author-tagged, and the operator
   selects by ticket.
 - Migrating reviewer comments into `ThreadStore` (i.e. consolidating stores). The two stores have
@@ -157,3 +161,7 @@ The store, schema, and access methods all exist. This is a presentation gap, not
 ## Change log
 
 - 2026-05-17: Initial draft (brent)
+- 2026-05-17: Address review feedback. Harden timestamp/ordering note from "verify" to a constraint
+  (do not ship a design that assumes Collection id == timestamp without confirming; use
+  `(cycle, reviewer, insertion-order)` if not). Reframe cross-ticket aggregation as note-for-later
+  follow-up rather than flat non-goal.

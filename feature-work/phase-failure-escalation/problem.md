@@ -80,8 +80,10 @@ prompts) already exist; only the trigger points and the action vocabulary are ne
       stall signal (`StallDetector`, 30 min default) already covers this; the verdict surfaces to logs
       but doesn't auto-FAIL. Sufficient — the operator chose to walk away.
     - Operator responds with an unparseable action — fail loud (re-prompt). No silent acceptance.
-    - Daemon restart while waiting — `_wait_for_resume` is resumable from store state today; verify the
-      same holds for these escalations.
+    - Daemon restart while waiting — escalation prompts must be durable across daemon restart, same
+      as existing `needs_info` prompts. Promoted to a hard constraint below; if `_wait_for_resume`'s
+      resume-from-store doesn't already work for these (it should — escalations write the same
+      `NEEDS_INFO` shape), the design must produce that durability rather than assuming it.
 - **Cross-cutting policies**: N/A — same telemetry/audit surface as existing `needs_info` flows.
 - **Determinism for tests**: The escalation must be opt-out for non-interactive runs (CI, evals,
   scenario tests) so they don't hang waiting for an operator. Existing pattern: a config flag or env var
@@ -91,6 +93,10 @@ prompts) already exist; only the trigger points and the action vocabulary are ne
 
 - Must compose with the existing `_wait_for_resume` mechanism — the phase loop is structured around
   resume-after-needs_info already, and the change should slot in without restructuring.
+- **Escalation prompts must survive daemon restart.** An operator who walks away mid-prompt and
+  restarts the daemon hours later must see the same prompt waiting; a restart must not silently
+  drop escalations and let the ticket sit in a half-state. The design must produce this durability
+  explicitly, not assume it.
 - The reply action vocabulary must be small and explicit. No free-text "what should I do?" — the
   operator picks one of the defined actions.
 - Eval / simulator / CI runs must be able to opt out (default behaviour configurable; opt-out turns
@@ -151,3 +157,5 @@ prompts) already exist; only the trigger points and the action vocabulary are ne
 ## Change log
 
 - 2026-05-17: Initial draft (brent)
+- 2026-05-17: Address review feedback. Harden daemon-restart-resilience from a "verify" item to a
+  hard constraint — the design must produce durability explicitly rather than assume it.

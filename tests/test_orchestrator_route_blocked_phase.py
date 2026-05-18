@@ -322,3 +322,59 @@ class TestReplay240db21fScenario:
             )
         finally:
             await orch.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_comment_written_after_startup_via_fresh_store_is_visible(
+        self, tmp_path: Path
+    ) -> None:
+        """Production flow: ``reviewer_mcp.handle_reviewer_post_comment``
+        constructs a fresh ``ReviewCommentsStore`` per call (it can't
+        reach the orchestrator's instance), so writes go to disk but
+        never touch the orchestrator's cached ``_docs``.
+
+        ``_route_blocked_phase`` must therefore reload from disk before
+        querying. This test seeds AFTER ``startup()`` using a separate
+        store instance to prove the reload happens.
+        """
+        _save_project(tmp_path)
+        orch = Orchestrator(project_path=tmp_path)
+        await orch.startup()
+        try:
+            # Simulate the reviewer_mcp write path: fresh store, write
+            # straight to disk, never touches orch.review_comments._docs.
+            store_path = tmp_path / ".jig" / "store" / "review_comments.jsonl"
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            fresh_store = ReviewCommentsStore(store_path)
+            await fresh_store.load()
+            await fresh_store.append(
+                _comment(
+                    file="tests/test_filter_flags.py",
+                    severity=Severity.IMPORTANT,
+                    cycle=0,
+                ).model_copy(update={"ticket_id": "tb-post-startup"})
+            )
+
+            workflow = WorkflowConfig(
+                name="w",
+                phases=[
+                    _phase("test", "test", writes=["tests/**"]),
+                    _phase("implement", "dev", writes=["src/**"]),
+                    _review_phase("review", ["reviewer-pattern-conformance"]),
+                ],
+            )
+            result = await orch._route_blocked_phase(
+                workflow,
+                blocked_phase_idx=2,
+                ticket_id="tb-post-startup",
+                worktree=tmp_path,
+            )
+            # If the orchestrator's cached store were used without a
+            # reload, this would be 1 (the dev-fallback path) because
+            # for_ticket() would return []. With the reload, the
+            # test-file comment is seen and the route is 0 (test phase).
+            assert result == 0, (
+                "Reload-before-query must pick up MCP-written comments. "
+                "Got dev fallback — orchestrator is reading stale _docs."
+            )
+        finally:
+            await orch.shutdown()

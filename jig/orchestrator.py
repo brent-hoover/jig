@@ -47,6 +47,10 @@ from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
+from jig.reviewer_routing import (
+    _most_recent_phase_with_role,
+    _route_blocking_comments,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -1026,6 +1030,7 @@ class Orchestrator:
         self.bus = None
         self.check_results = None
         self.checkpoints = None
+        self.review_comments = None
 
     async def shutdown(self) -> None:
         self._running = False
@@ -2725,17 +2730,17 @@ class Orchestrator:
         phase was selected for retry. Returns ``None`` when no route
         can be found (no dev phase exists in the workflow).
         """
-        from jig.reviewer_routing import (
-            _most_recent_phase_with_role,
-            _route_blocking_comments,
-        )
-
         if self.review_comments is None:
             # Orchestrator not fully started yet — no comments to route
             # on. Fall through to the dev fallback so the caller still
             # gets a deterministic answer.
             all_comments: list[ReviewerComment] = []
         else:
+            # Reload from disk: reviewer_mcp.handle_reviewer_post_comment
+            # writes through a fresh ReviewCommentsStore instance, so the
+            # orchestrator's cached _docs does not see post-startup writes.
+            # See PR #51 review thread.
+            await self.review_comments.load()
             all_comments = await self.review_comments.for_ticket(ticket_id)
         # Most recent cycle = the one that just blocked. The
         # FixLoopTracker auto-increments cycle per record, so max()

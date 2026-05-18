@@ -353,6 +353,22 @@ class ReviewerComment(BaseModel):
             "every breakpoint."
         ),
     )
+    # Review-routing — when set, the fix-loop router sends this comment
+    # back to the most-recent phase with the named role rather than
+    # consulting file→role globs. Use when the finding indicates the
+    # issue is above the writing role's pay grade (spec is wrong, an
+    # architecture decision needs revisiting). Routing rejects unknown
+    # role values by falling through to glob routing, so a reviewer
+    # hallucinating role names degrades gracefully.
+    target_role: str | None = Field(
+        default=None,
+        description=(
+            "Optional role to route this finding to, overriding "
+            "file-based glob routing. Typical values are workflow role "
+            "names (e.g. 'pm', 'sa'). ``None`` means use the default "
+            "file→role routing."
+        ),
+    )
 
     @model_validator(mode="after")
     def _enforce_type_field_constraints(self) -> ReviewerComment:

@@ -17,6 +17,6 @@ jobs:
 
       - run: uv sync
 
-      - run: uv run ruff check jig/
+      - run: uvx ruff check jig/
 
       - run: uv run pytest tests/ -x -q

@@ -158,7 +158,9 @@ class WebSocketServer:
                 except ValueError as exc:
                     await self._safe_send(
                         websocket,
-                        json.dumps({"type": "error", "topic": topic, "error": str(exc)}),
+                        json.dumps(
+                            {"type": "error", "topic": topic, "error": str(exc)}
+                        ),
                     )
                     continue
                 await self._safe_send(
@@ -187,7 +189,13 @@ class WebSocketServer:
             if not name:
                 await self._safe_send(
                     websocket,
-                    json.dumps({"type": "result", "ok": False, "error": "command name required"}),
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "ok": False,
+                            "error": "command name required",
+                        }
+                    ),
                 )
                 return
             # CRITICAL: do NOT await dispatch here. Long-running commands
@@ -506,8 +514,9 @@ class WebSocketServer:
         if handler is None:
             await self._safe_send(
                 websocket,
-                json.dumps({"type": "result", "ok": False,
-                            "error": f"unknown command: {name}"}),
+                json.dumps(
+                    {"type": "result", "ok": False, "error": f"unknown command: {name}"}
+                ),
             )
             return
         try:
@@ -558,9 +567,7 @@ class WebSocketServer:
 
             if self._project_path is None:
                 return None
-            spec_file = (
-                self._project_path / "docs" / "project.structured.yaml"
-            )
+            spec_file = self._project_path / "docs" / "project.structured.yaml"
             if not spec_file.is_file():
                 return None
             data = yaml.safe_load(spec_file.read_text()) or {}
@@ -628,14 +635,15 @@ class WebSocketServer:
         if kind in ("comment_posted",):
             return event_envelope("threads", "posted", payload)
         if event.type in (
-            "agent_text", "agent_tool", "agent_tool_result", "agent_run",
-            "agent_render",    # ConsoleStream output
+            "agent_text",
+            "agent_tool",
+            "agent_tool_result",
+            "agent_run",
+            "agent_render",  # ConsoleStream output
             "agent_thinking",  # live thinking indicator (replaces \r spinner)
-            "agent_start",     # role divider — TUI renders native full-width Rule
+            "agent_start",  # role divider — TUI renders native full-width Rule
         ):
-            return event_envelope(
-                "agents", event.type.removeprefix("agent_"), payload
-            )
+            return event_envelope("agents", event.type.removeprefix("agent_"), payload)
         if event.type == "prompt_request":  # TuiPromptHandler request
             return event_envelope("prompts", "request", payload)
         if event.type in (

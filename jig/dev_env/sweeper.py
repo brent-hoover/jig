@@ -24,6 +24,7 @@ Background scheduling into ``Orchestrator.startup`` is out of scope
 for this commit; the sweeper is invoked via CLI (or programmatically
 by tests) here.
 """
+
 from __future__ import annotations
 
 import logging
@@ -101,9 +102,7 @@ class SweepReport(BaseModel):
     needs_confirm: list[OrphanedNamespace] = Field(default_factory=list)
     keep: list[OrphanedNamespace] = Field(default_factory=list)
     threshold_days: int = DEFAULT_THRESHOLD_DAYS
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def total(self) -> int:
         return len(self.auto_safe) + len(self.needs_confirm) + len(self.keep)
@@ -122,9 +121,7 @@ class SweepLogEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     action: str = Field(..., min_length=1)
     bucket: str | None = None
     threshold_days: int | None = None
@@ -203,9 +200,7 @@ class OrphanSweeper:
         rows = await list_orphans(self._manifest, self._tickets)
         all_tickets = await self._tickets.list_all()
         ticket_by_id = {t.id: t for t in all_tickets}
-        threshold = datetime.now(timezone.utc) - timedelta(
-            days=self._threshold_days
-        )
+        threshold = datetime.now(timezone.utc) - timedelta(days=self._threshold_days)
         report = SweepReport(threshold_days=self._threshold_days)
         for orph in rows:
             ticket = ticket_by_id.get(orph.ticket_id)
@@ -258,9 +253,7 @@ class OrphanSweeper:
             raise ValueError(f"unknown SweepBucket {bucket!r}")
         for orph in targets:
             try:
-                await drop_orphan(
-                    self._manifest, orph, registry=self._registry
-                )
+                await drop_orphan(self._manifest, orph, registry=self._registry)
             except Exception:
                 _logger.warning(
                     "OrphanSweeper.apply: drop failed for %s",

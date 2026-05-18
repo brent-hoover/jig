@@ -15,6 +15,7 @@ Public surface:
   as a header comment so the operator can trace the generated class
   back to its source of truth.
 """
+
 from __future__ import annotations
 
 from jig.renderers.pydantic_from_data_contract import (

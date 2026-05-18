@@ -3,6 +3,7 @@
 Pure string operations. No I/O. Validates syntax only — semantic resolution
 (does the path actually exist?) happens in the per-authority resolvers.
 """
+
 from __future__ import annotations
 
 import re
@@ -40,11 +41,9 @@ def parse_project_uri(uri: str) -> ProjectUri:
         UnknownAuthorityError: when the authority is not in the closed list.
     """
     if not uri.startswith(_PREFIX):
-        raise ProjectUriError(
-            f"URI must start with {_PREFIX!r} prefix; got {uri!r}"
-        )
+        raise ProjectUriError(f"URI must start with {_PREFIX!r} prefix; got {uri!r}")
 
-    rest = uri[len(_PREFIX):]
+    rest = uri[len(_PREFIX) :]
     if not rest:
         raise ProjectUriError(f"URI has no authority: {uri!r}")
 
@@ -84,9 +83,7 @@ def _split_revision(rest: str, uri: str) -> tuple[str, int | None]:
     return head, int(match.group(1))
 
 
-def _split_authority_and_path(
-    rest: str, uri: str
-) -> tuple[Authority, list[str]]:
+def _split_authority_and_path(rest: str, uri: str) -> tuple[Authority, list[str]]:
     rest = rest.lstrip("/")
     if "/" in rest:
         authority_part, _, path_part = rest.partition("/")

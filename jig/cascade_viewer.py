@@ -17,6 +17,7 @@ The CLI lives in ``jig.cli`` (``sa cascade`` subgroup); the formatting
 helpers here are pure (no I/O beyond the initial reads) so tests can
 introspect the dataclasses directly without scraping stdout.
 """
+
 from __future__ import annotations
 
 import json
@@ -151,9 +152,7 @@ def load_audit(project_path: Path) -> list[CascadeAuditEntry]:
     return out
 
 
-def show_cascade(
-    project_path: Path, cascade_id: str
-) -> CascadeShowResult:
+def show_cascade(project_path: Path, cascade_id: str) -> CascadeShowResult:
     """Build a full-detail show payload for one cascade.
 
     Raises ``KeyError`` when no proposal artifact matches the id —

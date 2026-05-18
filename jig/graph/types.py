@@ -4,6 +4,7 @@ Node ids use the ``<kind>:<scope>`` convention:
   ``module:api-client``, ``exposed_api:api-client:get_story``,
   ``emitted_event:story-store:story.created``, ``ticket:feat-01``.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -18,11 +19,20 @@ class Node(BaseModel):
 
     id: str = Field(..., min_length=1)
     kind: Literal[
-        "module", "capability", "epic", "ticket", "tracer",
-        "exposed_api", "emitted_event", "data_store",
-        "behavioral_contract", "data_contract",
-        "owned_collection", "external_dependency",
-        "risk", "journey",
+        "module",
+        "capability",
+        "epic",
+        "ticket",
+        "tracer",
+        "exposed_api",
+        "emitted_event",
+        "data_store",
+        "behavioral_contract",
+        "data_contract",
+        "owned_collection",
+        "external_dependency",
+        "risk",
+        "journey",
     ]
     title: str | None = None
     uri: str | None = None
@@ -34,10 +44,20 @@ class Edge(BaseModel):
     src: str = Field(..., min_length=1)
     dst: str = Field(..., min_length=1)
     kind: Literal[
-        "owns", "exposes", "emits", "consumes",
-        "calls", "depends_on", "backed_by",
-        "implements", "covers", "touches",
-        "exercises", "validates", "blocks", "uses",
+        "owns",
+        "exposes",
+        "emits",
+        "consumes",
+        "calls",
+        "depends_on",
+        "backed_by",
+        "implements",
+        "covers",
+        "touches",
+        "exercises",
+        "validates",
+        "blocks",
+        "uses",
     ]
 
 
@@ -68,7 +88,11 @@ class DependencyGraph(BaseModel):
             next_frontier: set[str] = set()
             for src in frontier:
                 for edge in self.edges:
-                    if edge.src == src and edge.dst not in result and edge.dst != node_id:
+                    if (
+                        edge.src == src
+                        and edge.dst not in result
+                        and edge.dst != node_id
+                    ):
                         result.add(edge.dst)
                         next_frontier.add(edge.dst)
             frontier = next_frontier

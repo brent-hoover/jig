@@ -19,6 +19,7 @@ Distinct from ``init_mcp.py`` (v1 monolithic-brief path) and
 ``po_l0_mcp.py`` (v2 L0 pitch). All three coexist until the rest of
 Track B/C land and v1 is removed.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -131,9 +132,7 @@ def render_suite_brief_md(
 def _render_capability_block(cap: Capability) -> list[str]:
     """Render one capability per the v1 elaboration grammar."""
     out: list[str] = []
-    alias_attr = (
-        f" aliases:{','.join(cap.aliases)}" if cap.aliases else ""
-    )
+    alias_attr = f" aliases:{','.join(cap.aliases)}" if cap.aliases else ""
     out.append(f"### {cap.title} {{#{cap.id}{alias_attr}}}")
     out.append("")
     if cap.summary:
@@ -194,7 +193,9 @@ def _render_capability_block(cap: Capability) -> list[str]:
 
 
 def _coerce_capabilities(
-    raw: list[Any], *, now: datetime,
+    raw: list[Any],
+    *,
+    now: datetime,
 ) -> list[Capability]:
     """Validate and construct ``Capability`` objects from MCP input.
 
@@ -310,8 +311,7 @@ async def handle_l3_finalize(
     if suite is None:
         known = [s.id for s in index.suites]
         raise ValueError(
-            f"suite {suite_id!r} not found in suites.yaml "
-            f"(known: {known!r})"
+            f"suite {suite_id!r} not found in suites.yaml (known: {known!r})"
         )
 
     now = datetime.now(timezone.utc)

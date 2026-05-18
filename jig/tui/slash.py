@@ -4,6 +4,7 @@ Slash commands are the fast path for known operations. Free-text
 inputs (anything not starting with `/`) go to the concierge agent in
 Phase 3.
 """
+
 from __future__ import annotations
 
 import shlex

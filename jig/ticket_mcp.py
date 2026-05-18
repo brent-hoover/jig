@@ -599,11 +599,7 @@ _PKG_ENV_ALLOWLIST: frozenset[str] = frozenset(
 def _scrubbed_env(worktree_path: Path) -> dict[str, str]:
     """Allowlist environment for package-manager subprocesses."""
 
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if k in _PKG_ENV_ALLOWLIST
-    }
+    env = {k: v for k, v in os.environ.items() if k in _PKG_ENV_ALLOWLIST}
     env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
     env.setdefault("LANG", "C.UTF-8")
     env["PWD"] = str(worktree_path)

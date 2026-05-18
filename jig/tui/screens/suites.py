@@ -7,6 +7,7 @@ resolved) and capability list.
 
 Read-only screen — authoring goes through the L2 / L3 PO MCP tools.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -79,9 +80,7 @@ class SuitesScreen(Container):
 
         lines: list[str] = []
         for s in index.suites:
-            brief = (
-                project_path / ".jig" / "spec" / "suites" / s.id / "brief.md"
-            )
+            brief = project_path / ".jig" / "spec" / "suites" / s.id / "brief.md"
             status = "[yellow]pending[/yellow]"
             if brief.is_file():
                 status = "[green]brief_ready[/green]"

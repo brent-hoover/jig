@@ -30,6 +30,7 @@ finding spans every breakpoint).
 Default-on for Final-layer tickets with non-empty visual_references;
 the dispatch table wires the call.
 """
+
 from __future__ import annotations
 
 import re
@@ -65,12 +66,8 @@ _VIEWPORT_META_RE = re.compile(
 )
 # Required content tokens — both must be present somewhere in the
 # meta's content attribute.
-_VIEWPORT_DEVICE_WIDTH_RE = re.compile(
-    r"width\s*=\s*device-width", re.IGNORECASE
-)
-_VIEWPORT_INITIAL_SCALE_RE = re.compile(
-    r"initial-scale\s*=", re.IGNORECASE
-)
+_VIEWPORT_DEVICE_WIDTH_RE = re.compile(r"width\s*=\s*device-width", re.IGNORECASE)
+_VIEWPORT_INITIAL_SCALE_RE = re.compile(r"initial-scale\s*=", re.IGNORECASE)
 # Pull out the content value so we can validate it.
 _VIEWPORT_CONTENT_VALUE_RE = re.compile(
     r"<meta\b[^>]*\bname\s*=\s*[\"']viewport[\"'][^>]*"
@@ -81,9 +78,7 @@ _VIEWPORT_CONTENT_VALUE_RE = re.compile(
 # width="<px>" attribute on any element. We allow width="100%",
 # width="50%", width="auto" — only strict pixel values count as
 # fixed-width.
-_WIDTH_ATTR_PX_RE = re.compile(
-    r"\bwidth\s*=\s*[\"']?(\d+)(?:px)?[\"']?", re.IGNORECASE
-)
+_WIDTH_ATTR_PX_RE = re.compile(r"\bwidth\s*=\s*[\"']?(\d+)(?:px)?[\"']?", re.IGNORECASE)
 
 # Inline style="...; width: <px>; ..." — the wireframe linter rejects
 # inline style at CRITICAL but we still check for completeness.
@@ -94,20 +89,14 @@ _INLINE_STYLE_WIDTH_PX_RE = re.compile(
 
 # Inside a <style>...</style> block, find ``width: <px>``. We extract
 # style blocks first so we can scope the check.
-_STYLE_BLOCK_RE = re.compile(
-    r"<style\b[^>]*>(.*?)</style>", re.IGNORECASE | re.DOTALL
-)
-_CSS_WIDTH_PX_RE = re.compile(
-    r"\bwidth\s*:\s*(\d+(?:\.\d+)?)\s*px", re.IGNORECASE
-)
+_STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.IGNORECASE | re.DOTALL)
+_CSS_WIDTH_PX_RE = re.compile(r"\bwidth\s*:\s*(\d+(?:\.\d+)?)\s*px", re.IGNORECASE)
 
 # --font-size-* token reference, anywhere in the document.
 _FONT_SIZE_TOKEN_RE = re.compile(r"--font-size-[A-Za-z0-9_-]+")
 
 # Hardcoded font-size in pixels — inside a style block.
-_FONT_SIZE_PX_RE = re.compile(
-    r"\bfont-size\s*:\s*\d+(?:\.\d+)?\s*px", re.IGNORECASE
-)
+_FONT_SIZE_PX_RE = re.compile(r"\bfont-size\s*:\s*\d+(?:\.\d+)?\s*px", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -143,16 +132,12 @@ class ResponsiveDesignReviewer:
                 continue
 
             html = wf_path.read_text()
-            comments.extend(
-                _audit_html(html, ticket_id=ticket.id, screen_id=screen_id)
-            )
+            comments.extend(_audit_html(html, ticket_id=ticket.id, screen_id=screen_id))
 
         return comments
 
 
-def _audit_html(
-    html: str, *, ticket_id: str, screen_id: str
-) -> list[ReviewerComment]:
+def _audit_html(html: str, *, ticket_id: str, screen_id: str) -> list[ReviewerComment]:
     out: list[ReviewerComment] = []
     out.extend(_check_viewport_meta(html, ticket_id, screen_id))
     out.extend(_check_no_fixed_widths(html, ticket_id, screen_id))
@@ -191,9 +176,9 @@ def _check_viewport_meta(
             _violation(
                 message=(
                     f"Wireframe {screen_id!r} is missing the "
-                    "<meta name=\"viewport\" content=\"...\"> tag. Add "
-                    "<meta name=\"viewport\" content=\"width=device-"
-                    "width, initial-scale=1\"> or a mobile browser "
+                    '<meta name="viewport" content="..."> tag. Add '
+                    '<meta name="viewport" content="width=device-'
+                    'width, initial-scale=1"> or a mobile browser '
                     "will render the layout at desktop width."
                 ),
                 ticket_id=ticket_id,
@@ -212,7 +197,7 @@ def _check_viewport_meta(
                 message=(
                     f"Wireframe {screen_id!r} has a viewport meta tag "
                     "without a content= attribute. Set content="
-                    "\"width=device-width, initial-scale=1\"."
+                    '"width=device-width, initial-scale=1".'
                 ),
                 ticket_id=ticket_id,
                 severity=Severity.CRITICAL,
@@ -263,7 +248,7 @@ def _check_no_fixed_widths(
             _violation(
                 message=(
                     f"Wireframe {screen_id!r} has a fixed-width "
-                    f"attribute (width=\"{m.group(1)}\" / px). Use "
+                    f'attribute (width="{m.group(1)}" / px). Use '
                     "percentage / fr / fluid utility classes so the "
                     "layout reflows at narrow viewports."
                 ),

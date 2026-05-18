@@ -1,4 +1,5 @@
 """Top-level Textual app for jig."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -46,10 +47,16 @@ class JigApp(App):
         # Modifier-prefixed always-fire variants, browser-style — work even
         # while the Input has focus.
         Binding("ctrl+1", "switch_screen('now')", "Now", show=False, priority=True),
-        Binding("ctrl+2", "switch_screen('tickets')", "Tickets", show=False, priority=True),
+        Binding(
+            "ctrl+2", "switch_screen('tickets')", "Tickets", show=False, priority=True
+        ),
         Binding("ctrl+3", "switch_screen('spec')", "Spec", show=False, priority=True),
-        Binding("ctrl+4", "switch_screen('events')", "Events", show=False, priority=True),
-        Binding("ctrl+5", "switch_screen('agents')", "Agents", show=False, priority=True),
+        Binding(
+            "ctrl+4", "switch_screen('events')", "Events", show=False, priority=True
+        ),
+        Binding(
+            "ctrl+5", "switch_screen('agents')", "Agents", show=False, priority=True
+        ),
         # Pane-local bindings routed here because ContentTabs holds focus
         Binding("b", "toggle_board", "List/Board", show=False),
         Binding("n", "new_ticket", "New", show=False),
@@ -68,7 +75,9 @@ class JigApp(App):
         Binding("ctrl+s", "toggle_sidebar", "Sidebar", show=False, priority=True),
         # Shift+Tab on Now pane: toggle focus between Composer and Scrollback
         # so the operator can scroll the transcript with arrow keys.
-        Binding("shift+tab", "toggle_scroll_focus", "Scroll", show=False, priority=True),
+        Binding(
+            "shift+tab", "toggle_scroll_focus", "Scroll", show=False, priority=True
+        ),
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
@@ -166,9 +175,7 @@ class JigApp(App):
                     pass
                 else:
                     await tickets.handle_snapshot(msg.get("data"))
-                self._sidebar_safe(
-                    lambda s: s.update_tickets_snapshot(msg.get("data"))
-                )
+                self._sidebar_safe(lambda s: s.update_tickets_snapshot(msg.get("data")))
             if topic == "spec":
                 try:
                     spec = self.query_one(SpecScreen)
@@ -182,9 +189,7 @@ class JigApp(App):
                     pass
                 else:
                     await ev_screen.handle_snapshot(msg.get("data"))
-                self._sidebar_safe(
-                    lambda s: s.update_events_snapshot(msg.get("data"))
-                )
+                self._sidebar_safe(lambda s: s.update_events_snapshot(msg.get("data")))
             return
 
         if msg_type == "event":
@@ -314,7 +319,7 @@ class JigApp(App):
         ref = f"[image: {out_path.resolve()}]"
         focused.insert(ref)
         self.notify(
-            f"Saved screenshot → {out_path.name} ({len(data)//1024} KB)",
+            f"Saved screenshot → {out_path.name} ({len(data) // 1024} KB)",
             severity="information",
             timeout=3,
         )
@@ -353,6 +358,7 @@ class JigApp(App):
             except Exception:
                 focused = None
             from textual.widgets import Input as _Input, TextArea as _TextArea
+
             if isinstance(focused, (_Input, _TextArea)):
                 return False
         return super().check_action(action, parameters)

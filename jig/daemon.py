@@ -10,6 +10,7 @@ discover a running daemon for the current project.
 
 See ``docs/textual-tui/design.md`` §"Daemon lifecycle".
 """
+
 from __future__ import annotations
 
 import os
@@ -53,9 +54,9 @@ class DaemonStatus:
     running: bool
     pid: int | None = None
     container_id: str | None = None  # set when running in Docker
-    kind: str | None = None          # "host" or "docker" when running
-    stale: bool = False              # True when state file exists but no live process/container
-    last_error: str | None = None    # tail of daemon.err when stale
+    kind: str | None = None  # "host" or "docker" when running
+    stale: bool = False  # True when state file exists but no live process/container
+    last_error: str | None = None  # tail of daemon.err when stale
 
 
 def daemon_status(project_path: Path) -> DaemonStatus:
@@ -84,10 +85,13 @@ def daemon_status(project_path: Path) -> DaemonStatus:
         if not cid:
             return DaemonStatus(running=False, stale=True, last_error=_tail_err(paths))
         from jig.container import container_alive
+
         if container_alive(cid):
             return DaemonStatus(running=True, container_id=cid, kind="docker")
         return DaemonStatus(
-            running=False, stale=True, container_id=cid,
+            running=False,
+            stale=True,
+            container_id=cid,
             last_error=_tail_err(paths),
         )
 
@@ -107,15 +111,14 @@ def daemon_status(project_path: Path) -> DaemonStatus:
     # daemon from one that crashed and left a stray process.
     if paths.socket_addr_file.is_file():
         try:
-            ws_port = int(
-                paths.socket_addr_file.read_text().strip().rsplit(":", 1)[-1]
-            )
+            ws_port = int(paths.socket_addr_file.read_text().strip().rsplit(":", 1)[-1])
         except (ValueError, IndexError):
             ws_port = 19100
         orphan_pid = _pid_on_port(ws_port)
         if orphan_pid is not None:
-            return DaemonStatus(running=True, pid=orphan_pid, kind="host",
-                                last_error=_tail_err(paths))
+            return DaemonStatus(
+                running=True, pid=orphan_pid, kind="host", last_error=_tail_err(paths)
+            )
 
     return DaemonStatus(running=False)
 
@@ -162,7 +165,9 @@ def _pid_on_port(port: int) -> int | None:
     try:
         result = subprocess.run(
             ["lsof", "-i", f":{port}", "-t", "-sTCP:LISTEN"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         if result.returncode != 0 or not result.stdout.strip():
             return None
@@ -233,8 +238,7 @@ def daemon_start(
             else f"pid={existing.pid}"
         )
         raise DaemonAlreadyRunning(
-            f"daemon already running ({pid_or_cid}); use "
-            "`jig daemon stop` first"
+            f"daemon already running ({pid_or_cid}); use `jig daemon stop` first"
         )
     if existing.stale:
         # Clean up stale state for whichever mode it was.
@@ -254,14 +258,13 @@ def daemon_start(
             find_project_containers,
             force_remove_container,
         )
+
         if not docker_available():
             raise RuntimeError(
                 "docker not available on PATH. Install Docker or omit --docker."
             )
         if not image_exists():
-            raise RuntimeError(
-                "jig Docker image not built. Run `jig build` first."
-            )
+            raise RuntimeError("jig Docker image not built. Run `jig build` first.")
         # daemon_status already determined no live daemon, so any container
         # labeled with this project is an orphan from a prior run whose
         # state files were lost or never written. Remove before launch so
@@ -287,7 +290,9 @@ def daemon_start(
                 try:
                     log_result = subprocess.run(
                         ["docker", "logs", container_id],
-                        capture_output=True, text=True, check=False,
+                        capture_output=True,
+                        text=True,
+                        check=False,
                     )
                     err_excerpt = (log_result.stderr or log_result.stdout).strip()
                     paths.stderr_log.write_text(err_excerpt)
@@ -302,16 +307,26 @@ def daemon_start(
                 )
             time.sleep(0.1)
         return DaemonStartResult(
-            pid=0, addr=addr, container_id=container_id,
+            pid=0,
+            addr=addr,
+            container_id=container_id,
             orphans_removed=tuple(orphans_removed),
         )
 
     # ------------------------------------------------------------------- host
-    cmd = list(_command_override) if _command_override else [
-        "jig", "daemon", "serve",
-        "--path", str(project_path),
-        "--ws-port", str(ws_port),
-    ]
+    cmd = (
+        list(_command_override)
+        if _command_override
+        else [
+            "jig",
+            "daemon",
+            "serve",
+            "--path",
+            str(project_path),
+            "--ws-port",
+            str(ws_port),
+        ]
+    )
     # Detach: stdin from /dev/null, stdout to /dev/null, stderr to a log
     # file so silent crashes are debuggable. start_new_session=True so the
     # child survives the parent shell exit.
@@ -383,6 +398,7 @@ def daemon_stop(project_path: Path, *, timeout: float = 5.0) -> bool:
 
     if status.kind == "docker" and status.container_id:
         from jig.container import stop_detached_container
+
         stop_detached_container(status.container_id, timeout=int(timeout))
     elif status.kind == "host" and status.pid is not None:
         try:

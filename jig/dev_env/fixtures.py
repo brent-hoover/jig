@@ -23,6 +23,7 @@ but Final scope avoids adding httpx as a hard dep — any duck-typed
 adapter suffices. Operators wire their concrete client (httpx /
 aiohttp / etc.) at the call site.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -130,9 +131,7 @@ class FixtureCassette(BaseModel):
     request_signature: str = Field(..., min_length=1)
     request: dict[str, Any] = Field(default_factory=dict)
     response: dict[str, Any] = Field(default_factory=dict)
-    recorded_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     agent_id: str | None = None
     ticket_id: str | None = None
 
@@ -142,9 +141,7 @@ class FixtureCassette(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def request_signature(
-    method: str, url: str, body: dict[str, Any] | None
-) -> str:
+def request_signature(method: str, url: str, body: dict[str, Any] | None) -> str:
     """Stable SHA-256 of ``(method, url, body)`` — matches across record + replay.
 
     Body is serialized via JSON with sorted keys + separators so two
@@ -190,9 +187,7 @@ class FixtureStore:
         atomic_write_text(path, existing + line)
         return cassette.request_signature
 
-    async def lookup(
-        self, service_id: str, request_sig: str
-    ) -> FixtureCassette | None:
+    async def lookup(self, service_id: str, request_sig: str) -> FixtureCassette | None:
         """Return the most recently-recorded cassette matching ``request_sig``."""
         rows = await self.list_for_service(service_id)
         match = next(
@@ -285,8 +280,7 @@ class AsyncHttpLike(Protocol):
         *,
         headers: dict | None = None,
         body: dict | None = None,
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
 
 class FixtureMiddleware:
@@ -384,9 +378,7 @@ class FixtureMiddleware:
                 f"FixtureMiddleware mode={self._mode.value} requires a "
                 "backing client; pass one to the constructor"
             )
-        return await self._client.request(
-            method, url, headers=headers, body=body
-        )
+        return await self._client.request(method, url, headers=headers, body=body)
 
 
 # ---------------------------------------------------------------------------

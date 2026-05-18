@@ -1,4 +1,5 @@
 """Constructors for ``project://store/...`` URIs (runtime JSONL stores)."""
+
 from __future__ import annotations
 
 from jig.uri.constructors._segments import seg

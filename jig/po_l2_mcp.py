@@ -22,6 +22,7 @@ Distinct from ``po_l0_mcp.py`` (L0 pitch), ``po_l1_mcp.py`` (L1
 discovery), and ``po_l3_mcp.py`` (L3 suite brief) — all four coexist
 behind allowed_tools gating.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -88,9 +89,7 @@ def _coerce_suites(raw: list[Any]) -> list[Suite]:
             out.append(entry)
             continue
         if not isinstance(entry, dict):
-            raise ValueError(
-                f"suite entry must be a dict, got {type(entry).__name__}"
-            )
+            raise ValueError(f"suite entry must be a dict, got {type(entry).__name__}")
         try:
             out.append(Suite.model_validate(entry))
         except ValidationError as e:
@@ -166,25 +165,19 @@ def validate_capability_coverage(
         # rather than having to re-attempt three times.
         parts: list[str] = []
         if missing:
-            parts.append(
-                f"capabilities in roster but not in any suite: {missing!r}"
-            )
+            parts.append(f"capabilities in roster but not in any suite: {missing!r}")
         if extras:
             parts.append(
                 f"capabilities in suites but not in L1 roster: {extras!r} "
                 "(add them to L1 first via /journey add)"
             )
         if duplicates:
-            dup_detail = sorted(
-                f"{cap}→{seen[cap]!r}" for cap in duplicates
-            )
+            dup_detail = sorted(f"{cap}→{seen[cap]!r}" for cap in duplicates)
             parts.append(
                 f"capabilities assigned to >1 suite: {dup_detail!r} "
                 "(L1 capability belongs to exactly one suite)"
             )
-        raise ValueError(
-            "suites coverage invalid — " + "; ".join(parts)
-        )
+        raise ValueError("suites coverage invalid — " + "; ".join(parts))
 
 
 def compute_size_warnings(

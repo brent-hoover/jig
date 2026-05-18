@@ -17,6 +17,7 @@ after VD discovery starts gets clear feedback rather than a blank page.
 Vanilla JS only (no React, no Alpine here — the embedded wireframes
 already have Alpine; the index page itself stays minimal).
 """
+
 from __future__ import annotations
 
 import html
@@ -54,7 +55,7 @@ def _index_html_for_screen(
     persona = ", ".join(persona_targets) if persona_targets else "—"
     journey = ", ".join(journey_refs) if journey_refs else "—"
     notes_block = (
-        f'<details><summary>Notes</summary><p>{html.escape(notes)}</p></details>'
+        f"<details><summary>Notes</summary><p>{html.escape(notes)}</p></details>"
         if notes
         else ""
     )
@@ -166,7 +167,7 @@ def generate_index(wireframes_dir: Path) -> str:
         if screens
         else (
             '<section class="empty"><p>No wireframes authored yet. '
-            'VD discovery will populate this dir as screens are walked.</p></section>'
+            "VD discovery will populate this dir as screens are walked.</p></section>"
         )
     )
 

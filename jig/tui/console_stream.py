@@ -9,6 +9,7 @@ which buffers and emits per write boundary. The TUI receives
 ``{type: event, topic: agents, kind: render, data: {content: "..."}}``
 envelopes and writes the (ANSI-rendered) content into its RichLog.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,9 +56,7 @@ class _StreamFile:
         except RuntimeError:
             return
         loop.create_task(
-            self._emitter.emit(
-                JigEvent(type="agent_render", data={"content": content})
-            )
+            self._emitter.emit(JigEvent(type="agent_render", data={"content": content}))
         )
 
     def isatty(self) -> bool:

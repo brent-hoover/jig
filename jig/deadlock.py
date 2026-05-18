@@ -159,11 +159,7 @@ async def sweep_blocking_entries(
                     )
                     result.escalated.append(entry.id)
 
-                if (
-                    nudge_after_s > 0
-                    and age_s >= nudge_after_s
-                    and not already_nudged
-                ):
+                if nudge_after_s > 0 and age_s >= nudge_after_s and not already_nudged:
                     await _post_nudge(
                         threads=threads,
                         bus=bus,

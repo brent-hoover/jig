@@ -45,6 +45,7 @@ load the contracts and pass the typed artifacts in. The
 disk and runs the full pass project-wide; that's what the dispatch
 layer wires when a ticket completes at MVP+ layer.
 """
+
 from __future__ import annotations
 
 import re
@@ -165,7 +166,9 @@ def _check_length(intent: Intent, kind: str, artifact_id: str) -> list[ReviewerC
     return out
 
 
-def _check_boilerplate(intent: Intent, kind: str, artifact_id: str) -> list[ReviewerComment]:
+def _check_boilerplate(
+    intent: Intent, kind: str, artifact_id: str
+) -> list[ReviewerComment]:
     """Flag simplest_solution that's a rephrasing of problem."""
     problem_tokens = _significant_tokens(intent.problem)
     solution_tokens = _significant_tokens(intent.simplest_solution)
@@ -205,7 +208,9 @@ def _complications_were_considered(c: ComplicationsConsidered) -> bool:
     return bool(extras)
 
 
-def _check_complications(intent: Intent, kind: str, artifact_id: str) -> list[ReviewerComment]:
+def _check_complications(
+    intent: Intent, kind: str, artifact_id: str
+) -> list[ReviewerComment]:
     if _complications_were_considered(intent.complications_considered):
         return []
     return [
@@ -219,7 +224,7 @@ def _check_complications(intent: Intent, kind: str, artifact_id: str) -> list[Re
                 "specific complications. The step is meant to surface "
                 "what pushed the artifact past its simplest form — if "
                 "no complications apply, fill each field with explicit "
-                "prose (e.g. ``\"none — N/A\"``) so the absence is "
+                'prose (e.g. ``"none — N/A"``) so the absence is '
                 "intentional rather than skipped."
             ),
             contract_uri=_contract_uri(kind, artifact_id),
@@ -499,9 +504,7 @@ class IntentComplianceReviewer:
                         if not (module_id_dir / "contracts.yaml").is_file():
                             continue
                         try:
-                            cf = load_module_contracts(
-                                project_root, module_id_dir.name
-                            )
+                            cf = load_module_contracts(project_root, module_id_dir.name)
                         except FileNotFoundError:
                             continue
                         artifacts.extend(cf.behavioral_contracts)

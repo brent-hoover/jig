@@ -1,4 +1,5 @@
 """Constructors for ``project://design/...`` URIs (VD output)."""
+
 from __future__ import annotations
 
 from jig.uri.constructors._segments import seg

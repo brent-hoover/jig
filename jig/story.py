@@ -66,21 +66,18 @@ def _render_thread_entry(entry: ThreadEntry) -> tuple[str, str]:
         blocking = " [BLOCKING]" if entry.is_blocking() else ""
         return (
             "question",
-            f"QUESTION{blocking} by={entry.author} "
-            f"target={entry.target}: {q_text}",
+            f"QUESTION{blocking} by={entry.author} target={entry.target}: {q_text}",
         )
     if isinstance(entry, Answer):
         a_text = (entry.text or "")[:80]
         return (
             "answer",
-            f"ANSWER by={entry.author} "
-            f"responds_to={entry.question_id}: {a_text}",
+            f"ANSWER by={entry.author} responds_to={entry.question_id}: {a_text}",
         )
     if isinstance(entry, Escalation):
         return (
             "escalation",
-            f"ESCALATION by={entry.author} "
-            f"target={entry.target} reason={entry.reason}",
+            f"ESCALATION by={entry.author} target={entry.target} reason={entry.reason}",
         )
     if isinstance(entry, Objection):
         return (
@@ -90,8 +87,7 @@ def _render_thread_entry(entry: ThreadEntry) -> tuple[str, str]:
     if isinstance(entry, Resolution):
         return (
             "resolution",
-            f"RESOLUTION by={entry.author}: "
-            f"responds_to={entry.objection_id}",
+            f"RESOLUTION by={entry.author}: responds_to={entry.objection_id}",
         )
     if isinstance(entry, Waiver):
         target_id = entry.objection_id or entry.check_failure_id or ""
@@ -117,8 +113,7 @@ def _render_thread_entry(entry: ThreadEntry) -> tuple[str, str]:
     if isinstance(entry, Proposal):
         return (
             "proposal",
-            f"PROPOSAL by={entry.author} "
-            f"state={entry.state}: {entry.target}",
+            f"PROPOSAL by={entry.author} state={entry.state}: {entry.target}",
         )
     if isinstance(entry, SystemEvent):
         return _render_system_event(entry)
@@ -132,8 +127,7 @@ def _render_system_event(ev: SystemEvent) -> tuple[str, str]:
     if et == "phase_start":
         return (
             f"system_event/{et}",
-            f"PHASE START {p.get('phase', ev.content)} "
-            f"role={p.get('role', '?')}",
+            f"PHASE START {p.get('phase', ev.content)} role={p.get('role', '?')}",
         )
     if et == "phase_end":
         ms = p.get("duration_ms", 0)
@@ -181,15 +175,11 @@ def _parse_log_line(line: str) -> dict | None:
     try:
         return json.loads(line)
     except json.JSONDecodeError as exc:
-        _logger.warning(
-            "build_story: skipping unparseable log line: %s", exc
-        )
+        _logger.warning("build_story: skipping unparseable log line: %s", exc)
         return None
 
 
-def _iter_log_events_for_ticket(
-    project_path: Path, ticket_id: str
-) -> list[StoryEvent]:
+def _iter_log_events_for_ticket(project_path: Path, ticket_id: str) -> list[StoryEvent]:
     log_dir = project_path / ".jig" / "logs"
     if not log_dir.is_dir():
         return []
@@ -216,8 +206,7 @@ def _iter_log_events_for_ticket(
                             source=StorySource.log,
                             kind=rec.get("logger", "?"),
                             level=rec.get("level", "INFO"),
-                            message=f"{rec.get('logger', '?')}: "
-                            f"{rec.get('msg', '')}",
+                            message=f"{rec.get('logger', '?')}: {rec.get('msg', '')}",
                             ticket_id=ticket_id,
                             phase=rec.get("phase"),
                             role=rec.get("role"),
@@ -246,9 +235,7 @@ async def build_story(
     if _visited is None:
         _visited = set()
     if ticket_id in _visited:
-        _logger.warning(
-            "build_story: cycle detected at ticket %s; skipping", ticket_id
-        )
+        _logger.warning("build_story: cycle detected at ticket %s; skipping", ticket_id)
         return events
     _visited.add(ticket_id)
 
@@ -276,9 +263,7 @@ async def build_story(
     # 3. Optionally include children.
     if include_children:
         if tickets is None:
-            raise ValueError(
-                "include_children=True requires tickets= TicketStore"
-            )
+            raise ValueError("include_children=True requires tickets= TicketStore")
         children = await tickets.find_by_parent(ticket_id)
         for child in children:
             child_events = await build_story(

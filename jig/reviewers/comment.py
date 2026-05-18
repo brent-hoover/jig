@@ -36,6 +36,7 @@ ReviewerComment is finding-shaped (one entry per concrete violation).
 A single reviewer run can return zero, one, or many comments — the
 mapping isn't 1:1 with check definitions.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -300,7 +301,7 @@ class ReviewerComment(BaseModel):
             "Review→fix cycle number this comment belongs to. Starts at "
             "0 for the first review pass, increments each time the dev "
             "agent re-submits and the reviewers re-run. The bounded "
-            "fix-loop cap (3 cycles per design §\"Bounded fix loops\") "
+            'fix-loop cap (3 cycles per design §"Bounded fix loops") '
             "compares categories across consecutive cycles to detect "
             "non-converging issues."
         ),
@@ -485,9 +486,7 @@ def format_comment_markdown(comment: ReviewerComment) -> str:
         if isinstance(comment.severity, str)
         else str(comment.severity).upper()
     )
-    lines.append(
-        f"### [{severity}] {comment.reviewer} — {comment.type}"
-    )
+    lines.append(f"### [{severity}] {comment.reviewer} — {comment.type}")
 
     # Anchor line.
     anchor = _format_anchor(comment)
@@ -501,9 +500,7 @@ def format_comment_markdown(comment: ReviewerComment) -> str:
         f"cycle: {comment.cycle}",
     ]
     if comment.auto_apply_after is not None:
-        meta_parts.append(
-            f"auto-apply in: {comment.auto_apply_after}s"
-        )
+        meta_parts.append(f"auto-apply in: {comment.auto_apply_after}s")
     lines.append("   ".join(meta_parts))
     lines.append("")
 
@@ -576,9 +573,7 @@ def _format_evidence_line(ev: Evidence) -> str:
     excerpt_lines = ev.excerpt.splitlines()
     truncated = excerpt_lines[:_MAX_EXCERPT_LINES]
     if len(excerpt_lines) > _MAX_EXCERPT_LINES:
-        truncated.append(
-            f"... ({len(excerpt_lines) - _MAX_EXCERPT_LINES} more lines)"
-        )
+        truncated.append(f"... ({len(excerpt_lines) - _MAX_EXCERPT_LINES} more lines)")
     excerpt = " ".join(line.strip() for line in truncated if line.strip())
     if len(excerpt) > 160:
         excerpt = excerpt[:160].rstrip() + "..."

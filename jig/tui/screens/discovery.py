@@ -18,6 +18,7 @@ Data is loaded synchronously from disk via ``jig.spec_loader`` helpers
 on each ``refresh()`` call. The screen exposes a ``refresh_now()``
 method tests can call directly.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -104,10 +105,7 @@ class DiscoveryScreen(Container):
         if state is None:
             header += " [dim](no state on disk yet)[/dim]"
         else:
-            header += (
-                f" status=[bold]{state.status}[/bold]"
-                f"  current="
-            )
+            header += f" status=[bold]{state.status}[/bold]  current="
             if state.current is None:
                 header += "[dim]none[/dim]"
             else:
@@ -132,10 +130,14 @@ class DiscoveryScreen(Container):
         if doc is not None:
             for p in doc.personas:
                 count = sum(1 for j in doc.journeys if j.persona_id == p.id)
-                personas_lines.append(f"- {{#{p.id}}} {p.description} [dim]({count} journeys)[/dim]")
+                personas_lines.append(
+                    f"- {{#{p.id}}} {p.description} [dim]({count} journeys)[/dim]"
+                )
             for j in doc.journeys:
                 playback_rel = str(
-                    discovery_playback_path(project_path, j.id).relative_to(project_path)
+                    discovery_playback_path(project_path, j.id).relative_to(
+                        project_path
+                    )
                 )
                 journeys_lines.append(
                     f"- [bold]{j.title}[/bold] {{#{j.id}}} "

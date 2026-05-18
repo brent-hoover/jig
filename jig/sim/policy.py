@@ -23,6 +23,7 @@ A scenario opts in via ``policy_driven: true`` (see
 ``jig.sim.scenario.Scenario``); the driver then routes step responses
 through ``apply_policy`` rather than reading literal scripted text.
 """
+
 from __future__ import annotations
 
 import hashlib

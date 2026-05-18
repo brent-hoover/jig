@@ -9,6 +9,7 @@ Five handlers wired into create_agent_mcp_server:
 - graph_changed_interfaces — touched nodes that are public interface kinds
                              (exposed_api, emitted_event, data_contract)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,11 +30,13 @@ def _load_graph(project_root: Path) -> DependencyGraph:
 
 # ---- interface kinds that count as "changed interface" ---------------------
 
-_INTERFACE_KINDS: frozenset[str] = frozenset({
-    "exposed_api",
-    "emitted_event",
-    "data_contract",
-})
+_INTERFACE_KINDS: frozenset[str] = frozenset(
+    {
+        "exposed_api",
+        "emitted_event",
+        "data_contract",
+    }
+)
 
 
 # ---- handlers ---------------------------------------------------------------
@@ -115,10 +118,7 @@ async def handle_graph_changed_interfaces(
     """
     graph = _load_graph(project_root)
     t_nid = f"ticket:{ticket_id}"
-    touched_ids = {
-        e.dst for e in graph.edges
-        if e.src == t_nid and e.kind == "touches"
-    }
+    touched_ids = {e.dst for e in graph.edges if e.src == t_nid and e.kind == "touches"}
     node_map = {n.id: n for n in graph.nodes}
     interface_nodes = [
         node_map[nid]

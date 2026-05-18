@@ -1528,6 +1528,7 @@ def create_agent_mcp_server(
                 capability_id=args.get("capability_id"),
             )
             import json
+
             return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
         all_tools.append(list_tradeoffs)
@@ -1546,6 +1547,7 @@ def create_agent_mcp_server(
         )
         async def graph_get_impact(args):
             import json
+
             result = await graph_mcp.handle_graph_get_impact(
                 project_path,
                 args["ticket_id"],
@@ -1566,6 +1568,7 @@ def create_agent_mcp_server(
         )
         async def graph_neighbors(args):
             import json
+
             result = await graph_mcp.handle_graph_neighbors(
                 project_path,
                 args["node_id"],
@@ -1587,6 +1590,7 @@ def create_agent_mcp_server(
         )
         async def graph_consumers_of(args):
             import json
+
             result = await graph_mcp.handle_graph_consumers_of(
                 project_path,
                 args["node_id"],
@@ -1606,6 +1610,7 @@ def create_agent_mcp_server(
         )
         async def graph_tracers_for(args):
             import json
+
             result = await graph_mcp.handle_graph_tracers_for(
                 project_path,
                 args["node_id"],
@@ -1626,6 +1631,7 @@ def create_agent_mcp_server(
         )
         async def graph_changed_interfaces(args):
             import json
+
             result = await graph_mcp.handle_graph_changed_interfaces(
                 project_path,
                 args["ticket_id"],
@@ -1854,11 +1860,7 @@ def create_agent_mcp_server(
                 reason=args["reason"],
                 actor=agent_role,
             )
-            return {
-                "content": [
-                    {"type": "text", "text": entry.model_dump_json()}
-                ]
-            }
+            return {"content": [{"type": "text", "text": entry.model_dump_json()}]}
 
         all_tools.append(arch_reject_cascade)
 
@@ -1908,11 +1910,7 @@ def create_agent_mcp_server(
                 stage_id=args["stage_id"],
                 actor=agent_role,
             )
-            return {
-                "content": [
-                    {"type": "text", "text": stage.stage_id}
-                ]
-            }
+            return {"content": [{"type": "text", "text": stage.stage_id}]}
 
         all_tools.append(arch_approve_cascade_stage)
 
@@ -2526,7 +2524,8 @@ def create_agent_mcp_server(
         )
         async def spec_get_capability(args):
             out = await init_mcp.handle_spec_get_capability(
-                project_path=project_path, id=args["id"],
+                project_path=project_path,
+                id=args["id"],
             )
             return {"content": [{"type": "text", "text": json.dumps(out)}]}
 
@@ -2574,7 +2573,8 @@ def create_agent_mcp_server(
         )
         async def spec_get_non_goal(args):
             out = await init_mcp.handle_spec_get_non_goal(
-                project_path=project_path, id=args["id"],
+                project_path=project_path,
+                id=args["id"],
             )
             return {"content": [{"type": "text", "text": json.dumps(out)}]}
 
@@ -2591,7 +2591,8 @@ def create_agent_mcp_server(
         )
         async def spec_resolve_uri(args):
             out = await init_mcp.handle_spec_resolve_uri(
-                project_path=project_path, uri=args["uri"],
+                project_path=project_path,
+                uri=args["uri"],
             )
             return {"content": [{"type": "text", "text": json.dumps(out)}]}
 
@@ -2754,20 +2755,22 @@ def create_agent_mcp_server(
                 "content": [
                     {
                         "type": "text",
-                        "text": json.dumps({
-                            "events": [
-                                {
-                                    "id": m.id,
-                                    "timestamp": m.timestamp.isoformat(),
-                                    "topic": m.topic,
-                                    "kind": (m.payload or {}).get("kind"),
-                                    "sender": m.sender,
-                                    "to": m.to,
-                                    "payload": m.payload,
-                                }
-                                for m in msgs
-                            ],
-                        }),
+                        "text": json.dumps(
+                            {
+                                "events": [
+                                    {
+                                        "id": m.id,
+                                        "timestamp": m.timestamp.isoformat(),
+                                        "topic": m.topic,
+                                        "kind": (m.payload or {}).get("kind"),
+                                        "sender": m.sender,
+                                        "to": m.to,
+                                        "payload": m.payload,
+                                    }
+                                    for m in msgs
+                                ],
+                            }
+                        ),
                     }
                 ],
             }
@@ -2822,6 +2825,7 @@ def create_agent_mcp_server(
 
     if "log_audit_entry" in agent_cfg.allowed_tools:
         from jig.store.audit import AuditStore as _AuditStore
+
         # Constructed once per MCP server instance — insert() appends
         # directly without re-reading the file, so no load() needed.
         _audit_store = _AuditStore(project_path / ".jig" / "store" / "audit.jsonl")
@@ -2858,8 +2862,13 @@ def create_agent_mcp_server(
         all_tools.append(log_audit_entry)
 
     if "create_canonicalization_issue" in agent_cfg.allowed_tools:
-        from jig.store.canon_issues import CanonicalizationIssueStore as _CanonIssueStore
-        _canon_issues_store = _CanonIssueStore(project_path / ".jig" / "store" / "canon_issues.jsonl")
+        from jig.store.canon_issues import (
+            CanonicalizationIssueStore as _CanonIssueStore,
+        )
+
+        _canon_issues_store = _CanonIssueStore(
+            project_path / ".jig" / "store" / "canon_issues.jsonl"
+        )
 
         @tool(
             "create_canonicalization_issue",

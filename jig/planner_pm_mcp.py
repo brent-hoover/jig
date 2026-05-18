@@ -23,6 +23,7 @@ intact so existing scenarios that hand-write a plan keep working —
 the Planner is the *agent* path; ``write_build_plan`` is the
 *operator* path.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -65,9 +66,7 @@ def _coerce_build_plan(raw: Any) -> BuildPlan:
     if isinstance(raw, BuildPlan):
         return raw
     if not isinstance(raw, dict):
-        raise ValueError(
-            f"plan must be a dict or BuildPlan, got {type(raw).__name__}"
-        )
+        raise ValueError(f"plan must be a dict or BuildPlan, got {type(raw).__name__}")
     try:
         return BuildPlan.model_validate(raw)
     except ValidationError as e:

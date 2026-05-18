@@ -30,6 +30,7 @@ This module ships:
 Mechanical only — no LLM. Aggregation is on-demand at the call site
 (no background recompute thread).
 """
+
 from __future__ import annotations
 
 import json
@@ -78,9 +79,7 @@ MIN_SAMPLES_FOR_CALIBRATION: int = 5
 ENVELOPE_SHIFT_THRESHOLD: float = 0.20
 
 
-_CompletionStatus = Literal[
-    "success", "failed", "blocked", "timeout", "killed"
-]
+_CompletionStatus = Literal["success", "failed", "blocked", "timeout", "killed"]
 
 
 class CalibrationSample(BaseModel):
@@ -97,9 +96,7 @@ class CalibrationSample(BaseModel):
     observed_duration_ms: int = 0
     observed_cost_usd: float = 0.0
     completion_status: _CompletionStatus = "success"
-    recorded_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Envelope(BaseModel):
@@ -214,9 +211,7 @@ class CalibrationStore:
             try:
                 rows.append(CalibrationSample.model_validate_json(line))
             except Exception:
-                _logger.warning(
-                    "skipping malformed calibration row: %r", line
-                )
+                _logger.warning("skipping malformed calibration row: %r", line)
         self._samples = rows
         self._loaded = True
 
@@ -226,8 +221,7 @@ class CalibrationStore:
             await self.load()
         self._samples.append(sample)
         payload = "\n".join(
-            json.dumps(s.model_dump(mode="json"), sort_keys=True)
-            for s in self._samples
+            json.dumps(s.model_dump(mode="json"), sort_keys=True) for s in self._samples
         )
         if payload:
             payload += "\n"
@@ -267,8 +261,11 @@ async def record_completion_sample(
     ``EstimationCalibrationUpdated`` event fires.
     """
     del tokens_in, tokens_out  # tokens captured in AgentCompleted; unused here
-    size = (ticket.size.value if isinstance(ticket.size, Size)
-            else (ticket.size or Size.M.value))
+    size = (
+        ticket.size.value
+        if isinstance(ticket.size, Size)
+        else (ticket.size or Size.M.value)
+    )
     dev_tier = ticket.dev_tier or "standard"
 
     # Pre-compute prior envelopes so we can detect a meaningful shift
@@ -290,7 +287,8 @@ async def record_completion_sample(
         if agent_ids:
             tool_events = await analytics.by_kind("tool_called")
             tool_calls = sum(
-                1 for e in tool_events
+                1
+                for e in tool_events
                 if isinstance(e, ToolCalled) and e.agent_id in agent_ids
             )
 
@@ -303,18 +301,23 @@ async def record_completion_sample(
         observed_tool_calls=tool_calls,
         observed_duration_ms=int(max(0, duration_ms)),
         observed_cost_usd=float(cost_usd or 0.0),
-        completion_status=status if status in {
-            "success", "failed", "blocked", "timeout", "killed",
-        } else "failed",  # type: ignore[arg-type]
+        completion_status=status
+        if status
+        in {
+            "success",
+            "failed",
+            "blocked",
+            "timeout",
+            "killed",
+        }
+        else "failed",  # type: ignore[arg-type]
     )
     await store.append(sample)
 
     # Recompute envelopes; emit if an envelope materially shifted.
     if emitter is not None:
         new_envelopes = current_envelopes(store)
-        if _envelope_shifted(
-            prior_envelopes.get(size), new_envelopes.get(size)
-        ):
+        if _envelope_shifted(prior_envelopes.get(size), new_envelopes.get(size)):
             emitter.emit_nowait(
                 EstimationCalibrationUpdated(
                     sample_size=len(store.all()),
@@ -376,9 +379,7 @@ def current_envelopes(
     return out
 
 
-def _envelope_from_samples(
-    size: str, samples: list[CalibrationSample]
-) -> Envelope:
+def _envelope_from_samples(size: str, samples: list[CalibrationSample]) -> Envelope:
     turns = sorted(s.observed_turns for s in samples)
     costs = sorted(s.observed_cost_usd for s in samples)
     durations = sorted(s.observed_duration_ms for s in samples)
@@ -421,9 +422,12 @@ def _envelope_shifted(prior: Envelope | None, current: Envelope | None) -> bool:
     if prior is None or current is None:
         return True
     fields = (
-        "median_turns", "p90_turns",
-        "median_cost_usd", "p90_cost_usd",
-        "median_duration_ms", "p90_duration_ms",
+        "median_turns",
+        "p90_turns",
+        "median_cost_usd",
+        "p90_cost_usd",
+        "median_duration_ms",
+        "p90_duration_ms",
     )
     for field in fields:
         prior_val = getattr(prior, field)
@@ -439,7 +443,7 @@ def _envelope_shifted(prior: Envelope | None, current: Envelope | None) -> bool:
 
 
 def _envelopes_to_bands(
-    envelopes: dict[str, Envelope]
+    envelopes: dict[str, Envelope],
 ) -> dict[str, dict[str, dict[str, list[float]]]]:
     """Flatten the envelope dict into the analytics event's nested shape.
 
@@ -461,12 +465,8 @@ def _envelopes_to_bands(
     return {"standard": bands}
 
 
-
 def serialize_envelopes_for_cli(
-    envelopes: dict[str, Envelope]
+    envelopes: dict[str, Envelope],
 ) -> dict[str, dict[str, Any]]:
     """Flat dict suitable for json.dumps in CLI output."""
-    return {
-        size: env.model_dump(mode="json")
-        for size, env in envelopes.items()
-    }
+    return {size: env.model_dump(mode="json") for size, env in envelopes.items()}

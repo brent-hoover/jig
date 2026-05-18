@@ -1,4 +1,5 @@
 """Agents screen — live view of running agents and their configuration."""
+
 from __future__ import annotations
 
 import time
@@ -48,7 +49,9 @@ class _AgentListItem(ListItem):
     def compose(self) -> ComposeResult:
         color = _ROLE_COLORS.get(self._agent.role, "white")
         spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        spin = spinners[self._agent.elapsed % len(spinners)] if self._agent.active else "·"
+        spin = (
+            spinners[self._agent.elapsed % len(spinners)] if self._agent.active else "·"
+        )
         title = self._agent.ticket_title or self._agent.ticket_id[:8]
         if len(title) > 28:
             title = title[:25] + "…"
@@ -129,7 +132,10 @@ class _DetailPanel(Widget):
         lines.append("[bold $accent]Allowed tools[/bold $accent]")
         if agent.allowed_tools:
             # wrap into rows of ~4
-            rows = [agent.allowed_tools[i:i+4] for i in range(0, len(agent.allowed_tools), 4)]
+            rows = [
+                agent.allowed_tools[i : i + 4]
+                for i in range(0, len(agent.allowed_tools), 4)
+            ]
             for row in rows:
                 lines.append("  " + "  ".join(f"[green]{t}[/green]" for t in row))
         else:
@@ -280,6 +286,7 @@ class AgentsScreen(Widget):
             return
         try:
             from jig.persistence import load_role
+
             cfg = load_role(path, agent.role)
             agent.allowed_tools = list(cfg.allowed_tools)
             agent.allowed_mcps = list(cfg.allowed_mcps)
@@ -293,9 +300,7 @@ class AgentsScreen(Widget):
         except Exception:
             return
         existing_keys = {
-            item.agent_key
-            for item in lv.children
-            if isinstance(item, _AgentListItem)
+            item.agent_key for item in lv.children if isinstance(item, _AgentListItem)
         }
         new_keys = set(self._agents.keys())
 
@@ -314,7 +319,11 @@ class AgentsScreen(Widget):
                             label = item.query_one(Static)
                             color = _ROLE_COLORS.get(agent.role, "white")
                             spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-                            spin = spinners[agent.elapsed % len(spinners)] if agent.active else "·"
+                            spin = (
+                                spinners[agent.elapsed % len(spinners)]
+                                if agent.active
+                                else "·"
+                            )
                             title = agent.ticket_title or agent.ticket_id[:8]
                             if len(title) > 28:
                                 title = title[:25] + "…"
@@ -331,7 +340,9 @@ class AgentsScreen(Widget):
             panel = self.query_one(_DetailPanel)
         except Exception:
             return
-        agent = self._agents.get(self._selected_key or "") if self._selected_key else None
+        agent = (
+            self._agents.get(self._selected_key or "") if self._selected_key else None
+        )
         if agent is None and self._agents:
             agent = next(iter(self._agents.values()))
         panel.show_agent(agent)

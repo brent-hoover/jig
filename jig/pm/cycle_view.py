@@ -10,6 +10,7 @@ This module ships the data model + a markdown-rendering helper for
 CLI inspection. The TUI track will consume the same model when it
 renders the cycle view in the terminal.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -82,9 +83,7 @@ class CycleViewModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cycle_revision: int = 1
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     epics: list[EpicViewModel] = Field(default_factory=list)
     coordinator_state: CoordinatorState = Field(default_factory=CoordinatorState)
     auto_escalations_pending: list[EscalationSignal] = Field(default_factory=list)
@@ -125,7 +124,9 @@ async def build_cycle_view(
         layers = await _layer_progress_for_epic(epic.layers, ticket_store)
         epic_models.append(
             EpicViewModel(
-                id=epic.id, title=epic.title, layer_progress=layers,
+                id=epic.id,
+                title=epic.title,
+                layer_progress=layers,
             )
         )
 
@@ -148,13 +149,16 @@ async def build_cycle_view(
 
 
 async def _layer_progress_for_epic(
-    layers: EpicLayers, tickets: TicketStore,
+    layers: EpicLayers,
+    tickets: TicketStore,
 ) -> dict[str, LayerProgress]:
     out: dict[str, LayerProgress] = {}
     for layer_name in (LayerName.BONES, LayerName.MVP, LayerName.FINAL):
         layer = (
-            layers.bones if layer_name == LayerName.BONES
-            else layers.mvp if layer_name == LayerName.MVP
+            layers.bones
+            if layer_name == LayerName.BONES
+            else layers.mvp
+            if layer_name == LayerName.MVP
             else layers.final
         )
         progress = LayerProgress(status=layer.status.value)
@@ -213,9 +217,7 @@ def format_cycle_view(view: CycleViewModel) -> str:
     lines.append(f"- next_layer_ready: `{cs.next_layer_ready or 'all-done'}`")
     lines.append(f"- ordering_rule: `{cs.ordering_rule}`")
     if cs.holding_for_cascades:
-        lines.append(
-            f"- holding_for_cascades: {', '.join(cs.holding_for_cascades)}"
-        )
+        lines.append(f"- holding_for_cascades: {', '.join(cs.holding_for_cascades)}")
     else:
         lines.append("- holding_for_cascades: _(none)_")
     lines.append("")
@@ -232,8 +234,10 @@ def format_cycle_view(view: CycleViewModel) -> str:
             "| Layer | Status | Total | Resolved | In progress | Blocked | "
             "Failed | Deferred |"
         )
-        lines.append("|-------|--------|-------|----------|-------------|"
-                     "---------|--------|----------|")
+        lines.append(
+            "|-------|--------|-------|----------|-------------|"
+            "---------|--------|----------|"
+        )
         for layer_name in ("bones", "mvp", "final"):
             p = epic.layer_progress.get(layer_name)
             if p is None:
@@ -264,9 +268,7 @@ def format_cycle_view(view: CycleViewModel) -> str:
         lines.append("_(none recent)_")
     else:
         for p in view.recent_promotions:
-            lines.append(
-                f"- `{p.ticket_id}`: {p.from_tier} → {p.to_tier} ({p.reason})"
-            )
+            lines.append(f"- `{p.ticket_id}`: {p.from_tier} → {p.to_tier} ({p.reason})")
     lines.append("")
 
     lines.append("## Calibration envelopes")
@@ -275,11 +277,11 @@ def format_cycle_view(view: CycleViewModel) -> str:
         lines.append("_(no calibration data)_")
     else:
         lines.append(
-            "| Size | Samples | Median turns | P90 turns | "
-            "Median cost | P90 cost |"
+            "| Size | Samples | Median turns | P90 turns | Median cost | P90 cost |"
         )
-        lines.append("|------|---------|--------------|-----------|"
-                     "-------------|----------|")
+        lines.append(
+            "|------|---------|--------------|-----------|-------------|----------|"
+        )
         for size in ("xs", "s", "m", "l", "xl"):
             env = view.calibration_envelopes.get(size)
             if env is None:

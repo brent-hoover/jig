@@ -18,6 +18,7 @@ Live data:
   - tickets/created event adds the new ticket
   - tickets/updated event replaces the existing ticket by id
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -230,7 +231,9 @@ class TicketsScreen(Container):
         """Apply a live tickets event."""
         # Bus-event shape: {ticket_id, work_type, status, ...} or wrapped
         # under a "ticket" key — handle both pragmatically.
-        ticket_payload = data.get("ticket") if isinstance(data.get("ticket"), dict) else data
+        ticket_payload = (
+            data.get("ticket") if isinstance(data.get("ticket"), dict) else data
+        )
         ticket_id = ticket_payload.get("id") or data.get("ticket_id")
         if not ticket_id:
             return
@@ -250,6 +253,7 @@ class TicketsScreen(Container):
 
     def _sorted_tickets(self) -> list[dict[str, Any]]:
         """Sort by most-recent activity desc; tiebreak on id."""
+
         def keyfn(t: dict[str, Any]) -> tuple:
             ts = t.get("updated_at") or t.get("created_at") or ""
             return (ts, t.get("id", ""))
@@ -264,7 +268,9 @@ class TicketsScreen(Container):
             return  # not mounted yet
         # Capture currently selected id (if any) so we can re-select after rebuild
         selected_id = None
-        if list_view.index is not None and 0 <= list_view.index < len(list_view.children):
+        if list_view.index is not None and 0 <= list_view.index < len(
+            list_view.children
+        ):
             current = list_view.children[list_view.index]
             selected_id = getattr(current, "ticket_id", None)
 
@@ -302,13 +308,9 @@ class TicketsScreen(Container):
         size = ticket.get("size", "?")
         title = ticket.get("title", "(untitled)")
         needs_answer = status == "needs_info"
-        needs_marker = (
-            "[#ff00ff bold][?][/#ff00ff bold] " if needs_answer else ""
-        )
+        needs_marker = "[#ff00ff bold][?][/#ff00ff bold] " if needs_answer else ""
         rendered = (
-            f"[{color}]{icon}[/{color}] "
-            f"[dim][{size}][/dim] "
-            f"{needs_marker}{title}"
+            f"[{color}]{icon}[/{color}] [dim][{size}][/dim] {needs_marker}{title}"
         )
         item = ListItem(Static(rendered, markup=True))
         # Stash the ticket id so we can reverse-lookup on selection

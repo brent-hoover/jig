@@ -181,12 +181,20 @@ def run_detached_container(
     """
     image = os.environ.get("JIG_DOCKER_IMAGE", DEFAULT_IMAGE)
     args = [
-        "docker", "run", "-d", "--rm",
-        "--cap-add", "SYS_ADMIN",
-        "--security-opt", "seccomp=unconfined",
-        "-v", f"{project_path.resolve()}:/project",
-        "-p", f"127.0.0.1:{ws_port}:{ws_port}",
-        "--label", f"{JIG_PROJECT_LABEL}={project_path.resolve()}",
+        "docker",
+        "run",
+        "-d",
+        "--rm",
+        "--cap-add",
+        "SYS_ADMIN",
+        "--security-opt",
+        "seccomp=unconfined",
+        "-v",
+        f"{project_path.resolve()}:/project",
+        "-p",
+        f"127.0.0.1:{ws_port}:{ws_port}",
+        "--label",
+        f"{JIG_PROJECT_LABEL}={project_path.resolve()}",
     ]
     if name:
         args.extend(["--name", name])
@@ -234,7 +242,9 @@ def stop_detached_container(container_id: str, *, timeout: int = 5) -> bool:
     (or wasn't running)."""
     result = subprocess.run(
         ["docker", "stop", "-t", str(timeout), container_id],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -243,7 +253,9 @@ def container_alive(container_id: str) -> bool:
     """Return True if the container is currently running."""
     result = subprocess.run(
         ["docker", "inspect", "-f", "{{.State.Running}}", container_id],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode != 0:
         return False
@@ -260,9 +272,16 @@ def find_project_containers(project_path: Path) -> list[str]:
     label_value = str(project_path.resolve())
     try:
         result = subprocess.run(
-            ["docker", "ps", "-aq",
-             "--filter", f"label={JIG_PROJECT_LABEL}={label_value}"],
-            capture_output=True, text=True, check=False,
+            [
+                "docker",
+                "ps",
+                "-aq",
+                "--filter",
+                f"label={JIG_PROJECT_LABEL}={label_value}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
     except FileNotFoundError:
         return []
@@ -275,6 +294,8 @@ def force_remove_container(container_id: str) -> bool:
     """``docker rm -f`` a container. Returns True on success."""
     result = subprocess.run(
         ["docker", "rm", "-f", container_id],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return result.returncode == 0

@@ -18,7 +18,12 @@ if TYPE_CHECKING:
 from jig.agent import run_agent
 from jig.stall_detector import StallDetector
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
-from jig.analytics.events import AgentCompleted, AgentSpawned, TicketGraphImpact, TicketStateChanged
+from jig.analytics.events import (
+    AgentCompleted,
+    AgentSpawned,
+    TicketGraphImpact,
+    TicketStateChanged,
+)
 from jig.analytics.store import AnalyticsStore
 from jig.config import DeadlockSection, OrchestratorSection, load_config
 from jig.deadlock import sweep_blocking_entries
@@ -69,7 +74,9 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
             # -d cwd with an exact path finds processes whose cwd == child.
             result = subprocess.run(
                 ["lsof", "-d", "cwd", "-Fp", "--", str(child)],
-                capture_output=True, text=True, check=False,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             for line in result.stdout.splitlines():
                 if not line.startswith("p"):
@@ -80,7 +87,9 @@ def _kill_orphan_claude_processes(project_path: Path) -> int:
                     continue
                 cmd = subprocess.run(
                     ["ps", "-p", str(pid), "-o", "command="],
-                    capture_output=True, text=True, check=False,
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 ).stdout.strip()
                 # Match only processes whose argv[0] basename is "claude"
                 # so we don't accidentally SIGTERM unrelated tools that happen
@@ -218,8 +227,7 @@ class Orchestrator:
 
         if self.tickets is None:
             raise RuntimeError(
-                "Orchestrator not started — call startup() before "
-                "accessing coordinator"
+                "Orchestrator not started — call startup() before accessing coordinator"
             )
         if self._coordinator is None:
             self._coordinator = _Coordinator(
@@ -339,9 +347,7 @@ class Orchestrator:
             )
         )
 
-    async def _run_agent_with_analytics(
-        self, ctx, *, spawned_by: str = "orchestrator"
-    ):
+    async def _run_agent_with_analytics(self, ctx, *, spawned_by: str = "orchestrator"):
         """Wrap run_agent with AgentSpawned/AgentCompleted emission.
 
         Returns the same ``RunAgentResult`` ``run_agent`` would. Bones
@@ -381,9 +387,7 @@ class Orchestrator:
                         ticket_id=ctx.ticket.id,
                         crossed_boundaries=_impact.crossed_boundaries,
                         touched_node_count=len(_impact.touched),
-                        consumer_count=sum(
-                            len(v) for v in _impact.consumers.values()
-                        ),
+                        consumer_count=sum(len(v) for v in _impact.consumers.values()),
                         exercised_tracer_count=len(_impact.exercised_tracers),
                     )
                 )
@@ -418,9 +422,7 @@ class Orchestrator:
                     content=str(exc),
                 )
             )
-            await ctx.tickets.update(
-                ctx.ticket.id, status=TicketStatus.FAILED
-            )
+            await ctx.tickets.update(ctx.ticket.id, status=TicketStatus.FAILED)
             from jig.agent import RunAgentResult
 
             return RunAgentResult(
@@ -488,7 +490,9 @@ class Orchestrator:
             # record calibration sample. Best-effort: swallow
             # exceptions so analytics drift can't kill a dispatch.
             await self._maybe_promote_tier_after_blocked(
-                ctx, agent_id=agent_id, result_status=result_status,
+                ctx,
+                agent_id=agent_id,
+                result_status=result_status,
             )
             await self._record_calibration_sample(
                 ctx,
@@ -512,7 +516,11 @@ class Orchestrator:
             )
 
     async def _maybe_promote_tier_after_blocked(
-        self, ctx, *, agent_id: str, result_status: str,
+        self,
+        ctx,
+        *,
+        agent_id: str,
+        result_status: str,
     ) -> None:
         """Track F Final — auto-promote the ticket's tier on BLOCKED + signal.
 
@@ -543,9 +551,7 @@ class Orchestrator:
                 promote_ticket_tier,
             )
 
-            signals = await check_escalation_signals(
-                ctx.ticket.id, self.analytics
-            )
+            signals = await check_escalation_signals(ctx.ticket.id, self.analytics)
             current_tier = ticket.dev_tier or "standard"
             target = decide_promotion(signals, current_tier)
             if target is None:
@@ -614,15 +620,12 @@ class Orchestrator:
                 exc_info=True,
             )
 
-
     @staticmethod
     def _map_result_status(s: str) -> str:
         """Map RunAgentResult.status to AgentCompleted.status Literal."""
         return {"needs_info": "blocked"}.get(s, s)
 
-    async def _run_review_federation(
-        self, ticket_id: str, ticket
-    ) -> None:
+    async def _run_review_federation(self, ticket_id: str, ticket) -> None:
         """Run the review federation as a **gate** on ticket resolution.
 
         Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and
@@ -723,9 +726,7 @@ class Orchestrator:
             c.severity in (_Severity.CRITICAL.value, _Severity.IMPORTANT.value)
             for c in comments
         )
-        coord_arg: object | None = (
-            None if has_higher_severity else self.coordinator
-        )
+        coord_arg: object | None = None if has_higher_severity else self.coordinator
 
         result = await apply_severity_disposition(
             comments,
@@ -755,9 +756,7 @@ class Orchestrator:
             # Important comments → BLOCKED (re-using BLOCKED + a
             # structured reason rather than a new TicketStatus).
             await self._update_ticket_status(ticket_id, TicketStatus.BLOCKED)
-            await self.tickets.update(
-                ticket_id, block_reason="reviewer-important"
-            )
+            await self.tickets.update(ticket_id, block_reason="reviewer-important")
         # Notable-only path: ticket stays RESOLVED, the Coordinator
         # already deferred it inside apply_severity_disposition.
 
@@ -808,7 +807,8 @@ class Orchestrator:
 
         all_comments = [c for comments in by_reviewer.values() for c in comments]
         blocking = [
-            c for c in all_comments
+            c
+            for c in all_comments
             if c.severity in (Severity.CRITICAL.value, Severity.IMPORTANT.value)
         ]
 
@@ -912,9 +912,7 @@ class Orchestrator:
             return
 
         if worktree_path is None:
-            worktree_path = (
-                self._project_path / ".jig" / "worktrees" / ticket.id
-            )
+            worktree_path = self._project_path / ".jig" / "worktrees" / ticket.id
 
         ctx = AgentSpawnContext(
             role=reviewer_id,
@@ -944,8 +942,7 @@ class Orchestrator:
             # so the dispatcher / federation gate sees the failure and
             # the operator has an audit trail.
             _logger.warning(
-                "spawn_review_agent_for_id: reviewer %s spawn failed for "
-                "ticket %s",
+                "spawn_review_agent_for_id: reviewer %s spawn failed for ticket %s",
                 reviewer_id,
                 ticket.id,
                 exc_info=True,
@@ -956,9 +953,7 @@ class Orchestrator:
                         ticket_id=ticket.id,
                         author="orchestrator",
                         event_type="reviewer_spawn_failed",
-                        content=(
-                            f"reviewer {reviewer_id!r} failed to run: {exc}"
-                        ),
+                        content=(f"reviewer {reviewer_id!r} failed to run: {exc}"),
                     )
                 )
             except Exception:
@@ -971,7 +966,13 @@ class Orchestrator:
 
     async def _emergency_reset(self) -> None:
         self._running = False
-        for task in (self._dispatch_task, self._service_task, self._deadlock_task, self._stall_task, self._analyzer_task):
+        for task in (
+            self._dispatch_task,
+            self._service_task,
+            self._deadlock_task,
+            self._stall_task,
+            self._analyzer_task,
+        ):
             if task is not None:
                 task.cancel()
                 try:
@@ -1147,7 +1148,10 @@ class Orchestrator:
             if verdict is None:
                 continue
             now = time.monotonic()
-            if last_action_at is not None and (now - last_action_at) < thresholds.cooldown_seconds:
+            if (
+                last_action_at is not None
+                and (now - last_action_at) < thresholds.cooldown_seconds
+            ):
                 continue
             last_action_at = now
             _logger.warning(
@@ -1162,7 +1166,9 @@ class Orchestrator:
                     None, _kill_orphan_claude_processes, self._project_path
                 )
                 if killed:
-                    _logger.info("stall recovery: SIGTERMed %d orphan claude process(es)", killed)
+                    _logger.info(
+                        "stall recovery: SIGTERMed %d orphan claude process(es)", killed
+                    )
 
     async def _handle_schedule(self, ticket_id: str) -> None:
         """Schedule a ticket if its dependencies are satisfied.
@@ -1203,6 +1209,7 @@ class Orchestrator:
         await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
         if self._emitter is not None:
             from jig.events import JigEvent
+
             await self._emitter.emit(
                 JigEvent(
                     type="ticket_dispatched",
@@ -1255,6 +1262,7 @@ class Orchestrator:
                     ticket.workflow,
                 )
                 from jig.persistence import resolve_workflow_name
+
                 workflow_name = resolve_workflow_name(
                     self._project_path,
                     ticket.workflow,
@@ -1378,7 +1386,11 @@ class Orchestrator:
                         )
                     # Tell the TUI which phase is running
                     await self._emit_phase_event(
-                        "phase_started", ticket_id, phase, phase_idx, len(workflow.phases)
+                        "phase_started",
+                        ticket_id,
+                        phase,
+                        phase_idx,
+                        len(workflow.phases),
                     )
 
                     # When the review phase is reached and review federation is
@@ -1421,10 +1433,14 @@ class Orchestrator:
                         self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
                         try:
                             _logger.info(
-                                "spawning agent for %s on ticket %s", phase.role, ticket_id
+                                "spawning agent for %s on ticket %s",
+                                phase.role,
+                                ticket_id,
                             )
                             result = await self._run_agent_with_analytics(ctx)
-                            _logger.info("agent %s finished: %s", phase.role, result.status)
+                            _logger.info(
+                                "agent %s finished: %s", phase.role, result.status
+                            )
                         except Exception:
                             _logger.exception(
                                 "agent failed for phase %s ticket %s",
@@ -1439,7 +1455,9 @@ class Orchestrator:
                                 len(workflow.phases),
                                 result="failed",
                             )
-                            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                            await self._update_ticket_status(
+                                ticket_id, TicketStatus.FAILED
+                            )
                             await self._on_ticket_failed(ticket_id, ticket)
                             return
                         finally:
@@ -1474,14 +1492,20 @@ class Orchestrator:
                         # entries to resolve. A rejected Handoff unblocks and
                         # then cycles through the existing retry logic.
                         if self.threads is not None:
-                            blocking = await self.threads.has_unresolved_blocking(ticket_id)
+                            blocking = await self.threads.has_unresolved_blocking(
+                                ticket_id
+                            )
                             while blocking:
                                 await self._emit_phase_blocked_by_thread(
                                     ticket_id, phase, blocking
                                 )
                                 await self._wait_for_thread_unblock(ticket_id)
-                                blocking = await self.threads.has_unresolved_blocking(ticket_id)
-                            if await self._phase_handoff_rejected(ticket_id, phase.name):
+                                blocking = await self.threads.has_unresolved_blocking(
+                                    ticket_id
+                                )
+                            if await self._phase_handoff_rejected(
+                                ticket_id, phase.name
+                            ):
                                 result.status = "blocked"
 
                     # Record the phase_run AFTER gate + thread-blocking may
@@ -1528,7 +1552,9 @@ class Orchestrator:
                         )
                         await self._wait_for_resume(ticket_id)
                         _logger.info(
-                            "ticket %s resumed — re-running phase %s", ticket_id, phase.name
+                            "ticket %s resumed — re-running phase %s",
+                            ticket_id,
+                            phase.name,
                         )
                         ticket = await self.tickets.get(ticket_id)
                         continue  # re-run same phase_idx
@@ -1542,7 +1568,9 @@ class Orchestrator:
                                 fix_counts[phase_idx],
                                 ticket_id,
                             )
-                            await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                            await self._update_ticket_status(
+                                ticket_id, TicketStatus.FAILED
+                            )
                             await self._on_ticket_failed(ticket_id, ticket)
                             return
 
@@ -1559,13 +1587,16 @@ class Orchestrator:
                             await self._update_ticket_status(
                                 ticket_id, TicketStatus.IN_PROGRESS
                             )
-                            await self._auto_commit_worktree(worktree, phase.name, ticket_id)
+                            await self._auto_commit_worktree(
+                                worktree, phase.name, ticket_id
+                            )
                             phase_idx = fix_idx
                             ticket = await self.tickets.get(ticket_id)
                             continue
 
                         _logger.warning(
-                            "phase %s blocked but no fix phase found — failing", phase.name
+                            "phase %s blocked but no fix phase found — failing",
+                            phase.name,
                         )
 
                     # Unrecoverable: fail the ticket.
@@ -1576,9 +1607,7 @@ class Orchestrator:
                 finally:
                     if self.threads is not None:
                         outcome = result.status if result is not None else "failed"
-                        duration_ms = int(
-                            (time.monotonic() - phase_started_at) * 1000
-                        )
+                        duration_ms = int((time.monotonic() - phase_started_at) * 1000)
                         await self.threads.post(
                             SystemEvent(
                                 ticket_id=ticket_id,
@@ -1649,7 +1678,9 @@ class Orchestrator:
             },
         )
         try:
-            result = await self._run_agent_with_analytics(ctx, spawned_by="conflict_resolver")
+            result = await self._run_agent_with_analytics(
+                ctx, spawned_by="conflict_resolver"
+            )
             return result.status == "success"
         except Exception:
             _logger.warning(
@@ -1789,7 +1820,9 @@ class Orchestrator:
                         )
                     except Exception:
                         merge_failed = True
-                        merge_result = f"merge retry failed (branch {branch_name} preserved)"
+                        merge_result = (
+                            f"merge retry failed (branch {branch_name} preserved)"
+                        )
                         _logger.warning(
                             "merge retry failed for %s after conflict resolution",
                             ticket_id,
@@ -1897,7 +1930,9 @@ class Orchestrator:
             created_by="orchestrator",
         )
         new_id = await self.tickets.create(canon_ticket)
-        _logger.info("per-merge canonicalize ticket %s created for %s", new_id, ticket_id)
+        _logger.info(
+            "per-merge canonicalize ticket %s created for %s", new_id, ticket_id
+        )
         await self._handle_schedule(new_id)
 
     async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
@@ -1950,6 +1985,7 @@ class Orchestrator:
             return  # already created
         # Check whether any non-init tickets exist (i.e. planning already happened)
         from jig.ticket import WorkType as _WorkType
+
         init_types = {_WorkType.BRIEF, _WorkType.ARCHITECTURE, _WorkType.PLANNING}
         all_tickets = await self.tickets.list_all()
         dev_tickets = [t for t in all_tickets if t.work_type not in init_types]
@@ -1957,6 +1993,7 @@ class Orchestrator:
             return  # planning already produced tickets
 
         from jig.ticket import Ticket
+
         spec_path = self._project_path / "docs" / "project.structured.yaml"
         await self.tickets.create(
             Ticket(
@@ -1989,8 +2026,10 @@ class Orchestrator:
         if not all_tickets:
             return
         non_terminal = {
-            TicketStatus.OPEN, TicketStatus.IN_PROGRESS,
-            TicketStatus.BLOCKED, TicketStatus.NEEDS_INFO,
+            TicketStatus.OPEN,
+            TicketStatus.IN_PROGRESS,
+            TicketStatus.BLOCKED,
+            TicketStatus.NEEDS_INFO,
             TicketStatus.MERGE_CONFLICT,
         }
         if any(t.status in non_terminal for t in all_tickets):
@@ -2000,17 +2039,24 @@ class Orchestrator:
             return
         self._analyzer_last_terminal_ids = terminal_ids
 
-        resolved = sum(1 for t in all_tickets if t.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED))
+        resolved = sum(
+            1
+            for t in all_tickets
+            if t.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
+        )
         if self._emitter is not None:
             from jig.events import JigEvent
-            await self._emitter.emit(JigEvent(
-                type="project_complete",
-                data={
-                    "kind": "project_complete",
-                    "tickets_resolved": resolved,
-                    "tickets_total": len(all_tickets),
-                },
-            ))
+
+            await self._emitter.emit(
+                JigEvent(
+                    type="project_complete",
+                    data={
+                        "kind": "project_complete",
+                        "tickets_resolved": resolved,
+                        "tickets_total": len(all_tickets),
+                    },
+                )
+            )
         self._analyzer_task = asyncio.create_task(self._run_analyzer_bg())
 
     async def _run_analyzer_bg(self) -> None:
@@ -2024,7 +2070,9 @@ class Orchestrator:
             return
 
         project_name = self._project_path.resolve().name
-        run_id = f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        run_id = (
+            f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        )
         out_dir = self._project_path / ".jig" / "analysis" / run_id
         jig_repo = Path(__file__).resolve().parents[1]  # jig pkg → repo root
 
@@ -2049,17 +2097,20 @@ class Orchestrator:
             )
             if self._emitter is not None:
                 from jig.events import JigEvent
-                await self._emitter.emit(JigEvent(
-                    type="analysis_complete",
-                    data={
-                        "kind": "analysis_complete",
-                        "outcome": metrics.outcome,
-                        "duration_s": metrics.duration_s,
-                        "tickets_resolved": metrics.tickets.resolved,
-                        "tickets_total": metrics.tickets.total,
-                        "out_dir": str(out_dir),
-                    },
-                ))
+
+                await self._emitter.emit(
+                    JigEvent(
+                        type="analysis_complete",
+                        data={
+                            "kind": "analysis_complete",
+                            "outcome": metrics.outcome,
+                            "duration_s": metrics.duration_s,
+                            "tickets_resolved": metrics.tickets.resolved,
+                            "tickets_total": metrics.tickets.total,
+                            "out_dir": str(out_dir),
+                        },
+                    )
+                )
         except Exception:
             _logger.warning("post-run analyzer failed", exc_info=True)
 
@@ -2213,10 +2264,16 @@ class Orchestrator:
                 },
             )
         )
-        _logger.info("needs_info prompt emitted for ticket %s (prompt_id=%s)", ticket_id, prompt_id)
+        _logger.info(
+            "needs_info prompt emitted for ticket %s (prompt_id=%s)",
+            ticket_id,
+            prompt_id,
+        )
 
         reply = await future
-        _logger.info("needs_info reply received for ticket %s: %r", ticket_id, reply[:80])
+        _logger.info(
+            "needs_info reply received for ticket %s: %r", ticket_id, reply[:80]
+        )
 
         await self.threads.post(
             Answer(
@@ -2502,16 +2559,11 @@ class Orchestrator:
                             ticket_id=ticket_id,
                             author="orchestrator",
                             event_type="auto_commit_failed",
-                            content=(
-                                f"auto-commit after {phase_name!r} failed: "
-                                f"{exc}"
-                            ),
+                            content=(f"auto-commit after {phase_name!r} failed: {exc}"),
                         )
                     )
                 except Exception:
-                    _logger.exception(
-                        "failed to post auto_commit_failed thread entry"
-                    )
+                    _logger.exception("failed to post auto_commit_failed thread entry")
             return False
 
         if sha:

@@ -12,6 +12,7 @@ Hotkeys (Events pane only — bound on JigApp with pane guards):
 Live updates: v0 relies on snapshot-on-subscribe only; reconnect to
 refresh. Live event streaming for this topic is a future enhancement.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -94,7 +95,8 @@ class EventsScreen(Container):
     def _filtered(self) -> list[dict[str, Any]]:
         _, predicate = _FILTER_CYCLE[self.filter_idx]
         return [
-            ev for ev in self.events_data
+            ev
+            for ev in self.events_data
             if predicate((ev.get("payload") or {}).get("kind"))
         ]
 

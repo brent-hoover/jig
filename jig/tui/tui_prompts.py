@@ -9,6 +9,7 @@ Each ask_* method:
 
 The init_workflow callers pass this instance via run_init(prompts=...).
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,7 +62,9 @@ class TuiPromptHandler:
         prompt_id, future = self._registry.register()
         prompt_type = payload.get("prompt_type", "?")
         _logger.debug(
-            "prompt round-trip start id=%s type=%s", prompt_id, prompt_type,
+            "prompt round-trip start id=%s type=%s",
+            prompt_id,
+            prompt_type,
         )
         await self._emitter.emit(
             JigEvent(
@@ -71,7 +74,9 @@ class TuiPromptHandler:
         )
         reply = await future
         _logger.debug(
-            "prompt round-trip done id=%s type=%s", prompt_id, prompt_type,
+            "prompt round-trip done id=%s type=%s",
+            prompt_id,
+            prompt_type,
         )
         return reply
 
@@ -85,7 +90,11 @@ class TuiPromptHandler:
                 "rendered": rendered,
                 "question": "Approve brief?",
                 "options": [
-                    {"key": "Y", "label": "Hand off to spec-generator", "default": True},
+                    {
+                        "key": "Y",
+                        "label": "Hand off to spec-generator",
+                        "default": True,
+                    },
                     {"key": "r", "label": "Resume PO — more changes needed"},
                     {"key": "n", "label": "Cancel — exit, state saved"},
                 ],
@@ -129,9 +138,7 @@ class TuiPromptHandler:
         )
         return ConfirmChoice.parse(reply)
 
-    async def ask_gap_decision(
-        self, *, gaps: list[Gap], console: "Console"
-    ) -> str:
+    async def ask_gap_decision(self, *, gaps: list[Gap], console: "Console") -> str:
         reply = await self._round_trip(
             {
                 "prompt_type": "gap_decision",
@@ -191,9 +198,7 @@ class TuiPromptHandler:
             }
         )
 
-    async def ask_force_confirm(
-        self, *, target: Path, console: "Console"
-    ) -> bool:
+    async def ask_force_confirm(self, *, target: Path, console: "Console") -> bool:
         reply = await self._round_trip(
             {
                 "prompt_type": "force_confirm",

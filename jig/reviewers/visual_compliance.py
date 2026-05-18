@@ -29,6 +29,7 @@ checks land at Final layer.
 Stateless. Mirrors ``ContractComplianceReviewer`` so the dispatch table
 in ``jig.reviewers.dispatch`` can plug it in with the same shape.
 """
+
 from __future__ import annotations
 
 import subprocess

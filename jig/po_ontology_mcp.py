@@ -26,6 +26,7 @@ definition paragraph + optional ``**Examples:**`` bullet list, so the
 operator can edit it directly. The renderer + parser round-trip via
 this module's ``render_ontology_md`` / ``parse_ontology_md``.
 """
+
 from __future__ import annotations
 
 import re
@@ -212,15 +213,11 @@ def load_pending_terms(project_path: Path) -> list[PendingOntologyTerm]:
         return []
     raw = yaml.safe_load(p.read_text()) or []
     if not isinstance(raw, list):
-        raise ValueError(
-            f"pending ontology sidecar {p} corrupt: expected a list"
-        )
+        raise ValueError(f"pending ontology sidecar {p} corrupt: expected a list")
     return [PendingOntologyTerm.model_validate(item) for item in raw]
 
 
-def _save_pending_terms(
-    project_path: Path, terms: list[PendingOntologyTerm]
-) -> None:
+def _save_pending_terms(project_path: Path, terms: list[PendingOntologyTerm]) -> None:
     payload = yaml.safe_dump(
         [t.model_dump(mode="json") for t in terms], sort_keys=False
     )
@@ -314,9 +311,7 @@ async def handle_ontology_add_term(
     if not replaced:
         out_terms.append(new_entry)
 
-    md = render_ontology_md(
-        Ontology(terms=out_terms), project_name=project_name
-    )
+    md = render_ontology_md(Ontology(terms=out_terms), project_name=project_name)
     atomic_write_text(ontology_path_, md)
 
     # Drop the matching pending entry if present — LLM-friendly fold of
@@ -343,7 +338,9 @@ async def handle_ontology_get_terms(*, project_path: Path) -> dict[str, Any]:
 
 
 async def handle_ontology_lookup(
-    *, project_path: Path, term: str,
+    *,
+    project_path: Path,
+    term: str,
 ) -> dict[str, Any] | None:
     """Return the entry for one term, or ``None`` when absent.
 
@@ -575,9 +572,7 @@ async def handle_ontology_edit_term(
         )
     ontology = parse_ontology_md(p.read_text())
     needle = term.strip().lower()
-    target = next(
-        (t for t in ontology.terms if t.term.lower() == needle), None
-    )
+    target = next((t for t in ontology.terms if t.term.lower() == needle), None)
     if target is None:
         raise KeyError(f"ontology has no term {term!r}; nothing to edit")
 
@@ -595,9 +590,7 @@ async def handle_ontology_edit_term(
         else:
             new_terms.append(t)
 
-    md = render_ontology_md(
-        Ontology(terms=new_terms), project_name=project_name
-    )
+    md = render_ontology_md(Ontology(terms=new_terms), project_name=project_name)
     atomic_write_text(p, md)
 
     if emitter is not None:
@@ -644,9 +637,7 @@ async def handle_ontology_remove_term(
         )
     ontology = parse_ontology_md(p.read_text())
     needle = term.strip().lower()
-    target = next(
-        (t for t in ontology.terms if t.term.lower() == needle), None
-    )
+    target = next((t for t in ontology.terms if t.term.lower() == needle), None)
     if target is None:
         raise KeyError(f"ontology has no term {term!r}; nothing to remove")
 
@@ -670,9 +661,7 @@ async def handle_ontology_remove_term(
         replacement_canonical = repl.term  # preserve operator's casing
 
     new_terms = [t for t in ontology.terms if t.term.lower() != needle]
-    md = render_ontology_md(
-        Ontology(terms=new_terms), project_name=project_name
-    )
+    md = render_ontology_md(Ontology(terms=new_terms), project_name=project_name)
     atomic_write_text(p, md)
 
     rewritten: list[str] = []

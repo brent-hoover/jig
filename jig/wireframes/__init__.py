@@ -16,6 +16,7 @@ Sub-modules:
 - ``index_generator`` — browser-viewable ``index.html`` over the
   per-screen HTMLs.
 """
+
 from __future__ import annotations
 
 from jig.wireframes.format import (

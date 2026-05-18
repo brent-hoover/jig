@@ -113,9 +113,7 @@ async def create_worktree(
     return worktree_path
 
 
-def install_per_commit_hook_or_warn(
-    worktree_path: Path, ticket_id: str
-) -> str | None:
+def install_per_commit_hook_or_warn(worktree_path: Path, ticket_id: str) -> str | None:
     """Install the per-commit reviewer hook; return a warning string
     on failure or None on success. The caller is expected to surface
     the warning as a SystemEvent on the ticket thread (SF-I1)."""
@@ -124,9 +122,7 @@ def install_per_commit_hook_or_warn(
 
         install_per_commit_hook(worktree_path)
     except Exception as exc:  # noqa: BLE001
-        _logger.warning(
-            "per-commit hook install failed for %s: %r", ticket_id, exc
-        )
+        _logger.warning("per-commit hook install failed for %s: %r", ticket_id, exc)
         return (
             f"per-commit reviewer hook install failed: {exc}. The "
             "agent can still work, but mechanical reviewers will not "
@@ -161,9 +157,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
         # treat the run as clean just because a later ``ruff check``
         # happened to pass.
         message = stdout.decode().strip() or f"ruff format rc={proc.returncode}"
-        _logger.warning(
-            "ruff format failed (rc=%d): %s", proc.returncode, message
-        )
+        _logger.warning("ruff format failed (rc=%d): %s", proc.returncode, message)
         raise LintError([f"ruff format failed: {message}"])
 
     # 2. Auto-fix lint violations

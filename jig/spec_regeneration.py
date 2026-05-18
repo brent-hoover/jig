@@ -12,6 +12,7 @@ of blocking gaps.
 
 See ``docs/project-spec-schema/design.md`` §"Regeneration semantics".
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -19,11 +20,18 @@ from datetime import datetime
 from typing import Callable
 
 from jig.brief_parser import (
-    BriefBehavior, BriefCapability, BriefUserStory,
+    BriefBehavior,
+    BriefCapability,
+    BriefUserStory,
     ParsedBriefResult,
 )
 from jig.spec_schema import (
-    Behavior, Capability, CapabilityState, NonGoal, StructuredSpec, UserStory,
+    Behavior,
+    Capability,
+    CapabilityState,
+    NonGoal,
+    StructuredSpec,
+    UserStory,
 )
 
 
@@ -50,8 +58,9 @@ TicketLookup = Callable[[str, list[str]], list[str]]
 @dataclass
 class RegenerationGap:
     """A blocking issue surfaced during regeneration."""
-    kind: str             # 'removed_from_brief', 'ambiguous_alias', etc.
-    location: str         # human-readable
+
+    kind: str  # 'removed_from_brief', 'ambiguous_alias', etc.
+    location: str  # human-readable
     description: str
     severity: str = "blocking"
     suggested_question: str | None = None
@@ -159,16 +168,18 @@ def _merge_capabilities(
         for ec in existing.capabilities:
             if ec.id in matched_ids:
                 continue
-            gaps.append(RegenerationGap(
-                kind="removed_from_brief",
-                location=f"capability {ec.id!r} (state={ec.state.value})",
-                description=(
-                    f"capability {ec.id!r} is in structured.yaml but not in "
-                    "the brief. Add it to a brief section (Built / Planned / "
-                    "Backlog / Archived), or add it as an alias to another "
-                    "capability if you renamed it."
-                ),
-            ))
+            gaps.append(
+                RegenerationGap(
+                    kind="removed_from_brief",
+                    location=f"capability {ec.id!r} (state={ec.state.value})",
+                    description=(
+                        f"capability {ec.id!r} is in structured.yaml but not in "
+                        "the brief. Add it to a brief section (Built / Planned / "
+                        "Backlog / Archived), or add it as an alias to another "
+                        "capability if you renamed it."
+                    ),
+                )
+            )
     return out, gaps
 
 
@@ -218,12 +229,14 @@ def _merge_non_goals(
                     if candidate is not None:
                         match = candidate
                         break
-        out.append(NonGoal(
-            id=brief_ng.id,
-            text=brief_ng.text,
-            rationale=brief_ng.rationale,
-            aliases=list(brief_ng.aliases),
-        ))
+        out.append(
+            NonGoal(
+                id=brief_ng.id,
+                text=brief_ng.text,
+                rationale=brief_ng.rationale,
+                aliases=list(brief_ng.aliases),
+            )
+        )
         if match is not None:
             matched_ids.add(match.id)
 
@@ -232,13 +245,15 @@ def _merge_non_goals(
         for eng in existing.non_goals:
             if eng.id in matched_ids:
                 continue
-            gaps.append(RegenerationGap(
-                kind="removed_from_brief",
-                location=f"non-goal {eng.id!r}",
-                description=(
-                    f"non-goal {eng.id!r} is in structured.yaml but not in "
-                    "the brief. Add it back to ## Non-goals or add it as an "
-                    "alias to another non-goal if you renamed it."
-                ),
-            ))
+            gaps.append(
+                RegenerationGap(
+                    kind="removed_from_brief",
+                    location=f"non-goal {eng.id!r}",
+                    description=(
+                        f"non-goal {eng.id!r} is in structured.yaml but not in "
+                        "the brief. Add it back to ## Non-goals or add it as an "
+                        "alias to another non-goal if you renamed it."
+                    ),
+                )
+            )
     return out, gaps

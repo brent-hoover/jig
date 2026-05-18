@@ -78,6 +78,7 @@ def _defaults_dir() -> Path:
 def _detect_git_branch(project_path: Path) -> str:
     """Return the current HEAD branch name, falling back to 'main'."""
     import subprocess
+
     result = subprocess.run(
         ["git", "symbolic-ref", "--short", "HEAD"],
         cwd=project_path,
@@ -271,6 +272,7 @@ def load_conventions(project_path: Path) -> str | None:
     as "no conventions configured" rather than an error.
     """
     import logging as _logging
+
     path = _jig_dir(project_path) / "conventions.md"
     if not path.is_file():
         _logging.getLogger(__name__).debug(
@@ -306,6 +308,7 @@ def resolve_workflow_name(
     if work_type:
         try:
             from jig.work_types import Size, load_work_type_schema
+
             schema = load_work_type_schema(project_path, work_type)
             if size and schema.workflow_by_size:
                 try:
@@ -320,6 +323,7 @@ def resolve_workflow_name(
             pass
         except Exception:
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 "failed to load work_type schema for %r — falling back to 'default'",
                 work_type,

@@ -11,6 +11,7 @@ Two paths exist:
 
 See ``docs/v2.0/uri-scheme/design.md`` §"Resolution mechanics".
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -66,16 +67,24 @@ def resolve_project_uri(
         result = _resolve_spec_authority(parsed, project_root)
     elif parsed.authority == "arch":
         data = resolve_arch_uri(parsed, project_root)
-        result = ResolvedUri(kind="arch", data=data, source_path=None, revision=parsed.revision)
+        result = ResolvedUri(
+            kind="arch", data=data, source_path=None, revision=parsed.revision
+        )
     elif parsed.authority == "design":
         data = resolve_design_uri(parsed, project_root)
-        result = ResolvedUri(kind="design", data=data, source_path=None, revision=parsed.revision)
+        result = ResolvedUri(
+            kind="design", data=data, source_path=None, revision=parsed.revision
+        )
     elif parsed.authority == "plan":
         data = resolve_plan_uri(parsed, project_root)
-        result = ResolvedUri(kind="plan", data=data, source_path=None, revision=parsed.revision)
+        result = ResolvedUri(
+            kind="plan", data=data, source_path=None, revision=parsed.revision
+        )
     elif parsed.authority == "store":
         data = resolve_store_uri(parsed, project_root)
-        result = ResolvedUri(kind="store", data=data, source_path=None, revision=parsed.revision)
+        result = ResolvedUri(
+            kind="store", data=data, source_path=None, revision=parsed.revision
+        )
     else:
         raise ProjectUriError(f"unhandled authority {parsed.authority!r}")
 

@@ -19,6 +19,7 @@ return data, callers decide whether to raise. Keeps the validators
 testable in isolation and lets the same primitive support both the
 "warn the agent inline" and "block the finalize" use cases.
 """
+
 from __future__ import annotations
 
 from jig.schemas.arch import BehavioralContract, ContractsFile, Module

@@ -24,6 +24,7 @@ agent-authored files), (2) the rules are about specific *substrings*
 (3) bringing in lxml / BeautifulSoup adds a dep for negligible
 robustness gain on documents this constrained.
 """
+
 from __future__ import annotations
 
 import re
@@ -105,9 +106,7 @@ _ALPINE_SCRIPT_RE = re.compile(r"alpinejs", re.IGNORECASE)
 # block is the operator's escape hatch for one-off layouts when the
 # utility class set genuinely doesn't cover a need. The block itself is
 # rare; if its contents need linting, that's a Final scope addition.
-_STYLE_BLOCK_RE = re.compile(
-    r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL
-)
+_STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
 
 
 def _line_of(html: str, offset: int) -> int:
@@ -125,8 +124,10 @@ def _strip_style_blocks(html: str) -> str:
     consumes them too — we re-insert per-newline whitespace to avoid
     a one-character shift.
     """
+
     def _replace(m: re.Match[str]) -> str:
         return re.sub(r"[^\n]", " ", m.group(0))
+
     return _STYLE_BLOCK_RE.sub(_replace, html)
 
 

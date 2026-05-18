@@ -4,6 +4,7 @@ Shows daemon connection state on the right, project context (cwd
 basename + git branch + dirty marker) on the left. Refreshes on a
 timer so git state stays current without operator interaction.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -31,7 +32,9 @@ def _git_status(path: Path) -> tuple[str | None, bool]:
         # branch: short ref name; '--no-optional-locks' avoids index churn
         branch_result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         if branch_result.returncode != 0:
             return None, False
@@ -39,9 +42,15 @@ def _git_status(path: Path) -> tuple[str | None, bool]:
         # dirty: any uncommitted changes (index or working tree)
         status_result = subprocess.run(
             ["git", "-C", str(path), "status", "--porcelain"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
-        dirty = bool(status_result.stdout.strip()) if status_result.returncode == 0 else False
+        dirty = (
+            bool(status_result.stdout.strip())
+            if status_result.returncode == 0
+            else False
+        )
         return branch, dirty
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return None, False
@@ -75,9 +84,7 @@ class JigFooter(Widget):
     }
     """
 
-    _KEYS_TEXT = (
-        "[dim]ctrl+1-5 tabs · ctrl+s sidebar · /help · q quit[/dim]"
-    )
+    _KEYS_TEXT = "[dim]ctrl+1-5 tabs · ctrl+s sidebar · /help · q quit[/dim]"
 
     def __init__(self, *, project_path: Path | None = None) -> None:
         super().__init__()

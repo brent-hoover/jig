@@ -19,6 +19,7 @@ For MVP scope this module ships the **logging + inspection** surface:
 Gap **consumption** (mechanically growing the personas to cover the
 backlog) is Final — this just builds the store so gaps accumulate.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -64,9 +65,7 @@ class RealismGap(BaseModel):
 
     kind: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
-    observed_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    observed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: Literal["operator", "real-run"] = "operator"
     persona_to_extend: str | None = None
 
@@ -99,9 +98,7 @@ class RealismGapsStore:
         await self._ensure_loaded()
         return await self._collection.insert(gap.model_dump(mode="json"))
 
-    async def list_gaps(
-        self, *, since: datetime | None = None
-    ) -> list[RealismGap]:
+    async def list_gaps(self, *, since: datetime | None = None) -> list[RealismGap]:
         """Return every gap, chronologically. ``since`` filters by observed_at."""
         await self._ensure_loaded()
         rows = await self._collection.find()

@@ -17,6 +17,7 @@ Subcommands:
 The ``add`` form returns the staged journey id so the TUI can echo
 "journey staged: j-{persona}-{N}" for the operator to follow up on.
 """
+
 from __future__ import annotations
 
 from typing import Any

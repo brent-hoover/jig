@@ -4,6 +4,7 @@ Wraps the websockets library in a simple async API the TUI uses to
 subscribe to topics, send commands, and receive snapshots/events.
 Auto-reconnects on disconnect with exponential backoff.
 """
+
 from __future__ import annotations
 
 import asyncio

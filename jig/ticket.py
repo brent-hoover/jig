@@ -40,9 +40,7 @@ class TicketTouches(BaseModel):
     data_stores: list[str] = Field(default_factory=list)
     behavioral_contracts: list[str] = Field(default_factory=list)
     data_contracts: list[str] = Field(default_factory=list)
-    routes: list[str] = Field(
-        default_factory=list, description="'<METHOD> <path>'"
-    )
+    routes: list[str] = Field(default_factory=list, description="'<METHOD> <path>'")
     migrations: list[str] = Field(default_factory=list)
     env_vars: list[str] = Field(default_factory=list)
 
@@ -340,8 +338,7 @@ class Ticket(StoreModel):
             return v
         if v not in _ALLOWED_LAYERS:
             raise ValueError(
-                f"Ticket.layer must be one of {sorted(_ALLOWED_LAYERS)!r}, "
-                f"got {v!r}"
+                f"Ticket.layer must be one of {sorted(_ALLOWED_LAYERS)!r}, got {v!r}"
             )
         return v
 

@@ -18,6 +18,7 @@ DiscoveryState) back the L1 PO discovery conversation — see
 state in ``discovery.state.yaml`` (``DiscoveryState``); per-journey
 playbacks land under ``.jig/spec/discovery/playbacks/``.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -107,9 +108,7 @@ class Project(BaseModel):
         description="One paragraph: who uses this and what they're trying to do.",
     )
     non_goals: list[ProductNonGoal] = Field(default_factory=list)
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("generated_at")
     @classmethod
@@ -179,9 +178,7 @@ class SuitesIndex(BaseModel):
         seen: set[str] = set()
         for suite in self.suites:
             if suite.id in seen:
-                raise ValueError(
-                    f"SuitesIndex.suites: duplicate suite id {suite.id!r}"
-                )
+                raise ValueError(f"SuitesIndex.suites: duplicate suite id {suite.id!r}")
             seen.add(suite.id)
 
         capability_owner: dict[str, str] = {}
@@ -237,7 +234,9 @@ class Journey(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(..., description="kebab-case journey id; convention starts with 'j-'")
+    id: str = Field(
+        ..., description="kebab-case journey id; convention starts with 'j-'"
+    )
     persona_id: str = Field(..., description="The Persona.id this journey belongs to.")
     title: str = Field(
         ...,
@@ -338,9 +337,7 @@ class DiscoveryDoc(BaseModel):
     personas: list[Persona] = Field(default_factory=list)
     journeys: list[Journey] = Field(default_factory=list)
     capability_roster: list[CapabilityRosterEntry] = Field(default_factory=list)
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("generated_at")
     @classmethod
@@ -479,9 +476,7 @@ class CapabilityCandidate(BaseModel):
 
     id: str = Field(..., description="kebab-case capability id")
     description: str = Field(..., min_length=1)
-    journey_id: str = Field(
-        ..., description="The journey currently being walked."
-    )
+    journey_id: str = Field(..., description="The journey currently being walked.")
     confirmed: bool = Field(
         default=False,
         description=(
@@ -544,9 +539,7 @@ class DiscoveryState(BaseModel):
     # hand-edits between sessions (concurrent-edit reconciliation). Empty
     # when no discovery.md existed at save time.
     discovery_doc_digest: str = Field(default="")
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("updated_at")
     @classmethod
@@ -559,8 +552,7 @@ class DiscoveryState(BaseModel):
         allowed = {DiscoveryStatus.IN_PROGRESS, DiscoveryStatus.FINALIZED}
         if v not in allowed:
             raise ValueError(
-                f"DiscoveryState.status must be one of {sorted(allowed)!r}, "
-                f"got {v!r}"
+                f"DiscoveryState.status must be one of {sorted(allowed)!r}, got {v!r}"
             )
         return v
 
@@ -580,11 +572,13 @@ class StateDivergenceKind:
     PARTIAL_WALK_ORPHAN = "partial-walk-orphan"
 
 
-_DIVERGENCE_VALUES = frozenset({
-    StateDivergenceKind.STALE_JOURNEY,
-    StateDivergenceKind.CONCURRENT_EDIT,
-    StateDivergenceKind.PARTIAL_WALK_ORPHAN,
-})
+_DIVERGENCE_VALUES = frozenset(
+    {
+        StateDivergenceKind.STALE_JOURNEY,
+        StateDivergenceKind.CONCURRENT_EDIT,
+        StateDivergenceKind.PARTIAL_WALK_ORPHAN,
+    }
+)
 
 
 class StateDivergence(BaseModel):
@@ -602,8 +596,7 @@ class StateDivergence(BaseModel):
     kind: str = Field(
         ...,
         description=(
-            "One of 'stale-journey' | 'concurrent-edit' | "
-            "'partial-walk-orphan'."
+            "One of 'stale-journey' | 'concurrent-edit' | 'partial-walk-orphan'."
         ),
     )
     detail: str = Field(
@@ -615,8 +608,7 @@ class StateDivergence(BaseModel):
         ...,
         min_length=1,
         description=(
-            "One of 'prefer-state' | 'prefer-doc' | 'abandon-state' | "
-            "'reanchor'."
+            "One of 'prefer-state' | 'prefer-doc' | 'abandon-state' | 'reanchor'."
         ),
     )
 

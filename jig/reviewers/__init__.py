@@ -25,6 +25,7 @@ The synthetic operator (Track H) invokes the reviewer explicitly after
 the dev agent completes; this package does NOT yet wire into the
 orchestrator's per-commit hook (separate G MVP follow-on).
 """
+
 from __future__ import annotations
 
 from jig.reviewers.comment import (

@@ -9,6 +9,7 @@ in a 3-5 turn conversation, then calls ``l0_finalize`` to write both
 Distinct from ``init_mcp.py`` (v1 monolithic-brief path). Both will
 coexist until the rest of Track B lands and v1 is removed.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

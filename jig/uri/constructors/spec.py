@@ -1,4 +1,5 @@
 """Constructors for ``project://spec/...`` URIs (PO output)."""
+
 from __future__ import annotations
 
 from jig.uri.constructors._segments import seg
@@ -26,10 +27,7 @@ def spec_journey_uri(journey_id: str) -> str:
 
 def spec_playback_uri(journey_id: str) -> str:
     """``project://spec/discovery/playbacks/<journey-id>`` — Phase-5 playback."""
-    return (
-        "project://spec/discovery/playbacks/"
-        f"{seg(journey_id, 'journey_id')}"
-    )
+    return f"project://spec/discovery/playbacks/{seg(journey_id, 'journey_id')}"
 
 
 def spec_ontology_uri() -> str:
@@ -79,9 +77,7 @@ def spec_behavior_uri(suite_id: str, cap_id: str, behavior_id: str) -> str:
     )
 
 
-def spec_ac_uri(
-    suite_id: str, cap_id: str, behavior_id: str, ac_id: str
-) -> str:
+def spec_ac_uri(suite_id: str, cap_id: str, behavior_id: str, ac_id: str) -> str:
     """``project://spec/suites/<s>/capabilities/<c>/behaviors/<b>/ac/<id>``."""
     return (
         f"project://spec/suites/{seg(suite_id, 'suite_id')}"

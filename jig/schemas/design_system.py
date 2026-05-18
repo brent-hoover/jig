@@ -24,6 +24,7 @@ constants) so ``load_design_system`` returns the defaults when the
 on-disk artifacts are absent. This matches the design's "default is a
 permanent valid state" rule.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -87,9 +88,7 @@ class Tokens(BaseModel):
         seen: set[str] = set()
         for tok in self.tokens:
             if tok.id in seen:
-                raise ValueError(
-                    f"Tokens.tokens: duplicate token id {tok.id!r}"
-                )
+                raise ValueError(f"Tokens.tokens: duplicate token id {tok.id!r}")
             seen.add(tok.id)
         return self
 
@@ -153,16 +152,14 @@ class ComponentLibrary(BaseModel):
         for comp in self.components:
             if comp.id in seen:
                 raise ValueError(
-                    "ComponentLibrary.components: duplicate component "
-                    f"id {comp.id!r}"
+                    f"ComponentLibrary.components: duplicate component id {comp.id!r}"
                 )
             seen.add(comp.id)
             variant_ids: set[str] = set()
             for var in comp.variants:
                 if var.id in variant_ids:
                     raise ValueError(
-                        f"Component {comp.id!r}: duplicate variant id "
-                        f"{var.id!r}"
+                        f"Component {comp.id!r}: duplicate variant id {var.id!r}"
                     )
                 variant_ids.add(var.id)
         return self
@@ -268,9 +265,13 @@ DEFAULT_COMPONENTS: ComponentLibrary = ComponentLibrary(
             name="Button",
             description="Clickable action affordance.",
             variants=[
-                ComponentVariant(id="primary", description="The dominant action on a screen."),
+                ComponentVariant(
+                    id="primary", description="The dominant action on a screen."
+                ),
                 ComponentVariant(id="secondary", description="Subordinate actions."),
-                ComponentVariant(id="ghost", description="Tertiary actions; minimal visual weight."),
+                ComponentVariant(
+                    id="ghost", description="Tertiary actions; minimal visual weight."
+                ),
             ],
         ),
         Component(

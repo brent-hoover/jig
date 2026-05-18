@@ -77,18 +77,14 @@ class ReviewCommentsStore:
         raws = await self._collection.find_where(ticket_id=ticket_id)
         return [self._load(r) for r in raws]
 
-    async def for_cycle(
-        self, ticket_id: str, cycle: int
-    ) -> list[ReviewerComment]:
+    async def for_cycle(self, ticket_id: str, cycle: int) -> list[ReviewerComment]:
         """Comments raised in a single review cycle for ``ticket_id``.
 
         The bounded fix-loop tracker uses this to compare each cycle's
         categories against the prior cycle's; same-category recurrence
         across N consecutive cycles is what trips the cap.
         """
-        raws = await self._collection.find_where(
-            ticket_id=ticket_id, cycle=cycle
-        )
+        raws = await self._collection.find_where(ticket_id=ticket_id, cycle=cycle)
         return [self._load(r) for r in raws]
 
 

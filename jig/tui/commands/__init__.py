@@ -5,6 +5,7 @@ orchestrator's stores and returns ``{"ok": bool, "data": Any}`` or
 ``{"ok": False, "error": str}``. The same handler is used by the TUI
 input dispatcher and by --print mode.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -21,6 +22,7 @@ def register(name: str):
     def deco(fn: CommandHandler) -> CommandHandler:
         _REGISTRY[name] = fn
         return fn
+
     return deco
 
 

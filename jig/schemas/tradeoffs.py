@@ -4,6 +4,7 @@ PO authors this during L0/L3 to record deliberate "we decided not to do X
 at the bones layer" decisions. The tradeoff-compliance reviewer consults it
 to flag when a ticket appears to re-add a deferred item.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -60,4 +61,3 @@ class TradeoffLedger(BaseModel):
     def for_capability(self, capability_id: str) -> list[Tradeoff]:
         """Return tradeoffs that explicitly reference ``capability_id``."""
         return [t for t in self.tradeoffs if capability_id in t.capability_ids]
-

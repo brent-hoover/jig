@@ -22,6 +22,7 @@ Per-run isolation: the CLI creates its own tmp dir under the system
 temp root for each run and never reuses it, mirroring the
 per-pytest-fixture isolation tests get from ``tmp_path``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -50,9 +51,7 @@ __all__ = ["sim"]
 # ``tests/scenarios/`` (versioned with the test suite — they're the
 # fixtures the in-tree sim tests run). Operators with their own
 # scenario sets pass ``--scenarios <dir>`` to point elsewhere.
-_DEFAULT_SCENARIO_DIR = (
-    Path(__file__).resolve().parents[2] / "tests" / "scenarios"
-)
+_DEFAULT_SCENARIO_DIR = Path(__file__).resolve().parents[2] / "tests" / "scenarios"
 
 
 def _load_scenario_library(path: Path) -> list[Scenario]:
@@ -130,7 +129,9 @@ def sim() -> None:
 
 
 @sim.command(name="run")
-@click.argument("scenario", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument(
+    "scenario", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
 @click.option(
     "--real",
     is_flag=True,
@@ -188,9 +189,7 @@ _TIER_ORDER: tuple[str, ...] = ("smoke", "full", "nightly")
 def _scenarios_for_tier(scenarios: list[Scenario], tier: str) -> list[Scenario]:
     """Filter the library to scenarios at or below ``tier``."""
     if tier not in _TIER_ORDER:
-        raise ValueError(
-            f"unknown tier {tier!r}; expected one of {_TIER_ORDER!r}"
-        )
+        raise ValueError(f"unknown tier {tier!r}; expected one of {_TIER_ORDER!r}")
     cutoff = _TIER_ORDER.index(tier)
     allowed = set(_TIER_ORDER[: cutoff + 1])
     return [s for s in scenarios if s.tier in allowed]
@@ -422,9 +421,7 @@ def _regressions_dir(scenarios_root: Path) -> Path:
     return scenarios_root / _REGRESSIONS_SUBDIR
 
 
-def _regression_template(
-    *, bug_id: str, description: str, persona: str
-) -> dict:
+def _regression_template(*, bug_id: str, description: str, persona: str) -> dict:
     """Minimal scenario YAML payload for a brand-new regression scenario.
 
     Operators edit this in place after scaffolding — the steps list is
@@ -521,9 +518,7 @@ def regression_new(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{bug_id}.scenario.yaml"
     if out_path.exists():
-        click.echo(
-            f"refused to overwrite existing scenario at {out_path}", err=True
-        )
+        click.echo(f"refused to overwrite existing scenario at {out_path}", err=True)
         sys.exit(1)
 
     if from_scenario is not None:
@@ -554,8 +549,7 @@ def regression_new(
         "scenarios':"
     )
     header_lines.append(
-        "#   every bug lands with one regression scenario that would have "
-        "caught it."
+        "#   every bug lands with one regression scenario that would have caught it."
     )
     header_lines.append("")
 
@@ -590,9 +584,7 @@ def regression_list(scenarios: Path | None) -> None:
         try:
             scn = load_scenario(path)
         except Exception as e:
-            click.echo(
-                f"  {path.name}: ERROR ({type(e).__name__}: {e})", err=True
-            )
+            click.echo(f"  {path.name}: ERROR ({type(e).__name__}: {e})", err=True)
             continue
         # Bug id is whatever follows "regression-" in the scenario id; if
         # the operator renamed they get the literal id.

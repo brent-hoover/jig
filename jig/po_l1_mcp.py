@@ -25,6 +25,7 @@ directly so the LLM-driven path is covered piece-by-piece.
 Distinct from ``po_l0_mcp.py`` (L0 pitch) and ``po_l3_mcp.py`` (L3
 suite brief). All three coexist behind allowed_tools gating.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -326,23 +327,17 @@ def _apply_reconcile(
                 kept: list[CapabilityCandidate] = []
                 dropped = 0
                 for c in new_partial_walk:
-                    if (
-                        discovery_doc is not None
-                        and c.journey_id
-                        not in {j.id for j in discovery_doc.journeys}
-                    ):
+                    if discovery_doc is not None and c.journey_id not in {
+                        j.id for j in discovery_doc.journeys
+                    }:
                         dropped += 1
                         continue
                     kept.append(c)
                 new_partial_walk = kept
                 if dropped:
-                    actions.append(
-                        f"dropped {dropped} orphaned partial-walk entries"
-                    )
+                    actions.append(f"dropped {dropped} orphaned partial-walk entries")
             elif mode == "prefer-state":
-                actions.append(
-                    "prefer-state: kept orphaned partial_walk entries"
-                )
+                actions.append("prefer-state: kept orphaned partial_walk entries")
 
     # Always refresh the digest stamp so subsequent saves are aligned —
     # otherwise the same divergence resurfaces on every resume.
@@ -385,14 +380,10 @@ async def handle_discovery_resume(
 
     doc = _load_discovery_doc_for_resume(project_path)
     on_disk_digest = compute_discovery_doc_digest(project_path)
-    divergences = validate_state_consistency(
-        state, doc, on_disk_digest=on_disk_digest
-    )
+    divergences = validate_state_consistency(state, doc, on_disk_digest=on_disk_digest)
 
     if not divergences:
-        return ResumeResult(
-            divergences=[], applied=reconcile_mode, state=state
-        )
+        return ResumeResult(divergences=[], applied=reconcile_mode, state=state)
 
     if reconcile_mode == "prompt":
         return ResumeResult(
@@ -511,11 +502,7 @@ def render_discovery_md(doc: DiscoveryDoc) -> str:
                 # Use the roster's description when present; fall back
                 # to the bare id so a malformed doc still renders rather
                 # than crashing the writer (validator catches the gap).
-                desc = (
-                    cap_by_id[cap_id].description
-                    if cap_id in cap_by_id
-                    else cap_id
-                )
+                desc = cap_by_id[cap_id].description if cap_id in cap_by_id else cap_id
                 lines.append(f"- {{#{cap_id}}} {desc}")
             lines.append("")
 
@@ -810,9 +797,7 @@ def _read_staged(path: Path) -> list[dict[str, Any]]:
         return []
     data = yaml.safe_load(path.read_text()) or []
     if not isinstance(data, list):
-        raise ValueError(
-            f"staged discovery file {path} corrupt: expected a list"
-        )
+        raise ValueError(f"staged discovery file {path} corrupt: expected a list")
     return data
 
 
@@ -829,9 +814,7 @@ def _append_staged_journey(project_path: Path, journey: Journey) -> None:
     _write_staged(path, items)
 
 
-def _merge_staged_capability(
-    project_path: Path, entry: CapabilityRosterEntry
-) -> None:
+def _merge_staged_capability(project_path: Path, entry: CapabilityRosterEntry) -> None:
     """Merge by id into the staged roster sidecar."""
     path = _staged_roster_path(project_path)
     items = _read_staged(path)
@@ -921,9 +904,7 @@ def _coerce_roster(raw: list[Any]) -> list[CapabilityRosterEntry]:
             out.append(entry)
             continue
         if not isinstance(entry, dict):
-            raise ValueError(
-                f"roster entry must be a dict, got {type(entry).__name__}"
-            )
+            raise ValueError(f"roster entry must be a dict, got {type(entry).__name__}")
         try:
             out.append(CapabilityRosterEntry.model_validate(entry))
         except ValidationError as e:
@@ -968,8 +949,7 @@ def _validate_doc_invariants(doc: DiscoveryDoc) -> None:
             )
         if j.persona_id not in persona_id_set:
             raise ValueError(
-                f"journey {j.id!r} references unknown persona "
-                f"{j.persona_id!r}"
+                f"journey {j.id!r} references unknown persona {j.persona_id!r}"
             )
         for cap_id in j.capability_ids:
             if cap_id not in roster_id_set:
@@ -1083,9 +1063,7 @@ async def handle_discovery_finalize(
             _coerce_journeys(journeys) if journeys is not None else None
         ),
         roster_override=(
-            _coerce_roster(capability_roster)
-            if capability_roster is not None
-            else None
+            _coerce_roster(capability_roster) if capability_roster is not None else None
         ),
     )
     _validate_doc_invariants(doc)

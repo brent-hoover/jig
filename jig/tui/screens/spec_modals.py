@@ -1,4 +1,5 @@
 """Spec view modals: raw YAML and rendered brief."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,7 +39,9 @@ class RawYamlModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Static("[bold]Raw spec YAML[/bold] [dim](Esc to close)[/dim]", markup=True)
+            yield Static(
+                "[bold]Raw spec YAML[/bold] [dim](Esc to close)[/dim]", markup=True
+            )
             with ScrollableContainer():
                 if self._spec is None:
                     yield Static("[dim]No spec yet[/dim]", markup=True)
@@ -79,6 +82,8 @@ class BriefModal(ModalScreen):
             with ScrollableContainer():
                 brief_path = self._project_path / "docs" / "brief.md"
                 if not brief_path.is_file():
-                    yield Static("[dim]No brief yet — run /init <name>[/dim]", markup=True)
+                    yield Static(
+                        "[dim]No brief yet — run /init <name>[/dim]", markup=True
+                    )
                 else:
                     yield Static(Markdown(brief_path.read_text()))

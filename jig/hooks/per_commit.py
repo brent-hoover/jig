@@ -113,9 +113,7 @@ def install_per_commit_hook(worktree_path: Path) -> Path:
     # Make the script executable (rwxr-xr-x). git ignores hooks that
     # aren't executable.
     current_mode = hook_path.stat().st_mode
-    hook_path.chmod(
-        current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    )
+    hook_path.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return hook_path
 
 

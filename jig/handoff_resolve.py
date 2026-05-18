@@ -14,6 +14,7 @@ Originally lived in ``jig.init_mcp`` and was copy-pasted into
 ``jig.po_l0_mcp``. Centralized here so future v2 PO/SA handlers reuse
 one implementation.
 """
+
 from __future__ import annotations
 
 from jig.store.bus import Message, MessageBus, MessageType

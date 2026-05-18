@@ -7,6 +7,7 @@ dict.
 API preserved from the v1 ``jig/spec_uri.py`` so existing callers remain
 unchanged. Built on the new multi-authority parser in ``jig.uri.parser``.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -18,9 +19,7 @@ if TYPE_CHECKING:
     from jig.spec_schema import StructuredSpec
 
 
-def resolve_spec_uri(
-    uri: str | ProjectUri, spec: "StructuredSpec"
-) -> dict[str, Any]:
+def resolve_spec_uri(uri: str | ProjectUri, spec: "StructuredSpec") -> dict[str, Any]:
     """Resolve a ``project://spec/...`` URI against the given spec.
 
     Accepts either a raw URI string or a pre-parsed ``ProjectUri``.
@@ -40,13 +39,10 @@ def resolve_spec_uri(
     parsed = parse_project_uri(uri) if isinstance(uri, str) else uri
     if parsed.authority != "spec":
         raise ProjectUriError(
-            f"resolve_spec_uri called with non-spec URI: authority "
-            f"{parsed.authority!r}"
+            f"resolve_spec_uri called with non-spec URI: authority {parsed.authority!r}"
         )
     if parsed.revision is not None:
-        raise ProjectUriError(
-            "revision pinning not yet supported by the spec resolver"
-        )
+        raise ProjectUriError("revision pinning not yet supported by the spec resolver")
 
     parts = parsed.path
 
@@ -95,9 +91,7 @@ def _resolve_capabilities(
     for b in cap.behaviors:
         if b.id == fragment:
             return {"kind": "behavior", "data": b.model_dump(mode="json")}
-    raise ProjectUriError(
-        f"behavior {fragment!r} not found in capability {cap_id!r}"
-    )
+    raise ProjectUriError(f"behavior {fragment!r} not found in capability {cap_id!r}")
 
 
 def _resolve_non_goals(
@@ -119,9 +113,7 @@ def _resolve_state(
     parts: tuple[str, ...], spec: "StructuredSpec", state_enum: type
 ) -> dict[str, Any]:
     if len(parts) != 2:
-        raise ProjectUriError(
-            "state URI requires a single state name segment"
-        )
+        raise ProjectUriError("state URI requires a single state name segment")
     try:
         state = state_enum(parts[1])
     except ValueError as exc:

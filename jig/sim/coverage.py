@@ -13,6 +13,7 @@ tags don't drift across scenario files — every tag a scenario claims
 must appear in ``CANONICAL_TAGS`` or schema-load fails. The Final
 upgrade adds tier-coverage + persona-x-stage-coverage.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -39,112 +40,114 @@ __all__ = [
 # Adding a new tag: append here, then claim it from at least one
 # scenario YAML's ``coverage_tags``. Removing a tag is a breaking
 # change — bump the schema version + sweep scenario files.
-CANONICAL_TAGS: Final[frozenset[str]] = frozenset({
-    # PO ladder — L0 pitch, L1 discovery, L2 organizer, L3 brief.
-    "po-l0",
-    "po-l1",
-    "po-l2",
-    "po-l3",
-    # SA — bones (hand-write), MVP incremental loop, risk register +
-    # spike + cascade workflows.
-    "sa-bones",
-    "sa-incremental",
-    "sa-risks",
-    "sa-spike-mitigated",
-    "sa-spike-confirmed-impossible",
-    "sa-cascade",
-    # Track C Final — cascade failure-mode mitigations + Coordinator
-    # bones-first override per docs/v2.0/sa-architecture/design.md
-    # §"Failure modes and mitigations" + docs/v2.0/pm-workflow/design.md
-    # §"Bones-first ordering".
-    "cascade-rejected",
-    "cascade-staged",
-    "cascade-risk-low-override",
-    "cascade-mitigated-with-constraints",
-    "cascade-concurrent-hold",
-    # PM — Planner agent, Coordinator (bones one-shot, MVP cycle-aware,
-    # multi-layer dispatch, DEFERRED queue).
-    "pm-planner",
-    "pm-coordinator-bones",
-    "pm-coordinator-multi-layer",
-    "pm-deferred",
-    # Dev — mock vs real LLM mode.
-    "dev-mock",
-    "dev-real",
-    # Reviewer federation — bones contract-compliance + the MVP set.
-    "reviewer-contract-compliance",
-    "reviewer-cross-cutting-policy",
-    "reviewer-spec-compliance",
-    "reviewer-intent-compliance",
-    # Track E MVP — dev-environment provisioning happy-path coverage.
-    "dev-provisioning",
-    # Track E Final — per_agent_ephemeral provisioning (SQLite + Postgres
-    # DB), recorded-fixtures replay + record_new modes, periodic orphan
-    # sweeper with operator-confirmation.
-    "dev-ephemeral-sqlite",
-    "dev-ephemeral-postgres",
-    "fixtures-replay",
-    "fixtures-record-new",
-    "orphan-sweeper",
-    # Track D MVP — VD finalize, wireframe linter, visual_compliance
-    # reviewer (basic mechanical version).
-    "vd-finalize",
-    "wireframe-lint",
-    "visual-compliance",
-    # Track D Final — vision-based screenshot diff (with stub
-    # provider), accessibility (WCAG AA mechanical), responsive-
-    # design enforcement.
-    "vision-diff-stub",
-    "reviewer-accessibility",
-    "reviewer-responsive",
-    # Track I Final — quartermaster feedback loop + Pydantic auto-render
-    # on data-contract upsert.
-    "quartermaster-feedback",
-    "pydantic-renderer-auto",
-    # Track G Final — specialty reviewers (LLM-driven judgment),
-    # severity-tier disposition policy (mechanical), and the
-    # self-check gate that runs before any judgment-reviewer comment
-    # lands in the store.
-    "reviewer-security",
-    "reviewer-performance",
-    "reviewer-architectural",
-    "severity-disposition",
-    "comment-self-check",
-    # Hardening — review federation runs as a **gate** on ticket
-    # resolution per docs/v2.0/pm-workflow/design.md §"Severity tiers and
-    # disposition". Scenarios claiming this tag exercise at least one
-    # disposition branch (critical→FAILED, important→BLOCKED+Handoff,
-    # notable→RESOLVED+DEFERRED, or no-comments→RESOLVED).
-    "review-federation-gate",
-    # Track H Final — synthetic operator final scope: two new personas,
-    # policy-driven turns, coverage threshold, regression-scenario
-    # discipline, and TUI-driving mode.
-    "persona-scope-creeper",
-    "persona-hostile",
-    "policy-driven-turns",
-    "coverage-threshold",
-    "regression-scenarios",
-    "tui-driver-mode",
-    # Track F Final — mid-work tier promotion mechanics, estimation
-    # calibration loop, manual bones-first override + audit, full
-    # cycle view data model.
-    "tier-promotion",
-    "estimation-calibration",
-    "bones-first-override",
-    "cycle-view",
-    # Track B Final — L1 resume-from-state edge cases, project-ontology
-    # operator-edit affordances, multi-level PO TUI slash commands.
-    "discovery-resume",
-    "ontology-edit",
-    "tui-slash-commands",
-    # Block 2 (real-mode integration) — operator_supplied provisioning
-    # passthrough + JIG_FIXTURE_MODE spawn-env injection. The first
-    # closes the inert third-strategy branch in dev-env provisioning;
-    # the second pins the orchestrator's real-mode wiring of
-    # ``build_fixture_env`` into ``ctx.extra_env``.
-    "operator-supplied-provisioning",
-    "fixture-mode-spawn-env",
-})
+CANONICAL_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        # PO ladder — L0 pitch, L1 discovery, L2 organizer, L3 brief.
+        "po-l0",
+        "po-l1",
+        "po-l2",
+        "po-l3",
+        # SA — bones (hand-write), MVP incremental loop, risk register +
+        # spike + cascade workflows.
+        "sa-bones",
+        "sa-incremental",
+        "sa-risks",
+        "sa-spike-mitigated",
+        "sa-spike-confirmed-impossible",
+        "sa-cascade",
+        # Track C Final — cascade failure-mode mitigations + Coordinator
+        # bones-first override per docs/v2.0/sa-architecture/design.md
+        # §"Failure modes and mitigations" + docs/v2.0/pm-workflow/design.md
+        # §"Bones-first ordering".
+        "cascade-rejected",
+        "cascade-staged",
+        "cascade-risk-low-override",
+        "cascade-mitigated-with-constraints",
+        "cascade-concurrent-hold",
+        # PM — Planner agent, Coordinator (bones one-shot, MVP cycle-aware,
+        # multi-layer dispatch, DEFERRED queue).
+        "pm-planner",
+        "pm-coordinator-bones",
+        "pm-coordinator-multi-layer",
+        "pm-deferred",
+        # Dev — mock vs real LLM mode.
+        "dev-mock",
+        "dev-real",
+        # Reviewer federation — bones contract-compliance + the MVP set.
+        "reviewer-contract-compliance",
+        "reviewer-cross-cutting-policy",
+        "reviewer-spec-compliance",
+        "reviewer-intent-compliance",
+        # Track E MVP — dev-environment provisioning happy-path coverage.
+        "dev-provisioning",
+        # Track E Final — per_agent_ephemeral provisioning (SQLite + Postgres
+        # DB), recorded-fixtures replay + record_new modes, periodic orphan
+        # sweeper with operator-confirmation.
+        "dev-ephemeral-sqlite",
+        "dev-ephemeral-postgres",
+        "fixtures-replay",
+        "fixtures-record-new",
+        "orphan-sweeper",
+        # Track D MVP — VD finalize, wireframe linter, visual_compliance
+        # reviewer (basic mechanical version).
+        "vd-finalize",
+        "wireframe-lint",
+        "visual-compliance",
+        # Track D Final — vision-based screenshot diff (with stub
+        # provider), accessibility (WCAG AA mechanical), responsive-
+        # design enforcement.
+        "vision-diff-stub",
+        "reviewer-accessibility",
+        "reviewer-responsive",
+        # Track I Final — quartermaster feedback loop + Pydantic auto-render
+        # on data-contract upsert.
+        "quartermaster-feedback",
+        "pydantic-renderer-auto",
+        # Track G Final — specialty reviewers (LLM-driven judgment),
+        # severity-tier disposition policy (mechanical), and the
+        # self-check gate that runs before any judgment-reviewer comment
+        # lands in the store.
+        "reviewer-security",
+        "reviewer-performance",
+        "reviewer-architectural",
+        "severity-disposition",
+        "comment-self-check",
+        # Hardening — review federation runs as a **gate** on ticket
+        # resolution per docs/v2.0/pm-workflow/design.md §"Severity tiers and
+        # disposition". Scenarios claiming this tag exercise at least one
+        # disposition branch (critical→FAILED, important→BLOCKED+Handoff,
+        # notable→RESOLVED+DEFERRED, or no-comments→RESOLVED).
+        "review-federation-gate",
+        # Track H Final — synthetic operator final scope: two new personas,
+        # policy-driven turns, coverage threshold, regression-scenario
+        # discipline, and TUI-driving mode.
+        "persona-scope-creeper",
+        "persona-hostile",
+        "policy-driven-turns",
+        "coverage-threshold",
+        "regression-scenarios",
+        "tui-driver-mode",
+        # Track F Final — mid-work tier promotion mechanics, estimation
+        # calibration loop, manual bones-first override + audit, full
+        # cycle view data model.
+        "tier-promotion",
+        "estimation-calibration",
+        "bones-first-override",
+        "cycle-view",
+        # Track B Final — L1 resume-from-state edge cases, project-ontology
+        # operator-edit affordances, multi-level PO TUI slash commands.
+        "discovery-resume",
+        "ontology-edit",
+        "tui-slash-commands",
+        # Block 2 (real-mode integration) — operator_supplied provisioning
+        # passthrough + JIG_FIXTURE_MODE spawn-env injection. The first
+        # closes the inert third-strategy branch in dev-env provisioning;
+        # the second pins the orchestrator's real-mode wiring of
+        # ``build_fixture_env`` into ``ctx.extra_env``.
+        "operator-supplied-provisioning",
+        "fixture-mode-spawn-env",
+    }
+)
 
 
 class TagCoverage(BaseModel):

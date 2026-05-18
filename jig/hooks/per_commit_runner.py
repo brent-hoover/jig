@@ -188,9 +188,7 @@ def main(ticket_id: str, cwd: Path | None) -> None:
         # crash isn't indistinguishable from "review passed". Exit
         # stays 0 so the post-commit hook stays non-blocking.
         try:
-            asyncio.run(
-                _record_runner_crash(ticket_id, cwd=target, error=str(exc))
-            )
+            asyncio.run(_record_runner_crash(ticket_id, cwd=target, error=str(exc)))
         except Exception:  # noqa: BLE001
             print(
                 "per-commit-review: also failed to record crash event; "
@@ -200,9 +198,7 @@ def main(ticket_id: str, cwd: Path | None) -> None:
     sys.exit(0)
 
 
-async def _record_runner_crash(
-    ticket_id: str, *, cwd: Path, error: str
-) -> None:
+async def _record_runner_crash(ticket_id: str, *, cwd: Path, error: str) -> None:
     """Record a ``per_commit_runner_crashed`` SystemEvent on the
     ticket thread. Best-effort: if the project store can't be reached
     (e.g. corrupted directory), the caller's outer except prints a

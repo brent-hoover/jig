@@ -11,6 +11,7 @@ Fires at end-of-ticket cadence. No-ops when:
   - The ticket has no graph touches.
   - No tracer covers any touched node.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -67,9 +68,7 @@ class TracerPreservationReviewer:
             if not overlap:
                 continue
 
-            overlap_names = sorted(
-                nid.split(":", 1)[-1] for nid in overlap
-            )
+            overlap_names = sorted(nid.split(":", 1)[-1] for nid in overlap)
             comments.append(
                 ReviewerComment(
                     reviewer=REVIEWER_ID,

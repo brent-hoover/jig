@@ -87,7 +87,6 @@ def validate_safe_path_segment(segment: str, name: str) -> str:
     return segment
 
 
-
 def safe_join(root: Path, *segments: str) -> Path:
     """Join ``segments`` under ``root`` with strict per-segment + containment checks.
 
@@ -107,9 +106,7 @@ def safe_join(root: Path, *segments: str) -> Path:
     # for any ancestors that *do* exist.
     candidate_resolved = candidate.resolve()
     if not _is_relative_to(candidate_resolved, root_resolved):
-        raise ValueError(
-            f"path {candidate} resolves outside root {root_resolved}"
-        )
+        raise ValueError(f"path {candidate} resolves outside root {root_resolved}")
     return candidate
 
 
@@ -146,17 +143,11 @@ def safe_resolve_within(root: Path, relative: str) -> Path:
     parts = relative.split("/")
     for part in parts:
         if not part:
-            raise ValueError(
-                f"relative path {relative!r} contains empty segments"
-            )
+            raise ValueError(f"relative path {relative!r} contains empty segments")
         if part in {".", ".."}:
-            raise ValueError(
-                f"relative path {relative!r} contains traversal segment"
-            )
+            raise ValueError(f"relative path {relative!r} contains traversal segment")
         if "\\" in part:
-            raise ValueError(
-                f"relative path {relative!r} contains backslash"
-            )
+            raise ValueError(f"relative path {relative!r} contains backslash")
         if part.startswith("."):
             raise ValueError(
                 f"relative path {relative!r} has hidden-file segment {part!r}"
@@ -166,9 +157,7 @@ def safe_resolve_within(root: Path, relative: str) -> Path:
     candidate = root.joinpath(*parts)
     candidate_resolved = candidate.resolve()
     if not _is_relative_to(candidate_resolved, root_resolved):
-        raise ValueError(
-            f"path {candidate} resolves outside root {root_resolved}"
-        )
+        raise ValueError(f"path {candidate} resolves outside root {root_resolved}")
     return candidate_resolved
 
 

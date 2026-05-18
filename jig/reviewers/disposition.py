@@ -24,6 +24,7 @@ Out of scope here: re-running reviewers after the operator addresses
 critical comments (the cycle controller owns that), and triaging the
 DEFERRED queue (that's ``Coordinator.triage_deferred``).
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -144,9 +145,7 @@ async def apply_severity_disposition(
     if result.blocked_by:
         current = await tickets.get(ticket.id)
         if current is not None and current.status != TicketStatus.FAILED:
-            await tickets.update_status(
-                ticket.id, TicketStatus.FAILED
-            )
+            await tickets.update_status(ticket.id, TicketStatus.FAILED)
             # Stamp the fail reason in the ticket's labels so the TUI
             # can filter on it. Use a deterministic prefix so
             # downstream "find review-blocked tickets" queries can
@@ -208,5 +207,3 @@ def _summarize_deferred(comments: list[ReviewerComment]) -> str:
         by_reviewer[c.reviewer] = by_reviewer.get(c.reviewer, 0) + 1
     parts = [f"{count} from {reviewer}" for reviewer, count in by_reviewer.items()]
     return f"Deferred {len(comments)} notable comment(s): " + "; ".join(parts)
-
-

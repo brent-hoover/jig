@@ -34,6 +34,7 @@ Default-on for MVP / final layers when the ticket has no explicit
 two cheap mechanical reviewers (contract + cross-cutting); bones
 tickets predate the structured-spec coverage on a trivial scenario.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -68,8 +69,7 @@ def _ac_uri(suite_id: str, capability_id: str, kind: str, anchor: str) -> str:
     the offending entry.
     """
     return (
-        f"project://spec/suites/{suite_id}/capabilities/"
-        f"{capability_id}#{kind}/{anchor}"
+        f"project://spec/suites/{suite_id}/capabilities/{capability_id}#{kind}/{anchor}"
     )
 
 
@@ -249,13 +249,9 @@ class SpecComplianceReviewer:
                 # Also try alias resolution to support spec-renames.
                 cap = spec.capability_by_id_or_alias(cap_id)
             if cap is None:
-                comments.append(
-                    _capability_not_found_comment(cap_id, ticket.suite_id)
-                )
+                comments.append(_capability_not_found_comment(cap_id, ticket.suite_id))
                 continue
-            comments.extend(
-                _check_capability_acs(ticket.suite_id, cap, diff_tokens)
-            )
+            comments.extend(_check_capability_acs(ticket.suite_id, cap, diff_tokens))
 
         return comments
 

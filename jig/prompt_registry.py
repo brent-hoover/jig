@@ -10,6 +10,7 @@ This is correlation-id-based, not session-based: even if multiple TUI
 clients are connected, the prompt_id uniquely names the awaiting
 prompt regardless of which client replies.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,7 +50,9 @@ class PromptRegistry:
             logger.debug("prompt_reply for unknown prompt_id=%s ignored", prompt_id)
             return False
         if future.done():
-            logger.debug("prompt_reply for already-resolved prompt_id=%s ignored", prompt_id)
+            logger.debug(
+                "prompt_reply for already-resolved prompt_id=%s ignored", prompt_id
+            )
             return False
         future.set_result(reply)
         return True

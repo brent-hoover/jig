@@ -42,6 +42,7 @@ These auto-selections fire on top of any planner-authored
 ``reviewer_set`` (additive, never subtractive) so a planner can't
 accidentally suppress security/perf/arch coverage by omission.
 """
+
 from __future__ import annotations
 
 import re
@@ -111,14 +112,16 @@ TEST_ADEQUACY_REVIEWER_ID = "reviewer-test-adequacy"
 # configs (``jig/defaults/roles/reviewer_*.yaml``); the orchestrator
 # loads each by walking its file-id (``reviewer_security``) and uses
 # the role config to spawn the agent.
-_LLM_REVIEWER_IDS: frozenset[str] = frozenset({
-    SECURITY_REVIEWER_ID,
-    PERFORMANCE_REVIEWER_ID,
-    ARCHITECTURAL_REVIEWER_ID,
-    PATTERN_CONFORMANCE_REVIEWER_ID,
-    ERROR_HANDLING_REVIEWER_ID,
-    TEST_ADEQUACY_REVIEWER_ID,
-})
+_LLM_REVIEWER_IDS: frozenset[str] = frozenset(
+    {
+        SECURITY_REVIEWER_ID,
+        PERFORMANCE_REVIEWER_ID,
+        ARCHITECTURAL_REVIEWER_ID,
+        PATTERN_CONFORMANCE_REVIEWER_ID,
+        ERROR_HANDLING_REVIEWER_ID,
+        TEST_ADEQUACY_REVIEWER_ID,
+    }
+)
 
 # Map reviewer id → role-config file id (the ``load_role`` lookup
 # ``handle_<role>_yaml`` shape). Defined as a function so the mapping
@@ -193,15 +196,18 @@ class LlmReviewerPending(BaseModel):
         ),
     )
 
+
 # Labels that trigger specialty-reviewer auto-selection. Sets so
 # membership tests stay O(1) for the common case (a ticket usually
 # has 0–3 labels).
-_SECURITY_LABELS: frozenset[str] = frozenset({
-    "touches-auth",
-    "touches-pii",
-    "touches-secrets",
-    "touches-payments",
-})
+_SECURITY_LABELS: frozenset[str] = frozenset(
+    {
+        "touches-auth",
+        "touches-pii",
+        "touches-secrets",
+        "touches-payments",
+    }
+)
 _PERFORMANCE_LABELS: frozenset[str] = frozenset({"perf-budget"})
 _ARCHITECTURAL_LABELS: frozenset[str] = frozenset({"touches-contract"})
 
@@ -335,10 +341,7 @@ def select_reviewers_for_ticket(
     # not on a planner opt-in. UI tickets get the reviewer regardless of
     # how the reviewer_set was authored. Append rather than replace so
     # planner-authored sets still get their other reviewers.
-    if (
-        ticket.visual_references
-        and VISUAL_COMPLIANCE_REVIEWER_ID not in selected
-    ):
+    if ticket.visual_references and VISUAL_COMPLIANCE_REVIEWER_ID not in selected:
         selected.append(VISUAL_COMPLIANCE_REVIEWER_ID)
 
     # Track D Final — accessibility + responsive reviewers ride the
@@ -346,15 +349,9 @@ def select_reviewers_for_ticket(
     # visual_references). Mechanical, bounded cost. Both no-op when
     # wireframes are missing — visual-compliance already emits the
     # critical there.
-    if (
-        ticket.visual_references
-        and ACCESSIBILITY_REVIEWER_ID not in selected
-    ):
+    if ticket.visual_references and ACCESSIBILITY_REVIEWER_ID not in selected:
         selected.append(ACCESSIBILITY_REVIEWER_ID)
-    if (
-        ticket.visual_references
-        and RESPONSIVE_REVIEWER_ID not in selected
-    ):
+    if ticket.visual_references and RESPONSIVE_REVIEWER_ID not in selected:
         selected.append(RESPONSIVE_REVIEWER_ID)
 
     # Specialty reviewer auto-selection (Track G Final). Each helper
@@ -389,8 +386,11 @@ def select_reviewers_for_ticket(
     # adequacy. Skip for non-code work types (planning, brief,
     # architecture, docs) that produce no diff to review.
     _NON_CODE_TYPES = {
-        WorkType.PLANNING, WorkType.BRIEF, WorkType.ARCHITECTURE,
-        WorkType.DOCS, WorkType.CANONICALIZE,
+        WorkType.PLANNING,
+        WorkType.BRIEF,
+        WorkType.ARCHITECTURE,
+        WorkType.DOCS,
+        WorkType.CANONICALIZE,
     }
     if ticket.work_type not in _NON_CODE_TYPES:
         for reviewer_id in _JUDGMENT_DEFAULTS:
@@ -400,9 +400,7 @@ def select_reviewers_for_ticket(
     return selected
 
 
-def _needs_security_review(
-    ticket: Ticket, project_root: Path | None
-) -> bool:
+def _needs_security_review(ticket: Ticket, project_root: Path | None) -> bool:
     """True iff ``ticket`` should pull in the security reviewer.
 
     Triggers: any of the security labels OR the ticket's module is
@@ -417,9 +415,7 @@ def _needs_security_review(
     return False
 
 
-def _needs_performance_review(
-    ticket: Ticket, project_root: Path | None
-) -> bool:
+def _needs_performance_review(ticket: Ticket, project_root: Path | None) -> bool:
     """True iff ``ticket`` should pull in the performance reviewer.
 
     Triggers: ``perf-budget`` label OR linked integration AC contains
@@ -666,7 +662,8 @@ async def dispatch_for_cadence(
         # scans). Pre-Block-2 dispatch dropped project_root here, so
         # those triggers were silently skipped through the dispatcher.
         reviewer_ids = select_reviewers_for_ticket(
-            ticket, project_root=project_root,
+            ticket,
+            project_root=project_root,
         )
 
     out: dict[str, list[ReviewerComment] | LlmReviewerPending] = {}
@@ -741,7 +738,10 @@ async def dispatch_for_cadence(
         comments = await TradeoffComplianceReviewer().review(ticket, project_root)
         out[TRADEOFF_COMPLIANCE_REVIEWER_ID] = _tag_cadence(comments, cadence)
 
-    if CONTRACT_TEST_COVERAGE_REVIEWER_ID in reviewer_ids and cadence == "end_of_ticket":
+    if (
+        CONTRACT_TEST_COVERAGE_REVIEWER_ID in reviewer_ids
+        and cadence == "end_of_ticket"
+    ):
         from jig.reviewers.contract_test_coverage import ContractTestCoverageReviewer
 
         comments = await ContractTestCoverageReviewer().review(ticket, project_root)
@@ -896,16 +896,19 @@ async def dispatch_with_llm_spawn(
         pre_existing_ids.add(_comment_signature(c))
 
     import asyncio as _asyncio
-    await _asyncio.gather(*[
-        orchestrator.spawn_review_agent_for_id(
-            reviewer_id=p.reviewer_id,
-            ticket=ticket,
-            role_file=p.role_config_path,
-            project_root=project_root,
-            worktree_path=worktree_path,
-        )
-        for p in pendings
-    ])
+
+    await _asyncio.gather(
+        *[
+            orchestrator.spawn_review_agent_for_id(
+                reviewer_id=p.reviewer_id,
+                ticket=ticket,
+                role_file=p.role_config_path,
+                project_root=project_root,
+                worktree_path=worktree_path,
+            )
+            for p in pendings
+        ]
+    )
     await store.load()
 
     # Read every comment the spawned agents posted and attribute each to

@@ -10,6 +10,7 @@ prompts over WebSocket.
 The default CliPromptHandler wraps click.prompt + rich.Panel exactly
 the way the workflow used to do inline.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,9 +31,7 @@ class PromptHandler(Protocol):
         self, *, project_path: Path, console: "Console"
     ) -> "BriefApprovalChoice": ...
 
-    async def ask_branch_choice(
-        self, *, console: "Console"
-    ) -> "BranchChoice": ...
+    async def ask_branch_choice(self, *, console: "Console") -> "BranchChoice": ...
 
     async def ask_sa_confirm(
         self, *, template_name: str, rationale: str, console: "Console"
@@ -54,9 +53,7 @@ class PromptHandler(Protocol):
         self, *, target: Path, console: "Console"
     ) -> bool: ...  # True = proceed with reset
 
-    async def ask_init_complete(
-        self, *, console: "Console"
-    ) -> None: ...
+    async def ask_init_complete(self, *, console: "Console") -> None: ...
 
 
 # Import enums here so init_prompts.py can be imported without circular issues.
@@ -116,15 +113,11 @@ class CliPromptHandler:
         reply = click.prompt("Choice", default="Y", show_default=False)
         return ConfirmChoice.parse(reply)
 
-    async def ask_gap_decision(
-        self, *, gaps: "list[Gap]", console: "Console"
-    ) -> str:
+    async def ask_gap_decision(self, *, gaps: "list[Gap]", console: "Console") -> str:
         from jig.init_workflow import render_gap_prompt
 
         console.print(render_gap_prompt(gaps), markup=False)
-        reply = click.prompt(
-            "Choice", default="R", show_default=False
-        ).strip().upper()
+        reply = click.prompt("Choice", default="R", show_default=False).strip().upper()
         return reply if reply in ("R", "Q") else "R"
 
     async def ask_direct_template(
@@ -171,9 +164,7 @@ class CliPromptHandler:
             show_default=False,
         )
 
-    async def ask_force_confirm(
-        self, *, target: Path, console: "Console"
-    ) -> bool:
+    async def ask_force_confirm(self, *, target: Path, console: "Console") -> bool:
         reply = click.prompt(
             f"This will wipe {target}/.jig. Type 'force' to continue",
             default="",
@@ -213,9 +204,7 @@ class AutoPromptHandler:
     ) -> ConfirmChoice:
         return ConfirmChoice.YES
 
-    async def ask_gap_decision(
-        self, *, gaps: "list[Gap]", console: "Console"
-    ) -> str:
+    async def ask_gap_decision(self, *, gaps: "list[Gap]", console: "Console") -> str:
         # Quit — re-running PO unattended would loop forever. Fail loud
         # by exiting; the eval harness can inspect the gaps in state.
         return "Q"
@@ -233,9 +222,7 @@ class AutoPromptHandler:
             "(brief is incomplete or spec-gen needs follow-up)"
         )
 
-    async def ask_force_confirm(
-        self, *, target: Path, console: "Console"
-    ) -> bool:
+    async def ask_force_confirm(self, *, target: Path, console: "Console") -> bool:
         return True
 
     async def ask_init_complete(self, *, console: "Console") -> None:

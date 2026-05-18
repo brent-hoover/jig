@@ -14,6 +14,7 @@ inline. The MVP scope generator takes an optional ``DesignSystem`` and
 overrides the color tokens from it (so the operator-supplied tokens
 land at MVP layer).
 """
+
 from __future__ import annotations
 
 from jig.schemas.design_system import DesignSystem
@@ -180,10 +181,5 @@ def generate_wireframe_css(design_system: DesignSystem | None = None) -> str:
         if root_idx != -1:
             close_idx = css.find("\n}", root_idx)
             if close_idx != -1:
-                css = (
-                    css[:close_idx]
-                    + "\n"
-                    + "\n".join(extras)
-                    + css[close_idx:]
-                )
+                css = css[:close_idx] + "\n" + "\n".join(extras) + css[close_idx:]
     return css

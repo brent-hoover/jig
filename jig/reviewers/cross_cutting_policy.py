@@ -48,6 +48,7 @@ check.
 Default-on for **all** layers when the ticket has no explicit
 ``reviewer_set`` — universal rules apply everywhere, including bones.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

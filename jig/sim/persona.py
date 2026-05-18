@@ -15,6 +15,7 @@ Persona files live at ``jig/sim/personas/<id>.yaml`` and ship with the
 package. Operators authoring custom personas point ``load_persona``
 at any path.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -67,9 +68,7 @@ class Persona(BaseModel):
     avoid_behaviors: list[str] = Field(default_factory=list)
     override_probability: float = Field(default=0.0, ge=0.0, le=1.0)
     ambiguity_in_answers: Literal["low", "medium", "high"] = "low"
-    patience_for_clarification: Literal[
-        "very_low", "low", "medium", "high"
-    ] = "high"
+    patience_for_clarification: Literal["very_low", "low", "medium", "high"] = "high"
 
     # MVP (Track H follow-on) — explicit probability fields for the two
     # behaviors that distinguish fast-and-shippy + ambivalent from
@@ -89,9 +88,7 @@ class Persona(BaseModel):
     # in scripted scenarios is terse. fast-and-shippy true; methodical
     # false; ambivalent true.
     gate_acceptance_probability: float = Field(default=0.5, ge=0.0, le=1.0)
-    clarification_request_probability: float = Field(
-        default=0.05, ge=0.0, le=1.0
-    )
+    clarification_request_probability: float = Field(default=0.05, ge=0.0, le=1.0)
     prefers_short_rationale: bool = False
 
     # Final (Track H Final) — behavior fields that distinguish

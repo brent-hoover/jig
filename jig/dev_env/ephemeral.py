@@ -21,6 +21,7 @@ The base :class:`EphemeralProvisioner` declares the contract used by
 the dispatcher in :mod:`jig.dev_env.provisioning`. Other ephemeral
 kinds (in-process Redis etc.) are out of scope for Final.
 """
+
 from __future__ import annotations
 
 import logging
@@ -176,9 +177,7 @@ class SqliteEphemeralProvisioner(EphemeralProvisioner):
         success: bool,
         epic_id: str | None = None,
     ) -> None:
-        policy = (
-            service.cleanup_on_success if success else service.cleanup_on_failure
-        )
+        policy = service.cleanup_on_success if success else service.cleanup_on_failure
         if policy == "keep":
             return
         db_path = self._db_path(
@@ -195,14 +194,12 @@ class SqliteEphemeralProvisioner(EphemeralProvisioner):
                 arc_dir.mkdir(parents=True, exist_ok=True)
                 ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
                 archived_name = (
-                    f"{ts}_{service.id}_{agent_id}_{ticket_id}_"
-                    f"{db_path.stem}.db.bak"
+                    f"{ts}_{service.id}_{agent_id}_{ticket_id}_{db_path.stem}.db.bak"
                 )
                 shutil.move(str(db_path), str(arc_dir / archived_name))
         except OSError:
             _logger.warning(
-                "SqliteEphemeralProvisioner.cleanup failed for %s "
-                "(policy=%s)",
+                "SqliteEphemeralProvisioner.cleanup failed for %s (policy=%s)",
                 db_path,
                 policy,
                 exc_info=True,
@@ -286,9 +283,7 @@ class PostgresDbEphemeralProvisioner(EphemeralProvisioner):
         success: bool,
         epic_id: str | None = None,
     ) -> None:
-        policy = (
-            service.cleanup_on_success if success else service.cleanup_on_failure
-        )
+        policy = service.cleanup_on_success if success else service.cleanup_on_failure
         if policy == "keep":
             return
         if self._sql is None:
@@ -308,13 +303,10 @@ class PostgresDbEphemeralProvisioner(EphemeralProvisioner):
             elif policy == "archive":
                 ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
                 archived = f"archived_{db_name}_{ts}"
-                await self._sql(
-                    f"ALTER DATABASE {db_name} RENAME TO {archived}"
-                )
+                await self._sql(f"ALTER DATABASE {db_name} RENAME TO {archived}")
         except Exception:
             _logger.warning(
-                "PostgresDbEphemeralProvisioner.cleanup failed "
-                "(service=%s policy=%s)",
+                "PostgresDbEphemeralProvisioner.cleanup failed (service=%s policy=%s)",
                 service.id,
                 policy,
                 exc_info=True,
@@ -393,11 +385,7 @@ def list_ephemeral_instances(project_root: Path) -> list[EphemeralInstance]:
     return out
 
 
-
-
-def _find_instance(
-    project_root: Path, instance_id: str
-) -> EphemeralInstance | None:
+def _find_instance(project_root: Path, instance_id: str) -> EphemeralInstance | None:
     rows = list_ephemeral_instances(project_root)
     return next((r for r in rows if r.id == instance_id), None)
 
@@ -439,9 +427,7 @@ def inspect_ephemeral_instance(
     return out
 
 
-def drop_ephemeral_instance(
-    project_root: Path, instance_id: str
-) -> bool:
+def drop_ephemeral_instance(project_root: Path, instance_id: str) -> bool:
     """Operator override — drop a SQLite ephemeral instance directly.
 
     Returns ``True`` iff the instance was found + removed; ``False``

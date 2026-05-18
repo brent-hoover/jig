@@ -12,6 +12,7 @@ Wired up at orchestrator startup via ``subscribe_to_events`` so the cache
 sees every contract amendment / wireframe revision / ticket state change
 without each call site remembering to invalidate by hand.
 """
+
 from __future__ import annotations
 
 import time
@@ -154,22 +155,16 @@ class UriResolverCache:
         if isinstance(event, ContractAmended):
             module_id = _module_id_from_contract_uri(event.contract_uri)
             if module_id is not None:
-                self.invalidate(
-                    "arch", path_prefix=("modules", module_id)
-                )
+                self.invalidate("arch", path_prefix=("modules", module_id))
             # The architecture document references modules; safest to drop
             # all architecture-rooted entries when any contract changes.
             self.invalidate("arch", path_prefix=("architecture",))
             return
         if isinstance(event, WireframeRevised):
-            self.invalidate(
-                "design", path_prefix=("wireframes", event.screen_id)
-            )
+            self.invalidate("design", path_prefix=("wireframes", event.screen_id))
             return
         if isinstance(event, TicketStateChanged):
-            self.invalidate(
-                "store", path_prefix=("tickets", event.ticket_id)
-            )
+            self.invalidate("store", path_prefix=("tickets", event.ticket_id))
             return
 
 

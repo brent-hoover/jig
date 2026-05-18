@@ -1,4 +1,5 @@
 """Load/save the tradeoff ledger at `.jig/spec/tradeoffs.yaml`."""
+
 from __future__ import annotations
 
 from pathlib import Path

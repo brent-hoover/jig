@@ -3,6 +3,7 @@
 Used by brief_* MCP tools. Uses atomic_write_text for persistence so
 partial writes never corrupt brief.md.
 """
+
 from __future__ import annotations
 
 import re

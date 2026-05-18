@@ -5,6 +5,7 @@ carries a ``template.yaml`` describing its language, framework, and
 deploy target. This metadata populates ``architecture.yaml`` on both
 the SA and direct paths.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -52,9 +53,7 @@ def load_template_metadata(name: str) -> TemplateMetadata:
         raise KeyError(f"unknown template: {name!r}")
     meta_path = tpl_dir / "template.yaml"
     if not meta_path.is_file():
-        raise ValueError(
-            f"template {name!r} missing template.yaml at {meta_path}"
-        )
+        raise ValueError(f"template {name!r} missing template.yaml at {meta_path}")
     data = yaml.safe_load(meta_path.read_text()) or {}
     data["name"] = name
     return TemplateMetadata.model_validate(data)

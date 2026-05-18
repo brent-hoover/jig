@@ -816,11 +816,11 @@ async def dispatch_for_cadence(
 async def dispatch_with_llm_spawn(
     ticket: Ticket,
     project_root: Path,
-    cadence: Literal["per_commit", "end_of_ticket"],
     orchestrator: "Orchestrator",
     *,
     worktree_path: Path | None = None,
     base_ref: str = "main",
+    reviewers: list[str] | None = None,
 ) -> dict[str, list[ReviewerComment]]:
     """Federation-execution entry point (Block 3, Important 1).
 
@@ -842,10 +842,28 @@ async def dispatch_with_llm_spawn(
     spawn-and-wait flow without burning LLM tokens — the real spawn
     path is operator-driven.
 
-    Per-commit cadence does not enter this function — the caller
-    should keep using ``dispatch_for_cadence`` directly there. The
-    LLM-spawn path is end-of-ticket only by design (the single-digit-
-    second per-commit budget rules out judgment reviewers).
+    Cadence is implicitly ``end_of_ticket`` — the LLM-spawn path is
+    end-of-ticket only by design (the single-digit-second per-commit
+    budget rules out judgment reviewers). Per-commit callers use
+    ``dispatch_for_cadence`` directly.
+
+    ``reviewers`` is the review-routing per-phase reviewer list
+    (feature-work/review-routing/plan.md §Step 5):
+
+    - ``None`` (default): legacy behaviour — cadence selection picks
+      the LLM reviewers. Used by the post-RESOLVE federation gate
+      until step 6 populates the default workflow's review phase.
+    - ``[]``: explicit "no LLM reviewers" — mechanical reviewers still
+      run via cadence; useful for non-review phases that want
+      mechanical-only behaviour.
+    - ``[id, ...]``: dispatch exactly the listed LLM reviewers. Names
+      not in ``known_llm_reviewer_ids()`` raise ``ValueError`` for
+      defense-in-depth (workflow YAML validation already catches typos
+      at load time, but in-process callers can still pass bad lists).
+      The list filters the LLM pendings from ``dispatch_for_cadence`` —
+      a reviewer in the list that cadence didn't select is dropped
+      silently. Step 7+ may bypass cadence-selection entirely for
+      phase-declared reviewers.
 
     Returns ``{reviewer_id: [ReviewerComment, ...]}`` — the same shape
     bones-era callers expect, with mechanical results and LLM-spawned
@@ -859,10 +877,19 @@ async def dispatch_with_llm_spawn(
     # means dispatch.py can't be imported during reviewer construction.
     from jig.store.review_comments import ReviewCommentsStore
 
+    if reviewers is not None:
+        known = known_llm_reviewer_ids()
+        unknown = [r for r in reviewers if r not in known]
+        if unknown:
+            raise ValueError(
+                f"dispatch_with_llm_spawn: unknown LLM reviewer id(s) "
+                f"{unknown!r}. Known: {sorted(known)!r}."
+            )
+
     by_reviewer = await dispatch_for_cadence(
         ticket,
         project_root,
-        cadence,
+        "end_of_ticket",
         worktree_path=worktree_path,
         base_ref=base_ref,
     )
@@ -877,6 +904,12 @@ async def dispatch_with_llm_spawn(
             pendings.append(value)
         else:
             out[reviewer_id] = value
+
+    # Filter LLM pendings to the phase's explicit reviewer list when one
+    # is provided. None = no filter (cadence selection wins, legacy).
+    if reviewers is not None:
+        allowed = set(reviewers)
+        pendings = [p for p in pendings if p.reviewer_id in allowed]
 
     if not pendings:
         return out

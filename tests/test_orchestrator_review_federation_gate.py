@@ -213,14 +213,13 @@ class TestFederationHookForwardsToDispatch:
         async def _stub_dispatch(
             ticket: Any,
             project_root: Any,
-            cadence: str,
             orchestrator: Any,
             **kwargs: Any,
         ) -> dict:
             captured["ticket_id"] = ticket.id
             captured["project_root"] = project_root
-            captured["cadence"] = cadence
             captured["orchestrator"] = orchestrator
+            captured["reviewers"] = kwargs.get("reviewers")
             return {}
 
         # Patch the symbol the orchestrator imports lazily.
@@ -246,8 +245,10 @@ class TestFederationHookForwardsToDispatch:
 
         assert captured["ticket_id"] == "tb-gate"
         assert captured["project_root"] == tmp_path
-        assert captured["cadence"] == "end_of_ticket"
         assert captured["orchestrator"] is orch
+        # Post-RESOLVE gate has no phase context — passes None so the
+        # legacy cadence-driven selection runs unchanged.
+        assert captured["reviewers"] is None
 
     @pytest.mark.asyncio
     async def test_dispatch_failure_does_not_propagate(

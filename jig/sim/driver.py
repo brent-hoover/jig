@@ -1763,7 +1763,6 @@ async def _handle_invoke_federation_execution(
     out = await dispatch_with_llm_spawn(
         ticket,
         ctx.project_root,
-        "end_of_ticket",
         _ScenarioOrchestrator(),  # type: ignore[arg-type]
         worktree_path=worktree if worktree.exists() else None,
     )

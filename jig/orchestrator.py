@@ -668,7 +668,6 @@ class Orchestrator:
             by_reviewer = await dispatch_with_llm_spawn(
                 ticket,
                 self._project_path,
-                "end_of_ticket",
                 self,
                 worktree_path=worktree_arg,
             )
@@ -683,7 +682,6 @@ class Orchestrator:
                 by_reviewer = await dispatch_with_llm_spawn(
                     ticket,
                     self._project_path,
-                    "end_of_ticket",
                     self,
                     worktree_path=worktree_arg,
                 )
@@ -765,6 +763,7 @@ class Orchestrator:
         ticket_id: str,
         ticket,
         worktree_path,
+        phase=None,
     ):
         """Run all review-federation agents in parallel and return a RunAgentResult.
 
@@ -772,6 +771,12 @@ class Orchestrator:
         ``run_review_federation`` is enabled.  Replaces the single review
         agent with the full federation so all reviewers fire in the correct
         spec→test→dev→review→document order.
+
+        ``phase`` (review-routing step 5): when provided, the phase's
+        ``reviewers:`` list scopes which LLM reviewers fire. Empty list
+        is meaningful — means "no LLM reviewers at this phase". ``None``
+        falls back to legacy cadence-driven selection so callers without
+        a phase context (the post-RESOLVE gate) keep working.
 
         Outcome mapping:
         - Any critical or important comment  → ``"blocked"`` (routes back
@@ -786,13 +791,14 @@ class Orchestrator:
         from jig.reviewers import dispatch_with_llm_spawn
         from jig.reviewers.comment import Severity
 
+        reviewers_list = phase.reviewers if phase is not None else None
         try:
             by_reviewer = await dispatch_with_llm_spawn(
                 ticket,
                 self._project_path,
-                "end_of_ticket",
                 self,
                 worktree_path=worktree_path,
+                reviewers=reviewers_list,
             )
         except Exception:
             _logger.warning(
@@ -1408,7 +1414,7 @@ class Orchestrator:
                         self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
                         try:
                             result = await self._run_review_phase_federation(
-                                ticket_id, ticket, worktree
+                                ticket_id, ticket, worktree, phase=phase
                             )
                         finally:
                             self._live_subscribers.pop(sub_key, None)

@@ -342,7 +342,6 @@ class TestDispatchWithLlmSpawn:
         await dispatch_with_llm_spawn(
             _ticket(labels=["touches-auth"]),
             tmp_path,
-            "end_of_ticket",
             orch,  # type: ignore[arg-type]
             worktree_path=worktree,
         )
@@ -380,7 +379,6 @@ class TestDispatchWithLlmSpawn:
         out = await dispatch_with_llm_spawn(
             _ticket(labels=["touches-auth"]),
             tmp_path,
-            "end_of_ticket",
             orch,  # type: ignore[arg-type]
             worktree_path=worktree,
         )
@@ -413,7 +411,6 @@ class TestDispatchWithLlmSpawn:
         out = await dispatch_with_llm_spawn(
             _ticket(labels=["touches-auth"]),
             tmp_path,
-            "end_of_ticket",
             orch,  # type: ignore[arg-type]
             worktree_path=worktree,
         )
@@ -443,7 +440,6 @@ class TestDispatchWithLlmSpawn:
         out = await dispatch_with_llm_spawn(
             _ticket(),
             tmp_path,
-            "end_of_ticket",
             orch,  # type: ignore[arg-type]
             worktree_path=worktree,
         )
@@ -474,7 +470,6 @@ class TestDispatchWithLlmSpawn:
                 contract_amendment="touches contract",
             ),
             tmp_path,
-            "end_of_ticket",
             orch,  # type: ignore[arg-type]
             worktree_path=worktree,
         )
@@ -517,10 +512,126 @@ class TestDispatchWithLlmSpawn:
         out = await dispatch_with_llm_spawn(
             _ticket(labels=["touches-auth"]),
             tmp_path,
-            "end_of_ticket",
             orch,  # type: ignore[arg-type]
             worktree_path=worktree,
         )
 
         # The stale comment must NOT appear in this cycle's result.
         assert out[SECURITY_REVIEWER_ID] == []
+
+
+class TestPerPhaseReviewerScoping:
+    """Step 5 of feature-work/review-routing/plan.md: dispatch reads
+    the phase's ``reviewers:`` list and runs exactly those LLM
+    reviewers — no implicit "all reviewers" fallback when the caller
+    declares a list. Mechanical reviewers continue via cadence."""
+
+    @pytest.mark.asyncio
+    async def test_explicit_reviewers_filter_to_named_list(
+        self, tmp_path: Path
+    ) -> None:
+        """``reviewers=["reviewer-test-adequacy"]`` invokes only that
+        LLM reviewer even when cadence selection would have picked
+        more."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=["reviewer-test-adequacy"],
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        # Exactly the listed LLM reviewer fired.
+        assert ids_spawned == ["reviewer-test-adequacy"]
+        # touches-auth would normally pull in reviewer-security; the
+        # explicit list overrides cadence selection.
+        assert SECURITY_REVIEWER_ID not in ids_spawned
+
+    @pytest.mark.asyncio
+    async def test_empty_reviewers_list_runs_no_llm_reviewers(
+        self, tmp_path: Path
+    ) -> None:
+        """``reviewers=[]`` is an explicit "no LLM reviewers" — useful
+        for non-review phases that still need mechanical reviewer
+        execution but shouldn't spawn judgment reviewers."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        out = await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=[],
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        assert ids_spawned == []
+        # Mechanical reviewers (contract-compliance) still run.
+        assert BONES_REVIEWER_ID in out
+
+    @pytest.mark.asyncio
+    async def test_unknown_reviewer_name_raises(self, tmp_path: Path) -> None:
+        """Defense-in-depth: workflow YAML validation (step 2) already
+        rejects unknown reviewer names at load time. This catches the
+        case where a workflow is mutated in-place or the caller passes
+        a bad list directly."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        with pytest.raises(ValueError, match="reviewer-typo-not-real"):
+            await dispatch_with_llm_spawn(
+                _ticket(),
+                tmp_path,
+                orch,  # type: ignore[arg-type]
+                worktree_path=worktree,
+                reviewers=["reviewer-typo-not-real"],
+            )
+
+    @pytest.mark.asyncio
+    async def test_reviewers_none_preserves_legacy_behavior(
+        self, tmp_path: Path
+    ) -> None:
+        """``reviewers=None`` means "no explicit phase filter" — cadence
+        selection runs unmodified. Step 6 will populate the default
+        workflow's review phase with a concrete list; until then the
+        existing post-RESOLVE federation gate still works."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=None,
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        # touches-auth still triggers reviewer-security under cadence
+        # selection — same shape as the pre-step-5 test above.
+        assert SECURITY_REVIEWER_ID in ids_spawned

@@ -469,6 +469,13 @@ class SystemEvent(_ThreadEntryBase):
         # SF-I4: per-commit runner crashed (still non-blocking) so the
         # operator can distinguish "review passed" from "runner crashed".
         "per_commit_runner_crashed",
+        # Review-routing (feature-work/review-routing/plan.md step 8):
+        # per-finding routing chose a target phase for the fix loop.
+        # Content names the source and target phase + the route reason
+        # (target_role / writes-glob / last-touched / unowned-finding /
+        # ambiguous-ownership) so operators can see why a particular
+        # phase was selected for retry.
+        "fix_loop_route",
     ]
     content: str = ""
     commit_sha: str | None = None

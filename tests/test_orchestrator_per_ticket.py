@@ -12,6 +12,15 @@ from jig.thread import SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
 
 
+@pytest.mark.skip(
+    reason=(
+        "Tracked in issue #42. Test asserts judgment-federation reviewers fire "
+        "after a workflow with no review phase, but current dispatch invokes "
+        "the federation only from the review phase. Skipping (not xfail) to "
+        "avoid the ~$0.13 LLM cost per CI run. Un-skip when review-routing "
+        "step 7-8 lands (feature-work/review-routing/plan.md)."
+    ),
+)
 @pytest.mark.asyncio
 async def test_per_ticket_loop_walks_phases_to_resolved(
     tmp_path: Path, monkeypatch

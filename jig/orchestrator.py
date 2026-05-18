@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
-    from jig.models import PhaseConfig
+    from jig.models import PhaseConfig, WorkflowConfig
     from jig.prompt_registry import PromptRegistry
+    from jig.reviewers.comment import ReviewerComment
     from jig.ticket import Ticket
 
 from jig.agent import run_agent
@@ -40,11 +41,16 @@ from jig.project import Project, load_project
 from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
+from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
+from jig.reviewer_routing import (
+    _most_recent_phase_with_role,
+    _route_blocking_comments,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -174,6 +180,11 @@ class Orchestrator:
         self.memory: MemoryStore | None = None
         self.bus: MessageBus | None = None
         self.check_results: CheckResultsStore | None = None
+        # Review-routing step 8: held at instance scope to track lifecycle
+        # alongside the other stores. The blocked-phase router still calls
+        # load() before each query because reviewer_mcp writes through
+        # separate store instances — see _route_blocked_phase.
+        self.review_comments: ReviewCommentsStore | None = None
         # v2 analytics — append-only event capture for the consumer half
         # described in docs/v2.0/analytics/. Initialized in startup once the
         # store directory exists.
@@ -266,6 +277,9 @@ class Orchestrator:
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
             self.check_results = CheckResultsStore(store_dir / "check_results.jsonl")
+            self.review_comments = ReviewCommentsStore(
+                store_dir / "review_comments.jsonl"
+            )
             self.analytics = AnalyticsStore(store_dir / "analytics.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
@@ -274,6 +288,7 @@ class Orchestrator:
                 self.memory.load(),
                 self.bus.load(),
                 self.check_results.load(),
+                self.review_comments.load(),
                 self.analytics.load(),
             )
             self._analytics_emitter = AnalyticsEmitter(self.analytics)
@@ -1016,6 +1031,7 @@ class Orchestrator:
         self.bus = None
         self.check_results = None
         self.checkpoints = None
+        self.review_comments = None
 
     async def shutdown(self) -> None:
         self._running = False
@@ -1610,8 +1626,14 @@ class Orchestrator:
                             await self._on_ticket_failed(ticket_id, ticket)
                             return
 
-                        # Find the most recent dev/writing phase before this one to fix issues.
-                        fix_idx = self._find_fix_phase(workflow, phase_idx)
+                        # Route blocking comments per the review-routing
+                        # design — by reviewer-declared target_role,
+                        # then by file → owning phase via the workflow's
+                        # ``writes:`` globs, with a most-recent-dev
+                        # fallback for unowned findings.
+                        fix_idx = await self._route_blocked_phase(
+                            workflow, phase_idx, ticket_id, worktree
+                        )
                         if fix_idx is not None:
                             _logger.info(
                                 "phase %s blocked — routing back to %s (attempt %d/%d)",
@@ -2681,18 +2703,94 @@ class Orchestrator:
             )
         )
 
-    @staticmethod
-    def _find_fix_phase(workflow, blocked_phase_idx: int) -> int | None:
-        """Find the phase to re-run when a phase returns blocked.
+    async def _route_blocked_phase(
+        self,
+        workflow: "WorkflowConfig",
+        blocked_phase_idx: int,
+        ticket_id: str,
+        worktree: Path,
+    ) -> int | None:
+        """Pick the phase to re-run after a block, using per-finding
+        routing (review-routing step 8).
 
-        Scans backward from ``blocked_phase_idx`` for a phase whose role
-        has write access (dev agent). Returns the index or None.
+        Three sources of "phase blocked" feed this code path:
+
+        1. Review federation found critical/important comments.
+        2. Required automated check failed (handoff bounced).
+        3. Phase agent returned ``blocked`` directly.
+
+        Only #1 produces ``ReviewerComment`` records. For #2 and #3 we
+        fall back to the legacy "most-recent dev phase" rule that
+        ``_find_fix_phase`` implemented — those callers have no
+        per-finding metadata to route on.
+
+        When reviewer comments are present, the latest cycle is run
+        through ``_route_blocking_comments`` (review-routing step 7).
+        Either way the chosen target + reason is posted as a thread
+        ``fix_loop_route`` Note so operators see why a particular
+        phase was selected for retry. Returns ``None`` when no route
+        can be found (no dev phase exists in the workflow).
         """
-        _write_roles = {"dev"}
-        for idx in range(blocked_phase_idx - 1, -1, -1):
-            if workflow.phases[idx].role in _write_roles:
-                return idx
-        return None
+        if self.review_comments is None:
+            # Orchestrator not fully started yet — no comments to route
+            # on. Fall through to the dev fallback so the caller still
+            # gets a deterministic answer.
+            all_comments: list[ReviewerComment] = []
+        else:
+            # Reload from disk: reviewer_mcp.handle_reviewer_post_comment
+            # writes through a fresh ReviewCommentsStore instance, so the
+            # orchestrator's cached _docs does not see post-startup writes.
+            # See PR #51 review thread.
+            await self.review_comments.load()
+            all_comments = await self.review_comments.for_ticket(ticket_id)
+        # Most recent cycle = the one that just blocked. The
+        # FixLoopTracker auto-increments cycle per record, so max()
+        # identifies the latest.
+        blocking: list[ReviewerComment] = []
+        if all_comments:
+            latest_cycle = max(c.cycle for c in all_comments)
+            blocking = [
+                c
+                for c in all_comments
+                if c.cycle == latest_cycle and c.severity in ("critical", "important")
+            ]
+
+        if blocking:
+            route = await _route_blocking_comments(
+                workflow, blocked_phase_idx, blocking, worktree
+            )
+        else:
+            # Check-failure / agent-blocked-without-comments path —
+            # legacy most-recent-dev fallback.
+            fix_idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, "dev")
+            route = (fix_idx, "check-failure-fallback") if fix_idx is not None else None
+
+        if route is None:
+            return None
+        fix_idx, reason = route
+        target_phase = workflow.phases[fix_idx]
+        blocked_phase = workflow.phases[blocked_phase_idx]
+        if self.threads is not None:
+            try:
+                await self.threads.post(
+                    SystemEvent(
+                        ticket_id=ticket_id,
+                        author="orchestrator",
+                        event_type="fix_loop_route",
+                        content=(
+                            f"Routing blocked phase {blocked_phase.name!r} back "
+                            f"to {target_phase.name!r} (reason: {reason})"
+                        ),
+                    )
+                )
+            except Exception:
+                _logger.warning(
+                    "_route_blocked_phase: failed to post fix_loop_route note "
+                    "for ticket %s",
+                    ticket_id,
+                    exc_info=True,
+                )
+        return fix_idx
 
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.

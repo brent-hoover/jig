@@ -273,18 +273,31 @@ def _validate_review_routing_fields(workflow: WorkflowConfig, *, source: Path) -
 
     Step 2 of feature-work/review-routing/plan.md only enforces the
     existence check: every name in ``reviewers:`` must resolve to a known
-    reviewer id (per ``_REVIEWER_ID_TO_ROLE_FILE`` in
-    ``jig.reviewers.dispatch``). Catches typos and stale names at load time
-    rather than at dispatch time, when a missing reviewer would be reported
-    as "spawn failed" buried in logs.
+    LLM-driven reviewer id (per
+    ``jig.reviewers.dispatch.known_llm_reviewer_ids``). Catches typos and
+    stale names at load time rather than at dispatch time, when a missing
+    reviewer would be reported as "spawn failed" buried in logs.
 
-    The "role=='review' requires non-empty reviewers" rule lands with step 6
-    of the plan, when the shipped default workflow is updated to satisfy it.
-    Adding it here would block default.yaml from loading.
+    Scope notes:
+
+    - ``reviewers:`` is for the LLM-driven judgment reviewers
+      (test-adequacy, pattern-conformance, etc.). Mechanical reviewers
+      (contract-compliance, cross-cutting-policy, ...) keep their existing
+      cadence-based dispatch and don't appear here. Listing a mechanical id
+      in ``reviewers:`` would currently fail validation — by design at this
+      step.
+    - ``writes:`` glob syntax is NOT validated; the field is accepted as a
+      list of strings only. A malformed pattern like ``"src/***"`` would
+      fail to match anything at routing time rather than at load time.
+      Pattern-level validation could land with step 7 if practice shows
+      typos are a real source of mis-routing.
+    - The "role=='review' requires non-empty reviewers" rule lands with
+      step 6 of the plan, when the shipped default workflow is updated to
+      satisfy it. Adding it here would block default.yaml from loading.
     """
-    from jig.reviewers.dispatch import _REVIEWER_ID_TO_ROLE_FILE
+    from jig.reviewers.dispatch import known_llm_reviewer_ids
 
-    known_reviewer_ids = set(_REVIEWER_ID_TO_ROLE_FILE.keys())
+    known_reviewer_ids = known_llm_reviewer_ids()
     for phase in workflow.phases:
         for reviewer_id in phase.reviewers:
             if reviewer_id not in known_reviewer_ids:

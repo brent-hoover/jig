@@ -114,9 +114,11 @@ class BwrapConfig:
     passthrough_env_keys: tuple[str, ...] = _DEFAULT_PASSTHROUGH_ENV
     """Names of env vars forwarded from the orchestrator process into
     the sandbox via ``--setenv``. Anything not in this list is dropped
-    by ``--clearenv``. Notably excludes ``CLAUDE_CODE_OAUTH_TOKEN`` and
-    ``ANTHROPIC_API_KEY``: agents authenticate via the mounted Claude
-    config, not via env."""
+    by ``--clearenv``. ``CLAUDE_CODE_OAUTH_TOKEN`` IS forwarded — the
+    bundled claude CLI needs it to authenticate inside bwrap, where
+    ``~/.claude.json`` is read-only and host-keychain credentials are
+    unreachable. ``ANTHROPIC_API_KEY`` is NOT forwarded — agents use
+    OAuth, not the API key."""
 
     extra_setenv: tuple[tuple[str, str], ...] = ()
     """Additional ``(key, value)`` env pairs to set inside the sandbox.

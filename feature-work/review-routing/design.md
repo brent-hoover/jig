@@ -85,8 +85,16 @@ separate cadence concept on reviewer configs.
 
 The default workflow's `review-tests` phase lists only `reviewer-test-adequacy`. The end-of-ticket
 `review` phase lists the remaining five reviewers (pattern-conformance, architectural,
-error-handling, performance, security) — test-adequacy is excluded there because it already ran
-post-test and the test files aren't in the dev changeset under review.
+error-handling, performance, security) — test-adequacy is excluded there because it already ran at
+`review-tests` and the TDD lock guarantees the test files at end-of-ticket are byte-identical to
+what it already reviewed. Re-running it would burn federation cost on duplicated work.
+
+(Note: today the reviewer agents run their own `git diff` calls — the diff base is *not* injected
+by the orchestrator. In practice end-of-ticket reviewers see the cumulative ticket diff, which
+includes test files. The routing change handles this correctly: any finding on `tests/**` from a
+non-test-adequacy reviewer routes back to `test` via the glob mechanism, so the diff scope doesn't
+need to change for correctness. See §Open questions for the open-ended question of whether to
+enforce diff scope explicitly later.)
 
 ### ReviewerComment schema extension
 
@@ -505,9 +513,10 @@ logic. The orchestrator change is localised to one function.
 
 ## Open questions
 
-- [ ] What if a workflow has multiple phases with the same `role` (e.g. two `dev` phases for a
-      multi-stage implementation)? `_most_recent_phase_with_role` returns the most recent, which
-      seems right; confirm no scenario wants the first or all-of.
+- [x] What if a workflow has multiple phases with the same `role` (e.g. two `dev` phases for a
+      multi-stage implementation)? **Resolved: most-recent wins.** Keeps the routing simple and
+      matches the natural "fix the latest broken thing first" intuition. If a real workflow surfaces
+      a case where the *first* or *all-of* matching phases is correct, revisit then.
 - [x] Should `target_role` accept `operator` (or similar) to mean "no automated fix — escalate
       immediately"? **Resolved: no, for now.** Keeping the routing target-set restricted to roles
       that participate in the workflow lets us observe how far agents get figuring out cross-cutting
@@ -524,10 +533,16 @@ logic. The orchestrator change is localised to one function.
       callables in the diff with tests that invoke them). At `review-tests` the impl doesn't exist
       yet. The rewrite reframes the reviewer around the **ticket AC** (already in
       `default_context`) rather than the impl diff. Full proposed YAML below.
-- [ ] Diff scope for the end-of-ticket `review` phase: the dev-only changeset (test files absent),
-      or the full ticket diff up to that point (test files present)? The design assumes dev-only —
-      that's what makes excluding `reviewer-test-adequacy` from the end-of-ticket phase coherent.
-      Verify how `dispatch_with_llm_spawn` actually scopes the diff today and align.
+- [x] Diff scope for the end-of-ticket `review` phase. **Resolved: today's behavior is cumulative
+      diff against `main`**, determined by each reviewer's own `git diff` invocation rather than
+      orchestrator-injected scope. The design previously rationalised excluding test-adequacy at
+      end-of-ticket as "test files aren't in the diff" — that's wrong; they *are*. The correct
+      reason for the exclusion: tests are byte-identical to what was reviewed at `review-tests`
+      (TDD lock guarantees dev can't modify them), so re-running test-adequacy is duplicated work.
+      Routing handles findings on `tests/**` from other reviewers via the glob mechanism, so the
+      diff scope doesn't need to change for this design's correctness. Whether to enforce diff
+      scope explicitly (inject a base_ref into the reviewer's prompt context, e.g.
+      "diff against `<prev-phase-sha>`") is a follow-up consideration — out of scope here.
 
 ## Change log
 
@@ -543,3 +558,6 @@ logic. The orchestrator change is localised to one function.
   that lever instead) and `writes:` glob path interpretation (same path in worktree as in repo;
   `ReviewerComment.file` is already repo-relative). Embed the rewritten
   `reviewer-test-adequacy` role YAML so the plan inherits it ready to drop in.
+- 2026-05-17: Resolve last two open questions: multi-phase-same-role uses most-recent; diff scope
+  is cumulative today but routing handles the consequences via globs. Correct the rationale for
+  excluding test-adequacy at end-of-ticket (TDD-lock invariance, not diff-scope exclusion).

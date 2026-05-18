@@ -13,6 +13,7 @@ Per ``docs/v2.0/multi-level-spec/design.md`` §"Workflow integration":
   it up again. Existing brief is left in place; the L3 agent overwrites
   on its next finalize.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -41,7 +42,9 @@ async def cmd_suite(
                 "error": f"/suite {sub} requires a suite id (e.g. /suite {sub} catalog)",
             }
         suite_id = rest[0]
-        return await _suite_dispatch(orch, project_path, suite_id, refresh=(sub == "refresh"))
+        return await _suite_dispatch(
+            orch, project_path, suite_id, refresh=(sub == "refresh")
+        )
     return {"ok": False, "error": f"unknown /suite subcommand: {sub}"}
 
 
@@ -71,9 +74,7 @@ async def _suite_list(project_path) -> dict[str, Any]:
 
     suites: list[dict[str, str]] = []
     for s in index.suites:
-        brief_md = (
-            Path(project_path) / ".jig" / "spec" / "suites" / s.id / "brief.md"
-        )
+        brief_md = Path(project_path) / ".jig" / "spec" / "suites" / s.id / "brief.md"
         status = "pending"
         if brief_md.is_file():
             status = "brief_ready"

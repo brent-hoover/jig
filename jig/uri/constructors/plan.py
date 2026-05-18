@@ -1,4 +1,5 @@
 """Constructors for ``project://plan/...`` URIs (PM output)."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -21,13 +22,8 @@ def plan_epic_uri(epic_id: str) -> str:
 def plan_layer_uri(epic_id: str, layer: LayerName) -> str:
     """``project://plan/build/epics/<id>/layers/<bones|mvp|final>``."""
     if layer not in ("bones", "mvp", "final"):
-        raise ValueError(
-            f"layer must be one of bones|mvp|final, got {layer!r}"
-        )
-    return (
-        f"project://plan/build/epics/{seg(epic_id, 'epic_id')}"
-        f"/layers/{layer}"
-    )
+        raise ValueError(f"layer must be one of bones|mvp|final, got {layer!r}")
+    return f"project://plan/build/epics/{seg(epic_id, 'epic_id')}/layers/{layer}"
 
 
 def plan_ticket_uri(ticket_id: str) -> str:

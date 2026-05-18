@@ -23,6 +23,7 @@ Track C Final via ``next_layer_ready``) emits the event from the
 ``Coordinator.materialize_layer`` path when MVP is materialized while
 bones is incomplete via the SA-flagged path.
 """
+
 from __future__ import annotations
 
 import json
@@ -60,9 +61,7 @@ class OverrideEntry(BaseModel):
     rationale: str = ""
     cascade_risk_low_acknowledged: bool = False
     actor: str = "operator"
-    recorded_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     still_running_bones_epic_ids: list[str] = Field(default_factory=list)
     sa_marked_cascade_risk_low_epic_ids: list[str] = Field(default_factory=list)
 
@@ -98,9 +97,7 @@ class OverrideStore:
             try:
                 rows.append(OverrideEntry.model_validate_json(line))
             except Exception:
-                _logger.warning(
-                    "skipping malformed override row: %r", line
-                )
+                _logger.warning("skipping malformed override row: %r", line)
         self._entries = rows
         self._loaded = True
 
@@ -109,8 +106,7 @@ class OverrideStore:
             await self.load()
         self._entries.append(entry)
         payload = "\n".join(
-            json.dumps(e.model_dump(mode="json"), sort_keys=True)
-            for e in self._entries
+            json.dumps(e.model_dump(mode="json"), sort_keys=True) for e in self._entries
         )
         if payload:
             payload += "\n"
@@ -159,15 +155,11 @@ async def record_unblock_override(
         emitter.emit_nowait(
             BonesPromotedIncomplete(
                 promoted_epic_ids=[epic_id],
-                still_running_bones_epic_ids=list(
-                    still_running_bones_epic_ids or []
-                ),
+                still_running_bones_epic_ids=list(still_running_bones_epic_ids or []),
                 sa_marked_cascade_risk_low=list(
                     sa_marked_cascade_risk_low_epic_ids or []
                 ),
-                operator_rationale_category=(
-                    rationale[:60] if rationale else None
-                ),
+                operator_rationale_category=(rationale[:60] if rationale else None),
             )
         )
     return entry

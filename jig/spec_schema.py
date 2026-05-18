@@ -8,6 +8,7 @@ spec-gen produces from the brief.
 
 See ``docs/project-spec-schema/design.md`` for the full design.
 """
+
 from __future__ import annotations
 
 import re
@@ -127,12 +128,12 @@ class Capability(BaseModel):
     summary: str = ""
     user_story: UserStory | None = None
     behaviors: list[Behavior] = []
-    acceptance_criteria: list[str] = []   # capability-level, used when no behaviors
+    acceptance_criteria: list[str] = []  # capability-level, used when no behaviors
     examples: list[GivenWhenThen] = []
     done_enough: list[DoneEnoughBlock] = []
     excluded: list[str] = []
     open_questions: list[str] = []
-    tickets: list[str] = []                # rebuilt by spec-gen from ticket store
+    tickets: list[str] = []  # rebuilt by spec-gen from ticket store
     aliases: list[str] = []
     created_at: datetime
     last_updated: datetime

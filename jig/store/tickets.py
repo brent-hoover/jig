@@ -11,7 +11,9 @@ from jig.ticket import Ticket, TicketStatus, WorkType
 
 logger = logging.getLogger(__name__)
 
-StatusChangeCallback = Callable[[str, Union[str, None], str], Union[Awaitable[None], None]]
+StatusChangeCallback = Callable[
+    [str, Union[str, None], str], Union[Awaitable[None], None]
+]
 
 # All shipped work_types currently participate in the workflow pipeline.
 # Phase 2 will introduce per-work_type workflow selection via config.yaml,
@@ -55,9 +57,7 @@ class TicketStore:
             return await self._collection.insert(ticket)
         except ValueError as e:
             if "already exists" in str(e):
-                raise ValueError(
-                    f"ticket with id {ticket.id!r} already exists"
-                ) from e
+                raise ValueError(f"ticket with id {ticket.id!r} already exists") from e
             raise
 
     async def get(self, ticket_id: str) -> Ticket | None:
@@ -103,9 +103,7 @@ class TicketStore:
         results: list[Ticket] = []
         for wt in TOP_LEVEL_WORK_TYPES:
             for status in (TicketStatus.IN_PROGRESS, TicketStatus.NEEDS_INFO):
-                found = await self._collection.find_where(
-                    work_type=wt, status=status
-                )
+                found = await self._collection.find_where(work_type=wt, status=status)
                 results.extend(t for t in found if t.workflow != "thread")
         return results
 

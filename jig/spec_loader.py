@@ -22,6 +22,7 @@ modules (``po_l0_mcp.py``, ``po_l3_mcp.py``, ``sa_mcp.py``); the build-plan
 writer is co-located here because Track F bones has no PM agent yet — the
 synthetic operator calls ``write_build_plan`` directly.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -229,9 +230,7 @@ def cascades_dir(project_root: Path) -> Path:
     return project_root / ".jig" / "arch" / "cascades"
 
 
-def cascade_proposal_path(
-    project_root: Path, risk_id: str, ts: str
-) -> Path:
+def cascade_proposal_path(project_root: Path, risk_id: str, ts: str) -> Path:
     """Deterministic path for one cascade proposal.
 
     ``ts`` is the writer-generated timestamp (an ISO-like string with
@@ -371,8 +370,7 @@ def discovery_playback_path(project_root: Path, journey_id: str) -> Path:
     """
     validate_safe_path_segment(journey_id, "journey_id")
     return (
-        project_root
-        / ".jig" / "spec" / "discovery" / "playbacks" / f"{journey_id}.md"
+        project_root / ".jig" / "spec" / "discovery" / "playbacks" / f"{journey_id}.md"
     )
 
 
@@ -472,6 +470,7 @@ def load_ontology(project_root: Path) -> Ontology:
     # Local import to avoid circular: po_ontology_mcp depends on this
     # module (path helpers); the parser depends on the schema.
     from jig.po_ontology_mcp import parse_ontology_md
+
     return parse_ontology_md(src.read_text())
 
 
@@ -488,6 +487,7 @@ def save_ontology(
     can still write a valid file.
     """
     from jig.po_ontology_mcp import render_ontology_md
+
     md = render_ontology_md(ontology, project_name=project_name)
     atomic_write_text(ontology_path(project_root), md)
 
@@ -760,4 +760,6 @@ def save_tracer(project_root: Path, tracer: TracerSpec) -> None:
     """Atomically write a tracer spec to ``.jig/spec/tracers/<id>.yaml``."""
     path = tracer_path(project_root, tracer.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, yaml.safe_dump(tracer.model_dump(mode="json"), sort_keys=False))
+    atomic_write_text(
+        path, yaml.safe_dump(tracer.model_dump(mode="json"), sort_keys=False)
+    )

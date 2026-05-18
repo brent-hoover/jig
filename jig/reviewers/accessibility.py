@@ -38,6 +38,7 @@ needs to satisfy. The reviewer is **default-on** for Final-layer
 tickets when ``ticket.visual_references`` is non-empty; the dispatch
 table wires the call.
 """
+
 from __future__ import annotations
 
 import re
@@ -80,9 +81,7 @@ _ALT_ATTR_RE = re.compile(
 )
 
 # Form-control elements per WCAG 1.3.1.
-_INPUT_TAG_RE = re.compile(
-    r"<(input|select|textarea)\b([^>]*)>", re.IGNORECASE
-)
+_INPUT_TAG_RE = re.compile(r"<(input|select|textarea)\b([^>]*)>", re.IGNORECASE)
 # id attribute extractor; form fields need it for label association.
 _ID_ATTR_RE = re.compile(
     r"\bid\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|(\S+))",
@@ -92,16 +91,12 @@ _ID_ATTR_RE = re.compile(
 # a single regex because the suffix variation between the two
 # attributes is just "ledby" — but we need a real alternation since
 # they don't share a common stem after "aria-label".
-_ARIA_LABEL_RE = re.compile(
-    r"\baria-(?:label|labelledby)\s*=", re.IGNORECASE
-)
+_ARIA_LABEL_RE = re.compile(r"\baria-(?:label|labelledby)\s*=", re.IGNORECASE)
 # Hidden / type=submit / type=button / type=hidden don't need a visible
 # label by name — they get the attribute as the accessible label
 # automatically. We allowlist these so the reviewer doesn't false-
 # positive on a Post button.
-_INPUT_TYPE_RE = re.compile(
-    r"\btype\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", re.IGNORECASE
-)
+_INPUT_TYPE_RE = re.compile(r"\btype\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", re.IGNORECASE)
 _LABEL_FREE_INPUT_TYPES: frozenset[str] = frozenset(
     {"hidden", "submit", "button", "reset", "image"}
 )
@@ -113,9 +108,7 @@ _LABEL_FOR_RE = re.compile(
     re.IGNORECASE,
 )
 # A field nested inside a <label> is also labeled by association.
-_LABEL_BLOCK_RE = re.compile(
-    r"<label\b[^>]*>.*?</label>", re.IGNORECASE | re.DOTALL
-)
+_LABEL_BLOCK_RE = re.compile(r"<label\b[^>]*>.*?</label>", re.IGNORECASE | re.DOTALL)
 
 # Heading hierarchy.
 _HEADING_RE = re.compile(r"<(h[1-6])\b[^>]*>", re.IGNORECASE)
@@ -249,16 +242,12 @@ class AccessibilityReviewer:
                 continue
 
             html = wf_path.read_text()
-            comments.extend(
-                _audit_html(html, ticket_id=ticket.id, screen_id=screen_id)
-            )
+            comments.extend(_audit_html(html, ticket_id=ticket.id, screen_id=screen_id))
 
         return comments
 
 
-def _audit_html(
-    html: str, *, ticket_id: str, screen_id: str
-) -> list[ReviewerComment]:
+def _audit_html(html: str, *, ticket_id: str, screen_id: str) -> list[ReviewerComment]:
     """Run every WCAG AA check on one wireframe; return all violations."""
     violations: list[ReviewerComment] = []
 
@@ -290,9 +279,7 @@ def _violation(
     )
 
 
-def _check_alt_text(
-    html: str, ticket_id: str, screen_id: str
-) -> list[ReviewerComment]:
+def _check_alt_text(html: str, ticket_id: str, screen_id: str) -> list[ReviewerComment]:
     out: list[ReviewerComment] = []
     for m in _IMG_TAG_RE.finditer(html):
         attrs = m.group(1)
@@ -303,8 +290,8 @@ def _check_alt_text(
                     rule_id="WCAG 1.1.1 Non-text Content",
                     message=(
                         f"<img> in wireframe {screen_id!r} is missing an "
-                        "alt attribute. Add alt=\"...\" describing the "
-                        "image (or alt=\"\" for purely decorative images)."
+                        'alt attribute. Add alt="..." describing the '
+                        'image (or alt="" for purely decorative images).'
                     ),
                     ticket_id=ticket_id,
                 )
@@ -363,7 +350,7 @@ def _check_form_labels(
                 rule_id="WCAG 1.3.1 Info and Relationships",
                 message=(
                     f"<{tag}> in wireframe {screen_id!r} has no accessible "
-                    "label. Add a <label for=\"<id>\"> matching the "
+                    'label. Add a <label for="<id>"> matching the '
                     "field's id, wrap the field in a <label>, or add "
                     "aria-label / aria-labelledby."
                 ),
@@ -481,7 +468,7 @@ def _check_html_lang(
                 rule_id="WCAG 3.1.1 Language of Page",
                 message=(
                     f"<html> in wireframe {screen_id!r} is missing a "
-                    "lang attribute. Add lang=\"en\" (or the page's "
+                    'lang attribute. Add lang="en" (or the page\'s '
                     "primary language) so assistive tech can pronounce "
                     "content correctly."
                 ),
@@ -495,8 +482,8 @@ def _check_html_lang(
             _violation(
                 rule_id="WCAG 3.1.1 Language of Page",
                 message=(
-                    f"<html lang=\"\"> in wireframe {screen_id!r} is "
-                    "empty. Add a real language tag (e.g. \"en\")."
+                    f'<html lang=""> in wireframe {screen_id!r} is '
+                    'empty. Add a real language tag (e.g. "en").'
                 ),
                 ticket_id=ticket_id,
             )

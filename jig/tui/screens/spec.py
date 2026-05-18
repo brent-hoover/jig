@@ -12,6 +12,7 @@ Live data:
     (or None if no spec exists yet)
   - No event-driven update for v0 — re-subscribe via reconnect to refresh
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -110,13 +111,17 @@ class SpecScreen(Container):
         for state_key, label, color in _STATE_GROUPS:
             items = by_state.get(state_key, [])
             count = len(items)
-            node = tree.root.add(f"[{color}]{label}[/{color}] ({count})", expand=count > 0)
+            node = tree.root.add(
+                f"[{color}]{label}[/{color}] ({count})", expand=count > 0
+            )
             for cap in items:
                 cap_node = node.add_leaf(cap.get("title", "(untitled)"))
                 cap_node.data = ("capability", cap.get("id"))
         # Non-goals
         non_goals = spec.get("non_goals") or []
-        ng_node = tree.root.add(f"[#888888]Non-Goals[/#888888] ({len(non_goals)})", expand=True)
+        ng_node = tree.root.add(
+            f"[#888888]Non-Goals[/#888888] ({len(non_goals)})", expand=True
+        )
         for ng in non_goals:
             ng_leaf = ng_node.add_leaf(ng.get("text", "(empty)")[:50])
             ng_leaf.data = ("non_goal", ng.get("id"))
@@ -145,15 +150,23 @@ class SpecScreen(Container):
             return
         kind, item_id = target
         if kind == "capability":
-            cap = next((c for c in self.spec.get("capabilities") or []
-                        if c.get("id") == item_id), None)
+            cap = next(
+                (
+                    c
+                    for c in self.spec.get("capabilities") or []
+                    if c.get("id") == item_id
+                ),
+                None,
+            )
             if not cap:
                 detail.update(f"[dim]capability not found: {item_id}[/dim]")
                 return
             detail.update(self._render_capability(cap))
         elif kind == "non_goal":
-            ng = next((n for n in self.spec.get("non_goals") or []
-                       if n.get("id") == item_id), None)
+            ng = next(
+                (n for n in self.spec.get("non_goals") or [] if n.get("id") == item_id),
+                None,
+            )
             if not ng:
                 detail.update(f"[dim]non-goal not found: {item_id}[/dim]")
                 return
@@ -162,7 +175,9 @@ class SpecScreen(Container):
     def _render_capability(self, cap: dict[str, Any]) -> str:
         lines: list[str] = []
         lines.append(f"[bold]{cap.get('title', '?')}[/bold]")
-        lines.append(f"[dim]id:[/dim] {cap.get('id', '')}    [dim]state:[/dim] {cap.get('state', '?')}")
+        lines.append(
+            f"[dim]id:[/dim] {cap.get('id', '')}    [dim]state:[/dim] {cap.get('state', '?')}"
+        )
         if cap.get("aliases"):
             lines.append(f"[dim]aliases:[/dim] {', '.join(cap['aliases'])}")
         if cap.get("summary"):

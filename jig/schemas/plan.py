@@ -10,6 +10,7 @@ extension fields exposed via ``jig.ticket.Ticket`` (``suite_id``,
 ``module_id``, ``capability_ids``, ``epic_id``, ``layer``, ``dev_tier``,
 ``reviewer_set``, ``context_hints``, ``risks_addressed``, ``done_when``).
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -136,12 +137,8 @@ class BuildPlan(BaseModel):
     spec_version: int = 1
     project: str = Field(..., min_length=1)
     revision: int = Field(default=1, ge=1)
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    last_revised: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_revised: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ordering_rule: OrderingRule = OrderingRule.BONES_FIRST
     epics: list[Epic] = Field(default_factory=list)
     stalled: list[StalledTicket] = Field(default_factory=list)
@@ -186,9 +183,7 @@ class BuildPlan(BaseModel):
                 for tid in layer_obj.tickets:
                     anchor = f"{epic.id}.{layer_name}"
                     if tid in ticket_seen:
-                        ticket_dupes.setdefault(
-                            tid, [ticket_seen[tid]]
-                        ).append(anchor)
+                        ticket_dupes.setdefault(tid, [ticket_seen[tid]]).append(anchor)
                     else:
                         ticket_seen[tid] = anchor
         if ticket_dupes:

@@ -1,4 +1,5 @@
 """Error types for project URI parsing and resolution."""
+
 from __future__ import annotations
 
 

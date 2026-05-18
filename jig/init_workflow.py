@@ -4,6 +4,7 @@ Dispatches between fresh-init and resume, drives the PO / spec-gen /
 SA conversation loops, and finalizes scaffold. v1: stub creation only —
 PO/spec-gen/SA are wired in later tasks.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -136,6 +137,7 @@ def create_stub(path: Path, *, name: str) -> None:
         # write "main" and worktree creation fails on repos using
         # "develop", "master", "trunk", etc.
         from jig.persistence import _detect_git_branch
+
         default_branch = _detect_git_branch(path)
         save_project(
             path,
@@ -238,25 +240,33 @@ async def run_init(
             )
         if rs == ResumeState.PO_CONVERSATION:
             await run_po_conversation(
-                project_path=target, tickets=tickets,
-                threads=threads, memory=memory, bus=bus,
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
                 console=console,
             )
             continue
         if rs == ResumeState.NEEDS_ANSWER_BRIEF:
             await prompt_and_post_answers(
-                tickets=tickets, threads=threads, bus=bus,
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
                 ticket_id="brief",
                 console=console,
                 prompts=prompts,
             )
             continue
         if rs == ResumeState.BRIEF_APPROVAL:
-            decision = await prompt_brief_approval(target, console=console, prompts=prompts)
+            decision = await prompt_brief_approval(
+                target, console=console, prompts=prompts
+            )
             if decision == BriefApprovalChoice.YES:
                 await threads.post(
                     SystemEvent(
-                        ticket_id="brief", author="cli",
+                        ticket_id="brief",
+                        author="cli",
                         event_type="brief_approved",
                         content="operator approved brief",
                     )
@@ -277,13 +287,18 @@ async def run_init(
                 subtitle="Generating structured spec from docs/brief.md",
             ) as emitter:
                 await run_spec_generator(
-                    project_path=target, tickets=tickets,
-                    threads=threads, memory=memory, bus=bus,
+                    project_path=target,
+                    tickets=tickets,
+                    threads=threads,
+                    memory=memory,
+                    bus=bus,
                     emitter=emitter,
                 )
             continue
         if rs == ResumeState.GAP_PROMPT:
-            decision = await prompt_gap_decision(threads, console=console, prompts=prompts)
+            decision = await prompt_gap_decision(
+                threads, console=console, prompts=prompts
+            )
             if decision == "Q":
                 console.print(
                     "State saved. Resume later with `jig init <name>`.",
@@ -291,8 +306,11 @@ async def run_init(
                 )
                 return
             await run_po_conversation(
-                project_path=target, tickets=tickets,
-                threads=threads, memory=memory, bus=bus,
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
                 console=console,
             )
             continue
@@ -300,40 +318,51 @@ async def run_init(
             choice = await prompt_branch_choice(console=console, prompts=prompts)
             if choice == BranchChoice.STAY:
                 await run_po_conversation(
-                    project_path=target, tickets=tickets,
-                    threads=threads, memory=memory, bus=bus,
+                    project_path=target,
+                    tickets=tickets,
+                    threads=threads,
+                    memory=memory,
+                    bus=bus,
                     console=console,
                 )
                 continue
             if choice == BranchChoice.DIRECT:
-                await create_sa_skipped_marker(
-                    tickets=tickets, threads=threads
-                )
+                await create_sa_skipped_marker(tickets=tickets, threads=threads)
                 continue
             # SA: create ticket (if needed) and run.
             await run_sa_conversation(
-                project_path=target, tickets=tickets,
-                threads=threads, memory=memory, bus=bus,
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
                 console=console,
             )
             continue
         if rs == ResumeState.SA_CONVERSATION:
             await run_sa_conversation(
-                project_path=target, tickets=tickets,
-                threads=threads, memory=memory, bus=bus,
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
                 console=console,
             )
             continue
         if rs == ResumeState.NEEDS_ANSWER_ARCH:
             await prompt_and_post_answers(
-                tickets=tickets, threads=threads, bus=bus,
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
                 ticket_id="architecture",
                 console=console,
                 prompts=prompts,
             )
             continue
         if rs == ResumeState.SA_CONFIRM_PROMPT:
-            decision, proposal = await prompt_sa_confirm(threads, console=console, prompts=prompts)
+            decision, proposal = await prompt_sa_confirm(
+                threads, console=console, prompts=prompts
+            )
             if decision == ConfirmChoice.NO:
                 console.print("Scaffold cancelled. State saved.", markup=False)
                 return
@@ -346,8 +375,11 @@ async def run_init(
                 # proposal and can hit `n` to abort. We do not record a
                 # swap marker — the proposal sequence itself is the trail.
                 await run_sa_conversation(
-                    project_path=target, tickets=tickets,
-                    threads=threads, memory=memory, bus=bus,
+                    project_path=target,
+                    tickets=tickets,
+                    threads=threads,
+                    memory=memory,
+                    bus=bus,
                     console=console,
                 )
                 continue
@@ -359,10 +391,13 @@ async def run_init(
                 config=proposal.get("decisions", proposal.get("config", {})),
                 constraints=proposal.get("constraints", []),
                 open_questions=proposal.get("open_questions", []),
-                tickets=tickets, threads=threads,
+                tickets=tickets,
+                threads=threads,
                 console=console,
             )
-            _print_summary(target, template_name=proposal["template_name"], console=console)
+            _print_summary(
+                target, template_name=proposal["template_name"], console=console
+            )
             await _create_planning_ticket(tickets, target)
             await prompts.ask_init_complete(console=console)
             return
@@ -373,7 +408,8 @@ async def run_init(
                 template_name=tpl,
                 sa_path=False,
                 config=None,
-                tickets=tickets, threads=threads,
+                tickets=tickets,
+                threads=threads,
                 console=console,
             )
             _print_summary(target, template_name=tpl, console=console)
@@ -390,8 +426,7 @@ async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> N
         return
     spec_path = project_path / "docs" / "project.structured.yaml"
     description = (
-        "Break down the project spec into implementation tickets.\n\n"
-        f"Spec: {spec_path}"
+        f"Break down the project spec into implementation tickets.\n\nSpec: {spec_path}"
     )
     await tickets.create(
         Ticket(
@@ -433,7 +468,9 @@ def _print_summary(
     c.print("[bold black on green] ✓ Init complete [/bold black on green]")
     c.print()
     c.print(f"  [bold cyan]Brief[/bold cyan]         {target}/docs/brief.md")
-    c.print(f"  [bold cyan]Spec[/bold cyan]          {target}/docs/project.structured.yaml")
+    c.print(
+        f"  [bold cyan]Spec[/bold cyan]          {target}/docs/project.structured.yaml"
+    )
     c.print(f"  [bold cyan]Architecture[/bold cyan]  {target}/docs/architecture.yaml")
     c.print(
         f"  [bold cyan]Template[/bold cyan]      "
@@ -497,8 +534,7 @@ async def _seed_baked_brief(
     entries = await threads.for_ticket("brief")
     has_handoff = any(isinstance(e, Handoff) for e in entries)
     has_approved = any(
-        isinstance(e, SystemEvent) and e.event_type == "brief_approved"
-        for e in entries
+        isinstance(e, SystemEvent) and e.event_type == "brief_approved" for e in entries
     )
 
     if not has_handoff:
@@ -525,8 +561,11 @@ async def _seed_baked_brief(
             )
         )
         await _resolve_after_handoff(
-            tickets=tickets, threads=threads, bus=bus,
-            ticket_id="brief", author="cli",
+            tickets=tickets,
+            threads=threads,
+            bus=bus,
+            ticket_id="brief",
+            author="cli",
         )
 
     if not has_approved:
@@ -654,13 +693,12 @@ async def _cli_emitter(
         # has a "Working on: …" line beneath the role name — operators
         # then see what's happening, not just "an agent started."
         from jig.events import JigEvent
+
         loop = asyncio.get_running_loop()
         data = {"role": role_label}
         if subtitle:
             data["ticket_title"] = subtitle
-        _t = loop.create_task(
-            tui_emitter.emit(JigEvent(type="agent_start", data=data))
-        )
+        _t = loop.create_task(tui_emitter.emit(JigEvent(type="agent_start", data=data)))
         _BACKGROUND_TASKS.add(_t)
 
         def _on_done(t: asyncio.Task) -> None:
@@ -671,6 +709,7 @@ async def _cli_emitter(
         _t.add_done_callback(_on_done)
     else:
         from rich.rule import Rule
+
         c.print()
         c.print(Rule(f"[bold cyan]{role_label}[/bold cyan]", style="cyan"))
 
@@ -745,10 +784,7 @@ async def latest_gap_note(threads: ThreadStore) -> Note | None:
     or None if no gaps have been reported.
     """
     entries = await threads.for_ticket("brief")
-    gap_notes = [
-        e for e in entries
-        if isinstance(e, Note) and "gaps" in e.payload
-    ]
+    gap_notes = [e for e in entries if isinstance(e, Note) and "gaps" in e.payload]
     if not gap_notes:
         return None
     return gap_notes[-1]
@@ -916,7 +952,8 @@ async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:
     """
     entries = await threads.for_ticket("architecture")
     proposals = [
-        e for e in entries
+        e
+        for e in entries
         if isinstance(e, Note) and e.payload.get("kind") == "sa_propose_scaffold"
     ]
     if not proposals:
@@ -1099,11 +1136,7 @@ def _commit_scaffold(
     # doesn't get committed alongside the scaffold.
     gitignore = project_path / ".gitignore"
     existing = gitignore.read_text() if gitignore.is_file() else ""
-    to_add = [
-        entry
-        for entry in (".jig/",)
-        if entry not in existing.splitlines()
-    ]
+    to_add = [entry for entry in (".jig/",) if entry not in existing.splitlines()]
     if to_add:
         prefix = existing.rstrip() + "\n" if existing.strip() else ""
         atomic_write_text(gitignore, prefix + "\n".join(to_add) + "\n")
@@ -1214,6 +1247,7 @@ async def apply_scaffold(
     #    truth for soft-failure semantics.
     c = console or _spawn_console()
     from jig.hooks import HookInstallError, install_hooks
+
     try:
         install_hooks(project_path)
     except (HookInstallError, RuntimeError) as exc:
@@ -1341,10 +1375,10 @@ def _display_tool_name(tool: str) -> str:
     """
     if tool.startswith("mcp__"):
         # Format is mcp__<server>__<tool>; strip both prefix segments.
-        rest = tool[len("mcp__"):]
+        rest = tool[len("mcp__") :]
         sep = rest.find("__")
         if sep != -1:
-            return rest[sep + 2:]
+            return rest[sep + 2 :]
     return tool
 
 
@@ -1435,11 +1469,10 @@ async def _open_questions(threads: ThreadStore, ticket_id: str) -> list[Question
     questions on every PO/SA respawn.
     """
     entries = await threads.for_ticket(ticket_id)
-    answered_ids = {
-        e.question_id for e in entries if isinstance(e, Answer)
-    }
+    answered_ids = {e.question_id for e in entries if isinstance(e, Answer)}
     open_qs = [
-        e for e in entries
+        e
+        for e in entries
         if isinstance(e, Question)
         and e.target == "any_human"
         and not e.is_resolved()
@@ -1543,5 +1576,3 @@ async def classify_resume(
     if await _ticket_awaits_answer(tickets, threads, "architecture"):
         return ResumeState.NEEDS_ANSWER_ARCH
     return ResumeState.SA_CONVERSATION
-
-

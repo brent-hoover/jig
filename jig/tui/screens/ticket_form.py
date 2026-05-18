@@ -5,6 +5,7 @@ dispatches the appropriate /ticket slash command via the daemon
 client. Modals don't talk to the daemon directly — keep the
 side-effect surface narrow.
 """
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -79,9 +80,7 @@ class NewTicketModal(ModalScreen):
             yield Label("Title")
             yield Input(id="f-title", placeholder="ticket title")
             yield Label("Type")
-            yield Select(
-                _WORK_TYPES, id="f-type", value="feature", allow_blank=False
-            )
+            yield Select(_WORK_TYPES, id="f-type", value="feature", allow_blank=False)
             yield Label("Size")
             yield Select(_SIZES, id="f-size", value="m", allow_blank=False)
             yield Label("Assignee (optional)")

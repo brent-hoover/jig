@@ -11,6 +11,7 @@ Pane is active so the operator always has a peripheral view of:
 Each subzone is fed by JigApp's ``_handle_daemon_message`` fan-out
 when relevant snapshots / events arrive.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -35,7 +36,9 @@ class _Zone(Vertical):
         self._body = Static(f"[dim]{empty}[/dim]", id=f"{zone_id}-body", markup=True)
 
     def compose(self) -> ComposeResult:
-        yield Static(f"[{_HEADER_STYLE}] {self._title} [/]", classes="zone-header", markup=True)
+        yield Static(
+            f"[{_HEADER_STYLE}] {self._title} [/]", classes="zone-header", markup=True
+        )
         yield self._body
 
     def set_lines(self, lines: list[str]) -> None:
@@ -91,7 +94,9 @@ class Sidebar(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._active_agents: dict[str, dict[str, Any]] = {}  # "ticket_id:role" → state
-        self._agent_tools: dict[str, deque[tuple[str, str]]] = {}  # "ticket_id:role" → [(tool, detail)]
+        self._agent_tools: dict[
+            str, deque[tuple[str, str]]
+        ] = {}  # "ticket_id:role" → [(tool, detail)]
         self._tickets: dict[str, dict[str, Any]] = {}
         self._events: list[dict[str, Any]] = []
         self._active_prompt: dict | None = None
@@ -205,9 +210,7 @@ class Sidebar(Widget):
 
     def update_ticket_event(self, kind: str, data: dict) -> None:
         ticket_payload = (
-            data.get("ticket")
-            if isinstance(data.get("ticket"), dict)
-            else data
+            data.get("ticket") if isinstance(data.get("ticket"), dict) else data
         )
         ticket_id = ticket_payload.get("id") or data.get("ticket_id")
         if not ticket_id:
@@ -298,11 +301,18 @@ class Sidebar(Widget):
             return
         # Open / in-flight tickets only (resolved/closed not interesting here)
         open_tickets = [
-            t for t in self._tickets.values()
+            t
+            for t in self._tickets.values()
             if t.get("status", "open") in self._OPEN_STATUSES
         ]
         # Sort: needs_info first, then in_progress, then open, then blocked.
-        order = {"needs_info": 0, "in_progress": 1, "open": 2, "blocked": 3, "merge_conflict": 4}
+        order = {
+            "needs_info": 0,
+            "in_progress": 1,
+            "open": 2,
+            "blocked": 3,
+            "merge_conflict": 4,
+        }
         open_tickets.sort(key=lambda t: order.get(t.get("status", "open"), 99))
         lines = []
         for t in open_tickets[:10]:
@@ -335,19 +345,19 @@ class Sidebar(Widget):
 
     _KIND_LABELS: dict[str, str] = {
         "ticket_dispatched": "▶ dispatched",
-        "ticket_completed":  "✓ completed",
-        "ticket_failed":     "✗ failed",
+        "ticket_completed": "✓ completed",
+        "ticket_failed": "✗ failed",
         "ticket_merge_conflict": "⚡ merge conflict",
-        "ticket_updated":    "↻ updated",
-        "ticket_created":    "+ created",
-        "comment_posted":    "💬 comment",
-        "phase_start":       "▷ phase start",
-        "phase_end":         "▶ phase end",
-        "agent_run":         "✓ agent run",
-        "scaffold_applied":  "🏗 scaffold",
-        "spec_generated":    "📜 spec",
-        "brief_approved":    "✓ brief approved",
-        "project_complete":  "✅ project done",
+        "ticket_updated": "↻ updated",
+        "ticket_created": "+ created",
+        "comment_posted": "💬 comment",
+        "phase_start": "▷ phase start",
+        "phase_end": "▶ phase end",
+        "agent_run": "✓ agent run",
+        "scaffold_applied": "🏗 scaffold",
+        "spec_generated": "📜 spec",
+        "brief_approved": "✓ brief approved",
+        "project_complete": "✅ project done",
         "analysis_complete": "📊 analysis done",
     }
 

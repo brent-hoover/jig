@@ -10,6 +10,7 @@ Track H MVP added ``coverage_tags`` (validated against the canonical
 taxonomy in ``jig.sim.coverage``) + ``tier`` for CI integration.
 Policy-driven turns + ``retry_count`` are Final.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -300,9 +301,7 @@ class ScenarioStep(BaseModel):
     @model_validator(mode="after")
     def _enforce_known_required_params(self) -> "ScenarioStep":
         kind_value = (
-            self.kind.value
-            if isinstance(self.kind, StepKind)
-            else str(self.kind)
+            self.kind.value if isinstance(self.kind, StepKind) else str(self.kind)
         )
         required = _REQUIRED_PARAM_KEYS.get(kind_value)
         if required is None:

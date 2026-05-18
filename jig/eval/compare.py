@@ -1,4 +1,5 @@
 """Compare two RunManifests and emit a markdown table."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,9 +31,7 @@ def _find_manifest(runs_root: Path, project_id: str, label: str) -> Path:
             data = yaml.safe_load(m.read_text()) or {}
             if data.get("label") == label or data.get("run_id") == label:
                 return m
-    raise FileNotFoundError(
-        f"No manifest with label or run_id '{label}' under {base}"
-    )
+    raise FileNotFoundError(f"No manifest with label or run_id '{label}' under {base}")
 
 
 def _delta(before: Any, after: Any) -> str:
@@ -90,19 +89,19 @@ def compare_manifests(before: RunManifest, after: RunManifest) -> str:
 
     # Cost + throughput
     lines.append(row("cost_usd", before.total_cost_usd, after.total_cost_usd))
-    lines.append(
-        row("duration_ms", before.total_duration_ms, after.total_duration_ms)
-    )
+    lines.append(row("duration_ms", before.total_duration_ms, after.total_duration_ms))
     lines.append(row("agent_spawns", before.agent_spawn_count, after.agent_spawn_count))
     lines.append(row("fix_cycles", before.fix_cycle_count, after.fix_cycle_count))
 
     # Tracer
     b_tracer = (
-        "pass" if before.tracer and before.tracer.passed
+        "pass"
+        if before.tracer and before.tracer.passed
         else ("fail" if before.tracer else "n/a")
     )
     a_tracer = (
-        "pass" if after.tracer and after.tracer.passed
+        "pass"
+        if after.tracer and after.tracer.passed
         else ("fail" if after.tracer else "n/a")
     )
     lines.append(row("tracer", b_tracer, a_tracer))

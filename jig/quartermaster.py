@@ -37,6 +37,7 @@ Final scope additions:
   no feedback the calibration drifts back toward defaults by 1 per
   threshold per 30-day window.
 """
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -254,9 +255,7 @@ class Quartermaster:
         period_start = period_end - timedelta(days=self._window_days)
 
         all_events = await self._analytics.all()
-        in_window = [
-            e for e in all_events if period_start <= e.timestamp <= period_end
-        ]
+        in_window = [e for e in all_events if period_start <= e.timestamp <= period_end]
 
         metrics = self._headline_metrics(in_window)
         patterns = self._detect_patterns(in_window)
@@ -306,7 +305,9 @@ class Quartermaster:
         out.extend(self._pattern_complex_tickets(events))
         return out
 
-    def _pattern_module_escalations(self, events: list[AnalyticsEvent]) -> list[Pattern]:
+    def _pattern_module_escalations(
+        self, events: list[AnalyticsEvent]
+    ) -> list[Pattern]:
         """Modules with >= N escalations in-window. Resolves ticket → module
         via the caller-supplied map; tickets with no module mapping are
         skipped (we'd otherwise miscount unmapped tickets as one bucket).
@@ -441,8 +442,7 @@ class Quartermaster:
                     f"{len(offenders)} ticket(s) crossed >= "
                     f"{self._complex_ticket_boundary_threshold} module "
                     "boundaries — these may be too large or signal "
-                    "incorrect module decomposition: "
-                    + ", ".join(ticket_ids)
+                    "incorrect module decomposition: " + ", ".join(ticket_ids)
                 ),
                 evidence_event_ids=[eid for _, eid in offenders],
             )
@@ -462,7 +462,9 @@ class Quartermaster:
             ),
             reverse=True,
         )
-        return [f"{p.kind}: {p.description}" for p in ranked[: self._recommendation_limit]]
+        return [
+            f"{p.kind}: {p.description}" for p in ranked[: self._recommendation_limit]
+        ]
 
 
 # ---- formatter ---------------------------------------------------------
@@ -507,9 +509,7 @@ def format_briefing(b: WeeklyBriefing) -> str:
         for p in b.notable_patterns:
             lines.append(f"- **{p.kind}** — {p.description}")
             if p.evidence_event_ids:
-                lines.append(
-                    f"  - Evidence: {len(p.evidence_event_ids)} event(s)"
-                )
+                lines.append(f"  - Evidence: {len(p.evidence_event_ids)} event(s)")
     lines.append("")
 
     lines.append("## Attention recommendations")
@@ -653,9 +653,7 @@ class BriefingFeedback(BaseModel):
     useful: bool
     not_useful_pattern_ids: list[str] = Field(default_factory=list)
     note: str | None = None
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class PatternCalibration(BaseModel):
@@ -810,9 +808,7 @@ def compute_calibration(
         if drift_steps <= 0:
             continue
         default = _DEFAULT_THRESHOLDS[pattern_id]
-        thresholds[pattern_id] = max(
-            thresholds[pattern_id] - drift_steps, default
-        )
+        thresholds[pattern_id] = max(thresholds[pattern_id] - drift_steps, default)
         if thresholds[pattern_id] == default:
             # Once the calibration drifts all the way back to default,
             # drop the entry — the briefing path falls back to default

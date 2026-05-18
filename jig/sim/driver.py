@@ -26,6 +26,7 @@ the SDK invocation is the same path production uses, just rooted at
 the simulator's tmp dir. Operators opt in via ``jig sim run --real``
 (see ``jig.sim.cli``).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -164,9 +165,8 @@ class ScenarioReport:
 
     @property
     def passed(self) -> bool:
-        return (
-            all(s.passed for s in self.step_outcomes)
-            and all(a.passed for a in self.final_assertion_results)
+        return all(s.passed for s in self.step_outcomes) and all(
+            a.passed for a in self.final_assertion_results
         )
 
     def failed_assertions(self) -> list[AssertionResult]:
@@ -423,9 +423,7 @@ class Driver:
     test suites and CI never accidentally cost money.
     """
 
-    def __init__(
-        self, *, real_mode: bool = False, tui_mode: bool = False
-    ) -> None:
+    def __init__(self, *, real_mode: bool = False, tui_mode: bool = False) -> None:
         self._real_mode = real_mode
         self._tui_mode = tui_mode
         self._tui_adapter: TuiDriverAdapter | None = None
@@ -450,15 +448,9 @@ class Driver:
             StepKind.TRIAGE_DEFERRED.value: _handle_triage_deferred,
             StepKind.MOCK_DEV_COMMIT.value: dev_handler,
             StepKind.RUN_REVIEWER.value: _handle_run_reviewer,
-            StepKind.INVOKE_DEV_PROVISIONING.value: (
-                _handle_invoke_dev_provisioning
-            ),
-            StepKind.INVOKE_DEV_EPHEMERAL.value: (
-                _handle_invoke_dev_ephemeral
-            ),
-            StepKind.INVOKE_FIXTURE_REPLAY.value: (
-                _handle_invoke_fixture_replay
-            ),
+            StepKind.INVOKE_DEV_PROVISIONING.value: (_handle_invoke_dev_provisioning),
+            StepKind.INVOKE_DEV_EPHEMERAL.value: (_handle_invoke_dev_ephemeral),
+            StepKind.INVOKE_FIXTURE_REPLAY.value: (_handle_invoke_fixture_replay),
             StepKind.INVOKE_VD_FINALIZE.value: _handle_invoke_vd_finalize,
             StepKind.INVOKE_QUARTERMASTER_FEEDBACK.value: (
                 _handle_invoke_quartermaster_feedback
@@ -472,33 +464,19 @@ class Driver:
             StepKind.INVOKE_SEVERITY_DISPOSITION.value: (
                 _handle_invoke_severity_disposition
             ),
-            StepKind.INVOKE_CASCADE_REJECT.value: (
-                _handle_invoke_cascade_reject
-            ),
-            StepKind.INVOKE_CASCADE_STAGE.value: (
-                _handle_invoke_cascade_stage
-            ),
-            StepKind.INVOKE_CASCADE_RISK_LOW.value: (
-                _handle_invoke_cascade_risk_low
-            ),
-            StepKind.INVOKE_TIER_PROMOTION.value: (
-                _handle_invoke_tier_promotion
-            ),
+            StepKind.INVOKE_CASCADE_REJECT.value: (_handle_invoke_cascade_reject),
+            StepKind.INVOKE_CASCADE_STAGE.value: (_handle_invoke_cascade_stage),
+            StepKind.INVOKE_CASCADE_RISK_LOW.value: (_handle_invoke_cascade_risk_low),
+            StepKind.INVOKE_TIER_PROMOTION.value: (_handle_invoke_tier_promotion),
             StepKind.INVOKE_CALIBRATION_RECORD.value: (
                 _handle_invoke_calibration_record
             ),
-            StepKind.INVOKE_VISION_DIFF.value: (
-                _handle_invoke_vision_diff
-            ),
+            StepKind.INVOKE_VISION_DIFF.value: (_handle_invoke_vision_diff),
             StepKind.INVOKE_ACCESSIBILITY_REVIEW.value: (
                 _handle_invoke_accessibility_review
             ),
-            StepKind.INVOKE_RESPONSIVE_REVIEW.value: (
-                _handle_invoke_responsive_review
-            ),
-            StepKind.INVOKE_DISCOVERY_RESUME.value: (
-                _handle_invoke_discovery_resume
-            ),
+            StepKind.INVOKE_RESPONSIVE_REVIEW.value: (_handle_invoke_responsive_review),
+            StepKind.INVOKE_DISCOVERY_RESUME.value: (_handle_invoke_discovery_resume),
             StepKind.INVOKE_ONTOLOGY_EDIT.value: _handle_invoke_ontology_edit,
             StepKind.INVOKE_FIXTURE_ENV.value: _handle_invoke_fixture_env,
             StepKind.INVOKE_OPERATOR_SUPPLIED.value: (
@@ -516,15 +494,11 @@ class Driver:
         """True when step invocations route through the TUI driver adapter (stub)."""
         return self._tui_mode
 
-    def register_step_handler(
-        self, kind: str, handler: StepHandler
-    ) -> None:
+    def register_step_handler(self, kind: str, handler: StepHandler) -> None:
         """Register an extra step handler — used by tests for synthetic kinds."""
         self._handlers[kind] = handler
 
-    async def run(
-        self, scenario: Scenario, *, project_root: Path
-    ) -> ScenarioReport:
+    async def run(self, scenario: Scenario, *, project_root: Path) -> ScenarioReport:
         report = ScenarioReport(scenario_id=scenario.id)
         async with _isolated_run(project_root) as ctx:
             # Track H Final — policy-driven scenarios pre-load the
@@ -555,9 +529,7 @@ class Driver:
             # a TUI interaction" and the trace log records the intent.
             if self._tui_mode:
                 ctx.tui_via_tag = "tui"
-                self._tui_adapter = TuiDriverAdapter(
-                    project_root=project_root
-                )
+                self._tui_adapter = TuiDriverAdapter(project_root=project_root)
                 await self._tui_adapter.start()
 
             for step in scenario.steps:
@@ -589,9 +561,7 @@ class Driver:
                         outcome.error = f"{type(e).__name__}: {e}"
                 if outcome.error is None:
                     for a in step.assertions:
-                        outcome.assertions.append(
-                            await _evaluate_assertion(ctx, a)
-                        )
+                        outcome.assertions.append(await _evaluate_assertion(ctx, a))
                 report.step_outcomes.append(outcome)
             # Cost aggregation: drain pending writes so AgentCompleted
             # events the orchestrator emit_nowait'd land in the store
@@ -601,9 +571,7 @@ class Driver:
             await ctx.emitter.drain()
             ctx.cost_usd = await _aggregate_agent_cost(ctx)
             for a in scenario.final_assertions:
-                report.final_assertion_results.append(
-                    await _evaluate_assertion(ctx, a)
-                )
+                report.final_assertion_results.append(await _evaluate_assertion(ctx, a))
             report.captured_events = await ctx.analytics.all()
             report.captured_reviewer_comments = dict(ctx.reviewer_comments)
             report.cost_usd = ctx.cost_usd
@@ -707,9 +675,7 @@ async def _handle_l0_finalize(ctx: DriverContext, step: ScenarioStep) -> None:
     )
 
 
-async def _handle_invoke_l1_finalize(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_l1_finalize(ctx: DriverContext, step: ScenarioStep) -> None:
     """Invoke handle_discovery_finalize. Auto-creates the discovery ticket.
 
     Bones scenarios hand-write suites.yaml directly and skip L1; MVP+
@@ -739,9 +705,7 @@ async def _handle_invoke_l1_finalize(
     )
 
 
-async def _handle_invoke_l2_finalize(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_l2_finalize(ctx: DriverContext, step: ScenarioStep) -> None:
     """Invoke handle_l2_finalize. Auto-creates the L2 suites ticket.
 
     Bones scenarios hand-write suites.yaml directly via
@@ -796,32 +760,20 @@ async def _handle_l3_finalize(ctx: DriverContext, step: ScenarioStep) -> None:
     )
 
 
-async def _handle_write_suites_yaml(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_write_suites_yaml(ctx: DriverContext, step: ScenarioStep) -> None:
     """Operator-hand-write of L2 ``.jig/spec/suites.yaml`` (bones)."""
     raw = step.params["suites_index"]
     # Validate via the schema so a malformed scenario fails before we
     # write garbage to disk.
-    index = (
-        raw
-        if isinstance(raw, SuitesIndex)
-        else SuitesIndex.model_validate(raw)
-    )
+    index = raw if isinstance(raw, SuitesIndex) else SuitesIndex.model_validate(raw)
     yaml_text = yaml.safe_dump(index.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(suites_index_path(ctx.project_root), yaml_text)
 
 
-async def _handle_write_architecture(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_write_architecture(ctx: DriverContext, step: ScenarioStep) -> None:
     """Operator-hand-write of ``architecture.yaml`` per bones (skips SA agent)."""
     raw = step.params["architecture"]
-    arch = (
-        raw
-        if isinstance(raw, Architecture)
-        else Architecture.model_validate(raw)
-    )
+    arch = raw if isinstance(raw, Architecture) else Architecture.model_validate(raw)
     yaml_text = yaml.safe_dump(arch.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(architecture_path(ctx.project_root), yaml_text)
 
@@ -833,21 +785,13 @@ async def _handle_write_module_contracts(
     module_id = step.params["module_id"]
     raw = step.params["contracts"]
     contracts = (
-        raw
-        if isinstance(raw, ContractsFile)
-        else ContractsFile.model_validate(raw)
+        raw if isinstance(raw, ContractsFile) else ContractsFile.model_validate(raw)
     )
-    yaml_text = yaml.safe_dump(
-        contracts.model_dump(mode="json"), sort_keys=False
-    )
-    atomic_write_text(
-        module_contracts_path(ctx.project_root, module_id), yaml_text
-    )
+    yaml_text = yaml.safe_dump(contracts.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(module_contracts_path(ctx.project_root, module_id), yaml_text)
 
 
-async def _handle_write_build_plan(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_write_build_plan(ctx: DriverContext, step: ScenarioStep) -> None:
     """Operator-hand-write of the build plan (bones has no Planner agent)."""
     raw = step.params["plan"]
     plan = raw if isinstance(raw, BuildPlan) else BuildPlan.model_validate(raw)
@@ -866,51 +810,67 @@ _SA_INCREMENTAL_HANDLERS = {
     "arch_set_data_store": lambda *, project_path, params: handle_arch_set_data_store(
         project_path=project_path, data_store=params["data_store"]
     ),
-    "arch_set_shared_contract": lambda *, project_path, params: handle_arch_set_shared_contract(
-        project_path=project_path, shared_contract=params["shared_contract"]
+    "arch_set_shared_contract": lambda *, project_path, params: (
+        handle_arch_set_shared_contract(
+            project_path=project_path, shared_contract=params["shared_contract"]
+        )
     ),
-    "arch_set_cross_cutting_policy": lambda *, project_path, params: handle_arch_set_cross_cutting_policy(
-        project_path=project_path, policy=params["policy"]
+    "arch_set_cross_cutting_policy": lambda *, project_path, params: (
+        handle_arch_set_cross_cutting_policy(
+            project_path=project_path, policy=params["policy"]
+        )
     ),
-    "arch_set_open_question": lambda *, project_path, params: handle_arch_set_open_question(
-        project_path=project_path, open_question=params["open_question"]
+    "arch_set_open_question": lambda *, project_path, params: (
+        handle_arch_set_open_question(
+            project_path=project_path, open_question=params["open_question"]
+        )
     ),
-    "module_set_owned_collection": lambda *, project_path, params: handle_module_set_owned_collection(
-        project_path=project_path,
-        module_id=params["module_id"],
-        owned_collection=params["owned_collection"],
+    "module_set_owned_collection": lambda *, project_path, params: (
+        handle_module_set_owned_collection(
+            project_path=project_path,
+            module_id=params["module_id"],
+            owned_collection=params["owned_collection"],
+        )
     ),
-    "module_set_external_dependency": lambda *, project_path, params: handle_module_set_external_dependency(
-        project_path=project_path,
-        module_id=params["module_id"],
-        external_dependency=params["external_dependency"],
+    "module_set_external_dependency": lambda *, project_path, params: (
+        handle_module_set_external_dependency(
+            project_path=project_path,
+            module_id=params["module_id"],
+            external_dependency=params["external_dependency"],
+        )
     ),
-    "module_set_integration_ac": lambda *, project_path, params: handle_module_set_integration_ac(
-        project_path=project_path,
-        module_id=params["module_id"],
-        integration_ac=params["integration_ac"],
+    "module_set_integration_ac": lambda *, project_path, params: (
+        handle_module_set_integration_ac(
+            project_path=project_path,
+            module_id=params["module_id"],
+            integration_ac=params["integration_ac"],
+        )
     ),
-    "module_set_behavioral_contract": lambda *, project_path, params: handle_module_set_behavioral_contract(
-        project_path=project_path,
-        module_id=params["module_id"],
-        behavioral_contract=params["behavioral_contract"],
+    "module_set_behavioral_contract": lambda *, project_path, params: (
+        handle_module_set_behavioral_contract(
+            project_path=project_path,
+            module_id=params["module_id"],
+            behavioral_contract=params["behavioral_contract"],
+        )
     ),
-    "module_set_data_contract": lambda *, project_path, params: handle_module_set_data_contract(
-        project_path=project_path,
-        module_id=params["module_id"],
-        data_contract=params["data_contract"],
+    "module_set_data_contract": lambda *, project_path, params: (
+        handle_module_set_data_contract(
+            project_path=project_path,
+            module_id=params["module_id"],
+            data_contract=params["data_contract"],
+        )
     ),
-    "module_set_open_question": lambda *, project_path, params: handle_module_set_open_question(
-        project_path=project_path,
-        module_id=params["module_id"],
-        open_question=params["open_question"],
+    "module_set_open_question": lambda *, project_path, params: (
+        handle_module_set_open_question(
+            project_path=project_path,
+            module_id=params["module_id"],
+            open_question=params["open_question"],
+        )
     ),
 }
 
 
-async def _handle_invoke_sa_incremental(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_sa_incremental(ctx: DriverContext, step: ScenarioStep) -> None:
     """Drive a sequence of SA upsert calls + a final ``arch_finalize``.
 
     Scenario YAML shape::
@@ -951,16 +911,12 @@ async def _handle_invoke_sa_incremental(
                 f"invoke_sa_incremental: unknown tool {tool_name!r}; "
                 f"known: {sorted(_SA_INCREMENTAL_HANDLERS)!r}"
             )
-        await handler(
-            project_path=ctx.project_root, params=entry.get("params", {})
-        )
+        await handler(project_path=ctx.project_root, params=entry.get("params", {}))
 
     finalize = dict(step.params.get("finalize") or {})
     finalize.setdefault("author", "sa-mvp")
     if "summary" not in finalize:
-        raise ValueError(
-            "invoke_sa_incremental: finalize.summary is required"
-        )
+        raise ValueError("invoke_sa_incremental: finalize.summary is required")
     await handle_arch_finalize(
         tickets=ctx.tickets,
         threads=ctx.threads,
@@ -971,9 +927,7 @@ async def _handle_invoke_sa_incremental(
     )
 
 
-async def _handle_invoke_risk_and_spike(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_risk_and_spike(ctx: DriverContext, step: ScenarioStep) -> None:
     """Drive the risk-register + spike + (optional) cascade workflow.
 
     Scenario YAML shape::
@@ -1020,18 +974,14 @@ async def _handle_invoke_risk_and_spike(
 
     risk_payload = step.params.get("risk")
     if risk_payload is None:
-        raise ValueError(
-            "invoke_risk_and_spike: params.risk is required"
-        )
+        raise ValueError("invoke_risk_and_spike: params.risk is required")
     risk_id = await handle_arch_set_risk(
         project_path=ctx.project_root, risk=risk_payload
     )
 
     propose = step.params.get("propose") or {}
     if "summary" not in propose:
-        raise ValueError(
-            "invoke_risk_and_spike: params.propose.summary is required"
-        )
+        raise ValueError("invoke_risk_and_spike: params.propose.summary is required")
     spike_id = await handle_arch_propose_spike(
         tickets=ctx.tickets,
         threads=ctx.threads,
@@ -1069,9 +1019,7 @@ async def _handle_invoke_risk_and_spike(
     )
 
 
-async def _handle_invoke_vd_finalize(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_vd_finalize(ctx: DriverContext, step: ScenarioStep) -> None:
     """Invoke handle_vd_finalize. Auto-creates the VD ticket if missing.
 
     Scenario YAML shape::
@@ -1110,13 +1058,9 @@ async def _handle_invoke_vd_finalize(
     params = dict(step.params)
     params.setdefault("author", "vd")
     if "frontend" not in params:
-        raise ValueError(
-            "invoke_vd_finalize: params.frontend is required"
-        )
+        raise ValueError("invoke_vd_finalize: params.frontend is required")
     if "summary" not in params:
-        raise ValueError(
-            "invoke_vd_finalize: params.summary is required"
-        )
+        raise ValueError("invoke_vd_finalize: params.summary is required")
     await handle_vd_finalize(
         tickets=ctx.tickets,
         threads=ctx.threads,
@@ -1129,9 +1073,7 @@ async def _handle_invoke_vd_finalize(
     )
 
 
-async def _handle_invoke_plan_finalize(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_plan_finalize(ctx: DriverContext, step: ScenarioStep) -> None:
     """Invoke handle_plan_finalize. Auto-creates the planner ticket if missing.
 
     Mirrors the L0 / L3 / SA invoke handlers — the finalize handler
@@ -1161,9 +1103,7 @@ async def _handle_invoke_plan_finalize(
     )
 
 
-async def _handle_materialize_tickets(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_materialize_tickets(ctx: DriverContext, step: ScenarioStep) -> None:
     """Coordinator dispatch — materialize the bones-layer tickets.
 
     Optional ``visual_references_by_ticket`` (Track D MVP) is a
@@ -1235,9 +1175,7 @@ async def _handle_invoke_coordinator_cycle(
     await coord.dispatch_cycle(ctx.project_root)
 
 
-async def _handle_defer_ticket(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_defer_ticket(ctx: DriverContext, step: ScenarioStep) -> None:
     """Defer a ticket via ``Coordinator.defer_ticket``.
 
     Scenario YAML shape::
@@ -1256,16 +1194,12 @@ async def _handle_defer_ticket(
     reason = step.params.get("reason") or ""
     notes = step.params.get("notes") or ""
     if not reason:
-        raise ValueError(
-            "defer_ticket: params.reason is required"
-        )
+        raise ValueError("defer_ticket: params.reason is required")
     coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
     await coord.defer_ticket(ticket_id, reason=reason, notes=notes)
 
 
-async def _handle_triage_deferred(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_triage_deferred(ctx: DriverContext, step: ScenarioStep) -> None:
     """Run one mechanical triage pass over the DEFERRED queue.
 
     Scenario YAML shape::
@@ -1292,9 +1226,7 @@ async def _handle_triage_deferred(
 _TOKEN_RE = re.compile(r"[a-zA-Z]{4,}")
 
 
-def _ac_tokens_for_ticket(
-    project_root: Path, ticket: Ticket
-) -> set[str]:
+def _ac_tokens_for_ticket(project_root: Path, ticket: Ticket) -> set[str]:
     """Pull every AC token the ticket's reviewer would check.
 
     Returns the union across every IntegrationAcceptance for every
@@ -1321,9 +1253,7 @@ def _ac_tokens_for_ticket(
     return tokens
 
 
-async def _handle_mock_dev_commit(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_mock_dev_commit(ctx: DriverContext, step: ScenarioStep) -> None:
     """Mock dev: deterministic helper that commits a satisfying file.
 
     Replaces the real dev-agent run for CI/mock mode. The file content
@@ -1388,9 +1318,7 @@ async def _handle_mock_dev_commit(
 
 def _git(cwd: Path, *args: str) -> None:
     """Run a git subcommand inside ``cwd``; raise on nonzero."""
-    subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True
-    )
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
 # ---- real-mode dev dispatch ---------------------------------------------
@@ -1433,9 +1361,7 @@ class _RealModeProgress:
         print(f"[sim:{self._ticket_id}] {msg}", file=sys.stderr, flush=True)
 
 
-async def _handle_real_dev_dispatch(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_real_dev_dispatch(ctx: DriverContext, step: ScenarioStep) -> None:
     """Real-mode dev: spawn a Claude agent via the existing orchestrator path.
 
     Bootstraps a minimal v2 project on ``ctx.project_root`` (config +
@@ -1598,10 +1524,7 @@ async def _aggregate_agent_cost(ctx: DriverContext) -> float:
     sum across the whole run.
     """
     events = await ctx.analytics.by_kind("agent_completed")
-    return sum(
-        (getattr(e, "cost_estimate_usd", None) or 0.0)
-        for e in events
-    )
+    return sum((getattr(e, "cost_estimate_usd", None) or 0.0) for e in events)
 
 
 async def _handle_invoke_dev_provisioning(
@@ -1705,9 +1628,7 @@ async def _handle_invoke_quartermaster_feedback(
             "invoke_quartermaster_feedback: params.briefing_id is required"
         )
     if "useful" not in step.params:
-        raise ValueError(
-            "invoke_quartermaster_feedback: params.useful is required"
-        )
+        raise ValueError("invoke_quartermaster_feedback: params.useful is required")
 
     await record_feedback(
         ctx.project_root,
@@ -1744,9 +1665,7 @@ async def _handle_invoke_specialty_reviewer(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_specialty_reviewer: params.ticket_id is required"
-        )
+        raise ValueError("invoke_specialty_reviewer: params.ticket_id is required")
     expected = step.params.get("expected_reviewer")
     if not expected:
         raise ValueError(
@@ -1755,13 +1674,9 @@ async def _handle_invoke_specialty_reviewer(
 
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"invoke_specialty_reviewer: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"invoke_specialty_reviewer: ticket {ticket_id!r} missing")
 
-    selection = select_reviewers_for_ticket(
-        ticket, project_root=ctx.project_root
-    )
+    selection = select_reviewers_for_ticket(ticket, project_root=ctx.project_root)
     ctx.specialty_reviewer_selection = list(selection)
 
     if expected not in selection:
@@ -1809,15 +1724,11 @@ async def _handle_invoke_federation_execution(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_federation_execution: params.ticket_id is required"
-        )
+        raise ValueError("invoke_federation_execution: params.ticket_id is required")
 
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"invoke_federation_execution: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"invoke_federation_execution: ticket {ticket_id!r} missing")
 
     inject_payloads = step.params.get("inject_comments") or []
     canned_by_reviewer: dict[str, list[_ReviewerComment]] = {}
@@ -1839,18 +1750,14 @@ async def _handle_invoke_federation_execution(
         ) -> None:
             spawn_calls.append((reviewer_id, ticket.id, role_file))
             for comment in canned_by_reviewer.get(reviewer_id, []):
-                stamped = comment.model_copy(
-                    update={"ticket_id": ticket.id}
-                )
+                stamped = comment.model_copy(update={"ticket_id": ticket.id})
                 store = ReviewCommentsStore(
                     project_root / ".jig" / "store" / "review_comments.jsonl"
                 )
                 await store.load()
                 await store.append(stamped)
 
-    worktree = (
-        ctx.project_root / ".jig" / "worktrees" / ticket_id
-    )
+    worktree = ctx.project_root / ".jig" / "worktrees" / ticket_id
     # Federation execution always fires at end-of-ticket cadence —
     # per-commit cadence is mechanical-only by design.
     out = await dispatch_with_llm_spawn(
@@ -1901,20 +1808,14 @@ async def _handle_invoke_severity_disposition(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_severity_disposition: params.ticket_id is required"
-        )
+        raise ValueError("invoke_severity_disposition: params.ticket_id is required")
     comments_raw = step.params.get("comments") or []
     if not isinstance(comments_raw, list):
-        raise ValueError(
-            "invoke_severity_disposition: params.comments must be a list"
-        )
+        raise ValueError("invoke_severity_disposition: params.comments must be a list")
 
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"invoke_severity_disposition: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"invoke_severity_disposition: ticket {ticket_id!r} missing")
 
     comments: list[ReviewerComment] = []
     for entry in comments_raw:
@@ -1936,9 +1837,7 @@ async def _handle_invoke_severity_disposition(
             ReviewerComment(
                 type=ReviewerCommentType(entry.get("type", "pattern-divergence")),
                 severity=Severity(severity),
-                reviewer=entry.get(
-                    "reviewer", "reviewer-pattern-conformance"
-                ),
+                reviewer=entry.get("reviewer", "reviewer-pattern-conformance"),
                 prose=prose,
                 confidence=confidence,
                 file=entry.get("file", "jig/foo.py"),
@@ -1959,9 +1858,7 @@ async def _handle_invoke_severity_disposition(
     ctx.last_disposition_deferred = len(result.deferred)
 
 
-async def _handle_invoke_cascade_reject(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_cascade_reject(ctx: DriverContext, step: ScenarioStep) -> None:
     """Reject the most recent cascade proposal.
 
     Scenario YAML shape::
@@ -1984,13 +1881,10 @@ async def _handle_invoke_cascade_reject(
     reason = step.params.get("reason")
     if not risk_id or not reason:
         raise ValueError(
-            "invoke_cascade_reject: params.risk_id and params.reason "
-            "are required"
+            "invoke_cascade_reject: params.risk_id and params.reason are required"
         )
     actor = step.params.get("actor") or "operator"
-    cascade_id = _resolve_latest_cascade_id(
-        cascades_dir(ctx.project_root), risk_id
-    )
+    cascade_id = _resolve_latest_cascade_id(cascades_dir(ctx.project_root), risk_id)
     entry = await handle_arch_reject_cascade(
         project_path=ctx.project_root,
         cascade_id=cascade_id,
@@ -2001,9 +1895,7 @@ async def _handle_invoke_cascade_reject(
     ctx.last_cascade_action = entry.action
 
 
-async def _handle_invoke_cascade_stage(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_cascade_stage(ctx: DriverContext, step: ScenarioStep) -> None:
     """Stage the most recent cascade and approve every produced stage.
 
     Scenario YAML shape::
@@ -2029,16 +1921,12 @@ async def _handle_invoke_cascade_stage(
 
     risk_id = step.params.get("risk_id")
     if not risk_id:
-        raise ValueError(
-            "invoke_cascade_stage: params.risk_id is required"
-        )
+        raise ValueError("invoke_cascade_stage: params.risk_id is required")
     actor = step.params.get("actor") or "operator"
     chunk_size = int(step.params.get("chunk_size", 5))
     approve_all = bool(step.params.get("approve_all", True))
 
-    cascade_id = _resolve_latest_cascade_id(
-        cascades_dir(ctx.project_root), risk_id
-    )
+    cascade_id = _resolve_latest_cascade_id(cascades_dir(ctx.project_root), risk_id)
     stages = await handle_arch_stage_cascade(
         project_path=ctx.project_root,
         cascade_id=cascade_id,
@@ -2137,9 +2025,7 @@ def _resolve_latest_cascade_id(cdir: Path, risk_id: str) -> str:
     return matches[-1].stem
 
 
-async def _handle_run_reviewer(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_run_reviewer(ctx: DriverContext, step: ScenarioStep) -> None:
     """Invoke the contract-compliance reviewer; cache comments on ctx.
 
     Bones ships only contract-compliance (Track G2). The reviewer-set
@@ -2150,9 +2036,7 @@ async def _handle_run_reviewer(
     ticket_id = step.params["ticket_id"]
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"run_reviewer: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"run_reviewer: ticket {ticket_id!r} missing")
     reviewer = ContractComplianceReviewer()
     comments = await reviewer.review(ticket, ctx.project_root)
     ctx.reviewer_comments[reviewer.reviewer_id] = comments
@@ -2183,6 +2067,7 @@ async def _handle_run_reviewer(
     has_critical = any(c.severity == "critical" for c in all_comments)
     if not has_critical:
         from jig.ticket import TicketStatus
+
         await ctx.tickets.update_status(ticket_id, TicketStatus.RESOLVED)
 
 
@@ -2260,10 +2145,7 @@ def _check_artifact_written(
             return AssertionResult(
                 kind=a.kind,
                 passed=False,
-                detail=(
-                    f"path {a.path!r} exists but does not contain "
-                    f"{a.contains!r}"
-                ),
+                detail=(f"path {a.path!r} exists but does not contain {a.contains!r}"),
             )
     return AssertionResult(kind=a.kind, passed=True, detail=f"{a.path} OK")
 
@@ -2335,10 +2217,7 @@ def _check_reviewer_no_critical(
         return AssertionResult(
             kind=a.kind,
             passed=False,
-            detail=(
-                f"reviewer {a.reviewer_id!r} was never invoked during "
-                "this run"
-            ),
+            detail=(f"reviewer {a.reviewer_id!r} was never invoked during this run"),
         )
     comments = ctx.reviewer_comments[a.reviewer_id]
     criticals = [c for c in comments if c.severity == "critical"]
@@ -2375,9 +2254,7 @@ def _check_cost_under_budget(
     )
 
 
-def _check_env_var_set(
-    ctx: DriverContext, a: EnvVarSetAssertion
-) -> AssertionResult:
+def _check_env_var_set(ctx: DriverContext, a: EnvVarSetAssertion) -> AssertionResult:
     """Check that the most recent step's stamped env-var map contains
     ``a.name`` with the optionally-required ``a.value``.
 
@@ -2415,12 +2292,12 @@ def _check_env_var_set(
         return AssertionResult(
             kind=a.kind,
             passed=False,
-            detail=(
-                f"env var {a.name!r} = {actual!r}, expected {a.value!r}"
-            ),
+            detail=(f"env var {a.name!r} = {actual!r}, expected {a.value!r}"),
         )
     return AssertionResult(
-        kind=a.kind, passed=True, detail=f"{a.name}={actual} OK",
+        kind=a.kind,
+        passed=True,
+        detail=f"{a.name}={actual} OK",
     )
 
 
@@ -2437,9 +2314,7 @@ async def _check_review_comment_in_store(
     """
     from jig.store.review_comments import ReviewCommentsStore
 
-    store_path = (
-        ctx.project_root / ".jig" / "store" / "review_comments.jsonl"
-    )
+    store_path = ctx.project_root / ".jig" / "store" / "review_comments.jsonl"
     store = ReviewCommentsStore(store_path)
     await store.load()
     comments = await store.for_ticket(a.ticket_id)
@@ -2463,8 +2338,7 @@ async def _check_review_comment_in_store(
         kind=a.kind,
         passed=True,
         detail=(
-            f"{a.reviewer_id} → {len(matched)} comment(s) in store "
-            f"for {a.ticket_id}"
+            f"{a.reviewer_id} → {len(matched)} comment(s) in store for {a.ticket_id}"
         ),
     )
 
@@ -2539,9 +2413,7 @@ def _check_contract_validated(
     )
 
 
-def _check_wireframe(
-    ctx: DriverContext, a: WireframeAssertion
-) -> AssertionResult:
+def _check_wireframe(ctx: DriverContext, a: WireframeAssertion) -> AssertionResult:
     """Verify a wireframe HTML file exists at the expected screen-derived path."""
     from jig.spec_loader import wireframe_path
 
@@ -2558,8 +2430,7 @@ def _check_wireframe(
             kind=a.kind,
             passed=False,
             detail=(
-                f"wireframe {a.screen_id!r} exists but does not contain "
-                f"{a.contains!r}"
+                f"wireframe {a.screen_id!r} exists but does not contain {a.contains!r}"
             ),
         )
     if a.lint_passed and "<!-- LINT-FAIL:" in text:
@@ -2569,10 +2440,7 @@ def _check_wireframe(
         return AssertionResult(
             kind=a.kind,
             passed=False,
-            detail=(
-                f"wireframe {a.screen_id!r} carries inline LINT-FAIL "
-                "marker(s)"
-            ),
+            detail=(f"wireframe {a.screen_id!r} carries inline LINT-FAIL marker(s)"),
         )
     return AssertionResult(
         kind=a.kind, passed=True, detail=f"wireframe {a.screen_id} OK"
@@ -2616,9 +2484,7 @@ def _check_build_plan_layer_status(
     )
 
 
-def _check_risk_status(
-    ctx: DriverContext, a: RiskStatusAssertion
-) -> AssertionResult:
+def _check_risk_status(ctx: DriverContext, a: RiskStatusAssertion) -> AssertionResult:
     """Verify a risk in architecture.yaml has the expected status."""
     arch_path = architecture_path(ctx.project_root)
     if not arch_path.is_file():
@@ -2627,18 +2493,14 @@ def _check_risk_status(
             passed=False,
             detail=f"architecture {arch_path} not found",
         )
-    arch = Architecture.model_validate(
-        yaml.safe_load(arch_path.read_text()) or {}
-    )
+    arch = Architecture.model_validate(yaml.safe_load(arch_path.read_text()) or {})
     risk = next((r for r in arch.risks if r.id == a.risk_id), None)
     if risk is None:
         ids = [r.id for r in arch.risks]
         return AssertionResult(
             kind=a.kind,
             passed=False,
-            detail=(
-                f"risk {a.risk_id!r} not in architecture; present: {ids}"
-            ),
+            detail=(f"risk {a.risk_id!r} not in architecture; present: {ids}"),
         )
     if risk.status.value != a.status:
         return AssertionResult(
@@ -2649,9 +2511,7 @@ def _check_risk_status(
                 f"expected {a.status!r}"
             ),
         )
-    return AssertionResult(
-        kind=a.kind, passed=True, detail=f"{a.risk_id} → {a.status}"
-    )
+    return AssertionResult(kind=a.kind, passed=True, detail=f"{a.risk_id} → {a.status}")
 
 
 def _check_cascade_proposal(
@@ -2676,9 +2536,7 @@ def _check_cascade_proposal(
         return AssertionResult(
             kind=a.kind,
             passed=False,
-            detail=(
-                f"no cascade proposal for risk {a.risk_id!r} in {cdir}"
-            ),
+            detail=(f"no cascade proposal for risk {a.risk_id!r} in {cdir}"),
         )
     proposal = CascadeProposal.model_validate(
         yaml.safe_load(candidates[-1].read_text()) or {}
@@ -2704,8 +2562,7 @@ def _check_cascade_proposal(
         )
     if a.contains_disposition is not None:
         match = any(
-            c.proposed_disposition == a.contains_disposition
-            for c in proposal.contracts
+            c.proposed_disposition == a.contains_disposition for c in proposal.contracts
         )
         if not match:
             dispositions = [c.proposed_disposition for c in proposal.contracts]
@@ -2796,19 +2653,13 @@ def _check_discovery_state_consistent(
     # ``None`` so the validator's "concurrent-edit" branch sees the
     # absence consistently.
     discovery_md = discovery_path(ctx.project_root)
-    doc = (
-        load_discovery(ctx.project_root) if discovery_md.is_file() else None
-    )
+    doc = load_discovery(ctx.project_root) if discovery_md.is_file() else None
     on_disk_digest = ""
     if discovery_md.is_file():
         import hashlib
 
-        on_disk_digest = hashlib.sha256(
-            discovery_md.read_bytes()
-        ).hexdigest()
-    divergences = validate_state_consistency(
-        state, doc, on_disk_digest=on_disk_digest
-    )
+        on_disk_digest = hashlib.sha256(discovery_md.read_bytes()).hexdigest()
+    divergences = validate_state_consistency(state, doc, on_disk_digest=on_disk_digest)
     if len(divergences) != a.expected_divergence_count:
         kinds = [d.kind for d in divergences]
         return AssertionResult(
@@ -2844,9 +2695,7 @@ async def _check_envelope_updated(
     store = CalibrationStore(ctx.project_root)
     await store.load()
     successful = [
-        s
-        for s in store.all()
-        if s.size == a.size and s.completion_status == "success"
+        s for s in store.all() if s.size == a.size and s.completion_status == "success"
     ]
     sample_count = len(successful)
     if sample_count < a.min_sample_count:
@@ -2877,16 +2726,13 @@ def _check_orphan_report(
             passed=False,
             detail=f"orphan log {log} does not exist",
         )
-    lines = [
-        line for line in log.read_text().splitlines() if line.strip()
-    ]
+    lines = [line for line in log.read_text().splitlines() if line.strip()]
     if len(lines) < a.min_entries:
         return AssertionResult(
             kind=a.kind,
             passed=False,
             detail=(
-                f"orphan log has {len(lines)} entries, expected >= "
-                f"{a.min_entries}"
+                f"orphan log has {len(lines)} entries, expected >= {a.min_entries}"
             ),
         )
     return AssertionResult(
@@ -2933,9 +2779,7 @@ def _check_provisioning_succeeded(
                 f"{a.url_contains!r}"
             ),
         )
-    return AssertionResult(
-        kind=a.kind, passed=True, detail=f"{a.service_id} → {url}"
-    )
+    return AssertionResult(kind=a.kind, passed=True, detail=f"{a.service_id} → {url}")
 
 
 async def _check_fixture_cassette(
@@ -2953,9 +2797,7 @@ async def _check_fixture_cassette(
             detail=f"no cassettes recorded for service {a.service_id!r}",
         )
     if a.request_signature is not None:
-        match = any(
-            c.request_signature == a.request_signature for c in cassettes
-        )
+        match = any(c.request_signature == a.request_signature for c in cassettes)
         if not match:
             sigs = [c.request_signature for c in cassettes]
             return AssertionResult(
@@ -3007,15 +2849,11 @@ def _check_tier_promotion(
     return AssertionResult(
         kind=a.kind,
         passed=True,
-        detail=(
-            f"tier {ctx.last_tier_promotion_from} → {ctx.last_tier_promotion_to}"
-        ),
+        detail=(f"tier {ctx.last_tier_promotion_from} → {ctx.last_tier_promotion_to}"),
     )
 
 
-async def _handle_invoke_dev_ephemeral(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_dev_ephemeral(ctx: DriverContext, step: ScenarioStep) -> None:
     """Exercise the per_agent_ephemeral SQLite path end-to-end.
 
     Scenario YAML shape::
@@ -3044,13 +2882,9 @@ async def _handle_invoke_dev_ephemeral(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_dev_ephemeral: params.ticket_id is required"
-        )
+        raise ValueError("invoke_dev_ephemeral: params.ticket_id is required")
     service_id = step.params.get("service_id") or "ephem"
-    namespace_template = (
-        step.params.get("namespace_template") or "agent_{ticket_id}"
-    )
+    namespace_template = step.params.get("namespace_template") or "agent_{ticket_id}"
     do_cleanup = bool(step.params.get("cleanup", True))
     success = bool(step.params.get("success", True))
     agent_id = step.params.get("agent_id") or "sim-dev"
@@ -3100,9 +2934,7 @@ async def _handle_invoke_dev_ephemeral(
         )
 
 
-async def _handle_invoke_fixture_replay(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_fixture_replay(ctx: DriverContext, step: ScenarioStep) -> None:
     """Exercise the vcr-style cassette record + replay round-trip.
 
     Scenario YAML shape::
@@ -3132,24 +2964,16 @@ async def _handle_invoke_fixture_replay(
 
     service_id = step.params.get("service_id")
     if not service_id:
-        raise ValueError(
-            "invoke_fixture_replay: params.service_id is required"
-        )
+        raise ValueError("invoke_fixture_replay: params.service_id is required")
     method = step.params.get("method")
     if not method:
-        raise ValueError(
-            "invoke_fixture_replay: params.method is required"
-        )
+        raise ValueError("invoke_fixture_replay: params.method is required")
     url = step.params.get("url")
     if not url:
-        raise ValueError(
-            "invoke_fixture_replay: params.url is required"
-        )
+        raise ValueError("invoke_fixture_replay: params.url is required")
     response = step.params.get("response")
     if response is None:
-        raise ValueError(
-            "invoke_fixture_replay: params.response is required"
-        )
+        raise ValueError("invoke_fixture_replay: params.response is required")
     body = step.params.get("body")
 
     store = FixtureStore(ctx.project_root)
@@ -3169,9 +2993,7 @@ async def _handle_invoke_fixture_replay(
         mode=FixtureMode.REPLAY_ONLY,
         client=None,  # REPLAY_ONLY must never hit a client.
     )
-    replayed = await middleware.record_or_replay(
-        method, url, headers=None, body=body
-    )
+    replayed = await middleware.record_or_replay(method, url, headers=None, body=body)
     ctx.last_fixture_response = dict(replayed)
     if replayed != response:
         raise AssertionError(
@@ -3183,9 +3005,7 @@ async def _handle_invoke_fixture_replay(
 # ---- Track F Final — tier promotion + calibration sim handlers ---------
 
 
-async def _handle_invoke_tier_promotion(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_tier_promotion(ctx: DriverContext, step: ScenarioStep) -> None:
     """Force a mid-work tier promotion against a ticket.
 
     Scenario YAML shape::
@@ -3210,9 +3030,7 @@ async def _handle_invoke_tier_promotion(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_tier_promotion: params.ticket_id is required"
-        )
+        raise ValueError("invoke_tier_promotion: params.ticket_id is required")
     failures = int(step.params.get("failures", 3))
     contract_uri = step.params.get(
         "contract_uri",
@@ -3288,8 +3106,7 @@ async def _handle_invoke_calibration_record(
     size = step.params.get("size")
     if not ticket_id or not size:
         raise ValueError(
-            "invoke_calibration_record: params.ticket_id and params.size "
-            "are required"
+            "invoke_calibration_record: params.ticket_id and params.size are required"
         )
 
     store = CalibrationStore(ctx.project_root)
@@ -3303,9 +3120,7 @@ async def _handle_invoke_calibration_record(
         observed_tool_calls=int(step.params.get("observed_tool_calls", 0)),
         observed_duration_ms=int(step.params.get("observed_duration_ms", 0)),
         observed_cost_usd=float(step.params.get("observed_cost_usd", 0.0)),
-        completion_status=step.params.get(
-            "completion_status", "success"
-        ),  # type: ignore[arg-type]
+        completion_status=step.params.get("completion_status", "success"),  # type: ignore[arg-type]
     )
     await store.append(sample)
     ctx.last_calibration_sample_size = size
@@ -3314,9 +3129,7 @@ async def _handle_invoke_calibration_record(
 # ---- Track D Final — vision / a11y / responsive sim steps -------------
 
 
-async def _handle_invoke_vision_diff(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_vision_diff(ctx: DriverContext, step: ScenarioStep) -> None:
     """Run the FullVisualComplianceReviewer with the StubVisionProvider.
 
     Scenario YAML shape::
@@ -3353,14 +3166,11 @@ async def _handle_invoke_vision_diff(
     screen_id = step.params.get("screen_id")
     if not ticket_id or not screen_id:
         raise ValueError(
-            "invoke_vision_diff: params.ticket_id and params.screen_id "
-            "are required"
+            "invoke_vision_diff: params.ticket_id and params.screen_id are required"
         )
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"invoke_vision_diff: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"invoke_vision_diff: ticket {ticket_id!r} missing")
 
     screenshots_dir = ctx.project_root / ".jig" / "sim" / "screenshots"
     screenshots_dir.mkdir(parents=True, exist_ok=True)
@@ -3419,14 +3229,10 @@ async def _handle_invoke_accessibility_review(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_accessibility_review: params.ticket_id is required"
-        )
+        raise ValueError("invoke_accessibility_review: params.ticket_id is required")
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"invoke_accessibility_review: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"invoke_accessibility_review: ticket {ticket_id!r} missing")
 
     if step.params.get("html"):
         screen_id = step.params.get("screen_id")
@@ -3459,14 +3265,10 @@ async def _handle_invoke_responsive_review(
 
     ticket_id = step.params.get("ticket_id")
     if not ticket_id:
-        raise ValueError(
-            "invoke_responsive_review: params.ticket_id is required"
-        )
+        raise ValueError("invoke_responsive_review: params.ticket_id is required")
     ticket = await ctx.tickets.get(ticket_id)
     if ticket is None:
-        raise RuntimeError(
-            f"invoke_responsive_review: ticket {ticket_id!r} missing"
-        )
+        raise RuntimeError(f"invoke_responsive_review: ticket {ticket_id!r} missing")
 
     if step.params.get("html"):
         screen_id = step.params.get("screen_id")
@@ -3607,9 +3409,7 @@ async def _handle_invoke_discovery_resume(
                 )
             ]
         else:
-            raise ValueError(
-                f"invoke_discovery_resume: unknown mutation {mutation!r}"
-            )
+            raise ValueError(f"invoke_discovery_resume: unknown mutation {mutation!r}")
         if mutation != "concurrent-edit":
             save_discovery_state(ctx.project_root, state)
 
@@ -3626,9 +3426,7 @@ async def _handle_invoke_discovery_resume(
     ctx.last_resume_actions = list(result.actions)
 
 
-async def _handle_invoke_ontology_edit(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_ontology_edit(ctx: DriverContext, step: ScenarioStep) -> None:
     """Exercise one of the ontology operator-edit MCP handlers.
 
     Scenario YAML drives the subkind:
@@ -3717,9 +3515,7 @@ async def _handle_invoke_ontology_edit(
 # ---- Block 2 — fixture-mode + operator-supplied sim handlers -------------
 
 
-async def _handle_invoke_fixture_env(
-    ctx: DriverContext, step: ScenarioStep
-) -> None:
+async def _handle_invoke_fixture_env(ctx: DriverContext, step: ScenarioStep) -> None:
     """Verify ``build_fixture_env`` produces the expected env-var map.
 
     Scenario YAML shape::
@@ -3758,7 +3554,8 @@ async def _handle_invoke_fixture_env(
         created_by="sim",
     )
     ctx.last_fixture_env = build_fixture_env(
-        ticket, override=step.params.get("override"),
+        ticket,
+        override=step.params.get("override"),
     )
 
 

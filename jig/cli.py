@@ -92,9 +92,14 @@ def init(name: str, force: bool, brief_file: Path | None, auto: bool) -> None:
     from jig.init_workflow import run_init
 
     prompts = AutoPromptHandler() if auto else None
-    asyncio.run(run_init(
-        name=name, force=force, brief_file=brief_file, prompts=prompts,
-    ))
+    asyncio.run(
+        run_init(
+            name=name,
+            force=force,
+            brief_file=brief_file,
+            prompts=prompts,
+        )
+    )
 
 
 def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> None:
@@ -203,9 +208,7 @@ def plan(path: Path) -> None:
     """
     jig_dir = path / ".jig"
     if not (jig_dir / "spec" / "architecture.yaml").is_file():
-        raise click.ClickException(
-            "Project not initialized. Run 'jig init' first."
-        )
+        raise click.ClickException("Project not initialized. Run 'jig init' first.")
 
     from jig.store.tickets import TicketStore
     from jig.ticket import Ticket, WorkType
@@ -345,6 +348,7 @@ def reset(path: Path) -> None:
     # Stop the daemon if it's running so it releases the port before we wipe .jig/
     try:
         from jig.daemon import daemon_status, daemon_stop
+
         status = daemon_status(path)
         if status.running:
             click.echo("  Stopping daemon")
@@ -923,9 +927,7 @@ def story(
     # Filter by level for log events only (thread entries are always shown).
     if level == "INFO":
         events = [
-            e
-            for e in events
-            if e.source != StorySource.log or e.level != "DEBUG"
+            e for e in events if e.source != StorySource.log or e.level != "DEBUG"
         ]
 
     if not events:
@@ -1080,9 +1082,7 @@ def dev_orphans_drop_cmd(orphan_id: str, path: Path) -> None:
             raise click.ClickException(str(exc))
         ok = await tracker.drop(orphan_id)
         if not ok:
-            raise click.ClickException(
-                f"orphan id {orphan_id!r} not found"
-            )
+            raise click.ClickException(f"orphan id {orphan_id!r} not found")
         click.echo(f"dropped {orphan_id}")
 
     asyncio.run(_run())
@@ -1159,9 +1159,7 @@ def dev_fixtures_show_cmd(service_id: str, path: Path) -> None:
     type=click.Path(exists=True, path_type=Path),
     help="Project path.",
 )
-def dev_fixtures_clear_cmd(
-    service_id: str, confirm: bool, path: Path
-) -> None:
+def dev_fixtures_clear_cmd(service_id: str, confirm: bool, path: Path) -> None:
     """Drop every cassette for ``service_id``. Requires ``--confirm``."""
     if not confirm:
         raise click.ClickException(
@@ -1191,9 +1189,7 @@ async def _build_sweeper(path: Path, threshold_days: int):
     manifest = load_dev_manifest(path)
     tickets = TicketStore(path / ".jig" / "store" / "tickets.jsonl")
     await tickets.load()
-    return OrphanSweeper(
-        path, manifest, tickets, threshold_days=threshold_days
-    )
+    return OrphanSweeper(path, manifest, tickets, threshold_days=threshold_days)
 
 
 @dev_sweeper_group.command("run")
@@ -1316,8 +1312,7 @@ def dev_ephemeral_list_cmd(path: Path) -> None:
         return
     for inst in rows:
         click.echo(
-            f"{inst.id}\tkind={inst.kind}\tpath={inst.path}\t"
-            f"{inst.size_bytes} bytes"
+            f"{inst.id}\tkind={inst.kind}\tpath={inst.path}\t{inst.size_bytes} bytes"
         )
 
 
@@ -1358,9 +1353,7 @@ def dev_ephemeral_drop_cmd(instance_id: str, path: Path) -> None:
     from jig.dev_env.ephemeral import drop_ephemeral_instance
 
     if not drop_ephemeral_instance(path, instance_id):
-        raise click.ClickException(
-            f"ephemeral instance {instance_id!r} not found"
-        )
+        raise click.ClickException(f"ephemeral instance {instance_id!r} not found")
     click.echo(f"dropped {instance_id}")
 
 
@@ -1461,8 +1454,7 @@ def serve_cmd(path: Path, port: int, regenerate: bool) -> None:
             super().__init__(*args, directory=str(target), **kwargs)
 
     click.echo(
-        f"Serving {target} at http://localhost:{port}/index.html "
-        "(Ctrl-C to stop)"
+        f"Serving {target} at http://localhost:{port}/index.html (Ctrl-C to stop)"
     )
     with socketserver.TCPServer(("127.0.0.1", port), WireframesHandler) as httpd:
         try:
@@ -1574,8 +1566,7 @@ def daemon_status_cmd(path: Path) -> None:
     addr = addr_file.read_text().strip() if addr_file.is_file() else "?"
     if status.kind == "docker":
         click.echo(
-            f"daemon: running (docker) container={status.container_id[:12]} "
-            f"addr={addr}"
+            f"daemon: running (docker) container={status.container_id[:12]} addr={addr}"
         )
     else:
         click.echo(f"daemon: running pid={status.pid} addr={addr}")
@@ -1665,9 +1656,7 @@ def sa_cascade_show_cmd(cascade_id: str, path: Path) -> None:
     type=click.Path(exists=True, path_type=Path),
     help="Project path.",
 )
-def sa_cascade_audit_cmd(
-    since, actor: str | None, path: Path
-) -> None:
+def sa_cascade_audit_cmd(since, actor: str | None, path: Path) -> None:
     """Filtered audit log view (markdown table)."""
     # Click's DateTime parser returns naive datetimes; the viewer
     # compares against tz-aware timestamps in the audit log so we
@@ -1763,7 +1752,10 @@ def pm_plan_group() -> None:
     help="Project path.",
 )
 def pm_plan_unblock(
-    epic_id: str, rationale: str, cascade_risk_low: bool, path: Path,
+    epic_id: str,
+    rationale: str,
+    cascade_risk_low: bool,
+    path: Path,
 ) -> None:
     """Manually override the bones-first gate for one epic.
 
@@ -1805,9 +1797,7 @@ def pm_plan_unblock(
             for epic in plan.epics:
                 if epic.id not in still_running:
                     continue
-                if epic.modules and all(
-                    mid in low_modules for mid in epic.modules
-                ):
+                if epic.modules and all(mid in low_modules for mid in epic.modules):
                     sa_low.append(epic.id)
         except FileNotFoundError:
             pass
@@ -1995,9 +1985,7 @@ def ontology_edit_cmd(
     type=click.Path(exists=True, path_type=Path),
     help="Project path.",
 )
-def ontology_remove_cmd(
-    term: str, replacement_term: str | None, path: Path
-) -> None:
+def ontology_remove_cmd(term: str, replacement_term: str | None, path: Path) -> None:
     """Remove a term from the ontology (with optional reference rewrite)."""
     from jig.po_ontology_mcp import handle_ontology_remove_term
 
@@ -2034,9 +2022,7 @@ def ontology_find_references_cmd(term: str, path: Path) -> None:
     """List every artifact line referencing ``term``."""
     from jig.po_ontology_mcp import handle_ontology_find_references
 
-    refs = asyncio.run(
-        handle_ontology_find_references(project_path=path, term=term)
-    )
+    refs = asyncio.run(handle_ontology_find_references(project_path=path, term=term))
     if not refs:
         click.echo(f"no references to {term!r}")
         return
@@ -2125,7 +2111,9 @@ def eval_collect(
     click.echo(f"manifest: {out_path}")
     click.echo(f"tickets:  {manifest.ticket_status_counts}")
     click.echo(f"cost_usd: {manifest.total_cost_usd:.4f}")
-    click.echo(f"spawns:   {manifest.agent_spawn_count}  fix_cycles: {manifest.fix_cycle_count}")
+    click.echo(
+        f"spawns:   {manifest.agent_spawn_count}  fix_cycles: {manifest.fix_cycle_count}"
+    )
     if manifest.tracer:
         status = "PASS" if manifest.tracer.passed else "FAIL"
         click.echo(f"tracer:   {status}")
@@ -2136,8 +2124,12 @@ def eval_collect(
 
 @eval_group.command("compare")
 @click.argument("project_id")
-@click.option("--before", "before_label", required=True, help="Label or run-id of baseline run.")
-@click.option("--after", "after_label", required=True, help="Label or run-id of new run.")
+@click.option(
+    "--before", "before_label", required=True, help="Label or run-id of baseline run."
+)
+@click.option(
+    "--after", "after_label", required=True, help="Label or run-id of new run."
+)
 @click.option(
     "--runs-root",
     "runs_root",
@@ -2207,8 +2199,9 @@ def eval_list(project_id: str, runs_root: Path | None) -> None:
                 data.get("label") or "",
                 data.get("collected_at", "")[:10],
                 str(data.get("ticket_status_counts", {})),
-                "PASS" if (data.get("tracer") or {}).get("passed") else
-                ("FAIL" if data.get("tracer") else "n/a"),
+                "PASS"
+                if (data.get("tracer") or {}).get("passed")
+                else ("FAIL" if data.get("tracer") else "n/a"),
             )
         )
 
@@ -2337,7 +2330,11 @@ def graph_tracers(node_id: str, path: Path) -> None:
     reachable = graph.reachable_from(node_id)
     node_map = {n.id: n for n in graph.nodes}
     tracers = sorted(
-        (node_map[nid] for nid in reachable if nid in node_map and node_map[nid].kind == "tracer"),
+        (
+            node_map[nid]
+            for nid in reachable
+            if nid in node_map and node_map[nid].kind == "tracer"
+        ),
         key=lambda n: n.id,
     )
     if not tracers:
@@ -2571,7 +2568,9 @@ def audit_rules(path: Path) -> None:
 
     rule_paths = list_semgrep_rule_paths(path)
     if not rule_paths:
-        click.echo("no rule sources found (.jig/rules/semgrep/ is absent or empty, and .jig/rules/deprecations.yml is missing)")
+        click.echo(
+            "no rule sources found (.jig/rules/semgrep/ is absent or empty, and .jig/rules/deprecations.yml is missing)"
+        )
         return
     for p in rule_paths:
         click.echo(str(p.relative_to(path)))
@@ -2579,7 +2578,11 @@ def audit_rules(path: Path) -> None:
 
 @audit_group.command("coverage")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--fail/--no-fail", default=True, help="Exit 1 when undocumented rules are found (default: on).")
+@click.option(
+    "--fail/--no-fail",
+    default=True,
+    help="Exit 1 when undocumented rules are found (default: on).",
+)
 def audit_coverage(path: Path, fail: bool) -> None:
     """Check that every rule ID is mentioned in .jig/conventions.md.
 
@@ -2628,7 +2631,9 @@ def validate_group(ctx: click.Context, path: Path, ticket_id: str | None) -> Non
 
 @validate_group.command("conventions")
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
-@click.option("--fail/--no-fail", default=True, help="Exit 1 on validation failure (default: on).")
+@click.option(
+    "--fail/--no-fail", default=True, help="Exit 1 on validation failure (default: on)."
+)
 def validate_conventions(path: Path, fail: bool) -> None:
     """Validate .jig/conventions.md is present, non-empty, and within the recommended size.
 
@@ -2646,4 +2651,3 @@ def validate_conventions(path: Path, fail: bool) -> None:
         click.echo(f"error: {err}")
     if fail:
         raise SystemExit(1)
-

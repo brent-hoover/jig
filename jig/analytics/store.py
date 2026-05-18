@@ -70,4 +70,3 @@ class AnalyticsStore:
         """All events of a given kind. Index-backed."""
         raws = await self._collection.find_where(kind=kind)
         return [self._load(r) for r in raws]
-

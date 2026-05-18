@@ -15,6 +15,7 @@ Each constructor:
 Names follow ``<authority>_<artifact>_uri`` so the surface is flat and
 predictable: ``arch_module_uri``, ``store_ticket_uri``, etc.
 """
+
 from __future__ import annotations
 
 from jig.uri.constructors.arch import (

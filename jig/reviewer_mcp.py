@@ -99,8 +99,7 @@ async def handle_reviewer_post_comment(
         comment = ReviewerComment.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(
-            "reviewer_post_comment payload failed schema validation: "
-            f"{exc.errors()}"
+            f"reviewer_post_comment payload failed schema validation: {exc.errors()}"
         ) from exc
 
     self_check = validate_comment_for_self_check(comment)

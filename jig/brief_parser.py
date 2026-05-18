@@ -21,6 +21,7 @@ Format rules (each blocking gap if violated):
 
 See ``docs/project-spec-schema/design.md`` §"Brief format".
 """
+
 from __future__ import annotations
 
 import re
@@ -106,9 +107,7 @@ def parse_anchor(text: str) -> ParsedAnchor:
                 )
             key, _, value = chunk.partition(":")
             if key != "aliases":
-                raise AnchorParseError(
-                    f"unknown anchor attribute {key!r} in {text!r}"
-                )
+                raise AnchorParseError(f"unknown anchor attribute {key!r} in {text!r}")
             for alias in value.split(","):
                 alias = alias.strip()
                 if not re.fullmatch(_KEBAB_PATTERN, alias):
@@ -149,7 +148,9 @@ class BriefParseError(ValueError):
 _HEADING_ANCHOR_RE = re.compile(r"^### (.+?)\s+(\{#[^}]+\})\s*$")
 
 
-def parse_elaborated_section(body: str, *, section: BriefSection) -> list[BriefCapability]:
+def parse_elaborated_section(
+    body: str, *, section: BriefSection
+) -> list[BriefCapability]:
     """Parse the body of a Built / Planned (committed) / Archived section.
 
     Each capability is introduced by ``### Title {#id}`` and may contain
@@ -203,8 +204,7 @@ def _parse_capability_block(text: str, *, section: BriefSection) -> BriefCapabil
     # Strip horizontal-rule lines (---, ***, ___) — visual formatting
     # PO might insert between sections; no semantic content for the parser.
     body_lines = [
-        line for line in lines[1:]
-        if line.strip() not in ("---", "***", "___")
+        line for line in lines[1:] if line.strip() not in ("---", "***", "___")
     ]
     blocks = _split_on_labels(body_lines)
 
@@ -238,9 +238,8 @@ def _parse_capability_block(text: str, *, section: BriefSection) -> BriefCapabil
                     break
 
     if section in ("planned_committed", "built"):
-        has_any_ac = (
-            bool(capability_ac)
-            or any(b.acceptance_criteria for b in behaviors)
+        has_any_ac = bool(capability_ac) or any(
+            b.acceptance_criteria for b in behaviors
         )
         if not has_any_ac:
             raise BriefParseError(
@@ -293,11 +292,11 @@ def _parse_user_story_block(text: str | None) -> BriefUserStory | None:
     m = pattern.match(body)
     if not m:
         raise BriefParseError(
-            "user story must read 'As a X, I want Y so [that] Z.': "
-            f"got {body!r}"
+            f"user story must read 'As a X, I want Y so [that] Z.': got {body!r}"
         )
-    return BriefUserStory(as_=m.group(1).strip(), want=m.group(2).strip(),
-                          benefit=m.group(3).strip())
+    return BriefUserStory(
+        as_=m.group(1).strip(), want=m.group(2).strip(), benefit=m.group(3).strip()
+    )
 
 
 def _parse_behavior_block(text: str | None) -> list[BriefBehavior]:
@@ -409,26 +408,24 @@ def parse_bullet_section(body: str, *, section: BriefSection) -> list[BriefCapab
         close = body_text.find("}")
         if close == -1:
             anchor_text = body_text.split()[0] if body_text else body_text
-            title = body_text[len(anchor_text):].strip()
+            title = body_text[len(anchor_text) :].strip()
         else:
             anchor_text = body_text[: close + 1]
             title = body_text[close + 1 :].strip()
         try:
             anchor = parse_anchor(anchor_text)
         except AnchorParseError as e:
-            raise BriefParseError(
-                f"bullet missing leading anchor: {raw_line!r}"
-            ) from e
+            raise BriefParseError(f"bullet missing leading anchor: {raw_line!r}") from e
         if not title.strip():
-            raise BriefParseError(
-                f"bullet has anchor but no title: {raw_line!r}"
+            raise BriefParseError(f"bullet has anchor but no title: {raw_line!r}")
+        out.append(
+            BriefCapability(
+                id=anchor.id,
+                title=title.strip(),
+                section=section,
+                aliases=anchor.aliases,
             )
-        out.append(BriefCapability(
-            id=anchor.id,
-            title=title.strip(),
-            section=section,
-            aliases=anchor.aliases,
-        ))
+        )
     return out
 
 
@@ -443,8 +440,7 @@ def parse_non_goals_section(body: str) -> list[BriefNonGoal]:
             continue
         if not stripped.startswith("- "):
             raise BriefParseError(
-                f"non-goals section expects '- {{#id}} text' lines, got: "
-                f"{raw_line!r}"
+                f"non-goals section expects '- {{#id}} text' lines, got: {raw_line!r}"
             )
         body_text = stripped[2:].strip()
         # Find the closing brace to extract the full {#...} anchor token,
@@ -465,21 +461,21 @@ def parse_non_goals_section(body: str) -> list[BriefNonGoal]:
         except AnchorParseError as e:
             raise BriefParseError(str(e)) from e
         if not rest:
-            raise BriefParseError(
-                f"non-goal bullet missing text: {raw_line!r}"
-            )
+            raise BriefParseError(f"non-goal bullet missing text: {raw_line!r}")
         # Split text and rationale on em-dash or " — " (en-dash too).
         text, rationale = rest, ""
         for sep in (" — ", " – ", " -- "):
             if sep in rest:
                 text, rationale = rest.split(sep, 1)
                 break
-        out.append(BriefNonGoal(
-            id=anchor.id,
-            text=text.strip(),
-            rationale=rationale.strip(),
-            aliases=anchor.aliases,
-        ))
+        out.append(
+            BriefNonGoal(
+                id=anchor.id,
+                text=text.strip(),
+                rationale=rationale.strip(),
+                aliases=anchor.aliases,
+            )
+        )
     return out
 
 
@@ -493,12 +489,12 @@ class ParsedBriefResult:
 
 # Map of recognised H2 section names → (parser kind, BriefSection label).
 _SECTION_PARSERS: dict[str, tuple[str, BriefSection | None]] = {
-    "Built":                       ("elaborated", "built"),
-    "Planned (committed)":         ("elaborated", "planned_committed"),
-    "Planned (not yet committed)": ("bullet",     "planned_not_committed"),
-    "Backlog":                     ("bullet",     "backlog"),
-    "Archived":                    ("elaborated", "archived"),
-    "Non-goals":                   ("non_goals",  None),
+    "Built": ("elaborated", "built"),
+    "Planned (committed)": ("elaborated", "planned_committed"),
+    "Planned (not yet committed)": ("bullet", "planned_not_committed"),
+    "Backlog": ("bullet", "backlog"),
+    "Archived": ("elaborated", "archived"),
+    "Non-goals": ("non_goals", None),
 }
 
 

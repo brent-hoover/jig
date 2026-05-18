@@ -5,6 +5,7 @@ auto-starts the daemon for cwd if not running, then launches the TUI.
 With ``--print "<slash command>"``, runs the command against the daemon
 and exits. Otherwise dispatches to the click CLI.
 """
+
 import sys
 
 from jig.cli import cli

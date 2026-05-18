@@ -5,6 +5,7 @@ that take explicit dependencies, do I/O against the stores and the
 filesystem, and return plain values. The ``mcp_server`` module wraps
 them in ``@tool`` decorators with role-scoped visibility.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -156,9 +157,7 @@ async def handle_po_finish_brief(
     and mark the brief RESOLVED so the PO agent exits cleanly."""
     path = _brief_path(project_path)
     if not list_sections(path):
-        raise ValueError(
-            "cannot finish an empty brief — add at least one section"
-        )
+        raise ValueError("cannot finish an empty brief — add at least one section")
     handoff = Handoff(
         ticket_id="brief",
         author=author,
@@ -181,8 +180,11 @@ async def handle_po_finish_brief(
         )
     )
     await _resolve_after_handoff(
-        tickets=tickets, threads=threads, bus=bus,
-        ticket_id="brief", author=author,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id="brief",
+        author=author,
     )
     return entry_id
 
@@ -235,8 +237,11 @@ async def handle_spec_publish(
         )
     )
     await _resolve_after_handoff(
-        tickets=tickets, threads=threads, bus=bus,
-        ticket_id="brief", author=author,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id="brief",
+        author=author,
     )
 
 
@@ -281,8 +286,11 @@ async def handle_spec_report_gaps(
         )
     )
     await _resolve_after_handoff(
-        tickets=tickets, threads=threads, bus=bus,
-        ticket_id="brief", author=author,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id="brief",
+        author=author,
     )
 
 
@@ -418,8 +426,11 @@ async def handle_sa_propose_scaffold(
         )
     )
     await _resolve_after_handoff(
-        tickets=tickets, threads=threads, bus=bus,
-        ticket_id="architecture", author=author,
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id="architecture",
+        author=author,
     )
 
 
@@ -444,7 +455,9 @@ async def handle_spec_load_existing(*, project_path: Path) -> dict[str, Any]:
 
 
 async def handle_spec_list_capabilities(
-    *, project_path: Path, state: str | None = None,
+    *,
+    project_path: Path,
+    state: str | None = None,
 ) -> list[dict[str, Any]]:
     spec = _load_spec(project_path)
     if spec is None:
@@ -458,7 +471,9 @@ async def handle_spec_list_capabilities(
 
 
 async def handle_spec_get_capability(
-    *, project_path: Path, id: str,
+    *,
+    project_path: Path,
+    id: str,
 ) -> dict[str, Any]:
     spec = _load_spec(project_path)
     if spec is None:
@@ -470,10 +485,14 @@ async def handle_spec_get_capability(
 
 
 async def handle_spec_get_behavior(
-    *, project_path: Path, capability_id: str, behavior_id: str,
+    *,
+    project_path: Path,
+    capability_id: str,
+    behavior_id: str,
 ) -> dict[str, Any]:
     cap_data = await handle_spec_get_capability(
-        project_path=project_path, id=capability_id,
+        project_path=project_path,
+        id=capability_id,
     )
     for b in cap_data.get("behaviors", []):
         if b["id"] == behavior_id:
@@ -484,19 +503,21 @@ async def handle_spec_get_behavior(
 
 
 async def handle_spec_list_non_goals(
-    *, project_path: Path,
+    *,
+    project_path: Path,
 ) -> list[dict[str, Any]]:
     spec = _load_spec(project_path)
     if spec is None:
         return []
     return [
-        {"id": n.id, "text": n.text, "rationale": n.rationale}
-        for n in spec.non_goals
+        {"id": n.id, "text": n.text, "rationale": n.rationale} for n in spec.non_goals
     ]
 
 
 async def handle_spec_get_non_goal(
-    *, project_path: Path, id: str,
+    *,
+    project_path: Path,
+    id: str,
 ) -> dict[str, Any]:
     spec = _load_spec(project_path)
     if spec is None:
@@ -508,7 +529,9 @@ async def handle_spec_get_non_goal(
 
 
 async def handle_spec_resolve_uri(
-    *, project_path: Path, uri: str,
+    *,
+    project_path: Path,
+    uri: str,
 ) -> dict[str, Any]:
     spec = _load_spec(project_path)
     if spec is None:
@@ -520,7 +543,9 @@ async def handle_spec_resolve_uri(
 
 
 async def handle_spec_generate_from_brief(
-    *, project_path: Path, tickets: TicketStore,
+    *,
+    project_path: Path,
+    tickets: TicketStore,
 ) -> dict[str, Any]:
     """Run the full spec-generation pipeline against the current brief
     and existing structured spec.
@@ -539,12 +564,14 @@ async def handle_spec_generate_from_brief(
     if not brief_path.is_file():
         return {
             "spec": None,
-            "gaps": [{
-                "kind": "missing",
-                "location": str(brief_path),
-                "description": "no brief.md found",
-                "severity": "blocking",
-            }],
+            "gaps": [
+                {
+                    "kind": "missing",
+                    "location": str(brief_path),
+                    "description": "no brief.md found",
+                    "severity": "blocking",
+                }
+            ],
         }
 
     try:
@@ -552,12 +579,14 @@ async def handle_spec_generate_from_brief(
     except BriefParseError as e:
         return {
             "spec": None,
-            "gaps": [{
-                "kind": "format_error",
-                "location": "brief.md",
-                "description": str(e),
-                "severity": "blocking",
-            }],
+            "gaps": [
+                {
+                    "kind": "format_error",
+                    "location": "brief.md",
+                    "description": str(e),
+                    "severity": "blocking",
+                }
+            ],
         }
 
     existing = _load_spec(project_path)

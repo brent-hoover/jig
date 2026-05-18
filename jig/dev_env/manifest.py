@@ -9,6 +9,7 @@ Per ``docs/v2.0/dev-environment/design.md``: the manifest is a generated
 artifact, never hand-edited. ``dev_derive_manifest`` MCP tool re-runs
 this and rewrites the on-disk file every time the architecture changes.
 """
+
 from __future__ import annotations
 
 from jig.schemas.arch import Architecture

@@ -28,6 +28,7 @@ Out of MVP scope:
   reads turns; calibration's per-tier band lands with the estimation
   loop.
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,23 +74,29 @@ class AutoEscalationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     repeated_same_failure: int = Field(
-        default=3, ge=1,
+        default=3,
+        ge=1,
         description="N consecutive PerCommitCheckFailed on same contract URI.",
     )
     tool_call_flailing: int = Field(
-        default=12, ge=1,
+        default=12,
+        ge=1,
         description="N+ ToolCalled events with the same args_digest.",
     )
     no_commit_drift_minutes: int = Field(
-        default=30, ge=1,
+        default=30,
+        ge=1,
         description="Minutes since spawn with no commit-implying activity.",
     )
     out_of_budget_pct: float = Field(
-        default=0.85, ge=0.0, le=10.0,
+        default=0.85,
+        ge=0.0,
+        le=10.0,
         description="Fraction of tier-budget consumed before tripping.",
     )
     forced_reflection_at_minutes: int = Field(
-        default=20, ge=1,
+        default=20,
+        ge=1,
         description="Periodic forced-reflection injection interval.",
     )
 
@@ -160,7 +167,8 @@ async def check_escalation_signals(
     # against this ticket, grouped by contract URI.
     failed = await analytics_store.by_kind("per_commit_check_failed")
     failed_for_ticket = [
-        e for e in failed
+        e
+        for e in failed
         if isinstance(e, PerCommitCheckFailed) and e.ticket_id == ticket_id
     ]
     if failed_for_ticket:
@@ -175,8 +183,7 @@ async def check_escalation_signals(
                     threshold_value=cfg.repeated_same_failure,
                     observed_value=count,
                     detail=(
-                        f"{count} per-commit failures on "
-                        f"contract={worst_contract!r}"
+                        f"{count} per-commit failures on contract={worst_contract!r}"
                     ),
                 )
             )
@@ -199,8 +206,7 @@ async def check_escalation_signals(
     # most-recent calls. ``cfg.tool_call_flailing`` is the trip count.
     tool_events = await analytics_store.by_kind("tool_called")
     agent_tool_events = [
-        e for e in tool_events
-        if isinstance(e, ToolCalled) and e.agent_id == agent_id
+        e for e in tool_events if isinstance(e, ToolCalled) and e.agent_id == agent_id
     ]
     if agent_tool_events:
         by_digest: Counter[str] = Counter(e.args_digest for e in agent_tool_events)
@@ -212,8 +218,7 @@ async def check_escalation_signals(
                     threshold_value=cfg.tool_call_flailing,
                     observed_value=repeat,
                     detail=(
-                        f"{repeat} identical tool calls "
-                        f"(digest={worst_digest[:8]!r})"
+                        f"{repeat} identical tool calls (digest={worst_digest[:8]!r})"
                     ),
                 )
             )

@@ -18,6 +18,7 @@ Example ``.jig/spec/tracers/hn-cli-smoke.yaml``::
       capabilities: [fetch-top-stories, format-output]
     bones_ticket_id: t-001   # optional backlink
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator

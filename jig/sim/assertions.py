@@ -22,6 +22,7 @@ We use a Pydantic ``TypeAdapter`` rather than wrapping the union in a
 ``ScenarioAssertion.validate_python``; the TypeAdapter shape mirrors
 the entry-point in ``jig.analytics.events.parse_event``.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -107,7 +108,9 @@ class ArtifactWrittenAssertion(_AssertionBase):
     requiring an exact-match fixture.
     """
 
-    kind: Literal[AssertionKind.ARTIFACT_WRITTEN.value] = AssertionKind.ARTIFACT_WRITTEN.value
+    kind: Literal[AssertionKind.ARTIFACT_WRITTEN.value] = (
+        AssertionKind.ARTIFACT_WRITTEN.value
+    )
     path: str = Field(..., min_length=1)
     contains: str | None = None
 
@@ -174,9 +177,7 @@ class EnvVarSetAssertion(_AssertionBase):
       assertion can match the URL with ``name="_url"``.
     """
 
-    kind: Literal[AssertionKind.ENV_VAR_SET.value] = (
-        AssertionKind.ENV_VAR_SET.value
-    )
+    kind: Literal[AssertionKind.ENV_VAR_SET.value] = AssertionKind.ENV_VAR_SET.value
     name: str = Field(..., min_length=1)
     value: str | None = None
     source: Literal["fixture_env", "operator_supplied"] = "fixture_env"
@@ -268,9 +269,7 @@ class WireframeAssertion(_AssertionBase):
     wireframe round-tripped without reaching for ``artifact_written``.
     """
 
-    kind: Literal[AssertionKind.WIREFRAME.value] = (
-        AssertionKind.WIREFRAME.value
-    )
+    kind: Literal[AssertionKind.WIREFRAME.value] = AssertionKind.WIREFRAME.value
     screen_id: str = Field(..., min_length=1)
     contains: str | None = None
     lint_passed: bool = True
@@ -303,9 +302,7 @@ class RiskStatusAssertion(_AssertionBase):
     Until now they could only assert the analytics event fired.
     """
 
-    kind: Literal[AssertionKind.RISK_STATUS.value] = (
-        AssertionKind.RISK_STATUS.value
-    )
+    kind: Literal[AssertionKind.RISK_STATUS.value] = AssertionKind.RISK_STATUS.value
     risk_id: str = Field(..., min_length=1)
     status: Literal[
         "open",
@@ -333,9 +330,7 @@ class CascadeProposalAssertion(_AssertionBase):
         AssertionKind.CASCADE_PROPOSAL.value
     )
     risk_id: str = Field(..., min_length=1)
-    state: (
-        Literal["pending", "staged", "holding", "rejected", "resolved"] | None
-    ) = None
+    state: Literal["pending", "staged", "holding", "rejected", "resolved"] | None = None
     min_contracts: int = Field(
         default=0,
         ge=0,
@@ -364,9 +359,7 @@ class OntologyTermAssertion(_AssertionBase):
     the term landed with content rather than just that the file grew.
     """
 
-    kind: Literal[AssertionKind.ONTOLOGY_TERM.value] = (
-        AssertionKind.ONTOLOGY_TERM.value
-    )
+    kind: Literal[AssertionKind.ONTOLOGY_TERM.value] = AssertionKind.ONTOLOGY_TERM.value
     term: str = Field(..., min_length=1)
     definition_contains: str | None = None
 
@@ -412,9 +405,7 @@ class OrphanReportAssertion(_AssertionBase):
     output instead.
     """
 
-    kind: Literal[AssertionKind.ORPHAN_REPORT.value] = (
-        AssertionKind.ORPHAN_REPORT.value
-    )
+    kind: Literal[AssertionKind.ORPHAN_REPORT.value] = AssertionKind.ORPHAN_REPORT.value
     min_entries: int = Field(default=1, ge=0)
 
 

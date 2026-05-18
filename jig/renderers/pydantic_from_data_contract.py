@@ -33,6 +33,7 @@ Design choices:
   the operator sees an opaque traceback instead of a clear
   renderer error.
 """
+
 from __future__ import annotations
 
 import keyword
@@ -139,9 +140,7 @@ def render_pydantic_from_data_contract(contract: DataContract) -> str:
         f"from pydantic import BaseModel, ConfigDict\n"
         f"\n"
         f"\n"
-        f"class {class_name}(BaseModel):\n"
-        + "\n".join(body_lines)
-        + "\n"
+        f"class {class_name}(BaseModel):\n" + "\n".join(body_lines) + "\n"
     )
     return rendered
 

@@ -1,4 +1,5 @@
 """Collect eval metrics from a completed project's .jig/ stores."""
+
 from __future__ import annotations
 
 import subprocess
@@ -74,6 +75,7 @@ async def collect(
     # Fix cycles: spawns on tickets that already had a prior completed run.
     # Count = spawns beyond the first per ticket.
     from collections import Counter
+
     spawns_per_ticket: Counter[str] = Counter()
     for e in spawned_events:
         tid = getattr(e, "ticket_id", None) or getattr(e, "correlation_id", None)
@@ -100,6 +102,7 @@ async def collect(
     jig_version: str | None = None
     try:
         from importlib.metadata import version
+
         jig_version = version("jig")
     except Exception:
         pass

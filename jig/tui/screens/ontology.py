@@ -11,6 +11,7 @@ Inline edit (typing into a TextArea) is wired through the daemon's
 read-only to keep the data path simple. Final scope: visibility +
 discoverability of the edit affordances.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

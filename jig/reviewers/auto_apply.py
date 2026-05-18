@@ -132,9 +132,7 @@ async def apply_suggested_diffs(
             stdin=diff.encode("utf-8"),
         )
         if rc != 0:
-            result.failed.append(
-                (comment, f"git_apply_rc={rc}: {stderr[:200]}")
-            )
+            result.failed.append((comment, f"git_apply_rc={rc}: {stderr[:200]}"))
             continue
 
         rc, _ = await _run_git(worktree_path, "add", "-A")
@@ -146,9 +144,7 @@ async def apply_suggested_diffs(
             worktree_path, "commit", "-m", _commit_message(comment)
         )
         if rc != 0:
-            result.failed.append(
-                (comment, f"git_commit_rc={rc}: {commit_err[:200]}")
-            )
+            result.failed.append((comment, f"git_commit_rc={rc}: {commit_err[:200]}"))
             continue
 
         result.applied.append(comment)

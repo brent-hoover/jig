@@ -18,6 +18,7 @@ checklist enforcer needs them.
 the same intent-reviewer that gates PO / SA artifacts also gates VD's
 top-level spec without per-track special-casing.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -65,18 +66,12 @@ class FrontendStack(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    framework: Literal[
-        "htmx_alpine", "react", "vue", "svelte", "custom"
-    ] = "htmx_alpine"
-    language: Literal[
-        "typescript", "javascript", "python_jinja"
-    ] = "python_jinja"
-    bundler: Literal[
-        "none", "vite", "esbuild", "webpack"
-    ] = "none"
-    css: Literal[
-        "custom_utility", "tailwind", "vanilla"
-    ] = "custom_utility"
+    framework: Literal["htmx_alpine", "react", "vue", "svelte", "custom"] = (
+        "htmx_alpine"
+    )
+    language: Literal["typescript", "javascript", "python_jinja"] = "python_jinja"
+    bundler: Literal["none", "vite", "esbuild", "webpack"] = "none"
+    css: Literal["custom_utility", "tailwind", "vanilla"] = "custom_utility"
     notes: str | None = None
 
 
@@ -107,9 +102,7 @@ class FrontendSpec(BaseModel):
     stack: FrontendStack = Field(default_factory=FrontendStack)
     allowed_dependencies: list[str] = Field(default_factory=list)
     intent: Intent
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("generated_at")
     @classmethod

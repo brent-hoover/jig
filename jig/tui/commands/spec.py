@@ -9,6 +9,7 @@ Bones-Final subcommands:
 This command stays read-only — capability authoring lives in the L3
 PO + the SA. Operator inspection is what this provides.
 """
+
 from __future__ import annotations
 
 from typing import Any

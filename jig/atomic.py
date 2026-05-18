@@ -5,6 +5,7 @@ os.replace'd onto the target. If any step before os.replace fails, the
 target is untouched. If os.replace itself fails, the temp file is
 cleaned up on a best-effort basis and the target is untouched.
 """
+
 from __future__ import annotations
 
 import os

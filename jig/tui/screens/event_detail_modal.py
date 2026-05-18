@@ -1,4 +1,5 @@
 """Modal showing a single bus event's full payload as pretty JSON."""
+
 from __future__ import annotations
 
 import json
@@ -36,6 +37,8 @@ class EventDetailModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Static("[bold]Event detail[/bold] [dim](Esc to close)[/dim]", markup=True)
+            yield Static(
+                "[bold]Event detail[/bold] [dim](Esc to close)[/dim]", markup=True
+            )
             with ScrollableContainer():
                 yield Static(json.dumps(self._event, indent=2, default=str))

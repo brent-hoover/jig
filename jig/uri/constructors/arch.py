@@ -1,4 +1,5 @@
 """Constructors for ``project://arch/...`` URIs (SA output)."""
+
 from __future__ import annotations
 
 from jig.uri.constructors._segments import (
@@ -32,10 +33,7 @@ def arch_contracts_uri(
 
 def arch_shared_contract_uri(contract_id: str) -> str:
     """``project://arch/contracts/shared/<id>`` — a project-wide shared contract."""
-    return (
-        "project://arch/contracts/shared/"
-        f"{seg(contract_id, 'contract_id')}"
-    )
+    return f"project://arch/contracts/shared/{seg(contract_id, 'contract_id')}"
 
 
 def arch_integration_ac_uri(
@@ -46,16 +44,12 @@ def arch_integration_ac_uri(
     fragment = f"integration_ac/{seg(capability_id, 'capability_id')}"
     if must_index is not None:
         if must_index < 0:
-            raise ValueError(
-                f"must_index must be >= 0, got {must_index!r}"
-            )
+            raise ValueError(f"must_index must be >= 0, got {must_index!r}")
         fragment = f"{fragment}/must/{must_index}"
     return f"{base}#{fragment}"
 
 
-def arch_behavioral_contract_uri(
-    module_id: str, contract_id: str
-) -> str:
+def arch_behavioral_contract_uri(module_id: str, contract_id: str) -> str:
     """``project://arch/modules/<m>/contracts#behavioral_contracts/<id>``."""
     return (
         f"{arch_contracts_uri(module_id)}"

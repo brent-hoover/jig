@@ -155,7 +155,9 @@ def check_conventions(project_path: Path) -> list[str]:
         return [".jig/conventions.md is empty"]
     lines = content.splitlines()
     if len(lines) > 500:
-        return [f".jig/conventions.md is {len(lines)} lines — recommended maximum is 500 (long contexts degrade agent quality)"]
+        return [
+            f".jig/conventions.md is {len(lines)} lines — recommended maximum is 500 (long contexts degrade agent quality)"
+        ]
     return []
 
 
@@ -195,7 +197,9 @@ def check_rule_coverage(project_path: Path) -> dict:
     if not conventions_path.is_file():
         return {
             "undocumented": [],
-            "missing_conventions": [".jig/conventions.md not found — skipping coverage check"],
+            "missing_conventions": [
+                ".jig/conventions.md not found — skipping coverage check"
+            ],
             "parse_errors": [],
         }
 
@@ -220,12 +224,14 @@ def check_rule_coverage(project_path: Path) -> dict:
             parse_errors.append(f"failed to load deprecations.yml: {exc}")
 
     undocumented = sorted(rid for rid in rule_ids if rid not in conventions_text)
-    return {"undocumented": undocumented, "missing_conventions": [], "parse_errors": parse_errors}
+    return {
+        "undocumented": undocumented,
+        "missing_conventions": [],
+        "parse_errors": parse_errors,
+    }
 
 
-def resolve_route(
-    config: EscalationConfig, rule_id: str, issue_type: str
-) -> Route:
+def resolve_route(config: EscalationConfig, rule_id: str, issue_type: str) -> Route:
     """Pick the route for a (rule_id, issue_type) pair.
 
     Rule-id matches take precedence over type matches; otherwise the

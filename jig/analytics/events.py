@@ -68,9 +68,7 @@ class _EventBase(StoreModel):
       an AgentSpawned).
     """
 
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     event_version: int = EVENT_VERSION
     correlation_id: str | None = None
     parent_event_id: str | None = None
@@ -229,7 +227,9 @@ class PerCommitCheckFailed(_EventBase):
         "cross_cutting_policy",
         "spec_compliance",
     ]
-    violation_category: str  # short structured tag (ownership, schema_mismatch, missing_emit, ...)
+    violation_category: (
+        str  # short structured tag (ownership, schema_mismatch, missing_emit, ...)
+    )
     contract_uri: str | None = None  # for contract-compliance violations
     severity: Literal["critical", "important", "notable"]
     auto_applied: bool  # True if a confidence-1.0 fix landed automatically
@@ -262,7 +262,9 @@ class BugDiscoveredPostMerge(_EventBase):
         "post_merge_test",
         "production_use",
     ]
-    discovered_at_ticket_id: str | None = None  # the ticket that surfaced it, if applicable
+    discovered_at_ticket_id: str | None = (
+        None  # the ticket that surfaced it, if applicable
+    )
     failure_category: Literal[
         "structural",  # better contracts would have caught (SA design problem)
         "semantic",  # tests pass + contracts hold but output is wrong (skeptic candidate)
@@ -285,7 +287,9 @@ class BoundedFixLoopExhausted(_EventBase):
 
     kind: Literal["bounded_fix_loop_exhausted"] = "bounded_fix_loop_exhausted"
     ticket_id: str
-    cycles_attempted: int  # always >= 3 at trigger; field captured for future cap changes
+    cycles_attempted: (
+        int  # always >= 3 at trigger; field captured for future cap changes
+    )
     recurring_comment_categories: list[str]  # which comment types kept flagging
     reviewer_roles_involved: list[str]  # which reviewer agents kept finding things
     dev_agent_stated_reason: str | None = None  # short structured reason category
@@ -333,7 +337,9 @@ class AutoEscalationTriggered(_EventBase):
         "out_of_budget",  # turns > 2x tier-expected envelope for the ticket S/M/L
         "forced_reflection_no_progress",  # agent reported "no progress" twice in a row
     ]
-    trip_metric_value: float | None = None  # e.g. success_rate=0.4 for tool_call_flailing
+    trip_metric_value: float | None = (
+        None  # e.g. success_rate=0.4 for tool_call_flailing
+    )
     turns_at_trip: int
 
 
@@ -459,7 +465,9 @@ class BonesPromotedIncomplete(_EventBase):
     kind: Literal["bones_promoted_incomplete"] = "bones_promoted_incomplete"
     promoted_epic_ids: list[str]  # the epics whose MVP is being unblocked
     still_running_bones_epic_ids: list[str]  # the epics whose bones is still in flight
-    sa_marked_cascade_risk_low: list[str]  # subset of still-running flagged by SA as low risk
+    sa_marked_cascade_risk_low: list[
+        str
+    ]  # subset of still-running flagged by SA as low risk
     operator_rationale_category: str | None = None  # short tag if operator provided one
 
 
@@ -528,7 +536,9 @@ class DevEnvironmentProvisioned(_EventBase):
     agent_id: str
     ticket_id: str
     service_id: str  # the data_store id from architecture.yaml
-    strategy: Literal["shared_with_namespace", "per_agent_ephemeral", "operator_supplied"]
+    strategy: Literal[
+        "shared_with_namespace", "per_agent_ephemeral", "operator_supplied"
+    ]
     namespace: str  # the actual namespace name (schema, prefix, etc.)
     setup_duration_ms: int  # time from create-namespace start to health-check pass
 
@@ -541,11 +551,15 @@ class DevEnvironmentProvisioningFailed(_EventBase):
     the operator-visible failure mode.
     """
 
-    kind: Literal["dev_environment_provisioning_failed"] = "dev_environment_provisioning_failed"
+    kind: Literal["dev_environment_provisioning_failed"] = (
+        "dev_environment_provisioning_failed"
+    )
     agent_id: str
     ticket_id: str
     service_id: str
-    strategy: Literal["shared_with_namespace", "per_agent_ephemeral", "operator_supplied"]
+    strategy: Literal[
+        "shared_with_namespace", "per_agent_ephemeral", "operator_supplied"
+    ]
     failure_phase: Literal["create", "health_check", "seed", "connection"]
     error_category: str  # short structured category; full error in agent logs
 
@@ -579,7 +593,9 @@ class DevEnvironmentOrphanDetected(_EventBase):
     service_id: str
     namespace: str
     age_seconds: int
-    last_associated_ticket_id: str | None = None  # if recoverable from naming convention
+    last_associated_ticket_id: str | None = (
+        None  # if recoverable from naming convention
+    )
 
 
 # ---- Visual Design events -------------------------------------------------

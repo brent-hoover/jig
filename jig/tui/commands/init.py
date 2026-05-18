@@ -10,6 +10,7 @@ The handler does NOT return until run_init completes — i.e., a
 init flow. During execution, the operator sees inline output and is
 prompted via the TUI's input field.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -103,7 +104,8 @@ async def cmd_init(
 
     console = make_streaming_console(emitter)
     prompts = (
-        AutoPromptHandler() if auto
+        AutoPromptHandler()
+        if auto
         else TuiPromptHandler(emitter=emitter, registry=prompt_registry)
     )
 
@@ -125,7 +127,10 @@ async def cmd_init(
 
     try:
         await run_init(
-            name=target_str, force=force, console=console, prompts=prompts,
+            name=target_str,
+            force=force,
+            console=console,
+            prompts=prompts,
             brief_file=brief_file,
         )
     except Exception as exc:  # noqa: BLE001
@@ -133,9 +138,7 @@ async def cmd_init(
         # actually failed. The wire envelope only carries str(exc).
         import logging
 
-        logging.getLogger(__name__).exception(
-            "/init %s failed", name
-        )
+        logging.getLogger(__name__).exception("/init %s failed", name)
         return {"ok": False, "error": f"init failed: {exc}"}
 
     # Init may have just bootstrapped the project. Trigger an orchestrator
@@ -189,9 +192,10 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
     from jig.ticket import Ticket, TicketStatus, WorkType
 
     # L0 gate.
-    if not (project_path / "docs" / "brief.md").is_file() and not spec_path(
-        project_path
-    ).is_file():
+    if (
+        not (project_path / "docs" / "brief.md").is_file()
+        and not spec_path(project_path).is_file()
+    ):
         return {
             "ok": False,
             "error": (
@@ -248,9 +252,7 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
 
     # L3 gate — pick the first suite without a brief on disk.
     for suite in suites_index.suites:
-        brief = (
-            project_path / ".jig" / "spec" / "suites" / suite.id / "brief.md"
-        )
+        brief = project_path / ".jig" / "spec" / "suites" / suite.id / "brief.md"
         if brief.is_file():
             continue
         ticket_id = f"suite-{suite.id}"

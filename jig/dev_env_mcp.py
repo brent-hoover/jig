@@ -9,6 +9,7 @@ The handler is a thin wrapper so the MCP factory in ``mcp_server.py``
 stays declarative; the actual derivation logic lives in
 ``jig.dev_env.manifest``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

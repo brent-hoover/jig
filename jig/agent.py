@@ -205,9 +205,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         from jig.graph_context import build_graph_context
 
         try:
-            graph_ctx = await build_graph_context(
-                ctx.ticket, project_path, depth=1
-            )
+            graph_ctx = await build_graph_context(ctx.ticket, project_path, depth=1)
             resolved_context = resolved_context + graph_ctx
         except Exception:
             pass  # Narrowing is best-effort; fall through on any error
@@ -446,7 +444,9 @@ async def run_agent(
     try:
         initial_prompt = await build_agent_prompt(ctx)
         _logger.info("prompt built for %s (%d chars)", ctx.role, len(initial_prompt))
-        _logger.debug("--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt)
+        _logger.debug(
+            "--- SYSTEM PROMPT [%s] ---\n%s", ctx.role, ctx.role_cfg.phase_prompt
+        )
         _logger.debug("--- INITIAL PROMPT [%s] ---\n%s", ctx.role, initial_prompt)
 
         # Phase 5 Task F: compile capability policy (role base + phase
@@ -625,7 +625,9 @@ async def run_agent(
                 extra_setenv=extra_setenv,
                 hide_paths=hide_paths,
             )
-            transport = BwrapTransport(prompt="", options=options, bwrap_config=bwrap_cfg)
+            transport = BwrapTransport(
+                prompt="", options=options, bwrap_config=bwrap_cfg
+            )
             _logger.info("sandbox enabled for %s on %s", ctx.role, ctx.ticket.id)
 
         _logger.info(
@@ -661,7 +663,12 @@ async def run_agent(
         async def _heartbeat() -> None:
             await _emit(
                 "agent_thinking",
-                {"role": ctx.role, "ticket_id": ctx.ticket.id, "elapsed": 0, "active": True},
+                {
+                    "role": ctx.role,
+                    "ticket_id": ctx.ticket.id,
+                    "elapsed": 0,
+                    "active": True,
+                },
             )
             try:
                 while not heartbeat_done.is_set():
@@ -671,7 +678,12 @@ async def run_agent(
                         elapsed = int(heartbeat_loop.time() - heartbeat_start)
                         await _emit(
                             "agent_thinking",
-                            {"role": ctx.role, "ticket_id": ctx.ticket.id, "elapsed": elapsed, "active": True},
+                            {
+                                "role": ctx.role,
+                                "ticket_id": ctx.ticket.id,
+                                "elapsed": elapsed,
+                                "active": True,
+                            },
                         )
                         if ctx.on_thinking is not None:
                             ctx.on_thinking()
@@ -679,7 +691,12 @@ async def run_agent(
                 try:
                     await _emit(
                         "agent_thinking",
-                        {"role": ctx.role, "ticket_id": ctx.ticket.id, "elapsed": 0, "active": False},
+                        {
+                            "role": ctx.role,
+                            "ticket_id": ctx.ticket.id,
+                            "elapsed": 0,
+                            "active": False,
+                        },
                     )
                 except Exception:
                     pass
@@ -758,20 +775,16 @@ async def run_agent(
                     else:
                         for block in content or []:
                             if isinstance(block, ToolResultBlock):
-                                raw = (
-                                    block.content
-                                    if block.content is not None
-                                    else ""
-                                )
+                                raw = block.content if block.content is not None else ""
                                 if not isinstance(raw, str):
                                     # SDK may give back a list of dicts;
                                     # serialise.
                                     raw = json.dumps(raw, default=str)
                                 raw_bytes = raw.encode("utf-8")
                                 if len(raw_bytes) > _LOG_TRUNCATE_BYTES:
-                                    truncated = raw_bytes[
-                                        :_LOG_TRUNCATE_BYTES
-                                    ].decode("utf-8", errors="ignore")
+                                    truncated = raw_bytes[:_LOG_TRUNCATE_BYTES].decode(
+                                        "utf-8", errors="ignore"
+                                    )
                                     _logger.debug(
                                         "[%s] tool_result_truncated: "
                                         "id=%s full_bytes=%d",
@@ -855,7 +868,8 @@ async def run_agent(
                             f"agent_run SystemEvent post failed: {exc!r}"
                         )
                         _logger.warning(
-                            "failed to post agent_run SystemEvent", exc_info=True,
+                            "failed to post agent_run SystemEvent",
+                            exc_info=True,
                         )
                 else:
                     # Fallback for mocked result-like messages
@@ -881,7 +895,9 @@ async def run_agent(
             try:
                 await ctx.bus.unsubscribe(topic, bus_queue)
             except Exception as exc:  # noqa: BLE001
-                _logger.warning("Failed to unsubscribe bus queue for %s: %s", topic, exc)
+                _logger.warning(
+                    "Failed to unsubscribe bus queue for %s: %s", topic, exc
+                )
 
         current = await ctx.tickets.get(ctx.ticket.id)
         status = "success"

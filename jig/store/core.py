@@ -125,9 +125,7 @@ class JsonlStore:
                 # guards the in-memory map and the JSONL append, so
                 # the check-then-insert is atomic against concurrent
                 # callers (no TOCTOU window).
-                raise ValueError(
-                    f"document with _id {doc['_id']!r} already exists"
-                )
+                raise ValueError(f"document with _id {doc['_id']!r} already exists")
             record = {"_op": "insert", **doc}
             await asyncio.to_thread(self._append_line, record)
             stored = dict(doc)

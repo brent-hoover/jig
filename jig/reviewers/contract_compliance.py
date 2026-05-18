@@ -31,6 +31,7 @@ Worktree path resolution: the orchestrator places worktrees at
 For test setups that don't use the orchestrator's layout, the
 explicit ``worktree_path`` argument overrides the convention.
 """
+
 from __future__ import annotations
 
 import re
@@ -129,9 +130,7 @@ def _significant_tokens(text: str) -> set[str]:
     least one of these in the diff."
     """
     return {
-        tok.lower()
-        for tok in _TOKEN_RE.findall(text)
-        if tok.lower() not in _STOPWORDS
+        tok.lower() for tok in _TOKEN_RE.findall(text) if tok.lower() not in _STOPWORDS
     }
 
 

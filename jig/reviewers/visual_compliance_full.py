@@ -35,6 +35,7 @@ configuration. Final-layer ticket flows wire the call inline once the
 operator has a provider attached; the synthetic-operator scenario
 exercises the path end-to-end with the stub.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -146,8 +147,7 @@ class FullVisualComplianceReviewer:
             wf_bytes = wf_path.read_bytes()
             shot_bytes = screenshot.read_bytes()
             context = (
-                f"ticket={ticket.id} screen_id={screen_id} "
-                f"wireframe={wf_path.name}"
+                f"ticket={ticket.id} screen_id={screen_id} wireframe={wf_path.name}"
             )
             result = await vision.compare_images(
                 reference=wf_bytes,
@@ -170,11 +170,7 @@ def _diff_to_comment(
     cosmetic". The kind is stamped into the prose so the operator
     sees the category alongside the description.
     """
-    location = (
-        f" (location: {diff.location_hint})"
-        if diff.location_hint
-        else ""
-    )
+    location = f" (location: {diff.location_hint})" if diff.location_hint else ""
     prose = (
         f"[{diff.kind}] {diff.description}{location} "
         f"— wireframe {screen_id!r} vs implementation screenshot."

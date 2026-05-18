@@ -8,6 +8,7 @@ inputs stop at the boundary.
 Semantic validators (does this id exist in the spec?  is this URI's path
 actually present?) live in the per-authority resolvers, not here.
 """
+
 from __future__ import annotations
 
 import re

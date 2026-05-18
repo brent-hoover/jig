@@ -14,6 +14,7 @@ JSON inside the comment because YAML inside an HTML comment is fragile
 expressive power for our flat shape and round-trips through the existing
 stdlib parser.
 """
+
 from __future__ import annotations
 
 import json

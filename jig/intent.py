@@ -8,6 +8,7 @@ articulate the simplest baseline before earning any complexity.
 See ``docs/v2.0/agent-leverage/problem.md`` §1 — every complication in the
 proposed solution must be earned by an explicit complication entry.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field

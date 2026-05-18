@@ -20,6 +20,7 @@ dict at the same path) and ``po_l3_mcp.py`` (the upstream L3 PO that
 hands off to phase ``"sa"``). v1 SA stays intact; v2 ships alongside
 until the rest of the v2 tracks land and v1 retires.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -87,9 +88,7 @@ def _coerce_module_contracts(raw: Any) -> ContractsFile:
 # ---- bones-scope validation ----------------------------------------------
 
 
-def _validate_bones_minimums(
-    arch: Architecture, contracts: ContractsFile
-) -> None:
+def _validate_bones_minimums(arch: Architecture, contracts: ContractsFile) -> None:
     """Enforce the bones floor per ``docs/v2.0/implementation/v2-plan.md``.
 
     The Pydantic schemas allow empty lists everywhere — convenient for
@@ -100,13 +99,9 @@ def _validate_bones_minimums(
     artifact between calls.
     """
     if not arch.data_stores:
-        raise ValueError(
-            "bones architecture must declare at least one data_store"
-        )
+        raise ValueError("bones architecture must declare at least one data_store")
     if not arch.modules:
-        raise ValueError(
-            "bones architecture must declare at least one module"
-        )
+        raise ValueError("bones architecture must declare at least one module")
     if not contracts.owns:
         raise ValueError(
             f"bones module {contracts.module!r} must declare at least one "
@@ -119,9 +114,7 @@ def _validate_bones_minimums(
         )
 
 
-def _validate_module_link(
-    arch: Architecture, contracts: ContractsFile
-) -> None:
+def _validate_module_link(arch: Architecture, contracts: ContractsFile) -> None:
     """The contracts file's ``module`` must reference an architecture module.
 
     Without this, dev agents could be dispatched against contracts whose

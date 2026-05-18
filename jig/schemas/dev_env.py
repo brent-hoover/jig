@@ -16,6 +16,7 @@ Per ``docs/v2.0/dev-environment/design.md`` §"The dev environment manifest
         strategy: shared_namespaced
         ...
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -52,9 +53,7 @@ class ManifestService(BaseModel):
     kind: ServiceKind = Field(
         ..., description="Bounded vocabulary shared with DataStore.kind."
     )
-    strategy: Literal[
-        "shared_namespaced", "per_agent_ephemeral", "operator_supplied"
-    ]
+    strategy: Literal["shared_namespaced", "per_agent_ephemeral", "operator_supplied"]
     namespace_template: str = Field(..., min_length=1)
     cleanup_on_success: Literal["drop", "archive", "keep"] = "drop"
     cleanup_on_failure: Literal["drop", "archive", "keep"] = "archive"
@@ -79,9 +78,7 @@ class DevManifest(BaseModel):
     spec_version: int = 1
     services: list[ManifestService] = Field(default_factory=list)
     connection_string_templates: dict[str, str] = Field(default_factory=dict)
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("generated_at")
     @classmethod
@@ -112,8 +109,7 @@ class DevManifest(BaseModel):
                 f"{sorted(dupes)!r}. The provisioner keys off service.id."
             )
         missing = [
-            s.id for s in self.services
-            if s.id not in self.connection_string_templates
+            s.id for s in self.services if s.id not in self.connection_string_templates
         ]
         if missing:
             raise ValueError(

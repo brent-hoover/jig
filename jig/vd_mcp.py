@@ -39,6 +39,7 @@ upsert primitives keyed on natural id, finalize handler writes atomically
 + posts Handoff + resolves the ticket via the shared helper. No LLM
 calls — every handler is deterministic.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -114,8 +115,7 @@ def _coerce(model_cls: type, raw: Any, *, kind: str) -> Any:
         return raw
     if not isinstance(raw, dict):
         raise ValueError(
-            f"{kind} must be a dict or {model_cls.__name__}, got "
-            f"{type(raw).__name__}"
+            f"{kind} must be a dict or {model_cls.__name__}, got {type(raw).__name__}"
         )
     try:
         return model_cls.model_validate(raw)
@@ -131,9 +131,7 @@ def _replace_or_append(items: list, new_item: Any, *, id_field: str = "id") -> l
     round-trip. Mirrors ``sa_incremental_mcp._replace_or_append``.
     """
     new_id = getattr(new_item, id_field)
-    return [item for item in items if getattr(item, id_field) != new_id] + [
-        new_item
-    ]
+    return [item for item in items if getattr(item, id_field) != new_id] + [new_item]
 
 
 def _critical_lint_failures(html: str) -> list[str]:
@@ -223,9 +221,7 @@ async def handle_wireframe_lint(*, html: str) -> list[dict[str, Any]]:
 # ---- per-screen notes (sidecar markdown) ---------------------------------
 
 
-async def handle_wireframe_get_notes(
-    *, project_path: Path, screen_id: str
-) -> str:
+async def handle_wireframe_get_notes(*, project_path: Path, screen_id: str) -> str:
     """Read the per-screen sidecar notes markdown.
 
     Returns the empty string (rather than raising) when the notes file
@@ -256,9 +252,7 @@ async def handle_wireframe_set_notes(
 # ---- design system upserts -----------------------------------------------
 
 
-async def handle_vd_set_design_token(
-    *, project_path: Path, token: Any
-) -> str:
+async def handle_vd_set_design_token(*, project_path: Path, token: Any) -> str:
     """Upsert one DesignToken into ``tokens.yaml``.
 
     Loads the on-disk tokens file (or starts from the shipped defaults
@@ -271,11 +265,7 @@ async def handle_vd_set_design_token(
     # Flip the source to operator_supplied the first time the operator
     # touches the token set — defaults stop being authoritative once
     # the operator has authored anything.
-    new_source = (
-        "operator_supplied"
-        if tokens.source == "default"
-        else tokens.source
-    )
+    new_source = "operator_supplied" if tokens.source == "default" else tokens.source
     updated = Tokens(
         spec_version=tokens.spec_version,
         source=new_source,
@@ -285,9 +275,7 @@ async def handle_vd_set_design_token(
     return t.id
 
 
-async def handle_vd_set_component(
-    *, project_path: Path, component: Any
-) -> str:
+async def handle_vd_set_component(*, project_path: Path, component: Any) -> str:
     """Upsert one Component into ``components.yaml``.
 
     Mirrors ``handle_vd_set_design_token`` — load (with default
@@ -297,11 +285,7 @@ async def handle_vd_set_component(
     """
     c = _coerce(Component, component, kind="component")
     library = load_components(project_path)
-    new_source = (
-        "operator_supplied"
-        if library.source == "default"
-        else library.source
-    )
+    new_source = "operator_supplied" if library.source == "default" else library.source
     updated = ComponentLibrary(
         spec_version=library.spec_version,
         source=new_source,
@@ -389,10 +373,7 @@ async def handle_vd_finalize(
         phase=VD_NEXT_PHASE,
         outputs=[
             ".jig/spec/frontend.yaml",
-            *[
-                f".jig/spec/wireframes/{sid}.html"
-                for sid, _ in rendered
-            ],
+            *[f".jig/spec/wireframes/{sid}.html" for sid, _ in rendered],
         ],
         summary=summary,
     )

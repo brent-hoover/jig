@@ -4,6 +4,7 @@ Constructors validate every operator-supplied path segment against the
 URI grammar (kebab-case via the schema validator).  Keeping the call in
 one helper keeps each constructor a single line.
 """
+
 from __future__ import annotations
 
 from jig.schemas._validators import validate_kebab_id

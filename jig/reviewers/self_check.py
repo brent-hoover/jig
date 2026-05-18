@@ -19,6 +19,7 @@ comment returns a ``SelfCheckResult(should_post=False, reason=...)``;
 the MCP handler raises so the reviewer agent's tool call gets a clear
 "this got dropped" signal it can incorporate into its next decision.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field

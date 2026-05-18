@@ -30,6 +30,7 @@ A ``sa``-tier ticket that trips a threshold is NOT auto-promoted —
 ``AutoEscalationTriggered`` event with ``to_tier=operator``) takes
 over.
 """
+
 from __future__ import annotations
 
 import logging
@@ -95,9 +96,7 @@ class TierPromotion(BaseModel):
     )
 
 
-def decide_promotion(
-    signals: list[EscalationSignal], current_tier: str
-) -> str | None:
+def decide_promotion(signals: list[EscalationSignal], current_tier: str) -> str | None:
     """Decide which tier (if any) the ticket should be promoted to.
 
     Inputs:
@@ -148,9 +147,7 @@ async def promote_ticket_tier(
     """
     ticket = await tickets.get(ticket_id)
     if ticket is None:
-        raise ValueError(
-            f"promote_ticket_tier: ticket {ticket_id!r} not in store"
-        )
+        raise ValueError(f"promote_ticket_tier: ticket {ticket_id!r} not in store")
     from_tier = ticket.dev_tier or "standard"
     if from_tier != to_tier:
         await tickets.update(ticket_id, dev_tier=to_tier)

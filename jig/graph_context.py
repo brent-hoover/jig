@@ -12,6 +12,7 @@ Usage in agent.py::
     else:
         graph_ctx = ""
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,7 +65,9 @@ async def build_graph_context(
     for module_id in module_ids:
         text = _load_module_contracts_text(project_path, module_id)
         if text:
-            sections.append(f"### contracts: {module_id}\n\n```yaml\n{text.strip()}\n```")
+            sections.append(
+                f"### contracts: {module_id}\n\n```yaml\n{text.strip()}\n```"
+            )
 
     if not sections:
         return ""

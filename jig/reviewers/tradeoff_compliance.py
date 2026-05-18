@@ -11,6 +11,7 @@ says "no caching at bones; deferred_to=mvp". The reviewer flags this as notable
 Fires at end-of-ticket cadence alongside the other mechanical reviewers.
 No-ops when the ledger is empty or the ticket has no capability_ids.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

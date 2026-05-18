@@ -9,6 +9,7 @@ The concierge has read-only tools (spec queries, ticket read, recent
 events). It cannot write — it can only answer questions or recommend
 slash commands the operator can run themselves.
 """
+
 from __future__ import annotations
 
 import uuid

@@ -7,6 +7,7 @@ when everything is healthy.
 Kept free of I/O so it is unit-testable: callers feed state in and
 act on verdicts.
 """
+
 from __future__ import annotations
 
 import time

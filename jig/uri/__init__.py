@@ -7,6 +7,7 @@ For v2 bones, only the ``spec`` authority resolves; others parse cleanly but rai
 ``UnimplementedAuthorityError`` at resolve time. They are wired up as their owning
 tracks (C/D/F) land artifact schemas.
 """
+
 from __future__ import annotations
 
 from jig.uri.cache import UriResolverCache

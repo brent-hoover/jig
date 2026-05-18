@@ -24,6 +24,7 @@ Postgres DB per agent, etc.) is Final scope. The schema parses
 those strategies but the dispatcher raises ``NotImplementedError``
 if asked to provision them.
 """
+
 from __future__ import annotations
 
 import logging
@@ -129,9 +130,7 @@ class NamespaceProvisioner:
 
     kind: ClassVar[str] = ""
 
-    async def provision(
-        self, service: ManifestService, namespace: str
-    ) -> None:
+    async def provision(self, service: ManifestService, namespace: str) -> None:
         """Make the namespace exist on the underlying service.
 
         Pure-prefix kinds no-op. Postgres runs ``CREATE SCHEMA IF NOT
@@ -163,9 +162,7 @@ class PostgresSchemaProvisioner(NamespaceProvisioner):
     def __init__(self, sql_executor: SqlExecutor | None = None) -> None:
         self._sql = sql_executor
 
-    async def provision(
-        self, service: ManifestService, namespace: str
-    ) -> None:
+    async def provision(self, service: ManifestService, namespace: str) -> None:
         if self._sql is None:
             # MVP scope: production wiring lands later. Logging keeps
             # the path observable; we still return so the env-var
@@ -186,9 +183,7 @@ class PostgresSchemaProvisioner(NamespaceProvisioner):
         namespace: str,
         success: bool,
     ) -> None:
-        policy = (
-            service.cleanup_on_success if success else service.cleanup_on_failure
-        )
+        policy = service.cleanup_on_success if success else service.cleanup_on_failure
         if policy == "keep":
             return
         if self._sql is None:
@@ -204,9 +199,7 @@ class PostgresSchemaProvisioner(NamespaceProvisioner):
             await self._sql(f"DROP SCHEMA IF EXISTS {namespace} CASCADE")
         elif policy == "archive":
             archived = f"archived_{namespace}"
-            await self._sql(
-                f"ALTER SCHEMA {namespace} RENAME TO {archived}"
-            )
+            await self._sql(f"ALTER SCHEMA {namespace} RENAME TO {archived}")
 
 
 class NatsSubjectPrefixProvisioner(NamespaceProvisioner):
@@ -349,9 +342,7 @@ class ProvisioningRegistry:
         # services with kind=sqlite — same shape as an unknown kind.
         ephemeral: dict[str, "EphemeralProvisioner"] = {}
         if project_root is not None:
-            ephemeral["sqlite"] = SqliteEphemeralProvisioner(
-                project_root=project_root
-            )
+            ephemeral["sqlite"] = SqliteEphemeralProvisioner(project_root=project_root)
         ephemeral["postgres"] = PostgresDbEphemeralProvisioner(
             sql_executor=postgres_db_ephemeral_sql_executor,
         )
@@ -380,9 +371,7 @@ class ProvisioningRegistry:
         """
         return self._operator_supplied
 
-    def register(
-        self, kind: str, provisioner: NamespaceProvisioner
-    ) -> None:
+    def register(self, kind: str, provisioner: NamespaceProvisioner) -> None:
         """Register or replace a shared_namespaced provisioner."""
         self._provisioners[kind] = provisioner
 
@@ -434,8 +423,7 @@ async def provision_agent_namespace(
             provisioner = registry.get(service.kind)
             if provisioner is None:
                 _logger.info(
-                    "skip provisioning service=%s kind=%s — "
-                    "no registered provisioner",
+                    "skip provisioning service=%s kind=%s — no registered provisioner",
                     service.id,
                     service.kind,
                 )
@@ -482,9 +470,7 @@ async def provision_agent_namespace(
             # operator owns the service lifecycle (no provision call,
             # no cleanup). A missing template raises KeyError loud and
             # clear so the operator can fix the manifest.
-            template = manifest.connection_string_templates.get(
-                service.id, ""
-            )
+            template = manifest.connection_string_templates.get(service.id, "")
             url = await registry.get_operator_supplied().provision(
                 service,
                 connection_string_template=template,
@@ -496,8 +482,7 @@ async def provision_agent_namespace(
                 out[service.id] = url
         else:
             _logger.info(
-                "skip provisioning service=%s strategy=%s — "
-                "unknown strategy",
+                "skip provisioning service=%s strategy=%s — unknown strategy",
                 service.id,
                 service.strategy,
             )
@@ -580,8 +565,7 @@ async def cleanup_agent_namespace(
                 )
             except Exception:
                 _logger.warning(
-                    "operator-supplied cleanup hook failed for "
-                    "service=%s success=%s",
+                    "operator-supplied cleanup hook failed for service=%s success=%s",
                     service.id,
                     success,
                     exc_info=True,

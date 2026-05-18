@@ -12,6 +12,7 @@ vars": each provisioned service contributes one env var named
 ``JIG_DEV_<SERVICE_ID_UPPER>_URL``. Service IDs are sanitized to
 ``[A-Z0-9_]`` so the env-var name is always valid.
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,6 +50,7 @@ class DevProvisioningError(RuntimeError):
     silently dropping the env map and letting the agent run against
     default/local services."""
 
+
 _logger = logging.getLogger(__name__)
 
 ENV_VAR_PREFIX = "JIG_DEV_"
@@ -60,9 +62,7 @@ def build_env_var_name(service_id: str) -> str:
     Sanitizes to ``[A-Z0-9_]`` so the resulting name is always a valid
     env var across shells (POSIX requires ``[A-Z_][A-Z0-9_]*``).
     """
-    safe = "".join(
-        ch.upper() if ch.isalnum() else "_" for ch in service_id
-    )
+    safe = "".join(ch.upper() if ch.isalnum() else "_" for ch in service_id)
     return f"{ENV_VAR_PREFIX}{safe}_URL"
 
 
@@ -160,9 +160,7 @@ async def cleanup_for_agent(
         )
 
 
-def build_fixture_env(
-    ticket: Ticket, *, override: str | None = None
-) -> dict[str, str]:
+def build_fixture_env(ticket: Ticket, *, override: str | None = None) -> dict[str, str]:
     """Return ``{JIG_FIXTURE_MODE: <mode>}`` for the agent's spawn env.
 
     Per ``docs/v2.0/dev-environment/design.md`` §"External-API recorded

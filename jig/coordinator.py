@@ -35,6 +35,7 @@ See ``docs/v2.0/pm-workflow/design.md`` §"Roles" for the Planner/Coordinator
 distinction, §"The three completeness layers" for the bones/mvp/final
 ordering rules, and §"DEFERRED queue triage" for the deferred-queue flow.
 """
+
 from __future__ import annotations
 
 import json
@@ -129,9 +130,7 @@ class DeferredEntry(BaseModel):
     ticket_id: str
     reason: str
     notes: str = ""
-    deferred_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    deferred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class TriageDecision(BaseModel):
@@ -145,9 +144,9 @@ class TriageDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entry: DeferredEntry
-    recommended_action: Literal[
-        "rematerialize", "leave_deferred", "close"
-    ] = "leave_deferred"
+    recommended_action: Literal["rematerialize", "leave_deferred", "close"] = (
+        "leave_deferred"
+    )
     rationale: str = ""
 
 
@@ -232,9 +231,7 @@ class Coordinator:
 
     # ---- materialize_layer ----------------------------------------------
 
-    async def materialize_layer(
-        self, plan: BuildPlan, layer_name: str
-    ) -> list[str]:
+    async def materialize_layer(self, plan: BuildPlan, layer_name: str) -> list[str]:
         """Materialize one layer across all epics. Idempotent.
 
         ``layer_name`` is one of ``"bones" | "mvp" | "final"``; an unknown
@@ -246,8 +243,7 @@ class Coordinator:
         """
         if layer_name not in _LAYER_ORDER:
             raise ValueError(
-                f"unknown layer {layer_name!r}; "
-                f"expected one of {_LAYER_ORDER!r}"
+                f"unknown layer {layer_name!r}; expected one of {_LAYER_ORDER!r}"
             )
         layer_enum = LayerName(layer_name)
         created: list[str] = []
@@ -257,7 +253,9 @@ class Coordinator:
                 if await self._tickets.get(ticket_id) is not None:
                     continue
                 ticket = self._build_ticket(
-                    ticket_id=ticket_id, epic=epic, layer=layer_enum,
+                    ticket_id=ticket_id,
+                    epic=epic,
+                    layer=layer_enum,
                 )
                 await self._tickets.create(ticket)
                 created.append(ticket_id)
@@ -284,7 +282,9 @@ class Coordinator:
         any_changed = False
         for epic in plan.epics:
             for layer_enum in (
-                LayerName.BONES, LayerName.MVP, LayerName.FINAL,
+                LayerName.BONES,
+                LayerName.MVP,
+                LayerName.FINAL,
             ):
                 layer_status = self._epic_layer(epic, layer_enum)
                 new_status = await self._compute_layer_status(layer_status)
@@ -297,9 +297,7 @@ class Coordinator:
             write_build_plan(project_root, plan)
         return any_changed
 
-    async def _compute_layer_status(
-        self, layer: LayerStatus
-    ) -> LayerStatusEnum | None:
+    async def _compute_layer_status(self, layer: LayerStatus) -> LayerStatusEnum | None:
         """Compute the layer's status from its tickets' live states.
 
         Returns ``None`` when the layer has no tickets (caller leaves
@@ -407,9 +405,7 @@ class Coordinator:
             arch = load_architecture(self._project_root)
         except FileNotFoundError:
             return False
-        cascade_low_modules = {
-            m.id for m in arch.modules if m.cascade_risk_low
-        }
+        cascade_low_modules = {m.id for m in arch.modules if m.cascade_risk_low}
 
         bones = LayerName.BONES
         any_done = False
@@ -432,9 +428,7 @@ class Coordinator:
                         return False
         return any_done and any_blocked
 
-    def _all_epics_layer_done_or_empty(
-        self, plan: BuildPlan, layer_name: str
-    ) -> bool:
+    def _all_epics_layer_done_or_empty(self, plan: BuildPlan, layer_name: str) -> bool:
         """True if every epic's ``layer_name`` is done or empty.
 
         Empty layers are vacuously satisfied so the bones-first rule
@@ -449,13 +443,9 @@ class Coordinator:
                 return False
         return True
 
-    def _any_epic_layer_has_tickets(
-        self, plan: BuildPlan, layer_name: str
-    ) -> bool:
+    def _any_epic_layer_has_tickets(self, plan: BuildPlan, layer_name: str) -> bool:
         layer_enum = LayerName(layer_name)
-        return any(
-            self._epic_layer(epic, layer_enum).tickets for epic in plan.epics
-        )
+        return any(self._epic_layer(epic, layer_enum).tickets for epic in plan.epics)
 
     # ---- dispatch_cycle ------------------------------------------------
 
@@ -483,17 +473,21 @@ class Coordinator:
         pre_statuses: dict[tuple[str, str], LayerStatusEnum] = {}
         for epic in plan.epics:
             for layer_enum in (
-                LayerName.BONES, LayerName.MVP, LayerName.FINAL,
+                LayerName.BONES,
+                LayerName.MVP,
+                LayerName.FINAL,
             ):
-                pre_statuses[(epic.id, layer_enum.value)] = (
-                    self._epic_layer(epic, layer_enum).status
-                )
+                pre_statuses[(epic.id, layer_enum.value)] = self._epic_layer(
+                    epic, layer_enum
+                ).status
 
         if await self.advance_layer_status(project_root):
             plan = load_build_plan(project_root)
             for epic in plan.epics:
                 for layer_enum in (
-                    LayerName.BONES, LayerName.MVP, LayerName.FINAL,
+                    LayerName.BONES,
+                    LayerName.MVP,
+                    LayerName.FINAL,
                 ):
                     new_status = self._epic_layer(epic, layer_enum).status
                     if new_status != pre_statuses[(epic.id, layer_enum.value)]:
@@ -513,9 +507,7 @@ class Coordinator:
             and self._cascade_risk_low_override_allows_mvp(plan)
         )
         if next_layer is not None:
-            result.tickets_materialized = await self.materialize_layer(
-                plan, next_layer
-            )
+            result.tickets_materialized = await self.materialize_layer(plan, next_layer)
             if cascade_override_fired and self._emitter is not None:
                 await self._emit_bones_promoted_incomplete_for_cascade(plan)
         result.next_layer = next_layer
@@ -538,9 +530,7 @@ class Coordinator:
         except FileNotFoundError:
             return
 
-        cascade_low_module_ids = {
-            m.id for m in arch.modules if m.cascade_risk_low
-        }
+        cascade_low_module_ids = {m.id for m in arch.modules if m.cascade_risk_low}
 
         promoted: list[str] = []
         still_running: list[str] = []
@@ -576,9 +566,7 @@ class Coordinator:
 
     # ---- DEFERRED queue ------------------------------------------------
 
-    async def defer_ticket(
-        self, ticket_id: str, reason: str, notes: str = ""
-    ) -> None:
+    async def defer_ticket(self, ticket_id: str, reason: str, notes: str = "") -> None:
         """Add a ticket to the deferred queue + stamp ``deferred_at``.
 
         Persists to ``.jig/plan/deferred-queue.jsonl`` and updates the
@@ -586,7 +574,10 @@ class Coordinator:
         """
         now = datetime.now(timezone.utc)
         entry = DeferredEntry(
-            ticket_id=ticket_id, reason=reason, notes=notes, deferred_at=now,
+            ticket_id=ticket_id,
+            reason=reason,
+            notes=notes,
+            deferred_at=now,
         )
         _append_deferred_entry(self._project_root, entry)
         if await self._tickets.get(ticket_id) is not None:
@@ -630,8 +621,7 @@ class Coordinator:
                         entry=entry,
                         recommended_action="rematerialize",
                         rationale=(
-                            "ticket already resolved; re-materialize "
-                            "into next layer"
+                            "ticket already resolved; re-materialize into next layer"
                         ),
                     )
                 )
@@ -657,7 +647,10 @@ class Coordinator:
 
     @staticmethod
     def _build_ticket(
-        *, ticket_id: str, epic: Epic, layer: LayerName,
+        *,
+        ticket_id: str,
+        epic: Epic,
+        layer: LayerName,
     ) -> Ticket:
         """Construct a ``Ticket`` from build-plan epic context.
 

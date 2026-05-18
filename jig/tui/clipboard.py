@@ -7,6 +7,7 @@ None on failure.
 Used by ``Ctrl+I`` in the Composer to paste a screenshot reference
 into the input.
 """
+
 from __future__ import annotations
 
 import platform
@@ -32,9 +33,7 @@ def get_clipboard_image_bytes() -> bytes:
         return _macos_clipboard_image()
     if system == "Linux":
         return _linux_clipboard_image()
-    raise ClipboardImageError(
-        f"clipboard image paste not supported on {system}"
-    )
+    raise ClipboardImageError(f"clipboard image paste not supported on {system}")
 
 
 def _macos_clipboard_image() -> bytes:
@@ -52,7 +51,7 @@ def _macos_clipboard_image() -> bytes:
         # to the tempfile. `osascript` returns non-zero if the
         # clipboard doesn't have image data of that class.
         script = (
-            'set imgData to the clipboard as «class PNGf»\n'
+            "set imgData to the clipboard as «class PNGf»\n"
             f'set out to (open for access POSIX file "{tmp_path}" '
             "with write permission)\n"
             "set eof of out to 0\n"
@@ -61,14 +60,18 @@ def _macos_clipboard_image() -> bytes:
         )
         result = subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True,
+            text=True,
+            timeout=3,
         )
         if result.returncode != 0:
             stderr = result.stderr.strip().lower()
-            if "can’t make" in stderr or "can't make" in stderr or "class pngf" in stderr:
-                raise ClipboardImageError(
-                    "clipboard does not contain an image"
-                )
+            if (
+                "can’t make" in stderr
+                or "can't make" in stderr
+                or "class pngf" in stderr
+            ):
+                raise ClipboardImageError("clipboard does not contain an image")
             raise ClipboardImageError(
                 f"osascript failed (rc={result.returncode}): {result.stderr.strip()}"
             )
@@ -85,7 +88,8 @@ def _linux_clipboard_image() -> bytes:
     if shutil.which("wl-paste"):
         result = subprocess.run(
             ["wl-paste", "--type", "image/png"],
-            capture_output=True, timeout=3,
+            capture_output=True,
+            timeout=3,
         )
         if result.returncode == 0 and result.stdout:
             return result.stdout
@@ -93,7 +97,8 @@ def _linux_clipboard_image() -> bytes:
     if shutil.which("xclip"):
         result = subprocess.run(
             ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
-            capture_output=True, timeout=3,
+            capture_output=True,
+            timeout=3,
         )
         if result.returncode == 0 and result.stdout:
             return result.stdout

@@ -20,6 +20,7 @@ Fires at end-of-ticket cadence. No-ops when:
   - No module has consumes_apis or consumes_events declared.
   - A contract already has adequate test coverage (both-side match).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,7 +31,9 @@ from jig.ticket import Ticket
 REVIEWER_ID = "contract-test-coverage"
 
 
-def _integration_ac_mentions(contracts_by_module: dict, module_id: str, name: str) -> bool:
+def _integration_ac_mentions(
+    contracts_by_module: dict, module_id: str, name: str
+) -> bool:
     """Return True if module_id's integration_ac has any must-string mentioning name."""
     cf = contracts_by_module.get(module_id)
     if cf is None:

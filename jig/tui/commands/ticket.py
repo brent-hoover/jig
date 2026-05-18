@@ -7,6 +7,7 @@ Subcommands:
 For list: clients can already snapshot the tickets topic. /ticket get <id>
 is not needed — the snapshot covers it.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -40,7 +41,9 @@ def _parse_flagged(args: list[str]) -> dict[str, str]:
 
 
 @register("ticket")
-async def cmd_ticket(*, args: list[str], orch, project_path, **_kwargs) -> dict[str, Any]:
+async def cmd_ticket(
+    *, args: list[str], orch, project_path, **_kwargs
+) -> dict[str, Any]:
     if orch is None:
         return {"ok": False, "error": "/ticket requires a running orchestrator"}
     if not args:
@@ -83,7 +86,10 @@ async def cmd_ticket(*, args: list[str], orch, project_path, **_kwargs) -> dict[
         ticket_id = rest[0]
         kvs = _parse_kvs(rest[1:])
         if not kvs:
-            return {"ok": False, "error": "/ticket update needs at least one field=value"}
+            return {
+                "ok": False,
+                "error": "/ticket update needs at least one field=value",
+            }
         update_args: dict[str, Any] = {"ticket_id": ticket_id, **kvs}
         try:
             updated = await handle_update_ticket(
@@ -95,6 +101,9 @@ async def cmd_ticket(*, args: list[str], orch, project_path, **_kwargs) -> dict[
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"update failed: {exc}"}
-        return {"ok": True, "data": {"ticket_id": updated.id, "status": updated.status.value}}
+        return {
+            "ok": True,
+            "data": {"ticket_id": updated.id, "status": updated.status.value},
+        }
 
     return {"ok": False, "error": f"unknown /ticket subcommand: {sub}"}

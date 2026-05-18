@@ -21,6 +21,7 @@ NATS subjects / etc. is Final scope.
 The audit log at ``.jig/dev/orphan-log.jsonl`` records each detection
 + cleanup run so the operator has provenance.
 """
+
 from __future__ import annotations
 
 import logging
@@ -89,9 +90,7 @@ class OrphanLogEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     action: Literal["detect", "drop", "purge"]
     orphan_id: str | None = None
     orphan_count: int | None = None
@@ -197,9 +196,7 @@ async def list_orphans(
 # ---------------------------------------------------------------------------
 
 
-def _service_by_id(
-    manifest: DevManifest, service_id: str
-) -> ManifestService | None:
+def _service_by_id(manifest: DevManifest, service_id: str) -> ManifestService | None:
     return next((s for s in manifest.services if s.id == service_id), None)
 
 
@@ -276,9 +273,7 @@ class OrphanTracker:
         )
         return rows
 
-    async def drop(
-        self, orphan_id: str, *, success_reason: str = "manual"
-    ) -> bool:
+    async def drop(self, orphan_id: str, *, success_reason: str = "manual") -> bool:
         """Drop the orphan whose composite id matches; return True iff found."""
         rows = await list_orphans(self._manifest, self._tickets)
         match = next((o for o in rows if o.id == orphan_id), None)
@@ -300,9 +295,7 @@ class OrphanTracker:
         """Drop every orphan; return the count purged."""
         rows = await list_orphans(self._manifest, self._tickets)
         for o in rows:
-            await drop_orphan(
-                self._manifest, o, registry=self._registry
-            )
+            await drop_orphan(self._manifest, o, registry=self._registry)
         append_orphan_log(
             self._root,
             OrphanLogEntry(action="purge", orphan_count=len(rows)),

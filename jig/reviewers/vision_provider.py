@@ -17,6 +17,7 @@ fully mechanical. The Protocol's single async entry point keeps the
 boundary narrow: pass two image byte-streams + textual context, get
 a structured ``VisionDiffResult`` back.
 """
+
 from __future__ import annotations
 
 from typing import Literal, Protocol

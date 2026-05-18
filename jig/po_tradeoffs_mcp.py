@@ -4,6 +4,7 @@ The PO calls these during L0/L3/planning to record deliberate scope decisions.
 The tradeoff-compliance reviewer reads `.jig/spec/tradeoffs.yaml` to flag
 tickets that appear to re-add deferred work.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,9 +52,7 @@ async def handle_list_tradeoffs(
     """Return all tradeoffs, optionally filtered by capability_id."""
     ledger = load_ledger(project_path)
     tradeoffs = (
-        ledger.for_capability(capability_id)
-        if capability_id
-        else ledger.tradeoffs
+        ledger.for_capability(capability_id) if capability_id else ledger.tradeoffs
     )
     return {
         "tradeoffs": [t.model_dump() for t in tradeoffs],

@@ -3,6 +3,7 @@
 The TuiPromptHandler is awaiting a Future registered in PromptRegistry.
 This handler resolves it.
 """
+
 import logging
 from typing import Any
 
@@ -21,7 +22,9 @@ async def cmd_prompt_reply(
     delivered = prompt_registry.deliver(prompt_id, reply)
     _logger.debug(
         "prompt_reply id=%s delivered=%s reply=%r",
-        prompt_id, delivered, reply[:60],
+        prompt_id,
+        delivered,
+        reply[:60],
     )
     if not delivered:
         return {

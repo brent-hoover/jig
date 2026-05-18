@@ -1,5 +1,6 @@
 """--print mode: run a single slash command against the daemon, print
 the result to stdout, exit. CI / scripting escape hatch."""
+
 from __future__ import annotations
 
 import asyncio

@@ -7,6 +7,7 @@ process — see ``docs/v2.0/sa-architecture/design.md`` §"Contract types") land
 incrementally; bones uses the two flavors (data + behavioral) the bones
 scenario exercises.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -158,9 +159,7 @@ class DevProvisioning(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Literal[
-        "shared_namespaced", "per_agent_ephemeral", "operator_supplied"
-    ]
+    strategy: Literal["shared_namespaced", "per_agent_ephemeral", "operator_supplied"]
     namespace_template: str = Field(
         default="agent_{agent_id}_{ticket_id}",
         min_length=1,
@@ -217,7 +216,9 @@ class SharedContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(..., min_length=1)
-    type: Literal["data", "event", "api", "schema", "error", "perf", "security", "process"]
+    type: Literal[
+        "data", "event", "api", "schema", "error", "perf", "security", "process"
+    ]
     description: str | None = None
     schema_ref: str | None = None
     payload_ref: str | None = None
@@ -443,9 +444,7 @@ class Module(BaseModel):
         return self
 
 
-def _check_unique_ids(
-    items: list, *, attr: str, owner: str, collection: str
-) -> None:
+def _check_unique_ids(items: list, *, attr: str, owner: str, collection: str) -> None:
     """Raise when two entries in ``items`` share the same ``attr`` value.
 
     Hoisted helper because every aggregate model in this package wants
@@ -483,9 +482,7 @@ class Architecture(BaseModel):
     risks: list[Risk] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
     change_log: list[ChangeLogEntry] = Field(default_factory=list)
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("generated_at")
     @classmethod
@@ -500,28 +497,40 @@ class Architecture(BaseModel):
         uniqueness at the schema layer so a hand-edited YAML can't
         sneak the breakage in."""
         _check_unique_ids(
-            self.data_stores, attr="id",
-            owner="Architecture", collection="data_stores",
+            self.data_stores,
+            attr="id",
+            owner="Architecture",
+            collection="data_stores",
         )
         _check_unique_ids(
-            self.modules, attr="id",
-            owner="Architecture", collection="modules",
+            self.modules,
+            attr="id",
+            owner="Architecture",
+            collection="modules",
         )
         _check_unique_ids(
-            self.shared_contracts, attr="id",
-            owner="Architecture", collection="shared_contracts",
+            self.shared_contracts,
+            attr="id",
+            owner="Architecture",
+            collection="shared_contracts",
         )
         _check_unique_ids(
-            self.cross_cutting_policies, attr="id",
-            owner="Architecture", collection="cross_cutting_policies",
+            self.cross_cutting_policies,
+            attr="id",
+            owner="Architecture",
+            collection="cross_cutting_policies",
         )
         _check_unique_ids(
-            self.risks, attr="id",
-            owner="Architecture", collection="risks",
+            self.risks,
+            attr="id",
+            owner="Architecture",
+            collection="risks",
         )
         _check_unique_ids(
-            self.open_questions, attr="id",
-            owner="Architecture", collection="open_questions",
+            self.open_questions,
+            attr="id",
+            owner="Architecture",
+            collection="open_questions",
         )
         return self
 
@@ -554,7 +563,11 @@ class ExternalDependency(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(..., min_length=1)
-    kind: str = Field(..., min_length=1, description="external_http | file_upload | external_queue | ...")
+    kind: str = Field(
+        ...,
+        min_length=1,
+        description="external_http | file_upload | external_queue | ...",
+    )
     rate_limit: str | None = None
     auth: str | None = None
     failure_mode: str | None = None
@@ -704,8 +717,13 @@ class ExposedAPI(BaseModel):
         ),
     )
     kind: Literal[
-        "function", "class", "endpoint", "cli",
-        "route", "migration", "env_var",
+        "function",
+        "class",
+        "endpoint",
+        "cli",
+        "route",
+        "migration",
+        "env_var",
         "other",
     ] = "function"
     summary: str = Field(
@@ -744,9 +762,7 @@ class EmittedEvent(BaseModel):
     )
     schema_ref: str | None = Field(
         default=None,
-        description=(
-            "Optional URI to the event payload schema, if formalised."
-        ),
+        description=("Optional URI to the event payload schema, if formalised."),
     )
 
 
@@ -794,32 +810,46 @@ class ContractsFile(BaseModel):
         ``integration_ac`` on ``capability`` (one per capability).
         """
         _check_unique_ids(
-            self.behavioral_contracts, attr="id",
-            owner="ContractsFile", collection="behavioral_contracts",
+            self.behavioral_contracts,
+            attr="id",
+            owner="ContractsFile",
+            collection="behavioral_contracts",
         )
         _check_unique_ids(
-            self.data_contracts, attr="id",
-            owner="ContractsFile", collection="data_contracts",
+            self.data_contracts,
+            attr="id",
+            owner="ContractsFile",
+            collection="data_contracts",
         )
         _check_unique_ids(
-            self.owns, attr="collection",
-            owner="ContractsFile", collection="owns",
+            self.owns,
+            attr="collection",
+            owner="ContractsFile",
+            collection="owns",
         )
         _check_unique_ids(
-            self.external_dependencies, attr="id",
-            owner="ContractsFile", collection="external_dependencies",
+            self.external_dependencies,
+            attr="id",
+            owner="ContractsFile",
+            collection="external_dependencies",
         )
         _check_unique_ids(
-            self.integration_ac, attr="capability",
-            owner="ContractsFile", collection="integration_ac",
+            self.integration_ac,
+            attr="capability",
+            owner="ContractsFile",
+            collection="integration_ac",
         )
         _check_unique_ids(
-            self.exposes, attr="name",
-            owner="ContractsFile", collection="exposes",
+            self.exposes,
+            attr="name",
+            owner="ContractsFile",
+            collection="exposes",
         )
         _check_unique_ids(
-            self.emits, attr="name",
-            owner="ContractsFile", collection="emits",
+            self.emits,
+            attr="name",
+            owner="ContractsFile",
+            collection="emits",
         )
         return self
 
@@ -853,9 +883,9 @@ class CascadeContractDisposition(BaseModel):
             "(operator still sees the URI and can read the source)."
         ),
     )
-    proposed_disposition: Literal[
-        "invalidated", "needs_revision", "still_holds"
-    ] = "still_holds"
+    proposed_disposition: Literal["invalidated", "needs_revision", "still_holds"] = (
+        "still_holds"
+    )
 
     @field_validator("uri")
     @classmethod
@@ -936,9 +966,7 @@ class CascadeAuditEntry(BaseModel):
     reason: str | None = None
     stage_id: str | None = None
     holding_for: str | None = None
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("timestamp")
     @classmethod
@@ -971,9 +999,7 @@ class CascadeProposal(BaseModel):
     risk_id: str = Field(..., min_length=1)
     spike_ticket_id: str = Field(..., min_length=1)
     finding: str = Field(..., min_length=1)
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     contracts: list[CascadeContractDisposition] = Field(default_factory=list)
     state: CascadeState = CascadeState.PENDING
     stages: list[CascadeStage] = Field(

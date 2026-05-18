@@ -39,6 +39,7 @@ runs the SA-checklist enforcer (Deliverable 3), posts the same
 Handoff the bones path posts, resolves the ticket via the shared
 ``resolve_after_handoff``.
 """
+
 from __future__ import annotations
 
 import json
@@ -194,9 +195,7 @@ def _load_or_init_arch(project_path: Path) -> Architecture:
         return Architecture()
 
 
-def _load_or_init_contracts(
-    project_path: Path, module_id: str
-) -> ContractsFile:
+def _load_or_init_contracts(project_path: Path, module_id: str) -> ContractsFile:
     """Load module contracts or return a fresh empty file scoped to module_id.
 
     The empty default carries ``module=module_id`` so subsequent
@@ -218,9 +217,7 @@ def _replace_or_append(items: list, new_item: Any, *, id_field: str = "id") -> l
     reuse a mutable reference across the load + save round-trip.
     """
     new_id = getattr(new_item, id_field)
-    return [
-        item for item in items if getattr(item, id_field) != new_id
-    ] + [new_item]
+    return [item for item in items if getattr(item, id_field) != new_id] + [new_item]
 
 
 def _coerce(model_cls: type, raw: Any, *, kind: str) -> Any:
@@ -235,8 +232,7 @@ def _coerce(model_cls: type, raw: Any, *, kind: str) -> Any:
         return raw
     if not isinstance(raw, dict):
         raise ValueError(
-            f"{kind} must be a dict or {model_cls.__name__}, got "
-            f"{type(raw).__name__}"
+            f"{kind} must be a dict or {model_cls.__name__}, got {type(raw).__name__}"
         )
     try:
         return model_cls.model_validate(raw)
@@ -247,9 +243,7 @@ def _coerce(model_cls: type, raw: Any, *, kind: str) -> Any:
 # ---- architecture.yaml upserts -------------------------------------------
 
 
-async def handle_arch_set_module(
-    *, project_path: Path, module: Any
-) -> str:
+async def handle_arch_set_module(*, project_path: Path, module: Any) -> str:
     """Upsert one Module entry into architecture.yaml.
 
     Returns the module id so the agent can immediately reference the
@@ -263,9 +257,7 @@ async def handle_arch_set_module(
     return m.id
 
 
-async def handle_arch_set_data_store(
-    *, project_path: Path, data_store: Any
-) -> str:
+async def handle_arch_set_data_store(*, project_path: Path, data_store: Any) -> str:
     ds = _coerce(DataStore, data_store, kind="data_store")
     arch = _load_or_init_arch(project_path)
     arch.data_stores = _replace_or_append(arch.data_stores, ds)
@@ -288,9 +280,7 @@ async def handle_arch_set_cross_cutting_policy(
 ) -> str:
     p = _coerce(CrossCuttingPolicy, policy, kind="cross_cutting_policy")
     arch = _load_or_init_arch(project_path)
-    arch.cross_cutting_policies = _replace_or_append(
-        arch.cross_cutting_policies, p
-    )
+    arch.cross_cutting_policies = _replace_or_append(arch.cross_cutting_policies, p)
     save_architecture(project_path, arch)
     return p.id
 
@@ -334,9 +324,7 @@ def _validate_risk_cascade_prep(risk: Risk) -> None:
         )
 
 
-async def handle_arch_set_risk(
-    *, project_path: Path, risk: Any
-) -> str:
+async def handle_arch_set_risk(*, project_path: Path, risk: Any) -> str:
     """Upsert one Risk into architecture.yaml with cascade-prep gating.
 
     Mirrors the other ``arch_set_*`` upserts (keyed on ``id``,
@@ -547,9 +535,7 @@ async def handle_arch_complete_spike(
 
     spike = await tickets.get(spike_ticket_id)
     if spike is None:
-        raise KeyError(
-            f"spike ticket {spike_ticket_id!r} not found"
-        )
+        raise KeyError(f"spike ticket {spike_ticket_id!r} not found")
     if spike.work_type != WorkType.SPIKE:
         raise ValueError(
             f"ticket {spike_ticket_id!r} is not a spike "
@@ -581,9 +567,7 @@ async def handle_arch_complete_spike(
         Note(
             ticket_id=spike_ticket_id,
             author=author,
-            text=(
-                f"Spike finding ({status}):\n{finding}"
-            ),
+            text=(f"Spike finding ({status}):\n{finding}"),
             payload={
                 "kind": "spike_finding",
                 "risk_id": risk_id,
@@ -596,10 +580,7 @@ async def handle_arch_complete_spike(
     arch.risks = _replace_or_append(arch.risks, updated_risk)
     save_architecture(project_path, arch)
 
-    if (
-        status == "mitigated_with_constraints"
-        and not constraint
-    ):
+    if status == "mitigated_with_constraints" and not constraint:
         # Mitigation #3: the new state demands a constraint clause —
         # without one the cascade artifact's ``constraint`` field
         # would be empty and the conditional-fire semantics collapse
@@ -650,9 +631,7 @@ async def handle_arch_complete_spike(
                     to_status=new_status.value,
                     spike_ticket_id=spike_ticket_id,
                     operator_confirmed=False,
-                    cascade_proposal_path=str(
-                        cascade_path.relative_to(project_path)
-                    ),
+                    cascade_proposal_path=str(cascade_path.relative_to(project_path)),
                 )
             )
 
@@ -697,9 +676,7 @@ def _cascade_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 
 
-def _resolve_dependent_shape(
-    project_path: Path, uri: str
-) -> str | None:
+def _resolve_dependent_shape(project_path: Path, uri: str) -> str | None:
     """Best-effort lookup of a dependent contract's current shape.
 
     The URI scheme is partial in MVP — only architecture-resident
@@ -750,15 +727,11 @@ def _save_cascade_proposal(path: Path, proposal: CascadeProposal) -> None:
     so disk + in-memory state stay aligned. ``sort_keys=False`` mirrors
     the writer for stable diffs across mutations.
     """
-    payload = yaml.safe_dump(
-        proposal.model_dump(mode="json"), sort_keys=False
-    )
+    payload = yaml.safe_dump(proposal.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(path, payload)
 
 
-def _find_cascade_path(
-    project_path: Path, cascade_id: str
-) -> Path:
+def _find_cascade_path(project_path: Path, cascade_id: str) -> Path:
     """Resolve a cascade_id to its on-disk YAML path; raise KeyError if absent.
 
     The cascade_id format is ``<risk-id>-<timestamp>`` so we can
@@ -777,9 +750,7 @@ def _find_cascade_path(
     return candidate
 
 
-def _append_cascade_audit(
-    project_path: Path, entry: CascadeAuditEntry
-) -> None:
+def _append_cascade_audit(project_path: Path, entry: CascadeAuditEntry) -> None:
     """Append one CascadeAuditEntry to ``.jig/arch/cascades/audit.jsonl``.
 
     JSONL append-only — the audit log is a write-once record per
@@ -791,18 +762,12 @@ def _append_cascade_audit(
     path = cascade_audit_path(project_path)
     rows: list[str] = []
     if path.is_file():
-        rows = [
-            line for line in path.read_text().splitlines() if line.strip()
-        ]
-    rows.append(
-        json.dumps(entry.model_dump(mode="json"), sort_keys=True)
-    )
+        rows = [line for line in path.read_text().splitlines() if line.strip()]
+    rows.append(json.dumps(entry.model_dump(mode="json"), sort_keys=True))
     atomic_write_text(path, "\n".join(rows) + "\n")
 
 
-def _detect_holding_for(
-    project_path: Path, dependents: list[str]
-) -> str | None:
+def _detect_holding_for(project_path: Path, dependents: list[str]) -> str | None:
     """Mitigation #4: scan existing cascades for overlapping URIs.
 
     Returns the cascade_id of an in-flight cascade (state == pending,
@@ -919,10 +884,7 @@ def _write_cascade_proposal(
                 action="holding",
                 actor=actor,
                 holding_for=holding_for,
-                reason=(
-                    f"overlapping dependent_contracts with cascade "
-                    f"{holding_for}"
-                ),
+                reason=(f"overlapping dependent_contracts with cascade {holding_for}"),
             ),
         )
     return target
@@ -989,9 +951,7 @@ def _split_into_stages(
     stages without round-tripping through the cascade artifact.
     """
     if chunk_size < 1:
-        raise ValueError(
-            f"chunk_size must be >= 1, got {chunk_size!r}"
-        )
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size!r}")
     out: list[CascadeStage] = []
     for i in range(0, len(contracts), chunk_size):
         out.append(
@@ -1092,9 +1052,7 @@ async def handle_arch_approve_cascade_stage(
         )
     all_approved = all(s.approved for s in new_stages)
     new_state = CascadeState.RESOLVED if all_approved else CascadeState.STAGED
-    updated = proposal.model_copy(
-        update={"stages": new_stages, "state": new_state}
-    )
+    updated = proposal.model_copy(update={"stages": new_stages, "state": new_state})
     _save_cascade_proposal(path, updated)
     _append_cascade_audit(
         project_path,
@@ -1186,9 +1144,7 @@ async def handle_module_set_owned_collection(
 async def handle_module_set_external_dependency(
     *, project_path: Path, module_id: str, external_dependency: Any
 ) -> str:
-    ed = _coerce(
-        ExternalDependency, external_dependency, kind="external_dependency"
-    )
+    ed = _coerce(ExternalDependency, external_dependency, kind="external_dependency")
     cf = _load_or_init_contracts(project_path, module_id)
     cf.external_dependencies = _replace_or_append(cf.external_dependencies, ed)
     save_module_contracts(project_path, module_id, cf)
@@ -1199,13 +1155,9 @@ async def handle_module_set_integration_ac(
     *, project_path: Path, module_id: str, integration_ac: Any
 ) -> str:
     """Upsert one IntegrationAcceptance entry, keyed by capability id."""
-    ia = _coerce(
-        IntegrationAcceptance, integration_ac, kind="integration_ac"
-    )
+    ia = _coerce(IntegrationAcceptance, integration_ac, kind="integration_ac")
     cf = _load_or_init_contracts(project_path, module_id)
-    cf.integration_ac = _replace_or_append(
-        cf.integration_ac, ia, id_field="capability"
-    )
+    cf.integration_ac = _replace_or_append(cf.integration_ac, ia, id_field="capability")
     save_module_contracts(project_path, module_id, cf)
     return ia.capability
 
@@ -1224,13 +1176,9 @@ async def handle_module_set_behavioral_contract(
     in Track C MVP commit 3; commit 2 ships the upsert + an empty
     warnings list so the response shape is stable from the first call.
     """
-    bc = _coerce(
-        BehavioralContract, behavioral_contract, kind="behavioral_contract"
-    )
+    bc = _coerce(BehavioralContract, behavioral_contract, kind="behavioral_contract")
     cf = _load_or_init_contracts(project_path, module_id)
-    cf.behavioral_contracts = _replace_or_append(
-        cf.behavioral_contracts, bc
-    )
+    cf.behavioral_contracts = _replace_or_append(cf.behavioral_contracts, bc)
     save_module_contracts(project_path, module_id, cf)
     warnings = validate_behavioral_contract(bc)
     return {"id": bc.id, "warnings": warnings}
@@ -1304,9 +1252,7 @@ async def handle_arch_regenerate_pydantic_models(
         except FileNotFoundError:
             return []
         for dc in cf.data_contracts:
-            path = _maybe_render_pydantic_for_contract(
-                project_path, module_id, dc
-            )
+            path = _maybe_render_pydantic_for_contract(project_path, module_id, dc)
             if path is not None:
                 written.append(path)
         return written
@@ -1325,9 +1271,7 @@ async def handle_arch_regenerate_pydantic_models(
         except FileNotFoundError:
             continue
         for dc in cf.data_contracts:
-            path = _maybe_render_pydantic_for_contract(
-                project_path, mid, dc
-            )
+            path = _maybe_render_pydantic_for_contract(project_path, mid, dc)
             if path is not None:
                 written.append(path)
     return written
@@ -1480,8 +1424,7 @@ async def handle_arch_finalize(
 
     authored_ids = _collect_authored_module_ids(project_path)
     contracts_by_module: dict[str, ContractsFile] = {
-        mid: load_module_contracts(project_path, mid)
-        for mid in authored_ids
+        mid: load_module_contracts(project_path, mid) for mid in authored_ids
     }
     _validate_module_link(arch, set(contracts_by_module.keys()))
 

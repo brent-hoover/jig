@@ -326,7 +326,9 @@ class NowScreen(Container):
         self._active_prompt_type: str | None = None
         # Input history — up/down arrow recall.
         self._history: list[str] = []
-        self._history_idx: int | None = None  # None = at the live edit; 0..len-1 = recall
+        self._history_idx: int | None = (
+            None  # None = at the live edit; 0..len-1 = recall
+        )
         self._pending_value: str = ""
         self._scroll_paused: bool = False
         # Last agent role rendered to scrollback. Suppresses repeated
@@ -530,9 +532,7 @@ class NowScreen(Container):
         options = data.get("options") or []
         templates = data.get("templates") or []
         question_text = (
-            data.get("question_text")
-            or data.get("question")
-            or ""
+            data.get("question_text") or data.get("question") or ""
         ).strip()
 
         type_map = {
@@ -574,9 +574,9 @@ class NowScreen(Container):
                     lines.append(f"  {badge} {label}")
             lines.append("")
             lines.append(
-                "[dim]Type the key (e.g. " + ", ".join(
-                    f"[bold]{o['key']}[/bold]" for o in opts
-                ) + ") and press Enter.[/dim]"
+                "[dim]Type the key (e.g. "
+                + ", ".join(f"[bold]{o['key']}[/bold]" for o in opts)
+                + ") and press Enter.[/dim]"
             )
         elif prompt_type == "direct_template" and templates:
             lines.append("")
@@ -594,7 +594,7 @@ class NowScreen(Container):
         # of long question text) so the panel never clips its hint or
         # options. Falls back to a reasonable default if size isn't known
         # yet (first render before layout has run).
-        screen_width = (self.size.width or 100)
+        screen_width = self.size.width or 100
         # Panel inner width = screen − sidebar − border − padding − slack.
         # We don't know the exact sidebar width here, so estimate
         # generously; a too-tall panel is fine, a too-short one clips.
@@ -748,6 +748,7 @@ class NowScreen(Container):
                 role = data.get("role", "agent")
                 if text:
                     from rich.markdown import Markdown
+
                     # If this turn is from a different agent than the banner
                     # that was last shown, print a short colored label so the
                     # reader can tell who's talking without hunting for the
@@ -800,24 +801,33 @@ class NowScreen(Container):
         if kind == "ticket_dispatched":
             pass  # shown in Recent sidebar; not needed here
         elif kind == "ticket_completed":
-            scrollback.write(f"[green]✓[/green] completed [bold]{title}[/bold] ({ticket_id})")
+            scrollback.write(
+                f"[green]✓[/green] completed [bold]{title}[/bold] ({ticket_id})"
+            )
         elif kind == "ticket_failed":
             reason = data.get("reason", "")
             suffix = f" — {reason}" if reason else ""
-            scrollback.write(f"[red]✗[/red] failed [bold]{title}[/bold] ({ticket_id}){suffix}")
+            scrollback.write(
+                f"[red]✗[/red] failed [bold]{title}[/bold] ({ticket_id}){suffix}"
+            )
         elif kind == "ticket_merge_conflict":
-            scrollback.write(f"[yellow]⚡[/yellow] merge conflict [bold]{title}[/bold] ({ticket_id})")
+            scrollback.write(
+                f"[yellow]⚡[/yellow] merge conflict [bold]{title}[/bold] ({ticket_id})"
+            )
         elif kind == "project_complete":
             from rich.align import Align
             from rich.rule import Rule
             from rich.text import Text
+
             resolved = data.get("tickets_resolved", 0)
             total = data.get("tickets_total", 0)
             scrollback.write(Rule(style="bold green"))
             scrollback.write(Align.center(Text("PROJECT COMPLETE", style="bold green")))
             if total:
                 scrollback.write(
-                    Align.center(Text(f"{resolved}/{total} tickets resolved", style="dim green"))
+                    Align.center(
+                        Text(f"{resolved}/{total} tickets resolved", style="dim green")
+                    )
                 )
             scrollback.write(Rule(style="bold green"))
         elif kind == "analysis_complete":
@@ -833,7 +843,11 @@ class NowScreen(Container):
         """Coerce a plain string or partial dict into a full option dict."""
         if isinstance(opt, str):
             return {"key": opt[0].upper(), "label": opt, "default": False}
-        return {"key": opt.get("key", ""), "label": opt.get("label", ""), "default": bool(opt.get("default"))}
+        return {
+            "key": opt.get("key", ""),
+            "label": opt.get("label", ""),
+            "default": bool(opt.get("default")),
+        }
 
     async def _render_prompt_request(self, data: dict) -> None:
         """Render a prompt request inline and switch to answering mode."""
@@ -868,6 +882,7 @@ class NowScreen(Container):
                     self.call_after_refresh(scrollback.scroll_home)
                 else:
                     from rich.markdown import Markdown
+
                     scrollback.write(Markdown(rendered))
             question = data.get("question")
             if question:
@@ -950,9 +965,7 @@ class NowScreen(Container):
                     "prompt_reply", {"args": [prompt_id, text]}
                 )
             except Exception as exc:
-                scrollback.write(
-                    f"[red]error:[/red] failed to send answer ({exc})"
-                )
+                scrollback.write(f"[red]error:[/red] failed to send answer ({exc})")
             if prompt_type == "brief_approval":
                 scrollback.auto_scroll = True
             if prompt_type == "init_complete":
@@ -1008,9 +1021,7 @@ class NowScreen(Container):
                     "prompt_reply", {"args": [prompt_id, text]}
                 )
             except Exception as exc:
-                scrollback.write(
-                    f"[red]error:[/red] failed to send answer ({exc})"
-                )
+                scrollback.write(f"[red]error:[/red] failed to send answer ({exc})")
             if prompt_type == "brief_approval":
                 scrollback.auto_scroll = True
             if prompt_type == "init_complete":

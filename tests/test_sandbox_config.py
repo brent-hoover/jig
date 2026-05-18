@@ -174,11 +174,16 @@ class TestReservedMountProtection:
 
     def test_unrelated_destination_allowed(self, tmp_path: Path) -> None:
         """Mounts into unrelated subtrees stay unaffected by the guard."""
+        # Use a tmp-rooted path for hide_paths: BwrapConfig.to_args() calls
+        # Path(p).is_file() on each hide path, and on hosts where '/root'
+        # exists with restricted permissions (Ubuntu CI runners) that stat
+        # raises PermissionError. Sticking inside tmp_path keeps the test
+        # OS-independent.
         cfg = BwrapConfig(
             worktree_host_path=tmp_path,
             extra_ro_binds=[(str(tmp_path), "/opt/data")],
             extra_rw_binds=[(str(tmp_path), "/var/cache/jig")],
-            hide_paths=["/root/.ssh"],
+            hide_paths=[str(tmp_path / "fake-hidden")],
         )
         args = cfg.to_args()
         assert (str(tmp_path), "/opt/data") in _pair_positions(args, "--ro-bind")

@@ -4,6 +4,9 @@ phases:
     role: dev
     task_template: "Refactor as specified, keeping all existing tests passing for: {ticket_title}"
     acceptance_criteria: "Restructured code with no behavior change, all tests green"
+    writes:
+      - "src/**"
+      - "pyproject.toml"
   - name: validate
     role: validate
     task_template: "Confirm equivalence — all tests pass, linters clean for: {ticket_title}"

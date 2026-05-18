@@ -4,3 +4,7 @@ phases:
     role: document
     task_template: "Write documentation as specified for: {ticket_title}"
     acceptance_criteria: "Documentation complete and accurate"
+    writes:
+      - "docs/**"
+      - "README*"
+      - "CHANGELOG*"

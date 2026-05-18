@@ -4,7 +4,7 @@ type: problem
 status: draft
 owner: brent
 created: 2026-05-17
-updated: 2026-05-17
+updated: 2026-05-18
 ---
 
 # Review Routing — Problem Statement
@@ -135,24 +135,32 @@ Non-test reviewers continue to run end-of-ticket.
 
 ## Open questions
 
-- [ ] Which reviewers move to the new test-review phase vs. stay at end-of-ticket?
-      `reviewer-test-adequacy` is the obvious mover. `reviewer-pattern-conformance` produced findings on
-      both test files and `pyproject.toml` in our observed case — split it, run it at both cadences with
-      different file-scopes, or leave it end-of-ticket and rely on routing?
-- [ ] Where does the file→role mapping live? Per-workflow (each phase declares `writes: [glob...]`), or
-      a central convention (`tests/** → test`, `src/** → dev`, etc.)? Per-workflow is more flexible;
-      central is one less thing to configure.
-- [ ] Fallback owner for unowned files (`pyproject.toml`, `README.md`, top-level configs): always dev,
-      configurable per-workflow, or refused outright with a clear error to the operator?
+- [x] Which reviewers move to the new test-review phase vs. stay at end-of-ticket?
+      **Resolved in `design.md`**: `reviewer-test-adequacy` moves to `review-tests` only; the
+      remaining five reviewers stay at end-of-ticket. `reviewer-pattern-conformance` stays
+      end-of-ticket — per-finding routing handles its cross-cutting findings (test files and
+      `pyproject.toml`) without splitting the reviewer across phases.
+- [x] Where does the file→role mapping live? **Resolved in `design.md`**: per-phase
+      `writes: [glob...]` in the workflow YAML. Each phase declares what paths it writes; glob
+      matching at routing time derives the owning phase from the comment's `file` field.
+      Per-workflow is more flexible than a central convention and keeps the mapping co-located
+      with the phase that owns it.
+- [x] Fallback owner for unowned files (`pyproject.toml`, `README.md`, top-level configs):
+      **Resolved in `design.md`**: fall back to the most-recent dev phase with
+      `block_reason="unowned-finding"` logged. Explicit, observable, and preserves current
+      behavior.
 - [x] When a blocking finding targets a file under both `test` and `dev` ownership (e.g. shared
       fixtures), what role owns it? **Resolved in `design.md`**: use commit trailers (`Phase:`
       written by a `prepare-commit-msg` hook) to identify the last phase that touched the file,
       and route to that phase among the matching candidates.
-- [ ] Some findings indicate the issue is above the writing role's pay grade (the spec is wrong, an
+- [x] Some findings indicate the issue is above the writing role's pay grade (the spec is wrong, an
       architecture decision needs revisiting). Should reviewers be able to declare a target role
-      (`pm`, `sa`) on a finding, with routing consulting that *before* file→role mapping? Captured
-      for design discussion; see `design.md` once written.
+      (`pm`, `sa`) on a finding, with routing consulting that *before* file→role mapping?
+      **Resolved in `design.md`**: yes — `ReviewerComment.target_role: str | None` is added.
+      Routing checks `target_role` first; unknown role values log a warning and fall through to
+      glob routing, so reviewer hallucinations degrade gracefully.
 
 ## Change log
 
 - 2026-05-17: Initial draft (brent)
+- 2026-05-18: Mark all open questions resolved with pointers to design.md (claude)

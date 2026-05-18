@@ -12,11 +12,11 @@ design: ./design.md
 
 ## Overview
 
-Nine ordered steps, each shippable on its own. The order is dependency-driven: data-model and config
-schema changes ship first (no behavior change), then mechanism (worktree provenance, reviewer
-dispatch refactor), then the routing change that ties everything together, then the caller switch
-that activates it. Each step has its own tests; the integration test that proves the original
-`240db21f` failure now converges lives in step 8 (caller migration).
+Eight ordered steps, each shippable on its own. The order is dependency-driven: data-model and
+config schema changes ship first (no behavior change), then mechanism (worktree provenance,
+reviewer dispatch refactor), then the routing change that ties everything together, then the
+caller switch that activates it. Each step has its own tests; the integration test that proves the
+original `240db21f` failure now converges lives in step 8 (caller migration).
 
 Per TDD discipline, every step starts with a failing test and ends with the test passing. Steps 1–4
 can ship in any order relative to each other (they're independent); the dependency edges are
@@ -232,26 +232,6 @@ instead. Post a structured thread Note naming the chosen phase and route reason 
 
 **References:** N/A.
 
-### 9. Backfill `prepare-commit-msg` hook on existing worktrees
-
-**What:** Add an idempotent installer call to the orchestrator's phase-entry path: every time the
-orchestrator enters a phase on a worktree, it ensures the hook is installed (a noop if already
-present). This handles operators whose worktrees pre-date step 4.
-
-**Why:** Without this, existing in-flight projects whose worktrees were created before this work
-shipped would have no `Phase:` trailers on new commits, and the routing tie-break would always
-fall through to `ambiguous-ownership`. With it, the trailer accumulation starts as soon as the
-operator's next phase runs.
-
-**Verify:**
-- Unit test: installer is idempotent (running twice doesn't corrupt the hook file).
-- Unit test: installer on a worktree without the hook installs it; on a worktree with the hook
-  already present, no-op.
-- Manual: stop the daemon on the `hn-cli` eval project, start the new daemon, observe the hook
-  file appearing on the worktree's `.git/hooks/`.
-
-**References:** N/A.
-
 ## Rollback
 
 The work is layered so each step is independently revertable:
@@ -270,10 +250,8 @@ The work is layered so each step is independently revertable:
 - Steps 7, 8: routing change. Step 8 is the activation; reverting step 8 (restore the
   `_find_fix_phase` call) restores prior routing exactly. `_route_blocking_comments` becomes
   unused code, safe to leave or remove.
-- Step 9: backfill installer. Revert removes the installation call; existing hooks stay in place
-  but become inert.
 
-If a rollback is needed mid-feature, prefer reverting steps in reverse order (9 → 8 → 7 …)
+If a rollback is needed mid-feature, prefer reverting steps in reverse order (8 → 7 → 6 …)
 because dependencies flow downward.
 
 ## Out of scope for this plan
@@ -297,3 +275,5 @@ because dependencies flow downward.
 ## Change log
 
 - 2026-05-17: Initial draft (brent)
+- 2026-05-17: Drop step 9 (backfill hook on existing worktrees) — no legacy projects to migrate
+  in this environment. Also remove the corresponding risk note from design.md.

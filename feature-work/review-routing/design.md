@@ -472,10 +472,6 @@ logic. The orchestrator change is localised to one function.
   for routing — the tie-break degrades to the workflow-earliest candidate, with an
   `ambiguous-ownership` log line so the gap is observable. Worth a CLAUDE.md note that agents
   shouldn't use `--no-verify`.
-- **Existing worktrees pre-date the hook.** Worktrees created before this work ships have no hook
-  installed and no context file. Add an idempotent installer to `jig/worktree.py` that adds the
-  hook + writes the current phase's context whenever the orchestrator enters a phase on a worktree
-  it sees, regardless of when the worktree was created.
 - **Glob authoring errors.** A typo in a `writes:` glob silently mis-routes findings. Mitigate by
   emitting `route_reason` on every routing decision (logged + posted as a thread Note); operators
   see immediately if dev keeps getting findings that should have gone to test.
@@ -569,3 +565,5 @@ logic. The orchestrator change is localised to one function.
   `worktree_path` and forwards it to `_route_one`. Clarify that multi-phase-same-role's
   most-recent default applies only in the unowned-finding fallback; glob routing + trailer
   tie-break already handles the disambiguation case correctly.
+- 2026-05-17: Drop "existing worktrees pre-date the hook" risk — no legacy projects to migrate in
+  this environment.

@@ -6,19 +6,20 @@ Exercises:
    one check_failure SystemEvent per failing required check.
 3. handoff_gate.bounce_handoff flips the handoff to ``rejected``
    with ``rejected_by="harness"`` and the verdict summary.
-4. Orchestrator's _phase_handoff_rejected → _find_fix_phase routes
-   back to the prior dev phase; main loop reruns from that index.
+4. Orchestrator's _phase_handoff_rejected → _route_blocked_phase falls
+   back to the most-recent dev phase (the check-failure path has no
+   reviewer comments to route on); main loop reruns from that index.
 5. On rerun, the worktree state flips the check to passing.
 6. AutomatedOnlyEvaluator → accept_handoff_automated auto-closes
    the handoff with ``accepted_by="harness"``.
 7. All phases complete → stubbed merge → ticket is RESOLVED.
 
-Workflow rationale: both phases use ``role="dev"`` because
-``jig.orchestrator._find_fix_phase`` hardcodes
-``_write_roles = {"dev"}`` and scans only phases *before* the
-blocked index. A gated phase needs a prior dev-role phase to
-route back to, so ``baseline`` exists purely as the fix-target.
-The fake agent disambiguates via ``ctx.phase.name``.
+Workflow rationale: both phases use ``role="dev"`` because the
+check-failure path in ``_route_blocked_phase`` falls back to
+``_most_recent_phase_with_role(..., "dev")`` and scans only phases
+*before* the blocked index. A gated phase needs a prior dev-role
+phase to route back to, so ``baseline`` exists purely as the
+fix-target. The fake agent disambiguates via ``ctx.phase.name``.
 """
 
 from __future__ import annotations

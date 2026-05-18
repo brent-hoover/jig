@@ -142,19 +142,20 @@ class TestRouteBlockedPhase:
     async def test_filters_to_latest_cycle_only(self, tmp_path: Path) -> None:
         """Stale comments from an earlier cycle must not influence routing."""
         _save_project(tmp_path)
+        # Seed before startup so the instance-scoped store picks them up.
+        await _seed_store(
+            tmp_path,
+            "tb-cycle",
+            [
+                # Old cycle: a finding that would route to implement.
+                _comment(file="src/foo.py", cycle=0),
+                # Latest cycle: a finding that should route to test.
+                _comment(file="tests/test_x.py", cycle=1),
+            ],
+        )
         orch = Orchestrator(project_path=tmp_path)
         await orch.startup()
         try:
-            await _seed_store(
-                tmp_path,
-                "tb-cycle",
-                [
-                    # Old cycle: a finding that would route to implement.
-                    _comment(file="src/foo.py", cycle=0),
-                    # Latest cycle: a finding that should route to test.
-                    _comment(file="tests/test_x.py", cycle=1),
-                ],
-            )
             workflow = WorkflowConfig(
                 name="w",
                 phases=[
@@ -180,14 +181,14 @@ class TestRouteBlockedPhase:
         notable-only cycle is treated as "no blocking comments" and
         falls back to most-recent dev (the legacy path)."""
         _save_project(tmp_path)
+        await _seed_store(
+            tmp_path,
+            "tb-notable",
+            [_comment(file="tests/test_x.py", severity=Severity.NOTABLE, cycle=0)],
+        )
         orch = Orchestrator(project_path=tmp_path)
         await orch.startup()
         try:
-            await _seed_store(
-                tmp_path,
-                "tb-notable",
-                [_comment(file="tests/test_x.py", severity=Severity.NOTABLE, cycle=0)],
-            )
             workflow = WorkflowConfig(
                 name="w",
                 phases=[
@@ -211,14 +212,14 @@ class TestRouteBlockedPhase:
         """The chosen phase + route reason lands as a thread Note so
         operators can see why a given phase was selected for retry."""
         _save_project(tmp_path)
+        await _seed_store(
+            tmp_path,
+            "tb-note",
+            [_comment(file="tests/test_x.py", cycle=0)],
+        )
         orch = Orchestrator(project_path=tmp_path)
         await orch.startup()
         try:
-            await _seed_store(
-                tmp_path,
-                "tb-note",
-                [_comment(file="tests/test_x.py", cycle=0)],
-            )
             workflow = WorkflowConfig(
                 name="w",
                 phases=[
@@ -268,6 +269,29 @@ class TestReplay240db21fScenario:
         self, tmp_path: Path
     ) -> None:
         _save_project(tmp_path)
+        # The actual 240db21f finding: pattern-conformance flagged a
+        # too-broad per-file-ignore in pyproject.toml that the dev
+        # added as a workaround for an unsortable import block in a
+        # test file. The reviewer's `file` is the test file
+        # (tests/test_filter_flags.py) — and that's the file the dev
+        # role cannot legally edit.
+        await _seed_store(
+            tmp_path,
+            "tb-240db21f",
+            [
+                _comment(
+                    file="tests/test_filter_flags.py",
+                    severity=Severity.IMPORTANT,
+                    cycle=0,
+                    reviewer="reviewer-pattern-conformance",
+                    prose=(
+                        "Tests should import VALID_TYPES from cli.py "
+                        "rather than redefining it locally — the test "
+                        "constant has a different type."
+                    ),
+                ),
+            ],
+        )
         orch = Orchestrator(project_path=tmp_path)
         await orch.startup()
         try:
@@ -279,30 +303,6 @@ class TestReplay240db21fScenario:
                     _phase("test", "test", writes=["tests/**"]),
                     _phase("implement", "dev", writes=["src/**", "pyproject.toml"]),
                     _review_phase("review", ["reviewer-pattern-conformance"]),
-                ],
-            )
-
-            # The actual 240db21f finding: pattern-conformance flagged a
-            # too-broad per-file-ignore in pyproject.toml that the dev
-            # added as a workaround for an unsortable import block in a
-            # test file. The reviewer's `file` is the test file
-            # (tests/test_filter_flags.py) — and that's the file the dev
-            # role cannot legally edit.
-            await _seed_store(
-                tmp_path,
-                "tb-240db21f",
-                [
-                    _comment(
-                        file="tests/test_filter_flags.py",
-                        severity=Severity.IMPORTANT,
-                        cycle=0,
-                        reviewer="reviewer-pattern-conformance",
-                        prose=(
-                            "Tests should import VALID_TYPES from cli.py "
-                            "rather than redefining it locally — the test "
-                            "constant has a different type."
-                        ),
-                    ),
                 ],
             )
 

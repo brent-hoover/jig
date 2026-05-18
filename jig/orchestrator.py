@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
-    from jig.models import PhaseConfig
+    from jig.models import PhaseConfig, WorkflowConfig
     from jig.prompt_registry import PromptRegistry
+    from jig.reviewers.comment import ReviewerComment
     from jig.ticket import Ticket
 
 from jig.agent import run_agent
@@ -40,6 +41,7 @@ from jig.project import Project, load_project
 from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
+from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
@@ -174,6 +176,10 @@ class Orchestrator:
         self.memory: MemoryStore | None = None
         self.bus: MessageBus | None = None
         self.check_results: CheckResultsStore | None = None
+        # Review-routing step 8: held at instance scope so the
+        # blocked-phase router doesn't re-load the full JSONL every
+        # cycle. Initialized alongside other stores in startup().
+        self.review_comments: ReviewCommentsStore | None = None
         # v2 analytics — append-only event capture for the consumer half
         # described in docs/v2.0/analytics/. Initialized in startup once the
         # store directory exists.
@@ -266,6 +272,9 @@ class Orchestrator:
             self.memory = MemoryStore(store_dir)
             self.bus = MessageBus(store_dir / "messages.jsonl")
             self.check_results = CheckResultsStore(store_dir / "check_results.jsonl")
+            self.review_comments = ReviewCommentsStore(
+                store_dir / "review_comments.jsonl"
+            )
             self.analytics = AnalyticsStore(store_dir / "analytics.jsonl")
             await asyncio.gather(
                 self.tickets.load(),
@@ -274,6 +283,7 @@ class Orchestrator:
                 self.memory.load(),
                 self.bus.load(),
                 self.check_results.load(),
+                self.review_comments.load(),
                 self.analytics.load(),
             )
             self._analytics_emitter = AnalyticsEmitter(self.analytics)
@@ -2689,7 +2699,7 @@ class Orchestrator:
 
     async def _route_blocked_phase(
         self,
-        workflow,
+        workflow: "WorkflowConfig",
         blocked_phase_idx: int,
         ticket_id: str,
         worktree: Path,
@@ -2719,16 +2729,18 @@ class Orchestrator:
             _most_recent_phase_with_role,
             _route_blocking_comments,
         )
-        from jig.store.review_comments import ReviewCommentsStore
 
-        store_path = self._project_path / ".jig" / "store" / "review_comments.jsonl"
-        store = ReviewCommentsStore(store_path)
-        await store.load()
-        all_comments = await store.for_ticket(ticket_id)
+        if self.review_comments is None:
+            # Orchestrator not fully started yet — no comments to route
+            # on. Fall through to the dev fallback so the caller still
+            # gets a deterministic answer.
+            all_comments: list[ReviewerComment] = []
+        else:
+            all_comments = await self.review_comments.for_ticket(ticket_id)
         # Most recent cycle = the one that just blocked. The
         # FixLoopTracker auto-increments cycle per record, so max()
         # identifies the latest.
-        blocking: list = []
+        blocking: list[ReviewerComment] = []
         if all_comments:
             latest_cycle = max(c.cycle for c in all_comments)
             blocking = [

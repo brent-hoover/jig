@@ -180,9 +180,10 @@ class Orchestrator:
         self.memory: MemoryStore | None = None
         self.bus: MessageBus | None = None
         self.check_results: CheckResultsStore | None = None
-        # Review-routing step 8: held at instance scope so the
-        # blocked-phase router doesn't re-load the full JSONL every
-        # cycle. Initialized alongside other stores in startup().
+        # Review-routing step 8: held at instance scope to track lifecycle
+        # alongside the other stores. The blocked-phase router still calls
+        # load() before each query because reviewer_mcp writes through
+        # separate store instances — see _route_blocked_phase.
         self.review_comments: ReviewCommentsStore | None = None
         # v2 analytics — append-only event capture for the consumer half
         # described in docs/v2.0/analytics/. Initialized in startup once the

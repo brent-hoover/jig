@@ -110,31 +110,28 @@ class TestRoleConfigsLoad:
     def test_test_adequacy_prompt_is_review_tests_phase_scoped(
         self, tmp_path: Path
     ) -> None:
-        """The rewrite (feature-work/review-routing/plan.md §Step 3) reframes
-        this reviewer around the new ``review-tests`` phase and the ticket
-        AC — its prompt no longer cross-references impl-side callables
-        (which don't exist at this phase)."""
         cfg = load_role(tmp_path, "reviewer_test_adequacy")
         prompt = cfg.phase_prompt
-        # Phase context is explicit
         assert "review-tests" in prompt
-        # AC-anchored mechanics replace the old impl-diff cross-reference
-        assert "acceptance criteria" in prompt.lower() or "AC" in prompt
-        # Explicit "no impl" guarantee — distinguishes this from end-of-ticket
-        # reviewers that DO see impl
-        assert "impl" in prompt.lower()
+        assert "acceptance criteria" in prompt.lower()
+        # Load-bearing for routing: the no-impl guarantee. If the prompt
+        # drifts back toward impl cross-referencing, this assertion catches it.
+        assert "You do NOT see implementation code" in prompt
 
     def test_test_adequacy_drops_graph_consumers_of(self, tmp_path: Path) -> None:
-        """``graph_consumers_of`` was used to inspect impl call-sites; the
-        new pre-impl phase has no callers to inspect."""
         cfg = load_role(tmp_path, "reviewer_test_adequacy")
         assert "graph_consumers_of" not in cfg.allowed_tools
 
     def test_test_adequacy_default_context_keeps_ticket_description(
         self, tmp_path: Path
     ) -> None:
-        """The AC-anchored mechanics depend on ``ticket://description`` —
-        the prompt's reference must still be wired in default_context so
-        the reviewer can read the AC at spawn time."""
         cfg = load_role(tmp_path, "reviewer_test_adequacy")
         assert "ticket://description" in cfg.default_context
+
+    def test_test_adequacy_prompt_flags_unrunnable_tests(
+        self, tmp_path: Path
+    ) -> None:
+        # New rule in the rewrite — tests must be runnable as tests
+        # (no syntax errors, no asserts that can't fire).
+        cfg = load_role(tmp_path, "reviewer_test_adequacy")
+        assert "runnable as tests" in cfg.phase_prompt

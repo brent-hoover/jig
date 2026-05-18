@@ -106,3 +106,35 @@ class TestRoleConfigsLoad:
         assert cfg.role == "reviewer-test-adequacy"
         assert "reviewer_post_comment" in cfg.allowed_tools
         assert cfg.strict_tools is True
+
+    def test_test_adequacy_prompt_is_review_tests_phase_scoped(
+        self, tmp_path: Path
+    ) -> None:
+        """The rewrite (feature-work/review-routing/plan.md §Step 3) reframes
+        this reviewer around the new ``review-tests`` phase and the ticket
+        AC — its prompt no longer cross-references impl-side callables
+        (which don't exist at this phase)."""
+        cfg = load_role(tmp_path, "reviewer_test_adequacy")
+        prompt = cfg.phase_prompt
+        # Phase context is explicit
+        assert "review-tests" in prompt
+        # AC-anchored mechanics replace the old impl-diff cross-reference
+        assert "acceptance criteria" in prompt.lower() or "AC" in prompt
+        # Explicit "no impl" guarantee — distinguishes this from end-of-ticket
+        # reviewers that DO see impl
+        assert "impl" in prompt.lower()
+
+    def test_test_adequacy_drops_graph_consumers_of(self, tmp_path: Path) -> None:
+        """``graph_consumers_of`` was used to inspect impl call-sites; the
+        new pre-impl phase has no callers to inspect."""
+        cfg = load_role(tmp_path, "reviewer_test_adequacy")
+        assert "graph_consumers_of" not in cfg.allowed_tools
+
+    def test_test_adequacy_default_context_keeps_ticket_description(
+        self, tmp_path: Path
+    ) -> None:
+        """The AC-anchored mechanics depend on ``ticket://description`` —
+        the prompt's reference must still be wired in default_context so
+        the reviewer can read the AC at spawn time."""
+        cfg = load_role(tmp_path, "reviewer_test_adequacy")
+        assert "ticket://description" in cfg.default_context

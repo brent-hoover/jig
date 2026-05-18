@@ -176,6 +176,30 @@ class PhaseConfig(BaseModel):
     # removal-by-omission.
     capability_overrides: CapabilityDeclaration | None = None
 
+    # Review-routing (feature-work/review-routing/plan.md §Step 2). Repo-relative
+    # globs naming the paths this phase's role writes to. The fix-loop router
+    # uses these to map a reviewer-comment file → owning phase. Empty default
+    # keeps backward-compat: workflows without ``writes:`` fall through to the
+    # unowned-finding fallback (most-recent dev), same as today.
+    writes: list[str] = []
+
+    # Review-routing — LLM-driven reviewer ids that fire when this phase
+    # runs (e.g. ``reviewer-test-adequacy``, ``reviewer-pattern-conformance``).
+    # Required for phases with ``role: review`` so the review federation is
+    # explicitly declared per phase (rather than implicit "all reviewers at
+    # every review phase").
+    #
+    # Scope: only the LLM-driven judgment reviewers belong here. Mechanical
+    # reviewers (contract-compliance, cross-cutting-policy, spec-compliance,
+    # intent-compliance, etc.) continue to be selected by cadence logic in
+    # ``jig.reviewers.dispatch`` — they don't appear in this list.
+    #
+    # The "required on review-role phases" + "names must resolve to known
+    # LLM reviewer ids" invariants are enforced at workflow LOAD time
+    # (``load_workflow``), not at model construction, so PhaseConfig stays
+    # permissive for tests and ad-hoc construction.
+    reviewers: list[str] = []
+
 
 class WorkflowConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

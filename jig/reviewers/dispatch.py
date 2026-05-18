@@ -138,6 +138,18 @@ _REVIEWER_ID_TO_ROLE_FILE: dict[str, str] = {
 }
 
 
+def known_llm_reviewer_ids() -> frozenset[str]:
+    """Public accessor for the set of LLM-driven reviewer ids the federation
+    knows about. Used by ``jig.persistence.load_workflow`` to validate that
+    every entry in a phase's ``reviewers:`` resolves to a real reviewer.
+
+    Does NOT include mechanical reviewers (contract-compliance,
+    cross-cutting-policy, spec-compliance, intent-compliance, etc.) — those
+    are still selected implicitly by cadence logic, not declared per-phase.
+    """
+    return frozenset(_REVIEWER_ID_TO_ROLE_FILE)
+
+
 class LlmReviewerPending(BaseModel):
     """A federation reviewer queued for orchestrator spawn (Block 3).
 
@@ -981,6 +993,7 @@ __all__ = [
     "VISUAL_COMPLIANCE_REVIEWER_ID",
     "dispatch_for_cadence",
     "dispatch_with_llm_spawn",
+    "known_llm_reviewer_ids",
     "select_reviewers_for_ticket",
     "should_run_for_bones",
 ]

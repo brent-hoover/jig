@@ -254,14 +254,59 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
     project_path_file = _workflow_path_project(project_path, name)
     if project_path_file.is_file():
         data = yaml.safe_load(project_path_file.read_text())
-        return WorkflowConfig.model_validate(data)
+        workflow = WorkflowConfig.model_validate(data)
+        _validate_review_routing_fields(workflow, source=project_path_file)
+        return workflow
     shipped_path = _workflow_path_shipped(name)
     if shipped_path.is_file():
         data = yaml.safe_load(shipped_path.read_text())
-        return WorkflowConfig.model_validate(data)
+        workflow = WorkflowConfig.model_validate(data)
+        _validate_review_routing_fields(workflow, source=shipped_path)
+        return workflow
     raise FileNotFoundError(
         f"workflow {name!r} not found (looked in {project_path_file} and {shipped_path})"
     )
+
+
+def _validate_review_routing_fields(workflow: WorkflowConfig, *, source: Path) -> None:
+    """Enforce review-routing invariants on a freshly-loaded workflow.
+
+    Step 2 of feature-work/review-routing/plan.md only enforces the
+    existence check: every name in ``reviewers:`` must resolve to a known
+    LLM-driven reviewer id (per
+    ``jig.reviewers.dispatch.known_llm_reviewer_ids``). Catches typos and
+    stale names at load time rather than at dispatch time, when a missing
+    reviewer would be reported as "spawn failed" buried in logs.
+
+    Scope notes:
+
+    - ``reviewers:`` is for the LLM-driven judgment reviewers
+      (test-adequacy, pattern-conformance, etc.). Mechanical reviewers
+      (contract-compliance, cross-cutting-policy, ...) keep their existing
+      cadence-based dispatch and don't appear here. Listing a mechanical id
+      in ``reviewers:`` would currently fail validation — by design at this
+      step.
+    - ``writes:`` glob syntax is NOT validated; the field is accepted as a
+      list of strings only. A malformed pattern like ``"src/***"`` would
+      fail to match anything at routing time rather than at load time.
+      Pattern-level validation could land with step 7 if practice shows
+      typos are a real source of mis-routing.
+    - The "role=='review' requires non-empty reviewers" rule lands with
+      step 6 of the plan, when the shipped default workflow is updated to
+      satisfy it. Adding it here would block default.yaml from loading.
+    """
+    from jig.reviewers.dispatch import known_llm_reviewer_ids
+
+    known_reviewer_ids = known_llm_reviewer_ids()
+    for phase in workflow.phases:
+        for reviewer_id in phase.reviewers:
+            if reviewer_id not in known_reviewer_ids:
+                known = ", ".join(sorted(known_reviewer_ids))
+                raise ValueError(
+                    f"workflow {workflow.name!r} (from {source}): phase "
+                    f"{phase.name!r} lists unknown reviewer {reviewer_id!r}. "
+                    f"Known reviewers: {known}"
+                )
 
 
 def load_conventions(project_path: Path) -> str | None:

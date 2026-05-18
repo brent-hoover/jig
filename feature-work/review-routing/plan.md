@@ -116,6 +116,9 @@ landing during the changeover, so when routing turns on the data is already ther
 - Unit test: `install_commit_msg_hook` writes an executable file with the expected contents.
 - Unit test: hook script appends both trailers when both `phase=` and `agent=` are present in the
   context file.
+- Unit test: hook script appends only the present trailer when the context file is partial
+  (only `phase=` or only `agent=`). Missing field → that trailer is skipped, no empty `Phase:` /
+  `Agent:` line written.
 - Unit test: hook script is idempotent — running it on a commit message that already has the
   trailers does not duplicate them.
 - Unit test: hook script handles missing context file (no-op, exit 0).
@@ -161,6 +164,12 @@ Step 6's default-workflow update populates the lists this code now consumes.
 - Audit `jig/defaults/workflows/project.yaml`, `docs.yaml`, `refactor.yaml`, `migration.yaml`,
   `canonicalize.yaml` — add `writes:` where applicable; add `reviewers:` to any review phases.
   Workflows without a test phase don't need `review-tests`.
+- **User-authored workflows are the operator's responsibility.** Custom workflows under
+  `.jig/workflows/` need their own `writes:` and `reviewers:` additions; this plan does not modify
+  them. Without those additions, routing on those workflows falls through to the unowned-finding
+  fallback (most-recent dev) — degraded but not broken. A future `jig workflow lint` subcommand
+  (out of scope here; mentioned in design §Risks) would surface workflows missing these
+  declarations.
 
 **Why:** Activates the actual behavior change for users on default workflows. Depends on step 2's
 schema and step 5's dispatch.
@@ -236,8 +245,10 @@ instead. Post a structured thread Note naming the chosen phase and route reason 
 
 The work is layered so each step is independently revertable:
 
-- Steps 1, 2, 5: schema/dispatch changes. Revert restores prior behavior; no data migration needed
-  because new fields are optional and unused fields are tolerated.
+- Steps 1, 2: schema additions. Revert restores prior behavior; no data migration needed because
+  new fields are optional and unused fields are tolerated.
+- Step 5: dispatch code refactor. Revert is a code rollback (restore the prior dispatch signature
+  + caller). No data migration involved.
 - Step 3: role-config rewrite. Revert restores the prior YAML; no other code paths depend on the
   rewritten language.
 - Step 4: worktree hook + context file. Revert removes the hook (already installed hooks become
@@ -277,3 +288,7 @@ because dependencies flow downward.
 - 2026-05-17: Initial draft (brent)
 - 2026-05-17: Drop step 9 (backfill hook on existing worktrees) — no legacy projects to migrate
   in this environment. Also remove the corresponding risk note from design.md.
+- 2026-05-17: Address review #3 minor items. Step 4 verify list gains a partial-context-file test
+  case. Step 6 adds an explicit note that user-authored workflows are the operator's
+  responsibility (degraded-but-not-broken without `writes:`). Step 5's rollback wording split
+  from steps 1/2 since the "fields are optional" rationale doesn't apply to a dispatch refactor.

@@ -46,14 +46,18 @@ class TestInstallCommitMsgHook:
         assert COMMIT_MSG_PROVENANCE_SENTINEL in hook_path.read_text()
 
     def test_install_is_idempotent(self, tmp_path: Path) -> None:
-        from jig.hooks.commit_msg_provenance import install_commit_msg_hook
+        from jig.hooks.commit_msg_provenance import (
+            COMMIT_MSG_PROVENANCE_SENTINEL,
+            install_commit_msg_hook,
+        )
 
         (tmp_path / ".git" / "hooks").mkdir(parents=True)
         install_commit_msg_hook(tmp_path)
-        # Second install overwrites cleanly; no-op for current callers.
+        # Second install overwrites cleanly with intact contents.
         install_commit_msg_hook(tmp_path)
         hook_path = tmp_path / ".git" / "hooks" / "prepare-commit-msg"
         assert hook_path.is_file()
+        assert COMMIT_MSG_PROVENANCE_SENTINEL in hook_path.read_text()
 
 
 # ---------- write_worktree_context ----------------------------------------
@@ -172,6 +176,48 @@ class TestHookBehavior:
         assert "Phase:" not in body
         assert "Agent:" not in body
 
+    def test_graceful_degradation_when_interpret_trailers_unavailable(
+        self, worktree_with_hook: Path
+    ) -> None:
+        """If ``git interpret-trailers`` fails (old git, stripped build,
+        transient error), the hook must exit 0 and leave the commit message
+        unchanged. The hook is best-effort metadata; failures must NOT
+        abort the commit."""
+        from jig.hooks.commit_msg_provenance import write_worktree_context
+
+        write_worktree_context(worktree_with_hook, phase="implement", agent="dev")
+        msg = worktree_with_hook / "COMMIT_EDITMSG"
+        msg.write_text("feat: x\n")
+
+        # Shim a `git` that fails on `interpret-trailers` but passes
+        # `rev-parse --show-toplevel` through to the real git so the
+        # hook can locate the worktree.
+        shim_dir = worktree_with_hook / "shim-bin"
+        shim_dir.mkdir()
+        shim = shim_dir / "git"
+        real_git = subprocess.run(
+            ["which", "git"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        shim.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = "interpret-trailers" ]; then exit 99; fi\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+        shim.chmod(0o755)
+
+        hook = worktree_with_hook / ".git" / "hooks" / "prepare-commit-msg"
+        env = {**os.environ, "PATH": f"{shim_dir}:{os.environ['PATH']}"}
+        result = subprocess.run(
+            [str(hook), str(msg)],
+            cwd=worktree_with_hook,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        # Commit message survives unchanged — no trailer, no error spill.
+        assert msg.read_text() == "feat: x\n"
+
 
 # ---------- end-to-end: real git repo + commit + trailer lookup -----------
 
@@ -211,7 +257,7 @@ class TestEndToEndGitCommit:
         subprocess.run(
             ["git", "-C", str(git_repo), "add", "x.txt"], check=True
         )
-        # Use --no-verify=false implicitly — the hook MUST fire.
+        # No --no-verify: the hook must fire normally.
         subprocess.run(
             ["git", "-C", str(git_repo), "commit", "-m", "feat: add x"],
             check=True,

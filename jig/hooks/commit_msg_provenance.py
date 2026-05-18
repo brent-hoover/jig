@@ -79,7 +79,10 @@ if [ ${{#ARGS[@]}} -le 2 ]; then
     exit 0
 fi
 
-git interpret-trailers "${{ARGS[@]}}" "$COMMIT_MSG_FILE"
+# Failure of git interpret-trailers (e.g. git < 2.10, stripped-down build,
+# or any transient error) must not abort the commit — the hook is
+# best-effort metadata. Degrade silently.
+git interpret-trailers "${{ARGS[@]}}" "$COMMIT_MSG_FILE" || exit 0
 exit 0
 """.format(sentinel=COMMIT_MSG_PROVENANCE_SENTINEL)
 
@@ -120,9 +123,7 @@ def install_commit_msg_hook(worktree_path: Path) -> Path:
     return hook_path
 
 
-def write_worktree_context(
-    worktree_path: Path, *, phase: str, agent: str
-) -> Path:
+def write_worktree_context(worktree_path: Path, *, phase: str, agent: str) -> Path:
     """Write ``<worktree>/.jig/worktree.context`` with the current phase
     + agent. Overwrites any previous content.
 
@@ -146,3 +147,11 @@ def is_commit_msg_provenance_hook(hook_path: Path) -> bool:
     except (PermissionError, UnicodeDecodeError):
         return False
     return COMMIT_MSG_PROVENANCE_SENTINEL in text
+
+
+__all__ = [
+    "COMMIT_MSG_PROVENANCE_SENTINEL",
+    "install_commit_msg_hook",
+    "is_commit_msg_provenance_hook",
+    "write_worktree_context",
+]

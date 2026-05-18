@@ -1434,11 +1434,13 @@ class Orchestrator:
                         # to append Phase/Agent trailers to every commit made
                         # during this phase. Overwriting per phase keeps the
                         # trailers in sync with what's actually executing.
-                        try:
-                            from jig.hooks.commit_msg_provenance import (
-                                write_worktree_context,
-                            )
+                        # Import at top level so a module-level error surfaces
+                        # at import time (not buried in the warning log).
+                        from jig.hooks.commit_msg_provenance import (
+                            write_worktree_context,
+                        )
 
+                        try:
                             write_worktree_context(
                                 worktree, phase=phase.name, agent=phase.role
                             )

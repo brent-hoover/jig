@@ -456,7 +456,7 @@ class TestLoadWorkflowReviewRoleRequiresReviewers:
                 ],
             ),
         )
-        with pytest.raises(ValueError, match=r"'review'"):
+        with pytest.raises(ValueError, match=r"two-reviews.*'review'.*reviewers"):
             load_workflow(tmp_new_jig_project, "two-reviews")
 
 

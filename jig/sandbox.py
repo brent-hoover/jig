@@ -182,8 +182,9 @@ class BwrapConfig:
         """Build the bwrap argument list."""
         args: list[str] = [
             # Drop the orchestrator's environment. We --setenv exactly the
-            # vars the agent needs below; everything else (OAuth tokens,
-            # JIG_*, GIT_*, GH_TOKEN, ...) stays out of the sandbox.
+            # vars the agent needs below (see passthrough_env_keys);
+            # everything else (GH_TOKEN, JIG_*, GIT_*, other host secrets)
+            # stays out of the sandbox.
             "--clearenv",
             # Full container filesystem, read-only
             "--ro-bind",

@@ -993,6 +993,7 @@ __all__ = [
     "VISUAL_COMPLIANCE_REVIEWER_ID",
     "dispatch_for_cadence",
     "dispatch_with_llm_spawn",
+    "known_llm_reviewer_ids",
     "select_reviewers_for_ticket",
     "should_run_for_bones",
 ]

@@ -209,7 +209,7 @@ class TestEnvIsolation:
     ) -> None:
         cfg = BwrapConfig(worktree_host_path=tmp_path)
         # OAuth token forwarded so the bundled claude CLI can authenticate
-        # inside bwrap. See jig/sandbox.py:65-73 for the rationale.
+        # inside bwrap. See the _DEFAULT_PASSTHROUGH_ENV comment for the rationale.
         assert "CLAUDE_CODE_OAUTH_TOKEN" in cfg.passthrough_env_keys
         # API key is NOT forwarded — agents use OAuth.
         assert "ANTHROPIC_API_KEY" not in cfg.passthrough_env_keys

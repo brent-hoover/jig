@@ -187,18 +187,26 @@ class TestReservedMountProtection:
 
 class TestEnvIsolation:
     """SEC-2: bwrap clears the orchestrator's environment and only
-    forwards a curated allowlist via ``--setenv``. CLAUDE_CODE_OAUTH_TOKEN
-    must never appear in the default allowlist — agents authenticate via
-    the mounted Claude config, not via env."""
+    forwards a curated allowlist via ``--setenv``. ``CLAUDE_CODE_OAUTH_TOKEN``
+    IS in the allowlist so the bundled claude CLI can authenticate inside
+    bwrap (the mounted ``~/.claude.json`` carries only profile info —
+    credentials live in the host keychain, which the sandbox can't
+    reach). ``ANTHROPIC_API_KEY`` is NOT in the allowlist: agents
+    authenticate via OAuth, not the API key."""
 
     def test_clearenv_first(self, tmp_path: Path) -> None:
         cfg = BwrapConfig(worktree_host_path=tmp_path)
         args = cfg.to_args()
         assert args[0] == "--clearenv", "--clearenv must be the first arg"
 
-    def test_oauth_token_not_in_default_passthrough(self, tmp_path: Path) -> None:
+    def test_default_passthrough_includes_oauth_excludes_api_key(
+        self, tmp_path: Path
+    ) -> None:
         cfg = BwrapConfig(worktree_host_path=tmp_path)
-        assert "CLAUDE_CODE_OAUTH_TOKEN" not in cfg.passthrough_env_keys
+        # OAuth token forwarded so the bundled claude CLI can authenticate
+        # inside bwrap. See jig/sandbox.py:65-73 for the rationale.
+        assert "CLAUDE_CODE_OAUTH_TOKEN" in cfg.passthrough_env_keys
+        # API key is NOT forwarded — agents use OAuth.
         assert "ANTHROPIC_API_KEY" not in cfg.passthrough_env_keys
 
     def test_passthrough_emitted_as_setenv(
@@ -208,15 +216,18 @@ class TestEnvIsolation:
     ) -> None:
         monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
         monkeypatch.setenv("HOME", "/home/jig")
-        # A var outside the allowlist must NOT appear in --setenv.
-        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-secret")
+        # In the allowlist — must appear in --setenv when set on the host.
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-oauth")
+        # Outside the allowlist — must NOT appear in --setenv.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
         cfg = BwrapConfig(worktree_host_path=tmp_path)
         args = cfg.to_args()
         setenv_pairs = _pair_positions(args, "--setenv")
         keys = {k for k, _v in setenv_pairs}
         assert ("PATH", "/usr/local/bin:/usr/bin") in setenv_pairs
         assert ("HOME", "/home/jig") in setenv_pairs
-        assert "CLAUDE_CODE_OAUTH_TOKEN" not in keys
+        assert ("CLAUDE_CODE_OAUTH_TOKEN", "sk-oauth") in setenv_pairs
+        assert "ANTHROPIC_API_KEY" not in keys
 
     def test_extra_setenv_emitted(self, tmp_path: Path) -> None:
         cfg = BwrapConfig(

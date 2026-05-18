@@ -24,6 +24,47 @@ class TestPhaseConfig:
         assert phase.task_template == "Draft a design document for: {ticket_title}"
         assert phase.acceptance_criteria == "Design doc covers all requirements"
 
+    def test_writes_defaults_empty(self) -> None:
+        """``writes`` is a new optional field — default is empty list so
+        existing workflow YAMLs without it keep loading."""
+        phase = PhaseConfig(name="spec", role="spec")
+        assert phase.writes == []
+
+    def test_writes_populated(self) -> None:
+        phase = PhaseConfig(
+            name="implement",
+            role="dev",
+            writes=["src/**", "pyproject.toml", "**/*.lock"],
+        )
+        assert phase.writes == ["src/**", "pyproject.toml", "**/*.lock"]
+
+    def test_reviewers_defaults_empty(self) -> None:
+        phase = PhaseConfig(name="spec", role="spec")
+        assert phase.reviewers == []
+
+    def test_reviewers_populated_on_review_phase(self) -> None:
+        phase = PhaseConfig(
+            name="review-tests",
+            role="review",
+            reviewers=["reviewer-test-adequacy"],
+        )
+        assert phase.reviewers == ["reviewer-test-adequacy"]
+
+    def test_review_phase_without_reviewers_accepted_at_model_level(self) -> None:
+        """Model layer stays permissive — load_workflow enforces the
+        ``review-needs-reviewers`` rule. Keeps ad-hoc test construction
+        unconstrained; the user-facing error happens at YAML load."""
+        phase = PhaseConfig(name="review", role="review")
+        assert phase.reviewers == []
+
+    def test_non_review_phase_with_reviewers_allowed(self) -> None:
+        """Plan §Step 2 allows reviewers on non-review phases (ignored
+        at dispatch). Strictness here would be over-engineering."""
+        phase = PhaseConfig(
+            name="implement", role="dev", reviewers=["reviewer-test-adequacy"]
+        )
+        assert phase.reviewers == ["reviewer-test-adequacy"]
+
 
 class TestWorkflowConfig:
     def test_creation(self) -> None:

@@ -1,5 +1,7 @@
 """Domain models for Jig."""
 
+from __future__ import annotations
+
 from enum import Enum
 from typing import Annotated, Literal, Union
 
@@ -175,6 +177,22 @@ class PhaseConfig(BaseModel):
     # than removing allows, since the compiler doesn't support
     # removal-by-omission.
     capability_overrides: CapabilityDeclaration | None = None
+
+    # Review-routing (feature-work/review-routing/plan.md §Step 2). Repo-relative
+    # globs naming the paths this phase's role writes to. The fix-loop router
+    # uses these to map a reviewer-comment file → owning phase. Empty default
+    # keeps backward-compat: workflows without ``writes:`` fall through to the
+    # unowned-finding fallback (most-recent dev), same as today.
+    writes: list[str] = []
+
+    # Review-routing — reviewers that fire when this phase runs. Required for
+    # phases with ``role: review`` so the review federation is explicitly
+    # declared per phase (rather than implicit "all reviewers at every review
+    # phase"). The "required on review-role phases" + "names must resolve to
+    # known reviewer ids" invariants are enforced at workflow LOAD time
+    # (``load_workflow``) rather than at model construction, so PhaseConfig
+    # itself stays permissive for tests and ad-hoc construction.
+    reviewers: list[str] = []
 
 
 class WorkflowConfig(BaseModel):

@@ -287,6 +287,48 @@ class TestWorkflowPersistence:
         loaded = load_workflow(tmp_new_jig_project, "default")
         assert [p.name for p in loaded.phases] == ["only"]
 
+    def test_load_workflow_with_unknown_reviewer_rejected(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """Each name in ``reviewers:`` must resolve to a known reviewer
+        id. Typos and stale names fail loud at load time, naming the
+        offending value."""
+        save_workflow(
+            tmp_new_jig_project,
+            WorkflowConfig(
+                name="bad-reviewer-name",
+                phases=[
+                    PhaseConfig(
+                        name="review",
+                        role="review",
+                        reviewers=["reviewer-typo-not-real"],
+                    ),
+                ],
+            ),
+        )
+        with pytest.raises(ValueError, match="reviewer-typo-not-real"):
+            load_workflow(tmp_new_jig_project, "bad-reviewer-name")
+
+    def test_load_workflow_with_known_reviewers_resolves(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """A workflow listing valid reviewer ids loads cleanly."""
+        save_workflow(
+            tmp_new_jig_project,
+            WorkflowConfig(
+                name="good-review",
+                phases=[
+                    PhaseConfig(
+                        name="review-tests",
+                        role="review",
+                        reviewers=["reviewer-test-adequacy"],
+                    ),
+                ],
+            ),
+        )
+        loaded = load_workflow(tmp_new_jig_project, "good-review")
+        assert loaded.phases[0].reviewers == ["reviewer-test-adequacy"]
+
 
 class TestDefaultWorkflow:
     def test_creates_default(self, tmp_new_jig_project: Path) -> None:

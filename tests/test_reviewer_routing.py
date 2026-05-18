@@ -98,6 +98,16 @@ class TestMostRecentPhaseWithRole:
         # return idx 1 — that's the blocked phase.
         assert _most_recent_phase_with_role(wf, blocked_phase_idx=1, role="dev") is None
 
+    def test_blocked_phase_idx_zero_returns_none(self) -> None:
+        """First phase blocks → no earlier phases to route to."""
+        from jig.reviewer_routing import _most_recent_phase_with_role
+
+        wf = WorkflowConfig(
+            name="w",
+            phases=[_phase("spec", "spec"), _phase("implement", "dev")],
+        )
+        assert _most_recent_phase_with_role(wf, blocked_phase_idx=0, role="dev") is None
+
 
 # ---------- _last_touching_phase ------------------------------------------
 
@@ -132,7 +142,7 @@ def _commit(repo: Path, file: str, content: str, message: str) -> None:
 
 
 class TestLastTouchingPhase:
-    def test_returns_phase_trailer_value(self, git_worktree: Path) -> None:
+    async def test_returns_phase_trailer_value(self, git_worktree: Path) -> None:
         from jig.reviewer_routing import _last_touching_phase
 
         _commit(
@@ -141,9 +151,9 @@ class TestLastTouchingPhase:
             "x = 1\n",
             "feat: add foo\n\nPhase: implement\nAgent: dev\n",
         )
-        assert _last_touching_phase(git_worktree, "src/foo.py") == "implement"
+        assert await _last_touching_phase(git_worktree, "src/foo.py") == "implement"
 
-    def test_returns_most_recent_phase_across_multiple_commits(
+    async def test_returns_most_recent_phase_across_multiple_commits(
         self, git_worktree: Path
     ) -> None:
         from jig.reviewer_routing import _last_touching_phase
@@ -161,18 +171,20 @@ class TestLastTouchingPhase:
             "test: tweak x\n\nPhase: implement\nAgent: dev\n",
         )
         # Most recent phase that touched this file is implement.
-        assert _last_touching_phase(git_worktree, "tests/test_x.py") == "implement"
+        assert (
+            await _last_touching_phase(git_worktree, "tests/test_x.py") == "implement"
+        )
 
-    def test_returns_none_when_no_trailer(self, git_worktree: Path) -> None:
+    async def test_returns_none_when_no_trailer(self, git_worktree: Path) -> None:
         from jig.reviewer_routing import _last_touching_phase
 
         _commit(git_worktree, "src/bar.py", "y = 2\n", "feat: add bar")
-        assert _last_touching_phase(git_worktree, "src/bar.py") is None
+        assert await _last_touching_phase(git_worktree, "src/bar.py") is None
 
-    def test_returns_none_for_untracked_file(self, git_worktree: Path) -> None:
+    async def test_returns_none_for_untracked_file(self, git_worktree: Path) -> None:
         from jig.reviewer_routing import _last_touching_phase
 
-        assert _last_touching_phase(git_worktree, "nonexistent.py") is None
+        assert await _last_touching_phase(git_worktree, "nonexistent.py") is None
 
 
 # ---------- _route_one ----------------------------------------------------
@@ -195,52 +207,70 @@ class TestRouteOne:
             ],
         )
 
-    def test_target_role_overrides_glob(self, tmp_path: Path) -> None:
+    async def test_target_role_overrides_glob(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_one
 
         wf = self._wf()
         c = _comment(target_role="spec", file="src/foo.py")
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=4, comment=c, worktree_path=tmp_path
         )
         assert idx == 0  # "spec" phase
         assert "target_role" in reason
 
-    def test_unknown_target_role_falls_through_to_glob(self, tmp_path: Path) -> None:
+    async def test_unknown_target_role_falls_through_to_glob(
+        self, tmp_path: Path
+    ) -> None:
         from jig.reviewer_routing import _route_one
 
         wf = self._wf()
         c = _comment(target_role="nonexistent-role", file="tests/test_x.py")
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=4, comment=c, worktree_path=tmp_path
         )
         # Falls through to test phase via writes-glob.
         assert idx == 1
         assert "writes-glob" in reason
 
-    def test_single_glob_match(self, tmp_path: Path) -> None:
+    async def test_unknown_target_role_without_file_falls_to_dev(
+        self, tmp_path: Path
+    ) -> None:
+        """target_role unknown + comment.file is None → fall all the way
+        through to the dev fallback. The intermediate glob-routing step
+        skips when there's no file to match."""
+        from jig.reviewer_routing import _route_one
+
+        wf = self._wf()
+        c = _comment(target_role="nonexistent-role", file=None)
+        idx, reason = await _route_one(
+            wf, blocked_phase_idx=4, comment=c, worktree_path=tmp_path
+        )
+        assert idx == 3  # implement (dev)
+        assert reason == "unowned-finding"
+
+    async def test_single_glob_match(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_one
 
         wf = self._wf()
         c = _comment(file="tests/test_x.py")
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=4, comment=c, worktree_path=tmp_path
         )
         assert idx == 1  # "test" phase
         assert "writes-glob" in reason
 
-    def test_unowned_finding_falls_back_to_dev(self, tmp_path: Path) -> None:
+    async def test_unowned_finding_falls_back_to_dev(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_one
 
         wf = self._wf()
         c = _comment(file="some/unowned/file.txt")
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=4, comment=c, worktree_path=tmp_path
         )
         assert idx == 3  # "implement" (dev role)
         assert reason == "unowned-finding"
 
-    def test_no_route_when_no_file_and_no_dev_phase(self, tmp_path: Path) -> None:
+    async def test_no_route_when_no_file_and_no_dev_phase(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_one
 
         # Workflow with no dev phase
@@ -252,7 +282,7 @@ class TestRouteOne:
             ],
         )
         c = _comment(file=None)
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=1, comment=c, worktree_path=tmp_path
         )
         assert idx is None
@@ -280,7 +310,7 @@ class TestRouteOneMultiGlobTieBreak:
             ],
         )
 
-    def test_trailer_picks_winning_candidate(self, git_worktree: Path) -> None:
+    async def test_trailer_picks_winning_candidate(self, git_worktree: Path) -> None:
         from jig.reviewer_routing import _route_one
 
         _commit(
@@ -298,7 +328,7 @@ class TestRouteOneMultiGlobTieBreak:
 
         wf = self._wf_with_overlap()
         c = _comment(file="tests/fixtures.py")
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=2, comment=c, worktree_path=git_worktree
         )
         # Both test (0) and implement (1) match; trailer says implement
@@ -306,7 +336,7 @@ class TestRouteOneMultiGlobTieBreak:
         assert idx == 1
         assert "last-touched" in reason
 
-    def test_no_trailer_falls_back_to_earliest_candidate(
+    async def test_no_trailer_falls_back_to_earliest_candidate(
         self, git_worktree: Path
     ) -> None:
         from jig.reviewer_routing import _route_one
@@ -317,7 +347,7 @@ class TestRouteOneMultiGlobTieBreak:
 
         wf = self._wf_with_overlap()
         c = _comment(file="tests/fixtures.py")
-        idx, reason = _route_one(
+        idx, reason = await _route_one(
             wf, blocked_phase_idx=2, comment=c, worktree_path=git_worktree
         )
         # Both test (0) and implement (1) match. With no trailer, the
@@ -341,19 +371,19 @@ class TestRouteBlockingComments:
             ],
         )
 
-    def test_returns_none_when_no_blocking_comments(self, tmp_path: Path) -> None:
+    async def test_returns_none_when_no_blocking_comments(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_blocking_comments
 
-        result = _route_blocking_comments(
+        result = await _route_blocking_comments(
             self._wf(), blocked_phase_idx=3, comments=[], worktree_path=tmp_path
         )
         assert result is None
 
-    def test_single_comment_returns_its_target(self, tmp_path: Path) -> None:
+    async def test_single_comment_returns_its_target(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_blocking_comments
 
         c = _comment(file="src/foo.py")
-        result = _route_blocking_comments(
+        result = await _route_blocking_comments(
             self._wf(),
             blocked_phase_idx=3,
             comments=[c],
@@ -364,14 +394,14 @@ class TestRouteBlockingComments:
         assert idx == 2  # implement
         assert "writes-glob" in reason
 
-    def test_multiple_comments_pick_earliest_phase(self, tmp_path: Path) -> None:
+    async def test_multiple_comments_pick_earliest_phase(self, tmp_path: Path) -> None:
         """When findings span multiple phases, retry at the EARLIEST so
         the flow walks forward through the workflow on each cycle."""
         from jig.reviewer_routing import _route_blocking_comments
 
         c1 = _comment(file="src/foo.py")  # → implement (idx 2)
         c2 = _comment(file="tests/test_x.py")  # → test (idx 1)
-        result = _route_blocking_comments(
+        result = await _route_blocking_comments(
             self._wf(),
             blocked_phase_idx=3,
             comments=[c1, c2],
@@ -383,7 +413,7 @@ class TestRouteBlockingComments:
         # Both reasons surface in the combined string.
         assert "writes-glob" in reason
 
-    def test_returns_none_when_no_comment_routes(self, tmp_path: Path) -> None:
+    async def test_returns_none_when_no_comment_routes(self, tmp_path: Path) -> None:
         from jig.reviewer_routing import _route_blocking_comments
 
         # No file → falls to dev. But here we drop dev from the workflow.
@@ -395,7 +425,7 @@ class TestRouteBlockingComments:
             ],
         )
         c = _comment(file=None)
-        result = _route_blocking_comments(
+        result = await _route_blocking_comments(
             wf, blocked_phase_idx=1, comments=[c], worktree_path=tmp_path
         )
         assert result is None

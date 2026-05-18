@@ -24,6 +24,7 @@ These helpers ship in this PR; step 8 swaps the orchestrator's
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import logging
 import subprocess
@@ -54,22 +55,32 @@ def _most_recent_phase_with_role(
 
 
 def _matches_any(file: str, globs: list[str]) -> bool:
-    """True when ``file`` matches at least one of the globs. Uses
-    ``fnmatch`` so ``**`` recursion + ``*`` single-segment patterns
-    behave as a developer expects from ``writes:`` declarations."""
+    """True when ``file`` matches at least one of the globs.
+
+    Uses :mod:`fnmatch`. **Caveat (footgun):** ``fnmatch.fnmatch`` does
+    not treat ``/`` as a path separator, so ``*`` matches across
+    directory boundaries:
+
+    - ``src/*.py`` matches ``src/foo.py`` AND ``src/sub/nested.py``.
+    - ``src/**`` matches anything under ``src/`` (the intended
+      behavior).
+    - ``tests/**`` matches anything under ``tests/``.
+
+    The recursion-friendly behavior is what most operators authoring a
+    ``writes:`` declaration expect; the ``*``-crosses-``/`` corner is
+    worth knowing if an author wants "only files directly in
+    ``src/``". Prefer ``**`` for "recursive" and accept that ``*``
+    behaves the same way here.
+    """
     return any(fnmatch.fnmatch(file, g) for g in globs)
 
 
-def _last_touching_phase(worktree_path: Path, file: str) -> str | None:
-    """Return the ``Phase:`` trailer value of the most recent commit
-    that touched ``file`` in the worktree, or ``None`` when no such
-    commit exists or carries the trailer.
+def _last_touching_phase_sync(worktree_path: Path, file: str) -> str | None:
+    """Synchronous core of :func:`_last_touching_phase`.
 
-    Reads commit-msg provenance written by the ``prepare-commit-msg``
-    hook installed by ``jig.hooks.commit_msg_provenance`` (review-routing
-    step 4). Operator-authored or pre-hook commits have no trailer; this
-    returns ``None`` for them so the caller can fall through to a
-    deterministic tie-break.
+    Exists separately so the async wrapper can dispatch it to a thread
+    via ``asyncio.to_thread`` — keeps the sync version usable from
+    tests without forcing every test to be an asyncio coroutine.
     """
     try:
         result = subprocess.run(
@@ -86,9 +97,16 @@ def _last_touching_phase(worktree_path: Path, file: str) -> str | None:
             text=True,
             check=False,
         )
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError) as exc:
+        _logger.debug("_last_touching_phase: git not available for %s: %s", file, exc)
         return None
     if result.returncode != 0:
+        _logger.debug(
+            "_last_touching_phase: git log exited %d for %s: %s",
+            result.returncode,
+            file,
+            result.stderr.strip(),
+        )
         return None
     for line in result.stdout.splitlines():
         value = line.strip()
@@ -97,7 +115,14 @@ def _last_touching_phase(worktree_path: Path, file: str) -> str | None:
     return None
 
 
-def _route_one(
+async def _last_touching_phase(worktree_path: Path, file: str) -> str | None:
+    """Async wrapper around :func:`_last_touching_phase_sync`. Use this
+    from the orchestrator's phase loop so the git exec doesn't block
+    the event loop (CLAUDE.md: "async by default for all I/O")."""
+    return await asyncio.to_thread(_last_touching_phase_sync, worktree_path, file)
+
+
+async def _route_one(
     workflow: "WorkflowConfig",
     blocked_phase_idx: int,
     comment: "ReviewerComment",
@@ -110,6 +135,11 @@ def _route_one(
     phase to fall back on). ``reason`` is a short tag the orchestrator
     surfaces in thread notes + analytics so operators can see why a
     given phase was selected for retry.
+
+    Async because the multi-glob-match tie-break shells out to ``git``
+    via :func:`_last_touching_phase`. The synchronous fast paths (
+    ``target_role``, single-glob match, fallback) return without
+    awaiting anything.
     """
     # 1. Reviewer-declared target role overrides file-based routing.
     target_role = getattr(comment, "target_role", None)
@@ -126,12 +156,11 @@ def _route_one(
         )
 
     # 2. File-glob routing. Collect every phase whose ``writes:`` glob
-    # matches; iterate backward so single-match candidates come back in
-    # most-recent-first order naturally.
+    # matches.
     if comment.file:
         candidates: list[int] = [
             idx
-            for idx in range(blocked_phase_idx - 1, -1, -1)
+            for idx in range(blocked_phase_idx)
             if _matches_any(comment.file, workflow.phases[idx].writes)
         ]
         if len(candidates) == 1:
@@ -141,7 +170,7 @@ def _route_one(
             # Multi-match (shared fixture etc.). Tie-break via commit
             # trailers: walk git log for the file and pick the phase
             # whose trailer matches one of our candidates.
-            last_phase = _last_touching_phase(worktree_path, comment.file)
+            last_phase = await _last_touching_phase(worktree_path, comment.file)
             if last_phase is not None:
                 matched = [
                     idx for idx in candidates if workflow.phases[idx].name == last_phase
@@ -151,7 +180,7 @@ def _route_one(
             # No parseable trailer (or trailer doesn't match any
             # candidate). Fall through to the workflow-earliest
             # candidate so retries walk forward through the workflow.
-            return candidates[-1], "ambiguous-ownership"
+            return min(candidates), "ambiguous-ownership"
 
     # 3. Fallback: route to the most-recent dev phase. Marks the case
     # as "unowned-finding" so the operator can see the file→role
@@ -163,7 +192,7 @@ def _route_one(
     return None, "no-route"
 
 
-def _route_blocking_comments(
+async def _route_blocking_comments(
     workflow: "WorkflowConfig",
     blocked_phase_idx: int,
     comments: list["ReviewerComment"],
@@ -187,7 +216,7 @@ def _route_blocking_comments(
     targets: list[int] = []
     reasons: list[str] = []
     for c in comments:
-        idx, reason = _route_one(workflow, blocked_phase_idx, c, worktree_path)
+        idx, reason = await _route_one(workflow, blocked_phase_idx, c, worktree_path)
         if idx is not None:
             targets.append(idx)
             reasons.append(reason)
@@ -195,11 +224,3 @@ def _route_blocking_comments(
         return None
     chosen = min(targets)
     return chosen, "; ".join(sorted(set(reasons)))
-
-
-__all__ = [
-    "_last_touching_phase",
-    "_most_recent_phase_with_role",
-    "_route_blocking_comments",
-    "_route_one",
-]

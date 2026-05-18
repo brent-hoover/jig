@@ -5,8 +5,11 @@ on:
   push:
     branches: [develop]
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  lint-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,9 +17,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+          enable-cache: true
 
-      - run: uv sync
+      - run: uv sync --locked
 
       - run: uvx ruff check jig/
+
+      - run: uvx ruff format --check jig/
 
       - run: uv run pytest tests/ -x -q

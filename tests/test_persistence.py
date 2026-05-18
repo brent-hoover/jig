@@ -399,10 +399,14 @@ class TestDefaultWorkflow:
         router uses these to map a file → owning phase."""
         workflow = load_workflow(tmp_new_jig_project, "default")
         writes = {p.name: p.writes for p in workflow.phases}
-        assert writes["spec"]  # non-empty
+        # Specific globs locked in so a regression in default.yaml
+        # surfaces on this test, not at routing time.
+        assert "docs/spec/**" in writes["spec"]
+        assert "docs/decisions/**" in writes["spec"]
         assert "tests/**" in writes["test"]
         assert "src/**" in writes["implement"]
-        assert writes["document"]
+        assert "pyproject.toml" in writes["implement"]
+        assert "docs/**" in writes["document"]
 
 
 class TestLoadWorkflowReviewRoleRequiresReviewers:
@@ -423,8 +427,37 @@ class TestLoadWorkflowReviewRoleRequiresReviewers:
                 ],
             ),
         )
-        with pytest.raises(ValueError, match="reviewers"):
+        # Error message names workflow + phase + the missing field so
+        # the operator can fix the YAML directly.
+        with pytest.raises(ValueError, match=r"bad-review.*'review'.*reviewers"):
             load_workflow(tmp_new_jig_project, "bad-review")
+
+    def test_second_review_phase_without_reviewers_rejected(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """The validator must walk every phase, not just the first.
+        A workflow whose FIRST review phase is fine but a later one
+        is empty should still fail at load time, naming the offending
+        phase."""
+        save_workflow(
+            tmp_new_jig_project,
+            WorkflowConfig(
+                name="two-reviews",
+                phases=[
+                    PhaseConfig(name="test", role="test"),
+                    PhaseConfig(
+                        name="review-tests",
+                        role="review",
+                        reviewers=["reviewer-test-adequacy"],
+                    ),
+                    PhaseConfig(name="implement", role="dev"),
+                    # No reviewers — should fail load.
+                    PhaseConfig(name="review", role="review"),
+                ],
+            ),
+        )
+        with pytest.raises(ValueError, match=r"'review'"):
+            load_workflow(tmp_new_jig_project, "two-reviews")
 
 
 class TestLoadConventions:

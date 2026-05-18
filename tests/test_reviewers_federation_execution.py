@@ -608,6 +608,42 @@ class TestPerPhaseReviewerScoping:
             )
 
     @pytest.mark.asyncio
+    async def test_named_reviewer_not_selected_by_cadence_silently_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """Documented limitation: ``reviewers`` is a post-filter on
+        cadence selection. If a workflow lists a reviewer that the
+        ticket's characteristics didn't pull in via
+        ``select_reviewers_for_ticket`` (e.g. ``reviewer-security``
+        without ``touches-auth``), the reviewer is silently dropped
+        from the spawn set. Asserts this trade-off explicitly so a
+        future "bypass cadence selection for phase-declared reviewers"
+        refactor has a regression hook for the transition."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        # Ticket has no labels — cadence won't select reviewer-security.
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=["reviewer-security"],
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        # Cadence skipped reviewer-security; the explicit list cannot
+        # resurrect it in this implementation. Silent drop is the
+        # documented trade-off; a step 7+ refactor may bypass cadence
+        # for phase-declared reviewers.
+        assert SECURITY_REVIEWER_ID not in ids_spawned
+
+    @pytest.mark.asyncio
     async def test_reviewers_none_preserves_legacy_behavior(
         self, tmp_path: Path
     ) -> None:

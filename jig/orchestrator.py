@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
+    from jig.models import PhaseConfig
     from jig.prompt_registry import PromptRegistry
     from jig.ticket import Ticket
 
@@ -763,7 +764,7 @@ class Orchestrator:
         ticket_id: str,
         ticket,
         worktree_path,
-        phase=None,
+        phase: "PhaseConfig | None" = None,
     ):
         """Run all review-federation agents in parallel and return a RunAgentResult.
 
@@ -800,6 +801,12 @@ class Orchestrator:
                 worktree_path=worktree_path,
                 reviewers=reviewers_list,
             )
+        except ValueError:
+            # ValueError from dispatch_with_llm_spawn means a workflow
+            # config error — unknown reviewer id. Don't swallow as a
+            # transient crash; surface the misconfiguration immediately
+            # so the operator fixes the YAML.
+            raise
         except Exception:
             _logger.warning(
                 "review federation crashed for ticket %s; treating as clean pass",

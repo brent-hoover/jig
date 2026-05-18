@@ -1,7 +1,7 @@
 ---
 title: Review Routing — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: brent
 created: 2026-05-17
 updated: 2026-05-17
@@ -38,9 +38,11 @@ captured per-step.
 ### 1. Add `ReviewerComment.target_role` field
 
 **What:** Add `target_role: str | None = None` to `ReviewerComment`
-(`jig/reviewers/comment.py`). Pydantic `extra="ignore"` (or whatever is set today) handles
-backward-compat — older daemons reading newer records silently drop the field, newer daemons
-reading older records get `None`. No migration needed.
+(`jig/reviewers/comment.py`). Note the model uses `extra="forbid"`, so backward-compat is asymmetric:
+newer daemons reading older records (without the field) work fine — the field defaults to `None`.
+Older daemons reading newer records that *populate* `target_role` will raise
+"Extra inputs are not permitted". Acceptable for this single-deployment environment; document it
+explicitly so future mixed-version scenarios don't surprise.
 
 **Why:** Unblocks step 7's routing logic, which checks `target_role` before file-glob match. Shipping
 this first lets reviewers start populating the field (if their prompts encourage it) before the

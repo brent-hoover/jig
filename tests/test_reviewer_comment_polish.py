@@ -149,10 +149,22 @@ class TestTargetRole:
         assert c.target_role is None
 
     def test_round_trip_with_target_role_set(self) -> None:
-        c = _comment()
-        c_with_target = c.model_copy(update={"target_role": "sa"})
-        payload = c_with_target.model_dump(mode="json")
-        restored = ReviewerComment.model_validate(payload)
+        """Build via ``model_validate`` so field validation runs at
+        construction time, not just on the round-trip restore. (Pydantic's
+        ``model_copy(update=...)`` writes the value directly without
+        re-running validators.)"""
+        payload = {
+            "type": "pattern-divergence",
+            "severity": "important",
+            "reviewer": "reviewer-pattern-conformance",
+            "prose": "spec is wrong — needs PM input",
+            "confidence": 0.8,
+            "target_role": "sa",
+        }
+        c = ReviewerComment.model_validate(payload)
+        assert c.target_role == "sa"
+        # Round-trip preserves the field.
+        restored = ReviewerComment.model_validate(c.model_dump(mode="json"))
         assert restored.target_role == "sa"
 
     def test_target_role_accepts_arbitrary_role_string(self) -> None:

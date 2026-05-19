@@ -228,6 +228,9 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     replan_bundle = (
         ctx.initial_bus_message if ctx.spawn_reason == SpawnReason.REPLAN else None
     )
+    fix_loop_bundle = (
+        ctx.fix_loop_bundle if ctx.spawn_reason == SpawnReason.FIX_LOOP_RETRY else None
+    )
 
     return build_initial_prompt(
         role_cfg=ctx.role_cfg,
@@ -246,6 +249,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         evaluator_bundle=evaluator_bundle,
         conflict_bundle=conflict_bundle,
         replan_bundle=replan_bundle,
+        fix_loop_bundle=fix_loop_bundle,
         conventions_md=conventions_md,
     )
 

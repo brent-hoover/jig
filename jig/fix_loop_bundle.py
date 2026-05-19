@@ -189,10 +189,16 @@ def build_verify_bundle(
                 latest_addressed = ack
         is_resolved = any(a.kind == "resolved" for a in finding_acks)
 
+        # Status uses "latest ack kind wins" (with resolved as terminal)
+        # so a finding whose dev claim was reraised reads "reraised", not
+        # "addressed". Matches ws_server._get_findings_for_ticket. The
+        # dev_claim field below is computed separately from the latest
+        # addressed ack — the reviewer still needs to see what the dev
+        # claimed even when the claim has been superseded by a reraise.
         if is_resolved:
             status = "resolved"
-        elif latest_addressed is not None:
-            status = "addressed"
+        elif finding_acks:
+            status = finding_acks[-1].kind
         else:
             status = "open"
 

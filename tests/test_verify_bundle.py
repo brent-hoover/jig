@@ -98,6 +98,51 @@ def test_status_resolved_when_reviewer_confirmed() -> None:
     assert out["findings"][0]["status"] == "resolved"
 
 
+def test_status_reraised_when_dev_claim_did_not_hold() -> None:
+    """Lifecycle addressed → reraised: dev claimed fix, orchestrator
+    auto-reraised because the next federation pass saw the same
+    signature. Reviewer must see status=reraised (not addressed),
+    otherwise the prompt suggests verifying a claim that's already
+    been refuted."""
+    comments = [_c(cycle=0, prose="raised")]
+    acks = [
+        _ack(finding_id="RC-1", kind="addressed", cycle=0, prose="claimed fixed"),
+        _ack(
+            finding_id="RC-1",
+            kind="reraised",
+            author="orchestrator",
+            cycle=1,
+            prose="still present in cycle 1 diff",
+        ),
+    ]
+    out = build_verify_bundle(all_comments=comments, all_acks=acks)
+    finding = out["findings"][0]
+    assert finding["status"] == "reraised"
+    # dev_claim must still surface — the reviewer needs to see what
+    # the dev claimed even though the orchestrator already refuted it.
+    assert finding["dev_claim"]["prose"] == "claimed fixed"
+
+
+def test_status_resolved_wins_even_after_reraise() -> None:
+    """Resolved is terminal. If a reraise was later resolved, the
+    status sticks at resolved, not the latest kind."""
+    comments = [_c(cycle=0, prose="raised")]
+    acks = [
+        _ack(finding_id="RC-1", kind="addressed", cycle=0),
+        _ack(finding_id="RC-1", kind="reraised", author="orchestrator", cycle=1),
+        _ack(finding_id="RC-1", kind="addressed", cycle=2),
+        _ack(
+            finding_id="RC-1",
+            kind="resolved",
+            author="reviewer-pattern-conformance",
+            cycle=3,
+            prose="this time it stuck",
+        ),
+    ]
+    out = build_verify_bundle(all_comments=comments, all_acks=acks)
+    assert out["findings"][0]["status"] == "resolved"
+
+
 def test_original_prose_preserved_across_rephrasing() -> None:
     """First appearance of a signature owns the prose, not later
     re-phrasings. The reviewer should see the original framing."""

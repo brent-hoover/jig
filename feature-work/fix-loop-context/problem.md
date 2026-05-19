@@ -167,11 +167,13 @@ on this ticket, regardless of whether this reviewer has run before):
   with judgment reviewers (dev declares done, gets through the gate, bug
   ships). The reviewer is the gate; this work makes the reviewer's job
   easier and the dev's job more focused.
-- No changes to `ReviewerComment` schema or to reviewer-emitted output
-  format. Judgment reviewers keep emitting the same shape; we layer
-  consumer-side stable IDs and ack tracking on top of that existing
-  surface. (Cycle-2+ reviewer *prompts* DO change — see the
-  Requirements section — but the comment schema does not.)
+- No changes to reviewer-emitted payload shape. Judgment reviewers
+  keep posting the same JSON via `reviewer_post_comment` — we may
+  add internal `ReviewerComment` fields like `created_at` that are
+  populated by the write path automatically (no reviewer-side change
+  needed), but the API surface reviewer agents call against does not
+  change. (Cycle-2+ reviewer *prompts* DO change — see the
+  Requirements section.)
 - No per-finding diff-application tooling. `mark_finding_addressed` is
   documentation, not a code-action verb.
 - No retroactive replay over historical tickets. The feature applies to
@@ -230,3 +232,6 @@ on this ticket, regardless of whether this reviewer has run before):
   clarify the audit-view requirement joins review_comments.jsonl
   with finding_acks.jsonl rather than living in the ack store alone
   (roborev job 8)
+- 2026-05-19: Reword the non-goal again — "no reviewer-emitted
+  payload changes" (allows internal `created_at` addition that
+  reviewers don't have to supply) (roborev job 10)

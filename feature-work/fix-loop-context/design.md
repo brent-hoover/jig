@@ -33,27 +33,37 @@ signature, `RC-2` to the second, and so on. Rows whose signature was
 already seen earlier in the walk reuse the existing RC-N rather than
 getting a new one.
 
-**Required schema addition.** `ReviewerComment` does not currently
-carry a `created_at` field, and `ReviewCommentsStore.for_ticket`
-fetches via an index that is `set`-backed and does **not** preserve
-insertion order. We add `created_at: datetime` (defaulted to the
-ack-write timestamp via `default_factory=lambda: datetime.now(UTC)`)
-to `ReviewerComment` so consumers have a monotonic, durable
-ordering key. The reviewer-side write path stamps it; older rows
-without the field load with a sentinel (`datetime.min`) and sort to
-the front consistently — acceptable because they all share the
-sentinel.
+**Required reads.** `ReviewCommentsStore.for_ticket` goes through
+`Collection.find_where` → `Store.find_by`, which iterates the
+indexed set of doc IDs. Set iteration in Python is implementation-
+defined; the order can vary across processes. So the legacy
+`for_ticket` is **not** safe for stable-ID computation.
 
-A new ordered read on the store, `for_ticket_chronological`, sorts
-the existing index-lookup result by `created_at`. The legacy
-`for_ticket` is kept as-is for any caller that doesn't care about
-order; new callers use the chronological variant.
+We add a new read, `for_ticket_chronological`, that walks the
+in-memory `_docs` dict directly (Python dicts are insertion-ordered
+since 3.7) and filters by `ticket_id`. This gives us a deterministic
+append order — the same order in which the JSONL was written —
+without depending on a separate timestamp field as the tiebreaker.
 
-The chronological sort is load-bearing: it guarantees that adding a
-new finding in a later cycle only appends a higher RC-N and never
-renumbers existing IDs. If we instead sorted by file/line, a cycle-3
-finding with a lower file path would shift every existing RC down,
-breaking acks that already reference them by name.
+The legacy `for_ticket` is kept as-is for any caller that doesn't
+care about order; new callers (the stable-ID resolver, the `jig
+story` extension, and the TUI snapshot builder) use the chronological
+variant.
+
+**Companion schema addition.** `ReviewerComment` does not carry a
+`created_at` field. We add `created_at: datetime` (defaulted to
+write-time UTC via `default_factory=lambda: datetime.now(UTC)`) so
+the `jig story` extension and TUI ack history have a real timestamp
+to display. The field is auto-populated; reviewer agents posting
+via `reviewer_post_comment` do not need to supply it. The field is
+**not** the ordering key for stable IDs — insertion order is.
+`created_at` is purely a display/timestamp concern. Legacy rows
+without the field load with `datetime.min` and render as "(no
+timestamp)" in the story output.
+
+The insertion-order walk is load-bearing for ID stability: it
+guarantees that adding a new finding in a later cycle only appends a
+higher RC-N and never renumbers existing IDs.
 
 The signature is stable across cycles, so a finding that gets
 re-phrased in cycle 3 collapses to the same group as its cycle-1
@@ -432,3 +442,9 @@ None — both resolved during review.
   store method, expand reviewer-role list to all six judgment
   reviewers, use `FIX_LOOP_RETRY` consistently, drop `ticket_id` from
   tool signatures (implicit from agent's per-spawn MCP context) (brent)
+- 2026-05-19: Address roborev job 10 — `for_ticket_chronological`
+  walks `_docs` directly (insertion-ordered) rather than sorting by
+  `created_at` (which had non-deterministic input from the set-backed
+  index); `created_at` is display-only, not the ID ordering key.
+  Non-goal worded as "no reviewer-emitted payload changes" to allow
+  the internal `created_at` schema addition (brent)

@@ -37,16 +37,18 @@ wired up (step 3).
 ### 1. Foundations — schema, ordered read, store, ID resolver
 
 **What:**
+- Add `ReviewCommentsStore.for_ticket_chronological(ticket_id)` that
+  walks the in-memory `_docs` dict (insertion-ordered by Python dict
+  semantics) and filters by `ticket_id`. The legacy `for_ticket` goes
+  through a set-backed index and is non-deterministic across runs —
+  the new method gives stable append order without depending on a
+  timestamp tiebreaker.
 - Add `created_at: datetime` field to `ReviewerComment`
   (`jig/reviewers/comment.py`), with `default_factory=lambda:
-  datetime.now(UTC)`. Existing rows in stores load with `datetime.min`
-  as the sentinel.
-- Add `ReviewCommentsStore.for_ticket_chronological(ticket_id)` that
-  sorts the indexed lookup by `created_at` ascending. Legacy
-  `for_ticket` is kept for callers that don't care about order. The
-  reviewer's job-9 finding observed that the current `find_by` path
-  iterates a `set`, so insertion order is not preserved — the new
-  method establishes a stable read.
+  datetime.now(UTC)`. Auto-populated; reviewer agents don't need to
+  supply it. Used for display/story timestamps, not for the stable-ID
+  ordering key (which is insertion order). Legacy rows load with
+  `datetime.min` and render as "(no timestamp)" in story output.
 - New module `jig/store/finding_acks.py` with `FindingAck` pydantic
   model and `FindingAcksStore` (mirrors `ReviewCommentsStore` shape:
   `Collection`-backed, indexed on `ticket_id` and `finding_id`).
@@ -64,15 +66,18 @@ ship and test in isolation.
 
 **Verify:**
 - `tests/test_review_comments_chronological.py`: confirms
-  `for_ticket_chronological` returns rows sorted by `created_at`
-  ascending, including across an artificial out-of-index-order seed.
-- `tests/test_reviewer_comment_created_at.py`: confirms model loads
-  legacy rows without the field (sentinel value) and new rows carry
-  the timestamp.
+  `for_ticket_chronological` returns rows in insertion order
+  regardless of `created_at` values (e.g., a later-inserted row with
+  an earlier timestamp still appears later in the result). Confirms
+  determinism across multiple loads by checking same order after a
+  `load() / for_ticket_chronological()` round-trip on a seeded JSONL.
+- `tests/test_reviewer_comment_created_at.py`: confirms model
+  auto-populates `created_at` on new rows and loads legacy rows
+  without the field (sentinel value).
 - `tests/test_store_finding_acks.py`: round-trip, indexed query,
   append-only semantics.
 - `tests/test_finding_ids.py`: signature grouping (re-phrased comments
-  collapse), chronological stability (adding a later-cycle comment
+  collapse), insertion-order stability (adding a later-cycle comment
   doesn't renumber prior IDs), edge cases (missing `file`/`line`
   degrades to category-level signature).
 
@@ -291,3 +296,7 @@ be reverted in isolation if the next step exposes a bug.
 - 2026-05-19: Roll job-9 review fixes into step 1 (add `created_at` +
   `for_ticket_chronological`) and step 4 (expand reviewer list to all
   six) (brent)
+- 2026-05-19: Job-10 review fix — `for_ticket_chronological` walks
+  `_docs` directly (insertion-ordered) instead of sorting by
+  `created_at`, eliminating the set-iteration tie-breaker problem
+  for legacy rows. Test expectations updated to match (brent)

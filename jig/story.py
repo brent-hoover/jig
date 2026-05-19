@@ -33,6 +33,7 @@ _logger = logging.getLogger(__name__)
 class StorySource(str, Enum):
     thread = "thread"
     log = "log"
+    finding = "finding"
 
 
 @dataclass(frozen=True)
@@ -218,6 +219,80 @@ def _iter_log_events_for_ticket(project_path: Path, ticket_id: str) -> list[Stor
     return events
 
 
+async def _iter_finding_events_for_ticket(
+    project_path: Path, ticket_id: str
+) -> list[StoryEvent]:
+    """Emit one event per reviewer comment raised against ``ticket_id``
+    and one per FindingAck row, interleaved by timestamp by the caller.
+
+    Reviewer comments emit ``finding_raised`` events; acks emit
+    ``finding_{addressed|resolved|reraised}`` according to the row's
+    ``kind`` field. Each carries the row's ``created_at`` as timestamp.
+    """
+    from jig.finding_ids import compute_finding_ids
+    from jig.store.finding_acks import FindingAcksStore
+    from jig.store.review_comments import ReviewCommentsStore
+
+    rc_path = project_path / ".jig" / "store" / "review_comments.jsonl"
+    acks_path = project_path / ".jig" / "store" / "finding_acks.jsonl"
+    if not rc_path.is_file() and not acks_path.is_file():
+        return []
+
+    events: list[StoryEvent] = []
+
+    if rc_path.is_file():
+        rc_store = ReviewCommentsStore(rc_path)
+        await rc_store.load()
+        comments = await rc_store.for_ticket_chronological(ticket_id)
+        ids = compute_finding_ids(comments)
+        for c in comments:
+            type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
+            sig = (c.reviewer, type_value, c.file, c.line)
+            fid = ids.get(sig, "?")
+            loc = c.file or "(diff-wide)"
+            loc_full = f"{loc}:{c.line}" if c.line else loc
+            events.append(
+                StoryEvent(
+                    ts=c.created_at,
+                    source=StorySource.finding,
+                    kind="finding_raised",
+                    level="info",
+                    message=(
+                        f"[{fid}] {c.severity} at {loc_full} "
+                        f"by {c.reviewer}: {c.prose[:200]}"
+                    ),
+                    ticket_id=ticket_id,
+                    phase=None,
+                    role=c.reviewer,
+                    raw={"finding_id": fid, **c.model_dump(mode="json")},
+                )
+            )
+
+    if acks_path.is_file():
+        acks_store = FindingAcksStore(acks_path)
+        await acks_store.load()
+        acks = await acks_store.for_ticket(ticket_id)
+        for ack in acks:
+            events.append(
+                StoryEvent(
+                    ts=ack.created_at,
+                    source=StorySource.finding,
+                    kind=f"finding_{ack.kind}",
+                    level="info",
+                    message=(
+                        f"[{ack.finding_id}] {ack.kind} cycle {ack.cycle} "
+                        f"({ack.author}): {ack.prose[:200]}"
+                    ),
+                    ticket_id=ticket_id,
+                    phase=None,
+                    role=ack.author,
+                    raw=ack.model_dump(mode="json"),
+                )
+            )
+
+    return events
+
+
 # ---- Public API -----------------------------------------------------------
 
 
@@ -260,7 +335,10 @@ async def build_story(
     # 2. Log lines mentioning this ticket.
     events.extend(_iter_log_events_for_ticket(project_path, ticket_id))
 
-    # 3. Optionally include children.
+    # 3. Reviewer findings + their ack history (fix-loop-context step 6).
+    events.extend(await _iter_finding_events_for_ticket(project_path, ticket_id))
+
+    # 4. Optionally include children.
     if include_children:
         if tickets is None:
             raise ValueError("include_children=True requires tickets= TicketStore")
@@ -277,7 +355,7 @@ async def build_story(
             )
             events.extend(child_events)
 
-    # 4. Filter by `since`.
+    # 5. Filter by `since`.
     if since is not None:
         events = [e for e in events if e.ts >= since]
 

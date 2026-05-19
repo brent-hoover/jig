@@ -27,13 +27,29 @@ Four pieces, all additive:
 
 Computed on-the-fly per prompt render — no separate registry to keep
 in sync. For a given ticket, walk every row in `ReviewCommentsStore`
-**in insertion order** (which is canonical because JSONL is
-append-only), compute each row's signature `(reviewer, type, file,
-line)`, and assign `RC-1` to the first signature, `RC-2` to the
-second, and so on. Rows whose signature was already seen earlier in
-the walk reuse the existing RC-N rather than getting a new one.
+**in `created_at` ascending order**, compute each row's signature
+`(reviewer, type, file, line)`, and assign `RC-1` to the first
+signature, `RC-2` to the second, and so on. Rows whose signature was
+already seen earlier in the walk reuse the existing RC-N rather than
+getting a new one.
 
-The insertion-order sort is load-bearing: it guarantees that adding a
+**Required schema addition.** `ReviewerComment` does not currently
+carry a `created_at` field, and `ReviewCommentsStore.for_ticket`
+fetches via an index that is `set`-backed and does **not** preserve
+insertion order. We add `created_at: datetime` (defaulted to the
+ack-write timestamp via `default_factory=lambda: datetime.now(UTC)`)
+to `ReviewerComment` so consumers have a monotonic, durable
+ordering key. The reviewer-side write path stamps it; older rows
+without the field load with a sentinel (`datetime.min`) and sort to
+the front consistently — acceptable because they all share the
+sentinel.
+
+A new ordered read on the store, `for_ticket_chronological`, sorts
+the existing index-lookup result by `created_at`. The legacy
+`for_ticket` is kept as-is for any caller that doesn't care about
+order; new callers use the chronological variant.
+
+The chronological sort is load-bearing: it guarantees that adding a
 new finding in a later cycle only appends a higher RC-N and never
 renumbers existing IDs. If we instead sorted by file/line, a cycle-3
 finding with a lower file path would shift every existing RC down,
@@ -80,9 +96,11 @@ place. Recorded automatically, not via tool call.
 any role the router can re-spawn (dev, test, document, validate at
 minimum). Writes a `FindingAck(kind="addressed")` row.
 
-`mark_finding_resolved(ticket_id, finding_id, confirmation)` — for
-the judgment-reviewer roles (`reviewer-pattern-conformance`,
-`reviewer-error-handling`, `reviewer-test-adequacy`). Writes a
+`mark_finding_resolved(finding_id, confirmation)` — for all
+judgment-reviewer roles. In the default workflow that is six
+reviewers: `reviewer-pattern-conformance`, `reviewer-error-handling`,
+`reviewer-test-adequacy`, `reviewer-architectural`,
+`reviewer-performance`, `reviewer-security`. Writes a
 `FindingAck(kind="resolved")` row.
 
 Both tools validate that `finding_id` resolves against the current
@@ -94,15 +112,15 @@ sees its mistake.
 Two new sections in `jig/prompt_builder.py`, conditionally rendered:
 
 **For back-routed phase agents** (any role with
-`spawn_reason=FIX_LOOP`):
+`spawn_reason=FIX_LOOP_RETRY`):
 
 ```
 ## Blocking Findings
 
 The previous review cycle blocked this ticket with findings routed to
 your phase. Address each finding, then call
-`mark_finding_addressed(finding_id, how_resolved)` per finding before
-calling `commit_progress` and `update_ticket`.
+`mark_finding_addressed(finding_id="RC-N", how_resolved="...")` per
+finding before calling `commit_progress` and `update_ticket`.
 
 [RC-3] tests/test_api.py:17 — important — pattern-conformance
 test_api.py re-defines FIXTURE_PATH and _raw_fixture instead of using
@@ -128,9 +146,10 @@ The previous review cycle raised these findings; the dev claims they
 have been addressed. Your job has two tasks in this order:
 
 1. **Verify** each addressed claim. For each finding, either call
-   `mark_finding_resolved(finding_id, confirmation)` if the dev's fix
-   actually resolved the issue, or re-flag it by posting a fresh
-   reviewer_post_comment with the same file/line as the original.
+   `mark_finding_resolved(finding_id="RC-N", confirmation="...")` if
+   the dev's fix actually resolved the issue, or re-flag it by posting
+   a fresh reviewer_post_comment with the same file/line as the
+   original.
 2. **Find new issues** in the updated diff. Report via
    `reviewer_post_comment` as you would on a first-cycle review.
 
@@ -185,27 +204,32 @@ new-cycle comments and:
 ```python
 # Available to dev, test, document, validate roles.
 def mark_finding_addressed(
-    ticket_id: str,
     finding_id: str,        # "RC-3"
     how_resolved: str,      # short prose; max 500 chars
 ) -> str:                   # returns the FindingAck row id
     ...
 
-# Available to reviewer-pattern-conformance, reviewer-error-handling,
-# reviewer-test-adequacy roles.
+# Available to all six judgment-reviewer roles
+# (reviewer-pattern-conformance, reviewer-error-handling,
+# reviewer-test-adequacy, reviewer-architectural,
+# reviewer-performance, reviewer-security).
 def mark_finding_resolved(
-    ticket_id: str,
     finding_id: str,
     confirmation: str,      # short prose; max 500 chars
 ) -> str:
     ...
 ```
 
+Both tools take only `finding_id` — `ticket_id` is implicit from the
+agent's per-spawn MCP context (each agent's MCP server is scoped to
+one ticket). This matches the shape of `commit_progress` and other
+ticket-implicit tools already in the surface.
+
 Both tools fail loudly on unknown `finding_id`. Both are idempotent:
-re-calling with the same `(ticket_id, finding_id, kind, author)`
-silently de-dupes against the most recent ack of that shape from the
-current cycle (so retries don't pollute the log). A different cycle
-or different author *does* create a new row — that history matters.
+re-calling with the same `(finding_id, kind, author)` within the same
+cycle silently de-dupes against the most recent ack of that shape (so
+retries don't pollute the log). A different cycle or different author
+*does* create a new row — that history matters.
 
 ### TUI
 
@@ -237,9 +261,13 @@ avoid the TUI having to compute the join itself.
 
 ### Role config changes
 
-Three judgment-reviewer YAML files gain `mark_finding_resolved` in
-`allowed_tools`. Four phase-agent YAML files (`dev`, `test`,
-`document`, `validate`) gain `mark_finding_addressed` in `allowed_tools`.
+Six judgment-reviewer YAML files gain `mark_finding_resolved` in
+`allowed_tools`: `reviewer-pattern-conformance`,
+`reviewer-error-handling`, `reviewer-test-adequacy`,
+`reviewer-architectural`, `reviewer-performance`, `reviewer-security`.
+
+Four phase-agent YAML files (`dev`, `test`, `document`, `validate`)
+gain `mark_finding_addressed` in `allowed_tools`.
 
 No reviewer prompt text changes for cycle 1 — the new section only
 renders when there are prior acks. Reviewer prompts keep their
@@ -399,3 +427,8 @@ None — both resolved during review.
   canonical eval surface (brent)
 - 2026-05-19: Resolve open questions — no batch ack tool; auto-reraised
   ack carries new comment's prose for self-contained audit (brent)
+- 2026-05-19: Address roborev job 9 — add `ReviewerComment.created_at`
+  (precondition for ordered-read), add `for_ticket_chronological`
+  store method, expand reviewer-role list to all six judgment
+  reviewers, use `FIX_LOOP_RETRY` consistently, drop `ticket_id` from
+  tool signatures (implicit from agent's per-spawn MCP context) (brent)

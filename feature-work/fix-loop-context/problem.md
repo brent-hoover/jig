@@ -140,10 +140,16 @@ on this ticket, regardless of whether this reviewer has run before):
 - A new MCP tool `mark_finding_resolved(id, confirmation)` is available
   to judgment-reviewer roles and records the reviewer's confirmation
   that a previously-raised finding is no longer present.
-- Inspecting `.jig/store/finding_acks.jsonl` after a ticket run yields
-  a two-sided audit per finding: raised → addressed (dev) → resolved
-  (reviewer) OR raised → addressed (dev) → re-flagged (reviewer) OR
-  raised → never-addressed → re-flagged.
+- A canonical audit view (operator inspection or eval-harness join)
+  combines `.jig/store/review_comments.jsonl` (which already records
+  raised findings) with `.jig/store/finding_acks.jsonl` (which records
+  the new ack events: addressed, resolved, reraised). The join keyed
+  on `(ticket_id, finding_id)` yields a complete per-finding lifecycle:
+  raised → addressed (dev) → resolved (reviewer) OR raised → addressed
+  (dev) → re-flagged (reviewer-issued reraised ack) OR raised →
+  never-addressed → re-flagged. The ack store alone does not contain
+  the raised event — review_comments.jsonl is the source of truth for
+  that.
 - Re-phrased findings across cycles resolve to the same stable ID via
   some heuristic (file + line + reviewer + type) that is robust to prose
   drift. The heuristic's misses (false-equates and false-distincts) are
@@ -161,10 +167,11 @@ on this ticket, regardless of whether this reviewer has run before):
   with judgment reviewers (dev declares done, gets through the gate, bug
   ships). The reviewer is the gate; this work makes the reviewer's job
   easier and the dev's job more focused.
-- No reviewer agent changes. We do not modify the judgment-reviewer
-  prompts to make them aware of the new addressed-claims surface — that
-  is plausible follow-on work but out of scope here. Today's reviewers
-  will still produce comments; we'll surface those comments better.
+- No changes to `ReviewerComment` schema or to reviewer-emitted output
+  format. Judgment reviewers keep emitting the same shape; we layer
+  consumer-side stable IDs and ack tracking on top of that existing
+  surface. (Cycle-2+ reviewer *prompts* DO change — see the
+  Requirements section — but the comment schema does not.)
 - No per-finding diff-application tooling. `mark_finding_addressed` is
   documentation, not a code-action verb.
 - No retroactive replay over historical tickets. The feature applies to
@@ -218,3 +225,8 @@ on this ticket, regardless of whether this reviewer has run before):
   and the deferred termination-policy levers (brent)
 - 2026-05-19: Add reviewer-side `mark_finding_resolved` tool and
   two-task framing for cycle-2+ reviewers (brent)
+- 2026-05-19: Reword the "no reviewer agent changes" non-goal to
+  cover only `ReviewerComment` schema (cycle-2+ prompts DO change);
+  clarify the audit-view requirement joins review_comments.jsonl
+  with finding_acks.jsonl rather than living in the ack store alone
+  (roborev job 8)

@@ -2,28 +2,26 @@
 
 from __future__ import annotations
 
+# Explicit escape — embedded ZWSP literals look like an empty string in
+# diffs and editors and can be silently lost by a trim-trailing-whitespace
+# pass.
 _ZWSP = "​"
 _LIGATURE_PAIRS = ("--", "->", "=>", ">=", "<=", "!=", "==", "::")
 
 
 def ligature_safe(text: str) -> str:
-    """Break common font-ligature pairs in ``text`` with a zero-width space.
-
-    Many terminal fonts (FiraCode, JetBrains Mono, Cascadia) render
-    sequences like ``--`` as a single long dash via contextual alternates.
-    For free-text user content (ticket titles, capability descriptions)
-    that visual transformation is wrong — operators read it as
-    strikethrough or "this item is done".
-
-    Inserting a zero-width space between the two characters prevents the
-    font from matching the ligature pattern without changing the visible
-    width of the string (the ZWSP is non-printing and zero-width).
-    Apply at render time only; never to data persisted to disk or sent
-    over the bus.
-    """
+    """Break common font-ligature pairs in ``text`` with U+200B."""
     if not text:
         return text
+    # str.replace is non-overlapping, so a run like "===" only breaks the
+    # first "==" in one pass. Repeat until the string stabilizes so all
+    # adjacent pairs render literally. Apply AFTER any width-based
+    # truncation by callers — ZWSPs count toward len() but not visual width.
     out = text
-    for pair in _LIGATURE_PAIRS:
-        out = out.replace(pair, pair[0] + _ZWSP + pair[1])
-    return out
+    while True:
+        nxt = out
+        for pair in _LIGATURE_PAIRS:
+            nxt = nxt.replace(pair, pair[0] + _ZWSP + pair[1])
+        if nxt == out:
+            return out
+        out = nxt

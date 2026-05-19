@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from jig.tui import ligature_safe
 
+# Use the explicit escape — embedded U+200B literals look like an empty
+# string in editors / diffs and can be silently lost by trim-whitespace.
 _ZWSP = "​"
 
 
@@ -38,6 +40,9 @@ def test_no_ligature_pair_passes_through_unchanged() -> None:
 
 def test_empty_and_none_like_inputs() -> None:
     assert ligature_safe("") == ""
+    # `t.get("title", "(untitled)")` returns None when the dict has
+    # {"title": None}. The function's guard short-circuits on falsy input.
+    assert ligature_safe(None) is None  # type: ignore[arg-type]
 
 
 def test_zwsp_is_zero_width_visible_length_preserved() -> None:
@@ -49,3 +54,29 @@ def test_zwsp_is_zero_width_visible_length_preserved() -> None:
     # Two '--' pairs → two ZWSPs inserted.
     assert out.count(_ZWSP) == 2
     assert len(out) == len(src) + 2
+
+
+def test_idempotent() -> None:
+    """Re-applying ligature_safe must not introduce new ZWSPs. Render-
+    time callers can compose this safely without worrying about
+    repeated invocation."""
+    s = "Filtering: --min-score -> result"
+    once = ligature_safe(s)
+    twice = ligature_safe(once)
+    assert once == twice
+
+
+def test_compound_pair_both_broken() -> None:
+    """'-->' contains both '--' and '->'. After the run, neither pair
+    should survive as a font-ligatable sequence."""
+    out = ligature_safe("-->")
+    assert "--" not in out
+    assert "->" not in out
+
+
+def test_runs_of_three_or_more_fully_broken() -> None:
+    """str.replace is non-overlapping in a single pass — '===' would
+    leave a second '==' untouched without the stabilize loop. Pin
+    that the loop catches the residual."""
+    out = ligature_safe("===")
+    assert "==" not in out

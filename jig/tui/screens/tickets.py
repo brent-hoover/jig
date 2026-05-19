@@ -138,9 +138,13 @@ class BoardView(ScrollableContainer):
         status = t.get("status", "open")
         icon = _STATUS_ICON.get(status, "•")
         size = t.get("size", "?")
-        title = ligature_safe(t.get("title", "(untitled)"))
+        # Truncate BEFORE ligature_safe — ZWSPs inflate len() but not
+        # visual width, so combining the two would either over-truncate
+        # or cut across a ZWSP position.
+        title = t.get("title", "(untitled)")
         if len(title) > 24:
             title = title[:21] + "…"
+        title = ligature_safe(title)
         return Static(
             f"[{color}]{icon}[/{color}] [dim][{size}][/dim] {title}",
             classes="board-card",
@@ -308,7 +312,7 @@ class TicketsScreen(Container):
         icon = _STATUS_ICON.get(status, "•")
         color = _STATUS_COLOR.get(status, "white")
         size = ticket.get("size", "?")
-        title = ligature_safe(ticket.get("title", "(untitled)"))
+        title = ligature_safe(ticket.get("title", "(untitled)"))  # no truncation here
         needs_answer = status == "needs_info"
         needs_marker = "[#ff00ff bold][?][/#ff00ff bold] " if needs_answer else ""
         rendered = (

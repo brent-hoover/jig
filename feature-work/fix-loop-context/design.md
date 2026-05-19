@@ -26,12 +26,13 @@ Four pieces, all additive:
 ### 1. Stable finding IDs
 
 Computed on-the-fly per prompt render — no separate registry to keep
-in sync. For a given ticket, walk every row in `ReviewCommentsStore`
-**in `created_at` ascending order**, compute each row's signature
-`(reviewer, type, file, line)`, and assign `RC-1` to the first
-signature, `RC-2` to the second, and so on. Rows whose signature was
-already seen earlier in the walk reuse the existing RC-N rather than
-getting a new one.
+in sync. For a given ticket, call
+`ReviewCommentsStore.for_ticket_chronological(ticket_id)` (defined
+below) to get rows in **insertion order**, compute each row's
+signature `(reviewer, type, file, line)`, and assign `RC-1` to the
+first signature, `RC-2` to the second, and so on. Rows whose
+signature was already seen earlier in the walk reuse the existing
+RC-N rather than getting a new one.
 
 **Required reads.** `ReviewCommentsStore.for_ticket` goes through
 `Collection.find_where` → `Store.find_by`, which iterates the
@@ -51,15 +52,23 @@ story` extension, and the TUI snapshot builder) use the chronological
 variant.
 
 **Companion schema addition.** `ReviewerComment` does not carry a
-`created_at` field. We add `created_at: datetime` (defaulted to
-write-time UTC via `default_factory=lambda: datetime.now(UTC)`) so
-the `jig story` extension and TUI ack history have a real timestamp
-to display. The field is auto-populated; reviewer agents posting
-via `reviewer_post_comment` do not need to supply it. The field is
-**not** the ordering key for stable IDs — insertion order is.
-`created_at` is purely a display/timestamp concern. Legacy rows
-without the field load with `datetime.min` and render as "(no
-timestamp)" in the story output.
+`created_at` field. We add `created_at: datetime` with a static
+default `datetime.min` (NOT a `default_factory`, which would stamp
+the load time on legacy rows). The MCP write path
+(`reviewer_mcp.handle_reviewer_post_comment`) is updated to inject
+`created_at = datetime.now(UTC).isoformat()` into the payload
+*before* `ReviewerComment.model_validate`, so newly-written rows
+carry the real write-time UTC. Legacy rows in the JSONL with no
+`created_at` field load with the `datetime.min` sentinel and render
+as "(no timestamp)" in story output.
+
+The split — static default for missing-field-on-load, write-path
+stamping for new rows — sidesteps the Pydantic-default-factory
+subtlety that would stamp legacy-on-load with the current time
+(effectively rewriting history on every load).
+
+`created_at` is purely a display/timestamp concern. The stable-ID
+ordering key is insertion order, not `created_at`.
 
 The insertion-order walk is load-bearing for ID stability: it
 guarantees that adding a new finding in a later cycle only appends a
@@ -448,3 +457,9 @@ None — both resolved during review.
   index); `created_at` is display-only, not the ID ordering key.
   Non-goal worded as "no reviewer-emitted payload changes" to allow
   the internal `created_at` schema addition (brent)
+- 2026-05-19: Address roborev job 11 — fix the algorithm description
+  to say insertion order via `for_ticket_chronological` (not
+  `created_at` ascending); switch `created_at` from `default_factory`
+  to a static `default=datetime.min` + write-path stamping so legacy
+  rows load with the sentinel instead of getting "now" rewritten on
+  every load (brent)

@@ -44,11 +44,16 @@ wired up (step 3).
   the new method gives stable append order without depending on a
   timestamp tiebreaker.
 - Add `created_at: datetime` field to `ReviewerComment`
-  (`jig/reviewers/comment.py`), with `default_factory=lambda:
-  datetime.now(UTC)`. Auto-populated; reviewer agents don't need to
-  supply it. Used for display/story timestamps, not for the stable-ID
-  ordering key (which is insertion order). Legacy rows load with
-  `datetime.min` and render as "(no timestamp)" in story output.
+  (`jig/reviewers/comment.py`) with a **static default**
+  (`default=datetime.min`), not a `default_factory`. A factory would
+  stamp the current time on legacy rows at load time — we want the
+  sentinel value to survive loads. Update
+  `reviewer_mcp.handle_reviewer_post_comment` to inject
+  `created_at = datetime.now(UTC).isoformat()` into the payload
+  before `ReviewerComment.model_validate`, so new writes carry the
+  real timestamp. Reviewer agents don't supply the field
+  themselves. Used for display/story timestamps only; stable-ID
+  ordering uses insertion order.
 - New module `jig/store/finding_acks.py` with `FindingAck` pydantic
   model and `FindingAcksStore` (mirrors `ReviewCommentsStore` shape:
   `Collection`-backed, indexed on `ticket_id` and `finding_id`).
@@ -71,9 +76,12 @@ ship and test in isolation.
   an earlier timestamp still appears later in the result). Confirms
   determinism across multiple loads by checking same order after a
   `load() / for_ticket_chronological()` round-trip on a seeded JSONL.
-- `tests/test_reviewer_comment_created_at.py`: confirms model
-  auto-populates `created_at` on new rows and loads legacy rows
-  without the field (sentinel value).
+- `tests/test_reviewer_comment_created_at.py`: confirms MCP write
+  path stamps `created_at` for new rows and that legacy rows without
+  the field load with `datetime.min` (sentinel) — specifically test
+  that loading the same row twice does NOT shift its `created_at`
+  forward (catching the `default_factory` regression this work
+  exists to avoid).
 - `tests/test_store_finding_acks.py`: round-trip, indexed query,
   append-only semantics.
 - `tests/test_finding_ids.py`: signature grouping (re-phrased comments
@@ -300,3 +308,8 @@ be reverted in isolation if the next step exposes a bug.
   `_docs` directly (insertion-ordered) instead of sorting by
   `created_at`, eliminating the set-iteration tie-breaker problem
   for legacy rows. Test expectations updated to match (brent)
+- 2026-05-19: Job-11 review fix — `created_at` uses `default=datetime.min`
+  (static default) plus write-path stamping in `reviewer_mcp`, not
+  `default_factory`. The factory variant stamps legacy-on-load with
+  the current time, rewriting history. Test added for the
+  load-twice-stable-timestamp invariant (brent)

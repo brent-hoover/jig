@@ -20,6 +20,7 @@ Teams that want to customize copy the file themselves (a future
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 from jig.models import (
     RoleConfig,
@@ -222,24 +223,39 @@ def list_roles(project_path: Path) -> list[RoleConfig]:
 
 
 def list_role_names(project_path: Path) -> list[str]:
-    """Return every role name this project can resolve (project + defaults)."""
-    seen: dict[str, RoleConfig] = {}
+    """Return every role name this project can resolve (project + defaults).
+
+    Mirrors :func:`list_roles`'s merge logic so the two functions agree
+    on the canonical role identifier (``config.role``). Tolerant of
+    broken YAML: a file that fails to parse or validate falls back to
+    its stem so ``catalog._load_all_roles`` can still surface the error
+    via its own ``try``/``except``.
+    """
+    names: set[str] = set()
 
     project_dir = _jig_dir(project_path) / "roles"
     if project_dir.is_dir():
         for yaml_file in sorted(project_dir.glob("*.yaml")):
-            data = yaml.safe_load(yaml_file.read_text())
-            config = RoleConfig.model_validate(data)
-            seen[config.role] = config
+            try:
+                data = yaml.safe_load(yaml_file.read_text())
+                config = RoleConfig.model_validate(data)
+            except (yaml.YAMLError, ValidationError):
+                names.add(yaml_file.stem)
+                continue
+            names.add(config.role)
 
     shipped_dir = _defaults_dir() / "roles"
     if shipped_dir.is_dir():
         for yaml_file in sorted(shipped_dir.glob("*.yaml")):
-            data = yaml.safe_load(yaml_file.read_text())
-            config = RoleConfig.model_validate(data)
-            seen.setdefault(config.role, config)
+            try:
+                data = yaml.safe_load(yaml_file.read_text())
+                config = RoleConfig.model_validate(data)
+            except (yaml.YAMLError, ValidationError):
+                names.add(yaml_file.stem)
+                continue
+            names.add(config.role)
 
-    return sorted(seen)
+    return sorted(names)
 
 
 def save_default_roles(project_path: Path) -> None:

@@ -82,6 +82,28 @@ def test_runs_of_three_or_more_fully_broken() -> None:
     assert "==" not in out
 
 
+def test_source_uses_escape_not_literal() -> None:
+    """The ZWSP constant in jig.tui must be declared via the explicit
+    ``\\u200b`` escape, not an embedded U+200B character. Embedded
+    invisible characters are at risk of being silently stripped by
+    editor trim-whitespace passes, breaking ligature protection. Read
+    the source file's raw bytes and verify."""
+    import jig.tui as tui_pkg
+
+    src_path = Path(tui_pkg.__file__)
+    raw = src_path.read_bytes()
+    # The ZWSP constant line should NOT contain the UTF-8 bytes for
+    # U+200B (0xE2 0x80 0x8B). The escape ``\\u200b`` is plain ASCII.
+    for line in raw.splitlines():
+        if b"ZWSP = " in line and not line.lstrip().startswith(b"#"):
+            assert b"\xe2\x80\x8b" not in line, (
+                f"jig/tui/__init__.py declares ZWSP with an embedded "
+                f"U+200B literal: {line!r}"
+            )
+            return
+    raise AssertionError("could not find ZWSP assignment in jig/tui/__init__.py")
+
+
 @pytest.mark.asyncio
 async def test_clipboard_strips_zwsp(tmp_path: Path) -> None:
     """JigApp.copy_to_clipboard must strip the ligature-breaking ZWSPs

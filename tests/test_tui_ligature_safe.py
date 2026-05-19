@@ -6,7 +6,7 @@ from jig.tui import ligature_safe
 
 # Use the explicit escape — embedded U+200B literals look like an empty
 # string in editors / diffs and can be silently lost by trim-whitespace.
-_ZWSP = "​"
+_ZWSP = "\u200B"
 
 
 def test_double_hyphen_broken_by_zwsp() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 # Explicit escape — embedded ZWSP literals look like an empty string in
 # diffs and editors and can be silently lost by a trim-trailing-whitespace
 # pass.
-_ZWSP = "​"
+_ZWSP = "\u200B"
 _LIGATURE_PAIRS = ("--", "->", "=>", ">=", "<=", "!=", "==", "::")
 
 

@@ -1,0 +1,36 @@
+template: python
+template_applied_at: '2026-05-19T00:11:41.032600+00:00'
+sa_path: true
+language: python
+decisions:
+  cli_framework: typer
+  http_client: httpx (sync)
+  async_io: false
+  output_formats:
+  - text
+  - json
+  package_manager: uv
+  lint_format: ruff
+  test_framework: pytest
+  deploy_target: none (local CLI, distributed via pip/uv tool install)
+constraints:
+- HTTP layer must be abstracted behind an injectable client interface so tests can
+  replay fixture corpora without live network calls (required by the eval-mode AC
+  on fetch-top-stories).
+- --limit N is the candidate pool size fetched from the API; filters (--min-score,
+  --type) are applied AFTER the fetch. The tool MUST NOT over-fetch or paginate to
+  backfill filtered rows.
+- Ranks in final output must be renumbered 1..K contiguously after filtering, not
+  preserved from original HN rank.
+- "No rich TUI, color, or interactive elements \u2014 plain text by default, JSON\
+  \ via --format json."
+- No authentication, no write operations, no state mutation against the HN API.
+open_questions:
+- id: caching-storage
+  question: "If caching (planned_uncommitted) is built, where should the TTL cache\
+    \ be stored \u2014 XDG cache dir, a temp file, or elsewhere?"
+  blocking: false
+- id: pagination-pool-size
+  question: If pagination (planned_uncommitted) is built, what is the maximum candidate
+    pool size before the tool refuses or warns?
+  blocking: false

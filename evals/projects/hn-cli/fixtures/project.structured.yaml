@@ -1,0 +1,202 @@
+name: Hacker News CLI
+summary: A small command-line tool that prints Hacker News top stories.
+generated_at: "2026-05-19T00:08:48.078427Z"
+spec_version: 1
+
+capabilities:
+  - id: fetch-top-stories
+    title: Fetch top stories
+    state: planned
+    summary: >-
+      `hn-cli top --limit N` fetches the top N Hacker News stories from the HN
+      API and prints them as a ranked list with score, title, and URL.
+    user_story:
+      as: developer in the terminal
+      want: to fetch the top HN stories quickly
+      benefit: I can skim headlines without opening a browser
+    behaviors:
+      - id: run-top-cmd
+        description: >-
+          `hn-cli top --limit N` prints N stories ranked by HN score, one per
+          line.
+        examples: []
+        acceptance_criteria:
+          - Exit code is 0 on success.
+          - >-
+            `--limit N` is the size of the candidate pool fetched from the HN
+            API, not a guarantee of output row count. Filters (`--min-score`,
+            `--type`) are applied AFTER the limit-N fetch and MAY reduce the
+            output to fewer than N rows. The tool MUST NOT over-fetch or
+            paginate to backfill filtered rows — operators wanting more chances
+            after filtering raise `--limit`.
+          - >-
+            Output contains AT MOST N lines; fewer is correct when the API
+            returned fewer than N stories OR filters rejected some candidates.
+          - >-
+            Each line matches the format `<rank>.  <score>  <title>  <url>`
+            (e.g. `1.  428  Show HN: ...  https://...`).
+          - >-
+            Ranks in the final output are renumbered 1..K contiguously, where K
+            is the post-filter row count (NOT the original HN rank).
+          - >-
+            In eval mode, story IDs and titles match the fixture corpus
+            deterministically (tracer: `hn-cli top --limit 3`).
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: "2026-05-19T00:08:48.078427Z"
+    last_updated: "2026-05-19T00:08:48.078427Z"
+    state_changed_at: "2026-05-19T00:08:48.078427Z"
+
+  - id: filter-by-score
+    title: Filter by score
+    state: planned
+    summary: >-
+      `--min-score N` drops any story whose score falls below N, leaving only
+      high-signal items.
+    user_story:
+      as: developer
+      want: to filter out low-score stories
+      benefit: I only see popular content
+    behaviors:
+      - id: min-score-flag
+        description: "`--min-score N` removes stories with score < N from the output."
+        examples: []
+        acceptance_criteria:
+          - No story with score below N appears in the output.
+          - Stories with score >= N are retained and not removed.
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: "2026-05-19T00:08:48.078427Z"
+    last_updated: "2026-05-19T00:08:48.078427Z"
+    state_changed_at: "2026-05-19T00:08:48.078427Z"
+
+  - id: filter-by-type
+    title: Filter by type
+    state: planned
+    summary: >-
+      `--type {story,job,ask,show}` restricts results to a single HN item type.
+    user_story:
+      as: developer
+      want: to see only "Show HN" posts (or only jobs, etc.)
+      benefit: I can focus on relevant content
+    behaviors:
+      - id: type-flag
+        description: >-
+          `--type <type>` removes items that don't match the given HN item type
+          from the output.
+        examples: []
+        acceptance_criteria:
+          - Only items of the specified type appear in output.
+          - Items of other types are absent from output.
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: "2026-05-19T00:08:48.078427Z"
+    last_updated: "2026-05-19T00:08:48.078427Z"
+    state_changed_at: "2026-05-19T00:08:48.078427Z"
+
+  - id: format-output
+    title: Format output
+    state: planned
+    summary: >-
+      The default output is human-readable plain text; `--format json` switches
+      to structured JSON for scripting.
+    user_story:
+      as: developer
+      want: JSON output
+      benefit: I can pipe `hn-cli` into other tools
+    behaviors:
+      - id: text-format
+        description: >-
+          Default output (no `--format` flag) is plain text, one story per
+          line.
+        examples: []
+        acceptance_criteria:
+          - "Default output lines match `^\\d+\\.\\s+\\d+\\s+\\S.*\\s+https?://\\S+$`."
+      - id: json-format
+        description: "`--format json` emits a JSON array of story objects."
+        examples: []
+        acceptance_criteria:
+          - "`--format json` output is valid JSON."
+          - Each JSON object contains rank, score, title, and url fields.
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: "2026-05-19T00:08:48.078427Z"
+    last_updated: "2026-05-19T00:08:48.078427Z"
+    state_changed_at: "2026-05-19T00:08:48.078427Z"
+
+  - id: caching
+    title: Caching with TTL — cache API responses to avoid redundant fetches within a short window
+    state: planned_uncommitted
+    summary: ""
+    user_story: null
+    behaviors: []
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: "2026-05-19T00:08:48.078427Z"
+    last_updated: "2026-05-19T00:08:48.078427Z"
+    state_changed_at: "2026-05-19T00:08:48.078427Z"
+
+  - id: pagination
+    title: Pagination beyond top 30 — fetch more than the default HN top-30 window
+    state: planned_uncommitted
+    summary: ""
+    user_story: null
+    behaviors: []
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: "2026-05-19T00:08:48.078427Z"
+    last_updated: "2026-05-19T00:08:48.078427Z"
+    state_changed_at: "2026-05-19T00:08:48.078427Z"
+
+non_goals:
+  - id: no-comments
+    text: Browse comment threads
+    rationale: hn-cli is a "skim the headlines" tool, not a full reader
+    aliases: []
+  - id: no-auth
+    text: Submit stories, comment, vote, or authenticate
+    rationale: read-only tool
+    aliases: []
+  - id: no-realtime
+    text: Realtime polling
+    rationale: each invocation is one-shot, not a live feed
+    aliases: []
+  - id: no-rich-tui
+    text: Rich TUI with panels or colors
+    rationale: plain text by default; JSON for scripts
+    aliases: []
+  - id: no-filter-backfill
+    text: Over-fetching or paginating the HN API to backfill filtered-out rows
+    rationale: >-
+      `--limit N` is the candidate pool size, not a guaranteed output row count.
+    aliases: []

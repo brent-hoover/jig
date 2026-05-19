@@ -223,14 +223,23 @@ def list_roles(project_path: Path) -> list[RoleConfig]:
 
 def list_role_names(project_path: Path) -> list[str]:
     """Return every role name this project can resolve (project + defaults)."""
-    names: set[str] = set()
+    seen: dict[str, RoleConfig] = {}
+
     project_dir = _jig_dir(project_path) / "roles"
     if project_dir.is_dir():
-        names.update(p.stem for p in project_dir.glob("*.yaml"))
+        for yaml_file in sorted(project_dir.glob("*.yaml")):
+            data = yaml.safe_load(yaml_file.read_text())
+            config = RoleConfig.model_validate(data)
+            seen[config.role] = config
+
     shipped_dir = _defaults_dir() / "roles"
     if shipped_dir.is_dir():
-        names.update(p.stem for p in shipped_dir.glob("*.yaml"))
-    return sorted(names)
+        for yaml_file in sorted(shipped_dir.glob("*.yaml")):
+            data = yaml.safe_load(yaml_file.read_text())
+            config = RoleConfig.model_validate(data)
+            seen.setdefault(config.role, config)
+
+    return sorted(seen)
 
 
 def save_default_roles(project_path: Path) -> None:

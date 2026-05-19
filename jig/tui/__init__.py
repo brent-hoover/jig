@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-# Explicit escape — embedded ZWSP literals look like an empty string in
-# diffs and editors and can be silently lost by a trim-trailing-whitespace
-# pass.
-_ZWSP = "\u200B"
+# Use the explicit escape, NOT an embedded U+200B literal. The literal
+# looks like an empty string in editors and diffs and can be silently
+# lost by trim-trailing-whitespace passes; the escape survives any
+# editor / linter intact. Exported so the App's copy_to_clipboard
+# override can strip it before writing to the system clipboard.
+ZWSP = "​"
 _LIGATURE_PAIRS = ("--", "->", "=>", ">=", "<=", "!=", "==", "::")
 
 
@@ -21,7 +23,7 @@ def ligature_safe(text: str) -> str:
     while True:
         nxt = out
         for pair in _LIGATURE_PAIRS:
-            nxt = nxt.replace(pair, pair[0] + _ZWSP + pair[1])
+            nxt = nxt.replace(pair, pair[0] + ZWSP + pair[1])
         if nxt == out:
             return out
         out = nxt

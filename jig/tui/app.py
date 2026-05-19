@@ -85,6 +85,15 @@ class JigApp(App):
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
 
+    def copy_to_clipboard(self, text: str) -> None:
+        # Strip the ligature-breaking U+200B characters jig.tui.ligature_safe
+        # inserts at render time. The ZWSP is correct for the rendered
+        # column but pasted into a shell it would turn "--limit" into
+        # "-<ZWSP>-limit" and break the command.
+        from jig.tui import ZWSP
+
+        super().copy_to_clipboard(text.replace(ZWSP, ""))
+
     def __init__(self, project_path: Path) -> None:
         super().__init__()
         self.project_path = project_path

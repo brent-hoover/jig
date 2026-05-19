@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from jig.tui import ligature_safe
+from pathlib import Path
 
-# Use the explicit escape — embedded U+200B literals look like an empty
-# string in editors / diffs and can be silently lost by trim-whitespace.
-_ZWSP = "\u200B"
+import pytest
+
+from jig.tui import ZWSP as _ZWSP, ligature_safe
 
 
 def test_double_hyphen_broken_by_zwsp() -> None:
@@ -80,3 +80,19 @@ def test_runs_of_three_or_more_fully_broken() -> None:
     that the loop catches the residual."""
     out = ligature_safe("===")
     assert "==" not in out
+
+
+@pytest.mark.asyncio
+async def test_clipboard_strips_zwsp(tmp_path: Path) -> None:
+    """JigApp.copy_to_clipboard must strip the ligature-breaking ZWSPs
+    before writing to the system clipboard. Without this, pasting a
+    copied "--limit" into a shell would yield "-<ZWSP>-limit" and the
+    command wouldn't parse."""
+    from jig.tui.app import JigApp
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        app.copy_to_clipboard(ligature_safe("--limit 10"))
+        # The local clipboard property captures what was copied.
+        assert _ZWSP not in app.clipboard
+        assert app.clipboard == "--limit 10"

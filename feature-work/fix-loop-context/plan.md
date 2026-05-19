@@ -45,15 +45,17 @@ wired up (step 3).
   timestamp tiebreaker.
 - Add `created_at: datetime` field to `ReviewerComment`
   (`jig/reviewers/comment.py`) with a **static default**
-  (`default=datetime.min`), not a `default_factory`. A factory would
-  stamp the current time on legacy rows at load time — we want the
-  sentinel value to survive loads. Update
-  `reviewer_mcp.handle_reviewer_post_comment` to inject
-  `created_at = datetime.now(UTC).isoformat()` into the payload
-  before `ReviewerComment.model_validate`, so new writes carry the
-  real timestamp. Reviewer agents don't supply the field
-  themselves. Used for display/story timestamps only; stable-ID
-  ordering uses insertion order.
+  (`default=datetime(1, 1, 1, tzinfo=UTC)` — the timezone-aware
+  sentinel; a naive `datetime.min` would crash story-event sorting
+  via aware/naive comparison errors). Not a `default_factory`,
+  which would stamp legacy rows at load time.
+- Stamp `created_at` inside `ReviewCommentsStore.append` rather than
+  at each caller. If the incoming comment carries the sentinel,
+  `append` overwrites it with `datetime.now(UTC)`. This covers every
+  write path (`reviewer_mcp`, `dispatch`, `per_commit_runner`, eval
+  collector, sim driver) in one place. Reviewer agents don't supply
+  the field themselves. Used for display/story timestamps only;
+  stable-ID ordering uses insertion order.
 - New module `jig/store/finding_acks.py` with `FindingAck` pydantic
   model and `FindingAcksStore` (mirrors `ReviewCommentsStore` shape:
   `Collection`-backed, indexed on `ticket_id` and `finding_id`).
@@ -76,12 +78,14 @@ ship and test in isolation.
   an earlier timestamp still appears later in the result). Confirms
   determinism across multiple loads by checking same order after a
   `load() / for_ticket_chronological()` round-trip on a seeded JSONL.
-- `tests/test_reviewer_comment_created_at.py`: confirms MCP write
-  path stamps `created_at` for new rows and that legacy rows without
-  the field load with `datetime.min` (sentinel) — specifically test
-  that loading the same row twice does NOT shift its `created_at`
-  forward (catching the `default_factory` regression this work
-  exists to avoid).
+- `tests/test_reviewer_comment_created_at.py`: confirms
+  `ReviewCommentsStore.append` stamps `created_at` for new rows;
+  confirms legacy rows without the field load with the
+  timezone-aware sentinel; confirms loading the same row twice does
+  NOT shift its `created_at` forward (the `default_factory`
+  regression this work exists to avoid); confirms a non-MCP write
+  path (e.g., `dispatch.py`-shaped direct `append`) also gets a
+  real timestamp.
 - `tests/test_store_finding_acks.py`: round-trip, indexed query,
   append-only semantics.
 - `tests/test_finding_ids.py`: signature grouping (re-phrased comments
@@ -313,3 +317,9 @@ be reverted in isolation if the next step exposes a bug.
   `default_factory`. The factory variant stamps legacy-on-load with
   the current time, rewriting history. Test added for the
   load-twice-stable-timestamp invariant (brent)
+- 2026-05-19: Job-12 review fix — stamp `created_at` in
+  `ReviewCommentsStore.append` (covers every write path, not just
+  the MCP one) and use the aware sentinel
+  `datetime(1, 1, 1, tzinfo=UTC)` (avoids naive/aware comparison
+  errors during story sort). Test coverage extended to a non-MCP
+  append path (brent)

@@ -53,17 +53,22 @@ variant.
 
 **Companion schema addition.** `ReviewerComment` does not carry a
 `created_at` field. We add `created_at: datetime` with a static
-default `datetime.min` (NOT a `default_factory`, which would stamp
-the load time on legacy rows). The MCP write path
-(`reviewer_mcp.handle_reviewer_post_comment`) is updated to inject
-`created_at = datetime.now(UTC).isoformat()` into the payload
-*before* `ReviewerComment.model_validate`, so newly-written rows
-carry the real write-time UTC. Legacy rows in the JSONL with no
-`created_at` field load with the `datetime.min` sentinel and render
-as "(no timestamp)" in story output.
+default `datetime(1, 1, 1, tzinfo=UTC)` — the timezone-aware
+equivalent of `datetime.min`. A naive sentinel would crash story-event
+sorting because `datetime.now(UTC)` is aware and Python refuses to
+compare naive with aware; the aware sentinel keeps the type uniform.
 
-The split — static default for missing-field-on-load, write-path
-stamping for new rows — sidesteps the Pydantic-default-factory
+Write-time stamping happens in **`ReviewCommentsStore.append`** itself,
+not at any single caller. If the incoming comment's `created_at`
+equals the sentinel (or is somehow missing despite the model default),
+`append` stamps `datetime.now(UTC)` before writing. This covers every
+persistence path: `reviewer_mcp.handle_reviewer_post_comment`,
+`jig/reviewers/dispatch.py`, `jig/hooks/per_commit_runner.py`, the eval
+collector, sim driver — all go through `append`, all get the right
+timestamp without each caller having to know.
+
+The split — static default for missing-field-on-load, store-level
+stamping for new rows — sidesteps the Pydantic-`default_factory`
 subtlety that would stamp legacy-on-load with the current time
 (effectively rewriting history on every load).
 
@@ -463,3 +468,9 @@ None — both resolved during review.
   to a static `default=datetime.min` + write-path stamping so legacy
   rows load with the sentinel instead of getting "now" rewritten on
   every load (brent)
+- 2026-05-19: Address roborev job 12 — move the `created_at` stamping
+  from `reviewer_mcp` into `ReviewCommentsStore.append` so every
+  write path (MCP, dispatch, per_commit_runner, eval collector, sim)
+  gets it for free. Switch the sentinel from naive `datetime.min` to
+  the aware equivalent `datetime(1, 1, 1, tzinfo=UTC)` so story-event
+  sorting doesn't blow up on aware/naive comparison (brent)

@@ -77,10 +77,17 @@ async def handle_reviewer_post_comment(
 
     ``ticket_id`` and ``cycle`` come from the wrapping MCP factory's
     correlation context (per-agent ticket scope, current cycle number).
-    The agent's payload may include them too — we prefer the explicit
-    payload when both are present so the LLM can target a different
-    ticket when the operator's prompt asks for it (rare, but supported
-    for the future cross-ticket pattern-conformance pass).
+    These two fields behave differently:
+
+    - ``ticket_id``: the agent's payload wins when set — the LLM can
+      target a different ticket when the operator's prompt asks for it
+      (rare, but supported for the future cross-ticket
+      pattern-conformance pass).
+    - ``cycle``: the factory value is authoritative when supplied (i.e.
+      not ``None``), including ``cycle=0`` for the initial review pass.
+      Agent-supplied cycle values are discarded in that case. This is
+      to prevent a reviewer from hallucinating a stale or future cycle
+      number and corrupting latest-cycle routing / reraised detection.
 
     The deterministic self-check gate (Track G Final) runs after schema
     validation but before persistence. A dropped comment raises

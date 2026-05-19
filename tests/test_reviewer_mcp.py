@@ -50,9 +50,7 @@ class TestHandlePostComment:
         assert c.cycle == 1
         assert c.confidence == 0.7
 
-    async def test_payload_overrides_correlation_context(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_payload_overrides_correlation_context(self, tmp_path: Path) -> None:
         # Explicit ticket_id in args must beat the contextual stamp,
         # so the MVP+ "comment on a different ticket" use case stays open.
         cid = await handle_reviewer_post_comment(
@@ -73,8 +71,42 @@ class TestHandlePostComment:
             tmp_path / ".jig" / "store" / "review_comments.jsonl"
         )
         await store.load()
-        assert (await store.for_ticket("tkt-other"))
+        assert await store.for_ticket("tkt-other")
         assert not (await store.for_ticket("tkt-self"))
+
+    async def test_factory_cycle_zero_overrides_agent_payload(
+        self, tmp_path: Path
+    ) -> None:
+        """First-cycle reviewer (cycle=0) is the regression case behind
+        the ``if cycle:`` bug: cycle=0 is falsy, so the prior check
+        skipped the overwrite and let an agent's stale/hallucinated
+        cycle slip in. The fix uses ``is not None``; this test pins
+        that contract by passing cycle=0 from the factory and a
+        different cycle in the agent's args, asserting the factory wins.
+        """
+        cid = await handle_reviewer_post_comment(
+            project_path=tmp_path,
+            reviewer_role="reviewer-pattern-conformance",
+            args={
+                "type": "pattern-divergence",
+                "severity": "important",
+                "prose": "first-cycle finding with enough prose to pass self-check gate",
+                "confidence": 0.85,
+                "file": "src/main.py",
+                "line": 10,
+                "cycle": 9,  # stale / hallucinated value
+            },
+            ticket_id="tkt-self",
+            cycle=0,
+        )
+        assert cid
+        store = ReviewCommentsStore(
+            tmp_path / ".jig" / "store" / "review_comments.jsonl"
+        )
+        await store.load()
+        rows = await store.for_ticket("tkt-self")
+        assert len(rows) == 1
+        assert rows[0].cycle == 0
 
     async def test_invalid_payload_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError):
@@ -128,9 +160,7 @@ class TestRoleConfigsLoad:
         cfg = load_role(tmp_path, "reviewer_test_adequacy")
         assert "ticket://description" in cfg.default_context
 
-    def test_test_adequacy_prompt_flags_unrunnable_tests(
-        self, tmp_path: Path
-    ) -> None:
+    def test_test_adequacy_prompt_flags_unrunnable_tests(self, tmp_path: Path) -> None:
         # New rule in the rewrite — tests must be runnable as tests
         # (no syntax errors, no asserts that can't fire).
         cfg = load_role(tmp_path, "reviewer_test_adequacy")

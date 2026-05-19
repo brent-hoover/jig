@@ -94,6 +94,7 @@ allowed_tools:
   - Bash(git diff*)
   - reviewer_post_comment
   - graph_consumers_of
+  - mark_finding_resolved
 allowed_mcps: []
 strict_tools: true
 default_context:

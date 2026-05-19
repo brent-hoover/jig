@@ -367,6 +367,28 @@ class TicketsScreen(Container):
             lines.append("")
             lines.append("[bold]Description[/bold]")
             lines.append(str(t["description"]))
+        findings = t.get("findings") or []
+        if findings:
+            lines.append("")
+            lines.append("[bold]Findings[/bold]")
+            for f in findings:
+                fid = f.get("finding_id", "?")
+                loc = f.get("file") or "(diff-wide)"
+                line_no = f.get("line")
+                loc_full = f"{loc}:{line_no}" if line_no else loc
+                severity = f.get("severity", "?")
+                status = f.get("status", "open")
+                # Color the status independently of the ticket palette.
+                status_color = {
+                    "open": "#888888",
+                    "addressed": "#ffcc00",
+                    "resolved": "#00cc00",
+                    "reraised": "#ff8800",
+                }.get(status, "white")
+                lines.append(
+                    f"  [{fid}] {loc_full} — {severity} — "
+                    f"[{status_color}]{status}[/{status_color}]"
+                )
         return "\n".join(lines)
 
     # --- selection handlers --------------------------------------------------

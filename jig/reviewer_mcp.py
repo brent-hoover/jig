@@ -66,7 +66,7 @@ async def handle_reviewer_post_comment(
     reviewer_role: str,
     args: dict[str, Any],
     ticket_id: str | None = None,
-    cycle: int = 0,
+    cycle: int | None = None,
 ) -> str:
     """Persist one judgment-reviewer comment to the store.
 
@@ -77,10 +77,17 @@ async def handle_reviewer_post_comment(
 
     ``ticket_id`` and ``cycle`` come from the wrapping MCP factory's
     correlation context (per-agent ticket scope, current cycle number).
-    The agent's payload may include them too — we prefer the explicit
-    payload when both are present so the LLM can target a different
-    ticket when the operator's prompt asks for it (rare, but supported
-    for the future cross-ticket pattern-conformance pass).
+    These two fields behave differently:
+
+    - ``ticket_id``: the agent's payload wins when set — the LLM can
+      target a different ticket when the operator's prompt asks for it
+      (rare, but supported for the future cross-ticket
+      pattern-conformance pass).
+    - ``cycle``: the factory value is authoritative when supplied (i.e.
+      not ``None``), including ``cycle=0`` for the initial review pass.
+      Agent-supplied cycle values are discarded in that case. This is
+      to prevent a reviewer from hallucinating a stale or future cycle
+      number and corrupting latest-cycle routing / reraised detection.
 
     The deterministic self-check gate (Track G Final) runs after schema
     validation but before persistence. A dropped comment raises
@@ -92,7 +99,14 @@ async def handle_reviewer_post_comment(
     payload.setdefault("reviewer", reviewer_role)
     if "ticket_id" not in payload and ticket_id is not None:
         payload["ticket_id"] = ticket_id
-    if "cycle" not in payload and cycle:
+    # The orchestrator's spawn-time cycle is authoritative. Agents
+    # cannot override it — a reviewer that hallucinated a stale or
+    # made-up cycle would corrupt latest-cycle routing and reraised
+    # detection. ``cycle is not None`` distinguishes "factory supplied
+    # a value" (even 0) from "no context provided". The agent's
+    # payload value is discarded in both cases when the factory
+    # supplied one.
+    if cycle is not None:
         payload["cycle"] = cycle
 
     try:

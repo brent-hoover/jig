@@ -956,7 +956,11 @@ def story(
     first_ts = events[0].ts
     for ev in events:
         elapsed = (ev.ts - first_ts).total_seconds()
-        src_tag = "T" if ev.source == StorySource.thread else "L"
+        src_tag = {
+            StorySource.thread: "T",
+            StorySource.log: "L",
+            StorySource.finding: "F",
+        }.get(ev.source, "?")
         click.echo(
             f"{ev.ts.strftime('%H:%M:%S.%f')[:12]} "
             f"(+{elapsed:7.2f}s) [{src_tag}] "

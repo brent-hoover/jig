@@ -24,6 +24,21 @@ class SpawnReason(str, Enum):
     EVALUATOR = "evaluator"
     CONFLICT_RESOLVER = "conflict_resolver"
     REPLAN = "replan"
+    # fix-loop-context — back-routed phase agent after a review block.
+    # Same role as PHASE_PRIMARY would have been, but carries the
+    # ``fix_loop_bundle`` with the latest cycle's blocking findings
+    # routed to this phase plus any prior addressed-claim history.
+    # Prompt builder renders the "Blocking Findings" section only
+    # when reason is FIX_LOOP_RETRY.
+    FIX_LOOP_RETRY = "fix_loop_retry"
+    # fix-loop-context — federation reviewer spawn. The role-section
+    # uses the reviewer's normal phase_prompt; the instructions section
+    # tells the reviewer to do the two-task verify-then-find-new flow
+    # (or just review the diff on cycle 1). This replaces the prior
+    # use of QA_RESPONDER, which rendered "respond and
+    # update_ticket(resolved)" instructions inappropriate for a
+    # reviewer whose role doesn't have update_ticket.
+    REVIEWER_FEDERATION = "reviewer_federation"
 
 
 @dataclass
@@ -59,3 +74,18 @@ class AgentSpawnContext:
     # Called on every agent_thinking heartbeat so the orchestrator's
     # StallDetector can track liveness without going through the WS layer.
     on_thinking: Callable[[], None] | None = field(default=None, repr=False)
+    # fix-loop-context — pre-built bundle of blocking findings targeted
+    # at this phase plus their prior addressed-claim history. Populated
+    # only when spawn_reason is FIX_LOOP_RETRY. Opaque dict shape so
+    # the runtime module doesn't pull in the prompt-builder types.
+    fix_loop_bundle: dict | None = None
+    # fix-loop-context — pre-built bundle of all prior cycle findings +
+    # acks for the ticket, rendered into the reviewer's prompt as the
+    # "Previous Cycle Findings" section. Populated on cycle 2+ when the
+    # ticket has any acks. None on cycle 1.
+    verify_bundle: dict | None = None
+    # fix-loop-context — current fix-loop cycle (0 = first review pass,
+    # 1+ = post-block re-runs). Threaded into the MCP server so
+    # mark_finding_addressed / mark_finding_resolved get the right cycle
+    # stamped without the agent having to pass it.
+    cycle: int = 0

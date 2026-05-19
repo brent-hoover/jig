@@ -25,6 +25,7 @@ allowed_tools:
   - ToolSearch
   - WebSearch
   - WebFetch
+  - mark_finding_addressed
 allowed_mcps:
   - context7
 allow_add_dependency: true

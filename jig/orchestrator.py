@@ -43,10 +43,12 @@ from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
+from jig.store.finding_acks import FindingAcksStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
+from jig.fix_loop_bundle import build_fix_loop_bundle, build_verify_bundle
 from jig.reviewer_routing import (
     _most_recent_phase_with_role,
     _route_blocking_comments,
@@ -780,6 +782,7 @@ class Orchestrator:
         ticket,
         worktree_path,
         phase: "PhaseConfig | None" = None,
+        cycle: int = 0,
     ):
         """Run all review-federation agents in parallel and return a RunAgentResult.
 
@@ -804,8 +807,24 @@ class Orchestrator:
           stalling the pipeline).
         """
         from jig.agent import RunAgentResult
+        from jig.fix_loop_bundle import compute_reraised_acks
         from jig.reviewers import dispatch_with_llm_spawn
         from jig.reviewers.comment import Severity
+
+        # fix-loop-context step 5: snapshot pre-federation state so we
+        # can detect re-flagged signatures after dispatch completes.
+        prior_comments_snapshot: list = []
+        prior_acks_snapshot: list = []
+        if self.review_comments is not None:
+            await self.review_comments.load()
+            prior_comments_snapshot = (
+                await self.review_comments.for_ticket_chronological(ticket_id)
+            )
+            acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+            acks_path.parent.mkdir(parents=True, exist_ok=True)
+            _acks_store = FindingAcksStore(acks_path)
+            await _acks_store.load()
+            prior_acks_snapshot = await _acks_store.for_ticket(ticket_id)
 
         reviewers_list = phase.reviewers if phase is not None else None
         try:
@@ -815,6 +834,7 @@ class Orchestrator:
                 self,
                 worktree_path=worktree_path,
                 reviewers=reviewers_list,
+                cycle=cycle,
             )
         except ValueError:
             # ValueError from dispatch_with_llm_spawn means a workflow
@@ -834,6 +854,39 @@ class Orchestrator:
             )
 
         all_comments = [c for comments in by_reviewer.values() for c in comments]
+
+        # fix-loop-context step 5: auto-reraised acks. For any new
+        # comment that re-flags a previously addressed-but-not-resolved
+        # signature, write an orchestrator-authored "reraised" row to
+        # the FindingAcksStore so the audit trail captures the
+        # recurrence even when the reviewer didn't explicitly call
+        # mark_finding_resolved (or call anything at all).
+        if all_comments and self.review_comments is not None:
+            try:
+                reraised = compute_reraised_acks(
+                    prior_comments=prior_comments_snapshot,
+                    new_comments=all_comments,
+                    prior_acks=prior_acks_snapshot,
+                    ticket_id=ticket_id,
+                )
+                if reraised:
+                    acks_path = (
+                        self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+                    )
+                    acks_store = FindingAcksStore(acks_path)
+                    await acks_store.load()
+                    for ack in reraised:
+                        await acks_store.append(ack)
+            except Exception:
+                # Non-fatal — the audit trail is best-effort; the
+                # routing decision below still fires off the live
+                # federation result.
+                _logger.warning(
+                    "fix-loop-context: failed to write reraised acks for ticket %s",
+                    ticket_id,
+                    exc_info=True,
+                )
+
         blocking = [
             c
             for c in all_comments
@@ -893,6 +946,7 @@ class Orchestrator:
         role_file: str,
         project_root: Path,
         worktree_path: Path | None = None,
+        cycle: int = 0,
     ) -> None:
         """Spawn one LLM-driven federation reviewer (Block 3).
 
@@ -942,10 +996,14 @@ class Orchestrator:
         if worktree_path is None:
             worktree_path = self._project_path / ".jig" / "worktrees" / ticket.id
 
+        # fix-loop-context step 4: build the verify_bundle when prior
+        # acks exist. Cycle-1 reviewers get None and run unchanged.
+        verify_bundle = await self._build_verify_bundle_for_ticket(ticket.id)
+
         ctx = AgentSpawnContext(
             role=reviewer_id,
             role_cfg=role_cfg,
-            spawn_reason=SpawnReason.QA_RESPONDER,
+            spawn_reason=SpawnReason.REVIEWER_FEDERATION,
             ticket=ticket,
             parent=None,
             worktree_path=worktree_path,
@@ -955,6 +1013,8 @@ class Orchestrator:
             memory=self.memory,
             bus=self.bus,
             checkpoints=self.checkpoints,
+            verify_bundle=verify_bundle,
+            cycle=cycle,
             initial_bus_message={
                 "kind": "review_federation_spawn",
                 "ticket_id": ticket.id,
@@ -1381,6 +1441,13 @@ class Orchestrator:
             # Prevents infinite review→dev→review loops.
             max_fix_cycles = 3
             fix_counts: dict[int, int] = {}
+            # fix-loop-context (step 3): when ``_route_blocked_phase``
+            # sends us back, build a bundle of the latest cycle's blocking
+            # findings filtered to the chosen phase. The next iteration
+            # picks this up at the spawn site, threads it into
+            # ``AgentSpawnContext.fix_loop_bundle``, and clears it.
+            pending_fix_loop_bundle: dict | None = None
+            current_fix_cycle = 0
 
             while phase_idx < len(workflow.phases):
                 phase = workflow.phases[phase_idx]
@@ -1437,16 +1504,32 @@ class Orchestrator:
                         self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
                         try:
                             result = await self._run_review_phase_federation(
-                                ticket_id, ticket, worktree, phase=phase
+                                ticket_id,
+                                ticket,
+                                worktree,
+                                phase=phase,
+                                cycle=current_fix_cycle,
                             )
                         finally:
                             self._live_subscribers.pop(sub_key, None)
                     else:
                         role_cfg = load_role(self._project_path, phase.role)
+                        # fix-loop-context: if we're entering this phase
+                        # because a previous review block routed us back,
+                        # the bundle is pre-built and we spawn with
+                        # FIX_LOOP_RETRY. Consume + clear so the next
+                        # non-routed spawn falls back to PHASE_PRIMARY.
+                        if pending_fix_loop_bundle is not None:
+                            spawn_reason_for_phase = SpawnReason.FIX_LOOP_RETRY
+                            bundle_for_phase = pending_fix_loop_bundle
+                            pending_fix_loop_bundle = None
+                        else:
+                            spawn_reason_for_phase = SpawnReason.PHASE_PRIMARY
+                            bundle_for_phase = None
                         ctx = AgentSpawnContext(
                             role=phase.role,
                             role_cfg=role_cfg,
-                            spawn_reason=SpawnReason.PHASE_PRIMARY,
+                            spawn_reason=spawn_reason_for_phase,
                             ticket=ticket,
                             parent=None,
                             worktree_path=worktree,
@@ -1457,6 +1540,8 @@ class Orchestrator:
                             bus=self.bus,
                             checkpoints=self.checkpoints,
                             phase=phase,
+                            fix_loop_bundle=bundle_for_phase,
+                            cycle=current_fix_cycle,
                         )
                         # Write worktree provenance context (review-routing
                         # step 4). The prepare-commit-msg hook reads this file
@@ -1642,6 +1727,31 @@ class Orchestrator:
                                 fix_counts[phase_idx],
                                 max_fix_cycles,
                             )
+                            # fix-loop-context: build the bundle of
+                            # blocking findings + ack history filtered
+                            # to the chosen target phase. Stashed in
+                            # ``pending_fix_loop_bundle`` so the next
+                            # spawn iteration picks it up.
+                            try:
+                                pending_fix_loop_bundle = (
+                                    await self._build_fix_loop_bundle_for_phase(
+                                        workflow=workflow,
+                                        blocked_phase_idx=phase_idx,
+                                        target_phase_idx=fix_idx,
+                                        ticket_id=ticket_id,
+                                        worktree=worktree,
+                                    )
+                                )
+                            except Exception:
+                                _logger.warning(
+                                    "fix-loop-context: failed to build bundle "
+                                    "for ticket %s — back-routed spawn will "
+                                    "proceed without finding context",
+                                    ticket_id,
+                                    exc_info=True,
+                                )
+                                pending_fix_loop_bundle = None
+                            current_fix_cycle += 1
                             await self._update_ticket_status(
                                 ticket_id, TicketStatus.IN_PROGRESS
                             )
@@ -2702,6 +2812,75 @@ class Orchestrator:
                 topic=f"tickets.{ticket_id}",
             )
         )
+
+    async def _build_verify_bundle_for_ticket(self, ticket_id: str) -> dict | None:
+        """Build the 'Previous Cycle Findings' bundle for a reviewer spawn.
+
+        Returns ``None`` on cycle 1 (no prior acks for this ticket) so
+        first-cycle reviewers run unchanged. On cycle 2+, returns the
+        full per-finding state (open / addressed / resolved) so the
+        reviewer can verify each addressed claim before looking for
+        new issues.
+        """
+        if self.review_comments is None:
+            return None
+        await self.review_comments.load()
+        all_comments = await self.review_comments.for_ticket_chronological(ticket_id)
+        if not all_comments:
+            return None
+
+        acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+        acks_path.parent.mkdir(parents=True, exist_ok=True)
+        acks_store = FindingAcksStore(acks_path)
+        await acks_store.load()
+        all_acks = await acks_store.for_ticket(ticket_id)
+
+        return build_verify_bundle(all_comments=all_comments, all_acks=all_acks)
+
+    async def _build_fix_loop_bundle_for_phase(
+        self,
+        *,
+        workflow: "WorkflowConfig",
+        blocked_phase_idx: int,
+        target_phase_idx: int,
+        ticket_id: str,
+        worktree: Path,
+    ) -> dict | None:
+        """Load comments + acks from disk and delegate to
+        ``jig.fix_loop_bundle.build_fix_loop_bundle``.
+
+        Returns ``None`` instead of an empty bundle when no comments
+        exist for the ticket — the caller treats that as "no bundle
+        worth surfacing" and spawns with PHASE_PRIMARY.
+        """
+        if self.review_comments is None:
+            return None
+        # Reload to pick up MCP-written comments — same pattern as
+        # _route_blocked_phase. The acks store is freshly constructed
+        # on every call because the MCP write path may have written
+        # through a separate instance.
+        await self.review_comments.load()
+        all_comments = await self.review_comments.for_ticket_chronological(ticket_id)
+        if not all_comments:
+            return None
+
+        acks_store_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+        acks_store_path.parent.mkdir(parents=True, exist_ok=True)
+        acks_store = FindingAcksStore(acks_store_path)
+        await acks_store.load()
+        all_acks = await acks_store.for_ticket(ticket_id)
+
+        bundle = await build_fix_loop_bundle(
+            workflow=workflow,
+            blocked_phase_idx=blocked_phase_idx,
+            target_phase_idx=target_phase_idx,
+            all_comments=all_comments,
+            all_acks=all_acks,
+            worktree_path=worktree,
+        )
+        if not bundle["findings"]:
+            return None
+        return bundle
 
     async def _route_blocked_phase(
         self,

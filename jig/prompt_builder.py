@@ -185,6 +185,7 @@ def _instructions_section(
     evaluator_bundle: dict[str, Any] | None = None,
     conflict_bundle: dict[str, Any] | None = None,
     replan_bundle: dict[str, Any] | None = None,
+    fix_loop_bundle: dict[str, Any] | None = None,
     role: str | None = None,
 ) -> str:
     if role in _INIT_ROLES_WITH_OWN_INSTRUCTIONS and reason not in (
@@ -238,6 +239,34 @@ def _instructions_section(
             f"Respond to the most recent message on ticket {ticket.id}. "
             "When you've answered, call "
             f'`update_ticket(ticket_id="{ticket.id}", status="resolved")`.\n'
+        )
+    if reason == SpawnReason.REVIEWER_FEDERATION:
+        # Reviewers don't call update_ticket — their entire output is
+        # reviewer_post_comment (for findings) and mark_finding_resolved
+        # (when verifying prior cycle). Suppress the generic block
+        # entirely. The Previous Cycle Findings section (when present)
+        # carries the two-task framing; the role's own phase_prompt
+        # carries the per-reviewer instructions.
+        return ""
+    if reason == SpawnReason.FIX_LOOP_RETRY:
+        n = len((fix_loop_bundle or {}).get("findings", []))
+        return (
+            "## Instructions\n\n"
+            f"You are back on ticket `{ticket.id}` because the previous "
+            "review cycle blocked it with findings routed to your phase. "
+            "See the **Blocking Findings** section above for the full "
+            f"list ({n} item{'s' if n != 1 else ''}).\n\n"
+            "For each finding, in order:\n\n"
+            "1. Read the prose carefully and look at the cited file/line.\n"
+            "2. Make the change in your worktree.\n"
+            "3. Call "
+            '`mark_finding_addressed(finding_id="RC-N", '
+            'how_resolved="short prose")` describing what you changed.\n\n'
+            "When all findings are addressed, call `commit_progress` and "
+            f'then `update_ticket(ticket_id="{ticket.id}", '
+            'status="resolved")`. The next review cycle will verify each '
+            "addressed claim — do NOT mark a finding addressed unless you "
+            "actually made the change.\n"
         )
     if reason == SpawnReason.EVALUATOR:
         # Instructions reference the pinned handoff id so the agent has
@@ -461,6 +490,127 @@ def _evaluator_section(
     return "\n".join(parts) + "\n"
 
 
+def _blocking_findings_section(bundle: dict | None) -> str:
+    """Render the "Blocking Findings" section for a back-routed phase
+    agent (``spawn_reason=FIX_LOOP_RETRY``).
+
+    The bundle shape is built by the orchestrator's
+    ``_route_blocked_phase`` and contains:
+
+    - ``findings``: list of dicts, each with ``finding_id``, ``file``,
+      ``line``, ``severity``, ``reviewer``, ``prose``, and
+      ``ack_history`` (list of {kind, author, cycle, prose}).
+    - ``overflow_count``: int — how many additional findings were
+      truncated; rendered as a pointer to the JSONL store.
+
+    No findings → empty string (no section).
+    """
+    if not bundle or not bundle.get("findings"):
+        return ""
+
+    findings = bundle["findings"]
+    overflow = bundle.get("overflow_count", 0)
+
+    lines: list[str] = ["## Blocking Findings\n"]
+    lines.append(
+        "The previous review cycle blocked this ticket with findings "
+        "routed to your phase. Address each finding, then call "
+        '`mark_finding_addressed(finding_id="RC-N", how_resolved="...")` '
+        "per finding before calling `commit_progress` and "
+        "`update_ticket`.\n"
+    )
+    for f in findings:
+        loc = f.get("file") or "(diff-wide)"
+        line_no = f.get("line")
+        loc_full = f"{loc}:{line_no}" if line_no else loc
+        lines.append(
+            f"\n[{f['finding_id']}] {loc_full} — "
+            f"{f['severity']} — {f['reviewer']}\n"
+            f"{f['prose']}\n"
+        )
+        for ack in f.get("ack_history", []) or []:
+            lines.append(
+                f"  - {ack['kind']} cycle {ack['cycle']} ({ack['author']}): "
+                f"{ack['prose']}\n"
+            )
+
+    if overflow > 0:
+        lines.append(
+            f"\n({overflow} more — see "
+            "`.jig/store/review_comments.jsonl` for the full list)\n"
+        )
+
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _verify_findings_section(bundle: dict | None) -> str:
+    """Render the "Previous Cycle Findings" section for a reviewer
+    running on cycle 2+ of a ticket that has prior addressed claims.
+
+    Bundle shape (built by the orchestrator's
+    ``_build_verify_bundle_for_ticket``):
+
+    - ``findings``: list of dicts, each with ``finding_id``, ``file``,
+      ``line``, ``severity``, ``reviewer``, ``original_prose``,
+      ``dev_claim`` ({cycle, author, prose} or None), ``status``
+      (``open`` | ``addressed`` | ``resolved``).
+
+    Empty bundle → empty string. Cycle 1 reviewers run unchanged.
+    """
+    if not bundle or not bundle.get("findings"):
+        return ""
+
+    findings = bundle["findings"]
+
+    lines: list[str] = ["## Previous Cycle Findings\n"]
+    lines.append(
+        "The previous review cycle raised these findings. The dev has "
+        "claimed some of them are addressed. Your job has two tasks in "
+        "this order:\n"
+    )
+    lines.append(
+        "\n1. **Verify** each addressed claim. For each finding below, "
+        "either call "
+        '`mark_finding_resolved(finding_id="RC-N", confirmation="...")` '
+        "if the dev's fix actually closed the issue in the current diff, "
+        "OR re-flag it by posting a fresh `reviewer_post_comment` with "
+        "the same file/line as the original.\n"
+    )
+    lines.append(
+        "2. **Find new issues** in the updated diff. Report via "
+        "`reviewer_post_comment` as you would on a first-cycle review.\n"
+    )
+    lines.append(
+        "\nVerify the listed findings BEFORE searching for new ones. "
+        "Findings already marked `resolved` (by an earlier reviewer in "
+        "this cycle) need no further action from you.\n"
+    )
+
+    for f in findings:
+        loc = f.get("file") or "(diff-wide)"
+        line_no = f.get("line")
+        loc_full = f"{loc}:{line_no}" if line_no else loc
+        status = f.get("status", "open")
+        lines.append(
+            f"\n[{f['finding_id']}] {loc_full} — "
+            f"{f['severity']} — status: {status}\n"
+            f"ORIGINAL FINDING ({f.get('reviewer', '?')}): "
+            f"{f['original_prose']}\n"
+        )
+        claim = f.get("dev_claim")
+        if claim:
+            lines.append(
+                f"DEV CLAIMED (cycle {claim['cycle']}, {claim['author']}): "
+                f"{claim['prose']}\n"
+            )
+        else:
+            lines.append("DEV CLAIM: no claim posted; not addressed.\n")
+
+    lines.append("\n")
+    return "".join(lines)
+
+
 def _worktree_section(worktree_path: str | None) -> str:
     if not worktree_path:
         return ""
@@ -496,6 +646,8 @@ def build_initial_prompt(
     evaluator_bundle: dict[str, Any] | None = None,
     conflict_bundle: dict[str, Any] | None = None,
     replan_bundle: dict[str, Any] | None = None,
+    fix_loop_bundle: dict[str, Any] | None = None,
+    verify_bundle: dict[str, Any] | None = None,
     conventions_md: str | None = None,
 ) -> str:
     # Evaluator spawns carry a pre-assembled bundle (handoff id +
@@ -520,12 +672,17 @@ def build_initial_prompt(
         _ticket_section(ticket, parent, entries),
         _phase_section(phase, ticket),
         eval_section,
+        _blocking_findings_section(fix_loop_bundle)
+        if spawn_reason == SpawnReason.FIX_LOOP_RETRY
+        else "",
+        _verify_findings_section(verify_bundle),
         _instructions_section(
             ticket,
             spawn_reason,
             evaluator_bundle=evaluator_bundle,
             conflict_bundle=conflict_bundle,
             replan_bundle=replan_bundle,
+            fix_loop_bundle=fix_loop_bundle,
             role=role_cfg.role,
         ),
     ]

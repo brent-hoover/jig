@@ -124,4 +124,107 @@ async def build_fix_loop_bundle(
     return {"findings": findings, "overflow_count": overflow}
 
 
-__all__ = ["MAX_RENDERED_FINDINGS", "build_fix_loop_bundle"]
+def build_verify_bundle(
+    *,
+    all_comments: "list[ReviewerComment]",
+    all_acks: "list[FindingAck]",
+) -> dict | None:
+    """Build the "Previous Cycle Findings" bundle for reviewers on
+    cycle 2+ of a ticket with prior addressed claims.
+
+    Returns ``None`` when there are no prior acks at all (cycle 1
+    reviewers run unchanged with no verify task).
+
+    Each finding entry carries the **first-appearance prose** (so the
+    reviewer sees the original framing, not a re-phrased version),
+    the **most recent addressed claim** if any (so the reviewer
+    knows what the dev claims they did), and a **status** marker:
+
+    - ``resolved`` — an earlier reviewer already confirmed this fix.
+      The current reviewer can skip verification.
+    - ``addressed`` — dev claims it's fixed but no reviewer has
+      confirmed yet. The current reviewer should verify.
+    - ``open`` — no dev claim. The reviewer should re-flag if the
+      issue is still present.
+    """
+    if not all_acks:
+        return None
+    if not all_comments:
+        return None
+
+    ids = compute_finding_ids(all_comments)
+
+    # Index comments by finding_id; capture the FIRST appearance
+    # (signature's earliest insertion) for original_prose.
+    first_comment: dict[str, ReviewerComment] = {}
+    for c in all_comments:
+        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
+        sig = (c.reviewer, type_value, c.file, c.line)
+        fid = ids.get(sig)
+        if fid is not None and fid not in first_comment:
+            first_comment[fid] = c
+
+    # Group acks by finding_id, then pick the most recent ack of
+    # each kind (addressed / resolved) by cycle ascending.
+    acks_by_finding: dict[str, list[FindingAck]] = {}
+    for ack in all_acks:
+        acks_by_finding.setdefault(ack.finding_id, []).append(ack)
+
+    findings: list[dict] = []
+    # Iterate in RC-N order so the prompt reads top-to-bottom in the
+    # same order as the audit trail.
+    seen_fids: set[str] = set()
+    for c in all_comments:
+        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
+        sig = (c.reviewer, type_value, c.file, c.line)
+        fid = ids.get(sig)
+        if fid is None or fid in seen_fids:
+            continue
+        seen_fids.add(fid)
+
+        finding_acks = sorted(acks_by_finding.get(fid, []), key=lambda a: a.cycle)
+        latest_addressed = None
+        for ack in finding_acks:
+            if ack.kind == "addressed":
+                latest_addressed = ack
+        is_resolved = any(a.kind == "resolved" for a in finding_acks)
+
+        if is_resolved:
+            status = "resolved"
+        elif latest_addressed is not None:
+            status = "addressed"
+        else:
+            status = "open"
+
+        first = first_comment[fid]
+        findings.append(
+            {
+                "finding_id": fid,
+                "file": first.file,
+                "line": first.line,
+                "severity": first.severity,
+                "reviewer": first.reviewer,
+                "original_prose": first.prose,
+                "dev_claim": (
+                    {
+                        "cycle": latest_addressed.cycle,
+                        "author": latest_addressed.author,
+                        "prose": latest_addressed.prose,
+                    }
+                    if latest_addressed
+                    else None
+                ),
+                "status": status,
+            }
+        )
+
+    if not findings:
+        return None
+    return {"findings": findings}
+
+
+__all__ = [
+    "MAX_RENDERED_FINDINGS",
+    "build_fix_loop_bundle",
+    "build_verify_bundle",
+]

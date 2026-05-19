@@ -48,7 +48,7 @@ from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
-from jig.fix_loop_bundle import build_fix_loop_bundle
+from jig.fix_loop_bundle import build_fix_loop_bundle, build_verify_bundle
 from jig.reviewer_routing import (
     _most_recent_phase_with_role,
     _route_blocking_comments,
@@ -944,6 +944,10 @@ class Orchestrator:
         if worktree_path is None:
             worktree_path = self._project_path / ".jig" / "worktrees" / ticket.id
 
+        # fix-loop-context step 4: build the verify_bundle when prior
+        # acks exist. Cycle-1 reviewers get None and run unchanged.
+        verify_bundle = await self._build_verify_bundle_for_ticket(ticket.id)
+
         ctx = AgentSpawnContext(
             role=reviewer_id,
             role_cfg=role_cfg,
@@ -957,6 +961,7 @@ class Orchestrator:
             memory=self.memory,
             bus=self.bus,
             checkpoints=self.checkpoints,
+            verify_bundle=verify_bundle,
             initial_bus_message={
                 "kind": "review_federation_spawn",
                 "ticket_id": ticket.id,
@@ -2750,6 +2755,30 @@ class Orchestrator:
                 topic=f"tickets.{ticket_id}",
             )
         )
+
+    async def _build_verify_bundle_for_ticket(self, ticket_id: str) -> dict | None:
+        """Build the 'Previous Cycle Findings' bundle for a reviewer spawn.
+
+        Returns ``None`` on cycle 1 (no prior acks for this ticket) so
+        first-cycle reviewers run unchanged. On cycle 2+, returns the
+        full per-finding state (open / addressed / resolved) so the
+        reviewer can verify each addressed claim before looking for
+        new issues.
+        """
+        if self.review_comments is None:
+            return None
+        await self.review_comments.load()
+        all_comments = await self.review_comments.for_ticket_chronological(ticket_id)
+        if not all_comments:
+            return None
+
+        acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+        acks_path.parent.mkdir(parents=True, exist_ok=True)
+        acks_store = FindingAcksStore(acks_path)
+        await acks_store.load()
+        all_acks = await acks_store.for_ticket(ticket_id)
+
+        return build_verify_bundle(all_comments=all_comments, all_acks=all_acks)
 
     async def _build_fix_loop_bundle_for_phase(
         self,

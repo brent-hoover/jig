@@ -231,6 +231,11 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     fix_loop_bundle = (
         ctx.fix_loop_bundle if ctx.spawn_reason == SpawnReason.FIX_LOOP_RETRY else None
     )
+    # verify_bundle is populated by the orchestrator for reviewer
+    # spawns on cycle 2+ (when prior acks exist). Independent of
+    # spawn_reason because reviewer spawns currently use a parallel
+    # code path; once that converges, this can also gate on a reason.
+    verify_bundle = ctx.verify_bundle
 
     return build_initial_prompt(
         role_cfg=ctx.role_cfg,
@@ -250,6 +255,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         conflict_bundle=conflict_bundle,
         replan_bundle=replan_bundle,
         fix_loop_bundle=fix_loop_bundle,
+        verify_bundle=verify_bundle,
         conventions_md=conventions_md,
     )
 

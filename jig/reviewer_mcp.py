@@ -66,7 +66,7 @@ async def handle_reviewer_post_comment(
     reviewer_role: str,
     args: dict[str, Any],
     ticket_id: str | None = None,
-    cycle: int = 0,
+    cycle: int | None = None,
 ) -> str:
     """Persist one judgment-reviewer comment to the store.
 
@@ -95,9 +95,11 @@ async def handle_reviewer_post_comment(
     # The orchestrator's spawn-time cycle is authoritative. Agents
     # cannot override it — a reviewer that hallucinated a stale or
     # made-up cycle would corrupt latest-cycle routing and reraised
-    # detection. Always overwrite when the caller (the MCP factory)
-    # supplies a cycle, regardless of what the agent's payload says.
-    if cycle:
+    # detection. ``cycle is not None`` distinguishes "factory supplied
+    # a value" (even 0) from "no context provided". The agent's
+    # payload value is discarded in both cases when the factory
+    # supplied one.
+    if cycle is not None:
         payload["cycle"] = cycle
 
     try:

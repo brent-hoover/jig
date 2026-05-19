@@ -70,44 +70,9 @@ async def _validate_finding_id(
 
 def _validate_prose(prose: str) -> None:
     if len(prose) > _MAX_PROSE:
-        raise ValueError(f"prose exceeds 500 character limit (got {len(prose)} chars)")
-
-
-async def _existing_ack_id(
-    project_path: Path,
-    *,
-    ticket_id: str,
-    finding_id: str,
-    kind: AckKind,
-    author: str,
-    cycle: int,
-) -> str | None:
-    """Return the id of an existing ack with the same shape, if any.
-
-    Idempotency window: same finding, same kind, same author, same
-    cycle. Anything broader (cross-cycle, cross-author) is treated as
-    new history.
-    """
-    acks_store = FindingAcksStore(_finding_acks_path(project_path))
-    await acks_store.load()
-    rows = await acks_store.for_finding(ticket_id, finding_id)
-    for row in rows:
-        if row.kind == kind and row.author == author and row.cycle == cycle:
-            # Look up the assigned doc id via the underlying collection
-            # — for_finding doesn't return the row's _id, but each row
-            # in the store has one. Iterate _docs directly.
-            raws = await acks_store._collection.find_where(
-                ticket_id=ticket_id,
-                finding_id=finding_id,
-            )
-            for raw in raws:
-                if (
-                    raw.get("kind") == kind
-                    and raw.get("author") == author
-                    and raw.get("cycle") == cycle
-                ):
-                    return str(raw["_id"])
-    return None
+        raise ValueError(
+            f"prose exceeds {_MAX_PROSE} character limit (got {len(prose)} chars)"
+        )
 
 
 async def _write_ack(
@@ -120,8 +85,18 @@ async def _write_ack(
     cycle: int,
     prose: str,
 ) -> str:
-    existing = await _existing_ack_id(
-        project_path,
+    """Write or dedupe an ack row.
+
+    Idempotency window: same (ticket_id, finding_id, kind, author, cycle)
+    — re-calls within that tuple return the existing row id without a
+    new write. Anything broader (different cycle, different author)
+    creates a fresh row.
+    """
+    acks_path = _finding_acks_path(project_path)
+    acks_path.parent.mkdir(parents=True, exist_ok=True)
+    acks_store = FindingAcksStore(acks_path)
+    await acks_store.load()
+    existing = await acks_store.find_id_for(
         ticket_id=ticket_id,
         finding_id=finding_id,
         kind=kind,
@@ -130,10 +105,6 @@ async def _write_ack(
     )
     if existing is not None:
         return existing
-
-    acks_store = FindingAcksStore(_finding_acks_path(project_path))
-    _finding_acks_path(project_path).parent.mkdir(parents=True, exist_ok=True)
-    await acks_store.load()
     return await acks_store.append(
         FindingAck(
             ticket_id=ticket_id,

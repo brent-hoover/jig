@@ -137,5 +137,32 @@ class FindingAcksStore:
         )
         return [self._load(r) for r in raws]
 
+    async def find_id_for(
+        self,
+        *,
+        ticket_id: str,
+        finding_id: str,
+        kind: str,
+        author: str,
+        cycle: int,
+    ) -> str | None:
+        """Return the row id of an existing ack matching all five fields,
+        or ``None`` when none exists. Single in-memory walk; the idempotency
+        check in the MCP handler uses this rather than reaching into
+        ``_collection`` directly.
+        """
+        raws = await self._collection.find(
+            lambda d: (
+                d.get("ticket_id") == ticket_id
+                and d.get("finding_id") == finding_id
+                and d.get("kind") == kind
+                and d.get("author") == author
+                and d.get("cycle") == cycle
+            )
+        )
+        if not raws:
+            return None
+        return str(raws[0]["_id"])
+
 
 __all__ = ["FindingAck", "FindingAcksStore"]

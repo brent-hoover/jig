@@ -2864,11 +2864,9 @@ class Orchestrator:
         if not all_comments:
             return None
 
-        acks_store = FindingAcksStore(
-            self._project_path / ".jig" / "store" / "finding_acks.jsonl"
-        )
         acks_store_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
         acks_store_path.parent.mkdir(parents=True, exist_ok=True)
+        acks_store = FindingAcksStore(acks_store_path)
         await acks_store.load()
         all_acks = await acks_store.for_ticket(ticket_id)
 

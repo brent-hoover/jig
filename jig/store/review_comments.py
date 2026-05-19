@@ -85,8 +85,12 @@ class ReviewCommentsStore:
     async def for_ticket(self, ticket_id: str) -> list[ReviewerComment]:
         """Every comment ever raised against ``ticket_id``, all cycles.
 
-        Order is insertion order (the underlying JSONL is append-only;
-        no sort key on ``ReviewerComment`` itself yet).
+        **Order is non-deterministic** — this method goes through the
+        set-backed index in :class:`jig.store.core.JsonlStore`, whose
+        iteration order varies across processes. Use
+        :meth:`for_ticket_chronological` when finding-ID stability or
+        ordered output matters (story rendering, stable RC-N
+        assignment, audit-trail consumers).
         """
         raws = await self._collection.find_where(ticket_id=ticket_id)
         return [self._load(r) for r in raws]

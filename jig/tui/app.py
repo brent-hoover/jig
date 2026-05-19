@@ -32,7 +32,10 @@ class JigApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("ctrl+c", "quit", "Quit", show=False),
+        # ctrl+c is reserved for Textual's built-in "copy selection" action —
+        # see https://textual.textualize.io/FAQ . Use ctrl+q as the always-on
+        # quit hotkey for typing-mode users who can't press bare 'q'.
+        Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("question_mark", "help", "Help", priority=True),
         # F1 always-fires (terminal doesn't send it as a printable char,
         # so Input doesn't consume it).
@@ -81,6 +84,15 @@ class JigApp(App):
     ]
 
     daemon_state: reactive[ConnectionState] = reactive(ConnectionState.DISCONNECTED)
+
+    def copy_to_clipboard(self, text: str) -> None:
+        # Strip the ligature-breaking U+200B characters jig.tui.ligature_safe
+        # inserts at render time. The ZWSP is correct for the rendered
+        # column but pasted into a shell it would turn "--limit" into
+        # "-<ZWSP>-limit" and break the command.
+        from jig.tui import ZWSP
+
+        super().copy_to_clipboard(text.replace(ZWSP, ""))
 
     def __init__(self, project_path: Path) -> None:
         super().__init__()

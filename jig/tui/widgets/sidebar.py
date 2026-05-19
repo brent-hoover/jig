@@ -22,6 +22,8 @@ from textual.containers import Vertical
 from textual.widget import Widget
 from textual.widgets import Static
 
+from jig.tui import ligature_safe
+
 
 _HEADER_STYLE = "bold $accent on $boost"
 
@@ -285,9 +287,11 @@ class Sidebar(Widget):
             lines.append(f"[bold magenta]▶[/bold magenta] {label}")
         for t in actionable[:6]:
             status = t.get("status", "")
+            # Truncate before ligature_safe — ZWSPs inflate len().
             title = t.get("title", "(untitled)")
             if len(title) > 24:
                 title = title[:21] + "…"
+            title = ligature_safe(title)
             if status == "needs_info":
                 lines.append(f"[bold yellow]?[/bold yellow] {title}")
             else:
@@ -319,9 +323,11 @@ class Sidebar(Widget):
             status = t.get("status", "open")
             glyph = self._STATUS_GLYPH.get(status, "•")
             color = self._STATUS_COLOR.get(status, "white")
+            # Truncate before ligature_safe — ZWSPs inflate len().
             title = t.get("title", "(untitled)")
             if len(title) > 26:
                 title = title[:23] + "…"
+            title = ligature_safe(title)
             lines.append(f"[{color}]{glyph}[/] {title}")
         zone.set_lines(lines)
 
@@ -412,7 +418,8 @@ class Sidebar(Widget):
             (ev.get("payload") or {}).get("title"),
         ):
             if isinstance(path, str) and path.strip():
-                return path[:24] + ("…" if len(path) > 24 else "")
+                truncated = path[:24] + ("…" if len(path) > 24 else "")
+                return ligature_safe(truncated)
 
         # Resolve via the cached ticket store.
         ticket_id = None
@@ -429,7 +436,8 @@ class Sidebar(Widget):
             t = self._tickets.get(ticket_id)
             if t and t.get("title"):
                 title = t["title"]
-                return title[:24] + ("…" if len(title) > 24 else "")
+                truncated = title[:24] + ("…" if len(title) > 24 else "")
+                return ligature_safe(truncated)
             return ticket_id[:8]
         return ""
 

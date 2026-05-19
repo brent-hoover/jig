@@ -30,6 +30,8 @@ from textual.containers import Container, Horizontal, ScrollableContainer, Verti
 from textual.reactive import reactive
 from textual.widgets import ListItem, ListView, Static
 
+from jig.tui import ligature_safe
+
 
 _STATUS_ICON = {
     "open": "○",
@@ -136,9 +138,13 @@ class BoardView(ScrollableContainer):
         status = t.get("status", "open")
         icon = _STATUS_ICON.get(status, "•")
         size = t.get("size", "?")
+        # Truncate BEFORE ligature_safe — ZWSPs inflate len() but not
+        # visual width, so combining the two would either over-truncate
+        # or cut across a ZWSP position.
         title = t.get("title", "(untitled)")
         if len(title) > 24:
             title = title[:21] + "…"
+        title = ligature_safe(title)
         return Static(
             f"[{color}]{icon}[/{color}] [dim][{size}][/dim] {title}",
             classes="board-card",
@@ -306,7 +312,7 @@ class TicketsScreen(Container):
         icon = _STATUS_ICON.get(status, "•")
         color = _STATUS_COLOR.get(status, "white")
         size = ticket.get("size", "?")
-        title = ticket.get("title", "(untitled)")
+        title = ligature_safe(ticket.get("title", "(untitled)"))  # no truncation here
         needs_answer = status == "needs_info"
         needs_marker = "[#ff00ff bold][?][/#ff00ff bold] " if needs_answer else ""
         rendered = (
@@ -341,7 +347,7 @@ class TicketsScreen(Container):
         status = t.get("status", "open")
         color = _STATUS_COLOR.get(status, "white")
         lines: list[str] = []
-        lines.append(f"[bold]{t.get('title', '(untitled)')}[/bold]")
+        lines.append(f"[bold]{ligature_safe(t.get('title', '(untitled)'))}[/bold]")
         lines.append("")
         lines.append(f"[{color}]●[/{color}] [bold]{status}[/bold]")
         lines.append(f"  type:  {t.get('work_type', '?')}")

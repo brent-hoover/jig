@@ -19,10 +19,13 @@ loop calls; ``for_ticket`` is the full history.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from jig.reviewers.comment import ReviewerComment
 from jig.store.collection import Collection
+
+_CREATED_AT_SENTINEL = datetime(1, 1, 1, tzinfo=timezone.utc)
 
 
 class ReviewCommentsStore:
@@ -52,7 +55,18 @@ class ReviewCommentsStore:
         time (the model allows ``None`` for legacy callers); ``for_ticket``
         / ``for_cycle`` will simply not return the row when querying by
         a specific ticket.
+
+        Stamps ``created_at`` with the current UTC time if the incoming
+        comment still carries the sentinel value. Explicit timestamps
+        (e.g., backfill/replay paths) are preserved. This is the single
+        write-time stamping point so every caller — MCP, dispatch,
+        per_commit_runner, eval collector, sim driver — gets the same
+        treatment without having to know about it.
         """
+        if comment.created_at == _CREATED_AT_SENTINEL:
+            comment = comment.model_copy(
+                update={"created_at": datetime.now(timezone.utc)}
+            )
         raw = comment.model_dump(mode="json", by_alias=True)
         return await self._collection.insert(raw)
 
@@ -75,6 +89,25 @@ class ReviewCommentsStore:
         no sort key on ``ReviewerComment`` itself yet).
         """
         raws = await self._collection.find_where(ticket_id=ticket_id)
+        return [self._load(r) for r in raws]
+
+    async def for_ticket_chronological(self, ticket_id: str) -> list[ReviewerComment]:
+        """Comments for ``ticket_id`` in insertion (JSONL append) order.
+
+        Use this when the order matters — e.g., stable-ID assignment
+        (``jig.finding_ids``) or chronological story rendering (``jig
+        story``). The legacy ``for_ticket`` goes through a set-backed
+        index whose iteration order varies across processes, so it is
+        unsafe for ordered consumers.
+
+        Implemented via ``Collection.find`` with a ticket predicate;
+        ``find`` walks the in-memory ``_docs`` dict directly, which is
+        insertion-ordered by Python dict semantics. The trade-off is
+        full-scan filtering, but the typical per-ticket comment count
+        is small (single-digit to tens), so cost is negligible relative
+        to the determinism gain.
+        """
+        raws = await self._collection.find(lambda d: d.get("ticket_id") == ticket_id)
         return [self._load(r) for r in raws]
 
     async def for_cycle(self, ticket_id: str, cycle: int) -> list[ReviewerComment]:

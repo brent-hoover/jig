@@ -39,10 +39,19 @@ mapping isn't 1:1 with check definitions.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# Aware sentinel — timezone-uniform with ``datetime.now(UTC)`` so callers
+# that compare or sort created_at across rows don't hit naive/aware
+# TypeError. Legacy rows in JSONL stores loaded before the field
+# existed validate to this value; ``ReviewCommentsStore.append`` rewrites
+# this sentinel to a real write-time UTC stamp so persisted rows always
+# carry a real timestamp.
+_CREATED_AT_SENTINEL = datetime(1, 1, 1, tzinfo=timezone.utc)
 
 
 class Severity(str, Enum):
@@ -351,6 +360,19 @@ class ReviewerComment(BaseModel):
             "(typically 'mobile' / 'tablet' / 'desktop'). ``None`` for "
             "non-responsive comments or for findings that apply to "
             "every breakpoint."
+        ),
+    )
+    # Real write time, stamped by ``ReviewCommentsStore.append`` for new
+    # rows. Legacy JSONL rows without the field load with the aware
+    # sentinel (``_CREATED_AT_SENTINEL``). NOT used for stable-ID
+    # ordering — that's insertion order. Used for display and for
+    # ``jig story``'s chronological event interleaving.
+    created_at: datetime = Field(
+        default=_CREATED_AT_SENTINEL,
+        description=(
+            "Write-time UTC stamp. Sentinel value (datetime.min, aware) "
+            "means the row predates this field or was constructed "
+            "without going through the store's append path."
         ),
     )
     # Review-routing — when set, the fix-loop router sends this comment

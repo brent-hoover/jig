@@ -7,7 +7,7 @@ from __future__ import annotations
 # lost by trim-trailing-whitespace passes; the escape survives any
 # editor / linter intact. Exported so the App's copy_to_clipboard
 # override can strip it before writing to the system clipboard.
-ZWSP = "​"
+ZWSP = "\u200b"
 _LIGATURE_PAIRS = ("--", "->", "=>", ">=", "<=", "!=", "==", "::")
 
 

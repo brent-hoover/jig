@@ -22,11 +22,11 @@ from typing import TYPE_CHECKING
 
 from jig.finding_ids import compute_finding_ids
 from jig.reviewer_routing import _route_one
+from jig.store.finding_acks import FindingAck
 
 if TYPE_CHECKING:
     from jig.models import WorkflowConfig
     from jig.reviewers.comment import ReviewerComment
-    from jig.store.finding_acks import FindingAck
 
 
 # Hard cap on rendered findings per the design. Overflow renders as
@@ -223,8 +223,70 @@ def build_verify_bundle(
     return {"findings": findings}
 
 
+def compute_reraised_acks(
+    *,
+    prior_comments: "list[ReviewerComment]",
+    new_comments: "list[ReviewerComment]",
+    prior_acks: "list[FindingAck]",
+    ticket_id: str,
+) -> "list[FindingAck]":
+    """Detect re-flagged findings and produce auto-``reraised`` acks.
+
+    A finding is "re-raised" when:
+
+    - Its ``(reviewer, type, file, line)`` signature was already
+      present in ``prior_comments`` (i.e., it's not brand new), AND
+    - Its signature has no ``resolved`` ack in ``prior_acks``.
+
+    The result list is suitable for direct append to
+    ``FindingAcksStore`` — one ack per re-flagged finding, prose
+    copied from the new comment so the audit trail is self-contained.
+
+    Pure: no I/O. Caller writes the acks after the federation pass
+    completes.
+    """
+    # Compute IDs across the union so signatures shared between prior
+    # and new resolve to the same RC-N.
+    union = list(prior_comments) + list(new_comments)
+    ids = compute_finding_ids(union)
+
+    # Signatures present in the prior set.
+    prior_sigs: set[tuple] = set()
+    for c in prior_comments:
+        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
+        prior_sigs.add((c.reviewer, type_value, c.file, c.line))
+
+    # finding_ids that already have a resolved ack — those do NOT
+    # auto-reraise (the resolution stands).
+    resolved_fids: set[str] = {a.finding_id for a in prior_acks if a.kind == "resolved"}
+
+    out: list[FindingAck] = []
+    seen_fids: set[str] = set()
+    for c in new_comments:
+        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
+        sig = (c.reviewer, type_value, c.file, c.line)
+        if sig not in prior_sigs:
+            continue  # new finding, not a reraise
+        fid = ids.get(sig)
+        if fid is None or fid in resolved_fids or fid in seen_fids:
+            continue
+        seen_fids.add(fid)
+        out.append(
+            FindingAck(
+                ticket_id=ticket_id,
+                finding_id=fid,
+                kind="reraised",
+                author=c.reviewer,
+                cycle=c.cycle,
+                prose=c.prose,
+            )
+        )
+    return out
+
+
 __all__ = [
     "MAX_RENDERED_FINDINGS",
     "build_fix_loop_bundle",
     "build_verify_bundle",
+    "compute_reraised_acks",
 ]

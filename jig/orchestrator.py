@@ -806,8 +806,24 @@ class Orchestrator:
           stalling the pipeline).
         """
         from jig.agent import RunAgentResult
+        from jig.fix_loop_bundle import compute_reraised_acks
         from jig.reviewers import dispatch_with_llm_spawn
         from jig.reviewers.comment import Severity
+
+        # fix-loop-context step 5: snapshot pre-federation state so we
+        # can detect re-flagged signatures after dispatch completes.
+        prior_comments_snapshot: list = []
+        prior_acks_snapshot: list = []
+        if self.review_comments is not None:
+            await self.review_comments.load()
+            prior_comments_snapshot = (
+                await self.review_comments.for_ticket_chronological(ticket_id)
+            )
+            acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+            acks_path.parent.mkdir(parents=True, exist_ok=True)
+            _acks_store = FindingAcksStore(acks_path)
+            await _acks_store.load()
+            prior_acks_snapshot = await _acks_store.for_ticket(ticket_id)
 
         reviewers_list = phase.reviewers if phase is not None else None
         try:
@@ -836,6 +852,39 @@ class Orchestrator:
             )
 
         all_comments = [c for comments in by_reviewer.values() for c in comments]
+
+        # fix-loop-context step 5: auto-reraised acks. For any new
+        # comment that re-flags a previously addressed-but-not-resolved
+        # signature, write an orchestrator-authored "reraised" row to
+        # the FindingAcksStore so the audit trail captures the
+        # recurrence even when the reviewer didn't explicitly call
+        # mark_finding_resolved (or call anything at all).
+        if all_comments and self.review_comments is not None:
+            try:
+                reraised = compute_reraised_acks(
+                    prior_comments=prior_comments_snapshot,
+                    new_comments=all_comments,
+                    prior_acks=prior_acks_snapshot,
+                    ticket_id=ticket_id,
+                )
+                if reraised:
+                    acks_path = (
+                        self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+                    )
+                    acks_store = FindingAcksStore(acks_path)
+                    await acks_store.load()
+                    for ack in reraised:
+                        await acks_store.append(ack)
+            except Exception:
+                # Non-fatal — the audit trail is best-effort; the
+                # routing decision below still fires off the live
+                # federation result.
+                _logger.warning(
+                    "fix-loop-context: failed to write reraised acks for ticket %s",
+                    ticket_id,
+                    exc_info=True,
+                )
+
         blocking = [
             c
             for c in all_comments

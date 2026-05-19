@@ -22,6 +22,8 @@ from textual.containers import Vertical
 from textual.widget import Widget
 from textual.widgets import Static
 
+from jig.tui import ligature_safe
+
 
 _HEADER_STYLE = "bold $accent on $boost"
 
@@ -285,7 +287,7 @@ class Sidebar(Widget):
             lines.append(f"[bold magenta]▶[/bold magenta] {label}")
         for t in actionable[:6]:
             status = t.get("status", "")
-            title = t.get("title", "(untitled)")
+            title = ligature_safe(t.get("title", "(untitled)"))
             if len(title) > 24:
                 title = title[:21] + "…"
             if status == "needs_info":
@@ -319,7 +321,7 @@ class Sidebar(Widget):
             status = t.get("status", "open")
             glyph = self._STATUS_GLYPH.get(status, "•")
             color = self._STATUS_COLOR.get(status, "white")
-            title = t.get("title", "(untitled)")
+            title = ligature_safe(t.get("title", "(untitled)"))
             if len(title) > 26:
                 title = title[:23] + "…"
             lines.append(f"[{color}]{glyph}[/] {title}")
@@ -412,7 +414,8 @@ class Sidebar(Widget):
             (ev.get("payload") or {}).get("title"),
         ):
             if isinstance(path, str) and path.strip():
-                return path[:24] + ("…" if len(path) > 24 else "")
+                safe = ligature_safe(path)
+                return safe[:24] + ("…" if len(safe) > 24 else "")
 
         # Resolve via the cached ticket store.
         ticket_id = None
@@ -428,7 +431,7 @@ class Sidebar(Widget):
         if ticket_id:
             t = self._tickets.get(ticket_id)
             if t and t.get("title"):
-                title = t["title"]
+                title = ligature_safe(t["title"])
                 return title[:24] + ("…" if len(title) > 24 else "")
             return ticket_id[:8]
         return ""

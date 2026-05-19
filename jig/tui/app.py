@@ -32,7 +32,10 @@ class JigApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("ctrl+c", "quit", "Quit", show=False),
+        # ctrl+c is reserved for Textual's built-in "copy selection" action —
+        # see https://textual.textualize.io/FAQ . Use ctrl+q as the always-on
+        # quit hotkey for typing-mode users who can't press bare 'q'.
+        Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("question_mark", "help", "Help", priority=True),
         # F1 always-fires (terminal doesn't send it as a printable char,
         # so Input doesn't consume it).

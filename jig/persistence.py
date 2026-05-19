@@ -163,7 +163,17 @@ def _role_path_shipped(name: str) -> Path:
 
 
 def load_role(project_path: Path, name: str) -> RoleConfig:
-    """Load a role config, preferring the project override over the shipped default."""
+    """Load a role config, preferring the project override over the shipped default.
+
+    ``name`` is the role's identifier — usually the YAML filename basename
+    (e.g. ``dev`` → ``dev.yaml``), but some shipped roles use hyphenated
+    ids with underscored filenames (``reviewer-test-adequacy`` →
+    ``reviewer_test_adequacy.yaml``) or entirely different filenames
+    (``po-l0`` → ``l0_po.yaml``). For those, the direct filename lookup
+    misses and we fall back to walking ``list_roles`` and matching on
+    each config's ``role:`` field. Fast path for the common case, slow
+    path that always works for the edge cases.
+    """
     project_path_file = _role_path_project(project_path, name)
     if project_path_file.is_file():
         data = yaml.safe_load(project_path_file.read_text())
@@ -172,8 +182,17 @@ def load_role(project_path: Path, name: str) -> RoleConfig:
     if shipped_path.is_file():
         data = yaml.safe_load(shipped_path.read_text())
         return RoleConfig.model_validate(data)
+
+    # Fallback: filename-by-id miss. Walk all roles and match the
+    # ``role:`` field. ``list_roles`` already merges project + shipped
+    # with project winning, so override semantics are preserved.
+    for cfg in list_roles(project_path):
+        if cfg.role == name:
+            return cfg
+
     raise FileNotFoundError(
-        f"role {name!r} not found (looked in {project_path_file} and {shipped_path})"
+        f"role {name!r} not found (looked in {project_path_file}, "
+        f"{shipped_path}, and the role: field of every shipped/project role)"
     )
 
 

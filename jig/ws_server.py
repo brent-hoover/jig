@@ -318,6 +318,19 @@ class WebSocketServer:
                         }
                     ),
                 )
+            elif command == "get_findings":
+                ticket_id = args.get("ticket_id")
+                if not ticket_id:
+                    await self._safe_send(
+                        websocket,
+                        json.dumps({"ok": False, "error": "ticket_id required"}),
+                    )
+                    return
+                findings = await self._get_findings_for_ticket(ticket_id)
+                await self._safe_send(
+                    websocket,
+                    json.dumps({"ok": True, "findings": findings}),
+                )
             elif command == "answer_questions":
                 result = await self._handle_answer_questions(args)
                 await self._safe_send(websocket, json.dumps({"ok": True, **result}))
@@ -539,6 +552,84 @@ class WebSocketServer:
             json.dumps({"type": "result", **result}),
         )
 
+    async def _get_findings_for_ticket(self, ticket_id: str) -> list[dict]:
+        """Return the joined findings + ack view for a ticket.
+
+        Fix-loop-context step 7 — used by the TUI's tickets detail
+        pane to render the Findings section. Joins ReviewCommentsStore
+        and FindingAcksStore at request time; no separate snapshot
+        topic. Returns empty list when stores don't exist or the
+        ticket has no findings.
+        """
+        from jig.finding_ids import compute_finding_ids
+        from jig.store.finding_acks import FindingAcksStore
+        from jig.store.review_comments import ReviewCommentsStore
+
+        if self._project_path is None:
+            return []
+        store_dir = self._project_path / ".jig" / "store"
+        rc_path = store_dir / "review_comments.jsonl"
+        acks_path = store_dir / "finding_acks.jsonl"
+
+        if not rc_path.is_file():
+            return []
+        rc_store = ReviewCommentsStore(rc_path)
+        await rc_store.load()
+        comments = await rc_store.for_ticket_chronological(ticket_id)
+        if not comments:
+            return []
+
+        ids = compute_finding_ids(comments)
+        acks_by_finding: dict[str, list[dict]] = {}
+        if acks_path.is_file():
+            acks_store = FindingAcksStore(acks_path)
+            await acks_store.load()
+            acks = await acks_store.for_ticket(ticket_id)
+            for ack in acks:
+                acks_by_finding.setdefault(ack.finding_id, []).append(
+                    {
+                        "kind": ack.kind,
+                        "author": ack.author,
+                        "cycle": ack.cycle,
+                        "prose": ack.prose,
+                        "created_at": ack.created_at.isoformat(),
+                    }
+                )
+
+        seen_fids: set[str] = set()
+        result: list[dict] = []
+        for c in comments:
+            type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
+            sig = (c.reviewer, type_value, c.file, c.line)
+            fid = ids.get(sig)
+            if fid is None or fid in seen_fids:
+                continue
+            seen_fids.add(fid)
+            ack_history = acks_by_finding.get(fid, [])
+            # Determine status: resolved > addressed > open.
+            kinds = {a["kind"] for a in ack_history}
+            if "resolved" in kinds:
+                status = "resolved"
+            elif "addressed" in kinds and "reraised" in kinds:
+                status = "reraised"
+            elif "addressed" in kinds:
+                status = "addressed"
+            else:
+                status = "open"
+            result.append(
+                {
+                    "finding_id": fid,
+                    "file": c.file,
+                    "line": c.line,
+                    "severity": c.severity,
+                    "reviewer": c.reviewer,
+                    "prose": c.prose,
+                    "status": status,
+                    "ack_history": ack_history,
+                }
+            )
+        return result
+
     async def _build_snapshot(self, topic: str) -> Any:
         """Per-topic initial snapshot.
 
@@ -559,7 +650,20 @@ class WebSocketServer:
 
         if topic == "tickets":
             all_tickets = await self._orch.tickets.list_all()
-            return [t.model_dump(mode="json") for t in all_tickets]
+            payload = []
+            for t in all_tickets:
+                d = t.model_dump(mode="json")
+                # Embed findings inline so the TUI detail pane can render
+                # the Findings section without a separate round-trip.
+                # Empty list when the ticket has no reviewer activity.
+                try:
+                    d["findings"] = await self._get_findings_for_ticket(t.id)
+                except Exception:
+                    # Best-effort — never let a findings join failure
+                    # break the tickets snapshot.
+                    d["findings"] = []
+                payload.append(d)
+            return payload
         if topic == "spec":
             import yaml
 

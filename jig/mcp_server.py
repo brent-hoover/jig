@@ -12,6 +12,7 @@ from jig import (
     init_mcp,
     planner_pm_mcp,
     po_l0_mcp,
+    finding_ack_mcp,
     po_l1_mcp,
     po_l2_mcp,
     po_l3_mcp,
@@ -110,6 +111,7 @@ def create_agent_mcp_server(
     phase_questions_to: frozenset[str] = frozenset(),
     phase_escalation_targets: frozenset[str] = frozenset(),
     ticket_id: str = "",
+    cycle: int = 0,
     analytics_emitter: "AnalyticsEmitter | None" = None,
 ):
     """Create a Jig MCP server for a worker agent.
@@ -2822,6 +2824,66 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": cid}]}
 
         all_tools.append(reviewer_post_comment)
+
+    if "mark_finding_addressed" in agent_cfg.allowed_tools:
+
+        @tool(
+            "mark_finding_addressed",
+            "Record that you have addressed a specific reviewer finding "
+            "by its stable RC-N id. Call this once per finding before "
+            "calling commit_progress / update_ticket. The MCP factory "
+            "stamps ticket_id, author (your role), and cycle (current "
+            "fix-loop iteration) from your agent context — you only "
+            "pass finding_id and how_resolved. how_resolved is a short "
+            "(<=500 char) prose description of what you changed.",
+            {
+                "finding_id": str,
+                "how_resolved": str,
+            },
+        )
+        async def mark_finding_addressed(args):
+            ack_id = await finding_ack_mcp.handle_mark_finding_addressed(
+                project_path=project_path,
+                ticket_id=ticket_id or "",
+                finding_id=args.get("finding_id", ""),
+                author=agent_role,
+                cycle=cycle,
+                how_resolved=args.get("how_resolved", ""),
+            )
+            return {"content": [{"type": "text", "text": ack_id}]}
+
+        all_tools.append(mark_finding_addressed)
+
+    if "mark_finding_resolved" in agent_cfg.allowed_tools:
+
+        @tool(
+            "mark_finding_resolved",
+            "Confirm that a previously-raised reviewer finding (by its "
+            "stable RC-N id) has been resolved in the current diff. "
+            "Call this for each finding in the 'Previous Cycle Findings' "
+            "section that the dev's fix actually closed. If a fix did "
+            "NOT close the issue, do NOT call this — re-flag the finding "
+            "via reviewer_post_comment instead. The MCP factory stamps "
+            "ticket_id, author (your role), and cycle from your agent "
+            "context. confirmation is a short (<=500 char) prose note "
+            "explaining what you verified.",
+            {
+                "finding_id": str,
+                "confirmation": str,
+            },
+        )
+        async def mark_finding_resolved(args):
+            ack_id = await finding_ack_mcp.handle_mark_finding_resolved(
+                project_path=project_path,
+                ticket_id=ticket_id or "",
+                finding_id=args.get("finding_id", ""),
+                author=agent_role,
+                cycle=cycle,
+                confirmation=args.get("confirmation", ""),
+            )
+            return {"content": [{"type": "text", "text": ack_id}]}
+
+        all_tools.append(mark_finding_resolved)
 
     if "log_audit_entry" in agent_cfg.allowed_tools:
         from jig.store.audit import AuditStore as _AuditStore

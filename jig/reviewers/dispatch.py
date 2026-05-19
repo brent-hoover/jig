@@ -900,11 +900,17 @@ async def dispatch_with_llm_spawn(
 
     # Split mechanical results from LLM pendings. Mechanical results
     # pass straight through; pendings get spawned below.
+    #
+    # fix-loop-context: stamp ``cycle`` onto mechanical comments so
+    # reraised detection and audit history align with the current
+    # fix-loop iteration. The in-process reviewers don't know about
+    # the cycle context — we override here from the dispatch-time
+    # value the orchestrator threaded in.
     for reviewer_id, value in by_reviewer.items():
         if isinstance(value, LlmReviewerPending):
             pendings.append(value)
         else:
-            out[reviewer_id] = value
+            out[reviewer_id] = [c.model_copy(update={"cycle": cycle}) for c in value]
 
     # Filter LLM pendings to the phase's explicit reviewer list when one
     # is provided. None = no filter (cadence selection wins, legacy).
@@ -980,14 +986,18 @@ async def dispatch_with_llm_spawn(
 
 
 def _comment_signature(comment: ReviewerComment) -> str:
-    """Stable per-comment signature for de-dup across spawn rounds.
+    """Stable per-comment signature for de-dup within one spawn round.
 
-    Uses ``(reviewer, type, prose)`` as the discriminator — judgment
-    reviewers don't post identical comments twice within the same
-    cycle by design, so this is sufficient for separating a fresh-spawn
-    comment from a stale row in the store.
+    Uses ``(reviewer, type, prose, cycle)`` as the discriminator. The
+    ``cycle`` field is load-bearing: a reviewer that re-flags the same
+    finding with identical prose across cycles must NOT be treated as
+    a duplicate of the prior cycle's row — that would hide the re-flag
+    from the orchestrator and prevent the reraised ack from being
+    written. Within a single cycle, identical-prose retries are still
+    de-duped (judgment reviewers don't post the same comment twice
+    within one spawn).
     """
-    return f"{comment.reviewer}::{comment.type}::{comment.prose}"
+    return f"{comment.reviewer}::{comment.type}::{comment.prose}::{comment.cycle}"
 
 
 def _tag_cadence(

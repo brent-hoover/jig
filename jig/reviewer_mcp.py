@@ -92,7 +92,12 @@ async def handle_reviewer_post_comment(
     payload.setdefault("reviewer", reviewer_role)
     if "ticket_id" not in payload and ticket_id is not None:
         payload["ticket_id"] = ticket_id
-    if "cycle" not in payload and cycle:
+    # The orchestrator's spawn-time cycle is authoritative. Agents
+    # cannot override it — a reviewer that hallucinated a stale or
+    # made-up cycle would corrupt latest-cycle routing and reraised
+    # detection. Always overwrite when the caller (the MCP factory)
+    # supplies a cycle, regardless of what the agent's payload says.
+    if cycle:
         payload["cycle"] = cycle
 
     try:

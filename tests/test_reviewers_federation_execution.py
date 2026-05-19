@@ -196,6 +196,7 @@ class _FakeOrchestrator:
         role_file: str,
         project_root: Path,
         worktree_path: Path | None = None,
+        cycle: int = 0,
     ) -> None:
         self.calls.append((reviewer_id, ticket.id, role_file))
         canned = self._injections.get(reviewer_id, [])

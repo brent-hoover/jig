@@ -240,6 +240,14 @@ def _instructions_section(
             "When you've answered, call "
             f'`update_ticket(ticket_id="{ticket.id}", status="resolved")`.\n'
         )
+    if reason == SpawnReason.REVIEWER_FEDERATION:
+        # Reviewers don't call update_ticket — their entire output is
+        # reviewer_post_comment (for findings) and mark_finding_resolved
+        # (when verifying prior cycle). Suppress the generic block
+        # entirely. The Previous Cycle Findings section (when present)
+        # carries the two-task framing; the role's own phase_prompt
+        # carries the per-reviewer instructions.
+        return ""
     if reason == SpawnReason.FIX_LOOP_RETRY:
         n = len((fix_loop_bundle or {}).get("findings", []))
         return (

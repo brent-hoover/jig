@@ -2820,6 +2820,7 @@ def create_agent_mcp_server(
                 reviewer_role=agent_role,
                 args=cleaned,
                 ticket_id=ticket_id or None,
+                cycle=cycle,
             )
             return {"content": [{"type": "text", "text": cid}]}
 

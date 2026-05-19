@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Aware sentinel — timezone-uniform with ``datetime.now(UTC)`` so callers
 # that compare or sort created_at across rows don't hit naive/aware
@@ -391,6 +391,20 @@ class ReviewerComment(BaseModel):
             "file→role routing."
         ),
     )
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _ensure_aware_created_at(cls, v: datetime) -> datetime:
+        """Normalize naive datetimes to UTC-aware.
+
+        Catches callers that supply ``"2026-05-19T12:00:00"`` (no
+        offset). Sorting story events later would mix naive with
+        ``datetime.now(UTC)`` and crash on the comparison; assuming
+        UTC at validation time keeps the column type-uniform.
+        """
+        if v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
     @model_validator(mode="after")
     def _enforce_type_field_constraints(self) -> ReviewerComment:

@@ -782,6 +782,7 @@ class Orchestrator:
         ticket,
         worktree_path,
         phase: "PhaseConfig | None" = None,
+        cycle: int = 0,
     ):
         """Run all review-federation agents in parallel and return a RunAgentResult.
 
@@ -833,6 +834,7 @@ class Orchestrator:
                 self,
                 worktree_path=worktree_path,
                 reviewers=reviewers_list,
+                cycle=cycle,
             )
         except ValueError:
             # ValueError from dispatch_with_llm_spawn means a workflow
@@ -944,6 +946,7 @@ class Orchestrator:
         role_file: str,
         project_root: Path,
         worktree_path: Path | None = None,
+        cycle: int = 0,
     ) -> None:
         """Spawn one LLM-driven federation reviewer (Block 3).
 
@@ -1000,7 +1003,7 @@ class Orchestrator:
         ctx = AgentSpawnContext(
             role=reviewer_id,
             role_cfg=role_cfg,
-            spawn_reason=SpawnReason.QA_RESPONDER,
+            spawn_reason=SpawnReason.REVIEWER_FEDERATION,
             ticket=ticket,
             parent=None,
             worktree_path=worktree_path,
@@ -1011,6 +1014,7 @@ class Orchestrator:
             bus=self.bus,
             checkpoints=self.checkpoints,
             verify_bundle=verify_bundle,
+            cycle=cycle,
             initial_bus_message={
                 "kind": "review_federation_spawn",
                 "ticket_id": ticket.id,
@@ -1500,7 +1504,11 @@ class Orchestrator:
                         self._live_subscribers[sub_key] = asyncio.current_task()  # type: ignore[assignment]
                         try:
                             result = await self._run_review_phase_federation(
-                                ticket_id, ticket, worktree, phase=phase
+                                ticket_id,
+                                ticket,
+                                worktree,
+                                phase=phase,
+                                cycle=current_fix_cycle,
                             )
                         finally:
                             self._live_subscribers.pop(sub_key, None)

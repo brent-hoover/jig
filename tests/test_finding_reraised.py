@@ -62,7 +62,10 @@ def test_addressed_then_reraised_writes_ack() -> None:
     assert out[0].kind == "reraised"
     assert out[0].finding_id == "RC-1"
     assert out[0].prose == "cycle 1 re-flag"
-    assert out[0].author == "reviewer-pattern-conformance"
+    # Auto-reraised acks are system-authored; the reviewer's identity
+    # is captured by the new comment itself, not by attribution on the
+    # synthetic ack row.
+    assert out[0].author == "orchestrator"
 
 
 def test_resolved_then_reflagged_no_reraise() -> None:

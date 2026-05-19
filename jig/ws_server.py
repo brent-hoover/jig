@@ -318,19 +318,6 @@ class WebSocketServer:
                         }
                     ),
                 )
-            elif command == "get_findings":
-                ticket_id = args.get("ticket_id")
-                if not ticket_id:
-                    await self._safe_send(
-                        websocket,
-                        json.dumps({"ok": False, "error": "ticket_id required"}),
-                    )
-                    return
-                findings = await self._get_findings_for_ticket(ticket_id)
-                await self._safe_send(
-                    websocket,
-                    json.dumps({"ok": True, "findings": findings}),
-                )
             elif command == "answer_questions":
                 result = await self._handle_answer_questions(args)
                 await self._safe_send(websocket, json.dumps({"ok": True, **result}))
@@ -606,16 +593,21 @@ class WebSocketServer:
                 continue
             seen_fids.add(fid)
             ack_history = acks_by_finding.get(fid, [])
-            # Determine status: resolved > addressed > open.
-            kinds = {a["kind"] for a in ack_history}
-            if "resolved" in kinds:
+            # Determine status from the ordered ack history.
+            # Resolved is terminal — once a reviewer confirms a fix,
+            # the status sticks even if a later cycle re-flags. Other-
+            # wise the latest ack by cycle wins (addressed | reraised);
+            # absent any ack the finding is open.
+            status = "open"
+            if any(a["kind"] == "resolved" for a in ack_history):
                 status = "resolved"
-            elif "addressed" in kinds and "reraised" in kinds:
-                status = "reraised"
-            elif "addressed" in kinds:
-                status = "addressed"
-            else:
-                status = "open"
+            elif ack_history:
+                # for_ticket / for_finding return acks in append order,
+                # which corresponds to cycle order for non-pathological
+                # write paths. Take the last one as the "latest."
+                latest = ack_history[-1]
+                if latest["kind"] in ("addressed", "reraised"):
+                    status = latest["kind"]
             result.append(
                 {
                     "finding_id": fid,

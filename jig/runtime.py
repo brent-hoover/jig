@@ -31,6 +31,14 @@ class SpawnReason(str, Enum):
     # Prompt builder renders the "Blocking Findings" section only
     # when reason is FIX_LOOP_RETRY.
     FIX_LOOP_RETRY = "fix_loop_retry"
+    # fix-loop-context — federation reviewer spawn. The role-section
+    # uses the reviewer's normal phase_prompt; the instructions section
+    # tells the reviewer to do the two-task verify-then-find-new flow
+    # (or just review the diff on cycle 1). This replaces the prior
+    # use of QA_RESPONDER, which rendered "respond and
+    # update_ticket(resolved)" instructions inappropriate for a
+    # reviewer whose role doesn't have update_ticket.
+    REVIEWER_FEDERATION = "reviewer_federation"
 
 
 @dataclass

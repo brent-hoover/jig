@@ -57,9 +57,7 @@ async def test_full_addressed_reraised_resolved_lifecycle(
     await acks_store.load()
 
     # ---- cycle 0: reviewer raises -----------------------------------
-    await rc_store.append(
-        _finding(prose="_HN_BASE duplicates BASE in api.py", cycle=0)
-    )
+    await rc_store.append(_finding(prose="_HN_BASE duplicates BASE in api.py", cycle=0))
 
     # ---- dev claims fixed (RC-1) ------------------------------------
     await handle_mark_finding_addressed(
@@ -181,3 +179,37 @@ async def test_resolved_then_new_finding_no_reraise(tmp_path: Path) -> None:
     # The resolution stands — no auto-reraise. The new flag is a fresh
     # cycle for handling separately.
     assert reraised == []
+
+
+async def test_reviewer_post_via_mcp_stamps_current_cycle(tmp_path: Path) -> None:
+    """The reviewer_post_comment MCP handler must stamp the per-spawn
+    ``cycle`` onto written comments. Without that, reraised detection
+    in cycle 2 would compare against cycle-0 comments and the cycle-
+    threading regression would be silent. This drives writes through
+    the real handler with an explicit cycle to pin the contract."""
+    from jig.reviewer_mcp import handle_reviewer_post_comment
+    from jig.store.review_comments import ReviewCommentsStore
+
+    store_dir = tmp_path / ".jig" / "store"
+    store_dir.mkdir(parents=True)
+
+    await handle_reviewer_post_comment(
+        project_path=tmp_path,
+        reviewer_role="reviewer-pattern-conformance",
+        args={
+            "type": "pattern-divergence",
+            "severity": "important",
+            "prose": "the duplicate constant is back",
+            "file": "src/main.py",
+            "line": 23,
+            "confidence": 0.85,
+        },
+        ticket_id="t-1",
+        cycle=2,
+    )
+
+    rc_store = ReviewCommentsStore(store_dir / "review_comments.jsonl")
+    await rc_store.load()
+    rows = await rc_store.for_ticket_chronological("t-1")
+    assert len(rows) == 1
+    assert rows[0].cycle == 2

@@ -271,12 +271,16 @@ def compute_reraised_acks(
         if fid is None or fid in resolved_fids or fid in seen_fids:
             continue
         seen_fids.add(fid)
+        # Author is the orchestrator — this row is auto-written by the
+        # post-federation scan, NOT by the reviewer agent. Misattributing
+        # to the reviewer would make the audit trail look like an
+        # explicit reviewer action when it's really a system inference.
         out.append(
             FindingAck(
                 ticket_id=ticket_id,
                 finding_id=fid,
                 kind="reraised",
-                author=c.reviewer,
+                author="orchestrator",
                 cycle=c.cycle,
                 prose=c.prose,
             )

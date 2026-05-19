@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jig.store.collection import Collection
 
@@ -69,6 +69,15 @@ class FindingAck(BaseModel):
     )
     created_at: datetime = Field(default=_CREATED_AT_SENTINEL)
 
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _ensure_aware_created_at(cls, v: datetime) -> datetime:
+        """Normalize naive datetimes to UTC-aware so audit-trail
+        sorting can't crash on aware/naive comparison."""
+        if v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
 
 class FindingAcksStore:
     """Append-only JSONL store for ``FindingAck`` records.
@@ -108,12 +117,23 @@ class FindingAcksStore:
         return None if raw is None else self._load(raw)
 
     async def for_ticket(self, ticket_id: str) -> list[FindingAck]:
-        raws = await self._collection.find_where(ticket_id=ticket_id)
+        """Acks for ``ticket_id`` in insertion (append) order.
+
+        Goes through ``Collection.find`` (which walks the in-memory
+        ``_docs`` dict — insertion-ordered) rather than
+        ``find_where``, which uses set-backed indexes whose iteration
+        order varies across processes. Audit-trail consumers
+        (status calculation, story interleaving) rely on this order.
+        """
+        raws = await self._collection.find(lambda d: d.get("ticket_id") == ticket_id)
         return [self._load(r) for r in raws]
 
     async def for_finding(self, ticket_id: str, finding_id: str) -> list[FindingAck]:
-        raws = await self._collection.find_where(
-            ticket_id=ticket_id, finding_id=finding_id
+        """Acks for one finding in append order. See ``for_ticket``."""
+        raws = await self._collection.find(
+            lambda d: (
+                d.get("ticket_id") == ticket_id and d.get("finding_id") == finding_id
+            )
         )
         return [self._load(r) for r in raws]
 

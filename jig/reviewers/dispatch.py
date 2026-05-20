@@ -932,7 +932,7 @@ async def dispatch_with_llm_spawn(
                 role_config_path=_REVIEWER_ID_TO_ROLE_FILE[r],
                 project_root=str(project_root),
             )
-            for r in reviewers
+            for r in dict.fromkeys(reviewers)  # stable dedup
         ]
 
     if not pendings:

@@ -695,3 +695,28 @@ class TestPerPhaseReviewerScoping:
         assert GENERALIST_REVIEWER_ID in ids_spawned
         # Cadence-only reviewers are not added — only the explicit list fires.
         assert SECURITY_REVIEWER_ID not in ids_spawned
+
+    @pytest.mark.asyncio
+    async def test_duplicate_reviewer_ids_spawned_once(
+        self, tmp_path: Path
+    ) -> None:
+        """Duplicate IDs in the explicit reviewers list must not cause the
+        same reviewer to be spawned multiple times."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=[GENERALIST_REVIEWER_ID, GENERALIST_REVIEWER_ID],
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        assert ids_spawned.count(GENERALIST_REVIEWER_ID) == 1

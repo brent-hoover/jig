@@ -91,9 +91,11 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff (``git diff main..HEAD`` from the worktree) and
-    the relevant ``contracts.yaml`` + cross-cutting policies block of
-    ``architecture.yaml``.
+  - Read the diff (``git diff main..HEAD`` from the worktree) and the
+    cross-cutting policies block of ``architecture.yaml``. If
+    ``contracts.yaml`` files exist for the touched modules
+    (``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``), read
+    them for additional context; otherwise proceed without them.
 
   - For each new branch / persistence call / external request, ask:
     is anything secret-shaped touching this path? Is anything
@@ -114,6 +116,7 @@ phase_prompt: >
 allowed_tools:
   - Read
   - Bash(git diff*)
+  - Bash(find .jig/spec*)
   - reviewer_post_comment
   - graph_consumers_of
   - mark_finding_resolved

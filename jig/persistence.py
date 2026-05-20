@@ -230,6 +230,10 @@ def list_role_names(project_path: Path) -> list[str]:
     broken YAML: a file that fails to parse or validate falls back to
     its stem so ``catalog._load_all_roles`` can still surface the error
     via its own ``try``/``except``.
+
+    Cannot delegate to :func:`list_roles` because that function raises on
+    broken files — delegating would lose the fallback and break the
+    ``validate_catalog(collect=True)`` contract.
     """
     names: set[str] = set()
 

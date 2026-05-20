@@ -7,6 +7,7 @@ import pytest
 from jig.models import RoleConfig, PhaseConfig, WorkflowConfig
 from jig.persistence import (
     init_project,
+    list_role_names,
     list_roles,
     load_conventions,
     load_role,
@@ -241,6 +242,41 @@ class TestDefaultRoles:
         for name in ("spec", "test", "dev", "review"):
             config = load_role(tmp_new_jig_project, name)
             assert len(config.default_context) > 0
+
+
+# Shipped role IDs whose underlying YAML file stem differs from
+# ``role:``. ``list_role_names`` must surface these by their
+# canonical ``role:`` id, not by the file stem, or downstream
+# lookups against ``phase.role`` / hard-coded role ids miss them.
+_MISMATCHED_SHIPPED_ROLE_IDS = [
+    "po-l0",
+    "po-l1",
+    "po-l2",
+    "po-l3",
+    "sa-mvp",
+    "sa-v2",
+    "planner-pm",
+    "reviewer-pattern-conformance",
+    "reviewer-error-handling",
+    "reviewer-test-adequacy",
+    "reviewer-security",
+    "reviewer-performance",
+    "reviewer-architectural",
+    "reviewer-generalist",
+]
+
+
+class TestListRoleNamesUsesRoleId:
+    @pytest.mark.parametrize("role_id", _MISMATCHED_SHIPPED_ROLE_IDS)
+    def test_shipped_role_resolves_by_role_id(
+        self, tmp_new_jig_project: Path, role_id: str
+    ) -> None:
+        assert role_id in list_role_names(tmp_new_jig_project)
+
+    def test_matches_list_roles_projection(self, tmp_new_jig_project: Path) -> None:
+        assert set(list_role_names(tmp_new_jig_project)) == {
+            r.role for r in list_roles(tmp_new_jig_project)
+        }
 
 
 class TestWorkflowPersistence:

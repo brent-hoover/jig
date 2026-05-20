@@ -870,10 +870,10 @@ async def dispatch_with_llm_spawn(
       not in ``known_llm_reviewer_ids()`` raise ``ValueError`` for
       defense-in-depth (workflow YAML validation already catches typos
       at load time, but in-process callers can still pass bad lists).
-      The list filters the LLM pendings from ``dispatch_for_cadence`` —
-      a reviewer in the list that cadence didn't select is dropped
-      silently. Step 7+ may bypass cadence-selection entirely for
-      phase-declared reviewers.
+      Cadence selection is bypassed entirely — pendings are created
+      directly from this list, so reviewers like ``reviewer-generalist``
+      that cadence never selects are still spawned when the phase
+      declares them explicitly.
 
     Returns ``{reviewer_id: [ReviewerComment, ...]}`` — the same shape
     bones-era callers expect, with mechanical results and LLM-spawned
@@ -921,11 +921,19 @@ async def dispatch_with_llm_spawn(
         else:
             out[reviewer_id] = [c.model_copy(update={"cycle": cycle}) for c in value]
 
-    # Filter LLM pendings to the phase's explicit reviewer list when one
-    # is provided. None = no filter (cadence selection wins, legacy).
+    # When the phase declares an explicit reviewer list, bypass cadence
+    # selection entirely and create pendings directly from that list.
+    # None = cadence selection wins (legacy path for the post-RESOLVE gate).
     if reviewers is not None:
-        allowed = set(reviewers)
-        pendings = [p for p in pendings if p.reviewer_id in allowed]
+        pendings = [
+            LlmReviewerPending(
+                reviewer_id=r,
+                ticket_id=ticket.id,
+                role_config_path=_REVIEWER_ID_TO_ROLE_FILE[r],
+                project_root=str(project_root),
+            )
+            for r in reviewers
+        ]
 
     if not pendings:
         return out

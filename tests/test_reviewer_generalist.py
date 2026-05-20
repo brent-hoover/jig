@@ -93,7 +93,7 @@ def test_review_phase_placement_between_implement_and_validate(
     """Insertion order matters: the generalist review must run AFTER
     implement (so it has code to review) and BEFORE validate (so a
     blocking finding routes back to dev, not after validate passes)."""
-    for wf_name in ["feature-xs", "feature-s", "bugfix", "refactor", "perf"]:
+    for wf_name in ["feature-xs", "feature-s", "bugfix", "refactor", "migration", "perf"]:
         wf = load_workflow(tmp_path, wf_name)
         names = [p.name for p in wf.phases]
         if "implement" in names and "review" in names and "validate" in names:

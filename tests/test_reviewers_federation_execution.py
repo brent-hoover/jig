@@ -30,6 +30,7 @@ from jig.intent import Intent
 from jig.reviewers import (
     ARCHITECTURAL_REVIEWER_ID,
     BONES_REVIEWER_ID,
+    GENERALIST_REVIEWER_ID,
     LlmReviewerPending,
     PERFORMANCE_REVIEWER_ID,
     SECURITY_REVIEWER_ID,
@@ -609,17 +610,14 @@ class TestPerPhaseReviewerScoping:
             )
 
     @pytest.mark.asyncio
-    async def test_named_reviewer_not_selected_by_cadence_silently_dropped(
+    async def test_named_reviewer_not_selected_by_cadence_still_spawned(
         self, tmp_path: Path
     ) -> None:
-        """Documented limitation: ``reviewers`` is a post-filter on
-        cadence selection. If a workflow lists a reviewer that the
-        ticket's characteristics didn't pull in via
-        ``select_reviewers_for_ticket`` (e.g. ``reviewer-security``
-        without ``touches-auth``), the reviewer is silently dropped
-        from the spawn set. Asserts this trade-off explicitly so a
-        future "bypass cadence selection for phase-declared reviewers"
-        refactor has a regression hook for the transition."""
+        """When ``reviewers`` is an explicit list, cadence selection is
+        bypassed entirely — pendings are created directly from the list.
+        A reviewer that cadence would not have selected (e.g.
+        ``reviewer-security`` without a ``touches-auth`` label) is still
+        spawned because the phase declaration is authoritative."""
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
         _write_spec(tmp_path)
@@ -628,7 +626,8 @@ class TestPerPhaseReviewerScoping:
 
         orch = _FakeOrchestrator()
 
-        # Ticket has no labels — cadence won't select reviewer-security.
+        # Ticket has no labels — cadence would not select reviewer-security,
+        # but the explicit reviewers list bypasses cadence.
         await dispatch_with_llm_spawn(
             _ticket(),
             tmp_path,
@@ -638,11 +637,7 @@ class TestPerPhaseReviewerScoping:
         )
 
         ids_spawned = [c[0] for c in orch.calls]
-        # Cadence skipped reviewer-security; the explicit list cannot
-        # resurrect it in this implementation. Silent drop is the
-        # documented trade-off; a step 7+ refactor may bypass cadence
-        # for phase-declared reviewers.
-        assert SECURITY_REVIEWER_ID not in ids_spawned
+        assert SECURITY_REVIEWER_ID in ids_spawned
 
     @pytest.mark.asyncio
     async def test_reviewers_none_preserves_legacy_behavior(
@@ -672,3 +667,56 @@ class TestPerPhaseReviewerScoping:
         # touches-auth still triggers reviewer-security under cadence
         # selection — same shape as the pre-step-5 test above.
         assert SECURITY_REVIEWER_ID in ids_spawned
+
+    @pytest.mark.asyncio
+    async def test_generalist_spawned_from_explicit_reviewers_list(
+        self, tmp_path: Path
+    ) -> None:
+        """``reviewers=[GENERALIST_REVIEWER_ID]`` bypasses cadence selection
+        and spawns the generalist even though cadence never selects it.
+        This is the runtime path exercised by the small-workflow review phase."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=[GENERALIST_REVIEWER_ID],
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        assert GENERALIST_REVIEWER_ID in ids_spawned
+        # Cadence-only reviewers are not added — only the explicit list fires.
+        assert SECURITY_REVIEWER_ID not in ids_spawned
+
+    @pytest.mark.asyncio
+    async def test_duplicate_reviewer_ids_spawned_once(
+        self, tmp_path: Path
+    ) -> None:
+        """Duplicate IDs in the explicit reviewers list must not cause the
+        same reviewer to be spawned multiple times."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=[GENERALIST_REVIEWER_ID, GENERALIST_REVIEWER_ID],
+        )
+
+        ids_spawned = [c[0] for c in orch.calls]
+        assert ids_spawned.count(GENERALIST_REVIEWER_ID) == 1

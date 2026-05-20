@@ -213,6 +213,9 @@ class TestDefaultRoles:
             "reviewer-security",
             "reviewer-performance",
             "reviewer-architectural",
+            # Single-pass generalist used by small/medium workflows in
+            # place of the specialist federation.
+            "reviewer-generalist",
             # Track D MVP — VD (Visual Designer / frontend architect).
             "vd",
             # Conflict resolver — spawned by the orchestrator to fix merge conflicts.
@@ -392,9 +395,7 @@ class TestDefaultWorkflow:
             "reviewer-security",
         }
 
-    def test_writes_declared_on_writing_phases(
-        self, tmp_new_jig_project: Path
-    ) -> None:
+    def test_writes_declared_on_writing_phases(self, tmp_new_jig_project: Path) -> None:
         """spec, test, implement, document declare ``writes:``. The
         router uses these to map a file → owning phase."""
         workflow = load_workflow(tmp_new_jig_project, "default")
@@ -506,13 +507,15 @@ class TestResolveWorkflowName:
     def test_unknown_size_falls_back_to_schema_workflow(
         self, tmp_new_jig_project: Path
     ) -> None:
-        result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "unknown")
+        result = resolve_workflow_name(
+            tmp_new_jig_project, "default", "feature", "unknown"
+        )
         assert result == "default"  # schema.workflow fallback
 
-    def test_missing_work_type_returns_default(
-        self, tmp_new_jig_project: Path
-    ) -> None:
-        result = resolve_workflow_name(tmp_new_jig_project, "default", "nonexistent_type", None)
+    def test_missing_work_type_returns_default(self, tmp_new_jig_project: Path) -> None:
+        result = resolve_workflow_name(
+            tmp_new_jig_project, "default", "nonexistent_type", None
+        )
         assert result == "default"
 
     def test_empty_ticket_workflow_falls_through(

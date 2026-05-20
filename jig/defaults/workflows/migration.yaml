@@ -15,6 +15,12 @@ phases:
       - "src/**"
       - "migrations/**"
       - "pyproject.toml"
+  - name: review
+    role: review
+    task_template: "Single-pass generalist review of: {ticket_title}"
+    acceptance_criteria: "No critical or important issues found"
+    reviewers:
+      - "reviewer-generalist"
   - name: validate
     role: validate
     task_template: "Verify migration succeeded and rollback path is viable for: {ticket_title}"

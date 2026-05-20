@@ -7,6 +7,12 @@ phases:
     writes:
       - "src/**"
       - "pyproject.toml"
+  - name: review
+    role: review
+    task_template: "Single-pass generalist review of: {ticket_title}"
+    acceptance_criteria: "No critical or important issues found"
+    reviewers:
+      - "reviewer-generalist"
   - name: validate
     role: validate
     task_template: "Confirm equivalence — all tests pass, linters clean for: {ticket_title}"

@@ -8,6 +8,12 @@ phases:
     role: dev
     task_template: "Apply the optimization following the design doc for: {ticket_title}"
     acceptance_criteria: "Optimization implemented, existing tests still pass"
+  - name: review
+    role: review
+    task_template: "Single-pass generalist review of: {ticket_title}"
+    acceptance_criteria: "No critical or important issues found"
+    reviewers:
+      - "reviewer-generalist"
   - name: validate
     role: validate
     task_template: "Measure performance and confirm target is hit for: {ticket_title}"

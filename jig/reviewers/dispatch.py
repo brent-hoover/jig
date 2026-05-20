@@ -101,6 +101,13 @@ PATTERN_CONFORMANCE_REVIEWER_ID = "reviewer-pattern-conformance"
 ERROR_HANDLING_REVIEWER_ID = "reviewer-error-handling"
 TEST_ADEQUACY_REVIEWER_ID = "reviewer-test-adequacy"
 
+# Single-pass generalist that covers all five specialist axes (pattern,
+# error-handling, architectural, performance, security) in one review.
+# Used in the smaller workflows (feature-s, feature-xs, bugfix, refactor,
+# migration, perf) where spawning five specialists isn't worth the cost.
+# The default workflow keeps its specialist federation.
+GENERALIST_REVIEWER_ID = "reviewer-generalist"
+
 # LLM-driven reviewer ids — the federation members that are *spawned as
 # agents* via the orchestrator rather than executed in-process by a
 # Python reviewer class. Block 3 (Important 1): ``dispatch_for_cadence``
@@ -120,6 +127,7 @@ _LLM_REVIEWER_IDS: frozenset[str] = frozenset(
         PATTERN_CONFORMANCE_REVIEWER_ID,
         ERROR_HANDLING_REVIEWER_ID,
         TEST_ADEQUACY_REVIEWER_ID,
+        GENERALIST_REVIEWER_ID,
     }
 )
 
@@ -135,6 +143,7 @@ _REVIEWER_ID_TO_ROLE_FILE: dict[str, str] = {
     PATTERN_CONFORMANCE_REVIEWER_ID: "reviewer_pattern_conformance",
     ERROR_HANDLING_REVIEWER_ID: "reviewer_error_handling",
     TEST_ADEQUACY_REVIEWER_ID: "reviewer_test_adequacy",
+    GENERALIST_REVIEWER_ID: "reviewer_generalist",
 }
 
 
@@ -1024,6 +1033,7 @@ __all__ = [
     "BONES_REVIEWER_ID",
     "CONTRACT_TEST_COVERAGE_REVIEWER_ID",
     "CROSS_CUTTING_REVIEWER_ID",
+    "GENERALIST_REVIEWER_ID",
     "promote_dev_tier",
     "ERROR_HANDLING_REVIEWER_ID",
     "INTENT_REVIEWER_ID",

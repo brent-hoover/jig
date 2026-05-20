@@ -8,6 +8,12 @@ phases:
     role: dev
     task_template: "Fix the defect so the regression test passes for: {ticket_title}"
     acceptance_criteria: "All tests pass including the new regression test"
+  - name: review
+    role: review
+    task_template: "Single-pass generalist review of: {ticket_title}"
+    acceptance_criteria: "No critical or important issues found"
+    reviewers:
+      - "reviewer-generalist"
   - name: validate
     role: validate
     task_template: "Validate the fix and confirm no regressions for: {ticket_title}"

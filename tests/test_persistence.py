@@ -262,6 +262,7 @@ _MISMATCHED_SHIPPED_ROLE_IDS = [
     "reviewer-security",
     "reviewer-performance",
     "reviewer-architectural",
+    "reviewer-generalist",
 ]
 
 

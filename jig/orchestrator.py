@@ -295,6 +295,9 @@ class Orchestrator:
             )
             self._analytics_emitter = AnalyticsEmitter(self.analytics)
             self.tickets.set_status_change_callback(self._on_ticket_status_change)
+            from jig.ticket_events import wire_create_publisher
+
+            wire_create_publisher(self.tickets, self.bus, sender="orchestrator")
             # Phase 5 Task L: load deadlock thresholds from
             # `.jig/config.yaml`. Missing config (fresh install,
             # tests) falls back to the shipped defaults rather

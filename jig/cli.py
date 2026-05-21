@@ -210,32 +210,46 @@ def plan(path: Path) -> None:
     if not (jig_dir / "spec" / "architecture.yaml").is_file():
         raise click.ClickException("Project not initialized. Run 'jig init' first.")
 
+    from jig.store import MessageBus
     from jig.store.tickets import TicketStore
     from jig.ticket import Ticket, WorkType
+    from jig.ticket_events import wire_create_publisher
 
     store_dir = jig_dir / "store"
     tickets = TicketStore(store_dir / "tickets.jsonl")
+    bus = MessageBus(store_dir / "messages.jsonl")
 
     async def _run() -> bool:
         await tickets.load()
+        await bus.load()
+        # Even though this CLI command is one-shot, the daemon (if
+        # running) shares the same JSONL bus file, so publishing here
+        # ensures a live TUI sees the planning-ticket creation.
+        wire_create_publisher(tickets, bus, sender="cli")
         existing = await tickets.get("planning")
         if existing is not None:
             return False
         spec_path = jig_dir / "spec" / "project.structured.yaml"
-        await tickets.create(
-            Ticket(
-                id="planning",
-                work_type=WorkType.PLANNING,
-                title="Project planning",
-                description=(
-                    "Break down the project spec into implementation tickets.\n\n"
-                    f"Spec: {spec_path}"
-                ),
-                workflow="project",
-                created_by="cli",
+        try:
+            await tickets.create(
+                Ticket(
+                    id="planning",
+                    work_type=WorkType.PLANNING,
+                    title="Project planning",
+                    description=(
+                        "Break down the project spec into implementation tickets.\n\n"
+                        f"Spec: {spec_path}"
+                    ),
+                    workflow="project",
+                    created_by="cli",
+                )
             )
-        )
-        return True
+            return True
+        finally:
+            # ``wire_create_publisher`` schedules the broadcast as a
+            # background task; ``asyncio.run`` would cancel it at
+            # teardown before the publish reaches messages.jsonl.
+            await tickets.drain_background_tasks()
 
     created = asyncio.run(_run())
     if created:
@@ -2443,12 +2457,17 @@ def tracer_run(tracer_id: str, path: Path) -> None:
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 def canonicalize_cmd(ticket_id: str | None, sweep: bool, path: Path) -> None:
     """Create a ticket that runs the canonicalizer agent."""
+    from jig.store import MessageBus
     from jig.store.tickets import TicketStore
     from jig.ticket import Size, Ticket, TicketStatus, WorkType
+    from jig.ticket_events import wire_create_publisher
 
     async def _run() -> str:
         store = TicketStore(path / ".jig" / "store" / "tickets.jsonl")
+        bus = MessageBus(path / ".jig" / "store" / "messages.jsonl")
         await store.load()
+        await bus.load()
+        wire_create_publisher(store, bus, sender="cli")
 
         if sweep:
             title = "Canonicalize sweep (whole repo)"
@@ -2479,7 +2498,12 @@ def canonicalize_cmd(ticket_id: str | None, sweep: bool, path: Path) -> None:
             labels=labels,
             created_by="cli",
         )
-        return await store.create(ticket)
+        try:
+            return await store.create(ticket)
+        finally:
+            # See ``plan`` above: drain the wire-up's background
+            # publish task before ``asyncio.run`` cancels it.
+            await store.drain_background_tasks()
 
     new_id = asyncio.run(_run())
     click.echo(new_id)

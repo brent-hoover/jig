@@ -15,6 +15,8 @@ StatusChangeCallback = Callable[
     [str, Union[str, None], str], Union[Awaitable[None], None]
 ]
 
+CreateCallback = Callable[[Ticket], Union[Awaitable[None], None]]
+
 # All shipped work_types currently participate in the workflow pipeline.
 # Phase 2 will introduce per-work_type workflow selection via config.yaml,
 # but for now every top-level ticket is eligible.
@@ -32,6 +34,7 @@ class TicketStore:
             index_fields=["work_type", "status", "assignee", "parent_id"],
         )
         self._on_status_change: StatusChangeCallback | None = None
+        self._on_create: CreateCallback | None = None
         self._background_tasks: set[asyncio.Task] = set()
 
     def set_status_change_callback(self, cb: StatusChangeCallback | None) -> None:
@@ -45,20 +48,95 @@ class TicketStore:
         """
         self._on_status_change = cb
 
+    def set_create_callback(self, cb: CreateCallback | None) -> None:
+        """Register a callback fired after every successful ticket create.
+
+        The orchestrator (and ``jig.ticket_events.wire_create_publisher``
+        for non-orchestrator paths) use this to publish ``ticket_created``
+        events on the bus with the full ticket payload, so every direct
+        ``tickets.create(Ticket(...))`` call (init flow, CLI commands,
+        Coordinator materialize, spike proposals) announces itself
+        without the caller having to remember. Previously only the
+        MCP ``handle_create_ticket`` published, leaving the TUI with
+        half-empty ticket dicts for system tickets.
+
+        Sync or async returns are both supported. Pass ``None`` to
+        clear the callback (useful in tests). To skip the callback
+        for a single create call (e.g. when the caller publishes the
+        event itself), pass ``fire_create_callback=False`` to
+        ``create()`` rather than mutating shared store state across
+        an await.
+        """
+        self._on_create = cb
+
     async def load(self) -> None:
         await self._collection.load()
 
-    async def create(self, ticket: Ticket) -> str:
+    async def drain_background_tasks(self) -> None:
+        """Await every in-flight callback task scheduled by ``create()``
+        or ``update_status()``.
+
+        One-shot callers (the ``jig plan`` / ``jig canonicalize`` CLI
+        commands, ``run_init``) must call this before returning from
+        their ``asyncio.run()`` block. Otherwise the loop exits while
+        async callbacks are still queued — ``asyncio.run`` cancels
+        pending tasks at teardown, dropping the broadcast events the
+        TUI relies on.
+
+        No-op when no callback is registered or no tasks are
+        outstanding. Safe to call repeatedly.
+        """
+        if not self._background_tasks:
+            return
+        # Snapshot the set: completed tasks remove themselves via
+        # ``_on_done``, so iterating the live set during gather would
+        # mutate-while-iterating.
+        await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+
+    async def create(self, ticket: Ticket, *, fire_create_callback: bool = True) -> str:
         # Uniqueness is enforced inside Collection.insert under its
         # asyncio.Lock — no TOCTOU window between check and append.
         # We re-raise with a ticket-specific message so callers (CLI,
         # init flow) get a domain-friendly error.
         try:
-            return await self._collection.insert(ticket)
+            ticket_id = await self._collection.insert(ticket)
         except ValueError as e:
             if "already exists" in str(e):
                 raise ValueError(f"ticket with id {ticket.id!r} already exists") from e
             raise
+        # Fire the create callback so the orchestrator can announce
+        # the new ticket on the bus. Done after the JSONL write
+        # commits so subscribers can immediately read the ticket back
+        # if they want to (no read-after-write race).
+        # ``fire_create_callback=False`` is the per-call escape hatch
+        # for callers (``ticket_mcp.handle_create_ticket``) that
+        # publish events themselves and want to avoid the
+        # store-callback double-publish.
+        if fire_create_callback and self._on_create is not None:
+            self._fire_create(ticket)
+        return ticket_id
+
+    def _fire_create(self, ticket: Ticket) -> None:
+        cb = self._on_create
+        if cb is None:
+            return
+        try:
+            result = cb(ticket)
+        except Exception as exc:
+            logger.warning("ticket-create callback raised: %s", exc, exc_info=exc)
+            return
+        if inspect.isawaitable(result):
+            task = asyncio.create_task(result)  # type: ignore[arg-type]
+            self._background_tasks.add(task)
+
+            def _on_done(t: asyncio.Task) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and (exc := t.exception()):
+                    logger.warning(
+                        "ticket-create callback raised: %s", exc, exc_info=exc
+                    )
+
+            task.add_done_callback(_on_done)
 
     async def get(self, ticket_id: str) -> Ticket | None:
         return await self._collection.get(ticket_id)
@@ -104,7 +182,11 @@ class TicketStore:
         cb = self._on_status_change
         if cb is None:
             return
-        result = cb(ticket_id, from_state, to_state)
+        try:
+            result = cb(ticket_id, from_state, to_state)
+        except Exception as exc:
+            logger.warning("status-change callback raised: %s", exc, exc_info=exc)
+            return
         if inspect.isawaitable(result):
             task = asyncio.create_task(result)  # type: ignore[arg-type]
             self._background_tasks.add(task)
@@ -112,7 +194,9 @@ class TicketStore:
             def _on_done(t: asyncio.Task) -> None:
                 self._background_tasks.discard(t)
                 if not t.cancelled() and (exc := t.exception()):
-                    logger.error("status-change callback raised: %s", exc, exc_info=exc)
+                    logger.warning(
+                        "status-change callback raised: %s", exc, exc_info=exc
+                    )
 
             task.add_done_callback(_on_done)
 

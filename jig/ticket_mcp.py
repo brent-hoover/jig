@@ -154,7 +154,14 @@ async def handle_create_ticket(
             except WorkflowResolutionError as exc:
                 raise ValueError(str(exc)) from exc
 
-    ticket_id = await tickets.create(ticket)
+    # Skip the store's on-create callback for this create. The
+    # callback (when wired by ``wire_create_publisher`` or
+    # ``Orchestrator.startup``) publishes the broadcast event for
+    # paths that bypass this handler. Here we publish both topics
+    # explicitly below, so the broadcast must not also fire from the
+    # callback. ``fire_create_callback=False`` keeps the suppression
+    # task-local — no shared mutable state across the await.
+    ticket_id = await tickets.create(ticket, fire_create_callback=False)
 
     # Update the reverse side: each dependency now blocks this ticket
     for dep_id in depends_on:
@@ -162,42 +169,18 @@ async def handle_create_ticket(
         if dep is not None and ticket_id not in dep.blocks:
             await tickets.update(dep_id, blocks=dep.blocks + [ticket_id])
 
-    payload = {
-        "kind": "ticket_created",
-        "ticket_id": ticket_id,
-        "title": ticket.title,
-        "description": ticket.description,
-        "work_type": ticket.work_type.value,
-        # Legacy alias for subscribers not yet updated to the Phase 1
-        # schema. Remove once TUI + any other consumers land on work_type.
-        "type": ticket.work_type.value,
-        "size": ticket.size.value,
-        "assignee": ticket.assignee,
-        "parent_id": ticket.parent_id,
-        "depends_on": depends_on,
-        "workflow": ticket.workflow,
-    }
-    await bus.publish(
-        Message(
-            sender=sender,
-            to=ticket.assignee or "orchestrator",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=payload,
-            topic="orchestrator",
-        )
-    )
-    # Always broadcast on the tickets topic — the assignee is metadata for
-    # tracking, not a routing directive for creation events.  Using the
-    # assignee as `to` here caused the dispatch loop to spawn a premature
-    # QA responder before the ticket entered the workflow pipeline.
-    await bus.publish(
-        Message(
-            sender=sender,
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=payload,
-            topic=f"tickets.{ticket_id}",
-        )
+    # Publish both orchestrator (for dispatch) and broadcast (for TUI
+    # subscribers). PM-driven create needs dispatch immediately —
+    # without it the ticket sits unscheduled until something else
+    # nudges the orchestrator.
+    from jig.ticket_events import publish_ticket_created
+
+    await publish_ticket_created(
+        bus,
+        ticket,
+        sender=sender,
+        depends_on=depends_on,
+        for_dispatch=True,
     )
     return ticket_id
 

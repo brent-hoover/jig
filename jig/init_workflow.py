@@ -212,7 +212,48 @@ async def run_init(
     bus = MessageBus(store_dir / "messages.jsonl")
     for s in (tickets, threads, memory, bus):
         await s.load()
+    # Announce every direct ``tickets.create(...)`` on the broadcast
+    # topic so the TUI (if running) sees full ticket payloads rather
+    # than partial status-event merges.
+    from jig.ticket_events import wire_create_publisher
 
+    wire_create_publisher(tickets, bus, sender="init")
+
+    try:
+        await _run_init_resume_loop(
+            target=target,
+            tickets=tickets,
+            threads=threads,
+            memory=memory,
+            bus=bus,
+            prompts=prompts,
+            console=console,
+            brief_file=brief_file,
+        )
+    finally:
+        # ``wire_create_publisher`` schedules each broadcast as a
+        # background task. Without draining, ``asyncio.run`` would
+        # cancel any task still in flight when this function returns,
+        # silently dropping the broadcasts the TUI relies on.
+        await tickets.drain_background_tasks()
+
+
+async def _run_init_resume_loop(
+    *,
+    target: Path,
+    tickets: TicketStore,
+    threads: "ThreadStore",
+    memory: "MemoryStore",
+    bus: "MessageBus",
+    prompts: "PromptHandler",
+    console: "Console",
+    brief_file: Path | None,
+) -> None:
+    """Resume-state dispatch loop extracted from ``run_init``.
+
+    Kept separate so ``run_init`` owns the try/finally that drains
+    the wire-up's background publish tasks before returning.
+    """
     # --brief: seed a baked brief and skip the PO conversation. Idempotent —
     # if the brief ticket already exists (e.g. on a re-run without --force),
     # the seed is a no-op and the resume loop picks up where we left off.

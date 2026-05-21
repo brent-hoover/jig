@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from evals.prompt_style_eval.models import Task
-from evals.prompt_style_eval.sandbox import (
+from jig.evals.prompt_style_eval.models import Task
+from jig.evals.prompt_style_eval.sandbox import (
     default_pytest_command,
     parse_pytest_summary,
     run_tests,

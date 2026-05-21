@@ -208,7 +208,7 @@ as a CI check status / PR comment.
 GitHub Actions workflow per project:
 
 1. Checkout jig + the eval project.
-2. Run `python -m evals.watcher.run --project <name>` which:
+2. Run `python -m jig.evals.watcher.run --project <name>` which:
    - Starts the daemon
    - Attaches the watcher
    - Runs the eval to completion (or stall-kill)

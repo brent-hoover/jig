@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from evals.prompt_style_eval.models import (
+from jig.evals.prompt_style_eval.models import (
     Cell,
     JudgeScore,
     Rubric,

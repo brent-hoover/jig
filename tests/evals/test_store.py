@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from evals.prompt_style_eval.models import (
+from jig.evals.prompt_style_eval.models import (
     Cell,
     JudgeScore,
     RunRecord,
     StaticMetrics,
     TestResult,
 )
-from evals.prompt_style_eval.store import Store
+from jig.evals.prompt_style_eval.store import Store
 
 
 def _make_cell(**overrides: object) -> Cell:

@@ -11,15 +11,15 @@ from typing import Any
 import pytest
 from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock
 
-import evals.prompt_style_eval.judge as judge_module
-import evals.prompt_style_eval.sdk as sdk_module
-from evals.prompt_style_eval.judge import (
+import jig.evals.prompt_style_eval.judge as judge_module
+import jig.evals.prompt_style_eval.sdk as sdk_module
+from jig.evals.prompt_style_eval.judge import (
     JudgeError,
     build_judge_prompt,
     parse_judge_response,
     score,
 )
-from evals.prompt_style_eval.models import Rubric, RubricItem
+from jig.evals.prompt_style_eval.models import Rubric, RubricItem
 
 
 def _rubric_bool_only() -> Rubric:

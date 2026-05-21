@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from evals.prompt_style_eval.models import Prompt, Rubric, Task
+from jig.evals.prompt_style_eval.models import Prompt, Rubric, Task
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 TASKS_DIR = _PACKAGE_ROOT / "tasks"

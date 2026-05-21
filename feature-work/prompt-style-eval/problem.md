@@ -164,7 +164,7 @@ no framework. Everything beyond it is added complexity that has to earn its plac
 
 ## Success criteria
 
-- Running `uv run python -m evals.prompt_style_eval --style terse --style verbose-cot --task todo-cli --seeds 10`
+- Running `uv run python -m jig.evals.prompt_style_eval --style terse --style verbose-cot --task todo-cli --seeds 10`
   produces a comparison table with pass-rate, consistency, and quality scores per style, plus a path to the
   persisted JSONL.
 - Re-running the same command without changes produces the same persisted results (cached) unless `--force` is

@@ -18,10 +18,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from evals.prompt_style_eval.classify import extract_files
-from evals.prompt_style_eval.loaders import task_fixture_paths
-from evals.prompt_style_eval.models import Task
-from evals.prompt_style_eval.sandbox import run_tests
+from jig.evals.prompt_style_eval.classify import extract_files
+from jig.evals.prompt_style_eval.loaders import task_fixture_paths
+from jig.evals.prompt_style_eval.models import Task
+from jig.evals.prompt_style_eval.sandbox import run_tests
 
 _TASKS_DIR = (
     Path(__file__).resolve().parent.parent.parent

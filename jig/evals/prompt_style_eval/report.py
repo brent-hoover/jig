@@ -30,7 +30,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from evals.prompt_style_eval.models import Outcome, RunRecord
+from jig.evals.prompt_style_eval.models import Outcome, RunRecord
 
 
 _OUTCOMES: tuple[Outcome, ...] = (

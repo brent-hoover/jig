@@ -180,7 +180,7 @@ prose-spec produce vs yaml-spec?" is a one-shot query, not a re-run.
 ### CLI
 
 ```
-uv run python -m evals.prompt_style_eval run \
+uv run python -m jig.evals.prompt_style_eval run \
   --task todo_cli \
   --prompt yaml_spec --prompt prose_spec \
   --seeds 10 \
@@ -190,11 +190,11 @@ uv run python -m evals.prompt_style_eval run \
   --rubric v1 \
   [--force] [--concurrency 5] [--dry-run]
 
-uv run python -m evals.prompt_style_eval report \
+uv run python -m jig.evals.prompt_style_eval report \
   [--task …] [--prompt …] [--rubric v1] \
   [--format table|json]
 
-uv run python -m evals.prompt_style_eval rescore \
+uv run python -m jig.evals.prompt_style_eval rescore \
   --rubric v2 \
   [--task …] [--prompt …]
 ```

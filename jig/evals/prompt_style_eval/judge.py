@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import json
 
-from evals.prompt_style_eval.classify import extract_assistant_text
-from evals.prompt_style_eval.models import JudgeScore, Rubric
-from evals.prompt_style_eval.sdk import invoke
+from jig.evals.prompt_style_eval.classify import extract_assistant_text
+from jig.evals.prompt_style_eval.models import JudgeScore, Rubric
+from jig.evals.prompt_style_eval.sdk import invoke
 
 
 class JudgeError(Exception):

@@ -13,9 +13,9 @@ fires:
 
 Usage:
 
-    python -m evals.watcher.run --project hn-cli
-    python -m evals.watcher.run /abs/path/to/workspace
-    python -m evals.watcher.run --project hn-cli --no-kill --no-analyze
+    python -m jig.evals.watcher.run --project hn-cli
+    python -m jig.evals.watcher.run /abs/path/to/workspace
+    python -m jig.evals.watcher.run --project hn-cli --no-kill --no-analyze
 """
 from __future__ import annotations
 
@@ -31,14 +31,14 @@ from pathlib import Path
 
 from websockets.asyncio.client import connect as _ws_connect
 
-from evals.watcher.heuristics import StallThresholds
-from evals.watcher.stall_detector import StallDetector, StallVerdict
+from jig.evals.watcher.heuristics import StallThresholds
+from jig.evals.watcher.stall_detector import StallDetector, StallVerdict
 
 ALL_TOPICS = ("tickets", "spec", "agents", "events", "prompts")
 
 
 def _resolve_eval_project(name: str) -> Path:
-    here = Path(__file__).resolve().parents[2]  # evals/watcher/.. -> jig
+    here = Path(__file__).resolve().parents[3]  # jig/evals/watcher/../../.. -> repo root
     return here.parent / "jig_evals" / name
 
 
@@ -191,9 +191,9 @@ async def watch(
 
     if run_analyzer:
         log("[watcher] running analyzer to capture stall report")
-        from evals.watcher.analyzer import analyze
+        from jig.evals.watcher.analyzer import analyze
 
-        jig_repo = Path(__file__).resolve().parents[2]
+        jig_repo = Path(__file__).resolve().parents[3]
         run_id = (
             f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-stall"
         )
@@ -306,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: not a directory: {proj}", file=sys.stderr)
         return 2
 
-    jig_repo = Path(__file__).resolve().parents[2]
+    jig_repo = Path(__file__).resolve().parents[3]
     out_dir = (
         Path(args.out_dir)
         if args.out_dir

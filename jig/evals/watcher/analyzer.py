@@ -11,14 +11,14 @@ Reads a finished eval project's ``.jig/store/*.jsonl`` + ``.jig/logs/*``
 
 Usage:
 
-    python -m evals.watcher.analyzer /abs/path/to/jig_evals/hn-cli
-    python -m evals.watcher.analyzer --project hn-cli
+    python -m jig.evals.watcher.analyzer /abs/path/to/jig_evals/hn-cli
+    python -m jig.evals.watcher.analyzer --project hn-cli
 
     # Custom run_id (default: <project>-<UTC ISO compact>):
-    python -m evals.watcher.analyzer --project hn-cli --run-id manual-1
+    python -m jig.evals.watcher.analyzer --project hn-cli --run-id manual-1
 
     # Where to write outputs (default: <jig_repo>/evals/runs/<run-id>):
-    python -m evals.watcher.analyzer --project hn-cli --out-dir /tmp/runs/x
+    python -m jig.evals.watcher.analyzer --project hn-cli --out-dir /tmp/runs/x
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from evals.watcher.metrics import (
+from jig.evals.watcher.metrics import (
     AgentMetrics,
     OperatorQuestionMetrics,
     Outcome,
@@ -58,7 +58,7 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def _resolve_eval_project(name: str) -> Path:
-    here = Path(__file__).resolve().parents[2]  # evals/watcher/.. -> jig
+    here = Path(__file__).resolve().parents[3]  # jig/evals/watcher/../../.. -> repo root
     workspace = here.parent / "jig_evals" / name
     return workspace
 
@@ -331,7 +331,7 @@ def analyze(
     llm_summary_extras: list[str] = []
     if use_llm:
         try:
-            from evals.watcher.llm import run_llm_analysis
+            from jig.evals.watcher.llm import run_llm_analysis
 
             llm = run_llm_analysis(
                 project_path=project_path,
@@ -518,7 +518,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: not a directory: {proj}", file=sys.stderr)
         return 2
 
-    jig_repo = Path(__file__).resolve().parents[2]
+    jig_repo = Path(__file__).resolve().parents[3]
     run_id = (
         args.run_id
         or f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"

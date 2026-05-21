@@ -18,10 +18,10 @@ from pathlib import Path
 
 import click
 
-from evals.prompt_style_eval import loaders, report
-from evals.prompt_style_eval.models import Cell, Prompt, RunRecord, Task
-from evals.prompt_style_eval.runner import run_cell
-from evals.prompt_style_eval.store import Store
+from jig.evals.prompt_style_eval import loaders, report
+from jig.evals.prompt_style_eval.models import Cell, Prompt, RunRecord, Task
+from jig.evals.prompt_style_eval.runner import run_cell
+from jig.evals.prompt_style_eval.store import Store
 
 _DEFAULT_STORE = (
     Path(__file__).resolve().parent / "results" / "runs.jsonl"

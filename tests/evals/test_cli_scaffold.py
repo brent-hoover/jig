@@ -7,7 +7,7 @@ point (plan step 13).
 
 from click.testing import CliRunner
 
-from evals.prompt_style_eval.cli import cli
+from jig.evals.prompt_style_eval.cli import cli
 
 
 def test_help_lists_all_three_subcommands() -> None:

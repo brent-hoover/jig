@@ -80,7 +80,7 @@ def _scan(
     The list is sorted by end position descending so we can rewrite
     the source bottom-up without invalidating earlier offsets.
     """
-    calls: list[tuple[int, int, int]] = []
+    calls: list[tuple[int, int, int, str, int]] = []
     for node in ast.walk(tree):
         if not _is_ticket_call(node):
             continue

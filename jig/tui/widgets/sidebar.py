@@ -465,7 +465,7 @@ class Sidebar(Widget):
                 label = label[:13] + "…"
             avail_subject = max(0, 34 - ts_visible - len(label) - 1)
             if subject and len(subject) > avail_subject:
-                subject = subject[:max(4, avail_subject - 1)] + "…"
+                subject = subject[: max(4, avail_subject - 1)] + "…"
             subject_part = f" [dim]{subject}[/dim]" if subject else ""
             lines.append(f"{ts_part}[cyan]{label}[/cyan]{subject_part}")
         zone.set_lines(lines)

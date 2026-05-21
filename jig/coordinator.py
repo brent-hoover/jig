@@ -150,30 +150,22 @@ class TriageDecision(BaseModel):
     rationale: str = ""
 
 
-def _synthesize_description_with_ac(*, problem: str, epic_title: str) -> str:
-    """Build a Ticket description that satisfies the AC-required validator.
+def _render_description_with_ac(*, problem: str, acceptance_criteria: list[str]) -> str:
+    """Build a Ticket description from epic intent prose + AC bullets.
 
-    Transitional helper for ``Coordinator._build_ticket_from_epic`` — the
-    current ``Epic`` schema (``jig.schemas.plan.Epic``) has no
-    ``acceptance_criteria`` field, so we derive a single-bullet AC from
-    the epic's intent prose. Follow-on work adds explicit ACs to Epic
-    and removes this synthesis step.
+    The ``Epic`` schema requires ``acceptance_criteria`` (one or more
+    bullets), so the bullets we render here always have real content
+    from the planner — no transitional synthesis fallback needed.
 
-    The result interleaves the original intent prose with a discoverable
-    ``## Acceptance criteria`` section, structured so the reviewer-test-
-    adequacy reviewer treats the bullet as the AC scope for this ticket.
+    The result places the intent prose first (so the dev / reviewer
+    reading the ticket sees the "why" before the "done when") and the
+    AC section second, structured so ``has_acceptance_criteria_section``
+    accepts it and downstream reviewers can anchor findings against
+    specific bullets.
     """
-    bullet_source = problem.strip() or epic_title
-    # Keep the bullet on a single line — the AC validator allows multi-line
-    # bullets but downstream consumers read them as one logical AC. The
-    # ``or "Implemented as planned"`` fallback covers the degenerate case
-    # where both ``problem`` and ``epic_title`` are empty: without it the
-    # synthesized bullet would be ``"- \n"`` which fails the validator's
-    # ``\S``-after-marker requirement and the resulting ``Ticket(...)``
-    # would crash at materialization time.
-    bullet = " ".join(bullet_source.split()) or "Implemented as planned"
+    ac_lines = "\n".join(f"- {bullet}" for bullet in acceptance_criteria)
+    ac_block = f"## Acceptance criteria\n{ac_lines}\n"
     body = problem.rstrip()
-    ac_block = f"## Acceptance criteria\n- {bullet}\n"
     if not body:
         return ac_block
     return f"{body}\n\n{ac_block}"
@@ -693,19 +685,17 @@ class Coordinator:
         ``work_type`` is ``FEATURE`` because both bones tracer-bullets and
         MVP feature tickets ship behavior end-to-end.
 
-        **AC synthesis (transitional).** The Ticket model requires an
-        Acceptance Criteria section in the description for work-type
-        tickets. The current Epic schema (``jig.schemas.plan.Epic``)
-        has no ``acceptance_criteria`` field — only ``intent`` — so we
-        synthesize a single-bullet AC at materialization time, derived
-        from ``epic.intent.problem``. This is a stopgap until the
-        Planner-PM workflow is updated to author explicit ACs on each
-        Epic (tracked as a follow-on to this validator change).
+        The Ticket description is built from ``epic.intent.problem``
+        (the "why") followed by a ``## Acceptance criteria`` section
+        rendered from ``epic.acceptance_criteria`` (the "done when").
+        The Epic schema requires at least one AC bullet, so the
+        resulting Ticket always satisfies the AC-required model
+        validator without any synthesis fallback.
         """
         module_id = epic.modules[0] if epic.modules else None
-        description = _synthesize_description_with_ac(
+        description = _render_description_with_ac(
             problem=epic.intent.problem,
-            epic_title=epic.title,
+            acceptance_criteria=list(epic.acceptance_criteria),
         )
         return Ticket(
             id=ticket_id,

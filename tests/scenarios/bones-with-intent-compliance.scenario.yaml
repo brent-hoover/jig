@@ -183,6 +183,8 @@ steps:
                   None expected; the reviewer is deterministic.
                 cross_cutting: |
                   No cross-cutting policies in scope.
+            acceptance_criteria:
+              - "Scenario placeholder; refine per test intent."
         stalled: []
         open_questions: []
 

@@ -6,6 +6,7 @@ the ``BuildPlan`` schema + plan-shape rules, writes
 ``.jig/plan/build-plan.yaml``, posts a Handoff to the Coordinator
 phase, and resolves the plan ticket.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -117,6 +118,9 @@ def _epic_dict(
         },
         "risks_addressed": [],
         "intent": _intent_dict(),
+        "acceptance_criteria": [
+            "Test fixture placeholder; refine per epic if the test cares."
+        ],
     }
 
 
@@ -157,9 +161,7 @@ async def test_plan_finalize_writes_build_plan_yaml(wired):
     assert data["project"] == "bones-walking-skeleton"
     assert data["ordering_rule"] == OrderingRule.BONES_FIRST.value
     assert data["epics"][0]["id"] == "catalog-ingest"
-    assert data["epics"][0]["layers"]["bones"]["tickets"] == [
-        "tb-catalog-ingest"
-    ]
+    assert data["epics"][0]["layers"]["bones"]["tickets"] == ["tb-catalog-ingest"]
     # Intent round-trips through the writer.
     assert data["epics"][0]["intent"]["problem"]
 
@@ -232,6 +234,9 @@ async def test_plan_finalize_accepts_pydantic_instance_directly(wired):
                     problem="prove instance path",
                     simplest_solution="pass the model in directly",
                 ),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
         ],
     )
@@ -426,9 +431,7 @@ async def test_plan_finalize_idempotent_overwrite(wired):
         author="planner-pm",
     )
     # Reactivate so the second call's resolve-after-handoff doesn't no-op.
-    await wired["tickets"].update(
-        PLANNER_TICKET_ID, status=TicketStatus.IN_PROGRESS
-    )
+    await wired["tickets"].update(PLANNER_TICKET_ID, status=TicketStatus.IN_PROGRESS)
     second = _plan_dict(project="bones-walking-skeleton")
     second["revision"] = 2
     second["epics"][0]["title"] = "Refined catalog-ingest epic"

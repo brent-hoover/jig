@@ -4,6 +4,7 @@ Bones scope: a Pydantic ``BuildPlan`` round-trips through
 ``write_build_plan`` / ``load_build_plan``. No PM agent yet — the
 synthetic operator (Track H) calls these helpers directly.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -45,6 +46,9 @@ def _bones_plan() -> BuildPlan:
                 ),
                 risks_addressed=["r-shopify-delta"],
                 intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             )
         ],
     )

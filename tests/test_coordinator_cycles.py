@@ -12,6 +12,7 @@ Extends the bones ``materialize_ready_tickets`` with cycle-aware methods:
 - ``dispatch_cycle(plan_path)`` — one cycle: refresh statuses,
   materialize the next layer if any, return a ``CycleResult``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -69,6 +70,9 @@ def _epic(
             ),
         ),
         intent=_intent(),
+        acceptance_criteria=[
+            "Test fixture placeholder; replace if the test cares about AC content."
+        ],
     )
 
 
@@ -80,8 +84,7 @@ def _plan(
     return BuildPlan(
         project="cycle-demo",
         ordering_rule=ordering_rule,
-        epics=epics
-        or [_epic(bones=["tb-cat"], mvp=["t-shopify"], final=["t-rate"])],
+        epics=epics or [_epic(bones=["tb-cat"], mvp=["t-shopify"], final=["t-rate"])],
     )
 
 
@@ -112,9 +115,7 @@ async def test_materialize_layer_creates_mvp_tickets(
 
 
 @pytest.mark.asyncio
-async def test_materialize_layer_skips_existing(
-    tmp_path: Path, store: TicketStore
-):
+async def test_materialize_layer_skips_existing(tmp_path: Path, store: TicketStore):
     plan = _plan()
     coord = Coordinator(tickets=store, project_root=tmp_path)
     await coord.materialize_layer(plan, "bones")
@@ -123,9 +124,7 @@ async def test_materialize_layer_skips_existing(
 
 
 @pytest.mark.asyncio
-async def test_materialize_layer_unknown_raises(
-    tmp_path: Path, store: TicketStore
-):
+async def test_materialize_layer_unknown_raises(tmp_path: Path, store: TicketStore):
     coord = Coordinator(tickets=store, project_root=tmp_path)
     with pytest.raises(ValueError):
         await coord.materialize_layer(_plan(), "bogus")
@@ -185,9 +184,7 @@ async def test_advance_layer_status_marks_in_progress(
     assert changed is True
 
     refreshed = load_build_plan(tmp_path)
-    assert (
-        refreshed.epics[0].layers.bones.status == LayerStatusEnum.IN_PROGRESS
-    )
+    assert refreshed.epics[0].layers.bones.status == LayerStatusEnum.IN_PROGRESS
 
 
 @pytest.mark.asyncio
@@ -204,9 +201,7 @@ async def test_advance_layer_status_partial_resolved_is_in_progress(
     assert changed is True
 
     refreshed = load_build_plan(tmp_path)
-    assert (
-        refreshed.epics[0].layers.bones.status == LayerStatusEnum.IN_PROGRESS
-    )
+    assert refreshed.epics[0].layers.bones.status == LayerStatusEnum.IN_PROGRESS
 
 
 @pytest.mark.asyncio
@@ -222,9 +217,7 @@ async def test_advance_layer_status_marks_blocked_on_failed(
     changed = await coord.advance_layer_status(tmp_path)
     assert changed is True
     refreshed = load_build_plan(tmp_path)
-    assert (
-        refreshed.epics[0].layers.bones.status == LayerStatusEnum.BLOCKED
-    )
+    assert refreshed.epics[0].layers.bones.status == LayerStatusEnum.BLOCKED
 
 
 @pytest.mark.asyncio
@@ -266,7 +259,12 @@ def test_next_layer_ready_returns_bones_when_unbuilt():
 
 def test_next_layer_ready_bones_first_waits_until_all_epics_bones_done():
     epics = [
-        _epic(epic_id="e-a", bones=["tb-a"], bones_status=LayerStatusEnum.DONE, mvp=["t-a"]),
+        _epic(
+            epic_id="e-a",
+            bones=["tb-a"],
+            bones_status=LayerStatusEnum.DONE,
+            mvp=["t-a"],
+        ),
         _epic(epic_id="e-b", bones=["tb-b"], mvp=["t-b"]),
     ]
     plan = _plan(epics=epics)
@@ -277,8 +275,19 @@ def test_next_layer_ready_bones_first_waits_until_all_epics_bones_done():
 
 def test_next_layer_ready_bones_first_returns_mvp_once_all_bones_done():
     epics = [
-        _epic(epic_id="e-a", bones=["tb-a"], bones_status=LayerStatusEnum.DONE, mvp=["t-a"]),
-        _epic(epic_id="e-b", modules=["mod-b"], bones=["tb-b"], bones_status=LayerStatusEnum.DONE, mvp=["t-b"]),
+        _epic(
+            epic_id="e-a",
+            bones=["tb-a"],
+            bones_status=LayerStatusEnum.DONE,
+            mvp=["t-a"],
+        ),
+        _epic(
+            epic_id="e-b",
+            modules=["mod-b"],
+            bones=["tb-b"],
+            bones_status=LayerStatusEnum.DONE,
+            mvp=["t-b"],
+        ),
     ]
     plan = _plan(epics=epics)
     coord = Coordinator(tickets=None, project_root=Path("/dev/null"))  # type: ignore[arg-type]
@@ -321,7 +330,12 @@ def test_next_layer_ready_returns_none_when_all_done():
 def test_next_layer_ready_per_epic_returns_per_epic_layer():
     """PER_EPIC: each epic walks its own layer chain independently."""
     epics = [
-        _epic(epic_id="e-a", bones=["tb-a"], bones_status=LayerStatusEnum.DONE, mvp=["t-a"]),
+        _epic(
+            epic_id="e-a",
+            bones=["tb-a"],
+            bones_status=LayerStatusEnum.DONE,
+            mvp=["t-a"],
+        ),
         _epic(epic_id="e-b", modules=["mod-b"], bones=["tb-b"], mvp=["t-b"]),
     ]
     plan = _plan(epics=epics, ordering_rule=OrderingRule.PER_EPIC)

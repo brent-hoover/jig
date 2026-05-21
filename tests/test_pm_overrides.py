@@ -198,6 +198,9 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
             Epic(
                 id="epic-2",
@@ -221,6 +224,9 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
         ],
     )
@@ -319,6 +325,9 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
             Epic(
                 id="epic-2",
@@ -341,6 +350,9 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
         ],
     )

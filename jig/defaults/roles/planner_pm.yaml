@@ -59,8 +59,23 @@ phase_prompt: >
         ``modules`` (the architecture module ids it covers),
         ``risks_addressed`` (risk ids from architecture.yaml that this
         epic validates), ``intent`` (problem / simplest_solution /
-        complications_considered — same shape as everywhere else), and
+        complications_considered — same shape as everywhere else),
+        ``acceptance_criteria`` (REQUIRED — see below), and
         ``layers`` with ``bones`` / ``mvp`` / ``final`` ticket lists.
+
+
+      - **``acceptance_criteria`` is required and load-bearing.** Each
+        epic must declare one or more AC bullets — concrete behaviors
+        that must hold before the epic is considered done. The
+        Coordinator renders these directly into the ``## Acceptance
+        criteria`` section of every Ticket materialized from this
+        epic, so the test-author and the test-adequacy reviewer
+        anchor against the literal bullets you write here. Write each
+        bullet as a single specific behaviour, not as a category
+        ("Catalog rows appear in the products collection within 30s
+        of OAuth completion" — not "ingest works"). Two-to-five
+        bullets per epic is the sweet spot; one is the floor; ten or
+        more is a sign the epic should be split.
 
 
   ## How to layer the work

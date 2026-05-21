@@ -12,6 +12,7 @@ Per-run isolation: every ``Driver.run`` instantiates a fresh
 duration of the run so analytics events get tagged with
 ``simulator: true`` (see ``jig.analytics.emitter`` — already wired).
 """
+
 from __future__ import annotations
 
 import os
@@ -248,6 +249,9 @@ def _plan_step(ticket_id: str = "tb-catalog-ingest") -> ScenarioStep:
                 modules=["catalog-ingest"],
                 layers=EpicLayers(bones=LayerStatus(tickets=[ticket_id])),
                 intent=_intent("Spine"),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             )
         ],
     )
@@ -594,12 +598,8 @@ async def test_ticket_status_assertion(tmp_path: Path):
         estimated_cost_usd_max=0.0,
         steps=[_plan_step(), _materialize_step()],
         final_assertions=[
-            TicketStatusAssertion(
-                ticket_id="tb-catalog-ingest", status="open"
-            ),
-            TicketStatusAssertion(
-                ticket_id="tb-catalog-ingest", status="resolved"
-            ),
+            TicketStatusAssertion(ticket_id="tb-catalog-ingest", status="open"),
+            TicketStatusAssertion(ticket_id="tb-catalog-ingest", status="resolved"),
         ],
     )
     report = await driver.run(scn, project_root=tmp_path)
@@ -671,7 +671,9 @@ async def test_report_records_per_step_outcomes(tmp_path: Path):
     assert isinstance(report, ScenarioReport)
     assert len(report.step_outcomes) == 1
     assert report.step_outcomes[0].kind == StepKind.INVOKE_L0_FINALIZE.value
-    assert all(isinstance(r, AssertionResult) for r in report.step_outcomes[0].assertions)
+    assert all(
+        isinstance(r, AssertionResult) for r in report.step_outcomes[0].assertions
+    )
 
 
 @pytest.mark.asyncio
@@ -817,9 +819,7 @@ async def test_invoke_dev_ephemeral_provisions_and_cleans(tmp_path: Path):
     report = await driver.run(scn, project_root=tmp_path)
     assert report.passed, report.failure_summary()
     # The cleanup ran; the file should be gone.
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "scratch" / "agent_tb_eph.db"
-    )
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "scratch" / "agent_tb_eph.db"
     assert not db_path.is_file()
 
 
@@ -1095,9 +1095,7 @@ async def test_contract_validated_data_contract_round_trip(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_wireframe_passes_for_existing_clean_html(tmp_path: Path):
     ctx = await _make_ctx(tmp_path)
-    save_wireframe(
-        tmp_path, "dashboard", "<html><body>dashboard</body></html>"
-    )
+    save_wireframe(tmp_path, "dashboard", "<html><body>dashboard</body></html>")
     result = _check_wireframe(
         ctx, WireframeAssertion(screen_id="dashboard", contains="dashboard")
     )
@@ -1114,9 +1112,7 @@ async def test_wireframe_fails_for_missing_screen(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_wireframe_fails_when_lint_marker_present(tmp_path: Path):
     ctx = await _make_ctx(tmp_path)
-    save_wireframe(
-        tmp_path, "dashboard", "<!-- LINT-FAIL: missing-aria -->\n<html/>"
-    )
+    save_wireframe(tmp_path, "dashboard", "<!-- LINT-FAIL: missing-aria -->\n<html/>")
     result = _check_wireframe(ctx, WireframeAssertion(screen_id="dashboard"))
     assert not result.passed
     assert "LINT-FAIL" in result.detail
@@ -1141,6 +1137,9 @@ async def test_build_plan_layer_status_passes_when_match(tmp_path: Path):
                         bones=LayerStatus(tickets=["tb-1"]),
                     ),
                     intent=_intent_obj(),
+                    acceptance_criteria=[
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ],
                 )
             ],
         ),
@@ -1196,9 +1195,7 @@ async def test_risk_status_passes_when_match(tmp_path: Path):
     )
     result = _check_risk_status(
         ctx,
-        RiskStatusAssertion(
-            risk_id="r-shopify-delta", status="spike_proposed"
-        ),
+        RiskStatusAssertion(risk_id="r-shopify-delta", status="spike_proposed"),
     )
     assert result.passed, result.detail
 
@@ -1251,9 +1248,7 @@ async def test_cascade_proposal_passes_when_present(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_cascade_proposal_fails_when_missing(tmp_path: Path):
     ctx = await _make_ctx(tmp_path)
-    result = _check_cascade_proposal(
-        ctx, CascadeProposalAssertion(risk_id="r-missing")
-    )
+    result = _check_cascade_proposal(ctx, CascadeProposalAssertion(risk_id="r-missing"))
     assert not result.passed
 
 
@@ -1276,9 +1271,7 @@ async def test_ontology_term_passes_when_term_present(tmp_path: Path):
     )
     result = _check_ontology_term(
         ctx,
-        OntologyTermAssertion(
-            term="Cart", definition_contains="buyer"
-        ),
+        OntologyTermAssertion(term="Cart", definition_contains="buyer"),
     )
     assert result.passed, result.detail
 
@@ -1287,9 +1280,7 @@ async def test_ontology_term_passes_when_term_present(tmp_path: Path):
 async def test_ontology_term_fails_when_term_missing(tmp_path: Path):
     ctx = await _make_ctx(tmp_path)
     save_ontology(tmp_path, Ontology(terms=[]))
-    result = _check_ontology_term(
-        ctx, OntologyTermAssertion(term="ghost")
-    )
+    result = _check_ontology_term(ctx, OntologyTermAssertion(term="ghost"))
     assert not result.passed
 
 
@@ -1302,9 +1293,7 @@ async def test_discovery_state_consistent_fails_when_state_missing(
 ):
     """No discovery.state.yaml → assertion surfaces the absence."""
     ctx = await _make_ctx(tmp_path)
-    result = _check_discovery_state_consistent(
-        ctx, DiscoveryStateConsistentAssertion()
-    )
+    result = _check_discovery_state_consistent(ctx, DiscoveryStateConsistentAssertion())
     assert not result.passed
     assert "discovery state" in result.detail
 
@@ -1353,9 +1342,7 @@ async def test_orphan_report_passes_when_entries_present(tmp_path: Path):
     log = tmp_path / ".jig" / "dev" / "orphans.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text('{"namespace": "n1"}\n{"namespace": "n2"}\n')
-    result = _check_orphan_report(
-        ctx, OrphanReportAssertion(min_entries=2)
-    )
+    result = _check_orphan_report(ctx, OrphanReportAssertion(min_entries=2))
     assert result.passed, result.detail
 
 
@@ -1412,9 +1399,7 @@ async def test_fixture_cassette_passes_when_signature_present(tmp_path: Path):
     )
     result = await _check_fixture_cassette(
         ctx,
-        FixtureCassetteAssertion(
-            service_id="shopify-api", request_signature="sig-1"
-        ),
+        FixtureCassetteAssertion(service_id="shopify-api", request_signature="sig-1"),
     )
     assert result.passed, result.detail
 
@@ -1445,9 +1430,7 @@ async def test_tier_promotion_passes_when_to_tier_matches(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_tier_promotion_fails_when_no_promotion_recorded(tmp_path: Path):
     ctx = await _make_ctx(tmp_path)
-    result = _check_tier_promotion(
-        ctx, TierPromotionAssertion(to_tier="senior")
-    )
+    result = _check_tier_promotion(ctx, TierPromotionAssertion(to_tier="senior"))
     assert not result.passed
 
 
@@ -1456,9 +1439,5 @@ async def test_tier_promotion_fails_when_to_tier_mismatches(tmp_path: Path):
     ctx = await _make_ctx(tmp_path)
     ctx.last_tier_promotion_from = "standard"
     ctx.last_tier_promotion_to = "senior"
-    result = _check_tier_promotion(
-        ctx, TierPromotionAssertion(to_tier="sa")
-    )
+    result = _check_tier_promotion(ctx, TierPromotionAssertion(to_tier="sa"))
     assert not result.passed
-
-

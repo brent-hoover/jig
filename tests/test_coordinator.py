@@ -65,6 +65,9 @@ def _plan(
                 ),
                 risks_addressed=risks if risks is not None else [],
                 intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             )
         ],
     )
@@ -218,6 +221,9 @@ async def test_materialize_walks_multiple_epics(tmp_path: Path, store: TicketSto
                 modules=["catalog-ingest"],
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-catalog"])),
                 intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
             Epic(
                 id="categorization",
@@ -226,6 +232,9 @@ async def test_materialize_walks_multiple_epics(tmp_path: Path, store: TicketSto
                 modules=["categorization"],
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-categorize"])),
                 intent=_intent("Bucket products"),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             ),
         ],
     )
@@ -267,6 +276,9 @@ async def test_materialize_ignores_mvp_and_final_layers(
                     final=LayerStatus(tickets=["t-rate-limit"]),
                 ),
                 intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             )
         ],
     )

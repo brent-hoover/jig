@@ -1,28 +1,26 @@
-"""Unit tests for the three transitional AC-synthesis helpers.
+"""Unit tests for the AC-rendering / synthesis helpers.
 
-The ``Ticket`` model requires a discoverable Acceptance Criteria
-section in the description for work-type tickets (FEATURE / BUGFIX /
-REFACTOR / SPIKE / PERF / MIGRATION). Three production paths
-currently construct work-type tickets from upstream data sources that
-don't carry explicit ACs:
+Three production paths construct work-type tickets and must ensure
+the description satisfies the Ticket model's AC-required invariant:
 
 - ``Coordinator._build_ticket_from_epic`` →
-  ``jig.coordinator._synthesize_description_with_ac``
+  ``jig.coordinator._render_description_with_ac`` (renders explicit
+  ``Epic.acceptance_criteria`` bullets — no synthesis fallback).
 - ``handle_arch_propose_spike`` →
-  ``jig.sa_incremental_mcp._spike_description_with_ac``
+  ``jig.sa_incremental_mcp._spike_description_with_ac`` (still
+  transitional — synthesizes from the risk's free-form text since the
+  SA workflow doesn't yet author explicit ACs for proposed spikes).
 - ``handle_checkpoint_promote_deferred`` →
-  ``jig.checkpoint_mcp._ensure_ac_section``
+  ``jig.checkpoint_mcp._ensure_ac_section`` (still transitional —
+  synthesizes from the deferred item's text when the operator doesn't
+  supply an AC-bearing description on promotion).
 
 Each helper must produce output that satisfies
-``jig.ticket.has_acceptance_criteria_section`` even when called with
-edge-case inputs (empty strings, prose without ACs, prose with an
-existing AC). The integration tests catch most regressions at
-materialization time, but the unit-level coverage is cheap and pins
-down the contract.
-
-These tests will move with their respective production helpers when
-the follow-up PR replaces the synthesis with explicit AC fields on
-the upstream schemas.
+``jig.ticket.has_acceptance_criteria_section`` even with edge-case
+inputs (empty strings, prose without ACs, prose with an existing
+AC). Integration tests catch most regressions at materialization
+time, but the unit-level coverage is cheap and pins down the
+contract.
 """
 
 from __future__ import annotations
@@ -30,59 +28,68 @@ from __future__ import annotations
 import pytest
 
 from jig.checkpoint_mcp import _ensure_ac_section
-from jig.coordinator import _synthesize_description_with_ac
+from jig.coordinator import _render_description_with_ac
 from jig.sa_incremental_mcp import _spike_description_with_ac
 from jig.ticket import has_acceptance_criteria_section
 
 
-class TestSynthesizeDescriptionWithAc:
-    """``jig.coordinator._synthesize_description_with_ac``."""
+class TestRenderDescriptionWithAc:
+    """``jig.coordinator._render_description_with_ac``.
 
-    def test_typical_problem_renders_ac_bullet(self) -> None:
-        out = _synthesize_description_with_ac(
+    Pure renderer — takes the epic's intent prose and a non-empty
+    list of AC bullets (the Epic schema requires ``min_length=1``)
+    and produces a description with the bullets in the AC section.
+    No fallback logic needed; if a caller passes garbage the Epic
+    schema would have already rejected it upstream.
+    """
+
+    def test_renders_single_bullet(self) -> None:
+        out = _render_description_with_ac(
             problem="Catalog ingest pipeline does X.",
-            epic_title="Catalog Ingest",
+            acceptance_criteria=["Rows appear in the products collection."],
         )
         assert has_acceptance_criteria_section(out)
         assert "Catalog ingest pipeline does X." in out
+        assert "Rows appear in the products collection." in out
 
-    def test_empty_problem_falls_back_to_epic_title(self) -> None:
-        out = _synthesize_description_with_ac(
-            problem="",
-            epic_title="Catalog Ingest",
+    def test_renders_multiple_bullets_each_on_own_line(self) -> None:
+        bullets = [
+            "First bullet.",
+            "Second bullet with more detail.",
+            "Third bullet.",
+        ]
+        out = _render_description_with_ac(
+            problem="Some problem.",
+            acceptance_criteria=bullets,
         )
         assert has_acceptance_criteria_section(out)
-        assert "Catalog Ingest" in out
-
-    def test_both_empty_uses_safe_default_bullet(self) -> None:
-        """Regression: previously produced ``"- \\n"`` which failed the
-        bullet regex (requires ``\\S`` after the marker) and crashed
-        ``Ticket(...)`` at materialization time."""
-        out = _synthesize_description_with_ac(problem="", epic_title="")
-        assert has_acceptance_criteria_section(out)
-        # The fallback bullet text is non-empty.
-        assert "Implemented as planned" in out
-
-    def test_whitespace_only_inputs_use_safe_default(self) -> None:
-        out = _synthesize_description_with_ac(
-            problem="   \n   ", epic_title="\t\t"
-        )
-        assert has_acceptance_criteria_section(out)
-
-    def test_multiline_problem_collapses_to_single_bullet(self) -> None:
-        out = _synthesize_description_with_ac(
-            problem="Line one.\nLine two.\nLine three.",
-            epic_title="Multi",
-        )
-        assert has_acceptance_criteria_section(out)
-        # The synthesized bullet is one line — multi-line problem prose
-        # collapses to a single AC bullet.
+        # Every bullet should appear in the output as its own line.
+        for bullet in bullets:
+            assert f"- {bullet}" in out
         ac_lines = [ln for ln in out.splitlines() if ln.startswith("- ")]
-        assert len(ac_lines) == 1
+        assert len(ac_lines) == 3
+
+    def test_empty_problem_still_renders_valid_description(self) -> None:
+        out = _render_description_with_ac(
+            problem="",
+            acceptance_criteria=["The bullet."],
+        )
+        assert has_acceptance_criteria_section(out)
+        # No intent prose preamble when problem is empty.
+        assert out.startswith("## Acceptance criteria")
+
+    def test_intent_prose_precedes_ac_section(self) -> None:
+        out = _render_description_with_ac(
+            problem="Why we are doing this.",
+            acceptance_criteria=["bullet"],
+        )
+        intent_idx = out.index("Why we are doing this.")
+        ac_idx = out.index("## Acceptance criteria")
+        assert intent_idx < ac_idx
 
 
 class TestSpikeDescriptionWithAc:
-    """``jig.sa_incremental_mcp._spike_description_with_ac``."""
+    """``jig.sa_incremental_mcp._spike_description_with_ac`` (transitional)."""
 
     def test_typical_inputs_render_ac_bullet(self) -> None:
         out = _spike_description_with_ac(
@@ -114,7 +121,7 @@ class TestSpikeDescriptionWithAc:
 
 
 class TestEnsureAcSection:
-    """``jig.checkpoint_mcp._ensure_ac_section``."""
+    """``jig.checkpoint_mcp._ensure_ac_section`` (transitional)."""
 
     def test_empty_description_synthesizes_full_ac(self) -> None:
         out = _ensure_ac_section("", fallback_bullet="Promote deferred item")
@@ -123,9 +130,7 @@ class TestEnsureAcSection:
 
     def test_description_already_has_ac_passes_through(self) -> None:
         existing = (
-            "Some prose.\n\n"
-            "## Acceptance criteria\n"
-            "- Specific behavior is verified.\n"
+            "Some prose.\n\n## Acceptance criteria\n- Specific behavior is verified.\n"
         )
         out = _ensure_ac_section(existing, fallback_bullet="ignored")
         assert has_acceptance_criteria_section(out)
@@ -153,7 +158,7 @@ class TestEnsureAcSection:
 
 
 class TestOutputSatisfiesValidator:
-    """Cross-helper property: every synth output round-trips through
+    """Cross-helper property: every output round-trips through
     ``Ticket(...)`` construction without raising ``ValidationError``.
 
     Catches the class of bug where a helper synthesizes prose that
@@ -161,24 +166,22 @@ class TestOutputSatisfiesValidator:
     bullet check (``\\S`` required after the marker)."""
 
     @pytest.mark.parametrize(
-        "problem,epic_title",
+        "problem,bullets",
         [
-            ("normal problem", "epic"),
-            ("", ""),
-            ("only problem", ""),
-            ("", "only title"),
-            ("   ", "   "),
+            ("normal problem", ["bullet"]),
+            ("", ["bullet"]),
+            ("only problem", ["one", "two", "three"]),
+            ("with multiple bullets", ["first", "second"]),
         ],
     )
-    def test_coordinator_synth_round_trips(
-        self, problem: str, epic_title: str
+    def test_coordinator_render_round_trips(
+        self, problem: str, bullets: list[str]
     ) -> None:
         from jig.ticket import Ticket, WorkType
 
-        description = _synthesize_description_with_ac(
-            problem=problem, epic_title=epic_title
+        description = _render_description_with_ac(
+            problem=problem, acceptance_criteria=bullets
         )
-        # Should not raise.
         Ticket(
             work_type=WorkType.FEATURE,
             title="t",
@@ -198,9 +201,7 @@ class TestOutputSatisfiesValidator:
     def test_spike_synth_round_trips(self, summary: str, risk_text: str) -> None:
         from jig.ticket import Ticket, WorkType
 
-        description = _spike_description_with_ac(
-            summary=summary, risk_text=risk_text
-        )
+        description = _spike_description_with_ac(summary=summary, risk_text=risk_text)
         Ticket(
             work_type=WorkType.SPIKE,
             title="t",

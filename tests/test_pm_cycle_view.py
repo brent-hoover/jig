@@ -64,6 +64,9 @@ def _make_plan(*epic_specs) -> BuildPlan:
                     mvp=LayerStatus(status=mvp_status, tickets=mvp_tickets),
                 ),
                 intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
             )
         )
     return BuildPlan(

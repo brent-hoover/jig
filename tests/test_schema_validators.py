@@ -5,6 +5,7 @@ po / arch / plan / dev_env / frontend / design_system schemas.  Each rule
 gets accept + reject coverage; the per-schema integration tests verify
 the validator fires on the right fields.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -290,13 +291,29 @@ def test_epic_id_must_be_kebab():
     from jig.schemas.plan import Epic
 
     with pytest.raises(ValidationError, match="kebab"):
-        Epic(id="Epic_1", title="t", suite="s", intent=_intent())
+        Epic(
+            id="Epic_1",
+            title="t",
+            suite="s",
+            intent=_intent(),
+            acceptance_criteria=[
+                "Test fixture placeholder; replace if the test cares about AC content."
+            ],
+        )
 
 
 def test_epic_id_kebab_accepted():
     from jig.schemas.plan import Epic
 
-    e = Epic(id="catalog-ingest", title="t", suite="s", intent=_intent())
+    e = Epic(
+        id="catalog-ingest",
+        title="t",
+        suite="s",
+        intent=_intent(),
+        acceptance_criteria=[
+            "Test fixture placeholder; replace if the test cares about AC content."
+        ],
+    )
     assert e.id == "catalog-ingest"
 
 
@@ -311,9 +328,7 @@ def test_stalled_ticket_blocked_since_rejects_naive():
     from jig.schemas.plan import StalledTicket
 
     with pytest.raises(ValidationError, match="timezone"):
-        StalledTicket(
-            ticket="t-x", reason="r", blocked_since=datetime(2026, 5, 1)
-        )
+        StalledTicket(ticket="t-x", reason="r", blocked_since=datetime(2026, 5, 1))
 
 
 # ---------------------------------------------------------------------------

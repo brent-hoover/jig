@@ -1,4 +1,5 @@
 """Tests for v2 PM schemas — BuildPlan, Epic, LayerStatus."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -32,7 +33,14 @@ def test_build_plan_minimum_valid():
 
 def test_epic_requires_intent():
     with pytest.raises(ValidationError, match="intent"):
-        Epic(id="e", title="t", suite="s")
+        Epic(
+            id="e",
+            title="t",
+            suite="s",
+            acceptance_criteria=[
+                "Test fixture placeholder; replace if the test cares about AC content."
+            ],
+        )
 
 
 def test_epic_with_full_shape():
@@ -50,6 +58,9 @@ def test_epic_with_full_shape():
         ),
         risks_addressed=["r-shopify-delta"],
         intent=_intent(),
+        acceptance_criteria=[
+            "Test fixture placeholder; replace if the test cares about AC content."
+        ],
     )
     assert e.layers.bones.status == LayerStatusEnum.IN_PROGRESS
     assert e.layers.mvp.status == LayerStatusEnum.NOT_STARTED  # default
@@ -67,22 +78,31 @@ def test_build_plan_with_stalled_and_open_questions():
 
     bp = BuildPlan(
         project="jig-search",
-        epics=[Epic(
-            id="catalog",
-            title="Catalog",
-            suite="catalog",
-            intent=_intent(),
-        )],
-        stalled=[StalledTicket(
-            ticket="t-shopify-oauth",
-            reason="blocked-on-spike",
-            blocked_since=datetime(2026, 5, 1, 12, tzinfo=timezone.utc),
-            spike="spike-shopify-delta",
-        )],
-        open_questions=[OpenQuestion(
-            id="q-feature-priority",
-            text="MVP order: catalog before categorization?",
-        )],
+        epics=[
+            Epic(
+                id="catalog",
+                title="Catalog",
+                suite="catalog",
+                intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
+            )
+        ],
+        stalled=[
+            StalledTicket(
+                ticket="t-shopify-oauth",
+                reason="blocked-on-spike",
+                blocked_since=datetime(2026, 5, 1, 12, tzinfo=timezone.utc),
+                spike="spike-shopify-delta",
+            )
+        ],
+        open_questions=[
+            OpenQuestion(
+                id="q-feature-priority",
+                text="MVP order: catalog before categorization?",
+            )
+        ],
     )
     assert bp.stalled[0].spike == "spike-shopify-delta"
     assert bp.open_questions[0].id == "q-feature-priority"
@@ -96,9 +116,18 @@ def test_build_plan_rejects_extra():
 def test_build_plan_round_trips():
     bp = BuildPlan(
         project="jig-search",
-        epics=[Epic(id="e", title="t", suite="s",
-                    layers=EpicLayers(bones=LayerStatus(tickets=["tb-1"])),
-                    intent=_intent())],
+        epics=[
+            Epic(
+                id="e",
+                title="t",
+                suite="s",
+                layers=EpicLayers(bones=LayerStatus(tickets=["tb-1"])),
+                intent=_intent(),
+                acceptance_criteria=[
+                    "Test fixture placeholder; replace if the test cares about AC content."
+                ],
+            )
+        ],
     )
     blob = bp.model_dump(mode="json")
     bp2 = BuildPlan.model_validate(blob)
@@ -121,13 +150,28 @@ def test_build_plan_round_trips():
 def test_epic_rejects_non_kebab_suite_id():
     """Suite id propagates to PO's suites.yaml lookup — kebab is required."""
     with pytest.raises(ValidationError, match="kebab"):
-        Epic(id="e", title="t", suite="Catalog_Suite", intent=_intent())
+        Epic(
+            id="e",
+            title="t",
+            suite="Catalog_Suite",
+            intent=_intent(),
+            acceptance_criteria=[
+                "Test fixture placeholder; replace if the test cares about AC content."
+            ],
+        )
 
 
 def test_epic_rejects_missing_intent():
     """Smoke check: intent is the v2-mandatory carve-up rationale."""
     with pytest.raises(ValidationError, match="intent"):
-        Epic(id="e", title="t", suite="s")  # type: ignore[call-arg]
+        Epic(
+            id="e",
+            title="t",
+            suite="s",
+            acceptance_criteria=[
+                "Test fixture placeholder; replace if the test cares about AC content."
+            ],
+        )  # type: ignore[call-arg]
 
 
 def test_layer_status_rejects_unknown_status_enum():
@@ -148,6 +192,9 @@ def test_pydantic_extra_forbid_rejects_unknown_keys_on_epic():
             suite="s",
             intent=_intent(),
             priority="p1",
+            acceptance_criteria=[
+                "Test fixture placeholder; replace if the test cares about AC content."
+            ],
         )
 
 
@@ -202,6 +249,9 @@ def test_build_plan_rejects_overlapping_ticket_ids_across_epics():
                     suite="s",
                     layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
                     intent=_intent(),
+                    acceptance_criteria=[
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ],
                 ),
                 Epic(
                     id="e2",
@@ -209,6 +259,9 @@ def test_build_plan_rejects_overlapping_ticket_ids_across_epics():
                     suite="s",
                     layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
                     intent=_intent(),
+                    acceptance_criteria=[
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ],
                 ),
             ],
         )
@@ -229,6 +282,9 @@ def test_build_plan_rejects_overlapping_ticket_ids_across_layers():
                         mvp=LayerStatus(tickets=["t-x"]),
                     ),
                     intent=_intent(),
+                    acceptance_criteria=[
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ],
                 ),
             ],
         )
@@ -244,12 +300,18 @@ def test_build_plan_rejects_duplicate_epic_ids():
                     title="t",
                     suite="s",
                     intent=_intent(),
+                    acceptance_criteria=[
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ],
                 ),
                 Epic(
                     id="e1",
                     title="t2",
                     suite="s",
                     intent=_intent(),
+                    acceptance_criteria=[
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ],
                 ),
             ],
         )
@@ -261,3 +323,63 @@ def test_build_plan_revision_increments_round_trip():
     blob = bp.model_dump(mode="json")
     bp2 = BuildPlan.model_validate(blob)
     assert bp2.revision == 7
+
+
+# ---------------------------------------------------------------------------
+# Epic.acceptance_criteria
+# ---------------------------------------------------------------------------
+
+
+def test_epic_requires_acceptance_criteria():
+    """Every epic must declare at least one AC bullet."""
+    with pytest.raises(ValidationError, match="acceptance_criteria"):
+        Epic(id="e", title="t", suite="s", intent=_intent())
+
+
+def test_epic_rejects_empty_acceptance_criteria_list():
+    with pytest.raises(ValidationError, match="acceptance_criteria"):
+        Epic(
+            id="e",
+            title="t",
+            suite="s",
+            intent=_intent(),
+            acceptance_criteria=[],
+        )
+
+
+def test_epic_rejects_whitespace_only_bullet():
+    with pytest.raises(ValidationError, match="empty or whitespace-only"):
+        Epic(
+            id="e",
+            title="t",
+            suite="s",
+            intent=_intent(),
+            acceptance_criteria=["   "],
+        )
+
+
+def test_epic_strips_bullet_whitespace():
+    """Authored bullets often carry incidental leading/trailing whitespace
+    (YAML block scalars are notorious). The validator normalizes."""
+    e = Epic(
+        id="e",
+        title="t",
+        suite="s",
+        intent=_intent(),
+        acceptance_criteria=["  the thing works.  \n"],
+    )
+    assert e.acceptance_criteria == ["the thing works."]
+
+
+def test_epic_accepts_multiple_bullets():
+    e = Epic(
+        id="e",
+        title="t",
+        suite="s",
+        intent=_intent(),
+        acceptance_criteria=[
+            "Bullet one.",
+            "Bullet two with more detail.",
+        ],
+    )
+    assert len(e.acceptance_criteria) == 2

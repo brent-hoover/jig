@@ -11,6 +11,7 @@ Per ``docs/v2.0/pm-workflow/design.md`` §"Bones-first ordering":
 
 This module is the regression suite for the third path.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -73,6 +74,9 @@ def _epic(eid: str, modules: list[str], *, bones_done: bool) -> Epic:
             ),
             final=LayerStatus(tickets=[], status=LayerStatusEnum.NOT_STARTED),
         ),
+        acceptance_criteria=[
+            "Test fixture placeholder; replace if the test cares about AC content."
+        ],
     )
 
 
@@ -100,12 +104,8 @@ async def test_no_flag_strict_bones_first(wired):
     """Without cascade_risk_low, blocked bones holds back MVP per spec."""
     project = wired["project_path"]
     coord: Coordinator = wired["coord"]
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-a")
-    )
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-b")
-    )
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-a"))
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-b"))
     plan = BuildPlan(
         project="test",
         ordering_rule=OrderingRule.BONES_FIRST,
@@ -126,12 +126,8 @@ async def test_flag_on_blocked_module_promotes_mvp(wired):
     """Blocked bones touches only cascade_risk_low → returns MVP."""
     project = wired["project_path"]
     coord: Coordinator = wired["coord"]
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-a")
-    )
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-b")
-    )
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-a"))
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-b"))
     # Flag the BLOCKED epic's module.
     await handle_arch_set_cascade_risk_low(
         project_path=project,
@@ -157,9 +153,7 @@ async def test_partial_flag_does_not_promote(wired):
     project = wired["project_path"]
     coord: Coordinator = wired["coord"]
     for mid in ("m-a", "m-b", "m-c"):
-        await handle_arch_set_module(
-            project_path=project, module=_module_payload(mid)
-        )
+        await handle_arch_set_module(project_path=project, module=_module_payload(mid))
     # Only m-b flagged; m-c stays unflagged on a separate blocked epic.
     await handle_arch_set_cascade_risk_low(
         project_path=project,
@@ -185,9 +179,7 @@ async def test_no_blocked_epics_returns_bones_when_no_done_either(wired):
     """All bones in_progress, no done → no promote (override needs at least one done)."""
     project = wired["project_path"]
     coord: Coordinator = wired["coord"]
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-a")
-    )
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-a"))
     await handle_arch_set_cascade_risk_low(
         project_path=project,
         module_id="m-a",
@@ -208,12 +200,8 @@ async def test_per_epic_ordering_unaffected_by_override(wired):
     """PER_EPIC ordering doesn't apply the override (different rule entirely)."""
     project = wired["project_path"]
     coord: Coordinator = wired["coord"]
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-a")
-    )
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-b")
-    )
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-a"))
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-b"))
     await handle_arch_set_cascade_risk_low(
         project_path=project,
         module_id="m-b",
@@ -256,9 +244,7 @@ async def test_blocked_epic_with_no_modules_does_not_promote(wired):
     """An epic with empty modules list can't be classified → keep strict."""
     project = wired["project_path"]
     coord: Coordinator = wired["coord"]
-    await handle_arch_set_module(
-        project_path=project, module=_module_payload("m-a")
-    )
+    await handle_arch_set_module(project_path=project, module=_module_payload("m-a"))
     plan = BuildPlan(
         project="test",
         ordering_rule=OrderingRule.BONES_FIRST,
@@ -278,9 +264,7 @@ async def test_blocked_epic_with_no_modules_does_not_promote(wired):
 async def test_arch_set_cascade_risk_low_persists_flag(tmp_path: Path):
     spec_dir = tmp_path / ".jig" / "spec"
     spec_dir.mkdir(parents=True)
-    await handle_arch_set_module(
-        project_path=tmp_path, module=_module_payload("m-x")
-    )
+    await handle_arch_set_module(project_path=tmp_path, module=_module_payload("m-x"))
     await handle_arch_set_cascade_risk_low(
         project_path=tmp_path,
         module_id="m-x",
@@ -312,9 +296,7 @@ async def test_arch_set_cascade_risk_low_unknown_module_raises(tmp_path: Path):
 async def test_arch_set_cascade_risk_low_requires_rationale_when_true(tmp_path: Path):
     spec_dir = tmp_path / ".jig" / "spec"
     spec_dir.mkdir(parents=True)
-    await handle_arch_set_module(
-        project_path=tmp_path, module=_module_payload("m-x")
-    )
+    await handle_arch_set_module(project_path=tmp_path, module=_module_payload("m-x"))
     with pytest.raises(ValueError):
         await handle_arch_set_cascade_risk_low(
             project_path=tmp_path,
@@ -328,9 +310,7 @@ async def test_arch_set_cascade_risk_low_requires_rationale_when_true(tmp_path: 
 async def test_arch_set_cascade_risk_low_false_clears_rationale(tmp_path: Path):
     spec_dir = tmp_path / ".jig" / "spec"
     spec_dir.mkdir(parents=True)
-    await handle_arch_set_module(
-        project_path=tmp_path, module=_module_payload("m-x")
-    )
+    await handle_arch_set_module(project_path=tmp_path, module=_module_payload("m-x"))
     await handle_arch_set_cascade_risk_low(
         project_path=tmp_path,
         module_id="m-x",

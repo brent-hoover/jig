@@ -15,9 +15,28 @@ phase_prompt: >
   ## What counts as an AC
 
 
-  An **AC item** is a bullet listed under the ticket description's
-  ``## Acceptance criteria`` section (or an equivalent heading like
-  ``## ACs`` / ``## Done when``). It is **not**:
+  An **AC item** is a bullet listed under a section labelled
+  Acceptance Criteria. The label can take any of the formats this
+  project uses:
+
+
+  - ``## Acceptance criteria`` (H2 markdown heading)
+
+  - ``### Acceptance criteria`` (H3 markdown heading)
+
+  - ``**Acceptance criteria:**`` (bold inline label, often used by
+    the PO role)
+
+  - Equivalents named ``ACs`` / ``Done when`` / ``Done-when`` /
+    ``Acceptance`` with any of the above formats.
+
+
+  Match case-insensitively and tolerate trailing punctuation
+  (``:``). Treat each bullet under that section, up to the next
+  heading / bold label / end-of-description, as one AC item.
+
+
+  An AC item is **not**:
 
 
   - Prose under ``## What to build``, ``## Context``, ``## Design``,
@@ -32,8 +51,9 @@ phase_prompt: >
     the AC section, assume a sibling ticket owns it.
 
 
-  When in doubt: only the literal bulleted list under
-  ``## Acceptance criteria`` is in scope. Everything else is context.
+  When in doubt: only the literal bulleted list under an
+  Acceptance-Criteria-labelled section (any of the formats above)
+  is in scope. Everything else is context.
 
 
   ## Ticket boundary discipline
@@ -57,9 +77,10 @@ phase_prompt: >
   ## What you flag
 
 
-  - AC bullets with no test at all. Walk each bullet under
-    ``## Acceptance criteria`` and confirm at least one test
-    references it by name or by clearly equivalent assertion target.
+  - AC bullets with no test at all. Walk each bullet under the
+    Acceptance-Criteria section (whichever format the ticket uses)
+    and confirm at least one test references it by name or by
+    clearly equivalent assertion target.
 
   - Tests that exercise only the happy path when the AC bullet
     explicitly names an edge case. Do NOT invent edge cases the AC
@@ -96,9 +117,9 @@ phase_prompt: >
   - Implementation-side concerns. The impl doesn't exist yet; you
     cannot review it. End-of-ticket reviewers do that.
 
-  - Features that appear in the description but NOT in
-    ``## Acceptance criteria``. Those belong to other tickets in the
-    workflow.
+  - Features that appear in the description but NOT under the
+    Acceptance-Criteria section. Those belong to other tickets in
+    the workflow.
 
 
   ## Severity rules
@@ -150,8 +171,9 @@ phase_prompt: >
   - Read the test diff (`git diff` against the test phase's commit).
 
   - Read the ticket description from ``ticket://description``.
-    Locate the ``## Acceptance criteria`` section. **Only those
-    bullets are your review scope.**
+    Locate the Acceptance-Criteria section (matching any of the
+    formats above). **Only the bullets in that section are your
+    review scope.**
 
   - For each AC bullet, locate the test(s) that exercise it. Flag
     bullets with no covering test.

@@ -331,6 +331,13 @@ class NowScreen(Container):
             show=False,
             priority=True,
         ),
+        Binding(
+            "ctrl+r",
+            "focus_reviewer_panes",
+            "Focus reviewer panes",
+            show=False,
+            priority=True,
+        ),
     ]
 
     def __init__(self, *args, **kwargs) -> None:
@@ -627,6 +634,27 @@ class NowScreen(Container):
                 wrap_lines += -(-visible_len // panel_inner) - 1  # ceil
         # +2 for the round border, +1 slack to avoid edge-case clipping.
         panel.styles.height = hard_lines + wrap_lines + 3
+
+    def action_focus_reviewer_panes(self) -> None:
+        """Move keyboard focus to the multi-pane reviewer widget so the
+        operator can use its j/k/Enter/Esc/1-9 bindings.
+
+        The widget's own bindings only fire when the widget itself (or
+        a descendant) holds focus — without this entry point the
+        bindings are advertised but unreachable because focus stays on
+        the composer. ``Esc`` from within the widget blurs back to the
+        composer (see ``MultiPaneStream.action_collapse``)."""
+        try:
+            panes = self.query_one("#reviewer-panes", MultiPaneStream)
+        except Exception:
+            return
+        # No-op if the widget isn't visible (no reviewers active yet).
+        if not panes.has_class("visible"):
+            return
+        try:
+            panes.focus()
+        except Exception:
+            pass
 
     def action_toggle_pause_scroll(self) -> None:
         """Pause / resume scrollback auto-scroll.

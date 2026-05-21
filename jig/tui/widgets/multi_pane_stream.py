@@ -99,10 +99,21 @@ class MultiPaneStream(Widget):
     avoided so unit tests can drive the API without a running app.
     """
 
+    # Widget-local bindings (j/k/Enter/Esc/1-9) only fire when the
+    # widget itself or one of its descendants has focus. Without
+    # ``can_focus = True`` the bindings declared below are
+    # advertised but unreachable — the composer / scrollback keeps
+    # focus in ``NowScreen`` and the operator can never tab into
+    # the pane view. Set this at class level so ``focus()`` works.
+    can_focus = True
+
     DEFAULT_CSS = """
     MultiPaneStream {
         height: auto;
         layout: vertical;
+    }
+    MultiPaneStream:focus {
+        border-left: tall $accent;
     }
     MultiPaneStream > VerticalScroll {
         height: 100%;
@@ -286,10 +297,25 @@ class MultiPaneStream(Widget):
         self._mark_dirty()
 
     def action_collapse(self) -> None:
-        if not self._expanded:
+        # Esc behaviour is two-stage so the operator always has a way
+        # back out: first press collapses an expanded pane to the
+        # compact stack; the second press blurs the widget so focus
+        # falls back to whatever sibling held it last (typically the
+        # composer in ``NowScreen``).
+        if self._expanded:
+            self._expanded = False
+            self._mark_dirty()
             return
-        self._expanded = False
-        self._mark_dirty()
+        try:
+            screen = self.screen
+        except Exception:
+            return
+        # Move focus off the widget. Textual finds the next focusable
+        # sibling automatically; in NowScreen that's the composer.
+        try:
+            screen.focus_next()
+        except Exception:
+            pass
 
     # ── Rendering ────────────────────────────────────────────────────
 

@@ -966,11 +966,12 @@ class NowScreen(Container):
                 )
             except Exception as exc:
                 scrollback.write(f"[red]error:[/red] failed to send answer ({exc})")
-            if prompt_type == "brief_approval":
-                scrollback.auto_scroll = True
-            if prompt_type == "init_complete":
-                self.app._maybe_autostart_daemon()
-            self.app._sidebar_safe(lambda s: s.update_prompt(None))
+            else:
+                if prompt_type == "brief_approval":
+                    scrollback.auto_scroll = True
+                if prompt_type == "init_complete":
+                    self.app._maybe_autostart_daemon()
+                self.app._sidebar_safe(lambda s: s.update_prompt(None))
             self._clear_input()
             return
 
@@ -1023,11 +1024,12 @@ class NowScreen(Container):
                 )
             except Exception as exc:
                 scrollback.write(f"[red]error:[/red] failed to send answer ({exc})")
-            if prompt_type == "brief_approval":
-                scrollback.auto_scroll = True
-            if prompt_type == "init_complete":
-                self.app._maybe_autostart_daemon()
-            self.app._sidebar_safe(lambda s: s.update_prompt(None))
+            else:
+                if prompt_type == "brief_approval":
+                    scrollback.auto_scroll = True
+                if prompt_type == "init_complete":
+                    self.app._maybe_autostart_daemon()
+                self.app._sidebar_safe(lambda s: s.update_prompt(None))
             try:
                 event.input.clear()
             except Exception:

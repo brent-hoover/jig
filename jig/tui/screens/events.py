@@ -92,13 +92,18 @@ class EventsScreen(Container):
             f"[dim]({len(self._filtered())}/{len(self.events_data)})[/dim]"
         )
 
+    def _event_kind(self, ev: dict[str, Any]) -> str:
+        """Extract the event kind from either snapshot or live-event shape."""
+        return (
+            ev.get("event_type")
+            or (ev.get("payload") or {}).get("kind")
+            or ev.get("kind")
+            or ""
+        )
+
     def _filtered(self) -> list[dict[str, Any]]:
         _, predicate = _FILTER_CYCLE[self.filter_idx]
-        return [
-            ev
-            for ev in self.events_data
-            if predicate((ev.get("payload") or {}).get("kind"))
-        ]
+        return [ev for ev in self.events_data if predicate(self._event_kind(ev))]
 
     async def _rebuild_list(self) -> None:
         try:
@@ -115,9 +120,16 @@ class EventsScreen(Container):
             list_view.index = len(list_view.children) - 1
             list_view.scroll_end(animate=False)
 
+    async def append_live_event(self, ev: dict[str, Any]) -> None:
+        """Append a single live event and re-render (called from JigApp fan-out)."""
+        self.events_data = [*self.events_data, ev]
+        if len(self.events_data) > 500:
+            self.events_data = self.events_data[-500:]
+        await self._rebuild_list()
+
     def _build_row(self, ev: dict[str, Any]) -> ListItem:
         ts = (ev.get("timestamp") or "")[:19]  # trim sub-seconds
-        kind = (ev.get("payload") or {}).get("kind") or ev.get("type") or "?"
+        kind = self._event_kind(ev) or ev.get("type") or "?"
         sender = ev.get("from") or ev.get("sender") or "?"
         topic = ev.get("topic") or ""
         # Pluck a useful detail if present (ticket_id, comment_id, etc.)

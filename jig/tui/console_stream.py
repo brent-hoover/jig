@@ -81,6 +81,7 @@ def make_streaming_console(emitter: "EventEmitter"):
         force_terminal=True,
         color_system="truecolor",
         highlight=False,
+        width=120,
     )
     # Stash the backing emitter so callers (e.g. _cli_emitter) can emit
     # structured events (agent_thinking) through the same global channel.

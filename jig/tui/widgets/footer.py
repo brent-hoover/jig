@@ -69,13 +69,13 @@ class JigFooter(Widget):
         height: 1;
     }
     JigFooter #footer-left {
-        width: 1fr;
+        width: auto;
         padding: 0 1;
     }
     JigFooter #footer-keys {
-        width: auto;
+        width: 1fr;
         padding: 0 2;
-        text-align: center;
+        text-align: left;
     }
     JigFooter #footer-right {
         width: auto;

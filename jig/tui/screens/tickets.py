@@ -170,7 +170,7 @@ class TicketsScreen(Container):
         height: 1fr;
     }
     #tickets-list {
-        width: 50;
+        width: 36;
         border-right: solid $accent;
     }
     #tickets-detail {
@@ -312,7 +312,11 @@ class TicketsScreen(Container):
         icon = _STATUS_ICON.get(status, "•")
         color = _STATUS_COLOR.get(status, "white")
         size = ticket.get("size", "?")
-        title = ligature_safe(ticket.get("title", "(untitled)"))  # no truncation here
+        # Inner width ≈ 26 chars (36 list − 2 padding − 8 prefix chars).
+        title = ticket.get("title", "(untitled)")
+        if len(title) > 26:
+            title = title[:25] + "…"
+        title = ligature_safe(title)
         needs_answer = status == "needs_info"
         needs_marker = "[#ff00ff bold][?][/#ff00ff bold] " if needs_answer else ""
         rendered = (

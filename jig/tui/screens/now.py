@@ -970,6 +970,7 @@ class NowScreen(Container):
                 scrollback.auto_scroll = True
             if prompt_type == "init_complete":
                 self.app._maybe_autostart_daemon()
+            self.app._sidebar_safe(lambda s: s.update_prompt(None))
             self._clear_input()
             return
 
@@ -1026,6 +1027,7 @@ class NowScreen(Container):
                 scrollback.auto_scroll = True
             if prompt_type == "init_complete":
                 self.app._maybe_autostart_daemon()
+            self.app._sidebar_safe(lambda s: s.update_prompt(None))
             try:
                 event.input.clear()
             except Exception:

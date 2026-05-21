@@ -189,12 +189,17 @@ class Sidebar(Widget):
             else:
                 lines.append(f"  [bold]{role}[/bold]")
             for tool, detail in list(self._agent_tools.get(agent_key, [])):
-                # Sidebar inner width ≈ 33 chars. Format: "  ▸ {tool}: {detail}"
-                # tool name can be up to 10 chars, leaving ~17 for detail.
-                avail = max(10, 33 - 6 - len(tool))
+                # Strip MCP namespace prefix: mcp__<ns>__<tool> → <tool>
+                display_tool = tool
+                if display_tool.startswith("mcp__") and display_tool.count("__") >= 2:
+                    display_tool = display_tool.split("__", 2)[2]
+                # Sidebar inner width 34. Format: "  ▸ {tool}: {detail}" — overhead 6 chars.
+                if len(display_tool) > 14:
+                    display_tool = display_tool[:13] + "…"
+                avail = max(6, 34 - 6 - len(display_tool))
                 detail_trunc = detail[:avail] + "…" if len(detail) > avail else detail
                 lines.append(
-                    f"  [dim]▸[/dim] [bold dim]{tool}[/bold dim][dim]: {detail_trunc}[/dim]"
+                    f"  [dim]▸[/dim] [bold dim]{display_tool}[/bold dim][dim]: {detail_trunc}[/dim]"
                 )
         zone.set_lines(lines)
 
@@ -453,8 +458,14 @@ class Sidebar(Widget):
             label = self._KIND_LABELS.get(raw_kind, raw_kind or "·")
             subject = self._extract_subject(ev)
             ts_part = f"[dim]{ts}[/dim] " if ts else ""
+            # Sidebar inner width 34. Compute subject budget dynamically so
+            # label + subject never exceeds one line.
+            ts_visible = len(ts) + 1 if ts else 0
+            if len(label) > 14:
+                label = label[:13] + "…"
+            avail_subject = max(0, 34 - ts_visible - len(label) - 1)
+            if subject and len(subject) > avail_subject:
+                subject = subject[:max(4, avail_subject - 1)] + "…"
             subject_part = f" [dim]{subject}[/dim]" if subject else ""
-            if len(label) > 18:
-                label = label[:15] + "…"
             lines.append(f"{ts_part}[cyan]{label}[/cyan]{subject_part}")
         zone.set_lines(lines)

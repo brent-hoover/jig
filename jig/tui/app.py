@@ -239,11 +239,13 @@ class JigApp(App):
                 if topic == "events":
                     kind = msg.get("kind", "")
                     payload = msg.get("data") or {}
-                    self._sidebar_safe(
-                        lambda s: s.append_event(
-                            {"event_type": kind, "payload": payload}
-                        )
-                    )
+                    ev_dict = {"event_type": kind, "payload": payload}
+                    self._sidebar_safe(lambda s: s.append_event(ev_dict))
+                    try:
+                        ev_screen = self.query_one(EventsScreen)
+                        await ev_screen.append_live_event(ev_dict)
+                    except Exception:
+                        pass
                 return
             if topic == "tickets":
                 try:

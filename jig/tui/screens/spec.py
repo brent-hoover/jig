@@ -52,7 +52,7 @@ class SpecScreen(Container):
         height: 1fr;
     }
     #spec-tree {
-        width: 40;
+        width: 32;
         border-right: solid $accent;
     }
     #spec-detail {

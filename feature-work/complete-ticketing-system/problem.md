@@ -1,5 +1,5 @@
 ---
-title: Human Project Management — Problem Statement
+title: Complete Ticketing System — Problem Statement
 type: problem
 status: draft
 owner: brent
@@ -7,19 +7,18 @@ created: 2026-05-20
 updated: 2026-05-20
 ---
 
-# Human Project Management — Problem Statement
+# Complete Ticketing System — Problem Statement
 
 ## Context
 
 Jig was conceived as lightweight project management software that agents can also use — not purely as
 an agent orchestrator. The core data model (tickets, statuses, comments, parent/child hierarchy) is
-well-suited to this dual-use vision. Agents create and advance tickets via MCP tools; the TUI provides
-a read-only view of the current state. But the human-facing PM experience has significant gaps: a human
-cannot meaningfully manage a project through jig without agent intermediaries for most operations.
+already in place. Agents create and advance tickets via MCP tools; humans observe via the TUI. The
+ticket system exists; the gap is that humans are not first-class participants in it.
 
-This matters because real projects involve a mix of human decisions and agent execution. A human should
-be able to create a ticket, group tickets into epics, annotate a ticket mid-run, see a board view of
-project state, and declare a dependency between tickets — all without triggering an agent.
+A human should be able to do everything an agent can do with a ticket — create one, comment on it,
+advance it, group tickets into epics, declare dependencies — all without triggering an agent. The
+ticketing system is incomplete until humans and agents can participate on equal footing.
 
 ## Problem
 

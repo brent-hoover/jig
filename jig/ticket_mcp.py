@@ -162,21 +162,14 @@ async def handle_create_ticket(
         if dep is not None and ticket_id not in dep.blocks:
             await tickets.update(dep_id, blocks=dep.blocks + [ticket_id])
 
-    payload = {
-        "kind": "ticket_created",
-        "ticket_id": ticket_id,
-        "title": ticket.title,
-        "description": ticket.description,
-        "work_type": ticket.work_type.value,
-        # Legacy alias for subscribers not yet updated to the Phase 1
-        # schema. Remove once TUI + any other consumers land on work_type.
-        "type": ticket.work_type.value,
-        "size": ticket.size.value,
-        "assignee": ticket.assignee,
-        "parent_id": ticket.parent_id,
-        "depends_on": depends_on,
-        "workflow": ticket.workflow,
-    }
+    # PM-initiated create — publish on the orchestrator topic so the
+    # dispatch loop schedules this ticket immediately. The store's
+    # on-create callback (registered by ``Orchestrator.startup``)
+    # already published a broadcast-topic event for TUI subscribers,
+    # so we suppress that side here by skipping ``for_dispatch=False``.
+    from jig.ticket_events import _build_payload
+
+    payload = _build_payload(ticket, depends_on=depends_on)
     await bus.publish(
         Message(
             sender=sender,
@@ -184,19 +177,6 @@ async def handle_create_ticket(
             type=MessageType.CONTEXT_UPDATE,
             payload=payload,
             topic="orchestrator",
-        )
-    )
-    # Always broadcast on the tickets topic — the assignee is metadata for
-    # tracking, not a routing directive for creation events.  Using the
-    # assignee as `to` here caused the dispatch loop to spawn a premature
-    # QA responder before the ticket entered the workflow pipeline.
-    await bus.publish(
-        Message(
-            sender=sender,
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=payload,
-            topic=f"tickets.{ticket_id}",
         )
     )
     return ticket_id

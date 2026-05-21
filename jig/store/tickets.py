@@ -15,6 +15,8 @@ StatusChangeCallback = Callable[
     [str, Union[str, None], str], Union[Awaitable[None], None]
 ]
 
+CreateCallback = Callable[[Ticket], Union[Awaitable[None], None]]
+
 # All shipped work_types currently participate in the workflow pipeline.
 # Phase 2 will introduce per-work_type workflow selection via config.yaml,
 # but for now every top-level ticket is eligible.
@@ -32,6 +34,7 @@ class TicketStore:
             index_fields=["work_type", "status", "assignee", "parent_id"],
         )
         self._on_status_change: StatusChangeCallback | None = None
+        self._on_create: CreateCallback | None = None
         self._background_tasks: set[asyncio.Task] = set()
 
     def set_status_change_callback(self, cb: StatusChangeCallback | None) -> None:
@@ -45,6 +48,22 @@ class TicketStore:
         """
         self._on_status_change = cb
 
+    def set_create_callback(self, cb: CreateCallback | None) -> None:
+        """Register a callback fired after every successful ticket create.
+
+        The orchestrator uses this to publish ``ticket_created`` events
+        on the bus with the full ticket payload, so every direct
+        ``tickets.create(Ticket(...))`` call (init flow, CLI commands,
+        Coordinator materialize, spike proposals) announces itself
+        without the caller having to remember. Previously only the
+        MCP ``handle_create_ticket`` published, leaving the TUI with
+        half-empty ticket dicts for system tickets.
+
+        Sync or async returns are both supported. Pass ``None`` to
+        clear the callback (useful in tests).
+        """
+        self._on_create = cb
+
     async def load(self) -> None:
         await self._collection.load()
 
@@ -54,11 +73,36 @@ class TicketStore:
         # We re-raise with a ticket-specific message so callers (CLI,
         # init flow) get a domain-friendly error.
         try:
-            return await self._collection.insert(ticket)
+            ticket_id = await self._collection.insert(ticket)
         except ValueError as e:
             if "already exists" in str(e):
                 raise ValueError(f"ticket with id {ticket.id!r} already exists") from e
             raise
+        # Fire the create callback so the orchestrator can announce
+        # the new ticket on the bus. Done after the JSONL write
+        # commits so subscribers can immediately read the ticket back
+        # if they want to (no read-after-write race).
+        if self._on_create is not None:
+            self._fire_create(ticket)
+        return ticket_id
+
+    def _fire_create(self, ticket: Ticket) -> None:
+        cb = self._on_create
+        if cb is None:
+            return
+        result = cb(ticket)
+        if inspect.isawaitable(result):
+            task = asyncio.create_task(result)  # type: ignore[arg-type]
+            self._background_tasks.add(task)
+
+            def _on_done(t: asyncio.Task) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and (exc := t.exception()):
+                    logger.warning(
+                        "ticket-create callback raised: %s", exc, exc_info=exc
+                    )
+
+            task.add_done_callback(_on_done)
 
     async def get(self, ticket_id: str) -> Ticket | None:
         return await self._collection.get(ticket_id)

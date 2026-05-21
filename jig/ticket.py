@@ -367,6 +367,23 @@ class Ticket(StoreModel):
             done_when=self.done_when,
         )
 
+    @field_validator("title")
+    @classmethod
+    def _strip_title_backticks(cls, value: str) -> str:
+        """Drop backticks from ticket titles.
+
+        PM / planner agents write titles with markdown-style backticks
+        for flag names (``` `--min-score` ```), code refs, etc. The
+        TUI's Tickets tab and sidebar don't render markdown — backticks
+        show up literally, and the visual density of ``` `-- ``` reads
+        as a strikethrough in many terminal fonts (operator sees a
+        non-blocked ticket and assumes it's complete). Stripping at the
+        model layer means every consumer (TUI, sidebar, sidebar tail,
+        agent prompts, logs, story output) sees the same clean title
+        without each renderer having to remember to scrub.
+        """
+        return value.replace("`", "")
+
     @field_validator("id")
     @classmethod
     def _validate_id_is_path_safe(cls, value: str) -> str:

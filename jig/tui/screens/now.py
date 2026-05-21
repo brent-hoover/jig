@@ -654,7 +654,12 @@ class NowScreen(Container):
             return
         try:
             panes.focus()
-        except NoMatches:
+        except Exception:
+            # ``Widget.focus()`` is best-effort during teardown.
+            # ``NoMatches`` doesn't apply here (that's a query
+            # exception); a broad catch matches the
+            # ``screen.focus_next()`` pattern in
+            # ``MultiPaneStream.action_collapse``.
             pass
 
     def action_toggle_pause_scroll(self) -> None:

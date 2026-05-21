@@ -69,6 +69,62 @@ async def test_create_ticket_publishes_bus_event(stores) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_ticket_with_wired_callback_broadcasts_once(stores) -> None:
+    """Pins the double-publish prevention contract.
+
+    Production stores have ``wire_create_publisher`` registered (it
+    fires the broadcast topic from the store callback). When
+    ``handle_create_ticket`` runs against such a store it MUST
+    publish broadcast exactly once — relying on
+    ``fire_create_callback=False`` to suppress the store callback
+    for that single create while it publishes both topics itself.
+
+    A refactor that drops the ``fire_create_callback=False`` flag,
+    or moves ``wire_create_publisher`` inside the handler, would
+    silently regress this invariant. Without this test nothing
+    catches that.
+    """
+    from jig.ticket_events import wire_create_publisher
+
+    tickets, _, bus = stores
+    wire_create_publisher(tickets, bus, sender="store")
+
+    ticket_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="pm",
+        args={
+            "type": "feature",
+            "title": "broadcast invariant",
+            "description": TICKET_AC_PLACEHOLDER,
+        },
+    )
+    # Drain the wire-up's background task (no-op if the suppression
+    # worked — there's no task to await — but covers the regression
+    # case where a leaked callback fired).
+    await tickets.drain_background_tasks()
+
+    # Exactly one broadcast publish (the handler's own), not two
+    # (handler + un-suppressed callback).
+    broadcast_history = await bus.get_history(f"tickets.{ticket_id}", limit=10)
+    creates = [m for m in broadcast_history if m.payload.get("kind") == "ticket_created"]
+    assert len(creates) == 1, (
+        f"expected exactly one ticket_created broadcast on tickets.{ticket_id}, "
+        f"got {len(creates)} — store callback double-published"
+    )
+
+    # And exactly one orchestrator-topic publish for dispatch.
+    orch_history = await bus.get_history("orchestrator", limit=10)
+    orch_creates = [
+        m
+        for m in orch_history
+        if m.payload.get("kind") == "ticket_created"
+        and m.payload.get("ticket_id") == ticket_id
+    ]
+    assert len(orch_creates) == 1
+
+
+@pytest.mark.asyncio
 async def test_create_ticket_rejects_unknown_work_type(stores) -> None:
     tickets, threads, bus = stores
     with pytest.raises(ValueError, match=r"Unknown work_type 'gizmo'.*feature"):

@@ -21,8 +21,13 @@ Topics published:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from jig.store.bus import Message, MessageBus, MessageType
 from jig.ticket import Ticket
+
+if TYPE_CHECKING:
+    from jig.store.tickets import TicketStore
 
 
 def _build_payload(ticket: Ticket, *, depends_on: list[str] | None = None) -> dict:
@@ -116,7 +121,9 @@ async def publish_ticket_created(
     )
 
 
-def wire_create_publisher(tickets, bus: MessageBus, *, sender: str = "system") -> None:
+def wire_create_publisher(
+    tickets: "TicketStore", bus: MessageBus, *, sender: str = "system"
+) -> None:
     """Register a broadcast-only ``ticket_created`` publisher on ``tickets``.
 
     Every ``TicketStore`` instance that will see direct

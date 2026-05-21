@@ -103,28 +103,27 @@ class TestStoreCreateCallback:
     async def test_callback_failure_does_not_break_create(
         self, store_and_bus: tuple[TicketStore, MessageBus]
     ) -> None:
-        """A bad callback shouldn't prevent the ticket from landing in
-        the store — the create has already committed by the time the
-        callback fires."""
+        """Fail-soft: a broken sync callback is swallowed (logged as
+        warning) and ``create()`` returns normally. The async path
+        already behaves this way via ``_on_done``; the sync path
+        matches so the documented "fail-soft" contract holds
+        regardless of callback flavor."""
         tickets, _ = store_and_bus
 
         def _broken(t: Ticket) -> None:
             raise RuntimeError("boom")
 
         tickets.set_create_callback(_broken)
-        # Sync callbacks bubble exceptions to the caller — that's
-        # acceptable; the store still committed.
-        with pytest.raises(RuntimeError):
-            await tickets.create(
-                Ticket(
-                    id="t-4",
-                    work_type=WorkType.FEATURE,
-                    title="t",
-                    created_by="test",
-                    description=TICKET_AC_PLACEHOLDER,
-                )
+        ticket_id = await tickets.create(
+            Ticket(
+                id="t-4",
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="test",
+                description=TICKET_AC_PLACEHOLDER,
             )
-        # The ticket still made it into the store.
+        )
+        assert ticket_id == "t-4"
         loaded = await tickets.get("t-4")
         assert loaded is not None
 

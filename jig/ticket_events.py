@@ -116,4 +116,31 @@ async def publish_ticket_created(
     )
 
 
-__all__ = ["publish_ticket_created"]
+def wire_create_publisher(tickets, bus: MessageBus, *, sender: str = "system") -> None:
+    """Register a broadcast-only ``ticket_created`` publisher on ``tickets``.
+
+    Every ``TicketStore`` instance that will see direct
+    ``tickets.create(...)`` calls — orchestrator, init flow, CLI
+    subcommands, TUI commands, the Coordinator — should call this
+    helper once at construction so the broadcast topic
+    ``tickets.{id}`` is populated for any subscriber (the TUI is the
+    main one). Without the wire-up, the TUI sees only partial event
+    payloads and renders ``(untitled)`` for any ticket it didn't
+    receive a snapshot baseline for.
+
+    The callback publishes broadcast-only by default
+    (``for_dispatch=False``) — dispatch is the exclusive domain of
+    ``handle_create_ticket``. Direct-create paths schedule via
+    ``_start_ready_tickets`` polling, not bus events.
+
+    Idempotent: re-calling overwrites the previous callback. Safe to
+    call at any point during the store's lifetime.
+    """
+
+    async def _publish(ticket: Ticket) -> None:
+        await publish_ticket_created(bus, ticket, sender=sender)
+
+    tickets.set_create_callback(_publish)
+
+
+__all__ = ["publish_ticket_created", "wire_create_publisher"]

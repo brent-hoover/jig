@@ -212,6 +212,12 @@ async def run_init(
     bus = MessageBus(store_dir / "messages.jsonl")
     for s in (tickets, threads, memory, bus):
         await s.load()
+    # Announce every direct ``tickets.create(...)`` on the broadcast
+    # topic so the TUI (if running) sees full ticket payloads rather
+    # than partial status-event merges.
+    from jig.ticket_events import wire_create_publisher
+
+    wire_create_publisher(tickets, bus, sender="init")
 
     # --brief: seed a baked brief and skip the PO conversation. Idempotent —
     # if the brief ticket already exists (e.g. on a re-run without --force),

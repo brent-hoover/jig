@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Union
@@ -51,8 +52,9 @@ class TicketStore:
     def set_create_callback(self, cb: CreateCallback | None) -> None:
         """Register a callback fired after every successful ticket create.
 
-        The orchestrator uses this to publish ``ticket_created`` events
-        on the bus with the full ticket payload, so every direct
+        The orchestrator (and ``jig.ticket_events.wire_create_publisher``
+        for non-orchestrator paths) use this to publish ``ticket_created``
+        events on the bus with the full ticket payload, so every direct
         ``tickets.create(Ticket(...))`` call (init flow, CLI commands,
         Coordinator materialize, spike proposals) announces itself
         without the caller having to remember. Previously only the
@@ -60,9 +62,31 @@ class TicketStore:
         half-empty ticket dicts for system tickets.
 
         Sync or async returns are both supported. Pass ``None`` to
-        clear the callback (useful in tests).
+        clear the callback (useful in tests, and required while
+        ``handle_create_ticket`` runs to prevent double-broadcast).
         """
         self._on_create = cb
+
+    @contextmanager
+    def suppress_create_callback(self):
+        """Temporarily clear the create callback for a section of code.
+
+        Use case: ``handle_create_ticket`` publishes both the
+        orchestrator and broadcast topics directly so that callers
+        without a registered callback (the MCP via a fresh store)
+        still announce themselves on the broadcast topic. If the
+        store ALSO has a callback registered (production via the
+        orchestrator's wire-up), the callback would fire on the same
+        create and produce a duplicate broadcast event. Wrapping the
+        create in this context manager ensures exactly one broadcast
+        regardless of registration state.
+        """
+        saved = self._on_create
+        self._on_create = None
+        try:
+            yield
+        finally:
+            self._on_create = saved
 
     async def load(self) -> None:
         await self._collection.load()
@@ -90,7 +114,11 @@ class TicketStore:
         cb = self._on_create
         if cb is None:
             return
-        result = cb(ticket)
+        try:
+            result = cb(ticket)
+        except Exception as exc:
+            logger.warning("ticket-create callback raised: %s", exc, exc_info=exc)
+            return
         if inspect.isawaitable(result):
             task = asyncio.create_task(result)  # type: ignore[arg-type]
             self._background_tasks.add(task)
@@ -148,7 +176,11 @@ class TicketStore:
         cb = self._on_status_change
         if cb is None:
             return
-        result = cb(ticket_id, from_state, to_state)
+        try:
+            result = cb(ticket_id, from_state, to_state)
+        except Exception as exc:
+            logger.warning("status-change callback raised: %s", exc, exc_info=exc)
+            return
         if inspect.isawaitable(result):
             task = asyncio.create_task(result)  # type: ignore[arg-type]
             self._background_tasks.add(task)
@@ -156,7 +188,9 @@ class TicketStore:
             def _on_done(t: asyncio.Task) -> None:
                 self._background_tasks.discard(t)
                 if not t.cancelled() and (exc := t.exception()):
-                    logger.error("status-change callback raised: %s", exc, exc_info=exc)
+                    logger.warning(
+                        "status-change callback raised: %s", exc, exc_info=exc
+                    )
 
             task.add_done_callback(_on_done)
 

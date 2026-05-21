@@ -295,7 +295,9 @@ class Orchestrator:
             )
             self._analytics_emitter = AnalyticsEmitter(self.analytics)
             self.tickets.set_status_change_callback(self._on_ticket_status_change)
-            self.tickets.set_create_callback(self._on_ticket_created)
+            from jig.ticket_events import wire_create_publisher
+
+            wire_create_publisher(self.tickets, self.bus, sender="orchestrator")
             # Phase 5 Task L: load deadlock thresholds from
             # `.jig/config.yaml`. Missing config (fresh install,
             # tests) falls back to the shipped defaults rather
@@ -347,34 +349,6 @@ class Orchestrator:
         await self.startup()
 
     # ---- analytics --------------------------------------------------------
-
-    async def _on_ticket_created(self, ticket) -> None:
-        """Create callback wired into TicketStore for bus event emission.
-
-        Publishes ``ticket_created`` on both ``orchestrator`` and
-        ``tickets.{id}`` topics with the full ticket payload. Without
-        this, only the ``ticket_mcp.handle_create_ticket`` path
-        emitted events — direct ``tickets.create(Ticket(...))`` calls
-        in init_workflow / cli / coordinator / spike proposal /
-        canonicalize landed silently, leaving downstream consumers
-        (TUI, log readers) with no baseline state for those tickets.
-        """
-        if self.bus is None:
-            return
-        from jig.ticket_events import publish_ticket_created
-
-        try:
-            await publish_ticket_created(
-                self.bus,
-                ticket,
-                sender="orchestrator",
-            )
-        except Exception:
-            _logger.warning(
-                "publish_ticket_created raised for ticket %s",
-                ticket.id,
-                exc_info=True,
-            )
 
     def _on_ticket_status_change(
         self, ticket_id: str, from_state: str | None, to_state: str

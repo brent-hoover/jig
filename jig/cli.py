@@ -210,14 +210,22 @@ def plan(path: Path) -> None:
     if not (jig_dir / "spec" / "architecture.yaml").is_file():
         raise click.ClickException("Project not initialized. Run 'jig init' first.")
 
+    from jig.store import MessageBus
     from jig.store.tickets import TicketStore
     from jig.ticket import Ticket, WorkType
+    from jig.ticket_events import wire_create_publisher
 
     store_dir = jig_dir / "store"
     tickets = TicketStore(store_dir / "tickets.jsonl")
+    bus = MessageBus(store_dir / "messages.jsonl")
 
     async def _run() -> bool:
         await tickets.load()
+        await bus.load()
+        # Even though this CLI command is one-shot, the daemon (if
+        # running) shares the same JSONL bus file, so publishing here
+        # ensures a live TUI sees the planning-ticket creation.
+        wire_create_publisher(tickets, bus, sender="cli")
         existing = await tickets.get("planning")
         if existing is not None:
             return False
@@ -2443,12 +2451,17 @@ def tracer_run(tracer_id: str, path: Path) -> None:
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 def canonicalize_cmd(ticket_id: str | None, sweep: bool, path: Path) -> None:
     """Create a ticket that runs the canonicalizer agent."""
+    from jig.store import MessageBus
     from jig.store.tickets import TicketStore
     from jig.ticket import Size, Ticket, TicketStatus, WorkType
+    from jig.ticket_events import wire_create_publisher
 
     async def _run() -> str:
         store = TicketStore(path / ".jig" / "store" / "tickets.jsonl")
+        bus = MessageBus(path / ".jig" / "store" / "messages.jsonl")
         await store.load()
+        await bus.load()
+        wire_create_publisher(store, bus, sender="cli")
 
         if sweep:
             title = "Canonicalize sweep (whole repo)"

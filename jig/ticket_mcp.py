@@ -154,7 +154,13 @@ async def handle_create_ticket(
             except WorkflowResolutionError as exc:
                 raise ValueError(str(exc)) from exc
 
-    ticket_id = await tickets.create(ticket)
+    # Suppress the store's on-create callback during this create. The
+    # callback (when wired by ``wire_create_publisher`` or
+    # ``Orchestrator.startup``) publishes the broadcast event for
+    # paths that bypass this handler. Here we publish both topics
+    # explicitly below so the broadcast doesn't get sent twice.
+    with tickets.suppress_create_callback():
+        ticket_id = await tickets.create(ticket)
 
     # Update the reverse side: each dependency now blocks this ticket
     for dep_id in depends_on:
@@ -162,22 +168,18 @@ async def handle_create_ticket(
         if dep is not None and ticket_id not in dep.blocks:
             await tickets.update(dep_id, blocks=dep.blocks + [ticket_id])
 
-    # PM-initiated create — publish on the orchestrator topic so the
-    # dispatch loop schedules this ticket immediately. The store's
-    # on-create callback (registered by ``Orchestrator.startup``)
-    # already published a broadcast-topic event for TUI subscribers,
-    # so we suppress that side here by skipping ``for_dispatch=False``.
-    from jig.ticket_events import _build_payload
+    # Publish both orchestrator (for dispatch) and broadcast (for TUI
+    # subscribers). PM-driven create needs dispatch immediately —
+    # without it the ticket sits unscheduled until something else
+    # nudges the orchestrator.
+    from jig.ticket_events import publish_ticket_created
 
-    payload = _build_payload(ticket, depends_on=depends_on)
-    await bus.publish(
-        Message(
-            sender=sender,
-            to=ticket.assignee or "orchestrator",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=payload,
-            topic="orchestrator",
-        )
+    await publish_ticket_created(
+        bus,
+        ticket,
+        sender=sender,
+        depends_on=depends_on,
+        for_dispatch=True,
     )
     return ticket_id
 

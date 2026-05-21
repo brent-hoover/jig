@@ -107,6 +107,7 @@ Docs are organized by feature/component under `feature-work/<feature>/`:
 - `plan.md` — implementation plan (throwaway when work is done)
 - `specs/` — component specs, EARS-style, one per file ONLY IF NECESSARY
 - `notes.md` — scratch/working notes (not canonical)
+- `deferred.md` - if work is deferred, why and when to resume
 
 Cross-cutting docs live at the top level:
 

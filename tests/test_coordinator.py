@@ -142,14 +142,7 @@ async def test_materialize_handles_module_less_epic(tmp_path: Path, store: Ticke
 async def test_materialize_renders_epic_acceptance_criteria_into_ticket(
     tmp_path: Path, store: TicketStore
 ) -> None:
-    """End-to-end wiring: ``Epic.acceptance_criteria`` bullets reach the
-    materialized Ticket's description verbatim under a ``## Acceptance
-    criteria`` heading.
-
-    Without this test, a future refactor that misrouted the field
-    (e.g. passing ``epic.intent.problem`` to the renderer instead of
-    ``epic.acceptance_criteria``) would not be caught by the existing
-    unit-only coverage of ``_render_description_with_ac``."""
+    """Wiring check: ``Epic.acceptance_criteria`` bullets appear verbatim in the materialized Ticket description."""
     bullets = [
         "Row visible in products collection within 30s of OAuth completion.",
         "Subsequent fetches see no duplicate rows.",

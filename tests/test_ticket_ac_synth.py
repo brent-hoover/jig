@@ -78,6 +78,15 @@ class TestRenderDescriptionWithAc:
         # No intent prose preamble when problem is empty.
         assert out.startswith("## Acceptance criteria")
 
+    def test_empty_list_raises_value_error(self) -> None:
+        """Document the helper's contract: ``acceptance_criteria`` must be
+        non-empty. The Epic schema's ``min_length=1`` prevents the normal
+        path from reaching the guard, but a direct caller misuse should
+        fail here rather than producing an AC-less description that
+        crashes the Ticket validator later with a less helpful error."""
+        with pytest.raises(ValueError, match="at least one bullet"):
+            _render_description_with_ac(problem="p", acceptance_criteria=[])
+
     def test_intent_prose_precedes_ac_section(self) -> None:
         out = _render_description_with_ac(
             problem="Why we are doing this.",

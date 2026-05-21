@@ -119,9 +119,7 @@ def _epic_dict(
         },
         "risks_addressed": [],
         "intent": _intent_dict(),
-        "acceptance_criteria": [
-            "Test fixture placeholder; refine per epic if the test cares."
-        ],
+        "acceptance_criteria": [EPIC_AC_PLACEHOLDER_BULLET],
     }
 
 

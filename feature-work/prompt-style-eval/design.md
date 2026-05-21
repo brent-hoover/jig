@@ -4,7 +4,7 @@ type: design
 status: draft
 owner: brent
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-21
 problem: ./problem.md
 ---
 
@@ -12,7 +12,7 @@ problem: ./problem.md
 
 ## Summary
 
-A standalone Python harness under `evals/prompt_style_eval/` that compares hand-authored prompts against each
+A standalone Python harness under `jig/evals/prompt_style_eval/` that compares hand-authored prompts against each
 other on the same underlying task. A **task** is a hidden pytest suite plus a short reference description; a
 **prompt** is a plain text/markdown file that asks the agent to build that task in some particular style (YAML
 spec, prose spec, EARS, etc.). For each `(task, prompt, seed)` cell the harness invokes the Claude Code SDK
@@ -31,7 +31,7 @@ of styles grows past what's comfortable to write by hand.
 ### Components
 
 ```
-evals/prompt_style_eval/
+jig/evals/prompt_style_eval/
 ├── __main__.py          CLI entrypoint (click)
 ├── cli.py               run / report / rescore commands
 ├── runner.py            one cell end-to-end: load prompt → invoke → classify → score → store

@@ -7,7 +7,7 @@ fires:
 1. Logs the signal + detail to ``evals/runs/<run-id>/watcher.log``.
 2. Optionally kills orphan ``claude`` subprocesses rooted in the
    project workspace (the most common cause of heartbeat-gap stalls).
-3. Invokes :mod:`evals.watcher.analyzer` to capture the run's state
+3. Invokes :mod:`jig.evals.watcher.analyzer` to capture the run's state
    under a ``stalled`` outcome.
 4. Exits with a non-zero status so a CI step can flag the run.
 

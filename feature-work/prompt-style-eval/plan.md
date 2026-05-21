@@ -4,7 +4,7 @@ type: plan
 status: draft
 owner: brent
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-21
 design: ./design.md
 ---
 
@@ -48,7 +48,7 @@ isolation so a stall in a later phase doesn't unwind earlier work.
 
 ### 1. Scaffold the package
 
-**What:** Create `evals/prompt_style_eval/` with `__init__.py`, `__main__.py`, `cli.py` stub (click app with
+**What:** Create `jig/evals/prompt_style_eval/` with `__init__.py`, `__main__.py`, `cli.py` stub (click app with
 empty `run`/`report`/`rescore` subcommands), and a `results/` dir (gitignored except for a `.gitkeep`).
 
 **Why:** Establishes import path and `python -m jig.evals.prompt_style_eval` entrypoint.
@@ -234,8 +234,8 @@ pass rate, variance, checklist scores, and bootstrap CIs across all three tasks.
 
 ## Rollback
 
-Nothing here touches shared infrastructure. The harness is a self-contained directory under `evals/`. Worst-case
-rollback: delete `evals/prompt_style_eval/` and any `tests/evals/` files. Run records under `results/runs.jsonl`
+Nothing here touches shared infrastructure. The harness is a self-contained directory under `jig/evals/`. Worst-case
+rollback: delete `jig/evals/prompt_style_eval/` and any `tests/evals/` files. Run records under `results/runs.jsonl`
 are local-only.
 
 ## Out of scope for this plan

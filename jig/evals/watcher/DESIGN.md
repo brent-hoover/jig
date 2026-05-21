@@ -232,7 +232,7 @@ narrative is for humans, the metrics are for diff'ing.
 ## Layout (proposed)
 
 ```
-evals/
+jig/evals/
   watcher/
     DESIGN.md             ← this file
     __init__.py
@@ -244,13 +244,13 @@ evals/
     metrics.py            ← metrics.json schema + aggregation helpers
     prompts/
       analyzer.md         ← system prompt for the analyzer agent
-  runs/
-    <run-id>/
-      eval.log            ← watcher's verdict + signal traces
-      analysis.md         ← analyzer's narrative report
-      metrics.json        ← machine-readable summary (dashboard input)
-      ticket-snapshot.json
-      thread-snapshot.json
+evals/runs/
+  <run-id>/
+    eval.log              ← watcher's verdict + signal traces
+    analysis.md           ← analyzer's narrative report
+    metrics.json          ← machine-readable summary (dashboard input)
+    ticket-snapshot.json
+    thread-snapshot.json
 scripts/
   eval_dashboard.py       ← reads metrics.json across runs; --regress mode
 .github/workflows/

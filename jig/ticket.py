@@ -64,11 +64,11 @@ _AC_HEADING_RE: re.Pattern[str] = re.compile(
 
 # A bullet under an AC section: ``- text`` / ``* text`` / ``N. text``.
 # The leading whitespace is tolerated (some authors indent). Blank lines
-# between the heading and the first bullet are also allowed — the
-# walker below stops only when it hits another heading or non-blank
-# non-bullet content.
+# and interleaved prose between the heading and the first bullet are
+# also allowed — the walker handles them implicitly by falling through
+# to the "stay in AC scope" path until a real heading boundary closes
+# the section.
 _BULLET_RE: re.Pattern[str] = re.compile(r"^[ \t]*(?:[-*]|\d+\.)[ \t]+\S")
-_BLANK_RE: re.Pattern[str] = re.compile(r"^[ \t]*$")
 # Section-terminating heading detection. Matches:
 #   - ``# `` … ``###### `` (H1-H6 markdown heading)
 #   - ``**label**`` / ``**label:**`` *consuming the whole line* — a

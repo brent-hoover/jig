@@ -299,6 +299,8 @@ Elaborates one suite's brief and structured spec (capabilities, behaviors, user 
   - `reviewer-security` — security analysis (auto-selected for sensitive tickets)
   - `reviewer-performance` — performance budget validation (auto-selected for perf-budget tickets)
   - `reviewer-architectural` — architecture pattern analysis (auto-selected for SA-tier tickets)
+  - `reviewer-generalist` — single-pass review covering all five specialist axes; dispatched by smaller workflows
+    (feature-xs, feature-s, bugfix, refactor, migration, perf) in place of the specialist federation
 
 ### Comment Structure (`reviewers/comment.py`)
 

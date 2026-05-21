@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-18
+updated: 2026-05-21
 ---
 
 # C4 Component Level: Jig Agent Orchestration Framework
@@ -710,6 +710,8 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
   - `reviewer-security`: Security analysis (auto-selected for sensitive tickets)
   - `reviewer-performance`: Performance budget validation
   - `reviewer-architectural`: Architecture pattern analysis (SA-tier tickets)
+  - `reviewer-generalist`: Single-pass review covering all five specialist axes; dispatched by smaller workflows
+    (feature-xs, feature-s, bugfix, refactor, migration, perf) in place of the specialist federation
 - **Self-check gate**: Drops low-signal noise before persisting reviewer comments
 - **Auto-apply**: `auto_apply.py` applies suggested diffs automatically when `confidence >= threshold`
 - **Fix loop**: Orchestrator-driven cycle of fix-attempt → re-review; capped at 3 cycles

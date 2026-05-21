@@ -548,7 +548,7 @@ class WebSocketServer:
         topic. Returns empty list when stores don't exist or the
         ticket has no findings.
         """
-        from jig.finding_ids import compute_finding_ids
+        from jig.finding_ids import compute_finding_ids, signature_of
         from jig.store.finding_acks import FindingAcksStore
         from jig.store.review_comments import ReviewCommentsStore
 
@@ -586,9 +586,7 @@ class WebSocketServer:
         seen_fids: set[str] = set()
         result: list[dict] = []
         for c in comments:
-            type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-            sig = (c.reviewer, type_value, c.file, c.line)
-            fid = ids.get(sig)
+            fid = ids.get(signature_of(c))
             if fid is None or fid in seen_fids:
                 continue
             seen_fids.add(fid)

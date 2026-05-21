@@ -229,7 +229,7 @@ async def _iter_finding_events_for_ticket(
     ``finding_{addressed|resolved|reraised}`` according to the row's
     ``kind`` field. Each carries the row's ``created_at`` as timestamp.
     """
-    from jig.finding_ids import compute_finding_ids
+    from jig.finding_ids import compute_finding_ids, signature_of
     from jig.store.finding_acks import FindingAcksStore
     from jig.store.review_comments import ReviewCommentsStore
 
@@ -246,9 +246,7 @@ async def _iter_finding_events_for_ticket(
         comments = await rc_store.for_ticket_chronological(ticket_id)
         ids = compute_finding_ids(comments)
         for c in comments:
-            type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-            sig = (c.reviewer, type_value, c.file, c.line)
-            fid = ids.get(sig, "?")
+            fid = ids.get(signature_of(c), "?")
             loc = c.file or "(diff-wide)"
             loc_full = f"{loc}:{c.line}" if c.line else loc
             events.append(

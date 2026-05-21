@@ -2232,9 +2232,11 @@ class Orchestrator:
         from datetime import datetime, timezone
 
         try:
-            from evals.watcher.analyzer import analyze
+            from jig.evals.watcher.analyzer import analyze
         except ImportError:
-            _logger.warning("analyzer not available (evals package not installed)")
+            _logger.warning(
+                "analyzer not available (jig.evals import failed)", exc_info=True
+            )
             return
 
         project_name = self._project_path.resolve().name

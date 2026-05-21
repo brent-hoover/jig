@@ -86,9 +86,7 @@ def extract_code(text: str) -> str | None:
     return "\n\n".join(cleaned)
 
 
-_FENCE_WITH_POS_RE = re.compile(
-    r"```([a-zA-Z0-9_+\-]*)\n(.*?)```", re.DOTALL
-)
+_FENCE_WITH_POS_RE = re.compile(r"```([a-zA-Z0-9_+\-]*)\n(.*?)```", re.DOTALL)
 
 
 def _filename_from_heading(text: str) -> str | None:
@@ -145,13 +143,10 @@ def extract_files(text: str, *, default_filename: str) -> dict[str, str]:
     cursor = 0
     default_used = False
     for match in _FENCE_WITH_POS_RE.finditer(text):
-        preceding = text[cursor:match.start()]
+        preceding = text[cursor : match.start()]
         body = match.group(2).rstrip("\n")
 
-        filename = (
-            _filename_from_heading(preceding)
-            or _filename_from_first_line(body)
-        )
+        filename = _filename_from_heading(preceding) or _filename_from_first_line(body)
         if filename is None and not default_used:
             filename = default_filename
             default_used = True

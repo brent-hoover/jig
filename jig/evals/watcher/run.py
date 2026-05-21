@@ -7,16 +7,17 @@ fires:
 1. Logs the signal + detail to ``evals/runs/<run-id>/watcher.log``.
 2. Optionally kills orphan ``claude`` subprocesses rooted in the
    project workspace (the most common cause of heartbeat-gap stalls).
-3. Invokes :mod:`evals.watcher.analyzer` to capture the run's state
+3. Invokes :mod:`jig.evals.watcher.analyzer` to capture the run's state
    under a ``stalled`` outcome.
 4. Exits with a non-zero status so a CI step can flag the run.
 
 Usage:
 
-    python -m evals.watcher.run --project hn-cli
-    python -m evals.watcher.run /abs/path/to/workspace
-    python -m evals.watcher.run --project hn-cli --no-kill --no-analyze
+    python -m jig.evals.watcher.run --project hn-cli
+    python -m jig.evals.watcher.run /abs/path/to/workspace
+    python -m jig.evals.watcher.run --project hn-cli --no-kill --no-analyze
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,14 +32,16 @@ from pathlib import Path
 
 from websockets.asyncio.client import connect as _ws_connect
 
-from evals.watcher.heuristics import StallThresholds
-from evals.watcher.stall_detector import StallDetector, StallVerdict
+from jig.evals.watcher.heuristics import StallThresholds
+from jig.evals.watcher.stall_detector import StallDetector, StallVerdict
 
 ALL_TOPICS = ("tickets", "spec", "agents", "events", "prompts")
 
 
 def _resolve_eval_project(name: str) -> Path:
-    here = Path(__file__).resolve().parents[2]  # evals/watcher/.. -> jig
+    here = (
+        Path(__file__).resolve().parents[3]
+    )  # jig/evals/watcher/../../.. -> repo root
     return here.parent / "jig_evals" / name
 
 
@@ -154,9 +157,7 @@ async def watch(
     try:
         async with _ws_connect(addr, ping_interval=20) as ws:
             for topic in ALL_TOPICS:
-                await ws.send(
-                    json.dumps({"type": "subscribe", "topics": [topic]})
-                )
+                await ws.send(json.dumps({"type": "subscribe", "topics": [topic]}))
             log("[watcher] subscribed to all topics; watching for stalls")
 
             consumer = asyncio.create_task(_consume(ws, detector, log))
@@ -191,12 +192,10 @@ async def watch(
 
     if run_analyzer:
         log("[watcher] running analyzer to capture stall report")
-        from evals.watcher.analyzer import analyze
+        from jig.evals.watcher.analyzer import analyze
 
-        jig_repo = Path(__file__).resolve().parents[2]
-        run_id = (
-            f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-stall"
-        )
+        jig_repo = Path(__file__).resolve().parents[3]
+        run_id = f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-stall"
         analysis_dir = jig_repo / "evals" / "runs" / run_id
         try:
             analyze(
@@ -215,9 +214,7 @@ async def watch(
             data["stalls"] = {"detected": 1, "signal": verdict.signal}
             data["outcome"] = "stalled"
             data["outcome_reason"] = verdict.detail
-            metrics_path.write_text(
-                json.dumps(data, indent=2, sort_keys=False) + "\n"
-            )
+            metrics_path.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
             log(f"[watcher] analyzer wrote {analysis_dir}")
         except Exception as exc:  # noqa: BLE001
             log(f"[watcher] analyzer failed: {exc!r}")
@@ -306,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: not a directory: {proj}", file=sys.stderr)
         return 2
 
-    jig_repo = Path(__file__).resolve().parents[2]
+    jig_repo = Path(__file__).resolve().parents[3]
     out_dir = (
         Path(args.out_dir)
         if args.out_dir

@@ -5,6 +5,7 @@ ignores newer fields it doesn't understand. Bump the version when
 adding required fields; keep additive optional fields backward-
 compatible.
 """
+
 from __future__ import annotations
 
 from typing import Literal

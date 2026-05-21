@@ -30,7 +30,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from evals.prompt_style_eval.models import Outcome, RunRecord
+from jig.evals.prompt_style_eval.models import Outcome, RunRecord
 
 
 _OUTCOMES: tuple[Outcome, ...] = (
@@ -133,7 +133,9 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
         grouped[key].append(record)
 
     cells = [
-        _aggregate_cell(task_id, prompt_id, prompt_version, model, rubric_version, group)
+        _aggregate_cell(
+            task_id, prompt_id, prompt_version, model, rubric_version, group
+        )
         for (
             task_id,
             prompt_id,
@@ -169,16 +171,20 @@ def _aggregate_cell(
         r.judge.cost_usd for r in records if r.judge is not None
     )
 
-    code_records = [r for r in records if r.outcome == "code" and r.static_metrics is not None]
+    code_records = [
+        r for r in records if r.outcome == "code" and r.static_metrics is not None
+    ]
     static_mean: dict[str, float] = {}
     if code_records:
         static_mean = {
             "loc": statistics.fmean(r.static_metrics.loc for r in code_records),  # type: ignore[union-attr]
             "ruff_findings": statistics.fmean(
-                r.static_metrics.ruff_findings for r in code_records  # type: ignore[union-attr]
+                r.static_metrics.ruff_findings
+                for r in code_records  # type: ignore[union-attr]
             ),
             "cyclomatic_max": statistics.fmean(
-                r.static_metrics.cyclomatic_max for r in code_records  # type: ignore[union-attr]
+                r.static_metrics.cyclomatic_max
+                for r in code_records  # type: ignore[union-attr]
             ),
         }
 
@@ -232,16 +238,20 @@ def render_text(report: Report) -> str:
 
 def _render_cell(cell: CellReport) -> list[str]:
     pct = lambda x: f"{x * 100:5.1f}%"  # noqa: E731
-    short_ver = cell.prompt_version[7:15] if cell.prompt_version.startswith("sha256:") else cell.prompt_version[:8]
+    short_ver = (
+        cell.prompt_version[7:15]
+        if cell.prompt_version.startswith("sha256:")
+        else cell.prompt_version[:8]
+    )
     out: list[str] = []
     out.append(
         f"  {cell.prompt_id} @ {short_ver}  [{cell.model}]  "
         f"(n={cell.n}, cost=${cell.total_cost_usd:.4f}, "
         f"judge cov={cell.judge_coverage}/{cell.n})"
     )
-    outcome_str = "  ".join(
-        f"{k}={v}" for k, v in cell.outcomes.items() if v > 0
-    ) or "—"
+    outcome_str = (
+        "  ".join(f"{k}={v}" for k, v in cell.outcomes.items() if v > 0) or "—"
+    )
     out.append(f"    outcomes:  {outcome_str}")
     out.append(
         f"    pass rate: {pct(cell.pass_rate)}  "

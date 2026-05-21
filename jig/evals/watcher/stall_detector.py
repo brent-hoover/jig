@@ -8,12 +8,13 @@ healthy).
 Kept free of I/O so it can be unit-tested cheaply: the driver
 (``run.py``) feeds events in and acts on verdicts.
 """
+
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 
-from evals.watcher.heuristics import StallSignal, StallThresholds
+from jig.evals.watcher.heuristics import StallSignal, StallThresholds
 
 
 @dataclass

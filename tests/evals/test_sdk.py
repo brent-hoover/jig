@@ -19,8 +19,8 @@ from typing import Any
 import pytest
 from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock
 
-import evals.prompt_style_eval.sdk as sdk_module
-from evals.prompt_style_eval.sdk import InvocationResult, invoke, serialize_message
+import jig.evals.prompt_style_eval.sdk as sdk_module
+from jig.evals.prompt_style_eval.sdk import InvocationResult, invoke, serialize_message
 
 
 _SENTINEL = object()

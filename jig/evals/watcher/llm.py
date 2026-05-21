@@ -2,7 +2,7 @@
 
 Bundles the run's artifacts into a single ``claude-agent-sdk`` call,
 parses the ``<analysis>`` markdown + ``<metrics_update>`` JSON
-sections, and returns them. The wrapping :mod:`evals.watcher.analyzer`
+sections, and returns them. The wrapping :mod:`jig.evals.watcher.analyzer`
 writes ``analysis.md`` and merges the JSON update into ``metrics.json``.
 
 Auth path: same as every other jig agent — ``CLAUDE_CODE_OAUTH_TOKEN``
@@ -13,6 +13,7 @@ Why a single ``query()`` rather than the full agent runtime: this is
 a one-shot batch job over already-finalized artifacts; no MCP servers,
 no ticket worktrees, no tools — just system prompt + user message.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -88,7 +89,7 @@ def _summarize_tickets(rows: list[dict]) -> str:
         title = (t.get("title") or "").replace("\n", " ").replace(",", ";")
         bb = ";".join(t.get("blocked_by") or [])
         lines.append(
-            f"{tid},{title[:60]},{t.get('status','')},{t.get('work_type','')},"
+            f"{tid},{title[:60]},{t.get('status', '')},{t.get('work_type', '')},"
             f"{t.get('parent_id') or ''},{bb}"
         )
     return "\n".join(lines)
@@ -104,11 +105,10 @@ def _summarize_threads(rows: list[dict]) -> str:
         author = c.get("author") or ""
         ts = (c.get("created_at") or "")[11:19]
         text = (
-            c.get("content")
-            or c.get("text")
-            or c.get("question")
-            or ""
-        ).strip().replace("\n", " ")
+            (c.get("content") or c.get("text") or c.get("question") or "")
+            .strip()
+            .replace("\n", " ")
+        )
         if len(text) > 400:
             text = text[:400] + "…"
         by_ticket[tid].append(f"  [{ts}] [{kind}] {author}: {text}")
@@ -132,16 +132,16 @@ def _summarize_analytics(rows: list[dict]) -> str:
         kind = row.get("kind")
         if kind == "agent_completed":
             completions.append(
-                f"{row.get('agent_id','')},{row.get('status','')},"
-                f"{row.get('duration_ms','')},{row.get('tokens_in','')},"
-                f"{row.get('tokens_out','')},"
-                f"{row.get('cost_estimate_usd','')},"
+                f"{row.get('agent_id', '')},{row.get('status', '')},"
+                f"{row.get('duration_ms', '')},{row.get('tokens_in', '')},"
+                f"{row.get('tokens_out', '')},"
+                f"{row.get('cost_estimate_usd', '')},"
                 f"{row.get('failure_category') or ''}"
             )
         elif kind == "ticket_state_changed":
             state_changes.append(
-                f"{row.get('timestamp','')},{row.get('ticket_id','')},"
-                f"{row.get('from_state','')},{row.get('to_state','')},"
+                f"{row.get('timestamp', '')},{row.get('ticket_id', '')},"
+                f"{row.get('from_state', '')},{row.get('to_state', '')},"
                 f"{row.get('reason') or ''}"
             )
     return (

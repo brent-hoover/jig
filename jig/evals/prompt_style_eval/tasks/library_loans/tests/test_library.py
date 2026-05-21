@@ -155,8 +155,7 @@ def test_due_date_defaults_to_14_days_from_borrow_time(library) -> None:
     earliest = before + timedelta(days=14, seconds=-2)
     latest = after + timedelta(days=14, seconds=2)
     assert earliest <= due <= latest, (
-        f"due_date {due} not within ~14 days of borrow time "
-        f"({earliest} – {latest})"
+        f"due_date {due} not within ~14 days of borrow time ({earliest} – {latest})"
     )
 
 

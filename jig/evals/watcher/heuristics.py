@@ -1,9 +1,10 @@
 """Stall-detector thresholds + signal definitions (per DESIGN.md)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from evals.watcher.metrics import StallSignal  # re-export the Literal
+from jig.evals.watcher.metrics import StallSignal  # re-export the Literal
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ type: plan
 status: draft
 owner: brent
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-21
 design: ./design.md
 ---
 
@@ -48,12 +48,12 @@ isolation so a stall in a later phase doesn't unwind earlier work.
 
 ### 1. Scaffold the package
 
-**What:** Create `evals/prompt_style_eval/` with `__init__.py`, `__main__.py`, `cli.py` stub (click app with
+**What:** Create `jig/evals/prompt_style_eval/` with `__init__.py`, `__main__.py`, `cli.py` stub (click app with
 empty `run`/`report`/`rescore` subcommands), and a `results/` dir (gitignored except for a `.gitkeep`).
 
-**Why:** Establishes import path and `python -m evals.prompt_style_eval` entrypoint.
+**Why:** Establishes import path and `python -m jig.evals.prompt_style_eval` entrypoint.
 
-**Verify:** `uv run python -m evals.prompt_style_eval --help` prints the three subcommands.
+**Verify:** `uv run python -m jig.evals.prompt_style_eval --help` prints the three subcommands.
 
 ### 2. Pydantic v2 models
 
@@ -172,7 +172,7 @@ and prints estimated cost.
 
 **Why:** First end-to-end CLI behaviour. Everything from here is reporting.
 
-**Verify:** `uv run python -m evals.prompt_style_eval run --task todo_cli --prompt yaml_spec --seeds 2
+**Verify:** `uv run python -m jig.evals.prompt_style_eval run --task todo_cli --prompt yaml_spec --seeds 2
 --dry-run` prints a plan and an estimate. Without `--dry-run`, it produces 2 records in `results/runs.jsonl` and
 the records have the expected cell identity.
 
@@ -185,7 +185,7 @@ resamples). Renders as a text table (and JSON when `--format json`).
 **Why:** Without aggregation, run records are just a pile of JSONL.
 
 **Verify:** `tests/evals/test_report.py` — feed a constructed set of records, confirm pass rates and CIs match
-manual calculations. `uv run python -m evals.prompt_style_eval report --task todo_cli` against the records from
+manual calculations. `uv run python -m jig.evals.prompt_style_eval report --task todo_cli` against the records from
 step 11 prints a sensible table.
 
 ### 13. `rescore` CLI command
@@ -196,7 +196,7 @@ the requested rubric version, appends derived records (`derived_from: <original 
 
 **Why:** Lets us iterate on the rubric without re-burning candidate tokens.
 
-**Verify:** Create a `rubric/v1b.yaml` with one item flipped. `uv run python -m evals.prompt_style_eval rescore
+**Verify:** Create a `rubric/v1b.yaml` with one item flipped. `uv run python -m jig.evals.prompt_style_eval rescore
 --rubric v1b` produces N new records (where N = existing `code` records for the filter), each with
 `derived_from` set. The original records are unchanged.
 
@@ -205,7 +205,7 @@ the requested rubric version, appends derived records (`derived_from: <original 
 **What:** Run the full eval at a small scale to confirm the pipeline works on real model calls.
 
 ```
-uv run python -m evals.prompt_style_eval run \
+uv run python -m jig.evals.prompt_style_eval run \
   --task todo_cli --task word_stats --task url_router \
   --prompt yaml_spec --prompt prose_spec \
   --seeds 3 \
@@ -228,14 +228,14 @@ classification is sane. Cost is under $5.
 
 **Why:** This is the deliverable — first evidence for or against the YAML-vs-prose hypothesis.
 
-**Verify:** `uv run python -m evals.prompt_style_eval report --rubric v1` produces a table showing per-prompt
+**Verify:** `uv run python -m jig.evals.prompt_style_eval report --rubric v1` produces a table showing per-prompt
 pass rate, variance, checklist scores, and bootstrap CIs across all three tasks. Persist the report to
 `feature-work/prompt-style-eval/results/first-eval.md` with a brief interpretation.
 
 ## Rollback
 
-Nothing here touches shared infrastructure. The harness is a self-contained directory under `evals/`. Worst-case
-rollback: delete `evals/prompt_style_eval/` and any `tests/evals/` files. Run records under `results/runs.jsonl`
+Nothing here touches shared infrastructure. The harness is a self-contained directory under `jig/evals/`. Worst-case
+rollback: delete `jig/evals/prompt_style_eval/` and any `tests/evals/` files. Run records under `results/runs.jsonl`
 are local-only.
 
 ## Out of scope for this plan

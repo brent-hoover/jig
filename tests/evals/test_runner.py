@@ -12,15 +12,15 @@ from typing import Any
 import pytest
 from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock
 
-import evals.prompt_style_eval.sdk as sdk_module
-from evals.prompt_style_eval.loaders import (
+import jig.evals.prompt_style_eval.sdk as sdk_module
+from jig.evals.prompt_style_eval.loaders import (
     load_prompt,
     load_rubric,
     load_task,
     task_tests_dir,
 )
-from evals.prompt_style_eval.models import Cell
-from evals.prompt_style_eval.runner import run_cell
+from jig.evals.prompt_style_eval.models import Cell
+from jig.evals.prompt_style_eval.runner import run_cell
 
 
 def _cell(prompt_id: str = "yaml_spec", prompt_version: str = "sha256:test") -> Cell:
@@ -71,7 +71,7 @@ def _make_query(candidate_messages: list[Any], judge_messages: list[Any]):
 
 
 _TODO_REF_CODE = (Path(__file__).resolve().parent.parent.parent
-                  / "evals" / "prompt_style_eval" / "tasks" / "todo_cli" / "reference.py"
+                  / "jig" / "evals" / "prompt_style_eval" / "tasks" / "todo_cli" / "reference.py"
                   ).read_text(encoding="utf-8")
 
 

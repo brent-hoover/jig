@@ -12,7 +12,7 @@ import json
 
 from radon.complexity import cc_visit
 
-from evals.prompt_style_eval.models import StaticMetrics
+from jig.evals.prompt_style_eval.models import StaticMetrics
 
 
 def count_loc(code: str) -> int:

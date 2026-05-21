@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import json
 
-from evals.prompt_style_eval.classify import extract_assistant_text
-from evals.prompt_style_eval.models import JudgeScore, Rubric
-from evals.prompt_style_eval.sdk import invoke
+from jig.evals.prompt_style_eval.classify import extract_assistant_text
+from jig.evals.prompt_style_eval.models import JudgeScore, Rubric
+from jig.evals.prompt_style_eval.sdk import invoke
 
 
 class JudgeError(Exception):
@@ -55,7 +55,7 @@ def build_judge_prompt(code: str, rubric: Rubric) -> str:
             "- Output ONLY the JSON object. No prose, no markdown fences, no commentary.",
             "",
             f'Example: {{"{rubric.items[0].id}": '
-            f'{"true" if rubric.items[0].scale == "bool" else "4"}}}',
+            f"{'true' if rubric.items[0].scale == 'bool' else '4'}}}",
         ]
     )
     return "\n".join(lines)

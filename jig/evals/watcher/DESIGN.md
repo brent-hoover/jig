@@ -208,7 +208,7 @@ as a CI check status / PR comment.
 GitHub Actions workflow per project:
 
 1. Checkout jig + the eval project.
-2. Run `python -m evals.watcher.run --project <name>` which:
+2. Run `python -m jig.evals.watcher.run --project <name>` which:
    - Starts the daemon
    - Attaches the watcher
    - Runs the eval to completion (or stall-kill)
@@ -232,7 +232,7 @@ narrative is for humans, the metrics are for diff'ing.
 ## Layout (proposed)
 
 ```
-evals/
+jig/evals/
   watcher/
     DESIGN.md             ← this file
     __init__.py
@@ -244,13 +244,13 @@ evals/
     metrics.py            ← metrics.json schema + aggregation helpers
     prompts/
       analyzer.md         ← system prompt for the analyzer agent
-  runs/
-    <run-id>/
-      eval.log            ← watcher's verdict + signal traces
-      analysis.md         ← analyzer's narrative report
-      metrics.json        ← machine-readable summary (dashboard input)
-      ticket-snapshot.json
-      thread-snapshot.json
+evals/runs/
+  <run-id>/
+    eval.log              ← watcher's verdict + signal traces
+    analysis.md           ← analyzer's narrative report
+    metrics.json          ← machine-readable summary (dashboard input)
+    ticket-snapshot.json
+    thread-snapshot.json
 scripts/
   eval_dashboard.py       ← reads metrics.json across runs; --regress mode
 .github/workflows/

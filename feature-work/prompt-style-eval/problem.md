@@ -4,7 +4,7 @@ type: problem
 status: draft
 owner: brent
 created: 2026-05-12
-updated: 2026-05-12
+updated: 2026-05-21
 ---
 
 # Prompt Style Eval — Problem Statement
@@ -17,7 +17,7 @@ and so on. Across the jig project (agent roles, PM/PO prompts, spec regeneration
 prompts and very little empirical basis for the stylistic choices in them. Today we pick a style by intuition, run
 the system a few times, eyeball the result, and move on.
 
-The existing `evals/watcher/` directory covers stall detection and analyzer behavior — it is not a general harness
+The existing `jig/evals/watcher/` directory covers stall detection and analyzer behavior — it is not a general harness
 for comparing prompts. There is no place to ask "does style A produce more correct / more consistent / higher
 quality code than style B for the kinds of tasks we care about?" and get a defensible answer.
 
@@ -117,7 +117,7 @@ no framework. Everything beyond it is added complexity that has to earn its plac
   is mitigated by pairing every judge score with static metrics in the report, not by switching family.
 - v1 corpus: 3 tasks. Grow toward 6–8 once the harness is proven and the existing tasks stop discriminating
   between styles. No fixed up-front target.
-- Lives as a sibling under `evals/` (i.e. `evals/prompt_style_eval/`), not bolted into `evals/watcher/`.
+- Lives as a sub-package under `jig/evals/` (i.e. `jig/evals/prompt_style_eval/`), not bolted into `jig/evals/watcher/`.
 
 ## Requirements
 
@@ -164,7 +164,7 @@ no framework. Everything beyond it is added complexity that has to earn its plac
 
 ## Success criteria
 
-- Running `uv run python -m evals.prompt_style_eval --style terse --style verbose-cot --task todo-cli --seeds 10`
+- Running `uv run python -m jig.evals.prompt_style_eval --style terse --style verbose-cot --task todo-cli --seeds 10`
   produces a comparison table with pass-rate, consistency, and quality scores per style, plus a path to the
   persisted JSONL.
 - Re-running the same command without changes produces the same persisted results (cached) unless `--force` is

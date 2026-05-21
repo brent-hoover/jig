@@ -64,9 +64,7 @@ def test_multiple_items_appear_in_insertion_order(tmp_path: Path) -> None:
     milk_at = output.find("buy milk")
     cat_at = output.find("feed cat")
     book_at = output.find("read book")
-    assert -1 < milk_at < cat_at < book_at, (
-        f"items out of order in:\n{output!r}"
-    )
+    assert -1 < milk_at < cat_at < book_at, f"items out of order in:\n{output!r}"
 
 
 def test_each_item_appears_on_its_own_line(tmp_path: Path) -> None:

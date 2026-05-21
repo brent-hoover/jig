@@ -7,7 +7,7 @@ multiple code blocks, no assistant message at all.
 
 import pytest
 
-from evals.prompt_style_eval.classify import (
+from jig.evals.prompt_style_eval.classify import (
     PostHocOutcome,
     classify,
     extract_assistant_text,

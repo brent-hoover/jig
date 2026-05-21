@@ -16,7 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from evals.prompt_style_eval.models import Cell, RunRecord
+from jig.evals.prompt_style_eval.models import Cell, RunRecord
 
 
 class Store:

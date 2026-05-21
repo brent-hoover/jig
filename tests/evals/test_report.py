@@ -7,14 +7,14 @@ static-metric and judge-mean computation, judge coverage tracking.
 
 from datetime import UTC, datetime
 
-from evals.prompt_style_eval.models import (
+from jig.evals.prompt_style_eval.models import (
     Cell,
     JudgeScore,
     RunRecord,
     StaticMetrics,
     TestResult,
 )
-from evals.prompt_style_eval.report import (
+from jig.evals.prompt_style_eval.report import (
     aggregate,
     bootstrap_ci,
     render_json,

@@ -43,6 +43,10 @@ include = ["jig*"]
 # config (pyproject.toml, README.md, .gitignore). The "**/*" glob picks
 # up everything; setuptools turns that into recursive package-data.
 "jig.defaults.project_templates" = ["**/*"]
+# Eval resource files loaded from `Path(__file__).parent` at runtime —
+# task fixtures, rubrics, and the watcher analyzer prompt.
+"jig.evals.prompt_style_eval" = ["tasks/**/*", "rubric/*.yaml"]
+"jig.evals.watcher" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -9,7 +9,7 @@ could silently misbehave.
 
 import pytest
 
-from evals.prompt_style_eval.metrics import (
+from jig.evals.prompt_style_eval.metrics import (
     compute,
     count_loc,
     max_cyclomatic,

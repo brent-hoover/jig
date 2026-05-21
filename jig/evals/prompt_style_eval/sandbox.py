@@ -18,7 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from evals.prompt_style_eval.models import Task, TestResult
+from jig.evals.prompt_style_eval.models import Task, TestResult
 
 
 _SUMMARY_TOKEN_RE = re.compile(

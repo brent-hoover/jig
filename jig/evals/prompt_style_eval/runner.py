@@ -15,15 +15,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from evals.prompt_style_eval import classify, metrics, sandbox
-from evals.prompt_style_eval.classify import (
+from jig.evals.prompt_style_eval import classify, metrics, sandbox
+from jig.evals.prompt_style_eval.classify import (
     extract_assistant_text,
     extract_files,
 )
-from evals.prompt_style_eval.judge import JudgeError
-from evals.prompt_style_eval.judge import score as judge_score
-from evals.prompt_style_eval.models import Cell, Rubric, RunRecord, Task
-from evals.prompt_style_eval.sdk import invoke
+from jig.evals.prompt_style_eval.judge import JudgeError
+from jig.evals.prompt_style_eval.judge import score as judge_score
+from jig.evals.prompt_style_eval.models import Cell, Rubric, RunRecord, Task
+from jig.evals.prompt_style_eval.sdk import invoke
 
 _logger = logging.getLogger(__name__)
 

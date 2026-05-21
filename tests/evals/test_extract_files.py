@@ -7,7 +7,7 @@ default filename happens correctly for single unlabeled blocks.
 
 import pytest
 
-from evals.prompt_style_eval.classify import extract_files
+from jig.evals.prompt_style_eval.classify import extract_files
 
 
 def test_extract_files_empty_when_no_blocks() -> None:

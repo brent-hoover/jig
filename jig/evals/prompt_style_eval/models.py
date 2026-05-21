@@ -163,9 +163,13 @@ class RunRecord(BaseModel):
                     f"outcome='code' requires {', '.join(sorted(missing))} to be populated"
                 )
             if self.extracted_files is not None and not self.extracted_files:
-                raise ValueError("outcome='code' requires extracted_files to be non-empty")
+                raise ValueError(
+                    "outcome='code' requires extracted_files to be non-empty"
+                )
         else:
-            populated = [name for name, value in all_code_specific.items() if value is not None]
+            populated = [
+                name for name, value in all_code_specific.items() if value is not None
+            ]
             if populated:
                 raise ValueError(
                     f"outcome='{self.outcome}' must not have code-specific fields populated "

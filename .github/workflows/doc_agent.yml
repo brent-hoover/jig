@@ -15,6 +15,7 @@ permissions:
 jobs:
   update-docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repo with full history
         uses: actions/checkout@v4
@@ -84,7 +85,7 @@ jobs:
               doc.
             - Do not modify any file outside the tracked list above.
             - Do not create new files.
-          claude_args: |
+          claude_args: >-
             --allowedTools "Bash(git log:*),Bash(git show:*),Bash(date:*),Read,Edit,Glob,Grep"
 
       # Defense-in-depth: the prompt forbids editing files outside the
@@ -95,7 +96,7 @@ jobs:
       - name: Verify only tracked docs were modified
         run: |
           ALLOWED=(
-           "docs/c4-code-framework.md"
+            "docs/c4-code-framework.md"
             "docs/c4-code-runtime.md"
             "docs/c4-code-tui-store.md"
             "docs/c4-component.md"
@@ -151,6 +152,7 @@ jobs:
         with:
           commit-message: "docs: nightly update from commit activity"
           branch: doc-agent/nightly-${{ github.run_id }}
+          base: develop
           delete-branch: true
           title: "docs: nightly update from commit activity"
           body: |

@@ -85,9 +85,11 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff and the ticket's relevant ``contracts.yaml``
-    integration AC (look for keywords: latency, throughput, p99, p95,
-    under N ms, requests per, RPS, QPS).
+  - Read the diff. Check for ``contracts.yaml`` first:
+    ``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``. If
+    found, read the integration AC for perf budget keywords (latency,
+    throughput, p99, p95, under N ms, RPS, QPS). If not found, skip
+    AC-based budget checks — proceed to code-pattern analysis only.
 
   - For each new function / class added in the diff, scan for
     nested-iteration patterns and per-row remote calls.
@@ -109,6 +111,7 @@ phase_prompt: >
 allowed_tools:
   - Read
   - Bash(git diff*)
+  - Bash(find .jig/spec*)
   - reviewer_post_comment
   - graph_consumers_of
   - mark_finding_resolved

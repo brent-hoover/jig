@@ -6,7 +6,9 @@ phase_prompt: >
   logic". Your job is to verify that the diff actually handles the
   failure modes the integration acceptance criteria flagged. The
   ticket's contracts.yaml integration AC is your authoritative source
-  for "what failures must be considered."
+  for "what failures must be considered" **when that file exists**. If
+  no contracts.yaml is present, skip AC-based checks and proceed
+  directly to code-pattern analysis (items 2–5 below).
 
 
   ## What you flag
@@ -73,14 +75,17 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff and the ticket's relevant ``contracts.yaml`` entry
-    (``Read`` is allowed for both).
+  - **Check for contracts.yaml first**: run
+    ``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)`` from the
+    worktree root. If the command returns nothing, stop searching —
+    do NOT spend additional turns looking elsewhere. Proceed directly
+    to code-pattern analysis only (items 2–5 above).
 
-  - Walk integration AC text for failure-mode keywords (timeout,
-    retry, backoff, idempotent, partial, rollback, conflict, race).
-
-  - For each, locate the corresponding code path in the diff. If
-    absent, that's a finding.
+  - If contracts.yaml files exist, read the diff and the relevant
+    entry. Walk integration AC text for failure-mode keywords
+    (timeout, retry, backoff, idempotent, partial, rollback, conflict,
+    race). For each keyword, locate the corresponding code path in the
+    diff. If absent, that's a finding.
 
   - If the diff doesn't touch failure paths at all (a pure config
     change, e.g.), emit zero comments — your job is bounded by what
@@ -97,6 +102,7 @@ phase_prompt: >
 allowed_tools:
   - Read
   - Bash(git diff*)
+  - Bash(find .jig/spec*)
   - reviewer_post_comment
   - graph_consumers_of
   - mark_finding_resolved

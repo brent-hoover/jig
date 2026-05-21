@@ -98,13 +98,17 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff (``git diff main..HEAD`` from the worktree), the
-    full ``architecture.yaml``, and the contracts of every module
-    the diff touches.
+  - Read the diff (``git diff main..HEAD`` from the worktree) and the
+    full ``architecture.yaml``. Then check whether per-module
+    ``contracts.yaml`` files exist:
+    ``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``. If none
+    exist, skip contract-specific checks (items 1 and 2 above) and focus
+    only on ``architecture.yaml`` cross-cutting policies (items 3–5).
 
-  - For every module-boundary crossing the diff introduces, check
-    the contracts: is this call on the public surface of the called
-    module? Does the caller's contract declare the dependency?
+  - If contracts.yaml files exist, read the contracts of every module the
+    diff touches. For every module-boundary crossing the diff introduces,
+    check: is this call on the public surface of the called module? Does
+    the caller's contract declare the dependency?
 
   - For every change to a contract file, check whether the ticket
     declared the amendment.
@@ -125,6 +129,7 @@ phase_prompt: >
 allowed_tools:
   - Read
   - Bash(git diff*)
+  - Bash(find .jig/spec*)
   - reviewer_post_comment
   - graph_consumers_of
   - mark_finding_resolved

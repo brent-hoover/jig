@@ -129,6 +129,16 @@ class TestRemoveStream:
         w.remove_stream("ghost")
         assert w.stream_ids() == ["a"]
 
+    def test_remove_nonfocused_stream_preserves_focus(self) -> None:
+        w = MultiPaneStream()
+        w.add_stream("a", label="a")
+        w.add_stream("b", label="b")
+        # ``a`` is the auto-focused first stream; removing ``b``
+        # must not shift focus.
+        w.remove_stream("b")
+        assert w.focused_stream_id == "a"
+        assert w.stream_ids() == ["a"]
+
 
 class TestClear:
     def test_clear_drops_all_streams_and_state(self) -> None:

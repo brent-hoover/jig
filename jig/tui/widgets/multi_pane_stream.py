@@ -30,6 +30,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -193,7 +194,8 @@ class MultiPaneStream(Widget):
         if stream_id not in self._streams:
             self.add_stream(stream_id, label=stream_id)
         state = self._streams[stream_id]
-        for part in str(line).splitlines() or [str(line)]:
+        text = str(line)
+        for part in text.splitlines() or [text]:
             state.lines.append(part)
         self._mark_dirty()
 
@@ -264,13 +266,27 @@ class MultiPaneStream(Widget):
 
     # ── Bindings ─────────────────────────────────────────────────────
 
+    def _position(self, stream_id: str) -> int:
+        """Index of ``stream_id`` in ``_order``, or 0 if absent.
+
+        Defensive against an invariant break between ``_order`` and
+        ``_streams`` — the dual-maintenance keeps them aligned in
+        practice, but a missing entry should fail soft (render the
+        first pane) rather than crash the render loop with an
+        unguarded ``ValueError`` from ``list.index``.
+        """
+        try:
+            return self._order.index(stream_id)
+        except ValueError:
+            return 0
+
     def action_focus_next(self) -> None:
         if not self._order:
             return
         if self._focused is None:
             self._focused = self._order[0]
         else:
-            idx = self._order.index(self._focused)
+            idx = self._position(self._focused)
             self._focused = self._order[(idx + 1) % len(self._order)]
         self._mark_dirty()
 
@@ -280,7 +296,7 @@ class MultiPaneStream(Widget):
         if self._focused is None:
             self._focused = self._order[-1]
         else:
-            idx = self._order.index(self._focused)
+            idx = self._position(self._focused)
             self._focused = self._order[(idx - 1) % len(self._order)]
         self._mark_dirty()
 
@@ -333,7 +349,7 @@ class MultiPaneStream(Widget):
     def _refresh(self) -> None:
         try:
             content = self.query_one("#multi-pane-content", Static)
-        except Exception:
+        except NoMatches:
             # Widget not yet mounted; the on_mount hook will refresh.
             return
         if self._expanded and self._focused is not None:
@@ -383,7 +399,8 @@ class MultiPaneStream(Widget):
 
     def _render_expanded(self) -> Group:
         stream_id = self._focused
-        assert stream_id is not None
+        if stream_id is None:
+            return self._render_compact()
         state = self._streams[stream_id]
         header = self._render_header(stream_id, marker="[bold cyan]▼[/]", expanded=True)
         body_blocks: list = []
@@ -404,7 +421,7 @@ class MultiPaneStream(Widget):
         expanded: bool = False,
     ) -> Text:
         state = self._streams[stream_id]
-        idx = self._order.index(stream_id) + 1
+        idx = self._position(stream_id) + 1
         glyph = _STATUS_GLYPH.get(state.status, "·")
         color = _STATUS_COLOR.get(state.status, "white")
         suffix = state.status

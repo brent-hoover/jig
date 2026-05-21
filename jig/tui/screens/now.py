@@ -7,6 +7,7 @@ from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import RichLog, Static, TextArea
 
@@ -646,14 +647,14 @@ class NowScreen(Container):
         composer (see ``MultiPaneStream.action_collapse``)."""
         try:
             panes = self.query_one("#reviewer-panes", MultiPaneStream)
-        except Exception:
+        except NoMatches:
             return
         # No-op if the widget isn't visible (no reviewers active yet).
         if not panes.has_class("visible"):
             return
         try:
             panes.focus()
-        except Exception:
+        except NoMatches:
             pass
 
     def action_toggle_pause_scroll(self) -> None:
@@ -842,7 +843,7 @@ class NowScreen(Container):
         """
         try:
             panes = self.query_one("#reviewer-panes", MultiPaneStream)
-        except Exception:
+        except NoMatches:
             return False
         role = data.get("role", "")
         ticket_id = data.get("ticket_id", "")
@@ -860,11 +861,14 @@ class NowScreen(Container):
                 panes.append_line(stream_id, cleaned)
             return True
         if kind == "thinking":
-            # Only act on the terminal active=False heartbeat — the
-            # interim live spinner doesn't belong in the per-pane
-            # buffer (it would flood the lines).
-            if not data.get("active", True):
-                panes.set_status(stream_id, "done")
+            # Consumed-but-ignored. ``active=False`` is NOT a terminal
+            # signal for the agent — reviewers commonly cycle through
+            # multiple thinking/text blocks, so flipping the status to
+            # ``done`` on the first close would show ``✓ done`` while
+            # more output is still arriving. The ``agents`` topic
+            # doesn't emit a per-agent stop event today; until it
+            # does, panes stay in ``running`` until the operator
+            # dismisses the widget.
             return True
         if kind == "tool":
             # Surface tool calls as one-line entries so the operator
@@ -872,7 +876,11 @@ class NowScreen(Container):
             tool = data.get("tool", "")
             detail = data.get("detail", "")
             if tool:
-                line = f"tool: {tool}" + (f"  {detail[:60]}" if detail else "")
+                if detail:
+                    truncated = detail[:60] + ("…" if len(detail) > 60 else "")
+                    line = f"tool: {tool}  {truncated}"
+                else:
+                    line = f"tool: {tool}"
                 panes.append_line(stream_id, line)
             return True
         # Other event kinds (tool_result, render) — let the default

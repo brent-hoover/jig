@@ -71,7 +71,7 @@ def _make_query(candidate_messages: list[Any], judge_messages: list[Any]):
 
 
 _TODO_REF_CODE = (Path(__file__).resolve().parent.parent.parent
-                  / "evals" / "prompt_style_eval" / "tasks" / "todo_cli" / "reference.py"
+                  / "jig" / "evals" / "prompt_style_eval" / "tasks" / "todo_cli" / "reference.py"
                   ).read_text(encoding="utf-8")
 
 

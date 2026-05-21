@@ -25,6 +25,7 @@ from jig.evals.prompt_style_eval.sandbox import run_tests
 
 _TASKS_DIR = (
     Path(__file__).resolve().parent.parent.parent
+    / "jig"
     / "evals"
     / "prompt_style_eval"
     / "tasks"

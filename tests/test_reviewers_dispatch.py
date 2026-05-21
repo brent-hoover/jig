@@ -14,6 +14,7 @@ the ``PerCommitCheckFailed`` analytics event when the dispatch is
 wired through ``EventEmitter`` (separate orchestrator follow-on);
 this test module pins the dispatcher's contract directly.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -55,6 +56,7 @@ from jig.spec_schema import (
     StructuredSpec,
 )
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -146,9 +148,7 @@ def _write_spec(
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True
-    )
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
 def _init_worktree(
@@ -190,9 +190,12 @@ def _ticket(
         created_by="planner-pm",
         module_id="catalog-ingest",
         suite_id=suite_id,
-        capability_ids=capability_ids if capability_ids is not None else ["shopify-connect"],
+        capability_ids=capability_ids
+        if capability_ids is not None
+        else ["shopify-connect"],
         layer=layer,
         reviewer_set=reviewer_set if reviewer_set is not None else [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -351,6 +354,7 @@ async def test_end_of_ticket_comments_carry_default_cadence(tmp_path: Path):
     out = await dispatch_for_cadence(_ticket(), tmp_path, "end_of_ticket")
 
     from jig.reviewers.dispatch import LlmReviewerPending
+
     all_comments = [
         c
         for comments in out.values()
@@ -382,7 +386,9 @@ async def test_end_of_ticket_honors_explicit_reviewer_set(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_per_commit_critical_comments_drive_per_commit_failure_event(tmp_path: Path):
+async def test_per_commit_critical_comments_drive_per_commit_failure_event(
+    tmp_path: Path,
+):
     """When per-commit dispatch returns critical comments, the caller can
     map them onto ``PerCommitCheckFailed`` events.
 
@@ -446,7 +452,8 @@ async def test_per_commit_critical_comments_drive_per_commit_failure_event(tmp_p
 
 @pytest.mark.asyncio
 async def test_end_of_ticket_dispatch_forwards_project_root_to_selector(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Block 2 — Important 2: dispatch_for_cadence must forward project_root
     to select_reviewers_for_ticket so architecture-driven specialty
@@ -473,9 +480,7 @@ async def test_end_of_ticket_dispatch_forwards_project_root_to_selector(
         captured["project_root"] = project_root
         return real_selector(t, project_root=project_root)
 
-    monkeypatch.setattr(
-        dispatch_module, "select_reviewers_for_ticket", _spy
-    )
+    monkeypatch.setattr(dispatch_module, "select_reviewers_for_ticket", _spy)
 
     await dispatch_for_cadence(_ticket(), tmp_path, "end_of_ticket")
 

@@ -30,6 +30,7 @@ from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note
 from jig.ticket import Size, Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.fixture
@@ -59,7 +60,7 @@ async def _make_ticket(tickets: TicketStore) -> Ticket:
         work_type=WorkType.FEATURE,
         size=Size.M,
         title="Build widget",
-        description="",
+        description="" + "\n" + TICKET_AC_PLACEHOLDER,
         created_by="alice",
     )
     await tickets.create(t)

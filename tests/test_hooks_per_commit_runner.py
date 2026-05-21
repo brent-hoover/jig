@@ -16,6 +16,7 @@ from jig.hooks.per_commit_runner import (
 from jig.store.review_comments import ReviewCommentsStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 async def _git(cwd: Path, *args: str) -> int:
@@ -29,7 +30,9 @@ async def _git(cwd: Path, *args: str) -> int:
     return proc.returncode
 
 
-async def _setup_project(tmp_path: Path, *, ticket_id: str = "tkt-pc-1") -> tuple[Path, Path]:
+async def _setup_project(
+    tmp_path: Path, *, ticket_id: str = "tkt-pc-1"
+) -> tuple[Path, Path]:
     """Build a project layout: real git repo + .jig/store + worktree dir.
 
     Returns (project_root, worktree_path).
@@ -53,7 +56,7 @@ async def _setup_project(tmp_path: Path, *, ticket_id: str = "tkt-pc-1") -> tupl
         Ticket(
             id=ticket_id,
             title="Per-commit test ticket",
-            description="d",
+            description="d" + "\n" + TICKET_AC_PLACEHOLDER,
             work_type=WorkType.FEATURE,
             status=TicketStatus.IN_PROGRESS,
             layer="bones",
@@ -98,9 +101,7 @@ class TestRunnerHappyPath:
         assert any(c.severity == "critical" for c in comments)
 
         # PerCommitCheckFailed analytics event lands.
-        analytics = AnalyticsStore(
-            project_root / ".jig" / "store" / "analytics.jsonl"
-        )
+        analytics = AnalyticsStore(project_root / ".jig" / "store" / "analytics.jsonl")
         await analytics.load()
         events = await analytics.by_kind("per_commit_check_failed")
         assert events
@@ -135,31 +136,26 @@ class TestPerCommitNeverSpawnsLlmReviewers:
     PerCommitCheckFailed only for those reviewers.
     """
 
-    async def test_security_label_does_not_spawn_llm(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_security_label_does_not_spawn_llm(self, tmp_path: Path) -> None:
         from jig.reviewers.dispatch import dispatch_for_cadence
         from jig.store.tickets import TicketStore
 
-        project_root, wt = await _setup_project(
-            tmp_path, ticket_id="tkt-sec-1"
-        )
+        project_root, wt = await _setup_project(tmp_path, ticket_id="tkt-sec-1")
         # Patch the ticket so it carries a security-trigger label.
-        store = TicketStore(
-            project_root / ".jig" / "store" / "tickets.jsonl"
-        )
+        store = TicketStore(project_root / ".jig" / "store" / "tickets.jsonl")
         await store.load()
         ticket = await store.get("tkt-sec-1")
         assert ticket is not None
-        ticket = ticket.model_copy(
-            update={"labels": ["touches-auth"], "layer": "mvp"}
-        )
+        ticket = ticket.model_copy(update={"labels": ["touches-auth"], "layer": "mvp"})
         # Re-create with new fields so the JSONL store reflects them.
         # (Tests directly use dispatch_for_cadence below; the
         # in-memory ticket is what matters for selection.)
 
         out = await dispatch_for_cadence(
-            ticket, project_root, "per_commit", worktree_path=wt,
+            ticket,
+            project_root,
+            "per_commit",
+            worktree_path=wt,
         )
 
         # Every value at per_commit cadence is a list (mechanical
@@ -182,16 +178,12 @@ class TestPerCommitNeverSpawnsLlmReviewers:
         """Even when the runner runs against a security-flavored ticket,
         the PerCommitCheckFailed events come only from the mechanical
         reviewers — no LLM reviewer events fire from per-commit."""
-        project_root, wt = await _setup_project(
-            tmp_path, ticket_id="tkt-sec-2"
-        )
+        project_root, wt = await _setup_project(tmp_path, ticket_id="tkt-sec-2")
 
         critical = await _run_per_commit_review("tkt-sec-2", cwd=wt)
         assert critical >= 1
 
-        analytics = AnalyticsStore(
-            project_root / ".jig" / "store" / "analytics.jsonl"
-        )
+        analytics = AnalyticsStore(project_root / ".jig" / "store" / "analytics.jsonl")
         await analytics.load()
         events = await analytics.by_kind("per_commit_check_failed")
         # Each event's reviewer_role must be a mechanical role —

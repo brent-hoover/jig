@@ -5,6 +5,7 @@ reading the analytics event stream. MVP scope: deterministic
 aggregation only (no LLM); operator invokes on demand. Three
 deliverables tested here: aggregation, markdown formatter, MCP handler.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -29,6 +30,7 @@ from jig.quartermaster import (
     WeeklyBriefing,
     format_briefing,
 )
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -72,9 +74,7 @@ async def test_briefing_excludes_events_outside_window(tmp_path: Path):
     )
     # Outside-window: 30 days back (should be ignored)
     await s.append(
-        TicketStateChanged(
-            timestamp=_at(24 * 30), ticket_id="t-3", to_state="resolved"
-        )
+        TicketStateChanged(timestamp=_at(24 * 30), ticket_id="t-3", to_state="resolved")
     )
     qm = Quartermaster(s)
     b = await qm.briefing()
@@ -95,9 +95,7 @@ async def test_headline_metrics_count_state_transitions(tmp_path: Path):
         TicketStateChanged(timestamp=_at(1), ticket_id="t-fail", to_state="failed")
     )
     await s.append(
-        TicketStateChanged(
-            timestamp=_at(1), ticket_id="t-prog", to_state="in_progress"
-        )
+        TicketStateChanged(timestamp=_at(1), ticket_id="t-prog", to_state="in_progress")
     )
     qm = Quartermaster(s)
     b = await qm.briefing()
@@ -401,9 +399,7 @@ async def test_mcp_handler_returns_markdown(tmp_path: Path):
     s = AnalyticsStore(store_dir / "analytics.jsonl")
     await s.load()
     await s.append(
-        TicketStateChanged(
-            timestamp=_at(1), ticket_id="t-1", to_state="resolved"
-        )
+        TicketStateChanged(timestamp=_at(1), ticket_id="t-1", to_state="resolved")
     )
 
     md = await handle_quartermaster_briefing(project_path=project_path)
@@ -449,7 +445,9 @@ def test_quartermaster_role_config_loads(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_quartermaster_briefing_registered_when_allowed(tmp_path: Path, monkeypatch):
+async def test_quartermaster_briefing_registered_when_allowed(
+    tmp_path: Path, monkeypatch
+):
     """The MCP server exposes ``quartermaster_briefing`` when allowed."""
     import jig.mcp_server as mcp_server_mod
     from jig.mcp_server import create_agent_mcp_server
@@ -495,7 +493,9 @@ async def test_quartermaster_briefing_registered_when_allowed(tmp_path: Path, mo
 
 
 @pytest.mark.asyncio
-async def test_quartermaster_briefing_not_registered_when_not_allowed(tmp_path: Path, monkeypatch):
+async def test_quartermaster_briefing_not_registered_when_not_allowed(
+    tmp_path: Path, monkeypatch
+):
     import jig.mcp_server as mcp_server_mod
     from jig.mcp_server import create_agent_mcp_server
     from jig.models import RoleConfig
@@ -773,6 +773,7 @@ async def test_handle_quartermaster_briefing_applies_live_calibration(tmp_path: 
                 title=f"t{i}",
                 created_by="planner-pm",
                 module_id="mod-a",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
     # 4 escalations on tickets in the same module — exceeds default 3.

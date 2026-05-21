@@ -1,4 +1,5 @@
 """Tests for VisualComplianceReviewer + dispatch wiring (Track D MVP)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -18,6 +19,7 @@ from jig.reviewers.visual_compliance import VisualComplianceReviewer
 from jig.spec_loader import save_wireframe
 from jig.ticket import Ticket, WorkType
 from jig.wireframes.format import WireframeMeta, render_meta_comment
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +102,7 @@ def _seed_worktree_with_diff(
         capture_output=True,
     )
     (wt / "impl.py").write_text(body_text)
-    subprocess.run(
-        ["git", "add", "-A"], cwd=wt, check=True, capture_output=True
-    )
+    subprocess.run(["git", "add", "-A"], cwd=wt, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "impl"],
         cwd=wt,
@@ -126,6 +126,7 @@ def _ticket(
         layer=layer,
         visual_references=visual_references,
         reviewer_set=reviewer_set or [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -135,9 +136,7 @@ def _ticket(
 
 
 class TestNoOp:
-    async def test_empty_visual_references_returns_empty(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_empty_visual_references_returns_empty(self, tmp_path: Path) -> None:
         reviewer = VisualComplianceReviewer()
         ticket = _ticket(visual_references=[])
         comments = await reviewer.review(ticket, tmp_path)
@@ -145,16 +144,12 @@ class TestNoOp:
 
 
 class TestWireframeNotFound:
-    async def test_missing_wireframe_emits_critical(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_missing_wireframe_emits_critical(self, tmp_path: Path) -> None:
         reviewer = VisualComplianceReviewer()
         ticket = _ticket(visual_references=["signup"])
         comments = await reviewer.review(ticket, tmp_path)
         assert len(comments) >= 1
-        wnf = [
-            c for c in comments if c.type == "wireframe-not-found"
-        ]
+        wnf = [c for c in comments if c.type == "wireframe-not-found"]
         assert len(wnf) == 1
         assert wnf[0].severity == "critical"
         assert "signup" in wnf[0].prose
@@ -162,14 +157,10 @@ class TestWireframeNotFound:
 
 class TestWireframeLintFailed:
     async def test_lint_failure_emits_critical(self, tmp_path: Path) -> None:
-        save_wireframe(
-            tmp_path, "signup", _broken_wireframe(_meta("signup"))
-        )
+        save_wireframe(tmp_path, "signup", _broken_wireframe(_meta("signup")))
         # Diff mentions signup — so the reference check passes,
         # leaving only the lint failure.
-        _seed_worktree_with_diff(
-            tmp_path, "ui-ticket", "# implements signup screen\n"
-        )
+        _seed_worktree_with_diff(tmp_path, "ui-ticket", "# implements signup screen\n")
 
         reviewer = VisualComplianceReviewer()
         ticket = _ticket(visual_references=["signup"])
@@ -179,15 +170,9 @@ class TestWireframeLintFailed:
 
 
 class TestWireframeNotReferenced:
-    async def test_diff_without_screen_id_emits_important(
-        self, tmp_path: Path
-    ) -> None:
-        save_wireframe(
-            tmp_path, "signup", _clean_wireframe(_meta("signup"))
-        )
-        _seed_worktree_with_diff(
-            tmp_path, "ui-ticket", "# unrelated diff\n"
-        )
+    async def test_diff_without_screen_id_emits_important(self, tmp_path: Path) -> None:
+        save_wireframe(tmp_path, "signup", _clean_wireframe(_meta("signup")))
+        _seed_worktree_with_diff(tmp_path, "ui-ticket", "# unrelated diff\n")
 
         reviewer = VisualComplianceReviewer()
         ticket = _ticket(visual_references=["signup"])
@@ -199,9 +184,7 @@ class TestWireframeNotReferenced:
     async def test_diff_with_screen_id_passes_reference_check(
         self, tmp_path: Path
     ) -> None:
-        save_wireframe(
-            tmp_path, "signup", _clean_wireframe(_meta("signup"))
-        )
+        save_wireframe(tmp_path, "signup", _clean_wireframe(_meta("signup")))
         _seed_worktree_with_diff(
             tmp_path, "ui-ticket", "# implements the signup wireframe\n"
         )
@@ -263,17 +246,13 @@ class TestDispatchInvocation:
     async def test_dispatch_runs_visual_compliance_at_per_commit(
         self, tmp_path: Path
     ) -> None:
-        save_wireframe(
-            tmp_path, "signup", _clean_wireframe(_meta("signup"))
-        )
+        save_wireframe(tmp_path, "signup", _clean_wireframe(_meta("signup")))
         _seed_worktree_with_diff(
             tmp_path, "ui-ticket", "# implements signup wireframe\n"
         )
 
         ticket = _ticket(visual_references=["signup"], layer="mvp")
-        out = await dispatch_for_cadence(
-            ticket, tmp_path, "per_commit"
-        )
+        out = await dispatch_for_cadence(ticket, tmp_path, "per_commit")
         assert VISUAL_COMPLIANCE_REVIEWER_ID in out
         # Comments empty (everything passed) but the reviewer was
         # invoked — its key is in the output map.

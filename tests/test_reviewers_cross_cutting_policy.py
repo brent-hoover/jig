@@ -5,6 +5,7 @@ Two checks: negative-polarity violations (token intersection trips
 critical), positive-polarity-with-auto-AC reference miss (token disjoint
 trips important). Default-on for every layer.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -30,6 +31,7 @@ from jig.schemas.arch import (
 )
 from jig.spec_loader import architecture_path
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -74,9 +76,7 @@ def _write_architecture(
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True
-    )
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
 def _init_worktree(
@@ -118,6 +118,7 @@ def _ticket(
         capability_ids=["shopify-connect"],
         layer=layer,
         reviewer_set=reviewer_set if reviewer_set is not None else [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -294,10 +295,7 @@ async def test_positive_auto_ac_with_reference_passes(tmp_path: Path):
     _init_worktree(
         worktree,
         head_files={
-            "endpoints.py": (
-                "def public_endpoint():\n"
-                "    emit_audit_event('login')\n"
-            ),
+            "endpoints.py": ("def public_endpoint():\n    emit_audit_event('login')\n"),
         },
     )
 
@@ -367,10 +365,7 @@ async def test_multiple_policies_each_evaluated_independently(tmp_path: Path):
         head_files={
             # References "endpoint" + "audit" + "event" (positive passes)
             # AND "credentials" (negative fails).
-            "ingest.py": (
-                "def endpoint():\n"
-                "    emit_audit_event(credentials)\n"
-            ),
+            "ingest.py": ("def endpoint():\n    emit_audit_event(credentials)\n"),
         },
     )
 

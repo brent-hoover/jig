@@ -63,6 +63,7 @@ from jig.thread_mcp import (
     handle_thread_waive_check,
 )
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures -------------------------------------------------------------
@@ -82,6 +83,7 @@ async def _make_stores(
             work_type=WorkType.FEATURE,
             title="t",
             created_by="orchestrator",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     return tickets, threads, bus, ticket_id
@@ -1766,6 +1768,7 @@ class TestThreadCloseHandoff:
                 title="t",
                 created_by="orchestrator",
                 workflow="nonexistent_workflow_4f",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         handoff = await handle_thread_handoff(

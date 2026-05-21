@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from jig.logging_setup import configure_logging
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -47,10 +48,7 @@ async def test_tool_input_and_result_captured_at_debug(
             content=[
                 ToolResultBlock(
                     tool_use_id="tu-1",
-                    content=(
-                        "total 4\n"
-                        "drwxr-xr-x 2 root root 4096 Apr 23 10:00 ."
-                    ),
+                    content=("total 4\ndrwxr-xr-x 2 root root 4096 Apr 23 10:00 ."),
                     is_error=False,
                 ),
             ],
@@ -76,14 +74,17 @@ async def test_tool_input_and_result_captured_at_debug(
         phases=[PhaseConfig(name="dev", role="dev")],
     )
     roles = [RoleConfig(role="dev", phase_prompt="dev")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -97,9 +98,7 @@ async def test_tool_input_and_result_captured_at_debug(
         for h in logging.getLogger().handlers:
             h.flush()
 
-    recs = [
-        json.loads(line) for line in log_file.read_text().strip().splitlines()
-    ]
+    recs = [json.loads(line) for line in log_file.read_text().strip().splitlines()]
     input_recs = [r for r in recs if "tool_input:" in r.get("msg", "")]
     result_recs = [r for r in recs if "tool_result:" in r.get("msg", "")]
     assert input_recs, "no tool_input DEBUG line"
@@ -155,9 +154,7 @@ async def test_large_tool_result_is_truncated_and_list_content_serialised(
         )
         yield UserMessage(
             content=[
-                ToolResultBlock(
-                    tool_use_id="tu-big", content=big_body, is_error=True
-                ),
+                ToolResultBlock(tool_use_id="tu-big", content=big_body, is_error=True),
                 ToolResultBlock(
                     tool_use_id="tu-list", content=list_content, is_error=False
                 ),
@@ -183,14 +180,17 @@ async def test_large_tool_result_is_truncated_and_list_content_serialised(
         name="default", phases=[PhaseConfig(name="dev", role="dev")]
     )
     roles = [RoleConfig(role="dev", phase_prompt="dev")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -204,13 +204,12 @@ async def test_large_tool_result_is_truncated_and_list_content_serialised(
         for h in logging.getLogger().handlers:
             h.flush()
 
-    recs = [
-        json.loads(line) for line in log_file.read_text().strip().splitlines()
-    ]
+    recs = [json.loads(line) for line in log_file.read_text().strip().splitlines()]
 
     # (1) Truncation: companion marker + shortened body + is_error=True.
     trunc_markers = [
-        r for r in recs
+        r
+        for r in recs
         if "tool_result_truncated:" in r.get("msg", "")
         and "id=tu-big" in r.get("msg", "")
     ]
@@ -219,9 +218,9 @@ async def test_large_tool_result_is_truncated_and_list_content_serialised(
     assert f"full_bytes={expected_bytes}" in trunc_markers[0]["msg"]
 
     big_results = [
-        r for r in recs
-        if "tool_result:" in r.get("msg", "")
-        and "id=tu-big" in r.get("msg", "")
+        r
+        for r in recs
+        if "tool_result:" in r.get("msg", "") and "id=tu-big" in r.get("msg", "")
     ]
     assert big_results
     big_msg = big_results[0]["msg"]
@@ -234,9 +233,9 @@ async def test_large_tool_result_is_truncated_and_list_content_serialised(
 
     # (2) List content: serialised to JSON.
     list_results = [
-        r for r in recs
-        if "tool_result:" in r.get("msg", "")
-        and "id=tu-list" in r.get("msg", "")
+        r
+        for r in recs
+        if "tool_result:" in r.get("msg", "") and "id=tu-list" in r.get("msg", "")
     ]
     assert list_results
     list_msg = list_results[0]["msg"]
@@ -244,4 +243,4 @@ async def test_large_tool_result_is_truncated_and_list_content_serialised(
     assert "structured-marker-payload" in list_msg
     # JSON-array dumps of our list start with `[{` — confirm we went
     # through json.dumps and didn't just cast the list to str().
-    assert '[{' in list_msg
+    assert "[{" in list_msg

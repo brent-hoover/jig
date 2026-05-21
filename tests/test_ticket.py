@@ -2,10 +2,16 @@ import pytest
 from pydantic import ValidationError
 
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def test_ticket_derived_from_defaults_none():
-    t = Ticket(work_type=WorkType.FEATURE, title="t", created_by="cli")
+    t = Ticket(
+        work_type=WorkType.FEATURE,
+        title="t",
+        created_by="cli",
+        description=TICKET_AC_PLACEHOLDER,
+    )
     assert t.derived_from is None
 
 
@@ -15,6 +21,7 @@ def test_ticket_derived_from_accepts_uri():
         title="t",
         created_by="cli",
         derived_from="project://spec/capabilities/due-dates",
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert t.derived_from == "project://spec/capabilities/due-dates"
 
@@ -32,7 +39,8 @@ def test_ticket_rejects_unknown_field():
             work_type=WorkType.FEATURE,
             title="t",
             created_by="cli",
-            visulal_references=["dashboard"],  # type: ignore[call-arg]
+            visulal_references=["dashboard"],  # type: ignore[call-arg],
+            description=TICKET_AC_PLACEHOLDER,
         )
 
 
@@ -44,8 +52,18 @@ def test_ticket_default_collections_are_independent():
     makes the intent visible and lines up with the rest of the schemas
     package's discipline.
     """
-    a = Ticket(work_type=WorkType.FEATURE, title="a", created_by="u")
-    b = Ticket(work_type=WorkType.FEATURE, title="b", created_by="u")
+    a = Ticket(
+        work_type=WorkType.FEATURE,
+        title="a",
+        created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
+    )
+    b = Ticket(
+        work_type=WorkType.FEATURE,
+        title="b",
+        created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
+    )
     a.blocks.append("t-x")
     a.labels.append("lbl-a")
     a.capability_ids.append("cap-a")
@@ -63,5 +81,10 @@ def test_ticket_legacy_field_migration_still_works():
     legacy ``type=`` is renamed to ``work_type`` *before* extra-key
     validation, so the rename keeps working.
     """
-    t = Ticket(type="feature", title="t", created_by="cli")  # type: ignore[call-arg]
+    t = Ticket(
+        type="feature",
+        title="t",
+        created_by="cli",
+        description=TICKET_AC_PLACEHOLDER,
+    )  # type: ignore[call-arg]
     assert t.work_type == WorkType.FEATURE

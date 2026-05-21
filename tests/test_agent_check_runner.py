@@ -32,6 +32,7 @@ from jig.store import MessageBus
 from jig.store.check_results import CheckResultsStore
 from jig.store.threads import ThreadStore
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _catalog(**checks) -> CheckCatalog:
@@ -57,7 +58,12 @@ def _worktree(tmp_path: Path) -> Path:
 
 
 def _ticket(*, title: str = "do it") -> Ticket:
-    return Ticket(work_type=WorkType.REFACTOR, title=title, created_by="o")
+    return Ticket(
+        work_type=WorkType.REFACTOR,
+        title=title,
+        created_by="o",
+        description=TICKET_AC_PLACEHOLDER,
+    )
 
 
 # ---- Fake SDK query --------------------------------------------------------

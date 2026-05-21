@@ -30,6 +30,7 @@ from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note, SystemEvent
 from jig.thread_mcp import ThreadError
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _worktree(tmp_path: Path) -> Path:
@@ -87,6 +88,7 @@ async def _seed_pending_handoff(
             title="t",
             created_by="orchestrator",
             workflow=workflow_name,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     hid = await threads.post(
@@ -272,6 +274,7 @@ class TestErrors:
                 work_type=WorkType.FEATURE,
                 title="t",
                 created_by="orchestrator",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         nid = await threads.post(Note(ticket_id=tid, author="dev", text="hi"))
@@ -469,6 +472,7 @@ class TestBounceHandoff:
                 work_type=WorkType.FEATURE,
                 title="t",
                 created_by="orchestrator",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         nid = await threads.post(Note(ticket_id=tid, author="dev", text="hi"))
@@ -680,6 +684,7 @@ class TestAcceptHandoffAutomated:
                 work_type=WorkType.FEATURE,
                 title="t",
                 created_by="orchestrator",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         nid = await threads.post(Note(ticket_id=tid, author="dev", text="hi"))

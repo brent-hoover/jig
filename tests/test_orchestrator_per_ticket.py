@@ -10,6 +10,7 @@ from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.thread import SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +72,12 @@ async def test_run_agent_exception_marks_ticket_failed(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="feat", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="feat",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         # Wait for the asyncio task to finish
@@ -107,7 +113,12 @@ async def test_current_phase_index_skips_by_phase_name_not_task_count(
     await orch.startup()
     try:
         ticket_id = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="feat", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="feat",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
 
         # Post TWO phase_run system events for phase "a" (simulating a retry)
@@ -187,7 +198,12 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         running_task = orch._running_tickets.get(tid)
@@ -256,7 +272,12 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         running_task = orch._running_tickets.get(tid)
@@ -303,7 +324,12 @@ async def test_try_resolve_conflict_returns_false_when_role_missing(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -331,7 +357,12 @@ async def test_try_resolve_conflict_returns_false_when_agent_raises(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -365,7 +396,12 @@ async def test_try_resolve_conflict_returns_true_when_agent_succeeds(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -400,7 +436,12 @@ async def test_try_resolve_conflict_returns_false_when_agent_reports_failed(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -429,9 +470,7 @@ async def test_try_resolve_conflict_returns_false_when_agent_reports_failed(
 
 
 @pytest.mark.asyncio
-async def test_resolver_success_routes_to_resolved(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_resolver_success_routes_to_resolved(tmp_path: Path, monkeypatch) -> None:
     """When _try_resolve_conflict returns True and the retry merge succeeds,
     the ticket reaches RESOLVED."""
     _make_project_and_workflow(tmp_path, ["spec"])
@@ -454,14 +493,18 @@ async def test_resolver_success_routes_to_resolved(
 
     call_count = 0
 
-    async def merge_first_conflicts_then_succeeds(project_path, ticket_id, base, strategy):
+    async def merge_first_conflicts_then_succeeds(
+        project_path, ticket_id, base, strategy
+    ):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise MergeConflictError(ticket_id, f"jig/{ticket_id}")
         return f"Merged jig/{ticket_id}"
 
-    monkeypatch.setattr("jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds)
+    monkeypatch.setattr(
+        "jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds
+    )
     monkeypatch.setattr("jig.worktree.remove_worktree", lambda *a, **k: None)
 
     async def fake_commit_wt(*args, **kwargs):
@@ -480,7 +523,12 @@ async def test_resolver_success_routes_to_resolved(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         running_task = orch._running_tickets.get(tid)
@@ -547,7 +595,12 @@ async def test_resolver_failure_routes_to_merge_conflict(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         running_task = orch._running_tickets.get(tid)
@@ -619,10 +672,20 @@ async def test_start_ready_tickets_respects_max_parallel(
     await orch.startup()
     try:
         tid1 = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t1", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t1",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         tid2 = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t2", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t2",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
 
         await orch._start_ready_tickets()
@@ -635,9 +698,7 @@ async def test_start_ready_tickets_respects_max_parallel(
         t1 = await orch.tickets.get(tid1)
         t2 = await orch.tickets.get(tid2)
         assert t1 is not None and t2 is not None
-        open_count = sum(
-            1 for t in (t1, t2) if t.status == TicketStatus.OPEN
-        )
+        open_count = sum(1 for t in (t1, t2) if t.status == TicketStatus.OPEN)
         assert open_count == 1, (
             f"expected exactly 1 OPEN ticket; t1={t1.status}, t2={t2.status}"
         )
@@ -680,10 +741,20 @@ async def test_start_ready_tickets_no_cap_when_max_parallel_none(
     await orch.startup()
     try:
         await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t1", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t1",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t2", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t2",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
 
         await orch._start_ready_tickets()
@@ -712,7 +783,12 @@ async def test_try_replan_returns_when_role_missing(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -738,7 +814,12 @@ async def test_try_replan_returns_when_agent_raises(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -770,7 +851,12 @@ async def test_try_replan_completes_when_agent_succeeds(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         ticket = await orch.tickets.get(tid)
 
@@ -840,7 +926,9 @@ async def test_replan_fired_after_successful_conflict_resolution(
     async def fake_commit(*a, **k) -> None:
         return None
 
-    monkeypatch.setattr("jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds)
+    monkeypatch.setattr(
+        "jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds
+    )
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit)
 
@@ -859,7 +947,12 @@ async def test_replan_fired_after_successful_conflict_resolution(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         running_task = orch._running_tickets.get(tid)
@@ -930,7 +1023,12 @@ async def test_replan_not_fired_when_resolver_fails(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
         running_task = orch._running_tickets.get(tid)

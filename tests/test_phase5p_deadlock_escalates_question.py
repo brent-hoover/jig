@@ -19,6 +19,7 @@ from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
 from jig.thread import Escalation, Question
 from jig.ticket import Ticket, TicketStatus, WorkType
 from tests._phase5p_helpers import build_orch, poll_until
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -30,9 +31,7 @@ async def test_blocking_question_past_t2_escalates_and_flips_needs_info(
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
@@ -59,7 +58,12 @@ async def test_blocking_question_past_t2_escalates_and_flips_needs_info(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 

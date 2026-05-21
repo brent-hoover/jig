@@ -10,20 +10,17 @@ from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
 from jig.thread import SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
 from tests._phase5p_helpers import build_orch, poll_until
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
-async def test_phase_start_and_end_events_emitted(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_phase_start_and_end_events_emitted(tmp_path: Path, monkeypatch) -> None:
     workflow = WorkflowConfig(
         name="default",
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
@@ -36,7 +33,12 @@ async def test_phase_start_and_end_events_emitted(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -48,11 +50,13 @@ async def test_phase_start_and_end_events_emitted(
 
         entries = await orch.threads.for_ticket(tid)
         starts = [
-            e for e in entries
+            e
+            for e in entries
             if isinstance(e, SystemEvent) and e.event_type == "phase_start"
         ]
         ends = [
-            e for e in entries
+            e
+            for e in entries
             if isinstance(e, SystemEvent) and e.event_type == "phase_end"
         ]
         assert len(starts) == 1
@@ -77,9 +81,7 @@ async def test_phase_end_fires_with_failed_outcome_when_agent_raises(
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     from jig import orchestrator as orch_module
 
@@ -91,7 +93,12 @@ async def test_phase_end_fires_with_failed_outcome_when_agent_raises(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -103,7 +110,8 @@ async def test_phase_end_fires_with_failed_outcome_when_agent_raises(
 
         entries = await orch.threads.for_ticket(tid)
         ends = [
-            e for e in entries
+            e
+            for e in entries
             if isinstance(e, SystemEvent) and e.event_type == "phase_end"
         ]
         assert len(ends) == 1

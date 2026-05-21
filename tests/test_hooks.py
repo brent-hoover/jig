@@ -459,6 +459,7 @@ phases:
     (project / ".jig" / "store" / "tickets.jsonl").write_text(
         '{"_op": "insert", "_id": "t-1", '
         '"work_type": "feature", "title": "x", "created_by": "u", '
+        '"description": "## Acceptance criteria\\n- placeholder\\n", '
         '"workflow": "default"}\n'
     )
 
@@ -500,6 +501,7 @@ def test_run_pre_push_in_worktree_workflow_schema_invalid_skips(tmp_path: Path, 
     (project / ".jig" / "store" / "tickets.jsonl").write_text(
         '{"_op": "insert", "_id": "t-1", '
         '"work_type": "feature", "title": "x", "created_by": "u", '
+        '"description": "## Acceptance criteria\\n- placeholder\\n", '
         '"workflow": "default"}\n'
     )
 

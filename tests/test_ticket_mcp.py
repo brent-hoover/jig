@@ -16,6 +16,7 @@ from jig.ticket_mcp import (
     handle_read_ticket,
     handle_update_ticket,
 )
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.fixture
@@ -39,7 +40,7 @@ async def test_create_ticket_persists(stores) -> None:
         args={
             "type": "feature",
             "title": "Add search",
-            "description": "users want to search",
+            "description": "users want to search\n\n" + TICKET_AC_PLACEHOLDER,
         },
     )
     loaded = await tickets.get(ticket_id)
@@ -58,7 +59,7 @@ async def test_create_ticket_publishes_bus_event(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="user",
-        args={"type": "bug", "title": "crash"},
+        args={"type": "bug", "title": "crash", "description": TICKET_AC_PLACEHOLDER},
     )
     msg = await queue.get()
     assert msg.topic == "orchestrator"
@@ -99,7 +100,12 @@ async def test_create_ticket_rejects_unknown_size(stores) -> None:
             tickets=tickets,
             bus=bus,
             sender="user",
-            args={"work_type": "feature", "title": "bad", "size": "huge"},
+            args={
+                "work_type": "feature",
+                "title": "bad",
+                "size": "huge",
+                "description": TICKET_AC_PLACEHOLDER,
+            },
         )
 
 
@@ -110,7 +116,7 @@ async def test_read_ticket(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="user",
-        args={"type": "feature", "title": "f"},
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
     )
     loaded = await handle_read_ticket(tickets=tickets, ticket_id=tid)
     assert loaded.title == "f"
@@ -130,15 +136,17 @@ async def test_list_tickets_filtered(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "feature", "title": "f1"},
+        args={"type": "feature", "title": "f1", "description": TICKET_AC_PLACEHOLDER},
     )
     await handle_create_ticket(
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "bug", "title": "b1"},
+        args={"type": "bug", "title": "b1", "description": TICKET_AC_PLACEHOLDER},
     )
-    features = await handle_list_tickets(tickets=tickets, args={"type": "feature"})
+    features = await handle_list_tickets(
+        tickets=tickets, args={"type": "feature", "description": TICKET_AC_PLACEHOLDER}
+    )
     assert [t.title for t in features] == ["f1"]
 
 
@@ -149,7 +157,7 @@ async def test_read_comments_direct_post(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "task", "title": "t"},
+        args={"type": "task", "title": "t", "description": TICKET_AC_PLACEHOLDER},
     )
     await threads.post(Note(ticket_id=tid, author="dev", text="hello"))
     entries = await handle_read_comments(threads=threads, ticket_id=tid)
@@ -165,7 +173,7 @@ async def test_comment_on_ticket_rejects_system_kinds(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "task", "title": "t"},
+        args={"type": "task", "title": "t", "description": TICKET_AC_PLACEHOLDER},
     )
     with pytest.raises(ValueError):
         await handle_comment_on_ticket(
@@ -185,7 +193,7 @@ async def test_update_ticket_status_emits_status_change_comment(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "feature", "title": "f"},
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
     )
     await handle_update_ticket(
         tickets=tickets,
@@ -211,17 +219,18 @@ async def test_update_ticket_non_status_field(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "feature", "title": "f"},
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
     )
+    new_description = "more detail\n\n" + TICKET_AC_PLACEHOLDER
     await handle_update_ticket(
         tickets=tickets,
         threads=threads,
         bus=bus,
         sender="orchestrator",
-        args={"ticket_id": tid, "description": "more detail"},
+        args={"ticket_id": tid, "description": new_description},
     )
     loaded = await tickets.get(tid)
-    assert loaded.description == "more detail"
+    assert loaded.description == new_description
     entries = await threads.for_ticket(tid)
     assert not any(
         e.kind == "system_event" and e.event_type == "status_change" for e in entries
@@ -236,7 +245,12 @@ async def test_comment_on_ticket_self_role_allowed(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "task", "title": "t", "assignee": "dev"},
+        args={
+            "type": "task",
+            "title": "t",
+            "assignee": "dev",
+            "description": TICKET_AC_PLACEHOLDER,
+        },
     )
     dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
@@ -258,7 +272,12 @@ async def test_comment_on_ticket_orchestrator_always_reachable(stores) -> None:
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "task", "title": "t", "assignee": "orchestrator"},
+        args={
+            "type": "task",
+            "title": "t",
+            "assignee": "orchestrator",
+            "description": TICKET_AC_PLACEHOLDER,
+        },
     )
     dev_cfg = RoleConfig(role="dev", phase_prompt="")
     cid = await handle_comment_on_ticket(
@@ -291,7 +310,7 @@ async def test_commit_progress_creates_commit_and_system_event(
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "feature", "title": "f"},
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
     )
     from jig.ticket_mcp import handle_commit_progress
 
@@ -334,7 +353,7 @@ async def test_commit_progress_nothing_to_commit_returns_none_sha(
         tickets=tickets,
         bus=bus,
         sender="u",
-        args={"type": "feature", "title": "f"},
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
     )
     from jig.ticket_mcp import handle_commit_progress
 

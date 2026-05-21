@@ -6,6 +6,7 @@ deterministic checks (length, boilerplate-restatement, empty
 complications) — no LLM. Cousin of ``ContractComplianceReviewer``: same
 shape, same dispatch wiring.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -31,6 +32,7 @@ from jig.schemas.arch import (
 )
 from jig.schemas.plan import Epic, EpicLayers
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -123,7 +125,9 @@ def test_flags_too_short_problem():
     types = {c.type for c in comments}
     assert IntentCommentType.INTENT_TOO_SHORT.value in types
     # Severity is IMPORTANT so the dev/auth agent has to acknowledge.
-    short = next(c for c in comments if c.type == IntentCommentType.INTENT_TOO_SHORT.value)
+    short = next(
+        c for c in comments if c.type == IntentCommentType.INTENT_TOO_SHORT.value
+    )
     assert short.severity == Severity.IMPORTANT.value
     assert short.reviewer == INTENT_REVIEWER_ID
     assert "problem" in short.prose.lower()
@@ -231,8 +235,7 @@ def test_extra_complication_keys_count_as_filled():
     )
     comments = review_intent(intent, kind="Module", artifact_id="m-1")
     assert all(
-        c.type != IntentCommentType.INTENT_COMPLICATIONS_SKIPPED.value
-        for c in comments
+        c.type != IntentCommentType.INTENT_COMPLICATIONS_SKIPPED.value for c in comments
     )
 
 
@@ -240,12 +243,13 @@ def test_at_least_one_canonical_filled_passes():
     intent = Intent(
         problem=_good_intent().problem,
         simplest_solution=_good_intent().simplest_solution,
-        complications_considered=ComplicationsConsidered(scale="needs covering index at 100k SKUs"),
+        complications_considered=ComplicationsConsidered(
+            scale="needs covering index at 100k SKUs"
+        ),
     )
     comments = review_intent(intent, kind="Module", artifact_id="m-1")
     assert all(
-        c.type != IntentCommentType.INTENT_COMPLICATIONS_SKIPPED.value
-        for c in comments
+        c.type != IntentCommentType.INTENT_COMPLICATIONS_SKIPPED.value for c in comments
     )
 
 
@@ -320,9 +324,7 @@ async def test_reviewer_aggregates_comments_across_artifacts():
     each labeled with the right contract_uri so the operator can locate
     the offending artifact.
     """
-    bad_module = _module(
-        intent=_good_intent().model_copy(update={"problem": "x"})
-    )
+    bad_module = _module(intent=_good_intent().model_copy(update={"problem": "x"}))
     bad_dc = _data_contract(
         intent=_good_intent().model_copy(update={"simplest_solution": "y"})
     )
@@ -349,6 +351,7 @@ def _ticket(layer: str | None = "mvp", reviewer_set: list[str] | None = None) ->
         capability_ids=["shopify-connect"],
         layer=layer,
         reviewer_set=reviewer_set if reviewer_set is not None else [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -388,6 +391,7 @@ def test_explicit_reviewer_set_still_honored():
     """If the planner authored a reviewer_set, it's honored; judgment
     defaults are appended on top."""
     from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
+
     t = _ticket(layer="mvp", reviewer_set=["spec-compliance"])
     ids = select_reviewers_for_ticket(t)
     assert "spec-compliance" in ids
@@ -467,9 +471,7 @@ def test_citation_check_recognizes_project_uri():
         ),
     )
     comments = review_intent(intent, kind="Module", artifact_id="m-1")
-    assert all(
-        c.type != IntentCommentType.INTENT_NO_CITATIONS.value for c in comments
-    )
+    assert all(c.type != IntentCommentType.INTENT_NO_CITATIONS.value for c in comments)
 
 
 def test_citation_check_recognizes_file_path():
@@ -484,9 +486,7 @@ def test_citation_check_recognizes_file_path():
         ),
     )
     comments = review_intent(intent, kind="Module", artifact_id="m-1")
-    assert all(
-        c.type != IntentCommentType.INTENT_NO_CITATIONS.value for c in comments
-    )
+    assert all(c.type != IntentCommentType.INTENT_NO_CITATIONS.value for c in comments)
 
 
 # ---- Final-scope: cross-artifact uniqueness -----------------------------
@@ -504,9 +504,7 @@ async def test_flags_duplicate_intent_across_artifacts():
     reviewer = IntentComplianceReviewer()
     comments = await reviewer.review_artifacts([a, b])
     types = [c.type for c in comments]
-    assert (
-        IntentCommentType.INTENT_DUPLICATE_ACROSS_ARTIFACTS.value in types
-    )
+    assert IntentCommentType.INTENT_DUPLICATE_ACROSS_ARTIFACTS.value in types
 
 
 @pytest.mark.asyncio
@@ -622,9 +620,9 @@ async def test_review_project_walks_arch_modules_and_contracts(tmp_path):
         module="m1",
         behavioral_contracts=[bc],
     )
-    (
-        project_root / ".jig" / "spec" / "modules" / "m1" / "contracts.yaml"
-    ).write_text(yaml_mod.safe_dump(cf.model_dump(mode="json"), sort_keys=False))
+    (project_root / ".jig" / "spec" / "modules" / "m1" / "contracts.yaml").write_text(
+        yaml_mod.safe_dump(cf.model_dump(mode="json"), sort_keys=False)
+    )
 
     reviewer = IntentComplianceReviewer()
     by_uri = await reviewer.review_project(project_root)

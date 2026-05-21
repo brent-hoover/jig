@@ -24,6 +24,7 @@ from jig.thread import DeferredItem, Handoff
 from jig.thread_mcp import handle_thread_accept_handoff, handle_thread_handoff
 from jig.ticket import Ticket, TicketStatus, WorkType
 from tests._phase5p_helpers import build_orch, poll_until
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -38,9 +39,7 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
             PhaseConfig(
                 name="spec",
                 role="spec",
-                evaluator=SpecificRoleEvaluator(
-                    type="specific_role", role="dev"
-                ),
+                evaluator=SpecificRoleEvaluator(type="specific_role", role="dev"),
             ),
             PhaseConfig(name="dev", role="dev"),
         ],
@@ -49,9 +48,7 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
         RoleConfig(role="spec", phase_prompt="spec"),
         RoleConfig(role="dev", phase_prompt="dev"),
     ]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
@@ -90,7 +87,8 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
         elif ctx.spawn_reason == SpawnReason.EVALUATOR and ctx.role == "dev":
             handoffs = await ctx.threads.find_by_kind(ctx.ticket.id, "handoff")
             pendings = [
-                h for h in handoffs
+                h
+                for h in handoffs
                 if isinstance(h, Handoff) and h.acceptance_state == "pending"
             ]
             assert len(pendings) == 1, (
@@ -134,7 +132,12 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -174,7 +177,9 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
         # Handoff landed as accepted.
         handoffs = await orch.threads.find_by_kind(tid, "handoff")
         accepted = [
-            h for h in handoffs if isinstance(h, Handoff) and h.acceptance_state == "accepted"
+            h
+            for h in handoffs
+            if isinstance(h, Handoff) and h.acceptance_state == "accepted"
         ]
         assert len(accepted) == 1
         assert accepted[0].accepted_by == "dev"

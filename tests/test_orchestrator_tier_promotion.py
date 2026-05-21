@@ -6,6 +6,7 @@ promotes the ticket's ``dev_tier`` so the next dispatch picks up at
 the higher tier. Conservative: no mid-stream kill — the next dispatch
 sees the new tier.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +17,7 @@ from jig.analytics.events import AutoEscalationTriggered, PerCommitCheckFailed
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _save_project(tmp_path: Path) -> None:
@@ -60,6 +62,7 @@ async def test_blocked_with_signal_promotes_standard_to_senior(
             title="t",
             created_by="u",
             dev_tier="standard",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert orch.tickets is not None and orch.analytics is not None
         await orch.tickets.create(ticket)
@@ -134,6 +137,7 @@ async def test_success_status_does_not_promote(
             title="t",
             created_by="u",
             dev_tier="standard",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert orch.tickets is not None and orch.analytics is not None
         await orch.tickets.create(ticket)
@@ -198,6 +202,7 @@ async def test_blocked_without_signals_does_not_promote(
             title="t",
             created_by="u",
             dev_tier="standard",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert orch.tickets is not None and orch.analytics is not None
         await orch.tickets.create(ticket)
@@ -247,6 +252,7 @@ async def test_sa_tier_no_further_promotion(
             title="t",
             created_by="u",
             dev_tier="sa",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert orch.tickets is not None and orch.analytics is not None
         await orch.tickets.create(ticket)

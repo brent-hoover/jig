@@ -19,6 +19,7 @@ blocked tickets from operator-blocked ones.
 
 Tests use mocked SDK + canned reviewer comments — no live LLM spawns.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,6 +45,7 @@ from jig.store.tickets import TicketStore
 from jig.store.threads import ThreadStore
 from jig.thread import Handoff
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -66,9 +68,7 @@ def _seed_project(root: Path, *, run_federation: bool = True) -> None:
     save_config(root, cfg)
 
 
-async def _make_orch(
-    tmp_path: Path, *, run_federation: bool = True
-) -> Orchestrator:
+async def _make_orch(tmp_path: Path, *, run_federation: bool = True) -> Orchestrator:
     """Build an orchestrator with stores hand-wired for unit tests.
 
     We don't go through ``startup()`` because that path tries to
@@ -109,9 +109,7 @@ def _comment(
     )
 
 
-async def _make_ticket(
-    orch: Orchestrator, ticket_id: str = "tb-gate"
-) -> Ticket:
+async def _make_ticket(orch: Orchestrator, ticket_id: str = "tb-gate") -> Ticket:
     assert orch.tickets is not None
     t = Ticket(
         id=ticket_id,
@@ -119,6 +117,7 @@ async def _make_ticket(
         title="federation gate test",
         created_by="planner-pm",
         layer="mvp",
+        description=TICKET_AC_PLACEHOLDER,
     )
     await orch.tickets.create(t)
     fresh = await orch.tickets.get(ticket_id)
@@ -146,6 +145,7 @@ class TestBlockReasonField:
             work_type=WorkType.FEATURE,
             title="block_reason default test",
             created_by="planner-pm",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert t.block_reason is None
 
@@ -156,6 +156,7 @@ class TestBlockReasonField:
             title="block_reason settable test",
             created_by="planner-pm",
             block_reason="reviewer-critical",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert t.block_reason == "reviewer-critical"
 
@@ -171,6 +172,7 @@ class TestBlockReasonField:
                 work_type=WorkType.FEATURE,
                 title="round-trip",
                 created_by="x",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         await tickets.update("t-rt", block_reason="reviewer-important")
@@ -201,9 +203,7 @@ class TestCoordinatorProperty:
         assert first is second
 
     @pytest.mark.asyncio
-    async def test_coordinator_raises_when_stores_missing(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_coordinator_raises_when_stores_missing(self, tmp_path: Path) -> None:
         """Pre-startup access should fail loud, not return a half-baked
         Coordinator that crashes deep inside a defer call."""
         orch = Orchestrator(project_path=tmp_path)
@@ -237,10 +237,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         await orch._run_review_federation(ticket.id, ticket)
@@ -267,10 +271,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         await orch._run_review_federation(ticket.id, ticket)
@@ -299,10 +307,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         await orch._run_review_federation(ticket.id, ticket)
@@ -318,8 +330,7 @@ class TestReviewFederationGate:
         entries = await orch.threads.for_ticket(ticket.id)
         handoffs = [e for e in entries if isinstance(e, Handoff)]
         assert any(h.phase == "sa-consult" for h in handoffs), (
-            f"expected sa-consult handoff, got phases: "
-            f"{[h.phase for h in handoffs]}"
+            f"expected sa-consult handoff, got phases: {[h.phase for h in handoffs]}"
         )
 
     @pytest.mark.asyncio
@@ -340,10 +351,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         await orch._run_review_federation(ticket.id, ticket)
@@ -386,10 +401,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         await orch._run_review_federation(ticket.id, ticket)
@@ -427,10 +446,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         await orch._run_review_federation(ticket.id, ticket)
@@ -465,10 +488,14 @@ class TestReviewFederationGate:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         # Mirror the production conditional — flag-off path skips the call.
@@ -516,10 +543,14 @@ class TestFederationCrashRetry:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         # Stub asyncio.sleep so the test doesn't actually wait 2s.
@@ -561,10 +592,14 @@ class TestFederationCrashRetry:
         from jig.reviewers import dispatch as dispatch_module
 
         monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _stub,
+            dispatch_module,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
         monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _stub,
+            reviewers_pkg,
+            "dispatch_with_llm_spawn",
+            _stub,
         )
 
         import asyncio as _asyncio
@@ -586,7 +621,6 @@ class TestFederationCrashRetry:
         assert orch.threads is not None
         entries = await orch.threads.for_ticket(ticket.id)
         notes = [
-            e for e in entries
-            if e.kind == "note" and "federation" in e.text.lower()
+            e for e in entries if e.kind == "note" and "federation" in e.text.lower()
         ]
         assert notes, "expected a federation-error Note on the ticket"

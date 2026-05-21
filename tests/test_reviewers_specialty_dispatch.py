@@ -14,6 +14,7 @@ suppresses a specialty reviewer. The role-config registration tests
 live alongside (mirroring the existing judgment-reviewer pattern in
 ``test_reviewer_mcp.py``).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,6 +43,7 @@ from jig.schemas.arch import (
 )
 from jig.spec_loader import architecture_path, module_contracts_path
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -122,6 +124,7 @@ def _ticket(
         dev_tier=dev_tier,
         contract_amendment=contract_amendment,
         reviewer_set=reviewer_set or [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -189,9 +192,7 @@ class TestSecuritySelection:
                 )
             ],
         )
-        ids = select_reviewers_for_ticket(
-            _ticket(), project_root=tmp_path
-        )
+        ids = select_reviewers_for_ticket(_ticket(), project_root=tmp_path)
         assert SECURITY_REVIEWER_ID in ids
 
     def test_standard_tier_module_does_not_trigger(self, tmp_path: Path) -> None:
@@ -234,14 +235,10 @@ class TestPerformanceSelection:
         _write_contracts(
             tmp_path,
             integration_ac=[
-                IntegrationAcceptance(
-                    capability="shopify-connect", must=[must_text]
-                )
+                IntegrationAcceptance(capability="shopify-connect", must=[must_text])
             ],
         )
-        ids = select_reviewers_for_ticket(
-            _ticket(), project_root=tmp_path
-        )
+        ids = select_reviewers_for_ticket(_ticket(), project_root=tmp_path)
         assert PERFORMANCE_REVIEWER_ID in ids, (
             f"Expected perf reviewer to fire on AC text {must_text!r}"
         )
@@ -368,6 +365,7 @@ class TestContractAmendmentField:
             work_type=WorkType.FEATURE,
             title="x",
             created_by="po",
+            description=TICKET_AC_PLACEHOLDER,
         )
         assert t.contract_amendment is None
 
@@ -378,6 +376,7 @@ class TestContractAmendmentField:
             title="x",
             created_by="po",
             contract_amendment="extends ingest contract",
+            description=TICKET_AC_PLACEHOLDER,
         )
         payload = t.model_dump(mode="json")
         restored = Ticket.model_validate(payload)

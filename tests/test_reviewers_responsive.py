@@ -3,6 +3,7 @@
 Covers each rule + happy-path pass + dispatch wiring +
 WireframeMeta.breakpoints round-trip.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,6 +27,7 @@ from jig.wireframes.format import (
     extract_meta,
     render_meta_comment,
 )
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +43,7 @@ def _ticket(visual_references: list[str], layer: str = "final") -> Ticket:
         created_by="test",
         layer=layer,
         visual_references=visual_references,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -99,8 +102,7 @@ class TestWireframeMetaBreakpoints:
     def test_extract_legacy_meta_without_breakpoints_works(self) -> None:
         # Backwards compat: existing wireframes don't carry the field.
         legacy = (
-            '<!-- wireframe-meta: {"screen_id": "x", "title": "T"} -->'
-            "<html></html>"
+            '<!-- wireframe-meta: {"screen_id": "x", "title": "T"} --><html></html>'
         )
         loaded = extract_meta(legacy)
         assert loaded is not None
@@ -114,20 +116,12 @@ class TestWireframeMetaBreakpoints:
 
 @pytest.mark.asyncio
 class TestNoOp:
-    async def test_empty_visual_references_returns_empty(
-        self, tmp_path: Path
-    ) -> None:
-        comments = await ResponsiveDesignReviewer().review(
-            _ticket([]), tmp_path
-        )
+    async def test_empty_visual_references_returns_empty(self, tmp_path: Path) -> None:
+        comments = await ResponsiveDesignReviewer().review(_ticket([]), tmp_path)
         assert comments == []
 
-    async def test_missing_wireframe_skips_silently(
-        self, tmp_path: Path
-    ) -> None:
-        comments = await ResponsiveDesignReviewer().review(
-            _ticket(["nope"]), tmp_path
-        )
+    async def test_missing_wireframe_skips_silently(self, tmp_path: Path) -> None:
+        comments = await ResponsiveDesignReviewer().review(_ticket(["nope"]), tmp_path)
         assert comments == []
 
 
@@ -146,12 +140,9 @@ class TestHappyPath:
 
 @pytest.mark.asyncio
 class TestViewportMeta:
-    async def test_missing_viewport_meta_emits_critical(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_missing_viewport_meta_emits_critical(self, tmp_path: Path) -> None:
         html = _clean_html().replace(
-            '<meta name="viewport" content="width=device-width, '
-            'initial-scale=1">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1">',
             "",
         )
         save_wireframe(tmp_path, "signup", html)
@@ -159,8 +150,7 @@ class TestViewportMeta:
             _ticket(["signup"]), tmp_path
         )
         assert any(
-            c.severity == "critical" and "viewport" in c.prose.lower()
-            for c in comments
+            c.severity == "critical" and "viewport" in c.prose.lower() for c in comments
         )
 
     async def test_viewport_missing_device_width_emits_critical(
@@ -174,9 +164,7 @@ class TestViewportMeta:
             _ticket(["signup"]), tmp_path
         )
         assert any(
-            c.severity == "critical"
-            and "device-width" in c.prose
-            for c in comments
+            c.severity == "critical" and "device-width" in c.prose for c in comments
         )
 
     async def test_viewport_missing_initial_scale_emits_important(
@@ -191,9 +179,7 @@ class TestViewportMeta:
             _ticket(["signup"]), tmp_path
         )
         assert any(
-            c.severity == "important"
-            and "initial-scale" in c.prose
-            for c in comments
+            c.severity == "important" and "initial-scale" in c.prose for c in comments
         )
 
 
@@ -246,16 +232,13 @@ class TestNoFixedWidths:
         # Only fixed-width-related violations would mention "fixed" or
         # "pixels"; the canonical clean wireframe should still be clean.
         assert not any(
-            ("fixed-width" in c.prose or "width in pixels" in c.prose)
-            for c in comments
+            ("fixed-width" in c.prose or "width in pixels" in c.prose) for c in comments
         )
 
 
 @pytest.mark.asyncio
 class TestBreakpointsDeclared:
-    async def test_empty_breakpoints_list_emits_violation(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_empty_breakpoints_list_emits_violation(self, tmp_path: Path) -> None:
         html = _clean_html(breakpoints=[])
         save_wireframe(tmp_path, "signup", html)
         comments = await ResponsiveDesignReviewer().review(
@@ -264,9 +247,7 @@ class TestBreakpointsDeclared:
         assert any("breakpoints" in c.prose for c in comments)
 
     async def test_populated_breakpoints_passes(self, tmp_path: Path) -> None:
-        save_wireframe(
-            tmp_path, "signup", _clean_html(breakpoints=["mobile"])
-        )
+        save_wireframe(tmp_path, "signup", _clean_html(breakpoints=["mobile"]))
         comments = await ResponsiveDesignReviewer().review(
             _ticket(["signup"]), tmp_path
         )
@@ -278,8 +259,7 @@ class TestFluidTypography:
     async def test_px_font_without_token_emits(self, tmp_path: Path) -> None:
         html = _clean_html().replace(
             "<title>T</title>",
-            "<title>T</title>"
-            "<style>body { font-size: 14px; }</style>",
+            "<title>T</title><style>body { font-size: 14px; }</style>",
         )
         save_wireframe(tmp_path, "signup", html)
         comments = await ResponsiveDesignReviewer().review(
@@ -292,8 +272,7 @@ class TestFluidTypography:
         # gets the benefit of the doubt (still lower than the WCAG bar).
         html = _clean_html().replace(
             "<title>T</title>",
-            "<title>T</title>"
-            "<style>body { font-size: var(--font-size-base); }</style>",
+            "<title>T</title><style>body { font-size: var(--font-size-base); }</style>",
         )
         save_wireframe(tmp_path, "signup", html)
         comments = await ResponsiveDesignReviewer().review(
@@ -326,9 +305,7 @@ class TestDispatchSelection:
 
 @pytest.mark.asyncio
 class TestDispatchInvocation:
-    async def test_dispatch_runs_responsive_at_per_commit(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_dispatch_runs_responsive_at_per_commit(self, tmp_path: Path) -> None:
         save_wireframe(tmp_path, "signup", _clean_html("signup"))
         out = await dispatch_for_cadence(
             _ticket(["signup"], layer="final"), tmp_path, "per_commit"

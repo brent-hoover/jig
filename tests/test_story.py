@@ -12,6 +12,7 @@ from jig.store.tickets import TicketStore
 from jig.story import StoryEvent, StorySource, _render_system_event, build_story
 from jig.thread import Handoff, Note, SystemEvent
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def test_story_event_frozen_dataclass_construction() -> None:
@@ -45,9 +46,7 @@ async def test_build_story_returns_empty_list_for_unknown_ticket(
     (tmp_path / ".jig" / "store").mkdir(parents=True)
     threads = ThreadStore(tmp_path)
 
-    events = await build_story(
-        "no-such-ticket", project_path=tmp_path, threads=threads
-    )
+    events = await build_story("no-such-ticket", project_path=tmp_path, threads=threads)
     assert events == []
 
 
@@ -57,19 +56,18 @@ async def test_build_story_includes_thread_entries(tmp_path: Path) -> None:
     threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
     await threads.load()
 
-    await threads.post(
-        Note(ticket_id="tid-1", author="dev", text="starting work")
-    )
+    await threads.post(Note(ticket_id="tid-1", author="dev", text="starting work"))
     await threads.post(
         Handoff(
-            ticket_id="tid-1", author="dev", phase="spec",
-            outputs=["spec.md"], summary="spec draft ready",
+            ticket_id="tid-1",
+            author="dev",
+            phase="spec",
+            outputs=["spec.md"],
+            summary="spec draft ready",
         )
     )
 
-    events = await build_story(
-        "tid-1", project_path=tmp_path, threads=threads
-    )
+    events = await build_story("tid-1", project_path=tmp_path, threads=threads)
     assert len(events) == 2
     assert events[0].ts <= events[1].ts
     assert events[0].source == StorySource.thread
@@ -95,9 +93,7 @@ async def test_build_story_includes_matching_log_lines(tmp_path: Path) -> None:
         '"agent_id":null}\n'
     )
 
-    events = await build_story(
-        "tid-1", project_path=tmp_path, threads=threads
-    )
+    events = await build_story("tid-1", project_path=tmp_path, threads=threads)
     assert len(events) == 1
     assert events[0].source == StorySource.log
     assert events[0].kind == "jig.x"
@@ -122,13 +118,9 @@ async def test_build_story_sorts_thread_and_log_by_timestamp(
     )
 
     # Post a thread entry now
-    await threads.post(
-        Note(ticket_id="tid-1", author="dev", text="recent")
-    )
+    await threads.post(Note(ticket_id="tid-1", author="dev", text="recent"))
 
-    events = await build_story(
-        "tid-1", project_path=tmp_path, threads=threads
-    )
+    events = await build_story("tid-1", project_path=tmp_path, threads=threads)
     assert len(events) == 2
     assert "ancient" in events[0].message
     assert "recent" in events[1].message
@@ -206,7 +198,12 @@ async def test_build_story_include_children(tmp_path: Path) -> None:
     await tickets.load()
 
     parent_id = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="parent", created_by="user")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="parent",
+            created_by="user",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     child_id = await tickets.create(
         Ticket(
@@ -214,15 +211,12 @@ async def test_build_story_include_children(tmp_path: Path) -> None:
             title="child",
             created_by="user",
             parent_id=parent_id,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
-    await threads.post(
-        Note(ticket_id=parent_id, author="dev", text="parent note")
-    )
-    await threads.post(
-        Note(ticket_id=child_id, author="dev", text="child note")
-    )
+    await threads.post(Note(ticket_id=parent_id, author="dev", text="parent note"))
+    await threads.post(Note(ticket_id=child_id, author="dev", text="child note"))
 
     # Without include_children — only parent entries.
     events = await build_story(
@@ -274,18 +268,29 @@ async def test_build_story_include_children_grandchild(tmp_path: Path) -> None:
     await tickets.load()
 
     parent_id = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="parent", created_by="u")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="parent",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     child_id = await tickets.create(
         Ticket(
-            work_type=WorkType.FEATURE, title="child", created_by="u",
+            work_type=WorkType.FEATURE,
+            title="child",
+            created_by="u",
             parent_id=parent_id,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     grandchild_id = await tickets.create(
         Ticket(
-            work_type=WorkType.FEATURE, title="grandchild", created_by="u",
+            work_type=WorkType.FEATURE,
+            title="grandchild",
+            created_by="u",
             parent_id=child_id,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
@@ -316,12 +321,20 @@ async def test_build_story_include_children_cycle_safe(tmp_path: Path) -> None:
     await tickets.load()
 
     a_id = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="A", created_by="u")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="A",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     b_id = await tickets.create(
         Ticket(
-            work_type=WorkType.FEATURE, title="B", created_by="u",
+            work_type=WorkType.FEATURE,
+            title="B",
+            created_by="u",
             parent_id=a_id,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     # Forge a cycle: point A's parent at B.
@@ -354,12 +367,20 @@ async def test_build_story_since_with_include_children(tmp_path: Path) -> None:
     await tickets.load()
 
     parent_id = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="p", created_by="u")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="p",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     child_id = await tickets.create(
         Ticket(
-            work_type=WorkType.FEATURE, title="c", created_by="u",
+            work_type=WorkType.FEATURE,
+            title="c",
+            created_by="u",
             parent_id=parent_id,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
@@ -393,15 +414,11 @@ async def test_build_story_since_filter(tmp_path: Path) -> None:
     threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
     await threads.load()
 
-    await threads.post(
-        Note(ticket_id="tid-1", author="dev", text="early")
-    )
+    await threads.post(Note(ticket_id="tid-1", author="dev", text="early"))
     await asyncio.sleep(0.01)
     cutoff = datetime.now(timezone.utc)
     await asyncio.sleep(0.01)
-    await threads.post(
-        Note(ticket_id="tid-1", author="dev", text="late")
-    )
+    await threads.post(Note(ticket_id="tid-1", author="dev", text="late"))
 
     events = await build_story(
         "tid-1",

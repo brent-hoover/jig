@@ -51,6 +51,7 @@ from jig.thread_mcp import (
     handle_thread_reject_handoff,
 )
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures -------------------------------------------------------------
@@ -72,6 +73,7 @@ async def _make_stores(
             work_type=WorkType.FEATURE,
             title="t",
             created_by="orchestrator",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     return tickets, threads, checkpoints, bus, ticket_id
@@ -296,9 +298,7 @@ class TestLegacyDeferredItemBackfill:
     """
 
     @pytest.mark.asyncio
-    async def test_backfilled_id_is_stable_across_loads(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_backfilled_id_is_stable_across_loads(self, tmp_path: Path) -> None:
         """Two reads of the same legacy record yield the same id."""
         _, _, checkpoints, _, ticket_id = await _make_stores(tmp_path)
         # Raw insert bypassing the pydantic model — simulates a JSONL

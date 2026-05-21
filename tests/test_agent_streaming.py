@@ -22,6 +22,7 @@ from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 async def _wait_for_subscription(bus, topic: str, timeout: float = 2.0) -> None:
@@ -50,7 +51,7 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
         work_type=WorkType.REFACTOR,
         title="t",
         created_by="o",
-        description="do it",
+        description="do it" + "\n" + TICKET_AC_PLACEHOLDER,
     )
     tid = await tickets.create(t)
     loaded = await tickets.get(tid)
@@ -199,7 +200,7 @@ class TestMaterializeCapabilityPolicy:
                 work_type=WorkType.REFACTOR,
                 title="t",
                 created_by="o",
-                description="d",
+                description="d" + "\n" + TICKET_AC_PLACEHOLDER,
             ),
             parent=None,
             worktree_path=tmp_path / "worktree",
@@ -244,7 +245,7 @@ class TestMaterializeCapabilityPolicy:
             work_type=WorkType.REFACTOR,
             title="t",
             created_by="o",
-            description="d",
+            description="d" + "\n" + TICKET_AC_PLACEHOLDER,
         )
         ctx = AgentSpawnContext(
             role="dev",
@@ -315,7 +316,7 @@ class TestMaterializeCapabilityPolicy:
             work_type=WorkType.REFACTOR,
             title="t",
             created_by="o",
-            description="d",
+            description="d" + "\n" + TICKET_AC_PLACEHOLDER,
         )
         ctx = AgentSpawnContext(
             role="dev",
@@ -362,7 +363,7 @@ class TestMaterializeCapabilityPolicy:
             work_type=WorkType.REFACTOR,
             title="t",
             created_by="o",
-            description="d",
+            description="d" + "\n" + TICKET_AC_PLACEHOLDER,
         )
         ctx = AgentSpawnContext(
             role="dev",
@@ -427,7 +428,7 @@ class TestMaterializeWithoutSandbox:
                 work_type=WorkType.REFACTOR,
                 title="t",
                 created_by="o",
-                description="d",
+                description="d" + "\n" + TICKET_AC_PLACEHOLDER,
             ),
             parent=None,
             worktree_path=tmp_path / "worktree",

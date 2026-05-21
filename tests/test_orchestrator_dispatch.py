@@ -8,6 +8,7 @@ from jig.project import Project, save_project
 from jig.ticket import Ticket, TicketStatus, WorkType
 from jig.store.tickets import TicketStore
 from jig.store import Message, MessageType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -53,6 +54,7 @@ async def test_orchestrator_resumes_in_progress_tickets(tmp_path: Path) -> None:
             title="f",
             created_by="user",
             status=TicketStatus.IN_PROGRESS,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
@@ -94,6 +96,7 @@ async def test_dispatch_loop_spawns_for_unaddressed_message(tmp_path: Path) -> N
             assignee="spec-writer",
             parent_id="parent-1",
             workflow="thread",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
@@ -142,6 +145,7 @@ async def test_dispatch_loop_skips_user_role(tmp_path: Path) -> None:
             created_by="dev",
             assignee="user",
             workflow="thread",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
@@ -187,6 +191,7 @@ async def test_dispatch_loop_skips_if_live_subscriber_present(tmp_path: Path) ->
             created_by="o",
             assignee="dev",
             workflow="thread",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
 
@@ -249,6 +254,7 @@ async def test_spawn_qa_responder_setup_failure_does_not_kill_dispatch(
                 created_by="o",
                 assignee="qa",
                 workflow="thread",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         fake_msg = Message(
@@ -320,6 +326,7 @@ async def test_spawn_qa_responder_reserves_slot_before_awaits(
                 created_by="dev",
                 assignee="qa",
                 workflow="thread",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         fake_msg = Message(
@@ -350,7 +357,12 @@ async def test_orchestrator_emits_ticket_events_to_emitter(tmp_path: Path) -> No
     try:
         queue = emitter.subscribe()
         await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch.bus.publish(
             Message(
@@ -415,6 +427,7 @@ async def test_spawn_qa_responder_calls_run_agent(tmp_path: Path, monkeypatch) -
                 created_by="dev",
                 assignee="qa",
                 workflow="thread",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         fake_msg = Message(

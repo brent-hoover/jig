@@ -9,6 +9,7 @@ from jig.store.checkpoints import CheckpointStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 _BASE_TOOLS = {
@@ -139,6 +140,7 @@ async def test_phase_allowlists_enforced_through_mcp_tools(
             work_type=__import__("jig.ticket", fromlist=["WorkType"]).WorkType.FEATURE,
             title="t",
             created_by="orchestrator",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     cfg = RoleConfig(role="dev", phase_prompt="")
@@ -231,9 +233,7 @@ async def test_ask_question_dedupes_repeated_entries_in_list(
         }
     )
 
-    qs = [
-        e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)
-    ]
+    qs = [e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)]
     assert len(qs) == 1, f"expected 1 Question after dedupe, got {len(qs)}"
     assert qs[0].question == "What is it?"
 
@@ -348,7 +348,5 @@ async def test_ask_question_keeps_distinct_questions(
         }
     )
 
-    qs = [
-        e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)
-    ]
+    qs = [e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)]
     assert [q.question for q in qs] == ["who?", "what?", "why?"]

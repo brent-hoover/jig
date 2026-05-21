@@ -1,4 +1,5 @@
 """Tests for the orphan sweeper with operator-confirmation (Track E Final)."""
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,7 @@ from jig.schemas.arch import (
 from jig.spec_loader import save_architecture, save_dev_manifest
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _intent() -> Intent:
@@ -82,6 +84,7 @@ async def _seed_ticket(
         title="x",
         created_by="u",
         status=status,
+        description=TICKET_AC_PLACEHOLDER,
     )
     if age_days:
         old = datetime.now(timezone.utc) - timedelta(days=age_days)
@@ -98,9 +101,7 @@ async def _seed_ticket(
 async def test_sweep_categorizes_old_resolved_as_auto_safe(tmp_path: Path) -> None:
     """Older than threshold + status=RESOLVED → auto_safe bucket."""
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-    )
+    await _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -121,9 +122,7 @@ async def test_sweep_categorizes_recent_failed_as_needs_confirm(
 ) -> None:
     """Recent FAILED → needs_confirm (operator should look)."""
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1
-    )
+    await _seed_ticket(tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -161,9 +160,7 @@ async def test_sweep_keeps_very_recent_resolved(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sweep_skips_live_tickets(tmp_path: Path) -> None:
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-open", status=TicketStatus.OPEN, age_days=30
-    )
+    await _seed_ticket(tmp_path, tid="t-open", status=TicketStatus.OPEN, age_days=30)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -185,9 +182,7 @@ async def test_sweep_skips_live_tickets(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sweep_apply_auto_safe_drops_orphans(tmp_path: Path) -> None:
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-    )
+    await _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -210,9 +205,7 @@ async def test_sweep_apply_auto_safe_drops_orphans(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sweep_apply_needs_confirm_drops_orphans(tmp_path: Path) -> None:
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1
-    )
+    await _seed_ticket(tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -234,12 +227,8 @@ async def test_sweep_apply_needs_confirm_drops_orphans(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sweep_apply_all_drops_both_buckets(tmp_path: Path) -> None:
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-    )
-    await _seed_ticket(
-        tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1
-    )
+    await _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
+    await _seed_ticket(tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -261,9 +250,7 @@ async def test_sweep_apply_all_drops_both_buckets(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sweep_apply_writes_audit_log(tmp_path: Path) -> None:
     _seed_arch_and_manifest(tmp_path)
-    await _seed_ticket(
-        tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-    )
+    await _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
     from jig.spec_loader import load_dev_manifest
 
     store = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
@@ -297,9 +284,7 @@ def test_cli_sweeper_run_empty_report(tmp_path: Path) -> None:
     _seed_arch_and_manifest(tmp_path)
     (tmp_path / ".jig" / "store").mkdir(parents=True, exist_ok=True)
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "sweeper", "run", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "sweeper", "run", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "auto_safe" in result.output
     assert "needs_confirm" in result.output
@@ -310,19 +295,13 @@ def test_cli_sweeper_run_categorizes_tickets(tmp_path: Path) -> None:
 
     _seed_arch_and_manifest(tmp_path)
     asyncio.run(
-        _seed_ticket(
-            tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-        )
+        _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
     )
     asyncio.run(
-        _seed_ticket(
-            tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1
-        )
+        _seed_ticket(tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1)
     )
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "sweeper", "run", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "sweeper", "run", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "t-old" in result.output
     assert "t-failed" in result.output
@@ -334,9 +313,7 @@ def test_cli_sweeper_apply_auto_safe_no_confirm_required(tmp_path: Path) -> None
 
     _seed_arch_and_manifest(tmp_path)
     asyncio.run(
-        _seed_ticket(
-            tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-        )
+        _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
     )
     runner = CliRunner()
     result = runner.invoke(
@@ -360,9 +337,7 @@ def test_cli_sweeper_apply_needs_confirm_requires_flag(tmp_path: Path) -> None:
 
     _seed_arch_and_manifest(tmp_path)
     asyncio.run(
-        _seed_ticket(
-            tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1
-        )
+        _seed_ticket(tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1)
     )
     runner = CliRunner()
     result = runner.invoke(
@@ -386,9 +361,7 @@ def test_cli_sweeper_apply_needs_confirm_with_flag_drops(tmp_path: Path) -> None
 
     _seed_arch_and_manifest(tmp_path)
     asyncio.run(
-        _seed_ticket(
-            tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1
-        )
+        _seed_ticket(tmp_path, tid="t-failed", status=TicketStatus.FAILED, age_days=1)
     )
     runner = CliRunner()
     result = runner.invoke(
@@ -412,9 +385,7 @@ def test_cli_sweeper_apply_all_requires_confirm(tmp_path: Path) -> None:
 
     _seed_arch_and_manifest(tmp_path)
     asyncio.run(
-        _seed_ticket(
-            tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14
-        )
+        _seed_ticket(tmp_path, tid="t-old", status=TicketStatus.RESOLVED, age_days=14)
     )
     runner = CliRunner()
     result = runner.invoke(

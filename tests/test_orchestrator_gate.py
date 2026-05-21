@@ -32,6 +32,7 @@ from jig.persistence import save_role, save_workflow
 from jig.project import Project, save_project
 from jig.thread import Handoff
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _init_git(path: Path) -> None:
@@ -109,6 +110,7 @@ async def _seed_pending_handoff(
             work_type=WorkType.FEATURE,
             title="t",
             created_by="orchestrator",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     hid = await orch.threads.post(
@@ -136,6 +138,7 @@ class TestNoPendingHandoff:
                     work_type=WorkType.FEATURE,
                     title="t",
                     created_by="orchestrator",
+                    description=TICKET_AC_PLACEHOLDER,
                 )
             )
             # No handoff posted — method must return cleanly.

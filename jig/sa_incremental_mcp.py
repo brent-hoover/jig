@@ -387,6 +387,26 @@ def _truncate_for_title(text: str, *, limit: int = 80) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+def _spike_description_with_ac(*, summary: str, risk_text: str) -> str:
+    """Build a spike-ticket description that satisfies the AC validator.
+
+    Transitional helper — the SA workflow doesn't yet author explicit
+    ACs for proposed spikes, so synthesize a single AC bullet from the
+    risk's text. The spike's "done when" criterion is "the SA has
+    delivered enough evidence to resolve this risk one way or another",
+    which we encode in the bullet. Follow-on work adds an explicit AC
+    field to the spike-proposal MCP surface.
+    """
+    bullet = " ".join(risk_text.split()).strip() or "the risk is resolved"
+    body = summary.rstrip()
+    ac_block = (
+        f"## Acceptance criteria\n- Spike yields a clear decision about: {bullet}\n"
+    )
+    if not body:
+        return ac_block
+    return f"{body}\n\n{ac_block}"
+
+
 async def handle_arch_propose_spike(
     *,
     tickets: TicketStore,
@@ -429,6 +449,13 @@ async def handle_arch_propose_spike(
     risk_uri = f"{_RISK_URI_PREFIX}{risk_id}"
     title = f"spike: {_truncate_for_title(risk.text)}"
 
+    # Spike tickets are work-type tickets and therefore subject to the
+    # ``Ticket`` model's AC-required invariant. Wrap the SA's free-form
+    # summary in a discoverable AC section, derived from the risk text
+    # so the spike's "done when" criterion is concrete. Transitional
+    # — when the SA workflow grows an explicit AC field, render it
+    # directly here instead of synthesizing.
+    description = _spike_description_with_ac(summary=summary, risk_text=risk.text)
     existing = await tickets.get(spike_id)
     if existing is None:
         await tickets.create(
@@ -436,7 +463,7 @@ async def handle_arch_propose_spike(
                 id=spike_id,
                 work_type=WorkType.SPIKE,
                 title=title,
-                description=summary,
+                description=description,
                 derived_from=risk_uri,
                 risks_addressed=[risk_id],
                 created_by=author,
@@ -449,7 +476,7 @@ async def handle_arch_propose_spike(
         await tickets.update(
             spike_id,
             title=title,
-            description=summary,
+            description=description,
         )
 
     # Update the risk in place. Status moves to spike_proposed; the

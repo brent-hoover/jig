@@ -1,4 +1,5 @@
 """Cycle view data model + markdown rendering (Track F Final, deliverable 4)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,14 +29,18 @@ from jig.schemas.plan import (
 from jig.spec_loader import write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _intent() -> Intent:
     return Intent(
-        problem="x", simplest_solution="y",
+        problem="x",
+        simplest_solution="y",
         complications_considered={
-            "scale": None, "concurrency": None,
-            "failure_modes": None, "cross_cutting": None,
+            "scale": None,
+            "concurrency": None,
+            "failure_modes": None,
+            "cross_cutting": None,
         },
     )
 
@@ -81,7 +86,9 @@ def test_models_round_trip_through_pydantic():
                 title="Epic 1",
                 layer_progress={
                     "bones": LayerProgress(
-                        status="done", tickets_total=3, tickets_resolved=3,
+                        status="done",
+                        tickets_total=3,
+                        tickets_resolved=3,
                     ),
                 },
             ),
@@ -123,18 +130,39 @@ async def test_build_cycle_view_counts_resolved_and_in_progress(tmp_path: Path):
 
     tickets = TicketStore(tmp_path / "tickets.jsonl")
     await tickets.load()
-    await tickets.create(Ticket(
-        id="t-1", work_type=WorkType.FEATURE, size=Size.M,
-        title="t", created_by="u", status=TicketStatus.RESOLVED,
-    ))
-    await tickets.create(Ticket(
-        id="t-2", work_type=WorkType.FEATURE, size=Size.M,
-        title="t", created_by="u", status=TicketStatus.IN_PROGRESS,
-    ))
-    await tickets.create(Ticket(
-        id="t-3", work_type=WorkType.FEATURE, size=Size.M,
-        title="t", created_by="u", status=TicketStatus.OPEN,
-    ))
+    await tickets.create(
+        Ticket(
+            id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t",
+            created_by="u",
+            status=TicketStatus.RESOLVED,
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
+    await tickets.create(
+        Ticket(
+            id="t-2",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t",
+            created_by="u",
+            status=TicketStatus.IN_PROGRESS,
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
+    await tickets.create(
+        Ticket(
+            id="t-3",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t",
+            created_by="u",
+            status=TicketStatus.OPEN,
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
     coord = Coordinator(tickets=tickets, project_root=tmp_path)
     view = await build_cycle_view(coord, tmp_path)
     assert len(view.epics) == 1
@@ -174,7 +202,9 @@ def test_format_cycle_view_includes_section_headers():
                 title="Epic 1",
                 layer_progress={
                     "bones": LayerProgress(
-                        status="done", tickets_total=2, tickets_resolved=2,
+                        status="done",
+                        tickets_total=2,
+                        tickets_resolved=2,
                     ),
                     "mvp": LayerProgress(status="not_started"),
                     "final": LayerProgress(status="not_started"),
@@ -225,7 +255,8 @@ def test_pm_view_cli_with_plan(tmp_path: Path):
 
     runner = CliRunner()
     result = runner.invoke(
-        cli, ["pm", "view", "--path", str(tmp_path)],
+        cli,
+        ["pm", "view", "--path", str(tmp_path)],
     )
     assert result.exit_code == 0
     assert "epic-x" in result.output

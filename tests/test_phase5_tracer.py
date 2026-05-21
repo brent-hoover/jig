@@ -1,6 +1,7 @@
 """Phase 5 tests — tracer schema, spec_loader helpers, graph integration,
 and tracer-preservation reviewer.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,11 @@ import pytest
 import yaml
 
 from jig.schemas.tracer import TracerCovers, TracerSpec
-from jig.reviewers.dispatch import TRACER_PRESERVATION_REVIEWER_ID, select_reviewers_for_ticket
+from jig.reviewers.dispatch import (
+    TRACER_PRESERVATION_REVIEWER_ID,
+    select_reviewers_for_ticket,
+)
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +37,11 @@ def _module_dict(mid: str) -> dict:
         "title": mid.title(),
         "summary": f"Module {mid}.",
         "intent": _minimal_intent(),
-        "n_a_categories": ["behavioral_contracts", "external_dependencies", "ownership"],
+        "n_a_categories": [
+            "behavioral_contracts",
+            "external_dependencies",
+            "ownership",
+        ],
     }
 
 
@@ -86,6 +95,7 @@ def _ticket(
         created_by="test",
         layer=layer,
         module_id=module_id,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 

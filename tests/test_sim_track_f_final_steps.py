@@ -1,4 +1,5 @@
 """Sim driver step handlers for Track F Final."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from jig.pm.calibration import CalibrationStore
-from jig.sim.driver import DriverContext, _handle_invoke_calibration_record, _handle_invoke_tier_promotion
+from jig.sim.driver import (
+    DriverContext,
+    _handle_invoke_calibration_record,
+    _handle_invoke_tier_promotion,
+)
 from jig.sim.scenario import ScenarioStep, StepKind
 from jig.store.bus import MessageBus
 from jig.store.threads import ThreadStore
@@ -14,6 +19,7 @@ from jig.store.tickets import TicketStore
 from jig.analytics.emitter import EventEmitter
 from jig.analytics.store import AnalyticsStore
 from jig.ticket import Size, Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _step(kind: StepKind, **params) -> ScenarioStep:
@@ -48,12 +54,20 @@ async def driver_ctx(tmp_path: Path) -> DriverContext:
 async def test_tier_promotion_step_promotes_standard_to_senior(
     driver_ctx: DriverContext,
 ):
-    await driver_ctx.tickets.create(Ticket(
-        id="tb-cat", work_type=WorkType.FEATURE, size=Size.M,
-        title="t", created_by="t", dev_tier="standard",
-    ))
+    await driver_ctx.tickets.create(
+        Ticket(
+            id="tb-cat",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t",
+            created_by="t",
+            dev_tier="standard",
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
     await _handle_invoke_tier_promotion(
-        driver_ctx, _step(StepKind.INVOKE_TIER_PROMOTION, ticket_id="tb-cat"),
+        driver_ctx,
+        _step(StepKind.INVOKE_TIER_PROMOTION, ticket_id="tb-cat"),
     )
     refreshed = await driver_ctx.tickets.get("tb-cat")
     assert refreshed is not None
@@ -68,7 +82,8 @@ async def test_tier_promotion_step_missing_ticket_raises(
 ):
     with pytest.raises(RuntimeError, match="missing"):
         await _handle_invoke_tier_promotion(
-            driver_ctx, _step(StepKind.INVOKE_TIER_PROMOTION, ticket_id="t-x"),
+            driver_ctx,
+            _step(StepKind.INVOKE_TIER_PROMOTION, ticket_id="t-x"),
         )
 
 
@@ -77,12 +92,20 @@ async def test_tier_promotion_step_no_op_at_top_of_ladder(
     driver_ctx: DriverContext,
 ):
     """SA tier doesn't auto-promote — handler stamps no_change values."""
-    await driver_ctx.tickets.create(Ticket(
-        id="t-1", work_type=WorkType.FEATURE, size=Size.M,
-        title="t", created_by="t", dev_tier="sa",
-    ))
+    await driver_ctx.tickets.create(
+        Ticket(
+            id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t",
+            created_by="t",
+            dev_tier="sa",
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
     await _handle_invoke_tier_promotion(
-        driver_ctx, _step(StepKind.INVOKE_TIER_PROMOTION, ticket_id="t-1"),
+        driver_ctx,
+        _step(StepKind.INVOKE_TIER_PROMOTION, ticket_id="t-1"),
     )
     refreshed = await driver_ctx.tickets.get("t-1")
     assert refreshed is not None

@@ -71,7 +71,9 @@ async def test_tui_can_create_ticket_via_ws(tmp_path) -> None:
                         "args": {
                             "type": "feature",
                             "title": "from-tui",
-                            "description": "",
+                            "description": (
+                                "## Acceptance criteria\n- ticket reaches store"
+                            ),
                         },
                     }
                 )

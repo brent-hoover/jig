@@ -22,6 +22,7 @@ from jig.context_resolver import (
 from jig.store.threads import ThreadStore
 from jig.thread import Question, Answer
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def ticket() -> Ticket:
         id="t-001",
         work_type=WorkType.FEATURE,
         title="Add widget",
-        description="Build the widget.",
+        description="Build the widget." + "\n" + TICKET_AC_PLACEHOLDER,
         created_by="tester",
     )
 

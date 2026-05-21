@@ -7,9 +7,9 @@ Covers:
   - GivenWhenThen on Ticket
   - Reviewer dispatch: tradeoff-compliance in bones and MVP defaults
 """
+
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
@@ -20,7 +20,8 @@ from jig.spec_schema import (
     DoneEnoughBlock,
     GivenWhenThen,
 )
-from jig.ticket import Ticket, TicketStatus, WorkType
+from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- Tradeoff schema -------------------------------------------------------
@@ -167,6 +168,7 @@ def _make_ticket(**kwargs) -> Ticket:
         created_by="pm",
         layer="bones",
         capability_ids=["fetch-top-stories"],
+        description=TICKET_AC_PLACEHOLDER,
     )
     defaults.update(kwargs)
     return Ticket(**defaults)
@@ -176,9 +178,7 @@ async def test_reviewer_flags_deferred_capability(project_with_tradeoff):
     from jig.reviewers.tradeoff_compliance import TradeoffComplianceReviewer
 
     ticket = _make_ticket(layer="bones")
-    comments = await TradeoffComplianceReviewer().review(
-        ticket, project_with_tradeoff
-    )
+    comments = await TradeoffComplianceReviewer().review(ticket, project_with_tradeoff)
     assert len(comments) == 1
     assert comments[0].type == "deferred-work-reintroduced"
     assert "fetch-top-stories" in comments[0].prose
@@ -188,9 +188,7 @@ async def test_reviewer_passes_when_ticket_at_correct_layer(project_with_tradeof
     from jig.reviewers.tradeoff_compliance import TradeoffComplianceReviewer
 
     ticket = _make_ticket(layer="mvp")
-    comments = await TradeoffComplianceReviewer().review(
-        ticket, project_with_tradeoff
-    )
+    comments = await TradeoffComplianceReviewer().review(ticket, project_with_tradeoff)
     assert comments == []
 
 
@@ -198,9 +196,7 @@ async def test_reviewer_no_ops_without_capability_ids(project_with_tradeoff):
     from jig.reviewers.tradeoff_compliance import TradeoffComplianceReviewer
 
     ticket = _make_ticket(capability_ids=[])
-    comments = await TradeoffComplianceReviewer().review(
-        ticket, project_with_tradeoff
-    )
+    comments = await TradeoffComplianceReviewer().review(ticket, project_with_tradeoff)
     assert comments == []
 
 
@@ -237,6 +233,7 @@ async def test_reviewer_flags_never_deferred(tmp_path):
 
 def _base_cap(**kwargs):
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc)
     defaults = dict(
         id="fetch-top-stories",
@@ -323,9 +320,8 @@ def test_ticket_accepts_examples():
         title="Fetch stories",
         work_type=WorkType.FEATURE,
         created_by="pm",
-        examples=[
-            {"given": "API up", "when": "run top --limit 3", "then": "3 lines"}
-        ],
+        examples=[{"given": "API up", "when": "run top --limit 3", "then": "3 lines"}],
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert len(t.examples) == 1
     assert t.examples[0]["given"] == "API up"
@@ -337,6 +333,7 @@ def test_ticket_examples_default_empty():
         title="Some ticket",
         work_type=WorkType.FEATURE,
         created_by="pm",
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert t.examples == []
 

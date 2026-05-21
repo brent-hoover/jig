@@ -6,6 +6,7 @@ v2 extension fields populated from the epic context, leaves existing
 tickets untouched (idempotency), and returns an empty list when the
 plan is missing.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,6 +28,7 @@ from jig.schemas.plan import (
 from jig.spec_loader import write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures ------------------------------------------------------------
@@ -119,9 +121,7 @@ async def test_materialize_populates_v2_extension_fields(
 
 
 @pytest.mark.asyncio
-async def test_materialize_handles_module_less_epic(
-    tmp_path: Path, store: TicketStore
-):
+async def test_materialize_handles_module_less_epic(tmp_path: Path, store: TicketStore):
     """epic.modules can be empty during early planning — module_id stays None."""
     write_build_plan(tmp_path, _plan(modules=[]))
     coord = Coordinator(tickets=store, project_root=tmp_path)
@@ -161,7 +161,7 @@ async def test_materialize_skips_pre_existing_ticket(
         id="tb-catalog-ingest",
         work_type=WorkType.FEATURE,
         title="Pre-authored",
-        description="Authored by the Planner",
+        description="Authored by the Planner" + "\n" + TICKET_AC_PLACEHOLDER,
         created_by="planner-v2",
     )
     await store.create(pre_existing)

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -14,6 +15,122 @@ from jig.store.models import StoreModel
 # so the validator and downstream consumers can share one source of truth.
 _ALLOWED_LAYERS = frozenset({"bones", "mvp", "final"})
 _ALLOWED_DEV_TIERS = frozenset({"standard", "senior", "sa"})
+
+# Work-type values that must carry an Acceptance Criteria section in
+# ``description``. System work types (BRIEF, ARCHITECTURE, PLANNING,
+# CANONICALIZE, DOCS) orchestrate other work and don't carry their own
+# AC, so they're exempt. Kept as a string set so the validator can run
+# before the WorkType enum has fully resolved (the enum is defined
+# later in this module, but the model_validator only inspects the
+# already-coerced value).
+_WORK_TYPES_REQUIRING_AC: frozenset[str] = frozenset(
+    {
+        "feature",
+        "bugfix",
+        "refactor",
+        "spike",
+        "perf",
+        "migration",
+    }
+)
+
+# Recognized AC section labels. The reviewer-test-adequacy role's prompt
+# enumerates the same vocabulary; keep them in sync if you broaden one.
+# Case-insensitive match; the regex below also tolerates a trailing
+# ``:`` and optional surrounding whitespace.
+_AC_LABELS: tuple[str, ...] = (
+    "acceptance criteria",
+    "acceptance",
+    "acs",
+    "done when",
+    "done-when",
+)
+
+# Matches an AC-section heading at the start of a line. Captures any of
+# the recognized labels in any of the supported formats:
+#   - H2 / H3 markdown headings: ``## label`` / ``### label``
+#   - Bold inline label: ``**label**`` or ``**label:**``
+# The label match is case-insensitive; a trailing ``:`` (with or without
+# surrounding whitespace) is tolerated; the rest of the heading line is
+# ignored. The match ends at the end of the heading line so the bullet
+# scan below can resume from there.
+_AC_HEADING_RE: re.Pattern[str] = re.compile(
+    r"(?im)^[ \t]*(?:"
+    r"\#{2,3}[ \t]+(?:" + "|".join(_AC_LABELS) + r")[ \t]*:?[ \t]*"
+    r"|"
+    r"\*\*(?:" + "|".join(_AC_LABELS) + r")[ \t]*:?\*\*[ \t]*:?[ \t]*"
+    r")$"
+)
+
+# A bullet under an AC section: ``- text`` / ``* text`` / ``N. text``.
+# The leading whitespace is tolerated (some authors indent). Blank lines
+# and interleaved prose between the heading and the first bullet are
+# also allowed — the walker handles them implicitly by falling through
+# to the "stay in AC scope" path until a real heading boundary closes
+# the section.
+_BULLET_RE: re.Pattern[str] = re.compile(r"^[ \t]*(?:[-*]|\d+\.)[ \t]+\S")
+# Section-terminating heading detection. Matches:
+#   - ``# `` … ``###### `` (H1-H6 markdown heading)
+#   - ``**label**`` / ``**label:**`` *consuming the whole line* — a
+#     heading-style bold label, the same shape the PO role uses.
+#
+# Critically, this does NOT match bold emphasis like
+# ``**Important:** the widget must load in 200ms`` where the bold
+# token is followed by more prose on the same line. Treating
+# in-paragraph bold emphasis as a section break used to silently
+# terminate the AC scan before any following bullet could satisfy
+# the validator.
+_OTHER_HEADING_RE: re.Pattern[str] = re.compile(
+    r"^[ \t]*(?:\#{1,6}[ \t]|\*\*[^*\n]+\*\*[ \t]*:?[ \t]*$)"
+)
+
+
+def has_acceptance_criteria_section(description: str) -> bool:
+    """Return True iff ``description`` contains an AC section with at
+    least one bullet.
+
+    The "AC section" is the run of lines starting at an AC-section
+    heading (per ``_AC_HEADING_RE``) and ending at the next
+    heading-style line (markdown ``#``-heading or stand-alone bold
+    label per ``_OTHER_HEADING_RE``) or end-of-string. The section is
+    satisfied when at least one of those intervening lines is a bullet
+    (per ``_BULLET_RE``).
+
+    Interleaved prose (an intro sentence between the heading and the
+    first bullet, or an explanatory paragraph between two bullets) is
+    tolerated — the section continues to scan for bullets until a real
+    heading-style break ends it. Only an explicit section boundary
+    pops us out of AC scope, never plain text.
+
+    Empty AC sections (a heading with no bullets, terminated by
+    another heading or end-of-string) do NOT satisfy the invariant —
+    that's a malformed AC, the same failure mode as a missing one.
+    """
+    if not description:
+        return False
+    lines = description.splitlines()
+    in_ac = False
+    for line in lines:
+        if _AC_HEADING_RE.match(line):
+            in_ac = True
+            continue
+        if not in_ac:
+            continue
+        if _BULLET_RE.match(line):
+            return True
+        if _OTHER_HEADING_RE.match(line):
+            # Hit the next heading or bold-label section break without
+            # finding a bullet — this AC section is empty. The
+            # remainder of the description might have another AC
+            # heading; let the loop continue scanning from here.
+            in_ac = False
+            continue
+        # Anything else (blank lines, prose paragraphs, bold inline
+        # emphasis): we stay in the AC section and keep looking for a
+        # bullet. The reviewer-test-adequacy reviewer ultimately
+        # decides whether the bullets are *meaningful* — the model
+        # validator just enforces "there is at least one".
+    return False
 
 
 class TicketTouches(BaseModel):
@@ -359,6 +476,37 @@ class Ticket(StoreModel):
                 f"{sorted(_ALLOWED_DEV_TIERS)!r}, got {v!r}"
             )
         return v
+
+    @model_validator(mode="after")
+    def _require_acceptance_criteria_for_work_tickets(self) -> "Ticket":
+        """Work-type tickets must carry an Acceptance Criteria section.
+
+        Enforces the invariant that every FEATURE / BUGFIX / REFACTOR /
+        SPIKE / PERF / MIGRATION ticket has a discoverable AC section
+        with at least one bullet in its description. System work types
+        (BRIEF, ARCHITECTURE, PLANNING, CANONICALIZE, DOCS) orchestrate
+        other work and don't carry their own AC, so they're exempt.
+
+        Downstream consumers (reviewer-test-adequacy, the workflow
+        loop) can rely on this invariant rather than adding defensive
+        fallbacks for malformed tickets.
+        """
+        # ``self.work_type`` is always a ``WorkType`` enum after Pydantic
+        # construction — the field is typed ``WorkType`` and coerced to
+        # the enum even when the caller passes a raw string.
+        work_type_value = self.work_type.value
+        if work_type_value not in _WORK_TYPES_REQUIRING_AC:
+            return self
+        if not has_acceptance_criteria_section(self.description):
+            raise ValueError(
+                f"Ticket with work_type={work_type_value!r} must include an "
+                "Acceptance Criteria section in its description (a heading "
+                "like '## Acceptance criteria', '### Acceptance criteria', "
+                "or '**Acceptance criteria:**' followed by at least one "
+                "bullet). System types (brief, architecture, planning, "
+                "canonicalize, docs) are exempt."
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod

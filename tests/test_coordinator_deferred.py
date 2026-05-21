@@ -7,6 +7,7 @@ Planner triages at re-plan time. Mid-MVP triage is mechanical (no
 LLM) — operator-driven decisions with the Coordinator suggesting an
 action per entry.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +17,7 @@ import pytest
 from jig.coordinator import Coordinator
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.fixture
@@ -36,6 +38,7 @@ def _ticket(
         title=ticket_id,
         created_by="planner-v2",
         status=status,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -66,9 +69,7 @@ async def test_defer_ticket_appends_entry_and_stamps_field(
 
 
 @pytest.mark.asyncio
-async def test_defer_ticket_persists_to_jsonl(
-    tmp_path: Path, store: TicketStore
-):
+async def test_defer_ticket_persists_to_jsonl(tmp_path: Path, store: TicketStore):
     await store.create(_ticket())
     coord = Coordinator(tickets=store, project_root=tmp_path)
     await coord.defer_ticket("tb-cat", "notable")
@@ -79,9 +80,7 @@ async def test_defer_ticket_persists_to_jsonl(
 
 
 @pytest.mark.asyncio
-async def test_defer_ticket_handles_missing_ticket(
-    tmp_path: Path, store: TicketStore
-):
+async def test_defer_ticket_handles_missing_ticket(tmp_path: Path, store: TicketStore):
     """Operator may defer a ticket id the store doesn't have yet (e.g. planned but unmaterialized)."""
     coord = Coordinator(tickets=store, project_root=tmp_path)
     # Should not raise — defer the queue entry, skip the field stamp.
@@ -90,9 +89,7 @@ async def test_defer_ticket_handles_missing_ticket(
 
 
 @pytest.mark.asyncio
-async def test_list_deferred_returns_chronological(
-    tmp_path: Path, store: TicketStore
-):
+async def test_list_deferred_returns_chronological(tmp_path: Path, store: TicketStore):
     coord = Coordinator(tickets=store, project_root=tmp_path)
     await coord.defer_ticket("a", "first")
     await coord.defer_ticket("b", "second")
@@ -102,9 +99,7 @@ async def test_list_deferred_returns_chronological(
 
 
 @pytest.mark.asyncio
-async def test_list_deferred_empty_when_no_queue(
-    tmp_path: Path, store: TicketStore
-):
+async def test_list_deferred_empty_when_no_queue(tmp_path: Path, store: TicketStore):
     coord = Coordinator(tickets=store, project_root=tmp_path)
     assert coord.list_deferred() == []
 
@@ -150,9 +145,7 @@ async def test_triage_recommends_leave_deferred_for_in_flight(
 
 
 @pytest.mark.asyncio
-async def test_triage_returns_empty_for_empty_queue(
-    tmp_path: Path, store: TicketStore
-):
+async def test_triage_returns_empty_for_empty_queue(tmp_path: Path, store: TicketStore):
     coord = Coordinator(tickets=store, project_root=tmp_path)
     assert await coord.triage_deferred(tmp_path) == []
 
@@ -162,7 +155,11 @@ async def test_triage_returns_empty_for_empty_queue(
 
 def test_ticket_deferred_at_defaults_none():
     t = Ticket(
-        id="x", work_type=WorkType.FEATURE, title="x", created_by="me"
+        id="x",
+        work_type=WorkType.FEATURE,
+        title="x",
+        created_by="me",
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert t.deferred_at is None
 
@@ -174,6 +171,7 @@ def test_ticket_deferred_at_round_trips_via_model_dump():
         "work_type": "feature",
         "title": "x",
         "created_by": "me",
+        "description": TICKET_AC_PLACEHOLDER,
     }
     t = Ticket.model_validate(raw)
     assert t.deferred_at is None

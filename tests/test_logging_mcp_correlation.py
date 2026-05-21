@@ -16,6 +16,7 @@ from jig.logging_setup import (
     configure_logging,
 )
 from jig.mcp_server import _wrap_with_context
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -109,18 +110,14 @@ async def test_mcp_tool_call_logs_carry_correlation(
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.thread import Note
 
     async def fake_run_agent(ctx, emitter=None):
-        await ctx.threads.post(
-            Note(ticket_id=ctx.ticket.id, author="spec", text="hi")
-        )
+        await ctx.threads.post(Note(ticket_id=ctx.ticket.id, author="spec", text="hi"))
         logging.getLogger("jig.test.during_tool").info("mid-tool")
         return RunAgentResult(status="success", final_text="ok")
 
@@ -129,7 +126,12 @@ async def test_mcp_tool_call_logs_carry_correlation(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 

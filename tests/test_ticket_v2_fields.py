@@ -3,6 +3,7 @@
 The fields are optional during the v2 build so v1 records still load. The
 Planner PM populates them when the build plan owns the ticket.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _base_kwargs() -> dict:
@@ -19,6 +21,7 @@ def _base_kwargs() -> dict:
         "work_type": WorkType.FEATURE,
         "title": "x",
         "created_by": "po",
+        "description": TICKET_AC_PLACEHOLDER,
     }
 
 
@@ -133,9 +136,7 @@ def test_ticket_id_lists_reject_bad_entry(field: str):
 
 
 def test_ticket_capability_ids_accept_kebab_list():
-    t = Ticket(
-        **_base_kwargs(), capability_ids=["shopify-connect", "normalize-skus"]
-    )
+    t = Ticket(**_base_kwargs(), capability_ids=["shopify-connect", "normalize-skus"])
     assert t.capability_ids == ["shopify-connect", "normalize-skus"]
 
 

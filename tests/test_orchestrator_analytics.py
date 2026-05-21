@@ -8,6 +8,7 @@ These tests exercise the wiring directly (the helpers and callback) rather
 than spinning a full orchestrator + Claude SDK; that path is integration
 ground covered by test_orchestrator_full_lifecycle.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +20,7 @@ from jig.analytics.events import AgentCompleted, AgentSpawned, TicketStateChange
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _save_project(tmp_path: Path) -> None:
@@ -56,7 +58,12 @@ async def test_ticket_state_change_emits_analytics_event(tmp_path: Path) -> None
         assert orch.analytics is not None
 
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="t", created_by="u")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="u",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch.tickets.update_status(tid, TicketStatus.IN_PROGRESS)
         await orch.tickets.update_status(tid, TicketStatus.RESOLVED)
@@ -106,6 +113,7 @@ async def test_run_agent_with_analytics_emits_spawn_and_complete(
             work_type=WorkType.FEATURE,
             title="t",
             created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
 
         class _FakeCtx:
@@ -165,7 +173,10 @@ async def test_run_agent_status_mapping_needs_info_to_blocked(
         monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
 
         ticket = Ticket(
-            work_type=WorkType.FEATURE, title="t", created_by="u"
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
 
         class _FakeCtx:
@@ -204,7 +215,10 @@ async def test_run_agent_failure_still_emits_completion(
 
             def __init__(self) -> None:
                 self.ticket = Ticket(
-                    work_type=WorkType.FEATURE, title="t", created_by="u"
+                    work_type=WorkType.FEATURE,
+                    title="t",
+                    created_by="u",
+                    description=TICKET_AC_PLACEHOLDER,
                 )
 
         with pytest.raises(RuntimeError, match="agent crashed"):

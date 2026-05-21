@@ -8,6 +8,7 @@ reviewer must not depend on a non-empty ``ticket.reviewer_set`` and
 must default-on for ``layer == "bones"`` tickets per the Track F
 handoff note.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -33,6 +34,7 @@ from jig.schemas.arch import (
 )
 from jig.spec_loader import module_contracts_path
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -62,9 +64,7 @@ def _write_contracts(
                 read_access=["categorization"],
             )
         ],
-        integration_ac=[
-            IntegrationAcceptance(capability=capability, must=musts)
-        ],
+        integration_ac=[IntegrationAcceptance(capability=capability, must=musts)],
     )
     path = module_contracts_path(project_root, module_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,9 +138,12 @@ def _ticket(
         title="bones tracer bullet",
         created_by="coordinator-v2",
         module_id=module_id,
-        capability_ids=capability_ids if capability_ids is not None else ["shopify-connect"],
+        capability_ids=capability_ids
+        if capability_ids is not None
+        else ["shopify-connect"],
         layer=layer,
         reviewer_set=reviewer_set if reviewer_set is not None else [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -447,6 +450,7 @@ def test_select_reviewers_for_ticket_returns_judgment_defaults_for_layer_unset()
         PATTERN_CONFORMANCE_REVIEWER_ID,
         TEST_ADEQUACY_REVIEWER_ID,
     )
+
     t = _ticket(layer=None, reviewer_set=[])
     result = select_reviewers_for_ticket(t)
     assert set(result) == {
@@ -459,6 +463,7 @@ def test_select_reviewers_for_ticket_returns_judgment_defaults_for_layer_unset()
 def test_select_reviewers_for_ticket_honors_explicit_reviewer_set():
     """Explicit reviewer_set is honored; judgment defaults are appended on top."""
     from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
+
     t = _ticket(layer="bones", reviewer_set=["contract-compliance", "spec-compliance"])
     result = select_reviewers_for_ticket(t)
     assert result[:2] == ["contract-compliance", "spec-compliance"]
@@ -469,6 +474,7 @@ def test_select_reviewers_for_ticket_honors_explicit_reviewer_set():
 def test_select_reviewers_for_ticket_honors_explicit_set_on_non_bones():
     """Explicit reviewer_set is honored; judgment defaults are appended on top."""
     from jig.reviewers.dispatch import _JUDGMENT_DEFAULTS
+
     t = _ticket(layer="final", reviewer_set=["pattern-conformance"])
     result = select_reviewers_for_ticket(t)
     assert "pattern-conformance" in result

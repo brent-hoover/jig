@@ -3,6 +3,7 @@
 One test per WCAG check + happy-path pass + dispatch wiring + the
 ``contrast_ratio`` helper (well-known endpoints + bad-input).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,6 +23,7 @@ from jig.reviewers.dispatch import (
 )
 from jig.spec_loader import save_wireframe
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +39,7 @@ def _ticket(visual_references: list[str], layer: str = "final") -> Ticket:
         created_by="test",
         layer=layer,
         visual_references=visual_references,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -101,9 +104,7 @@ class TestContrastRatio:
 
 @pytest.mark.asyncio
 class TestNoOp:
-    async def test_empty_visual_references_returns_empty(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_empty_visual_references_returns_empty(self, tmp_path: Path) -> None:
         reviewer = AccessibilityReviewer()
         comments = await reviewer.review(_ticket([]), tmp_path)
         assert comments == []
@@ -135,9 +136,7 @@ class TestAltText:
             '<img src="x.png" alt="An x">', '<img src="x.png">'
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         a11y = [c for c in comments if c.type == "accessibility-violation"]
         rules = {c.wcag_rule_id for c in a11y}
         assert any("1.1.1" in (r or "") for r in rules)
@@ -148,9 +147,7 @@ class TestAltText:
             '<img src="x.png" alt="An x">', '<img src="x.png" alt="">'
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
         assert not any("1.1.1" in (r or "") for r in rules)
 
@@ -166,9 +163,7 @@ class TestFormLabels:
             '<input type="text" id="title" name="title">',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("1.3.1" in (r or "") and "Info" in (r or "") for r in rules)
 
@@ -179,13 +174,9 @@ class TestFormLabels:
             '<input type="text" name="title" aria-label="Title">',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
-        assert not any(
-            "1.3.1" in (r or "") and "Info" in (r or "") for r in rules
-        )
+        assert not any("1.3.1" in (r or "") and "Info" in (r or "") for r in rules)
 
     async def test_input_nested_in_label_passes(self, tmp_path: Path) -> None:
         html = _clean_html().replace(
@@ -194,13 +185,9 @@ class TestFormLabels:
             '<label>Title <input type="text" name="title"></label>',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
-        assert not any(
-            "1.3.1" in (r or "") and "Info" in (r or "") for r in rules
-        )
+        assert not any("1.3.1" in (r or "") and "Info" in (r or "") for r in rules)
 
     async def test_hidden_input_does_not_need_label(self, tmp_path: Path) -> None:
         html = _clean_html().replace(
@@ -209,13 +196,9 @@ class TestFormLabels:
             '<input type="hidden" name="csrf">',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
-        assert not any(
-            "1.3.1" in (r or "") and "Info" in (r or "") for r in rules
-        )
+        assert not any("1.3.1" in (r or "") and "Info" in (r or "") for r in rules)
 
 
 @pytest.mark.asyncio
@@ -223,23 +206,15 @@ class TestHeadingHierarchy:
     async def test_h1_to_h3_skip_emits_violation(self, tmp_path: Path) -> None:
         html = _clean_html().replace("<h2>Sub</h2>", "<h3>Sub</h3>")
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
-        assert any(
-            "1.3.1" in (r or "") and "Heading" in (r or "") for r in rules
-        )
+        assert any("1.3.1" in (r or "") and "Heading" in (r or "") for r in rules)
 
     async def test_no_skip_passes(self, tmp_path: Path) -> None:
         save_wireframe(tmp_path, "signup", _clean_html())
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
-        assert not any(
-            "1.3.1" in (r or "") and "Heading" in (r or "") for r in rules
-        )
+        assert not any("1.3.1" in (r or "") and "Heading" in (r or "") for r in rules)
 
 
 @pytest.mark.asyncio
@@ -250,9 +225,7 @@ class TestButtonText:
             '<button type="submit"></button>',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("2.4.4" in (r or "") for r in rules)
 
@@ -262,32 +235,24 @@ class TestButtonText:
             '<button type="submit" aria-label="Post"><svg></svg></button>',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
         assert not any("2.4.4" in (r or "") for r in rules)
 
-    async def test_icon_only_button_without_aria_emits(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_icon_only_button_without_aria_emits(self, tmp_path: Path) -> None:
         html = _clean_html().replace(
             '<button type="submit">Post</button>',
             '<button type="submit"><svg></svg></button>',
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("2.4.4" in (r or "") for r in rules)
 
 
 @pytest.mark.asyncio
 class TestColorContrast:
-    async def test_low_contrast_pair_in_style_block_emits(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_low_contrast_pair_in_style_block_emits(self, tmp_path: Path) -> None:
         # Linter strips <style> blocks before its own checks, so this
         # is exactly the surface a11y reviewer needs to cover.
         html = _clean_html().replace(
@@ -296,9 +261,7 @@ class TestColorContrast:
             "<style>.x { color: #aaa; background: #bbb; }</style></head>",
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("1.4.3" in (r or "") for r in rules)
 
@@ -309,9 +272,7 @@ class TestColorContrast:
             "<style>.x { color: #000; background: #fff; }</style></head>",
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
         assert not any("1.4.3" in (r or "") for r in rules)
 
@@ -321,18 +282,14 @@ class TestHtmlLang:
     async def test_missing_lang_emits_violation(self, tmp_path: Path) -> None:
         html = _clean_html().replace('<html lang="en">', "<html>")
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("3.1.1" in (r or "") for r in rules)
 
     async def test_empty_lang_emits_violation(self, tmp_path: Path) -> None:
         html = _clean_html().replace('<html lang="en">', '<html lang="">')
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("3.1.1" in (r or "") for r in rules)
 
@@ -348,33 +305,21 @@ class TestSkipOrMain:
             .replace("</main>", "</div>")
         )
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = {c.wcag_rule_id for c in comments}
         assert any("2.4.1" in (r or "") for r in rules)
 
     async def test_main_landmark_alone_passes(self, tmp_path: Path) -> None:
-        html = _clean_html().replace(
-            '<a href="#main">Skip to content</a>', ""
-        )
+        html = _clean_html().replace('<a href="#main">Skip to content</a>', "")
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
         assert not any("2.4.1" in (r or "") for r in rules)
 
     async def test_skip_link_alone_passes(self, tmp_path: Path) -> None:
-        html = (
-            _clean_html()
-            .replace("<main>", "<div>")
-            .replace("</main>", "</div>")
-        )
+        html = _clean_html().replace("<main>", "<div>").replace("</main>", "</div>")
         save_wireframe(tmp_path, "signup", html)
-        comments = await AccessibilityReviewer().review(
-            _ticket(["signup"]), tmp_path
-        )
+        comments = await AccessibilityReviewer().review(_ticket(["signup"]), tmp_path)
         rules = [c.wcag_rule_id for c in comments]
         assert not any("2.4.1" in (r or "") for r in rules)
 

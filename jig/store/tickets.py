@@ -64,11 +64,31 @@ class TicketStore:
         return await self._collection.get(ticket_id)
 
     async def update(self, ticket_id: str, **fields) -> Ticket:
-        prev_status: str | None = None
-        if self._on_status_change is not None and "status" in fields:
-            prev = await self._collection.get(ticket_id)
-            prev_status = prev.status.value if prev is not None else None
+        # Validate the would-be result BEFORE appending the update row
+        # to JSONL. Without this, an invalid update (e.g. a description
+        # change that drops the AC section, violating the
+        # ``has_acceptance_criteria_section`` invariant) would land on
+        # disk before the model validator ran, leaving the JSONL with a
+        # row that any subsequent store load would fail to deserialize.
+        # The store would then be unreadable until an operator manually
+        # repaired the file.
+        #
+        # We construct the merged ``Ticket`` model in-memory first — if
+        # the merge violates any model invariant Pydantic raises here,
+        # and the JSONL stays untouched.
+        prev = await self._collection.get(ticket_id)
+        if prev is None:
+            raise KeyError(ticket_id)
+        prev_status = prev.status.value
         fields.setdefault("updated_at", datetime.now(timezone.utc))
+        # model_copy with update= runs the field validators on each
+        # changed field but does NOT re-run model_validators (per
+        # Pydantic v2 docs). Use model_validate on the merged dict
+        # instead so the AC-required model_validator fires too.
+        merged = prev.model_dump(by_alias=True)
+        for key, value in fields.items():
+            merged[key] = value
+        Ticket.model_validate(merged)  # raises ValidationError if invalid
         await self._collection.update(ticket_id, fields)
         loaded = await self._collection.get(ticket_id)
         assert loaded is not None

@@ -7,6 +7,7 @@ verifies ``reviewer-security`` is selected per
 Mock-mode only — the specialty reviewer's LLM agent isn't spawned;
 this test pins the dispatch contract.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -16,15 +17,14 @@ import pytest
 
 from jig.sim.driver import Driver
 from jig.sim.scenario import load_scenario
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-specialty-reviewers.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-specialty-reviewers.scenario.yaml"
 )
 
 
@@ -74,6 +74,7 @@ async def test_security_reviewer_selected_for_touches_auth_ticket(
         title="x",
         created_by="po",
         labels=["touches-auth"],
+        description=TICKET_AC_PLACEHOLDER,
     )
     ids = select_reviewers_for_ticket(ticket, project_root=tmp_path)
     assert SECURITY_REVIEWER_ID in ids
@@ -101,15 +102,13 @@ async def test_federation_execution_lands_comment_in_store(
     store = ReviewCommentsStore(store_path)
     await store.load()
     comments = await store.for_ticket("tb-catalog-ingest")
-    security_comments = [
-        c for c in comments if c.reviewer == "reviewer-security"
-    ]
+    security_comments = [c for c in comments if c.reviewer == "reviewer-security"]
     assert security_comments, (
         "expected at least one reviewer-security comment in the store "
         "after federation execution; got "
         f"{[c.reviewer for c in comments]!r}"
     )
     # The canned comment's prose carries our marker.
-    assert any(
-        "Federation-execution check" in c.prose for c in security_comments
-    ), "canned reviewer-security comment did not land in the store"
+    assert any("Federation-execution check" in c.prose for c in security_comments), (
+        "canned reviewer-security comment did not land in the store"
+    )

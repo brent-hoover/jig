@@ -28,6 +28,7 @@ from jig.thread import Handoff
 from jig.thread_mcp import ThreadError, handle_thread_accept_handoff
 from jig.ticket import Ticket, WorkType
 from tests._phase5p_helpers import build_orch, poll_until
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -110,7 +111,12 @@ async def test_evaluator_equal_to_completing_role_does_not_advance(
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -128,8 +134,7 @@ async def test_evaluator_equal_to_completing_role_does_not_advance(
 
         # Exactly the ThreadError we expect.
         assert any(
-            "evaluator cannot be the completing actor" in str(e)
-            for e in accept_errors
+            "evaluator cannot be the completing actor" in str(e) for e in accept_errors
         ), f"unexpected errors: {accept_errors!r}"
 
         # Handoff stays pending — no accept landed.

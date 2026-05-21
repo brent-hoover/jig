@@ -1,4 +1,5 @@
 """Bones-first override audit (Track F Final) — store + emit + CLI."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,6 +20,7 @@ from jig.pm.overrides import (
     list_overrides,
     record_unblock_override,
 )
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- store --------------------------------------------------------------
@@ -132,10 +134,13 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                 tier_hint="standard",
                 requires_tracer_bullet=True,
                 intent=Intent(
-                    problem="x", simplest_solution="y",
+                    problem="x",
+                    simplest_solution="y",
                     complications_considered={
-                        "scale": None, "concurrency": None,
-                        "failure_modes": None, "cross_cutting": None,
+                        "scale": None,
+                        "concurrency": None,
+                        "failure_modes": None,
+                        "cross_cutting": None,
                     },
                 ),
             ),
@@ -149,10 +154,13 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                 tier_hint="standard",
                 requires_tracer_bullet=True,
                 intent=Intent(
-                    problem="x", simplest_solution="y",
+                    problem="x",
+                    simplest_solution="y",
                     complications_considered={
-                        "scale": None, "concurrency": None,
-                        "failure_modes": None, "cross_cutting": None,
+                        "scale": None,
+                        "concurrency": None,
+                        "failure_modes": None,
+                        "cross_cutting": None,
                     },
                 ),
             ),
@@ -175,15 +183,19 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                 modules=["module-a"],
                 layers=EpicLayers(
                     bones=LayerStatus(
-                        status=LayerStatusEnum.DONE, tickets=["t-1"],
+                        status=LayerStatusEnum.DONE,
+                        tickets=["t-1"],
                     ),
                     mvp=LayerStatus(tickets=["t-1-mvp"]),
                 ),
                 intent=Intent(
-                    problem="x", simplest_solution="y",
+                    problem="x",
+                    simplest_solution="y",
                     complications_considered={
-                        "scale": None, "concurrency": None,
-                        "failure_modes": None, "cross_cutting": None,
+                        "scale": None,
+                        "concurrency": None,
+                        "failure_modes": None,
+                        "cross_cutting": None,
                     },
                 ),
             ),
@@ -200,10 +212,13 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                     mvp=LayerStatus(tickets=["t-2-mvp"]),
                 ),
                 intent=Intent(
-                    problem="x", simplest_solution="y",
+                    problem="x",
+                    simplest_solution="y",
                     complications_considered={
-                        "scale": None, "concurrency": None,
-                        "failure_modes": None, "cross_cutting": None,
+                        "scale": None,
+                        "concurrency": None,
+                        "failure_modes": None,
+                        "cross_cutting": None,
                     },
                 ),
             ),
@@ -216,21 +231,37 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
     tickets = TicketStore(store_dir / "tickets.jsonl")
     await tickets.load()
     # Pre-create the bones tickets so layer status reads consistently.
-    await tickets.create(Ticket(
-        id="t-1", work_type=WorkType.FEATURE, size=Size.M, title="t1",
-        created_by="t", status=TicketStatus.RESOLVED,
-    ))
-    await tickets.create(Ticket(
-        id="t-2", work_type=WorkType.FEATURE, size=Size.M, title="t2",
-        created_by="t", status=TicketStatus.IN_PROGRESS,
-    ))
+    await tickets.create(
+        Ticket(
+            id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t1",
+            created_by="t",
+            status=TicketStatus.RESOLVED,
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
+    await tickets.create(
+        Ticket(
+            id="t-2",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            title="t2",
+            created_by="t",
+            status=TicketStatus.IN_PROGRESS,
+            description=TICKET_AC_PLACEHOLDER,
+        )
+    )
 
     analytics = AnalyticsStore(store_dir / "analytics.jsonl")
     await analytics.load()
     emitter = EventEmitter(analytics)
 
     coord = Coordinator(
-        tickets=tickets, project_root=tmp_path, emitter=emitter,
+        tickets=tickets,
+        project_root=tmp_path,
+        emitter=emitter,
     )
     result = await coord.dispatch_cycle(tmp_path)
     await emitter.drain()
@@ -274,14 +305,18 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
                 modules=[],
                 layers=EpicLayers(
                     bones=LayerStatus(
-                        status=LayerStatusEnum.DONE, tickets=["t1"],
+                        status=LayerStatusEnum.DONE,
+                        tickets=["t1"],
                     ),
                 ),
                 intent=Intent(
-                    problem="x", simplest_solution="y",
+                    problem="x",
+                    simplest_solution="y",
                     complications_considered={
-                        "scale": None, "concurrency": None,
-                        "failure_modes": None, "cross_cutting": None,
+                        "scale": None,
+                        "concurrency": None,
+                        "failure_modes": None,
+                        "cross_cutting": None,
                     },
                 ),
             ),
@@ -292,14 +327,18 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
                 modules=[],
                 layers=EpicLayers(
                     bones=LayerStatus(
-                        status=LayerStatusEnum.IN_PROGRESS, tickets=["t2"],
+                        status=LayerStatusEnum.IN_PROGRESS,
+                        tickets=["t2"],
                     ),
                 ),
                 intent=Intent(
-                    problem="x", simplest_solution="y",
+                    problem="x",
+                    simplest_solution="y",
                     complications_considered={
-                        "scale": None, "concurrency": None,
-                        "failure_modes": None, "cross_cutting": None,
+                        "scale": None,
+                        "concurrency": None,
+                        "failure_modes": None,
+                        "cross_cutting": None,
                     },
                 ),
             ),
@@ -311,9 +350,14 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
     result = runner.invoke(
         cli,
         [
-            "pm", "plan", "unblock", "epic-1",
-            "--rationale", "manual",
-            "--path", str(tmp_path),
+            "pm",
+            "plan",
+            "unblock",
+            "epic-1",
+            "--rationale",
+            "manual",
+            "--path",
+            str(tmp_path),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -328,7 +372,8 @@ def test_cli_pm_overrides_list_runs(tmp_path: Path):
     runner = CliRunner()
     # Empty list returns helpful message.
     result = runner.invoke(
-        cli, ["pm", "overrides", "list", "--path", str(tmp_path)],
+        cli,
+        ["pm", "overrides", "list", "--path", str(tmp_path)],
     )
     assert result.exit_code == 0
     assert "no overrides" in result.output

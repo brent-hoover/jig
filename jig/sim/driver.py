@@ -3552,6 +3552,7 @@ async def _handle_invoke_fixture_env(ctx: DriverContext, step: ScenarioStep) -> 
         work_type=work_type,
         title="fixture-env probe",
         created_by="sim",
+        description="## Acceptance criteria\n- fixture-env probe builds expected map\n",
     )
     ctx.last_fixture_env = build_fixture_env(
         ticket,

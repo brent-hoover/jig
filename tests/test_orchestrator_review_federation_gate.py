@@ -21,6 +21,7 @@ Tests use the orchestrator's helper directly + a stub
 ``dispatch_with_llm_spawn`` to avoid spinning up the full agent
 spawn path (covered separately in test_reviewers_federation_execution).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,6 +38,7 @@ from jig.config import (
 from jig.orchestrator import Orchestrator
 from jig.project import Project
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -52,9 +54,7 @@ def _seed_project(root: Path, *, run_federation: bool = False) -> None:
             name="test-fed-gate",
             path=str(root),
         ),
-        orchestrator=OrchestratorSection(
-            run_review_federation=run_federation
-        ),
+        orchestrator=OrchestratorSection(run_review_federation=run_federation),
     )
     save_config(root, cfg)
 
@@ -67,6 +67,7 @@ def _ticket() -> Ticket:
         created_by="planner-pm",
         labels=["touches-auth"],  # would trigger reviewer-security
         layer="mvp",
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -175,9 +176,7 @@ class TestFederationGate:
         """When the flag is True, ticket-resolved fires the federation hook."""
         called: dict[str, Any] = {}
 
-        async def _spy(
-            self: Any, ticket_id: str, ticket: Any
-        ) -> None:
+        async def _spy(self: Any, ticket_id: str, ticket: Any) -> None:
             called["ticket_id"] = ticket_id
             called["ticket"] = ticket
 
@@ -264,12 +263,8 @@ class TestFederationHookForwardsToDispatch:
         from jig.reviewers import dispatch as dispatch_module
         from jig import reviewers as reviewers_pkg
 
-        monkeypatch.setattr(
-            dispatch_module, "dispatch_with_llm_spawn", _raise
-        )
-        monkeypatch.setattr(
-            reviewers_pkg, "dispatch_with_llm_spawn", _raise
-        )
+        monkeypatch.setattr(dispatch_module, "dispatch_with_llm_spawn", _raise)
+        monkeypatch.setattr(reviewers_pkg, "dispatch_with_llm_spawn", _raise)
 
         orch = Orchestrator(project_path=tmp_path)
         # Should not raise.

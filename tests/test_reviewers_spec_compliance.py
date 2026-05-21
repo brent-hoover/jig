@@ -4,6 +4,7 @@ Mechanical, end-of-ticket / per-commit eligible, deterministic, no LLM.
 Two checks: capability cited but not in spec (critical), behavior AC
 not referenced in diff (important). Default-on for MVP+ layers.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -28,6 +29,7 @@ from jig.spec_schema import (
     StructuredSpec,
 )
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -75,9 +77,7 @@ def _write_spec(
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True
-    )
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
 def _init_worktree(
@@ -119,9 +119,12 @@ def _ticket(
         created_by="planner-pm",
         module_id="catalog-ingest",
         suite_id=suite_id,
-        capability_ids=capability_ids if capability_ids is not None else ["shopify-connect"],
+        capability_ids=capability_ids
+        if capability_ids is not None
+        else ["shopify-connect"],
         layer=layer,
         reviewer_set=reviewer_set if reviewer_set is not None else [],
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -264,10 +267,7 @@ async def test_capability_level_ac_referenced_passes(tmp_path: Path):
         worktree,
         head_files={
             # References webhook + signature.
-            "ingest.py": (
-                "def validate_webhook_signature(secret):\n"
-                "    return True\n"
-            ),
+            "ingest.py": ("def validate_webhook_signature(secret):\n    return True\n"),
         },
     )
 
@@ -371,9 +371,7 @@ async def test_capability_resolves_via_alias(tmp_path: Path):
     _init_worktree(
         worktree,
         head_files={
-            "ingest.py": (
-                "def validate_webhook_signature():\n    return True\n"
-            ),
+            "ingest.py": ("def validate_webhook_signature():\n    return True\n"),
         },
     )
 

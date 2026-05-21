@@ -13,6 +13,7 @@ Covers the FixtureStore / FixtureMiddleware / signature contract per
 * ``fixture_mode_for_ticket`` gates SPIKE work_type → record_new and
   honors per-spawn override
 """
+
 from __future__ import annotations
 
 import json
@@ -31,6 +32,7 @@ from jig.dev_env.fixtures import (
     request_signature,
 )
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +218,7 @@ async def test_replay_only_missing_cassette_raises(tmp_path: Path) -> None:
         client=client,
     )
     with pytest.raises(FixtureMissingError) as exc:
-        await mw.record_or_replay(
-            "GET", "https://api.shopify.com/products", None, None
-        )
+        await mw.record_or_replay("GET", "https://api.shopify.com/products", None, None)
     # Operator-readable error: surface the URL + the mode.
     assert "shopify-api" in str(exc.value)
     assert "replay_only" in str(exc.value).lower()
@@ -271,9 +271,7 @@ async def test_record_new_replays_existing_cassette(tmp_path: Path) -> None:
         mode=FixtureMode.RECORD_NEW,
         client=client,
     )
-    resp = await mw.record_or_replay(
-        "GET", "https://api.shopify.com/x", None, None
-    )
+    resp = await mw.record_or_replay("GET", "https://api.shopify.com/x", None, None)
     assert resp == {"status": 200, "body": "from-fixture"}
     assert client.calls == []
 
@@ -299,9 +297,7 @@ async def test_bypass_calls_real_client_directly(tmp_path: Path) -> None:
         mode=FixtureMode.BYPASS,
         client=client,
     )
-    resp = await mw.record_or_replay(
-        "GET", "https://api.shopify.com/x", None, None
-    )
+    resp = await mw.record_or_replay("GET", "https://api.shopify.com/x", None, None)
     assert resp == {"status": 201, "body": "real"}
     assert len(client.calls) == 1
 
@@ -317,9 +313,7 @@ async def test_record_new_no_client_raises(tmp_path: Path) -> None:
         client=None,
     )
     with pytest.raises(RuntimeError):
-        await mw.record_or_replay(
-            "GET", "https://api.shopify.com/x", None, None
-        )
+        await mw.record_or_replay("GET", "https://api.shopify.com/x", None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +327,7 @@ def test_fixture_mode_for_spike_ticket_is_record_new() -> None:
         work_type=WorkType.SPIKE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert fixture_mode_for_ticket(t) == FixtureMode.RECORD_NEW
 
@@ -343,6 +338,7 @@ def test_fixture_mode_for_feature_ticket_defaults_to_replay_only() -> None:
         work_type=WorkType.FEATURE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert fixture_mode_for_ticket(t) == FixtureMode.REPLAY_ONLY
 
@@ -354,14 +350,10 @@ def test_fixture_mode_for_ticket_honors_override() -> None:
         work_type=WorkType.FEATURE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
-    assert (
-        fixture_mode_for_ticket(t, override="bypass") == FixtureMode.BYPASS
-    )
-    assert (
-        fixture_mode_for_ticket(t, override="record_new")
-        == FixtureMode.RECORD_NEW
-    )
+    assert fixture_mode_for_ticket(t, override="bypass") == FixtureMode.BYPASS
+    assert fixture_mode_for_ticket(t, override="record_new") == FixtureMode.RECORD_NEW
 
 
 def test_fixture_mode_for_ticket_invalid_override_raises() -> None:
@@ -370,6 +362,7 @@ def test_fixture_mode_for_ticket_invalid_override_raises() -> None:
         work_type=WorkType.SPIKE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
     with pytest.raises(ValueError):
         fixture_mode_for_ticket(t, override="not-a-mode")
@@ -388,6 +381,7 @@ def test_build_fixture_env_spike_ticket_records() -> None:
         work_type=WorkType.SPIKE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
     env = build_fixture_env(t)
     assert env == {"JIG_FIXTURE_MODE": "record_new"}
@@ -401,6 +395,7 @@ def test_build_fixture_env_feature_ticket_replays() -> None:
         work_type=WorkType.FEATURE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
     env = build_fixture_env(t)
     assert env == {"JIG_FIXTURE_MODE": "replay_only"}
@@ -414,6 +409,7 @@ def test_build_fixture_env_override_wins() -> None:
         work_type=WorkType.FEATURE,
         title="x",
         created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
     )
     env = build_fixture_env(t, override="bypass")
     assert env == {"JIG_FIXTURE_MODE": "bypass"}
@@ -430,9 +426,7 @@ def test_cli_dev_fixtures_list_empty(tmp_path: Path) -> None:
     from jig.cli import cli
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "fixtures", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "fixtures", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "(no fixtures recorded)" in result.output
 
@@ -458,9 +452,7 @@ def test_cli_dev_fixtures_list_shows_services(tmp_path: Path) -> None:
 
     asyncio.run(_seed())
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "fixtures", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "fixtures", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "shopify-api" in result.output
 

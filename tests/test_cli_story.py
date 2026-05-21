@@ -15,6 +15,7 @@ from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Note
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _store_paths(project_path: Path) -> tuple[Path, Path]:
@@ -43,7 +44,12 @@ async def test_story_command_prints_thread_entries(tmp_path: Path) -> None:
     await threads.load()
 
     tid = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="f",
+            created_by="user",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     await threads.post(Note(ticket_id=tid, author="dev", text="hello story"))
 
@@ -75,7 +81,12 @@ async def test_story_command_json_output(tmp_path: Path) -> None:
     await threads.load()
 
     tid = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="f",
+            created_by="user",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     await threads.post(Note(ticket_id=tid, author="dev", text="hi"))
 
@@ -112,7 +123,12 @@ async def test_story_command_naive_since_is_coerced_to_utc(tmp_path: Path) -> No
     await threads.load()
 
     tid = await tickets.create(
-        Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="f",
+            created_by="user",
+            description=TICKET_AC_PLACEHOLDER,
+        )
     )
     await threads.post(Note(ticket_id=tid, author="dev", text="visible"))
 
@@ -141,7 +157,5 @@ def test_story_command_unknown_ticket_exits_nonzero(tmp_path: Path) -> None:
     (tmp_path / ".jig" / "store").mkdir(parents=True, exist_ok=True)
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["story", "no-such-ticket", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["story", "no-such-ticket", "--path", str(tmp_path)])
     assert result.exit_code != 0

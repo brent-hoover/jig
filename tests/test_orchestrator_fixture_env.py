@@ -5,6 +5,7 @@ called from the real-mode spawn path. These tests assert that
 ``ctx.extra_env`` carries ``JIG_FIXTURE_MODE`` for both spike and non-
 spike tickets, alongside any dev-env URLs the provisioning hook produces.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ from jig.dev_env.fixtures import FIXTURE_MODE_ENV_VAR, FixtureMode
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _save_project(tmp_path: Path) -> None:
@@ -48,7 +50,8 @@ class _FakeCtx:
 
 @pytest.mark.asyncio
 async def test_fixture_env_replay_only_for_non_spike_ticket(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Feature ticket (non-spike) → REPLAY_ONLY in extra_env."""
     _save_project(tmp_path)
@@ -63,15 +66,14 @@ async def test_fixture_env_replay_only_for_non_spike_ticket(
             captured["extra_env"] = dict(getattr(ctx, "extra_env", None) or {})
             return _FakeResult()
 
-        monkeypatch.setattr(
-            orchestrator_module, "run_agent", _fake_run_agent
-        )
+        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="t-feature",
             work_type=WorkType.FEATURE,
             title="t",
             created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
         await orch._run_agent_with_analytics(_FakeCtx(ticket))
 
@@ -84,7 +86,8 @@ async def test_fixture_env_replay_only_for_non_spike_ticket(
 
 @pytest.mark.asyncio
 async def test_fixture_env_record_new_for_spike_ticket(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Spike ticket → RECORD_NEW in extra_env (the spike grows fixtures)."""
     _save_project(tmp_path)
@@ -99,15 +102,14 @@ async def test_fixture_env_record_new_for_spike_ticket(
             captured["extra_env"] = dict(getattr(ctx, "extra_env", None) or {})
             return _FakeResult()
 
-        monkeypatch.setattr(
-            orchestrator_module, "run_agent", _fake_run_agent
-        )
+        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="t-spike",
             work_type=WorkType.SPIKE,
             title="t",
             created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
         await orch._run_agent_with_analytics(_FakeCtx(ticket))
 
@@ -120,7 +122,8 @@ async def test_fixture_env_record_new_for_spike_ticket(
 
 @pytest.mark.asyncio
 async def test_fixture_env_does_not_clobber_dev_env_urls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Fixture mode merges; existing JIG_DEV_*_URL entries survive."""
     _save_project(tmp_path)
@@ -148,28 +151,20 @@ async def test_fixture_env_does_not_clobber_dev_env_urls(
         async def _fake_cleanup(*args, **kwargs):
             return None
 
-        monkeypatch.setattr(
-            orchestrator_module, "run_agent", _fake_run_agent
-        )
-        monkeypatch.setattr(
-            orchestrator_module, "provision_for_agent", _fake_provision
-        )
-        monkeypatch.setattr(
-            orchestrator_module, "cleanup_for_agent", _fake_cleanup
-        )
+        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr(orchestrator_module, "provision_for_agent", _fake_provision)
+        monkeypatch.setattr(orchestrator_module, "cleanup_for_agent", _fake_cleanup)
 
         ticket = Ticket(
             id="t-merge",
             work_type=WorkType.FEATURE,
             title="t",
             created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
         await orch._run_agent_with_analytics(_FakeCtx(ticket))
 
-        assert (
-            captured["extra_env"].get("JIG_DEV_MAIN_DB_URL")
-            == "postgresql://stub"
-        )
+        assert captured["extra_env"].get("JIG_DEV_MAIN_DB_URL") == "postgresql://stub"
         assert captured["extra_env"].get(FIXTURE_MODE_ENV_VAR) == (
             FixtureMode.REPLAY_ONLY.value
         )

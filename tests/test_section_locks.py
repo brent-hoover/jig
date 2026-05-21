@@ -24,6 +24,7 @@ from jig.store.tickets import TicketStore
 from jig.thread import Handoff
 from jig.ticket import Ticket, WorkType
 from jig.work_types import load_work_type_schema
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.fixture
@@ -120,6 +121,7 @@ class TestLockedSectionsForTicket:
                 work_type=WorkType.FEATURE,
                 title="build widget",
                 created_by="alice",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         await _post_accepted_handoff(threads, ticket_id, "spec")
@@ -141,6 +143,7 @@ class TestLockedSectionsForTicket:
                 work_type=WorkType.FEATURE,
                 title="build widget",
                 created_by="alice",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         locked = await locked_sections_for_ticket(
@@ -160,6 +163,7 @@ class TestLockedSectionsForTicket:
                 work_type=WorkType.FEATURE,
                 title="build widget",
                 created_by="alice",
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
         await _post_accepted_handoff(threads, ticket_id, "implement")

@@ -150,6 +150,35 @@ class TriageDecision(BaseModel):
     rationale: str = ""
 
 
+def _synthesize_description_with_ac(*, problem: str, epic_title: str) -> str:
+    """Build a Ticket description that satisfies the AC-required validator.
+
+    Transitional helper for ``Coordinator._build_ticket_from_epic`` — the
+    current ``Epic`` schema (``jig.schemas.plan.Epic``) has no
+    ``acceptance_criteria`` field, so we derive a single-bullet AC from
+    the epic's intent prose. Follow-on work adds explicit ACs to Epic
+    and removes this synthesis step.
+
+    The result interleaves the original intent prose with a discoverable
+    ``## Acceptance criteria`` section, structured so the reviewer-test-
+    adequacy reviewer treats the bullet as the AC scope for this ticket.
+    """
+    bullet_source = problem.strip() or epic_title
+    # Keep the bullet on a single line — the AC validator allows multi-line
+    # bullets but downstream consumers read them as one logical AC. The
+    # ``or "Implemented as planned"`` fallback covers the degenerate case
+    # where both ``problem`` and ``epic_title`` are empty: without it the
+    # synthesized bullet would be ``"- \n"`` which fails the validator's
+    # ``\S``-after-marker requirement and the resulting ``Ticket(...)``
+    # would crash at materialization time.
+    bullet = " ".join(bullet_source.split()) or "Implemented as planned"
+    body = problem.rstrip()
+    ac_block = f"## Acceptance criteria\n- {bullet}\n"
+    if not body:
+        return ac_block
+    return f"{body}\n\n{ac_block}"
+
+
 def _deferred_queue_path(project_root: Path) -> Path:
     return project_root / _DEFERRED_QUEUE_RELATIVE
 
@@ -663,14 +692,27 @@ class Coordinator:
 
         ``work_type`` is ``FEATURE`` because both bones tracer-bullets and
         MVP feature tickets ship behavior end-to-end.
+
+        **AC synthesis (transitional).** The Ticket model requires an
+        Acceptance Criteria section in the description for work-type
+        tickets. The current Epic schema (``jig.schemas.plan.Epic``)
+        has no ``acceptance_criteria`` field — only ``intent`` — so we
+        synthesize a single-bullet AC at materialization time, derived
+        from ``epic.intent.problem``. This is a stopgap until the
+        Planner-PM workflow is updated to author explicit ACs on each
+        Epic (tracked as a follow-on to this validator change).
         """
         module_id = epic.modules[0] if epic.modules else None
+        description = _synthesize_description_with_ac(
+            problem=epic.intent.problem,
+            epic_title=epic.title,
+        )
         return Ticket(
             id=ticket_id,
             work_type=WorkType.FEATURE,
             size=Size.M,
             title=f"{epic.title} — {layer.value}",
-            description=epic.intent.problem,
+            description=description,
             created_by=DEFAULT_AUTHOR,
             epic_id=epic.id,
             suite_id=epic.suite,

@@ -1,4 +1,5 @@
 """Tests for orphan tracking + jig dev CLI (Track E MVP)."""
+
 from __future__ import annotations
 
 import json
@@ -31,6 +32,7 @@ from jig.schemas.arch import (
 from jig.spec_loader import save_architecture, save_dev_manifest
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 def _intent(p: str = "P", s: str = "S") -> Intent:
@@ -87,6 +89,7 @@ async def test_list_orphans_skips_live_tickets(tmp_path: Path):
         title="x",
         created_by="u",
         status=TicketStatus.OPEN,
+        description=TICKET_AC_PLACEHOLDER,
     )
     inprog = Ticket(
         id="t-inprog",
@@ -94,6 +97,7 @@ async def test_list_orphans_skips_live_tickets(tmp_path: Path):
         title="x",
         created_by="u",
         status=TicketStatus.IN_PROGRESS,
+        description=TICKET_AC_PLACEHOLDER,
     )
     rows = await list_orphans(manifest, [open_t, inprog])
     assert rows == []
@@ -111,6 +115,7 @@ async def test_list_orphans_flags_terminal_tickets(tmp_path: Path):
         title="x",
         created_by="u",
         status=TicketStatus.RESOLVED,
+        description=TICKET_AC_PLACEHOLDER,
     )
     failed = Ticket(
         id="t-002",
@@ -118,6 +123,7 @@ async def test_list_orphans_flags_terminal_tickets(tmp_path: Path):
         title="x",
         created_by="u",
         status=TicketStatus.FAILED,
+        description=TICKET_AC_PLACEHOLDER,
     )
     rows = await list_orphans(manifest, [resolved, failed])
     ids = sorted(o.id for o in rows)
@@ -149,6 +155,7 @@ async def test_list_orphans_skips_non_shared_namespaced_strategies(
         title="x",
         created_by="u",
         status=TicketStatus.RESOLVED,
+        description=TICKET_AC_PLACEHOLDER,
     )
     rows = await list_orphans(manifest, [resolved])
     assert rows == []
@@ -173,6 +180,7 @@ async def test_drop_orphan_invokes_postgres_drop(tmp_path: Path):
         title="x",
         created_by="u",
         status=TicketStatus.RESOLVED,
+        description=TICKET_AC_PLACEHOLDER,
     )
     rows = await list_orphans(manifest, [resolved])
     assert len(rows) == 1
@@ -194,14 +202,11 @@ async def test_drop_orphan_archive_path(tmp_path: Path):
         title="x",
         created_by="u",
         status=TicketStatus.FAILED,
+        description=TICKET_AC_PLACEHOLDER,
     )
     rows = await list_orphans(manifest, [failed])
-    await drop_orphan(
-        manifest, rows[0], success_reason="failure_archive", registry=reg
-    )
-    assert rec.calls == [
-        "ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"
-    ]
+    await drop_orphan(manifest, rows[0], success_reason="failure_archive", registry=reg)
+    assert rec.calls == ["ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"]
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +247,7 @@ async def test_tracker_list_writes_audit_log(tmp_path: Path):
             title="x",
             created_by="u",
             status=TicketStatus.RESOLVED,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     tracker = OrphanTracker(tmp_path, load_dev_manifest(tmp_path), store)
@@ -277,13 +283,12 @@ async def test_tracker_drop_invokes_provisioner(tmp_path: Path):
             title="x",
             created_by="u",
             status=TicketStatus.RESOLVED,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     rec = _Recorder()
     reg = ProvisioningRegistry(postgres_sql_executor=rec)
-    tracker = OrphanTracker(
-        tmp_path, load_dev_manifest(tmp_path), store, registry=reg
-    )
+    tracker = OrphanTracker(tmp_path, load_dev_manifest(tmp_path), store, registry=reg)
     ok = await tracker.drop("main-db:t-001")
     assert ok is True
     assert rec.calls == ["DROP SCHEMA IF EXISTS agent_t_001 CASCADE"]
@@ -304,13 +309,12 @@ async def test_tracker_purge_drops_all(tmp_path: Path):
                 title="x",
                 created_by="u",
                 status=TicketStatus.RESOLVED,
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
     rec = _Recorder()
     reg = ProvisioningRegistry(postgres_sql_executor=rec)
-    tracker = OrphanTracker(
-        tmp_path, load_dev_manifest(tmp_path), store, registry=reg
-    )
+    tracker = OrphanTracker(tmp_path, load_dev_manifest(tmp_path), store, registry=reg)
     n = await tracker.purge()
     assert n == 2
     assert any("agent_t_001" in c for c in rec.calls)
@@ -367,6 +371,7 @@ def _seed_resolved_ticket(tmp_path: Path, tid: str = "t-001") -> None:
                 title="x",
                 created_by="u",
                 status=TicketStatus.RESOLVED,
+                description=TICKET_AC_PLACEHOLDER,
             )
         )
 
@@ -377,9 +382,7 @@ def test_cli_dev_orphans_list_empty(tmp_path: Path):
     _seed_arch_and_manifest(tmp_path)
     (tmp_path / ".jig" / "store").mkdir(parents=True, exist_ok=True)
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "orphans", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "orphans", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "(no orphans)" in result.output
 
@@ -388,9 +391,7 @@ def test_cli_dev_orphans_list_shows_resolved(tmp_path: Path):
     _seed_arch_and_manifest(tmp_path)
     _seed_resolved_ticket(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "orphans", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "orphans", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0
     assert "main-db:t-001" in result.output
     assert "namespace=agent_t_001" in result.output
@@ -424,9 +425,7 @@ def test_cli_dev_orphans_purge_requires_confirm(tmp_path: Path):
     _seed_arch_and_manifest(tmp_path)
     (tmp_path / ".jig" / "store").mkdir(parents=True, exist_ok=True)
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "orphans", "purge", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "orphans", "purge", "--path", str(tmp_path)])
     assert result.exit_code != 0
     assert "--confirm" in result.output
 

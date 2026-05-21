@@ -26,7 +26,9 @@ async def test_ticket_new_requires_title():
     class FakeOrch:
         pass
 
-    result = await handler(args=["new", "--size", "m"], orch=FakeOrch(), project_path=None)
+    result = await handler(
+        args=["new", "--size", "m"], orch=FakeOrch(), project_path=None
+    )
     assert result["ok"] is False
     assert "title" in result["error"].lower()
 
@@ -58,7 +60,9 @@ async def test_ticket_update_requires_kvs():
     class FakeOrch:
         pass
 
-    result = await handler(args=["update", "abc-123"], orch=FakeOrch(), project_path=None)
+    result = await handler(
+        args=["update", "abc-123"], orch=FakeOrch(), project_path=None
+    )
     assert result["ok"] is False
     assert "field=value" in result["error"]
 
@@ -86,7 +90,15 @@ async def test_ticket_new_creates_via_orch(tmp_path):
     await orch.load()
 
     result = await handler(
-        args=["new", "--title", "test ticket", "--size", "s"],
+        args=[
+            "new",
+            "--title",
+            "test ticket",
+            "--size",
+            "s",
+            "--description",
+            "## Acceptance criteria\n- Ticket lands in the store.",
+        ],
         orch=orch,
         project_path=tmp_path,
     )

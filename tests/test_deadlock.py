@@ -21,6 +21,7 @@ from jig.store.tickets import TicketStore
 from jig.thread import Escalation, Note
 from jig.thread_mcp import handle_thread_ask
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures -------------------------------------------------------------
@@ -41,6 +42,7 @@ async def _make_stores(
             title="t",
             created_by="orchestrator",
             status=TicketStatus.IN_PROGRESS,
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     return tickets, threads, bus, ticket_id

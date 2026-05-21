@@ -12,6 +12,7 @@ Cascade-after-impossible behavior is covered by ``test_sa_cascade.py``
 (commit 3); the spike-completion handler delegates the cascade
 generation when status == confirmed_impossible.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,6 +31,7 @@ from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Note
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures -------------------------------------------------------------
@@ -94,9 +96,7 @@ async def _seed_risk(
         ]
     elif dependent_contracts is not None:
         payload["dependent_contracts"] = dependent_contracts
-    return await handle_arch_set_risk(
-        project_path=wired["project_path"], risk=payload
-    )
+    return await handle_arch_set_risk(project_path=wired["project_path"], risk=payload)
 
 
 # ---- arch_propose_spike --------------------------------------------------
@@ -298,6 +298,7 @@ async def test_arch_complete_spike_rejects_non_spike_ticket(wired):
             work_type=WorkType.FEATURE,
             title="not a spike",
             created_by="test",
+            description=TICKET_AC_PLACEHOLDER,
         )
     )
     with pytest.raises(ValueError, match="not a spike"):
@@ -339,7 +340,7 @@ async def test_arch_complete_spike_raises_when_risk_link_missing(wired):
             id="orphan-spike",
             work_type=WorkType.SPIKE,
             title="spike: orphan",
-            description="orphan",
+            description="orphan" + "\n" + TICKET_AC_PLACEHOLDER,
             derived_from="project://arch/risks/r-not-there",
             risks_addressed=["r-not-there"],
             created_by="test",

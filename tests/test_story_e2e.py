@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
@@ -74,14 +75,17 @@ async def test_story_captures_orchestrator_agent_and_thread_events(
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         # Pre-post a Note so thread content shows up alongside
         # orchestrator-emitted events.
@@ -106,7 +110,10 @@ async def test_story_captures_orchestrator_agent_and_thread_events(
     await threads.load()
     await tickets.load()
     story = await build_story(
-        tid, project_path=tmp_path, threads=threads, tickets=tickets,
+        tid,
+        project_path=tmp_path,
+        threads=threads,
+        tickets=tickets,
     )
 
     # The story must contain: the user note, phase_start, agent_run,

@@ -7,6 +7,7 @@ Covers:
 - analytics/events.py: TicketGraphImpact round-trips
 - quartermaster.py: _pattern_complex_tickets + calibration
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,6 +28,7 @@ from jig.reviewers.dispatch import (
     select_reviewers_for_ticket,
 )
 from jig.ticket import Ticket
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -47,6 +49,7 @@ def _ticket(
         layer=layer,
         module_id=module_id,
         dev_tier=dev_tier,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -64,7 +67,11 @@ def _module_dict(mid: str) -> dict:
         "title": mid.title(),
         "summary": f"Module {mid}.",
         "intent": _minimal_intent(),
-        "n_a_categories": ["behavioral_contracts", "external_dependencies", "ownership"],
+        "n_a_categories": [
+            "behavioral_contracts",
+            "external_dependencies",
+            "ownership",
+        ],
     }
 
 
@@ -354,7 +361,8 @@ async def test_qm_complex_ticket_at_threshold_fires(tmp_path: Path) -> None:
     qm = Quartermaster(store)
     briefing = await qm.briefing()
     matching = [
-        p for p in briefing.notable_patterns
+        p
+        for p in briefing.notable_patterns
         if p.kind == "tickets_crossing_many_boundaries"
     ]
     assert len(matching) == 1
@@ -373,7 +381,8 @@ async def test_qm_complex_tickets_lists_all_offenders(tmp_path: Path) -> None:
     qm = Quartermaster(store)
     briefing = await qm.briefing()
     matching = [
-        p for p in briefing.notable_patterns
+        p
+        for p in briefing.notable_patterns
         if p.kind == "tickets_crossing_many_boundaries"
     ]
     assert len(matching) == 1
@@ -391,8 +400,7 @@ async def test_qm_complex_tickets_below_threshold_not_flagged(tmp_path: Path) ->
     qm = Quartermaster(store)
     briefing = await qm.briefing()
     assert not any(
-        p.kind == "tickets_crossing_many_boundaries"
-        for p in briefing.notable_patterns
+        p.kind == "tickets_crossing_many_boundaries" for p in briefing.notable_patterns
     )
 
 
@@ -403,8 +411,7 @@ async def test_qm_complex_tickets_custom_threshold(tmp_path: Path) -> None:
     qm = Quartermaster(store, complex_ticket_boundary_threshold=6)
     briefing = await qm.briefing()
     assert not any(
-        p.kind == "tickets_crossing_many_boundaries"
-        for p in briefing.notable_patterns
+        p.kind == "tickets_crossing_many_boundaries" for p in briefing.notable_patterns
     )
 
 
@@ -413,7 +420,6 @@ async def test_qm_complex_tickets_calibration_raises_threshold(
     tmp_path: Path,
 ) -> None:
     """Calibrated threshold > crossed_boundaries → no pattern fires."""
-    from jig.quartermaster import PatternCalibration
 
     events = [_impact_event("T-1", 3)]  # threshold=3, hits by default
     store = await _make_analytics(tmp_path, events)
@@ -421,8 +427,7 @@ async def test_qm_complex_tickets_calibration_raises_threshold(
     qm = Quartermaster(store, calibration=calibration)
     briefing = await qm.briefing()
     assert not any(
-        p.kind == "tickets_crossing_many_boundaries"
-        for p in briefing.notable_patterns
+        p.kind == "tickets_crossing_many_boundaries" for p in briefing.notable_patterns
     )
 
 
@@ -433,4 +438,7 @@ async def test_qm_complex_tickets_in_recommendations(tmp_path: Path) -> None:
     store = await _make_analytics(tmp_path, events)
     qm = Quartermaster(store, recommendation_limit=5)
     briefing = await qm.briefing()
-    assert any("tickets_crossing_many_boundaries" in r for r in briefing.attention_recommendations)
+    assert any(
+        "tickets_crossing_many_boundaries" in r
+        for r in briefing.attention_recommendations
+    )

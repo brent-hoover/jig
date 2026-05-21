@@ -66,7 +66,7 @@ async def test_ticket_create_basic(orchestrator_ws) -> None:
             "--size",
             "s",
             "--description",
-            "from the cli",
+            "from the cli\n\n## Acceptance criteria\n- ticket reaches the store",
             "--ws-url",
             f"ws://127.0.0.1:{server.port}",
         ]
@@ -91,6 +91,8 @@ async def test_ticket_create_defaults(orchestrator_ws) -> None:
             "create",
             "--title",
             "defaulted",
+            "--description",
+            "## Acceptance criteria\n- placeholder",
             "--ws-url",
             f"ws://127.0.0.1:{server.port}",
         ]

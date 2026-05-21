@@ -7,9 +7,9 @@ Covers:
   - TicketTouches on Ticket
   - arch_finalize cross-ref validation rejects broken consumptions
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -17,13 +17,13 @@ import yaml
 
 from jig.schemas.arch import (
     ApiConsumption,
-    EmittedEvent,
     EventConsumption,
     ExposedAPI,
     Module,
 )
 from jig.thread import Handoff
 from jig.ticket import Ticket, TicketTouches, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- Integration checkpoint on Handoff (2.4) -------------------------------
@@ -75,6 +75,7 @@ def test_handoff_round_trips_through_dict():
 
 def _make_module(module_id: str = "api-client", **kwargs) -> Module:
     from jig.intent import Intent, ComplicationsConsidered
+
     defaults = dict(
         id=module_id,
         title="API Client",
@@ -152,6 +153,7 @@ def test_ticket_touches_defaults_empty():
         title="Fetch stories",
         work_type=WorkType.FEATURE,
         created_by="pm",
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert t.touches.modules == []
     assert t.touches.exposed_apis == []
@@ -169,6 +171,7 @@ def test_ticket_touches_with_declarations():
             routes=["GET /api/stories"],
             env_vars=["HN_API_BASE_URL"],
         ),
+        description=TICKET_AC_PLACEHOLDER,
     )
     assert "web-frontend" in t.touches.modules
     assert "GET /api/stories" in t.touches.routes
@@ -191,7 +194,9 @@ def _write_arch_yaml(project_root: Path, arch_dict: dict) -> None:
     p.write_text(yaml.dump(arch_dict, allow_unicode=True))
 
 
-def _write_contracts_yaml(project_root: Path, module_id: str, contracts_dict: dict) -> None:
+def _write_contracts_yaml(
+    project_root: Path, module_id: str, contracts_dict: dict
+) -> None:
     p = project_root / ".jig" / "spec" / "modules" / module_id / "contracts.yaml"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(yaml.dump(contracts_dict, allow_unicode=True))
@@ -207,56 +212,80 @@ def _minimal_intent() -> dict:
 
 @pytest.mark.asyncio
 async def test_arch_finalize_passes_valid_consumption_refs(tmp_path):
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import AsyncMock
     from jig.sa_incremental_mcp import handle_arch_finalize
 
     # consumer module calls an API from provider module
-    _write_arch_yaml(tmp_path, {
-        "spec_version": 1,
+    _write_arch_yaml(
+        tmp_path,
+        {
+            "spec_version": 1,
             "data_stores": [{"id": "main-db", "kind": "postgres"}],
-        "modules": [
-            {
-                "id": "provider",
-                "title": "Provider",
-                "summary": "Provides an API.",
-                "intent": _minimal_intent(),
-                "n_a_categories": ["behavioral_contracts", "external_dependencies"],
-                "consumes_apis": [],
-                "consumes_events": [],
-            },
-            {
-                "id": "consumer",
-                "title": "Consumer",
-                "summary": "Consumes provider API.",
-                "intent": _minimal_intent(),
-                "n_a_categories": ["behavioral_contracts", "external_dependencies", "ownership"],
-                "consumes_apis": [{"module": "provider", "name": "get_data"}],
-                "consumes_events": [],
-            },
-        ],
-    })
-    _write_contracts_yaml(tmp_path, "provider", {
-        "spec_version": 1,
-        "module": "provider",
-        "owns": [{"collection": "data", "db": "main-db", "write_access": ["provider"]}],
-        "integration_ac": [{"capability": "provide-data", "must": ["exposes get_data"]}],
-        "exposes": [{"name": "get_data", "kind": "function", "summary": "Get data."}],
-        "emits": [],
-    })
-    _write_contracts_yaml(tmp_path, "consumer", {
-        "spec_version": 1,
-        "module": "consumer",
-        "owns": [],
-        "integration_ac": [{"capability": "consume-data", "must": ["calls provider.get_data"]}],
-        "exposes": [],
-        "emits": [],
-    })
+            "modules": [
+                {
+                    "id": "provider",
+                    "title": "Provider",
+                    "summary": "Provides an API.",
+                    "intent": _minimal_intent(),
+                    "n_a_categories": ["behavioral_contracts", "external_dependencies"],
+                    "consumes_apis": [],
+                    "consumes_events": [],
+                },
+                {
+                    "id": "consumer",
+                    "title": "Consumer",
+                    "summary": "Consumes provider API.",
+                    "intent": _minimal_intent(),
+                    "n_a_categories": [
+                        "behavioral_contracts",
+                        "external_dependencies",
+                        "ownership",
+                    ],
+                    "consumes_apis": [{"module": "provider", "name": "get_data"}],
+                    "consumes_events": [],
+                },
+            ],
+        },
+    )
+    _write_contracts_yaml(
+        tmp_path,
+        "provider",
+        {
+            "spec_version": 1,
+            "module": "provider",
+            "owns": [
+                {"collection": "data", "db": "main-db", "write_access": ["provider"]}
+            ],
+            "integration_ac": [
+                {"capability": "provide-data", "must": ["exposes get_data"]}
+            ],
+            "exposes": [
+                {"name": "get_data", "kind": "function", "summary": "Get data."}
+            ],
+            "emits": [],
+        },
+    )
+    _write_contracts_yaml(
+        tmp_path,
+        "consumer",
+        {
+            "spec_version": 1,
+            "module": "consumer",
+            "owns": [],
+            "integration_ac": [
+                {"capability": "consume-data", "must": ["calls provider.get_data"]}
+            ],
+            "exposes": [],
+            "emits": [],
+        },
+    )
 
     resolved_ticket = Ticket(
         id="architecture",
         title="Architecture",
         work_type=WorkType.FEATURE,
         created_by="sa",
+        description=TICKET_AC_PLACEHOLDER,
     )
     mock_tickets = AsyncMock()
     mock_tickets.update = AsyncMock(return_value=resolved_ticket)
@@ -280,43 +309,66 @@ async def test_arch_finalize_rejects_unresolved_api_consumption(tmp_path):
     from unittest.mock import AsyncMock
     from jig.sa_incremental_mcp import handle_arch_finalize
 
-    _write_arch_yaml(tmp_path, {
-        "spec_version": 1,
+    _write_arch_yaml(
+        tmp_path,
+        {
+            "spec_version": 1,
             "data_stores": [{"id": "main-db", "kind": "postgres"}],
-        "modules": [
-            {
-                "id": "provider",
-                "title": "Provider",
-                "summary": "Provides an API.",
-                "intent": _minimal_intent(),
-                "n_a_categories": ["behavioral_contracts", "external_dependencies"],
-            },
-            {
-                "id": "consumer",
-                "title": "Consumer",
-                "summary": "Consumes provider.",
-                "intent": _minimal_intent(),
-                "n_a_categories": ["behavioral_contracts", "external_dependencies", "ownership"],
-                "consumes_apis": [{"module": "provider", "name": "nonexistent_fn"}],
-            },
-        ],
-    })
-    _write_contracts_yaml(tmp_path, "provider", {
-        "spec_version": 1,
-        "module": "provider",
-        "owns": [{"collection": "c", "db": "main-db", "write_access": ["provider"]}],
-        "integration_ac": [{"capability": "provide-data", "must": ["exposes get_data"]}],
-        "exposes": [{"name": "get_data", "kind": "function", "summary": "Get data."}],
-        "emits": [],
-    })
-    _write_contracts_yaml(tmp_path, "consumer", {
-        "spec_version": 1,
-        "module": "consumer",
-        "owns": [],
-        "integration_ac": [{"capability": "consume-data", "must": ["calls provider"]}],
-        "exposes": [],
-        "emits": [],
-    })
+            "modules": [
+                {
+                    "id": "provider",
+                    "title": "Provider",
+                    "summary": "Provides an API.",
+                    "intent": _minimal_intent(),
+                    "n_a_categories": ["behavioral_contracts", "external_dependencies"],
+                },
+                {
+                    "id": "consumer",
+                    "title": "Consumer",
+                    "summary": "Consumes provider.",
+                    "intent": _minimal_intent(),
+                    "n_a_categories": [
+                        "behavioral_contracts",
+                        "external_dependencies",
+                        "ownership",
+                    ],
+                    "consumes_apis": [{"module": "provider", "name": "nonexistent_fn"}],
+                },
+            ],
+        },
+    )
+    _write_contracts_yaml(
+        tmp_path,
+        "provider",
+        {
+            "spec_version": 1,
+            "module": "provider",
+            "owns": [
+                {"collection": "c", "db": "main-db", "write_access": ["provider"]}
+            ],
+            "integration_ac": [
+                {"capability": "provide-data", "must": ["exposes get_data"]}
+            ],
+            "exposes": [
+                {"name": "get_data", "kind": "function", "summary": "Get data."}
+            ],
+            "emits": [],
+        },
+    )
+    _write_contracts_yaml(
+        tmp_path,
+        "consumer",
+        {
+            "spec_version": 1,
+            "module": "consumer",
+            "owns": [],
+            "integration_ac": [
+                {"capability": "consume-data", "must": ["calls provider"]}
+            ],
+            "exposes": [],
+            "emits": [],
+        },
+    )
 
     mock_tickets = AsyncMock()
     mock_threads = AsyncMock()

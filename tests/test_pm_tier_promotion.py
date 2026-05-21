@@ -1,4 +1,5 @@
 """Mid-work tier promotion (Track F Final) — model + ladder + idempotency."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,6 +18,7 @@ from jig.pm.tier_promotion import (
 )
 from jig.store.tickets import TicketStore
 from jig.ticket import Size, Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures -----------------------------------------------------------
@@ -44,6 +46,7 @@ def _make_ticket(ticket_id: str, dev_tier: str = "standard") -> Ticket:
         title="t",
         created_by="test",
         dev_tier=dev_tier,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -107,9 +110,7 @@ async def test_promote_updates_ticket_dev_tier(tickets: TicketStore):
 async def test_promote_idempotent_when_already_at_target(tickets: TicketStore):
     """Promoting to the current tier is a no-op (record returned, no error)."""
     await tickets.create(_make_ticket("t-1", dev_tier="senior"))
-    record = await promote_ticket_tier(
-        tickets, "t-1", "senior", reason="re-checking"
-    )
+    record = await promote_ticket_tier(tickets, "t-1", "senior", reason="re-checking")
     assert record.from_tier == "senior"
     assert record.to_tier == "senior"
 

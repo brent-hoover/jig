@@ -9,6 +9,7 @@ import yaml
 from click.testing import CliRunner
 
 from jig.cli import cli
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.fixture
@@ -203,6 +204,7 @@ class TestValidate:
                     size=Size.M,
                     title="widget",
                     created_by="alice",
+                    description=TICKET_AC_PLACEHOLDER,
                 )
             )
 
@@ -244,6 +246,7 @@ class TestValidate:
                     size=Size.M,
                     title="widget",
                     created_by="alice",
+                    description=TICKET_AC_PLACEHOLDER,
                 )
             )
             threads = ThreadStore(git_jig_project / ".jig" / "store" / "comments.jsonl")
@@ -305,12 +308,8 @@ class TestCreate:
         execvp. We patch execvp + chdir to avoid replacing the test process."""
         execvp_calls: list[tuple] = []
         chdir_calls: list[str] = []
-        monkeypatch.setattr(
-            "jig.cli._execvp", lambda f, a: execvp_calls.append((f, a))
-        )
-        monkeypatch.setattr(
-            "jig.cli._chdir", lambda p: chdir_calls.append(str(p))
-        )
+        monkeypatch.setattr("jig.cli._execvp", lambda f, a: execvp_calls.append((f, a)))
+        monkeypatch.setattr("jig.cli._chdir", lambda p: chdir_calls.append(str(p)))
         monkeypatch.chdir(tmp_path)
 
         result = runner.invoke(cli, ["create", "newproj"])

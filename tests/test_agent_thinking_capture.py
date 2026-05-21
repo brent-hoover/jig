@@ -9,12 +9,11 @@ from pathlib import Path
 import pytest
 
 from jig.logging_setup import configure_logging
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 @pytest.mark.asyncio
-async def test_thinking_block_is_captured_at_debug(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_thinking_block_is_captured_at_debug(tmp_path: Path, monkeypatch) -> None:
     from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
     from jig.ticket import Ticket, TicketStatus, WorkType
     from tests._phase5p_helpers import build_orch, poll_until
@@ -66,14 +65,17 @@ async def test_thinking_block_is_captured_at_debug(
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -90,8 +92,7 @@ async def test_thinking_block_is_captured_at_debug(
     lines = log_file.read_text().strip().splitlines()
     recs = [json.loads(line) for line in lines]
     thinking_recs = [
-        r for r in recs
-        if r.get("level") == "DEBUG" and "thinking:" in r.get("msg", "")
+        r for r in recs if r.get("level") == "DEBUG" and "thinking:" in r.get("msg", "")
     ]
     assert thinking_recs, "expected at least one DEBUG thinking: log line"
     assert "read the spec first" in thinking_recs[0]["msg"]
@@ -99,9 +100,7 @@ async def test_thinking_block_is_captured_at_debug(
 
 
 @pytest.mark.asyncio
-async def test_large_thinking_block_is_truncated(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_large_thinking_block_is_truncated(tmp_path: Path, monkeypatch) -> None:
     """Thinking payloads over _LOG_TRUNCATE_BYTES are truncated and
     produce a companion ``thinking_truncated`` DEBUG line recording
     the original byte length.
@@ -153,14 +152,17 @@ async def test_large_thinking_block_is_truncated(
         phases=[PhaseConfig(name="spec", role="spec")],
     )
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
-    orch = build_orch(
-        tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch
-    )
+    orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
     await orch.startup()
     try:
         tid = await orch.tickets.create(
-            Ticket(work_type=WorkType.FEATURE, title="f", created_by="user")
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="f",
+                created_by="user",
+                description=TICKET_AC_PLACEHOLDER,
+            )
         )
         await orch._handle_schedule(tid)
 
@@ -179,9 +181,9 @@ async def test_large_thinking_block_is_truncated(
 
     # Companion line: records the true byte length.
     truncated_markers = [
-        r for r in recs
-        if r.get("level") == "DEBUG"
-        and "thinking_truncated:" in r.get("msg", "")
+        r
+        for r in recs
+        if r.get("level") == "DEBUG" and "thinking_truncated:" in r.get("msg", "")
     ]
     assert truncated_markers, "expected a thinking_truncated DEBUG line"
     expected_bytes = len(big_thinking.encode("utf-8"))
@@ -189,7 +191,8 @@ async def test_large_thinking_block_is_truncated(
 
     # Main thinking: line still emitted, but shorter than the raw payload.
     thinking_lines = [
-        r for r in recs
+        r
+        for r in recs
         if r.get("level") == "DEBUG"
         and r.get("msg", "").startswith("[")
         and "] thinking: " in r.get("msg", "")

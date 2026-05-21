@@ -18,6 +18,7 @@ Tests use a mocked orchestrator (``_FakeOrchestrator``) so the
 spawn-and-wait flow is real (asyncio + ReviewCommentsStore) but no
 LLM tokens are burned. Real LLM execution is operator-driven.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -59,6 +60,7 @@ from jig.spec_schema import (
 )
 from jig.store.review_comments import ReviewCommentsStore
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -106,6 +108,7 @@ def _write_contracts(project_root: Path) -> None:
 
 def _write_spec(project_root: Path, *, suite_id: str = "catalog") -> None:
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc)
     spec = StructuredSpec(
         name=suite_id,
@@ -168,6 +171,7 @@ def _ticket(
         labels=labels or [],
         dev_tier=dev_tier,
         contract_amendment=contract_amendment,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 
@@ -276,9 +280,7 @@ class TestDispatchForCadenceQueuesLlmReviewers:
         assert pending.cadence == "end_of_ticket"
 
     @pytest.mark.asyncio
-    async def test_per_commit_never_queues_llm_reviewers(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_per_commit_never_queues_llm_reviewers(self, tmp_path: Path) -> None:
         """Per-commit latency budget rules out LLM reviewers."""
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
@@ -305,9 +307,7 @@ class TestDispatchForCadenceQueuesLlmReviewers:
         assert ARCHITECTURAL_REVIEWER_ID not in out
 
     @pytest.mark.asyncio
-    async def test_architectural_amendment_queues_pending(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_architectural_amendment_queues_pending(self, tmp_path: Path) -> None:
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
         _write_spec(tmp_path)
@@ -330,9 +330,7 @@ class TestDispatchForCadenceQueuesLlmReviewers:
 
 class TestDispatchWithLlmSpawn:
     @pytest.mark.asyncio
-    async def test_calls_orchestrator_for_each_pending(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_calls_orchestrator_for_each_pending(self, tmp_path: Path) -> None:
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
         _write_spec(tmp_path)
@@ -353,9 +351,7 @@ class TestDispatchWithLlmSpawn:
         assert SECURITY_REVIEWER_ID in ids_spawned
 
     @pytest.mark.asyncio
-    async def test_merges_mechanical_and_llm_results(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_merges_mechanical_and_llm_results(self, tmp_path: Path) -> None:
         """Mechanical comments + LLM-spawned comments come back in one map."""
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
@@ -421,9 +417,7 @@ class TestDispatchWithLlmSpawn:
         assert out[SECURITY_REVIEWER_ID] == []
 
     @pytest.mark.asyncio
-    async def test_judgment_defaults_always_spawn(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_judgment_defaults_always_spawn(self, tmp_path: Path) -> None:
         """Judgment reviewers (error-handling, pattern-conformance, test-adequacy)
         spawn for every ticket regardless of layer or labels."""
         from jig.reviewers.dispatch import (
@@ -431,6 +425,7 @@ class TestDispatchWithLlmSpawn:
             PATTERN_CONFORMANCE_REVIEWER_ID,
             TEST_ADEQUACY_REVIEWER_ID,
         )
+
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
         _write_spec(tmp_path)
@@ -454,9 +449,7 @@ class TestDispatchWithLlmSpawn:
         assert BONES_REVIEWER_ID in out
 
     @pytest.mark.asyncio
-    async def test_multiple_pendings_all_spawned(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_multiple_pendings_all_spawned(self, tmp_path: Path) -> None:
         """A ticket triggering security AND architectural gets both spawned."""
         _write_arch(tmp_path)
         _write_contracts(tmp_path)
@@ -697,9 +690,7 @@ class TestPerPhaseReviewerScoping:
         assert SECURITY_REVIEWER_ID not in ids_spawned
 
     @pytest.mark.asyncio
-    async def test_duplicate_reviewer_ids_spawned_once(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_duplicate_reviewer_ids_spawned_once(self, tmp_path: Path) -> None:
         """Duplicate IDs in the explicit reviewers list must not cause the
         same reviewer to be spawned multiple times."""
         _write_arch(tmp_path)

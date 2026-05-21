@@ -1,4 +1,5 @@
 """Tests for the orchestrator-side dev-env hook (Track E MVP)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,7 @@ from jig.schemas.arch import (
 )
 from jig.spec_loader import save_architecture, save_dev_manifest
 from jig.ticket import Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +125,7 @@ def test_load_manifest_or_none_returns_manifest_when_present(tmp_path: Path):
 async def test_provision_for_agent_returns_empty_when_no_manifest(
     tmp_path: Path,
 ):
-    out = await provision_for_agent(
-        tmp_path, agent_id="a", ticket_id="t-1"
-    )
+    out = await provision_for_agent(tmp_path, agent_id="a", ticket_id="t-1")
     assert out == {}
 
 
@@ -135,7 +135,10 @@ async def test_provision_for_agent_returns_env_var_map(tmp_path: Path):
     rec = _Recorder()
     reg = ProvisioningRegistry(postgres_sql_executor=rec)
     out = await provision_for_agent(
-        tmp_path, agent_id="dev", ticket_id="t-001", registry=reg,
+        tmp_path,
+        agent_id="dev",
+        ticket_id="t-001",
+        registry=reg,
     )
     assert "JIG_DEV_MAIN_DB_URL" in out
     assert "search_path%3Dagent_t_001" in out["JIG_DEV_MAIN_DB_URL"]
@@ -159,7 +162,10 @@ async def test_provision_for_agent_raises_on_failure(tmp_path: Path):
     reg.register("postgres", _Boom())
     with pytest.raises(DevProvisioningError, match="provisioning failed"):
         await provision_for_agent(
-            tmp_path, agent_id="d", ticket_id="t-1", registry=reg,
+            tmp_path,
+            agent_id="d",
+            ticket_id="t-1",
+            registry=reg,
         )
 
 
@@ -207,23 +213,26 @@ async def test_provision_for_agent_wires_sqlite_ephemeral_without_explicit_regis
     save_dev_manifest(tmp_path, derive_manifest(arch))
 
     out = await provision_for_agent(
-        tmp_path, agent_id="dev", ticket_id="t-001",
+        tmp_path,
+        agent_id="dev",
+        ticket_id="t-001",
     )
     # SQLite ephemeral should yield a connection string, not silently skip.
     assert "JIG_DEV_EPHEM_URL" in out
     assert out["JIG_DEV_EPHEM_URL"].startswith("sqlite:///")
 
     await cleanup_for_agent(
-        tmp_path, agent_id="dev", ticket_id="t-001", success=True,
+        tmp_path,
+        agent_id="dev",
+        ticket_id="t-001",
+        success=True,
     )
 
 
 @pytest.mark.asyncio
 async def test_cleanup_for_agent_no_manifest_no_op(tmp_path: Path):
     """No manifest → nothing to clean; must not raise."""
-    await cleanup_for_agent(
-        tmp_path, agent_id="a", ticket_id="t", success=True
-    )
+    await cleanup_for_agent(tmp_path, agent_id="a", ticket_id="t", success=True)
 
 
 @pytest.mark.asyncio
@@ -233,16 +242,22 @@ async def test_cleanup_for_agent_drops_or_archives(tmp_path: Path):
     reg = ProvisioningRegistry(postgres_sql_executor=rec)
 
     await cleanup_for_agent(
-        tmp_path, agent_id="d", ticket_id="t-001", success=True, registry=reg,
+        tmp_path,
+        agent_id="d",
+        ticket_id="t-001",
+        success=True,
+        registry=reg,
     )
     assert rec.calls == ["DROP SCHEMA IF EXISTS agent_t_001 CASCADE"]
     rec.calls.clear()
     await cleanup_for_agent(
-        tmp_path, agent_id="d", ticket_id="t-001", success=False, registry=reg,
+        tmp_path,
+        agent_id="d",
+        ticket_id="t-001",
+        success=False,
+        registry=reg,
     )
-    assert rec.calls == [
-        "ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"
-    ]
+    assert rec.calls == ["ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"]
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +297,9 @@ async def test_run_agent_with_analytics_injects_dev_env_vars(
         rec = _Recorder()
         reg = ProvisioningRegistry(postgres_sql_executor=rec)
 
-        async def _provision(project_path, *, agent_id, ticket_id, epic_id=None, registry=None):
+        async def _provision(
+            project_path, *, agent_id, ticket_id, epic_id=None, registry=None
+        ):
             return await provision_for_agent(
                 project_path,
                 agent_id=agent_id,
@@ -291,7 +308,9 @@ async def test_run_agent_with_analytics_injects_dev_env_vars(
                 registry=reg,
             )
 
-        async def _cleanup(project_path, *, agent_id, ticket_id, success, epic_id=None, registry=None):
+        async def _cleanup(
+            project_path, *, agent_id, ticket_id, success, epic_id=None, registry=None
+        ):
             await cleanup_for_agent(
                 project_path,
                 agent_id=agent_id,
@@ -301,15 +320,15 @@ async def test_run_agent_with_analytics_injects_dev_env_vars(
                 registry=reg,
             )
 
-        monkeypatch.setattr(
-            orchestrator_module, "provision_for_agent", _provision
-        )
-        monkeypatch.setattr(
-            orchestrator_module, "cleanup_for_agent", _cleanup
-        )
+        monkeypatch.setattr(orchestrator_module, "provision_for_agent", _provision)
+        monkeypatch.setattr(orchestrator_module, "cleanup_for_agent", _cleanup)
 
         ticket = Ticket(
-            id="t-001", work_type=WorkType.FEATURE, title="t", created_by="u"
+            id="t-001",
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
 
         class _FakeCtx:
@@ -350,7 +369,9 @@ async def test_run_agent_with_analytics_archives_on_failure(
         rec = _Recorder()
         reg = ProvisioningRegistry(postgres_sql_executor=rec)
 
-        async def _provision(project_path, *, agent_id, ticket_id, epic_id=None, registry=None):
+        async def _provision(
+            project_path, *, agent_id, ticket_id, epic_id=None, registry=None
+        ):
             return await provision_for_agent(
                 project_path,
                 agent_id=agent_id,
@@ -359,7 +380,9 @@ async def test_run_agent_with_analytics_archives_on_failure(
                 registry=reg,
             )
 
-        async def _cleanup(project_path, *, agent_id, ticket_id, success, epic_id=None, registry=None):
+        async def _cleanup(
+            project_path, *, agent_id, ticket_id, success, epic_id=None, registry=None
+        ):
             await cleanup_for_agent(
                 project_path,
                 agent_id=agent_id,
@@ -373,7 +396,11 @@ async def test_run_agent_with_analytics_archives_on_failure(
         monkeypatch.setattr(orchestrator_module, "cleanup_for_agent", _cleanup)
 
         ticket = Ticket(
-            id="t-001", work_type=WorkType.FEATURE, title="t", created_by="u"
+            id="t-001",
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
 
         class _FakeCtx:
@@ -421,7 +448,11 @@ async def test_orchestrator_skips_dev_env_when_no_manifest(
         monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
 
         ticket = Ticket(
-            id="t-002", work_type=WorkType.FEATURE, title="t", created_by="u"
+            id="t-002",
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
         )
 
         class _FakeCtx:
@@ -432,9 +463,7 @@ async def test_orchestrator_skips_dev_env_when_no_manifest(
                 self.ticket = t
 
         await orch._run_agent_with_analytics(_FakeCtx(ticket))
-        assert not any(
-            k.startswith("JIG_DEV_") for k in captured["extra_env"]
-        )
+        assert not any(k.startswith("JIG_DEV_") for k in captured["extra_env"])
         assert captured["extra_env"].get("JIG_FIXTURE_MODE") == "replay_only"
     finally:
         await orch.shutdown()

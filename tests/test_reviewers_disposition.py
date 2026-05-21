@@ -11,6 +11,7 @@ helper. Coverage matrix: each severity alone, multiple severities
 mixed, idempotent re-application, missing-coordinator/missing-thread
 fallbacks.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,6 +31,7 @@ from jig.store.tickets import TicketStore
 from jig.store.threads import ThreadStore
 from jig.thread import Handoff
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- helpers -------------------------------------------------------------
@@ -49,14 +51,13 @@ async def _build_stores(
     return tickets, threads, coord
 
 
-async def _make_ticket(
-    store: TicketStore, ticket_id: str = "t-disp"
-) -> Ticket:
+async def _make_ticket(store: TicketStore, ticket_id: str = "t-disp") -> Ticket:
     t = Ticket(
         id=ticket_id,
         work_type=WorkType.FEATURE,
         title="disposition test",
         created_by="planner-pm",
+        description=TICKET_AC_PLACEHOLDER,
     )
     await store.create(t)
     fresh = await store.get(ticket_id)
@@ -104,9 +105,7 @@ class TestCriticalDisposition:
         assert fresh is not None
         assert fresh.status == TicketStatus.FAILED
 
-    async def test_critical_stamps_fail_reason_label(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_critical_stamps_fail_reason_label(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         await apply_severity_disposition(
@@ -138,9 +137,7 @@ class TestCriticalDisposition:
         assert fresh is not None
         assert fresh.status == TicketStatus.FAILED
 
-    async def test_multiple_criticals_one_status_flip(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_multiple_criticals_one_status_flip(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         comments = [_comment(severity="critical") for _ in range(3)]
@@ -151,18 +148,14 @@ class TestCriticalDisposition:
         fresh = await tickets.get(ticket.id)
         assert fresh is not None
         assert fresh.status == TicketStatus.FAILED
-        assert (
-            fresh.labels.count(f"fail:{FAIL_REASON_REVIEWER_CRITICAL}") == 1
-        )
+        assert fresh.labels.count(f"fail:{FAIL_REASON_REVIEWER_CRITICAL}") == 1
 
 
 # ---- important → SA-consult Handoff -------------------------------------
 
 
 class TestImportantDisposition:
-    async def test_important_posts_sa_consult_handoff(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_important_posts_sa_consult_handoff(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         result = await apply_severity_disposition(
@@ -234,9 +227,7 @@ class TestImportantDisposition:
 
 
 class TestNotableDisposition:
-    async def test_notable_calls_coordinator_defer_ticket(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_notable_calls_coordinator_defer_ticket(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         result = await apply_severity_disposition(
@@ -266,9 +257,7 @@ class TestNotableDisposition:
         )
         assert len(result.deferred) == 1
 
-    async def test_notable_does_not_change_ticket_status(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_notable_does_not_change_ticket_status(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         await apply_severity_disposition(
@@ -282,9 +271,7 @@ class TestNotableDisposition:
         assert fresh is not None
         assert fresh.status != TicketStatus.FAILED
 
-    async def test_notable_summary_mentions_count(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_notable_summary_mentions_count(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         await apply_severity_disposition(
@@ -297,9 +284,7 @@ class TestNotableDisposition:
                     severity="notable",
                     reviewer="reviewer-pattern-conformance",
                 ),
-                _comment(
-                    severity="notable", reviewer="reviewer-test-adequacy"
-                ),
+                _comment(severity="notable", reviewer="reviewer-test-adequacy"),
             ],
             ticket,
             tickets,
@@ -341,15 +326,12 @@ class TestMixedSeverities:
 
         entries = await threads.for_ticket(ticket.id)
         assert any(
-            isinstance(e, Handoff) and e.phase == SA_CONSULT_PHASE
-            for e in entries
+            isinstance(e, Handoff) and e.phase == SA_CONSULT_PHASE for e in entries
         )
 
         assert len(coord.list_deferred()) == 1
 
-    async def test_empty_input_returns_empty_result(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_empty_input_returns_empty_result(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         result = await apply_severity_disposition(

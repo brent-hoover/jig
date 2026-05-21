@@ -91,6 +91,29 @@ def _coerce_deferred(raw: Any) -> list[DeferredItem]:
     return out
 
 
+def _ensure_ac_section(description: str, *, fallback_bullet: str) -> str:
+    """Append an ``## Acceptance criteria`` section to ``description`` if
+    none is already present.
+
+    Transitional helper — the deferred-item-promotion path constructs a
+    work-type child ticket but the operator-facing surface doesn't yet
+    require a structured AC list. When no AC heading is detected in the
+    incoming text, synthesize a single bullet from ``fallback_bullet``
+    (the deferred item's literal text) so the resulting Ticket
+    satisfies the AC-required model invariant.
+    """
+    from jig.ticket import has_acceptance_criteria_section
+
+    body = description.rstrip()
+    if has_acceptance_criteria_section(body):
+        return body
+    bullet = " ".join(fallback_bullet.split()).strip() or "Resolved as planned"
+    ac_block = f"## Acceptance criteria\n- {bullet}\n"
+    if not body:
+        return ac_block
+    return f"{body}\n\n{ac_block}"
+
+
 async def _require_ticket(tickets: TicketStore, ticket_id: str) -> None:
     ticket = await tickets.get(ticket_id)
     if ticket is None:
@@ -275,11 +298,19 @@ async def handle_checkpoint_promote_deferred(
             "created": False,
         }
 
+    # Synthesize a discoverable AC section if the caller didn't supply
+    # one. The promoted item's own text becomes the AC bullet — that's
+    # the literal "done when" criterion the operator deferred earlier.
+    # Transitional; the follow-on work that adds structured ACs to the
+    # ticket-creation surface will let the operator pass an explicit
+    # list instead of relying on synthesis here.
+    raw_description = args.get("description") or item.reason or ""
+    description = _ensure_ac_section(raw_description, fallback_bullet=item.item)
     create_args: dict[str, Any] = {
         "title": args.get("title") or item.item,
         "work_type": args.get("work_type", "feature"),
         "parent_id": ticket_id,
-        "description": args.get("description") or item.reason or "",
+        "description": description,
     }
     for field in ("size", "assignee", "labels"):
         if field in args and args[field] is not None:

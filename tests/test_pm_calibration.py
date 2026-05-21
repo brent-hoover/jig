@@ -1,4 +1,5 @@
 """Estimation calibration loop (Track F Final) — store + envelopes + emit."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -24,6 +25,7 @@ from jig.pm.calibration import (
     record_completion_sample,
 )
 from jig.ticket import Size, Ticket, WorkType
+from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
 # ---- fixtures -----------------------------------------------------------
@@ -50,6 +52,7 @@ def _make_ticket(
         created_by="test",
         dev_tier=dev_tier,
         layer=layer,
+        description=TICKET_AC_PLACEHOLDER,
     )
 
 

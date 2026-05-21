@@ -20,7 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jig.finding_ids import compute_finding_ids, signature_of
+from jig.finding_ids import FindingSignature, compute_finding_ids, signature_of
 from jig.reviewer_routing import _route_one
 from jig.store.finding_acks import FindingAck
 
@@ -252,7 +252,7 @@ def compute_reraised_acks(
     ids = compute_finding_ids(union)
 
     # Signatures present in the prior set.
-    prior_sigs: set[tuple] = {signature_of(c) for c in prior_comments}
+    prior_sigs: set[FindingSignature] = {signature_of(c) for c in prior_comments}
 
     # finding_ids that already have a resolved ack — those do NOT
     # auto-reraise (the resolution stands).

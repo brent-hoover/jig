@@ -122,11 +122,6 @@ def signature_of(comment: "ReviewerComment") -> FindingSignature:
     )
 
 
-# Internal alias kept for symmetry with prior versions; new code should
-# call ``signature_of`` directly.
-_signature = signature_of
-
-
 def compute_finding_ids(
     comments: "list[ReviewerComment]",
 ) -> dict[FindingSignature, str]:
@@ -139,7 +134,7 @@ def compute_finding_ids(
     """
     ids: dict[FindingSignature, str] = {}
     for comment in comments:
-        sig = _signature(comment)
+        sig = signature_of(comment)
         if sig not in ids:
             ids[sig] = f"RC-{len(ids) + 1}"
     return ids
@@ -157,7 +152,7 @@ def find_by_id(
     """
     ids = compute_finding_ids(comments)
     for comment in comments:
-        if ids.get(_signature(comment)) == finding_id:
+        if ids.get(signature_of(comment)) == finding_id:
             return comment
     return None
 

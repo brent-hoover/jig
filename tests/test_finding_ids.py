@@ -7,16 +7,21 @@ Pure functions over a chronologically-ordered list of comments:
 
 Stable-ID guarantee: walking in insertion order assigns RC-N
 sequentially per *first appearance* of a signature
-(``(reviewer, type, file, contract_uri_norm)``). Re-phrased findings
-collapse to the same signature, so they get the same RC. Later
-additions only append higher RCs — they never renumber prior IDs.
+(``(reviewer, type, file, discriminator)``). The discriminator is the
+normalized ``contract_uri`` when the reviewer supplies one, otherwise
+``line``. Re-phrased findings collapse to the same signature, so they
+get the same RC. Later additions only append higher RCs — they never
+renumber prior IDs.
 
 ``contract_uri`` is normalized before signature comparison so that
 re-raises across cycles which drop/add the ``docs/`` prefix (or vary in
-case) still resolve to the same finding. ``line`` is intentionally
-*not* part of the signature — the reviewer line is an aid for the dev
-to locate code, not a stable identifier, and including it broke
-cross-cycle continuity once the test file grew.
+case) still resolve to the same finding. When ``contract_uri`` is
+present it is preferred over ``line`` so the RC survives the file
+growing and the reviewer's insertion-point line moving across cycles.
+The ``line`` fallback exists for reviewers that don't set
+``contract_uri`` (judgment reviewers like pattern-conformance and
+error-handling) — without it, multiple distinct line-anchored findings
+in the same file would collapse into a single RC.
 """
 
 from __future__ import annotations

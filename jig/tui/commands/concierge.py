@@ -58,13 +58,23 @@ async def cmd_concierge(
     # the operator submits seeds a 6-phase implementation pipeline against
     # the literal text of their question.
     ticket_id = f"concierge-{uuid.uuid4().hex[:8]}"
+    # The ticket model requires an AC section for work-type tickets and
+    # SPIKE is a work type. Concierge queries have no formal acceptance
+    # criteria — the spawned agent answers the question, period. Wrap
+    # the query in a synthesized AC section so the model invariant is
+    # satisfied without inventing semantics the concierge doesn't have.
+    description = (
+        f"{query.rstrip()}\n\n"
+        "## Acceptance criteria\n"
+        "- Concierge answers the operator's question.\n"
+    )
     ticket = Ticket(
         id=ticket_id,
         work_type=WorkType.SPIKE,
         workflow="thread",
         status=TicketStatus.RESOLVED,
         title=query[:80],
-        description=query,
+        description=description,
         created_by="user",
     )
     await orch.tickets.create(ticket)

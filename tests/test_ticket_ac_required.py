@@ -205,12 +205,26 @@ class TestACSectionScoping:
         )
 
     def test_ac_followed_by_another_section_still_counts(self) -> None:
+        description = "## Acceptance criteria\n- AC bullet.\n\n## Notes\nMore prose.\n"
+        Ticket(
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="user",
+            description=description,
+        )
+
+    def test_bold_emphasis_inside_ac_does_not_terminate_scan(self) -> None:
+        """Regression: bold inline emphasis like ``**Important:** ...``
+        followed by more text on the same line used to be mis-detected
+        as a section-break "bold label heading", causing the scanner to
+        flip out of AC mode before reaching the bullet. The narrowed
+        ``_OTHER_HEADING_RE`` now requires the bold to consume the whole
+        line (heading-style) so in-paragraph emphasis no longer kicks
+        the scanner out."""
         description = (
             "## Acceptance criteria\n"
-            "- AC bullet.\n"
-            "\n"
-            "## Notes\n"
-            "More prose.\n"
+            "**Important:** the widget must load in under 200 ms.\n"
+            "- Measured by the p95 load-time metric.\n"
         )
         Ticket(
             work_type=WorkType.FEATURE,
@@ -218,3 +232,24 @@ class TestACSectionScoping:
             created_by="user",
             description=description,
         )
+
+    def test_bold_heading_label_still_terminates_ac_section(self) -> None:
+        """The narrowed regex must still match a proper bold-label
+        heading on its own line — that's how the PO role's
+        ``**Acceptance criteria:**`` syntax works, and a *subsequent*
+        bold-label heading inside the description must still close out
+        the current AC scope. Construct a doc where the AC heading
+        comes first, has no bullets, then a second bold label heading
+        appears — the validator should reject (no bullets in AC)."""
+        with pytest.raises(ValueError, match="Acceptance"):
+            Ticket(
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="user",
+                description=(
+                    "**Acceptance criteria:**\n"
+                    "\n"
+                    "**Notes:**\n"
+                    "- This bullet is under Notes, not Acceptance.\n"
+                ),
+            )

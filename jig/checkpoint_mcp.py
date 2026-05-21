@@ -102,10 +102,10 @@ def _ensure_ac_section(description: str, *, fallback_bullet: str) -> str:
     (the deferred item's literal text) so the resulting Ticket
     satisfies the AC-required model invariant.
     """
-    from jig.ticket import _has_acceptance_criteria_section
+    from jig.ticket import has_acceptance_criteria_section
 
     body = description.rstrip()
-    if _has_acceptance_criteria_section(body):
+    if has_acceptance_criteria_section(body):
         return body
     bullet = " ".join(fallback_bullet.split()).strip() or "Resolved as planned"
     ac_block = f"## Acceptance criteria\n- {bullet}\n"

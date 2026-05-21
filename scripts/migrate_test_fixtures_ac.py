@@ -62,11 +62,24 @@ def _is_ticket_call(node: ast.expr) -> bool:
     return False
 
 
-def _scan(tree: ast.Module) -> list[tuple[int, int, int]]:
-    """Return (lineno, end_lineno, end_col_offset) for every Ticket(...)
-    call that needs migration. The call ranges are sorted by end
-    position descending so we can rewrite the source bottom-up without
-    invalidating earlier offsets."""
+def _scan(
+    tree: ast.Module,
+) -> list[tuple[int, int, int, str, int]]:
+    """Return one entry per ``Ticket(...)`` call that needs migration.
+
+    Each entry is ``(lineno, end_lineno, end_col_offset, kind, start_col)``:
+
+    - ``kind="inject"``: the call has no ``description`` kwarg — we
+      need to inject ``description=PLACEHOLDER`` before the closing
+      ``)`` of the call.  ``start_col`` is unused (set to ``-1``).
+    - ``kind="replace"``: the call has a string-literal ``description``
+      that lacks an AC section.  ``start_col`` is the literal's start
+      column so ``_inject`` can splice an ``+ PLACEHOLDER`` onto the
+      end of the existing string.
+
+    The list is sorted by end position descending so we can rewrite
+    the source bottom-up without invalidating earlier offsets.
+    """
     calls: list[tuple[int, int, int]] = []
     for node in ast.walk(tree):
         if not _is_ticket_call(node):
@@ -119,9 +132,7 @@ def _scan(tree: ast.Module) -> list[tuple[int, int, int]]:
             continue
         assert node.end_lineno is not None
         assert node.end_col_offset is not None
-        calls.append(
-            (node.lineno, node.end_lineno, node.end_col_offset, "inject", -1)
-        )
+        calls.append((node.lineno, node.end_lineno, node.end_col_offset, "inject", -1))
     calls.sort(key=lambda c: (c[1], c[2]), reverse=True)
     return calls
 
@@ -142,7 +153,7 @@ def _last_nonspace_char_before(source_lines: list[str], idx: int, cut: int) -> s
     return ""
 
 
-def _inject(source: str, calls: list[tuple]) -> str:
+def _inject(source: str, calls: list[tuple[int, int, int, str, int]]) -> str:
     """Inject ``description=TICKET_AC_PLACEHOLDER`` just before the
     closing ``)`` of each call. The call list MUST be sorted bottom up
     so earlier offsets stay valid as we rewrite.
@@ -207,10 +218,9 @@ def _inject(source: str, calls: list[tuple]) -> str:
                     insert_at = len(tail)
                     # Reconstruct the line with the comma inserted.
                     leading_ws = stripped[: len(stripped) - len(stripped.lstrip())]
-                    trailing_ws_and_nl = lines[prev_idx][len(stripped):]
+                    trailing_ws_and_nl = lines[prev_idx][len(stripped) :]
                     lines[prev_idx] = (
-                        leading_ws + tail[len(leading_ws):]
-                        + "," + trailing_ws_and_nl
+                        leading_ws + tail[len(leading_ws) :] + "," + trailing_ws_and_nl
                     )
                     # Recompute stripped/insert just for clarity; not
                     # used further below.

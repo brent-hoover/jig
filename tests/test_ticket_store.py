@@ -229,3 +229,39 @@ async def test_update_accepts_raw_datetime(tmp_path: Path) -> None:
     when = datetime(2030, 1, 1, tzinfo=timezone.utc)
     updated = await store.update(tid, updated_at=when)
     assert updated.updated_at == when
+
+
+@pytest.mark.asyncio
+async def test_invalid_update_does_not_corrupt_store(tmp_path: Path) -> None:
+    """Regression: TicketStore.update must validate the merged
+    model BEFORE appending to JSONL.
+
+    Previously the flow was "append update row, then reload and
+    validate". An update that produced an invalid ticket (e.g. a
+    description without an AC section) would land on disk before the
+    validator fired, leaving the store unreadable on next load.
+    """
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+    tid = await store.create(
+        Ticket(
+            id="t-1",
+            work_type=WorkType.FEATURE,
+            title="t",
+            created_by="u",
+            description="## Acceptance criteria\n- original AC.\n",
+        )
+    )
+
+    # Update that strips the AC section — must raise.
+    with pytest.raises(ValueError, match="Acceptance"):
+        await store.update(tid, description="plain text, no AC")
+
+    # Re-open the store from disk; the ticket must still be the
+    # original valid record (no bad update row landed on disk).
+    store2 = TicketStore(tmp_path / "tickets.jsonl")
+    await store2.load()
+    loaded = await store2.get(tid)
+    assert loaded is not None
+    assert "## Acceptance criteria" in loaded.description
+    assert "original AC." in loaded.description

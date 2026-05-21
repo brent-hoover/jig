@@ -2,7 +2,6 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Union
@@ -62,36 +61,39 @@ class TicketStore:
         half-empty ticket dicts for system tickets.
 
         Sync or async returns are both supported. Pass ``None`` to
-        clear the callback (useful in tests, and required while
-        ``handle_create_ticket`` runs to prevent double-broadcast).
+        clear the callback (useful in tests). To skip the callback
+        for a single create call (e.g. when the caller publishes the
+        event itself), pass ``fire_create_callback=False`` to
+        ``create()`` rather than mutating shared store state across
+        an await.
         """
         self._on_create = cb
-
-    @contextmanager
-    def suppress_create_callback(self):
-        """Temporarily clear the create callback for a section of code.
-
-        Use case: ``handle_create_ticket`` publishes both the
-        orchestrator and broadcast topics directly so that callers
-        without a registered callback (the MCP via a fresh store)
-        still announce themselves on the broadcast topic. If the
-        store ALSO has a callback registered (production via the
-        orchestrator's wire-up), the callback would fire on the same
-        create and produce a duplicate broadcast event. Wrapping the
-        create in this context manager ensures exactly one broadcast
-        regardless of registration state.
-        """
-        saved = self._on_create
-        self._on_create = None
-        try:
-            yield
-        finally:
-            self._on_create = saved
 
     async def load(self) -> None:
         await self._collection.load()
 
-    async def create(self, ticket: Ticket) -> str:
+    async def drain_background_tasks(self) -> None:
+        """Await every in-flight callback task scheduled by ``create()``
+        or ``update_status()``.
+
+        One-shot callers (the ``jig plan`` / ``jig canonicalize`` CLI
+        commands, ``run_init``) must call this before returning from
+        their ``asyncio.run()`` block. Otherwise the loop exits while
+        async callbacks are still queued — ``asyncio.run`` cancels
+        pending tasks at teardown, dropping the broadcast events the
+        TUI relies on.
+
+        No-op when no callback is registered or no tasks are
+        outstanding. Safe to call repeatedly.
+        """
+        if not self._background_tasks:
+            return
+        # Snapshot the set: completed tasks remove themselves via
+        # ``_on_done``, so iterating the live set during gather would
+        # mutate-while-iterating.
+        await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+
+    async def create(self, ticket: Ticket, *, fire_create_callback: bool = True) -> str:
         # Uniqueness is enforced inside Collection.insert under its
         # asyncio.Lock — no TOCTOU window between check and append.
         # We re-raise with a ticket-specific message so callers (CLI,
@@ -106,7 +108,11 @@ class TicketStore:
         # the new ticket on the bus. Done after the JSONL write
         # commits so subscribers can immediately read the ticket back
         # if they want to (no read-after-write race).
-        if self._on_create is not None:
+        # ``fire_create_callback=False`` is the per-call escape hatch
+        # for callers (``ticket_mcp.handle_create_ticket``) that
+        # publish events themselves and want to avoid the
+        # store-callback double-publish.
+        if fire_create_callback and self._on_create is not None:
             self._fire_create(ticket)
         return ticket_id
 

@@ -127,6 +127,84 @@ class TestStoreCreateCallback:
         loaded = await tickets.get("t-4")
         assert loaded is not None
 
+    async def test_fire_create_callback_false_skips_callback(
+        self, store_and_bus: tuple[TicketStore, MessageBus]
+    ) -> None:
+        """Per-call suppression: ``fire_create_callback=False`` lets
+        callers (``handle_create_ticket``) opt out of the registered
+        callback for a specific create without mutating shared store
+        state. Replaces the racier ``suppress_create_callback``
+        context manager."""
+        tickets, _ = store_and_bus
+        seen: list[str] = []
+
+        def _cb(t: Ticket) -> None:
+            seen.append(t.id)
+
+        tickets.set_create_callback(_cb)
+        await tickets.create(
+            Ticket(
+                id="t-5",
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="test",
+                description=TICKET_AC_PLACEHOLDER,
+            ),
+            fire_create_callback=False,
+        )
+        assert seen == []
+        # Subsequent creates with the default still fire the callback —
+        # the per-call flag is task-local, not a store-wide mutation.
+        await tickets.create(
+            Ticket(
+                id="t-6",
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="test",
+                description=TICKET_AC_PLACEHOLDER,
+            )
+        )
+        assert seen == ["t-6"]
+
+    async def test_drain_background_tasks_awaits_pending_publishes(
+        self, store_and_bus: tuple[TicketStore, MessageBus]
+    ) -> None:
+        """``drain_background_tasks`` lets one-shot CLI/init callers
+        await every async callback scheduled by ``create()`` before
+        ``asyncio.run`` cancels them at teardown."""
+        tickets, _ = store_and_bus
+        published: list[str] = []
+        gate = asyncio.Event()
+
+        async def _slow_publish(t: Ticket) -> None:
+            await gate.wait()
+            published.append(t.id)
+
+        tickets.set_create_callback(_slow_publish)
+        await tickets.create(
+            Ticket(
+                id="t-7",
+                work_type=WorkType.FEATURE,
+                title="t",
+                created_by="test",
+                description=TICKET_AC_PLACEHOLDER,
+            )
+        )
+        # Publish is still pending at this point.
+        assert published == []
+        # Releasing the gate without draining would race; the drain
+        # join-point makes this deterministic.
+        gate.set()
+        await tickets.drain_background_tasks()
+        assert published == ["t-7"]
+
+    async def test_drain_background_tasks_no_tasks_is_noop(
+        self, store_and_bus: tuple[TicketStore, MessageBus]
+    ) -> None:
+        tickets, _ = store_and_bus
+        # No callback registered → no background tasks → drain is a no-op.
+        await tickets.drain_background_tasks()
+
 
 class TestPublishTicketCreated:
     async def test_default_publishes_broadcast_only(

@@ -154,13 +154,14 @@ async def handle_create_ticket(
             except WorkflowResolutionError as exc:
                 raise ValueError(str(exc)) from exc
 
-    # Suppress the store's on-create callback during this create. The
+    # Skip the store's on-create callback for this create. The
     # callback (when wired by ``wire_create_publisher`` or
     # ``Orchestrator.startup``) publishes the broadcast event for
     # paths that bypass this handler. Here we publish both topics
-    # explicitly below so the broadcast doesn't get sent twice.
-    with tickets.suppress_create_callback():
-        ticket_id = await tickets.create(ticket)
+    # explicitly below, so the broadcast must not also fire from the
+    # callback. ``fire_create_callback=False`` keeps the suppression
+    # task-local — no shared mutable state across the await.
+    ticket_id = await tickets.create(ticket, fire_create_callback=False)
 
     # Update the reverse side: each dependency now blocks this ticket
     for dep_id in depends_on:

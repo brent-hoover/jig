@@ -230,20 +230,26 @@ def plan(path: Path) -> None:
         if existing is not None:
             return False
         spec_path = jig_dir / "spec" / "project.structured.yaml"
-        await tickets.create(
-            Ticket(
-                id="planning",
-                work_type=WorkType.PLANNING,
-                title="Project planning",
-                description=(
-                    "Break down the project spec into implementation tickets.\n\n"
-                    f"Spec: {spec_path}"
-                ),
-                workflow="project",
-                created_by="cli",
+        try:
+            await tickets.create(
+                Ticket(
+                    id="planning",
+                    work_type=WorkType.PLANNING,
+                    title="Project planning",
+                    description=(
+                        "Break down the project spec into implementation tickets.\n\n"
+                        f"Spec: {spec_path}"
+                    ),
+                    workflow="project",
+                    created_by="cli",
+                )
             )
-        )
-        return True
+            return True
+        finally:
+            # ``wire_create_publisher`` schedules the broadcast as a
+            # background task; ``asyncio.run`` would cancel it at
+            # teardown before the publish reaches messages.jsonl.
+            await tickets.drain_background_tasks()
 
     created = asyncio.run(_run())
     if created:
@@ -2492,7 +2498,12 @@ def canonicalize_cmd(ticket_id: str | None, sweep: bool, path: Path) -> None:
             labels=labels,
             created_by="cli",
         )
-        return await store.create(ticket)
+        try:
+            return await store.create(ticket)
+        finally:
+            # See ``plan`` above: drain the wire-up's background
+            # publish task before ``asyncio.run`` cancels it.
+            await store.drain_background_tasks()
 
     new_id = asyncio.run(_run())
     click.echo(new_id)

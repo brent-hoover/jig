@@ -177,6 +177,63 @@ class TestSignatureGrouping:
         ids = compute_finding_ids(comments)
         assert len(ids) == 1
 
+    def test_no_contract_uri_falls_back_to_line(self) -> None:
+        """When ``contract_uri`` is absent, the signature falls back to
+        ``line`` so two distinct findings from the same reviewer/type in
+        the same file at different lines stay separate.
+
+        Some reviewers (pattern-conformance, error-handling) flag
+        diff-anchored issues where the AC framing doesn't apply and
+        ``contract_uri`` is left None. Without a line fallback those
+        findings would all collapse to ``(reviewer, type, file, None)``
+        and the dev would only ack one."""
+        comments = [
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=10),
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=42),
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=99),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 3
+        assert set(ids.values()) == {"RC-1", "RC-2", "RC-3"}
+
+    def test_no_contract_uri_same_line_still_collapses(self) -> None:
+        """Same-line re-raises of a line-anchored finding (no
+        contract_uri) still collapse to one RC — that's the desired
+        behaviour for "same reviewer flagged the same line twice with
+        different prose"."""
+        comments = [
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=10, prose="first"),
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=10, prose="reworded"),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 1
+
+    def test_contract_uri_wins_over_line_when_both_present(self) -> None:
+        """A reviewer that sets both ``contract_uri`` and ``line`` uses
+        the URI as the discriminator (cross-cycle stable) and the line
+        is ignored — re-raising the same AC at a new line keeps the RC.
+        """
+        comments = [
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                line=100,
+                contract_uri="docs/spec.md#a",
+                cycle=0,
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                line=250,
+                contract_uri="docs/spec.md#a",
+                cycle=1,
+            ),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 1
+
     def test_rephrased_prose_same_signature_keeps_id(self) -> None:
         """Cycle-0 and cycle-2 with the same signature but different prose
         share an RC — the reviewer's wording can drift across cycles but

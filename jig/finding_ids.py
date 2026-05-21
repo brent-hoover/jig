@@ -45,12 +45,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from jig.reviewers.comment import ReviewerComment
 
-# (reviewer, type, file, contract_uri_norm) — type and reviewer are
-# the most stable discriminators; file scopes within the project; the
-# normalized contract_uri carries AC identity so distinct ACs flagged
-# at the same file (or same line) don't collapse, and re-raises across
-# cycles stay attached to the original ID.
-FindingSignature = tuple[str, str, str | None, str | None]
+# (reviewer, type, file, discriminator) — type and reviewer are the
+# most stable discriminators; file scopes within the project. The
+# fourth element is the *primary* AC identity (normalized
+# ``contract_uri``) when the reviewer provides one, falling back to
+# ``line`` when it doesn't.
+#
+# ``contract_uri`` is preferred because it survives cycles where the
+# file has grown and the reviewer's insertion-point line has moved.
+# ``line`` is the fallback so reviewers that flag diff-anchored issues
+# without an AC framing (pattern-conformance, error-handling) don't
+# collapse multiple distinct findings in the same file into one RC.
+FindingSignature = tuple[str, str, str | None, str | int | None]
 
 
 def _normalize_contract_uri(uri: str | None) -> str | None:
@@ -79,19 +85,34 @@ def signature_of(comment: "ReviewerComment") -> FindingSignature:
 
     Public helper so callers (``fix_loop_bundle``, ``story``,
     ``ws_server``) don't reconstruct the tuple inline — keeping the
-    signature schema in one place means widening it (adding
-    ``contract_uri``, dropping ``line``) doesn't require coordinated
-    edits at every callsite.
+    signature schema in one place means widening it doesn't require
+    coordinated edits at every callsite.
+
+    Discriminator selection:
+
+    - Reviewer supplied ``contract_uri`` → use the normalized URI. AC
+      identity is the cleanest cross-cycle anchor.
+    - Reviewer omitted ``contract_uri`` → fall back to ``line`` so
+      diff-anchored findings (pattern-conformance, error-handling)
+      that flag distinct issues in the same file don't collapse.
+    - Neither set → ``None`` (the "diff-wide categorical finding"
+      collapse is preserved).
     """
     # ``type`` may be enum or coerced str depending on validation path.
     type_value = (
         comment.type.value if hasattr(comment.type, "value") else str(comment.type)
     )
+    uri_norm = _normalize_contract_uri(comment.contract_uri)
+    discriminator: str | int | None
+    if uri_norm is not None:
+        discriminator = uri_norm
+    else:
+        discriminator = comment.line
     return (
         comment.reviewer,
         type_value,
         comment.file,
-        _normalize_contract_uri(comment.contract_uri),
+        discriminator,
     )
 
 

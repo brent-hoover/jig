@@ -23,9 +23,7 @@ from jig.evals.prompt_style_eval.models import Cell, Prompt, RunRecord, Task
 from jig.evals.prompt_style_eval.runner import run_cell
 from jig.evals.prompt_style_eval.store import Store
 
-_DEFAULT_STORE = (
-    Path(__file__).resolve().parent / "results" / "runs.jsonl"
-)
+_DEFAULT_STORE = Path(__file__).resolve().parent / "results" / "runs.jsonl"
 
 
 @click.group()
@@ -48,17 +46,27 @@ def cli() -> None:
     default=(),
     help="Prompt id (repeatable). If omitted, every prompt under the task is used.",
 )
-@click.option("--seeds", type=int, default=3, show_default=True,
-              help="Target sample count per cell.")
+@click.option(
+    "--seeds",
+    type=int,
+    default=3,
+    show_default=True,
+    help="Target sample count per cell.",
+)
 @click.option("--model", default="claude-sonnet-4-6", show_default=True)
 @click.option("--temperature", type=float, default=0.0, show_default=True)
 @click.option("--judge-model", default="claude-opus-4-7", show_default=True)
 @click.option("--rubric", default="v1", show_default=True)
 @click.option("--concurrency", type=int, default=3, show_default=True)
-@click.option("--force", is_flag=True,
-              help="Ignore existing records; run --seeds fresh per cell.")
-@click.option("--store-path", type=click.Path(path_type=Path), default=_DEFAULT_STORE,
-              show_default=True)
+@click.option(
+    "--force", is_flag=True, help="Ignore existing records; run --seeds fresh per cell."
+)
+@click.option(
+    "--store-path",
+    type=click.Path(path_type=Path),
+    default=_DEFAULT_STORE,
+    show_default=True,
+)
 def run_cmd(
     tasks: tuple[str, ...],
     prompts: tuple[str, ...],
@@ -140,9 +148,7 @@ async def _run_async(
     )
     for task, prompt, cell, needed in plan:
         existing_msg = "" if force else f" (existing: {seeds - needed})"
-        click.echo(
-            f"  {cell.task_id} / {cell.prompt_id}: {needed} runs{existing_msg}"
-        )
+        click.echo(f"  {cell.task_id} / {cell.prompt_id}: {needed} runs{existing_msg}")
     if total_runs == 0:
         click.echo("nothing to do.")
         return
@@ -194,15 +200,22 @@ def _outcome_tag(record: RunRecord) -> str:
 
 
 @cli.command("report")
-@click.option("--task", "tasks", multiple=True, default=(),
-              help="Filter to these task ids.")
-@click.option("--prompt", "prompts", multiple=True, default=(),
-              help="Filter to these prompt ids.")
-@click.option("--rubric", default=None,
-              help="Filter to this rubric version (omit for all).")
+@click.option(
+    "--task", "tasks", multiple=True, default=(), help="Filter to these task ids."
+)
+@click.option(
+    "--prompt", "prompts", multiple=True, default=(), help="Filter to these prompt ids."
+)
+@click.option(
+    "--rubric", default=None, help="Filter to this rubric version (omit for all)."
+)
 @click.option("--format", "fmt", type=click.Choice(["text", "json"]), default="text")
-@click.option("--store-path", type=click.Path(path_type=Path), default=_DEFAULT_STORE,
-              show_default=True)
+@click.option(
+    "--store-path",
+    type=click.Path(path_type=Path),
+    default=_DEFAULT_STORE,
+    show_default=True,
+)
 def report_cmd(
     tasks: tuple[str, ...],
     prompts: tuple[str, ...],
@@ -224,7 +237,9 @@ def report_cmd(
 
     report_obj = report.aggregate(records)
     rendered = (
-        report.render_json(report_obj) if fmt == "json" else report.render_text(report_obj)
+        report.render_json(report_obj)
+        if fmt == "json"
+        else report.render_text(report_obj)
     )
     sys.stdout.write(rendered)
     if not rendered.endswith("\n"):

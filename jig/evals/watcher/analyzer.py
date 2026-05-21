@@ -20,6 +20,7 @@ Usage:
     # Where to write outputs (default: <jig_repo>/evals/runs/<run-id>):
     python -m jig.evals.watcher.analyzer --project hn-cli --out-dir /tmp/runs/x
 """
+
 from __future__ import annotations
 
 import argparse
@@ -58,7 +59,9 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def _resolve_eval_project(name: str) -> Path:
-    here = Path(__file__).resolve().parents[3]  # jig/evals/watcher/../../.. -> repo root
+    here = (
+        Path(__file__).resolve().parents[3]
+    )  # jig/evals/watcher/../../.. -> repo root
     workspace = here.parent / "jig_evals" / name
     return workspace
 
@@ -96,9 +99,7 @@ def _classify_tickets(state: dict[str, dict]) -> TicketMetrics:
     total = len(state)
     resolved = sum(1 for s in state.values() if s.get("status") == "resolved")
     failed = sum(1 for s in state.values() if s.get("status") == "failed")
-    return TicketMetrics(
-        total=total, resolved=resolved, failed=failed
-    )
+    return TicketMetrics(total=total, resolved=resolved, failed=failed)
 
 
 _PHASE_NAME_RE = re.compile(r"^phase (?P<phase>[a-z_]+):\s*(?P<status>\w+)")
@@ -144,9 +145,8 @@ def _classify_phases(comments: list[dict]) -> tuple[dict[str, PhaseMetric], int]
         for tid in ticket_ids:
             per_ticket[tid] += 1
         retries = sum(max(0, n - 1) for n in per_ticket.values())
-        avg_turns = (
-            sum(turns_by_phase.get(phase, []))
-            / max(1, len(turns_by_phase.get(phase, [])))
+        avg_turns = sum(turns_by_phase.get(phase, [])) / max(
+            1, len(turns_by_phase.get(phase, []))
         )
         phases[phase] = PhaseMetric(
             runs=run_count, retries=retries, avg_turns=round(avg_turns, 2)
@@ -156,9 +156,7 @@ def _classify_phases(comments: list[dict]) -> tuple[dict[str, PhaseMetric], int]
     return phases, review_blocks
 
 
-def _aggregate_agents(
-    comments: list[dict], analytics: list[dict]
-) -> AgentMetrics:
+def _aggregate_agents(comments: list[dict], analytics: list[dict]) -> AgentMetrics:
     """Aggregate agent activity from two sources:
 
     - ``comments.jsonl`` ``agent_run`` SystemEvents → turn counts.
@@ -215,7 +213,9 @@ def _operator_questions(comments: list[dict]) -> OperatorQuestionMetrics:
         kind = c.get("kind") or c.get("event_type") or ""
         if kind in ("question", "question_to_operator", "Question"):
             asked += 1
-    return OperatorQuestionMetrics(asked=asked, verifiable_in_hindsight=0, product_scope=asked)
+    return OperatorQuestionMetrics(
+        asked=asked, verifiable_in_hindsight=0, product_scope=asked
+    )
 
 
 def _count_merge_failures(comments: list[dict]) -> int:
@@ -223,7 +223,11 @@ def _count_merge_failures(comments: list[dict]) -> int:
     for c in comments:
         if c.get("_op") != "insert":
             continue
-        if c.get("event_type") in ("provisioning_failed", "auto_commit_failed", "dep_merge_failed"):
+        if c.get("event_type") in (
+            "provisioning_failed",
+            "auto_commit_failed",
+            "dep_merge_failed",
+        ):
             n += 1
         # Also catch the merge-time error logged as a SystemEvent on the
         # parent ticket.

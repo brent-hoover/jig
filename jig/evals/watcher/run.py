@@ -17,6 +17,7 @@ Usage:
     python -m jig.evals.watcher.run /abs/path/to/workspace
     python -m jig.evals.watcher.run --project hn-cli --no-kill --no-analyze
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,7 +39,9 @@ ALL_TOPICS = ("tickets", "spec", "agents", "events", "prompts")
 
 
 def _resolve_eval_project(name: str) -> Path:
-    here = Path(__file__).resolve().parents[3]  # jig/evals/watcher/../../.. -> repo root
+    here = (
+        Path(__file__).resolve().parents[3]
+    )  # jig/evals/watcher/../../.. -> repo root
     return here.parent / "jig_evals" / name
 
 
@@ -154,9 +157,7 @@ async def watch(
     try:
         async with _ws_connect(addr, ping_interval=20) as ws:
             for topic in ALL_TOPICS:
-                await ws.send(
-                    json.dumps({"type": "subscribe", "topics": [topic]})
-                )
+                await ws.send(json.dumps({"type": "subscribe", "topics": [topic]}))
             log("[watcher] subscribed to all topics; watching for stalls")
 
             consumer = asyncio.create_task(_consume(ws, detector, log))
@@ -194,9 +195,7 @@ async def watch(
         from jig.evals.watcher.analyzer import analyze
 
         jig_repo = Path(__file__).resolve().parents[3]
-        run_id = (
-            f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-stall"
-        )
+        run_id = f"{project_name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-stall"
         analysis_dir = jig_repo / "evals" / "runs" / run_id
         try:
             analyze(
@@ -215,9 +214,7 @@ async def watch(
             data["stalls"] = {"detected": 1, "signal": verdict.signal}
             data["outcome"] = "stalled"
             data["outcome_reason"] = verdict.detail
-            metrics_path.write_text(
-                json.dumps(data, indent=2, sort_keys=False) + "\n"
-            )
+            metrics_path.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
             log(f"[watcher] analyzer wrote {analysis_dir}")
         except Exception as exc:  # noqa: BLE001
             log(f"[watcher] analyzer failed: {exc!r}")

@@ -54,7 +54,9 @@ def list_prompt_ids(task_id: str) -> list[str]:
 def load_prompt(task_id: str, prompt_id: str) -> Prompt:
     path = TASKS_DIR / task_id / "prompts" / f"{prompt_id}.md"
     if not path.exists():
-        raise FileNotFoundError(f"no such prompt: {task_id}/{prompt_id} (looked at {path})")
+        raise FileNotFoundError(
+            f"no such prompt: {task_id}/{prompt_id} (looked at {path})"
+        )
     text = path.read_text(encoding="utf-8")
     content_hash = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
     return Prompt(

@@ -8,6 +8,7 @@ healthy).
 Kept free of I/O so it can be unit-tested cheaply: the driver
 (``run.py``) feeds events in and acts on verdicts.
 """
+
 from __future__ import annotations
 
 import time

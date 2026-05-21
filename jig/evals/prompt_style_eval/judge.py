@@ -55,7 +55,7 @@ def build_judge_prompt(code: str, rubric: Rubric) -> str:
             "- Output ONLY the JSON object. No prose, no markdown fences, no commentary.",
             "",
             f'Example: {{"{rubric.items[0].id}": '
-            f'{"true" if rubric.items[0].scale == "bool" else "4"}}}',
+            f"{'true' if rubric.items[0].scale == 'bool' else '4'}}}",
         ]
     )
     return "\n".join(lines)

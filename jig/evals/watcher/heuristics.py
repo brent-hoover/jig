@@ -1,4 +1,5 @@
 """Stall-detector thresholds + signal definitions (per DESIGN.md)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

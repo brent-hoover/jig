@@ -11,6 +11,7 @@ from textual.message import Message
 from textual.widgets import RichLog, Static, TextArea
 
 from jig.tui.slash import ParsedSlash, SlashParseError, parse_slash
+from jig.tui.widgets.multi_pane_stream import MultiPaneStream
 
 
 # Authoritative list of slash commands the operator can use. Drives both
@@ -308,6 +309,18 @@ class NowScreen(Container):
     #scroll-pause.visible {
         display: block;
     }
+    #reviewer-panes {
+        height: 50%;
+        max-height: 30;
+        dock: top;
+        border-bottom: solid $accent;
+        background: #1a2030;
+        padding: 0 1;
+        display: none;
+    }
+    #reviewer-panes.visible {
+        display: block;
+    }
     """
 
     BINDINGS = [
@@ -337,6 +350,10 @@ class NowScreen(Container):
         self._last_role: str | None = None
 
     def compose(self) -> ComposeResult:
+        # Multi-pane reviewer view docks above the scrollback when one or
+        # more reviewers are running. Hidden by default; toggled visible
+        # in ``_handle_reviewer_event`` when the first reviewer starts.
+        yield MultiPaneStream(id="reviewer-panes", lines_per_pane=5)
         yield RichLog(id="scrollback", auto_scroll=True, markup=True, wrap=True)
         # Thinking indicator (live, in-place updates — replaces the broken
         # \r-overwriting rich Status spinner).
@@ -689,6 +706,14 @@ class NowScreen(Container):
         scrollback = self.query_one("#scrollback", RichLog)
         if topic == "agents":
             kind = msg.get("kind")
+            # Reviewer agents (role starts with ``reviewer-``) get split
+            # into a multi-pane view so concurrent reviewer text doesn't
+            # interleave into the scrollback. Non-reviewer agents fall
+            # through to the existing single-scrollback path.
+            role = data.get("role", "")
+            if isinstance(role, str) and role.startswith("reviewer-"):
+                if self._handle_reviewer_event(kind, data):
+                    return
             if kind == "render":
                 content = data.get("content", "")
                 if content:
@@ -771,6 +796,60 @@ class NowScreen(Container):
         if topic == "events":
             self._render_lifecycle_event(msg.get("kind", ""), data, scrollback)
             return
+
+    def _handle_reviewer_event(self, kind: str | None, data: dict) -> bool:
+        """Route a reviewer-* agent event into the MultiPaneStream widget.
+
+        Returns ``True`` when the event was consumed by the widget;
+        the caller skips its normal scrollback render in that case.
+        Returns ``False`` when the event is one we don't care about
+        (e.g. ``render``) so the scrollback path can still take it.
+
+        The widget becomes visible the moment the first reviewer
+        starts and stays visible until the operator explicitly
+        clears it (``escape`` from expanded mode collapses the pane
+        but doesn't hide the widget). Phase advancement does NOT
+        auto-hide — the operator may want to scroll back through
+        any reviewer's history after the federation finishes.
+        """
+        try:
+            panes = self.query_one("#reviewer-panes", MultiPaneStream)
+        except Exception:
+            return False
+        role = data.get("role", "")
+        ticket_id = data.get("ticket_id", "")
+        # Per-(ticket, role) stream id keeps two parallel review-tests
+        # phases on different tickets from sharing a pane.
+        stream_id = f"{ticket_id}:{role}" if ticket_id else role
+        if kind == "start":
+            panes.add_stream(stream_id, label=role, status="running")
+            panes.set_class(True, "visible")
+            return True
+        if kind == "text":
+            text = data.get("text", "")
+            if text:
+                cleaned = _strip_rich_markup(text)
+                panes.append_line(stream_id, cleaned)
+            return True
+        if kind == "thinking":
+            # Only act on the terminal active=False heartbeat — the
+            # interim live spinner doesn't belong in the per-pane
+            # buffer (it would flood the lines).
+            if not data.get("active", True):
+                panes.set_status(stream_id, "done")
+            return True
+        if kind == "tool":
+            # Surface tool calls as one-line entries so the operator
+            # sees activity at a glance without leaving the pane view.
+            tool = data.get("tool", "")
+            detail = data.get("detail", "")
+            if tool:
+                line = f"tool: {tool}" + (f"  {detail[:60]}" if detail else "")
+                panes.append_line(stream_id, line)
+            return True
+        # Other event kinds (tool_result, render) — let the default
+        # path handle them.
+        return False
 
     def _update_thinking_indicator(self, data: dict) -> None:
         """Show / hide / refresh the live thinking indicator above Composer."""

@@ -106,6 +106,7 @@ from jig.spec_loader import (
 from jig.store.bus import MessageBus
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---- helpers -----------------------------------------------------------
@@ -249,9 +250,7 @@ def _plan_step(ticket_id: str = "tb-catalog-ingest") -> ScenarioStep:
                 modules=["catalog-ingest"],
                 layers=EpicLayers(bones=LayerStatus(tickets=[ticket_id])),
                 intent=_intent("Spine"),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         ],
     )
@@ -1137,9 +1136,7 @@ async def test_build_plan_layer_status_passes_when_match(tmp_path: Path):
                         bones=LayerStatus(tickets=["tb-1"]),
                     ),
                     intent=_intent_obj(),
-                    acceptance_criteria=[
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ],
+                    acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
                 )
             ],
         ),

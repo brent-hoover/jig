@@ -32,6 +32,7 @@ from jig.store.bus import MessageBus
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---- fixtures -------------------------------------------------------------
@@ -234,9 +235,7 @@ async def test_plan_finalize_accepts_pydantic_instance_directly(wired):
                     problem="prove instance path",
                     simplest_solution="pass the model in directly",
                 ),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
         ],
     )

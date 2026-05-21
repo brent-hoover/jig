@@ -32,6 +32,7 @@ from jig.schemas.plan import (
 from jig.spec_loader import load_build_plan, write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import TicketStatus
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 def _intent(problem: str = "Validate spine") -> Intent:
@@ -70,9 +71,7 @@ def _epic(
             ),
         ),
         intent=_intent(),
-        acceptance_criteria=[
-            "Test fixture placeholder; replace if the test cares about AC content."
-        ],
+        acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
     )
 
 

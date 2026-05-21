@@ -28,7 +28,7 @@ from jig.schemas.plan import (
 from jig.spec_loader import write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
-from tests._test_ticket import TICKET_AC_PLACEHOLDER
+from tests._test_ticket import TICKET_AC_PLACEHOLDER, EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---- fixtures ------------------------------------------------------------
@@ -69,9 +69,7 @@ def _plan(
                 acceptance_criteria=(
                     acceptance_criteria
                     if acceptance_criteria is not None
-                    else [
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ]
+                    else [EPIC_AC_PLACEHOLDER_BULLET]
                 ),
             )
         ],
@@ -253,9 +251,7 @@ async def test_materialize_walks_multiple_epics(tmp_path: Path, store: TicketSto
                 modules=["catalog-ingest"],
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-catalog"])),
                 intent=_intent(),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
             Epic(
                 id="categorization",
@@ -264,9 +260,7 @@ async def test_materialize_walks_multiple_epics(tmp_path: Path, store: TicketSto
                 modules=["categorization"],
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-categorize"])),
                 intent=_intent("Bucket products"),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
         ],
     )
@@ -308,9 +302,7 @@ async def test_materialize_ignores_mvp_and_final_layers(
                     final=LayerStatus(tickets=["t-rate-limit"]),
                 ),
                 intent=_intent(),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         ],
     )

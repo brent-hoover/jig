@@ -17,6 +17,7 @@ from jig.schemas.plan import (
     OrderingRule,
     StalledTicket,
 )
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 def _intent() -> Intent:
@@ -37,9 +38,7 @@ def test_epic_requires_intent():
             id="e",
             title="t",
             suite="s",
-            acceptance_criteria=[
-                "Test fixture placeholder; replace if the test cares about AC content."
-            ],
+            acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
         )
 
 
@@ -58,9 +57,7 @@ def test_epic_with_full_shape():
         ),
         risks_addressed=["r-shopify-delta"],
         intent=_intent(),
-        acceptance_criteria=[
-            "Test fixture placeholder; replace if the test cares about AC content."
-        ],
+        acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
     )
     assert e.layers.bones.status == LayerStatusEnum.IN_PROGRESS
     assert e.layers.mvp.status == LayerStatusEnum.NOT_STARTED  # default
@@ -84,9 +81,7 @@ def test_build_plan_with_stalled_and_open_questions():
                 title="Catalog",
                 suite="catalog",
                 intent=_intent(),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         ],
         stalled=[
@@ -123,9 +118,7 @@ def test_build_plan_round_trips():
                 suite="s",
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-1"])),
                 intent=_intent(),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         ],
     )
@@ -155,9 +148,7 @@ def test_epic_rejects_non_kebab_suite_id():
             title="t",
             suite="Catalog_Suite",
             intent=_intent(),
-            acceptance_criteria=[
-                "Test fixture placeholder; replace if the test cares about AC content."
-            ],
+            acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
         )
 
 
@@ -168,9 +159,7 @@ def test_epic_rejects_missing_intent():
             id="e",
             title="t",
             suite="s",
-            acceptance_criteria=[
-                "Test fixture placeholder; replace if the test cares about AC content."
-            ],
+            acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
         )  # type: ignore[call-arg]
 
 
@@ -192,9 +181,7 @@ def test_pydantic_extra_forbid_rejects_unknown_keys_on_epic():
             suite="s",
             intent=_intent(),
             priority="p1",
-            acceptance_criteria=[
-                "Test fixture placeholder; replace if the test cares about AC content."
-            ],
+            acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
         )
 
 
@@ -249,9 +236,7 @@ def test_build_plan_rejects_overlapping_ticket_ids_across_epics():
                     suite="s",
                     layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
                     intent=_intent(),
-                    acceptance_criteria=[
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ],
+                    acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
                 ),
                 Epic(
                     id="e2",
@@ -259,9 +244,7 @@ def test_build_plan_rejects_overlapping_ticket_ids_across_epics():
                     suite="s",
                     layers=EpicLayers(bones=LayerStatus(tickets=["tb-shared"])),
                     intent=_intent(),
-                    acceptance_criteria=[
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ],
+                    acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
                 ),
             ],
         )
@@ -282,9 +265,7 @@ def test_build_plan_rejects_overlapping_ticket_ids_across_layers():
                         mvp=LayerStatus(tickets=["t-x"]),
                     ),
                     intent=_intent(),
-                    acceptance_criteria=[
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ],
+                    acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
                 ),
             ],
         )
@@ -300,18 +281,14 @@ def test_build_plan_rejects_duplicate_epic_ids():
                     title="t",
                     suite="s",
                     intent=_intent(),
-                    acceptance_criteria=[
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ],
+                    acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
                 ),
                 Epic(
                     id="e1",
                     title="t2",
                     suite="s",
                     intent=_intent(),
-                    acceptance_criteria=[
-                        "Test fixture placeholder; replace if the test cares about AC content."
-                    ],
+                    acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
                 ),
             ],
         )

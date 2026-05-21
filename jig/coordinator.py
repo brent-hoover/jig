@@ -708,7 +708,7 @@ class Coordinator:
         module_id = epic.modules[0] if epic.modules else None
         description = _render_description_with_ac(
             problem=epic.intent.problem,
-            acceptance_criteria=list(epic.acceptance_criteria),
+            acceptance_criteria=epic.acceptance_criteria,
         )
         return Ticket(
             id=ticket_id,

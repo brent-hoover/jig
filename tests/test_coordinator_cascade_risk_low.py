@@ -34,6 +34,7 @@ from jig.schemas.plan import (
 )
 from jig.spec_loader import write_build_plan
 from jig.store.tickets import TicketStore
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 def _intent() -> Intent:
@@ -74,9 +75,7 @@ def _epic(eid: str, modules: list[str], *, bones_done: bool) -> Epic:
             ),
             final=LayerStatus(tickets=[], status=LayerStatusEnum.NOT_STARTED),
         ),
-        acceptance_criteria=[
-            "Test fixture placeholder; replace if the test cares about AC content."
-        ],
+        acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
     )
 
 

@@ -29,7 +29,7 @@ from jig.schemas.plan import (
 from jig.spec_loader import write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
-from tests._test_ticket import TICKET_AC_PLACEHOLDER
+from tests._test_ticket import TICKET_AC_PLACEHOLDER, EPIC_AC_PLACEHOLDER_BULLET
 
 
 def _intent() -> Intent:
@@ -64,9 +64,7 @@ def _make_plan(*epic_specs) -> BuildPlan:
                     mvp=LayerStatus(status=mvp_status, tickets=mvp_tickets),
                 ),
                 intent=_intent(),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         )
     return BuildPlan(

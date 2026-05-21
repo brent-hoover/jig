@@ -32,7 +32,7 @@ from jig.schemas.arch import (
 )
 from jig.schemas.plan import Epic, EpicLayers
 from jig.ticket import Ticket, WorkType
-from tests._test_ticket import TICKET_AC_PLACEHOLDER
+from tests._test_ticket import TICKET_AC_PLACEHOLDER, EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---- helpers -------------------------------------------------------------
@@ -113,9 +113,7 @@ def _epic(intent: Intent | None = None) -> Epic:
         modules=["catalog-ingest"],
         layers=EpicLayers(),
         intent=intent or _good_intent(),
-        acceptance_criteria=[
-            "Test fixture placeholder; replace if the test cares about AC content."
-        ],
+        acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
     )
 
 

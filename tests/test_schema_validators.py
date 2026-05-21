@@ -20,6 +20,7 @@ from jig.schemas._validators import (
     validate_project_uri_shape,
     validate_tz_aware,
 )
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---------------------------------------------------------------------------
@@ -296,9 +297,7 @@ def test_epic_id_must_be_kebab():
             title="t",
             suite="s",
             intent=_intent(),
-            acceptance_criteria=[
-                "Test fixture placeholder; replace if the test cares about AC content."
-            ],
+            acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
         )
 
 
@@ -310,9 +309,7 @@ def test_epic_id_kebab_accepted():
         title="t",
         suite="s",
         intent=_intent(),
-        acceptance_criteria=[
-            "Test fixture placeholder; replace if the test cares about AC content."
-        ],
+        acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
     )
     assert e.id == "catalog-ingest"
 

@@ -28,7 +28,7 @@ from jig.schemas.plan import (
 from jig.spec_loader import write_build_plan
 from jig.store.tickets import TicketStore
 from jig.ticket import Ticket, TicketStatus, WorkType
-from tests._test_ticket import TICKET_AC_PLACEHOLDER
+from tests._test_ticket import TICKET_AC_PLACEHOLDER, EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---- fixtures ------------------------------------------------------------
@@ -47,6 +47,7 @@ def _plan(
     modules: list[str] | None = None,
     bones_tickets: list[str] | None = None,
     risks: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
 ) -> BuildPlan:
     return BuildPlan(
         project=project,
@@ -65,6 +66,11 @@ def _plan(
                 ),
                 risks_addressed=risks if risks is not None else [],
                 intent=_intent(),
+                acceptance_criteria=(
+                    acceptance_criteria
+                    if acceptance_criteria is not None
+                    else [EPIC_AC_PLACEHOLDER_BULLET]
+                ),
             )
         ],
     )
@@ -130,6 +136,26 @@ async def test_materialize_handles_module_less_epic(tmp_path: Path, store: Ticke
     t = await store.get("tb-catalog-ingest")
     assert t is not None
     assert t.module_id is None
+
+
+@pytest.mark.asyncio
+async def test_materialize_renders_epic_acceptance_criteria_into_ticket(
+    tmp_path: Path, store: TicketStore
+) -> None:
+    """Wiring check: ``Epic.acceptance_criteria`` bullets appear verbatim in the materialized Ticket description."""
+    bullets = [
+        "Row visible in products collection within 30s of OAuth completion.",
+        "Subsequent fetches see no duplicate rows.",
+    ]
+    write_build_plan(tmp_path, _plan(acceptance_criteria=bullets))
+    coord = Coordinator(tickets=store, project_root=tmp_path)
+    await coord.materialize_ready_tickets()
+
+    t = await store.get("tb-catalog-ingest")
+    assert t is not None
+    assert "## Acceptance criteria" in t.description
+    for bullet in bullets:
+        assert f"- {bullet}" in t.description
 
 
 # ---- idempotency ---------------------------------------------------------
@@ -218,6 +244,7 @@ async def test_materialize_walks_multiple_epics(tmp_path: Path, store: TicketSto
                 modules=["catalog-ingest"],
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-catalog"])),
                 intent=_intent(),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
             Epic(
                 id="categorization",
@@ -226,6 +253,7 @@ async def test_materialize_walks_multiple_epics(tmp_path: Path, store: TicketSto
                 modules=["categorization"],
                 layers=EpicLayers(bones=LayerStatus(tickets=["tb-categorize"])),
                 intent=_intent("Bucket products"),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
         ],
     )
@@ -267,6 +295,7 @@ async def test_materialize_ignores_mvp_and_final_layers(
                     final=LayerStatus(tickets=["t-rate-limit"]),
                 ),
                 intent=_intent(),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         ],
     )

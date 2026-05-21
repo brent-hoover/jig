@@ -4,6 +4,7 @@ Bones scope: a Pydantic ``BuildPlan`` round-trips through
 ``write_build_plan`` / ``load_build_plan``. No PM agent yet — the
 synthetic operator (Track H) calls these helpers directly.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,6 +26,7 @@ from jig.spec_loader import (
     load_build_plan,
     write_build_plan,
 )
+from tests._test_ticket import EPIC_AC_PLACEHOLDER_BULLET
 
 
 def _intent() -> Intent:
@@ -45,6 +47,7 @@ def _bones_plan() -> BuildPlan:
                 ),
                 risks_addressed=["r-shopify-delta"],
                 intent=_intent(),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             )
         ],
     )

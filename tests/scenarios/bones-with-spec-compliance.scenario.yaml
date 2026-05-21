@@ -169,6 +169,8 @@ steps:
                 concurrency: null
                 failure_modes: null
                 cross_cutting: null
+            acceptance_criteria:
+              - "Scenario placeholder; refine per test intent."
         stalled: []
         open_questions: []
 

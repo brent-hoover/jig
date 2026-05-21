@@ -101,6 +101,20 @@ class Epic(BaseModel):
         ...,
         description="Why this epic exists; the simplest carve-up that solves the problem.",
     )
+    acceptance_criteria: list[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Concrete behaviors the epic must satisfy before it is "
+            "considered done. Each bullet is rendered into the ``## "
+            "Acceptance criteria`` section of every Ticket the "
+            "Coordinator materializes from this epic, so downstream "
+            "reviewers (test-adequacy in particular) can anchor "
+            "findings against a specific AC item rather than the "
+            "epic's free-form intent prose. Authoring guidance lives "
+            "in the planner-pm role prompt."
+        ),
+    )
 
     @field_validator("id")
     @classmethod
@@ -111,6 +125,28 @@ class Epic(BaseModel):
     @classmethod
     def _kebab_suite(cls, v: str) -> str:
         return validate_kebab_id(v, "Epic.suite")
+
+    @field_validator("acceptance_criteria")
+    @classmethod
+    def _non_empty_bullets(cls, v: list[str]) -> list[str]:
+        """Each AC bullet must be non-empty after stripping whitespace.
+
+        A blank or whitespace-only bullet would render as ``- \\n``
+        which fails the Ticket model's AC bullet check (requires
+        ``\\S`` after the marker) — better to reject at the Epic
+        layer with a precise error than to let it crash later in
+        Coordinator materialization.
+        """
+        cleaned: list[str] = []
+        for i, bullet in enumerate(v):
+            stripped = bullet.strip()
+            if not stripped:
+                raise ValueError(
+                    f"Epic.acceptance_criteria[{i}] is empty or whitespace-only; "
+                    "every bullet must describe a concrete behaviour."
+                )
+            cleaned.append(stripped)
+        return cleaned
 
 
 class StalledTicket(BaseModel):

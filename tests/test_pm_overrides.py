@@ -20,7 +20,7 @@ from jig.pm.overrides import (
     list_overrides,
     record_unblock_override,
 )
-from tests._test_ticket import TICKET_AC_PLACEHOLDER
+from tests._test_ticket import TICKET_AC_PLACEHOLDER, EPIC_AC_PLACEHOLDER_BULLET
 
 
 # ---- store --------------------------------------------------------------
@@ -198,6 +198,7 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
             Epic(
                 id="epic-2",
@@ -221,6 +222,7 @@ async def test_coordinator_emits_event_on_cascade_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
         ],
     )
@@ -319,6 +321,7 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
             Epic(
                 id="epic-2",
@@ -341,6 +344,7 @@ def test_cli_pm_plan_unblock_records_override(tmp_path: Path):
                         "cross_cutting": None,
                     },
                 ),
+                acceptance_criteria=[EPIC_AC_PLACEHOLDER_BULLET],
             ),
         ],
     )

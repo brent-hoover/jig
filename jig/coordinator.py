@@ -162,7 +162,20 @@ def _render_description_with_ac(*, problem: str, acceptance_criteria: list[str])
     AC section second, structured so ``has_acceptance_criteria_section``
     accepts it and downstream reviewers can anchor findings against
     specific bullets.
+
+    Raises ``ValueError`` if ``acceptance_criteria`` is empty. The
+    Epic schema's ``min_length=1`` constraint should make this
+    unreachable through the normal path; the guard makes the
+    contract self-enforcing so a misuse from a future caller fails
+    here rather than producing an AC-less description that crashes
+    the Ticket model validator downstream with a less helpful
+    error.
     """
+    if not acceptance_criteria:
+        raise ValueError(
+            "_render_description_with_ac requires at least one bullet; "
+            "the Epic schema's min_length=1 should prevent this case."
+        )
     ac_lines = "\n".join(f"- {bullet}" for bullet in acceptance_criteria)
     ac_block = f"## Acceptance criteria\n{ac_lines}\n"
     body = problem.rstrip()

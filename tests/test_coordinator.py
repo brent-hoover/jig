@@ -47,6 +47,7 @@ def _plan(
     modules: list[str] | None = None,
     bones_tickets: list[str] | None = None,
     risks: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
 ) -> BuildPlan:
     return BuildPlan(
         project=project,
@@ -65,9 +66,13 @@ def _plan(
                 ),
                 risks_addressed=risks if risks is not None else [],
                 intent=_intent(),
-                acceptance_criteria=[
-                    "Test fixture placeholder; replace if the test cares about AC content."
-                ],
+                acceptance_criteria=(
+                    acceptance_criteria
+                    if acceptance_criteria is not None
+                    else [
+                        "Test fixture placeholder; replace if the test cares about AC content."
+                    ]
+                ),
             )
         ],
     )
@@ -133,6 +138,33 @@ async def test_materialize_handles_module_less_epic(tmp_path: Path, store: Ticke
     t = await store.get("tb-catalog-ingest")
     assert t is not None
     assert t.module_id is None
+
+
+@pytest.mark.asyncio
+async def test_materialize_renders_epic_acceptance_criteria_into_ticket(
+    tmp_path: Path, store: TicketStore
+) -> None:
+    """End-to-end wiring: ``Epic.acceptance_criteria`` bullets reach the
+    materialized Ticket's description verbatim under a ``## Acceptance
+    criteria`` heading.
+
+    Without this test, a future refactor that misrouted the field
+    (e.g. passing ``epic.intent.problem`` to the renderer instead of
+    ``epic.acceptance_criteria``) would not be caught by the existing
+    unit-only coverage of ``_render_description_with_ac``."""
+    bullets = [
+        "Row visible in products collection within 30s of OAuth completion.",
+        "Subsequent fetches see no duplicate rows.",
+    ]
+    write_build_plan(tmp_path, _plan(acceptance_criteria=bullets))
+    coord = Coordinator(tickets=store, project_root=tmp_path)
+    await coord.materialize_ready_tickets()
+
+    t = await store.get("tb-catalog-ingest")
+    assert t is not None
+    assert "## Acceptance criteria" in t.description
+    for bullet in bullets:
+        assert f"- {bullet}" in t.description
 
 
 # ---- idempotency ---------------------------------------------------------

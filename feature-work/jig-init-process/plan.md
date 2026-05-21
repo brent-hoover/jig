@@ -45,7 +45,7 @@ an uncommitted change from a later task.
 
 ## Preconditions
 
-- [ ] All six specs in `docs/jig-init-process/specs/` reviewed and approved.
+- [ ] All six specs in `feature-work/jig-init-process/specs/` reviewed and approved.
 - [ ] `uv sync` succeeds in project root.
 - [ ] `uv run pytest tests/ -v` is green on main before starting.
 - [ ] Git worktree for this work created (per

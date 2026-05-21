@@ -2,7 +2,7 @@
 
 Bundles the run's artifacts into a single ``claude-agent-sdk`` call,
 parses the ``<analysis>`` markdown + ``<metrics_update>`` JSON
-sections, and returns them. The wrapping :mod:`evals.watcher.analyzer`
+sections, and returns them. The wrapping :mod:`jig.evals.watcher.analyzer`
 writes ``analysis.md`` and merges the JSON update into ``metrics.json``.
 
 Auth path: same as every other jig agent — ``CLAUDE_CODE_OAUTH_TOKEN``

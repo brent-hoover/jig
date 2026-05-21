@@ -58,14 +58,11 @@ phase_prompt: >
   is in scope. Everything else is context.
 
 
-  **If no Acceptance-Criteria section can be found** under any of
-  the formats above, do **not** invent scope from the prose. File a
-  single ``notable`` finding with ``contract_uri =
-  "ticket://description"`` noting that the ticket has no
-  machine-discoverable AC section, and stop. The PO / author should
-  add ACs before the test-author phase runs again. Inventing scope
-  from prose is exactly the failure mode this prompt is trying to
-  prevent.
+  Every ticket is guaranteed to have an Acceptance-Criteria section
+  (the ticket model enforces this at creation). If you genuinely
+  cannot locate one, that is a system bug — not a graceful
+  degradation. File a single ``critical`` finding describing the
+  missing AC structure, and stop. Do NOT invent scope from prose.
 
 
   ## Ticket boundary discipline

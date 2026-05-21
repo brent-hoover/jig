@@ -20,7 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jig.finding_ids import compute_finding_ids
+from jig.finding_ids import FindingSignature, compute_finding_ids, signature_of
 from jig.reviewer_routing import _route_one
 from jig.store.finding_acks import FindingAck
 
@@ -93,9 +93,7 @@ async def build_fix_loop_bundle(
 
     findings: list[dict] = []
     for c in routed:
-        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-        sig = (c.reviewer, type_value, c.file, c.line)
-        finding_id = ids.get(sig)
+        finding_id = ids.get(signature_of(c))
         if finding_id is None:
             # Defensive — every blocking comment should have a signature
             # in `ids` because they came from `all_comments`. Skip
@@ -158,9 +156,7 @@ def build_verify_bundle(
     # (signature's earliest insertion) for original_prose.
     first_comment: dict[str, ReviewerComment] = {}
     for c in all_comments:
-        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-        sig = (c.reviewer, type_value, c.file, c.line)
-        fid = ids.get(sig)
+        fid = ids.get(signature_of(c))
         if fid is not None and fid not in first_comment:
             first_comment[fid] = c
 
@@ -175,9 +171,7 @@ def build_verify_bundle(
     # same order as the audit trail.
     seen_fids: set[str] = set()
     for c in all_comments:
-        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-        sig = (c.reviewer, type_value, c.file, c.line)
-        fid = ids.get(sig)
+        fid = ids.get(signature_of(c))
         if fid is None or fid in seen_fids:
             continue
         seen_fids.add(fid)
@@ -240,8 +234,9 @@ def compute_reraised_acks(
 
     A finding is "re-raised" when:
 
-    - Its ``(reviewer, type, file, line)`` signature was already
-      present in ``prior_comments`` (i.e., it's not brand new), AND
+    - Its signature (see :func:`jig.finding_ids.signature_of`) was
+      already present in ``prior_comments`` (i.e., it's not brand
+      new), AND
     - Its signature has no ``resolved`` ack in ``prior_acks``.
 
     The result list is suitable for direct append to
@@ -257,10 +252,7 @@ def compute_reraised_acks(
     ids = compute_finding_ids(union)
 
     # Signatures present in the prior set.
-    prior_sigs: set[tuple] = set()
-    for c in prior_comments:
-        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-        prior_sigs.add((c.reviewer, type_value, c.file, c.line))
+    prior_sigs: set[FindingSignature] = {signature_of(c) for c in prior_comments}
 
     # finding_ids that already have a resolved ack — those do NOT
     # auto-reraise (the resolution stands).
@@ -269,8 +261,7 @@ def compute_reraised_acks(
     out: list[FindingAck] = []
     seen_fids: set[str] = set()
     for c in new_comments:
-        type_value = c.type.value if hasattr(c.type, "value") else str(c.type)
-        sig = (c.reviewer, type_value, c.file, c.line)
+        sig = signature_of(c)
         if sig not in prior_sigs:
             continue  # new finding, not a reraise
         fid = ids.get(sig)

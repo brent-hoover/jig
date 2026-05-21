@@ -7,14 +7,26 @@ Pure functions over a chronologically-ordered list of comments:
 
 Stable-ID guarantee: walking in insertion order assigns RC-N
 sequentially per *first appearance* of a signature
-(``(reviewer, type, file, line)``). Re-phrased findings collapse to the
-same signature, so they get the same RC. Later additions only append
-higher RCs — they never renumber prior IDs.
+(``(reviewer, type, file, discriminator)``). The discriminator is the
+normalized ``contract_uri`` when the reviewer supplies one, otherwise
+``line``. Re-phrased findings collapse to the same signature, so they
+get the same RC. Later additions only append higher RCs — they never
+renumber prior IDs.
+
+``contract_uri`` is normalized before signature comparison so that
+re-raises across cycles which drop/add the ``docs/`` prefix (or vary in
+case) still resolve to the same finding. When ``contract_uri`` is
+present it is preferred over ``line`` so the RC survives the file
+growing and the reviewer's insertion-point line moving across cycles.
+The ``line`` fallback exists for reviewers that don't set
+``contract_uri`` (judgment reviewers like pattern-conformance and
+error-handling) — without it, multiple distinct line-anchored findings
+in the same file would collapse into a single RC.
 """
 
 from __future__ import annotations
 
-from jig.finding_ids import compute_finding_ids, find_by_id
+from jig.finding_ids import _normalize_contract_uri, compute_finding_ids, find_by_id
 from jig.reviewers.comment import ReviewerComment, ReviewerCommentType, Severity
 
 
@@ -24,6 +36,7 @@ def _c(
     *,
     file: str | None = None,
     line: int | None = None,
+    contract_uri: str | None = None,
     prose: str = "p",
     cycle: int = 0,
 ) -> ReviewerComment:
@@ -34,6 +47,7 @@ def _c(
         prose=prose,
         file=file,
         line=line,
+        contract_uri=contract_uri,
         cycle=cycle,
         ticket_id="t-1",
     )
@@ -41,34 +55,211 @@ def _c(
 
 PATTERN = ReviewerCommentType.PATTERN_DIVERGENCE
 ERROR_HANDLING = ReviewerCommentType.ERROR_HANDLING
+TEST_ADEQUACY = ReviewerCommentType.TEST_ADEQUACY
 
 
 class TestSignatureGrouping:
     def test_distinct_signatures_get_sequential_ids(self) -> None:
         comments = [
-            _c("reviewer-pattern-conformance", PATTERN, file="a.py", line=10),
-            _c("reviewer-error-handling", ERROR_HANDLING, file="b.py", line=5),
-            _c("reviewer-pattern-conformance", PATTERN, file="c.py", line=1),
+            _c(
+                "reviewer-pattern-conformance",
+                PATTERN,
+                file="a.py",
+                contract_uri="docs/spec.md#x",
+            ),
+            _c(
+                "reviewer-error-handling",
+                ERROR_HANDLING,
+                file="b.py",
+                contract_uri="docs/spec.md#y",
+            ),
+            _c(
+                "reviewer-pattern-conformance",
+                PATTERN,
+                file="c.py",
+                contract_uri="docs/spec.md#z",
+            ),
         ]
         ids = compute_finding_ids(comments)
-        # Each distinct signature is its own RC.
         assert set(ids.values()) == {"RC-1", "RC-2", "RC-3"}
-        # IDs are assigned by first appearance in input order.
-        sig1 = ("reviewer-pattern-conformance", PATTERN.value, "a.py", 10)
-        sig2 = ("reviewer-error-handling", ERROR_HANDLING.value, "b.py", 5)
-        sig3 = ("reviewer-pattern-conformance", PATTERN.value, "c.py", 1)
+        sig1 = ("reviewer-pattern-conformance", PATTERN.value, "a.py", "spec.md#x")
+        sig2 = ("reviewer-error-handling", ERROR_HANDLING.value, "b.py", "spec.md#y")
+        sig3 = ("reviewer-pattern-conformance", PATTERN.value, "c.py", "spec.md#z")
         assert ids[sig1] == "RC-1"
         assert ids[sig2] == "RC-2"
         assert ids[sig3] == "RC-3"
 
-    def test_rephrased_finding_keeps_id(self) -> None:
-        """Cycle-1 and cycle-3 with the same (reviewer, type, file, line)
-        but different prose share an RC. This is the load-bearing case:
-        the dev's ack of RC-3 must stay attached to the underlying
-        logical finding even when the reviewer re-words it later."""
+    def test_same_line_different_contract_uris_get_distinct_ids(self) -> None:
+        """Regression: three reviewer comments at the same insertion-point
+        line but flagging three different AC items must be three distinct
+        findings. Previously they all collapsed to one RC because the
+        signature keyed on (file, line) — the agent would ack one and the
+        other two would silently re-surface in later cycles."""
         comments = [
-            _c("rev-a", PATTERN, file="x.py", line=10, prose="first phrasing", cycle=0),
-            _c("rev-a", PATTERN, file="x.py", line=10, prose="reworded", cycle=2),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="tests/test_top.py",
+                line=649,
+                contract_uri="docs/brief.md#filter-by-score",
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="tests/test_top.py",
+                line=649,
+                contract_uri="docs/brief.md#filter-by-type",
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="tests/test_top.py",
+                line=649,
+                contract_uri="docs/brief.md#format-output",
+            ),
+        ]
+        ids = compute_finding_ids(comments)
+        assert set(ids.values()) == {"RC-1", "RC-2", "RC-3"}
+
+    def test_rephrased_finding_at_new_line_keeps_id(self) -> None:
+        """Re-raising the same AC across cycles must keep its RC even when
+        the file grew and the reviewer's insertion-point line moved. This
+        is the load-bearing property for fix-loop continuity: the dev's
+        ack of RC-3 in cycle 1 must still match the same RC-3 in cycle 3
+        when the reviewer flags the same concern at line 940 instead of
+        line 649."""
+        comments = [
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="tests/test_top.py",
+                line=649,
+                contract_uri="docs/brief.md#filter-by-type",
+                cycle=0,
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="tests/test_top.py",
+                line=940,
+                contract_uri="docs/brief.md#filter-by-type",
+                cycle=2,
+            ),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 1
+        assert list(ids.values()) == ["RC-1"]
+
+    def test_contract_uri_prefix_variants_collapse(self) -> None:
+        """A reviewer that writes ``brief.md#x`` in one cycle and
+        ``docs/brief.md#x`` in the next is flagging the same AC; both
+        must resolve to the same RC. Normalization strips a leading
+        ``docs/`` and lowercases — anything else is treated as a distinct
+        URI on purpose so unrelated paths don't accidentally collapse."""
+        comments = [
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                contract_uri="docs/brief.md#filter-by-type",
+                cycle=0,
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                contract_uri="brief.md#filter-by-type",
+                cycle=1,
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                contract_uri="Brief.md#Filter-By-Type",
+                cycle=2,
+            ),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 1
+
+    def test_no_contract_uri_falls_back_to_line(self) -> None:
+        """When ``contract_uri`` is absent, the signature falls back to
+        ``line`` so two distinct findings from the same reviewer/type in
+        the same file at different lines stay separate.
+
+        Some reviewers (pattern-conformance, error-handling) flag
+        diff-anchored issues where the AC framing doesn't apply and
+        ``contract_uri`` is left None. Without a line fallback those
+        findings would all collapse to ``(reviewer, type, file, None)``
+        and the dev would only ack one."""
+        comments = [
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=10),
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=42),
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=99),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 3
+        assert set(ids.values()) == {"RC-1", "RC-2", "RC-3"}
+
+    def test_no_contract_uri_same_line_still_collapses(self) -> None:
+        """Same-line re-raises of a line-anchored finding (no
+        contract_uri) still collapse to one RC — that's the desired
+        behaviour for "same reviewer flagged the same line twice with
+        different prose"."""
+        comments = [
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=10, prose="first"),
+            _c("rev-pattern", PATTERN, file="src/foo.py", line=10, prose="reworded"),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 1
+
+    def test_contract_uri_wins_over_line_when_both_present(self) -> None:
+        """A reviewer that sets both ``contract_uri`` and ``line`` uses
+        the URI as the discriminator (cross-cycle stable) and the line
+        is ignored — re-raising the same AC at a new line keeps the RC.
+        """
+        comments = [
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                line=100,
+                contract_uri="docs/spec.md#a",
+                cycle=0,
+            ),
+            _c(
+                "rta",
+                TEST_ADEQUACY,
+                file="t.py",
+                line=250,
+                contract_uri="docs/spec.md#a",
+                cycle=1,
+            ),
+        ]
+        ids = compute_finding_ids(comments)
+        assert len(ids) == 1
+
+    def test_rephrased_prose_same_signature_keeps_id(self) -> None:
+        """Cycle-0 and cycle-2 with the same signature but different prose
+        share an RC — the reviewer's wording can drift across cycles but
+        the underlying finding identity must not."""
+        comments = [
+            _c(
+                "rev-a",
+                PATTERN,
+                file="x.py",
+                contract_uri="docs/spec.md#a",
+                prose="first phrasing",
+                cycle=0,
+            ),
+            _c(
+                "rev-a",
+                PATTERN,
+                file="x.py",
+                contract_uri="docs/spec.md#a",
+                prose="reworded",
+                cycle=2,
+            ),
         ]
         ids = compute_finding_ids(comments)
         assert len(ids) == 1
@@ -82,19 +273,21 @@ class TestInsertionOrderStability:
         store an ack against RC-3 in cycle 1 and have it still resolve
         to the same finding in cycle 3."""
         prefix = [
-            _c("rev-a", PATTERN, file="a.py", line=1),
-            _c("rev-b", ERROR_HANDLING, file="b.py", line=2),
+            _c("rev-a", PATTERN, file="a.py", contract_uri="docs/s.md#a"),
+            _c("rev-b", ERROR_HANDLING, file="b.py", contract_uri="docs/s.md#b"),
         ]
         prefix_ids = compute_finding_ids(prefix)
-        full = prefix + [_c("rev-c", PATTERN, file="c.py", line=3)]
+        full = prefix + [
+            _c("rev-c", PATTERN, file="c.py", contract_uri="docs/s.md#c"),
+        ]
         full_ids = compute_finding_ids(full)
         for sig, rc in prefix_ids.items():
             assert full_ids[sig] == rc
 
     def test_categorical_signature_collapses_to_single_id(self) -> None:
-        """A reviewer that doesn't supply file/line (diff-wide concern)
-        produces ``(reviewer, type, None, None)`` — every such finding
-        from that reviewer/type pair collapses to one RC."""
+        """A reviewer that doesn't supply file or contract_uri (diff-wide
+        concern) produces ``(reviewer, type, None, None)`` — every such
+        finding from that reviewer/type pair collapses to one RC."""
         comments = [
             _c("rev-a", PATTERN, prose="first diff-wide"),
             _c("rev-a", PATTERN, prose="second diff-wide"),
@@ -108,20 +301,38 @@ class TestInsertionOrderStability:
 class TestFindById:
     def test_returns_first_match(self) -> None:
         comments = [
-            _c("rev-a", PATTERN, file="a.py", line=1, prose="original"),
-            _c("rev-a", PATTERN, file="a.py", line=1, prose="reworded"),
-            _c("rev-b", ERROR_HANDLING, file="b.py", line=5, prose="other"),
+            _c(
+                "rev-a",
+                PATTERN,
+                file="a.py",
+                contract_uri="docs/s.md#a",
+                prose="original",
+            ),
+            _c(
+                "rev-a",
+                PATTERN,
+                file="a.py",
+                contract_uri="docs/s.md#a",
+                prose="reworded",
+            ),
+            _c(
+                "rev-b",
+                ERROR_HANDLING,
+                file="b.py",
+                contract_uri="docs/s.md#b",
+                prose="other",
+            ),
         ]
-        # The RC-1 signature has two matching comments; find_by_id
-        # returns one (the first by insertion).
         out = find_by_id(comments, "RC-1")
         assert out is not None
         assert out.reviewer == "rev-a"
         assert out.file == "a.py"
-        assert out.line == 1
+        assert out.prose == "original"
 
     def test_returns_none_for_unknown_id(self) -> None:
-        comments = [_c("rev-a", PATTERN, file="a.py", line=1)]
+        comments = [
+            _c("rev-a", PATTERN, file="a.py", contract_uri="docs/s.md#a"),
+        ]
         assert find_by_id(comments, "RC-99") is None
 
     def test_returns_none_for_empty_list(self) -> None:
@@ -129,9 +340,33 @@ class TestFindById:
 
     def test_returns_match_for_higher_rc(self) -> None:
         comments = [
-            _c("rev-a", PATTERN, file="a.py", line=1),
-            _c("rev-b", ERROR_HANDLING, file="b.py", line=5),
+            _c("rev-a", PATTERN, file="a.py", contract_uri="docs/s.md#a"),
+            _c("rev-b", ERROR_HANDLING, file="b.py", contract_uri="docs/s.md#b"),
         ]
         out = find_by_id(comments, "RC-2")
         assert out is not None
         assert out.reviewer == "rev-b"
+
+
+class TestNormalizeContractUri:
+    def test_strips_leading_docs_prefix(self) -> None:
+        assert _normalize_contract_uri("docs/brief.md#x") == "brief.md#x"
+
+    def test_strips_leading_dotslash(self) -> None:
+        assert _normalize_contract_uri("./brief.md#x") == "brief.md#x"
+
+    def test_lowercases(self) -> None:
+        assert _normalize_contract_uri("Brief.md#Filter-By-Type") == (
+            "brief.md#filter-by-type"
+        )
+
+    def test_idempotent_on_already_normalized(self) -> None:
+        assert _normalize_contract_uri("brief.md#x") == "brief.md#x"
+
+    def test_none_passthrough(self) -> None:
+        assert _normalize_contract_uri(None) is None
+
+    def test_does_not_strip_docs_inside_path(self) -> None:
+        # ``mydocs/brief.md`` is a different path; only a leading
+        # ``docs/`` segment is canonical.
+        assert _normalize_contract_uri("mydocs/brief.md#x") == "mydocs/brief.md#x"

@@ -1,0 +1,162 @@
+name: Nightly Doc Update Agent
+
+on:
+  schedule:
+    # 13:00 UTC daily = 06:00 PT / 09:00 ET. GitHub Actions cron is UTC.
+    # Note: scheduled runs can be delayed during high load; not guaranteed to-the-minute.
+    - cron: '0 13 * * *'
+  workflow_dispatch:  # also allow manual runs for testing
+
+permissions:
+  contents: write       # to push the branch
+  pull-requests: write  # to open the PR
+  id-token: write       # required by anthropics/claude-code-action
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need history for `git log --since`
+
+      - name: Verify auth secret is configured
+        env:
+          OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [[ -z "${OAUTH_TOKEN:-}" ]]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set on this repository."
+            echo "::error::Generate a token with 'claude setup-token' and add it via:"
+            echo "::error::  gh secret set CLAUDE_CODE_OAUTH_TOKEN"
+            exit 1
+          fi
+          echo "Auth secret is configured."
+
+      - name: Run doc-update agent
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a documentation maintenance agent for the Jig project.
+
+            Your job: review yesterday's git commits and decide whether any
+            of the tracked documentation files need updates to remain
+            accurate. Edit the files in place — the workflow will open a PR
+            with whatever you change. If nothing needs updating, exit
+            without modifying any files.
+
+            ## Tracked docs (do NOT modify any other file)
+            - docs/c4-code-framework.md
+            - docs/c4-code-runtime.md
+            - docs/c4-code-tui-store.md    
+            - docs/c4-component.md
+            - docs/c4-container.md
+            - docs/c4-context.md
+            - docs/reference/ontology.md
+
+            ## Commit window — yesterday in UTC
+            Compute the window with GNU date (available on ubuntu-latest):
+                SINCE=$(date -u -d 'yesterday 00:00' --iso-8601=seconds)
+                UNTIL=$(date -u -d 'today 00:00' --iso-8601=seconds)
+            Then list commits with `git log --since="$SINCE" --until="$UNTIL"`.
+
+            ## Filter out noise when reading diffs
+            Skip these — they bloat the signal without contributing real
+            information:
+
+            - Commit subjects starting with `ci(stg): update images to sha-`
+              (CI image-bump auto-PRs).
+            - Lockfile diffs. When you call `git show <sha>`, pass these
+              exclude pathspecs after `--`:
+                  .
+                  :(glob,exclude)**/go.sum
+                  :(glob,exclude)**/package-lock.json
+                  :(glob,exclude)**/yarn.lock
+                  :(glob,exclude)**/pnpm-lock.yaml
+                  :(glob,exclude)**/uv.lock
+
+            ## Editing rules
+            - Only update a doc if the commits *genuinely require* a change
+              to keep it accurate. Do not make stylistic or unrelated edits.
+            - Preserve the existing tone, structure, and formatting of each
+              doc.
+            - Do not modify any file outside the tracked list above.
+            - Do not create new files.
+          claude_args: |
+            --allowedTools "Bash(git:*),Bash(date:*),Read,Edit,Glob,Grep"
+
+      # Defense-in-depth: the prompt forbids editing files outside the
+      # tracked-doc list, but enforcement should not depend on prompt
+      # compliance. Fail the job if anything outside the allow-list was
+      # modified, added, or deleted. Keep this list in sync with the
+      # "Tracked docs" section of the prompt above.
+      - name: Verify only tracked docs were modified
+        run: |
+          ALLOWED=(
+           "docs/c4-code-framework.md"
+            "docs/c4-code-runtime.md"
+            "docs/c4-code-tui-store.md"    
+            "docs/c4-component.md"
+            "docs/c4-container.md"
+            "docs/c4-context.md"
+            "docs/reference/ontology.md"
+          )
+
+          # All paths the agent touched: tracked changes vs HEAD + untracked files.
+          mapfile -t CHANGED < <(
+            { git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u
+          )
+
+          if [[ ${#CHANGED[@]} -eq 0 ]]; then
+            echo "No changes to verify."
+            exit 0
+          fi
+
+          OUT_OF_SCOPE=()
+          for path in "${CHANGED[@]}"; do
+            in_list=false
+            for allowed in "${ALLOWED[@]}"; do
+              if [[ "$path" == "$allowed" ]]; then
+                in_list=true
+                break
+              fi
+            done
+            [[ "$in_list" == false ]] && OUT_OF_SCOPE+=("$path")
+          done
+
+          if [[ ${#OUT_OF_SCOPE[@]} -gt 0 ]]; then
+            echo "::error::Agent modified files outside the tracked-doc allow-list:"
+            for path in "${OUT_OF_SCOPE[@]}"; do
+              echo "::error::  $path"
+            done
+            exit 1
+          fi
+
+          echo "All ${#CHANGED[@]} change(s) within the allow-list."
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pull request
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "docs: nightly update from commit activity"
+          branch: doc-agent/nightly-${{ github.run_id }}
+          delete-branch: true
+          title: "docs: nightly update from commit activity"
+          body: |
+            Automated doc update based on yesterday's commits.
+
+            Generated by `.github/workflows/doc-agent.yml`. Review the diff
+            before merging — the agent can hallucinate or miss context.
+          labels: |
+            documentation
+            automated

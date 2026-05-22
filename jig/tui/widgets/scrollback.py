@@ -47,14 +47,21 @@ class Scrollback(RichLog):
 
     def render_line(self, y: int) -> Strip:
         strip = super().render_line(y)
+        # Tag each cell with its content-coordinate offset. This is
+        # what ``Screen.get_widget_and_offset_at`` reads to populate
+        # ``select_offset`` on mouse-down — without it, a live drag
+        # produces ``select_offset=None``, ``_select_start`` is
+        # never populated, no Selection is created, and the painting
+        # branch below is unreachable. ``Log`` does this in
+        # ``_render_line``; upstream ``RichLog`` doesn't.
+        scroll_x, scroll_y = self.scroll_offset
+        line_index = y + scroll_y
+        strip = strip.apply_offsets(scroll_x, line_index)
         selection = self.text_selection
         if selection is None:
             return strip
         # Selection y is in the same coordinate space as the index
-        # into ``self.lines``. ``y`` here is the viewport row; add
-        # ``scroll_y`` to get the array index.
-        scroll_y = self.scroll_offset.y
-        line_index = y + scroll_y
+        # into ``self.lines``.
         try:
             span = selection.get_span(line_index)
         except Exception:

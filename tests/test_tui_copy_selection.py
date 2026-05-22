@@ -166,6 +166,59 @@ async def test_real_scrollback_selection_extracts_text(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_scrollback_strips_carry_selection_offset_metadata(
+    tmp_path: Path,
+) -> None:
+    """The strips rendered by Scrollback must carry the per-cell
+    offset metadata that ``Screen.get_widget_and_offset_at`` reads
+    to compute ``select_offset`` on mouse-down.
+
+    Without this metadata (Textual's ``Strip.apply_offsets`` step,
+    which upstream ``RichLog`` doesn't apply), a real mouse drag
+    produces ``select_offset=None`` → ``_select_start`` never gets
+    populated → no Selection is ever created → both the painting
+    and extraction code paths sit unreachable. ``Log`` applies
+    these offsets in its ``_render_line``; this regression test
+    asserts ``Scrollback`` does too.
+    """
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import NowScreen
+    from jig.tui.widgets.scrollback import Scrollback
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        now = app.query_one(NowScreen)
+        scrollback = now.query_one("#scrollback", RichLog)
+        assert isinstance(scrollback, Scrollback)
+        scrollback.clear()
+        scrollback.write("aaaa bbbb cccc")
+        await pilot.pause()
+
+        # Each segment in the rendered strip must carry an
+        # ``offset=(x, y)`` style-meta entry — the metadata
+        # apply_offsets writes. Without it,
+        # ``get_widget_and_offset_at`` returns no offset and the
+        # selection chain breaks.
+        rendered = scrollback.render_line(0)
+        offsets_seen: list[tuple[int, int] | None] = []
+        for seg in rendered:
+            if seg.style is None:
+                offsets_seen.append(None)
+                continue
+            meta = seg.style.meta or {}
+            offsets_seen.append(meta.get("offset"))
+        # At least one segment in the visible content must have an
+        # offset tuple — if none do, the metadata is absent.
+        assert any(o is not None for o in offsets_seen), (
+            "no segment in the rendered strip carries selection "
+            "offset metadata — Scrollback.render_line is missing "
+            "Strip.apply_offsets. Offsets seen: "
+            f"{offsets_seen}"
+        )
+
+
+@pytest.mark.asyncio
 async def test_ctrl_c_binding_registered(tmp_path: Path) -> None:
     """The ctrl+c binding must exist at the App level and target
     ``copy_selection`` — otherwise Textual's system-level

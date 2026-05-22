@@ -4,6 +4,9 @@ phases:
     role: dev
     task_template: "Implement the feature for: {ticket_title}"
     acceptance_criteria: "Feature works as described, existing tests still pass"
+    automated_checks:
+      - pytest-diff-tests
+      - mypy-strict
   - name: review
     role: review
     task_template: "Single-pass generalist review of: {ticket_title}"
@@ -14,3 +17,7 @@ phases:
     role: validate
     task_template: "Validate the implementation for: {ticket_title}"
     acceptance_criteria: "All tests pass, linters clean"
+    automated_checks:
+      - pytest-all
+      - ruff-check
+      - mypy-strict

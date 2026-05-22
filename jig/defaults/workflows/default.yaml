@@ -13,6 +13,8 @@ phases:
     acceptance_criteria: "Tests cover specified behavior and edge cases"
     writes:
       - "tests/**"
+    automated_checks:
+      - pytest-new-tests-fail
   - name: review-tests
     role: review
     task_template: "Review the test diff against the AC for: {ticket_title}"
@@ -27,6 +29,9 @@ phases:
       - "src/**"
       - "pyproject.toml"
       - "**/*.lock"
+    automated_checks:
+      - pytest-diff-tests
+      - mypy-strict
   - name: review
     role: review
     task_template: "Review implementation for: {ticket_title}"
@@ -41,6 +46,10 @@ phases:
     role: validate
     task_template: "Validate the implementation for: {ticket_title}"
     acceptance_criteria: "All validation steps pass"
+    automated_checks:
+      - pytest-all
+      - ruff-check
+      - mypy-strict
   - name: document
     role: document
     task_template: "Update documentation for: {ticket_title}"

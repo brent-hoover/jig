@@ -2618,6 +2618,18 @@ class Orchestrator:
             return
 
         catalog = load_check_catalog(self._project_path)
+        # Tell scripted checks (notably the diff-scoped pytest helpers
+        # at ``jig.check_helpers.pytest_diff``) what to diff against.
+        # ``origin/<default-branch>`` is the right base for tickets
+        # branched directly off the project default. Chained tickets
+        # (branched off a prior ticket's branch) get a wider diff than
+        # strictly necessary — the gate runs more tests than minimally
+        # required but doesn't produce wrong verdicts. The helper has
+        # its own ``git merge-base`` fallback if the env var is unset.
+        default_branch = (
+            self._project.default_branch if self._project is not None else "main"
+        )
+        extra_env = {"JIG_TICKET_BASE": f"origin/{default_branch}"}
         verdict = await run_handoff_gate(
             handoff_id=pending_hid,
             tickets=self.tickets,
@@ -2628,6 +2640,7 @@ class Orchestrator:
             worktree_path=worktree_path,
             project_path=self._project_path,
             bus=self.bus,
+            extra_env=extra_env,
         )
         if not verdict.passing:
             _logger.info(

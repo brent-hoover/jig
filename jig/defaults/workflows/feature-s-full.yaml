@@ -4,10 +4,15 @@ phases:
     role: test
     task_template: "Write tests for: {ticket_title}"
     acceptance_criteria: "Tests cover the specified behavior"
+    automated_checks:
+      - pytest-new-tests-fail
   - name: implement
     role: dev
     task_template: "Implement the feature so tests pass for: {ticket_title}"
     acceptance_criteria: "All tests pass"
+    automated_checks:
+      - pytest-diff-tests
+      - mypy-strict
   - name: review
     role: review
     task_template: "Federated review of: {ticket_title}"
@@ -22,3 +27,7 @@ phases:
     role: validate
     task_template: "Validate the implementation for: {ticket_title}"
     acceptance_criteria: "All tests pass, linters clean"
+    automated_checks:
+      - pytest-all
+      - ruff-check
+      - mypy-strict

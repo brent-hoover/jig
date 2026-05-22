@@ -4,10 +4,15 @@ phases:
     role: test
     task_template: "Write a failing regression test for: {ticket_title}"
     acceptance_criteria: "Regression test captures the defect"
+    automated_checks:
+      - pytest-new-tests-fail
   - name: implement
     role: dev
     task_template: "Fix the defect so the regression test passes for: {ticket_title}"
     acceptance_criteria: "All tests pass including the new regression test"
+    automated_checks:
+      - pytest-diff-tests
+      - mypy-strict
   - name: review
     role: review
     task_template: "Single-pass generalist review of: {ticket_title}"
@@ -18,3 +23,7 @@ phases:
     role: validate
     task_template: "Validate the fix and confirm no regressions for: {ticket_title}"
     acceptance_criteria: "Test suite green, no regressions"
+    automated_checks:
+      - pytest-all
+      - ruff-check
+      - mypy-strict

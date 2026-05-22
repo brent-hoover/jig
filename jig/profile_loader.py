@@ -154,3 +154,13 @@ def copy_profile_templates(profile: Profile, project_path: Path) -> None:
         src = _defaults_dir() / "workflows" / f"{wf_name}.yaml"
         if src.is_file():
             shutil.copyfile(src, dest)
+
+    # Check catalog: also copy the shipped catalog into ``.jig/`` so
+    # operators have an editable starting point alongside the profile
+    # and workflow YAMLs. Skipped if the operator has already
+    # authored ``.jig/checks.yaml`` (their edits win).
+    dest_checks = _jig_dir(project_path) / "checks.yaml"
+    if not dest_checks.is_file():
+        src_checks = _defaults_dir() / "checks.yaml"
+        if src_checks.is_file():
+            shutil.copyfile(src_checks, dest_checks)

@@ -79,20 +79,48 @@ def _checks_file(project_path: Path) -> Path:
     return project_path / ".jig" / "checks.yaml"
 
 
-def load_check_catalog(project_path: Path) -> CheckCatalog:
-    """Load ``.jig/checks.yaml`` and return a validated catalog.
+def _defaults_checks_file() -> Path:
+    """Path to the shipped catalog inside the ``jig.defaults`` package.
 
-    Missing file → empty catalog. Present but empty / ``{checks: null}``
-    / ``{checks: {}}`` all normalize to an empty catalog. Any unknown
-    check ``type`` or missing required field surfaces as a pydantic
-    ``ValidationError`` for Phase 2F to catch at load.
+    Mirrors the ``_role_path_shipped`` / ``_profile_path_shipped``
+    pattern: the file lives next to the loader's parent package so it
+    travels with the wheel.
     """
-    path = _checks_file(project_path)
-    if not path.is_file():
-        return CheckCatalog({})
-    raw = yaml.safe_load(path.read_text()) or {}
-    checks_block = raw.get("checks") or {}
-    return CheckCatalog.model_validate(checks_block)
+    # ``jig/checks.py`` → ``jig/defaults/checks.yaml``.
+    return Path(__file__).resolve().parent / "defaults" / "checks.yaml"
+
+
+def load_check_catalog(project_path: Path) -> CheckCatalog:
+    """Load the check catalog, preferring project-local over shipped defaults.
+
+    Resolution order:
+
+    1. ``.jig/checks.yaml`` (project-local) when present and non-empty.
+    2. ``jig/defaults/checks.yaml`` (shipped) when project-local is
+       missing or empty.
+    3. Empty catalog when neither is found.
+
+    Project-local override wins outright — there's no key-by-key merge.
+    Matches the existing role / workflow / profile precedence semantics
+    so operators have one mental model.
+
+    Any unknown check ``type`` or missing required field surfaces as a
+    pydantic ``ValidationError``.
+    """
+
+    def _read(path: Path) -> dict | None:
+        if not path.is_file():
+            return None
+        raw = yaml.safe_load(path.read_text()) or {}
+        return raw.get("checks") or {}
+
+    project_block = _read(_checks_file(project_path))
+    if project_block:
+        return CheckCatalog.model_validate(project_block)
+    shipped_block = _read(_defaults_checks_file())
+    if shipped_block is not None:
+        return CheckCatalog.model_validate(shipped_block)
+    return CheckCatalog({})
 
 
 __all__ = [

@@ -117,9 +117,44 @@ class TestCheckReferences:
             validate_catalog(initialized_project)
 
     def test_known_check_passes(self, initialized_project: Path) -> None:
+        # Project-local catalog wins outright over the shipped one
+        # (no key-by-key merge). We re-export the shipped entries
+        # alongside the test's ``lint`` because shipped workflows
+        # (loaded from defaults when no project-local copies exist)
+        # reference ``pytest-all`` / ``pytest-new-tests-fail`` /
+        # etc., and the cross-reference checker walks every workflow
+        # — local AND shipped.
         (initialized_project / ".jig" / "checks.yaml").write_text(
             yaml.safe_dump(
-                {"checks": {"lint": {"type": "scripted", "command": "ruff check ."}}}
+                {
+                    "checks": {
+                        "lint": {"type": "scripted", "command": "ruff check ."},
+                        "pytest-all": {
+                            "type": "scripted",
+                            "command": "uv run pytest -q",
+                        },
+                        "ruff-check": {
+                            "type": "scripted",
+                            "command": "uv run ruff check .",
+                        },
+                        "mypy-strict": {
+                            "type": "scripted",
+                            "command": "uv run mypy --strict src/",
+                        },
+                        "pytest-diff-tests": {
+                            "type": "scripted",
+                            "command": (
+                                "python -m jig.check_helpers.pytest_diff green"
+                            ),
+                        },
+                        "pytest-new-tests-fail": {
+                            "type": "scripted",
+                            "command": (
+                                "python -m jig.check_helpers.pytest_diff red"
+                            ),
+                        },
+                    }
+                }
             )
         )
         save_workflow(

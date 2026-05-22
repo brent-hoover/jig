@@ -36,6 +36,14 @@ class CheckSeverity(str, Enum):
 class _CheckBase(BaseModel):
     severity: CheckSeverity = CheckSeverity.REQUIRED
     timeout_s: int = 600
+    # Whether this check is eligible to run from the project-wide git
+    # ``pre-commit`` hook. Defaults to ``False`` so the shipped catalog
+    # (designed for slow handoff-phase gates like full pytest / mypy)
+    # doesn't accidentally fire on every commit. Workflow-phase gates
+    # read from ``automated_checks`` and ignore this flag; only the
+    # repo-wide pre-commit hook in ``jig.hooks.run_pre_commit`` filters
+    # on it.
+    hook_eligible: bool = False
 
 
 class ScriptedCheck(_CheckBase):

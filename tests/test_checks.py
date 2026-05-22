@@ -29,26 +29,54 @@ def _write_checks(project_path: Path, checks: dict) -> None:
 
 
 class TestLoadingShape:
-    def test_missing_file_returns_empty_catalog(self, tmp_path: Path) -> None:
+    def test_missing_file_falls_back_to_shipped(self, tmp_path: Path) -> None:
+        # No project-local catalog → loader falls back to the shipped
+        # ``jig/defaults/checks.yaml`` (the test-rigor catalog).
+        # Pre-fallback this returned an empty catalog; the new
+        # behaviour returns the shipped entries.
         cat = load_check_catalog(tmp_path)
-        assert cat.names() == []
+        assert "pytest-all" in cat.names()
+        assert "mypy-strict" in cat.names()
 
-    def test_empty_checks_mapping(self, tmp_path: Path) -> None:
+    def test_empty_checks_mapping_falls_back_to_shipped(
+        self, tmp_path: Path
+    ) -> None:
+        # An empty ``checks: {}`` block in the project file is
+        # treated as "no project entries" and the loader falls back
+        # to the shipped catalog (matches the docstring's "non-empty"
+        # contract for project-local override).
         _write_checks(tmp_path, {})
         cat = load_check_catalog(tmp_path)
-        assert cat.names() == []
+        assert "pytest-all" in cat.names()
 
-    def test_checks_null_normalizes(self, tmp_path: Path) -> None:
+    def test_checks_null_falls_back_to_shipped(self, tmp_path: Path) -> None:
         (tmp_path / ".jig").mkdir()
         (tmp_path / ".jig" / "checks.yaml").write_text("checks: null\n")
         cat = load_check_catalog(tmp_path)
-        assert cat.names() == []
+        assert "pytest-all" in cat.names()
 
-    def test_file_empty_normalizes(self, tmp_path: Path) -> None:
+    def test_file_empty_falls_back_to_shipped(self, tmp_path: Path) -> None:
         (tmp_path / ".jig").mkdir()
         (tmp_path / ".jig" / "checks.yaml").write_text("")
         cat = load_check_catalog(tmp_path)
-        assert cat.names() == []
+        assert "pytest-all" in cat.names()
+
+    def test_project_local_overrides_shipped(self, tmp_path: Path) -> None:
+        # Non-empty project-local catalog wins outright — shipped
+        # entries are not merged in.
+        _write_checks(
+            tmp_path,
+            {
+                "my-only-check": {
+                    "type": "scripted",
+                    "command": "true",
+                    "severity": "required",
+                }
+            },
+        )
+        cat = load_check_catalog(tmp_path)
+        assert cat.names() == ["my-only-check"]
+        assert "pytest-all" not in cat.names()
 
 
 class TestScriptedCheck:

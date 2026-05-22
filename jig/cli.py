@@ -84,14 +84,44 @@ async def _report_section_locks(project_path: Path, ticket_id: str) -> None:
     is_flag=True,
     help="Non-interactive mode: pick defaults for every prompt (for eval harnesses).",
 )
-def init(name: str, force: bool, brief_file: Path | None, auto: bool) -> None:
-    """Initialize a new jig project: brief → spec → architecture → scaffold."""
+@click.option(
+    "--profile",
+    "profile_name",
+    default=None,
+    help=(
+        "Project profile (small, medium, or any name in .jig/profiles/) "
+        "pre-applied before init runs — skips the PM-1 profile-selection "
+        "pass. Required when ``--auto`` is set on a project that doesn't "
+        "already have a profile committed."
+    ),
+)
+def init(
+    name: str,
+    force: bool,
+    brief_file: Path | None,
+    auto: bool,
+    profile_name: str | None,
+) -> None:
+    """Initialize a new jig project: brief → PM-1 profile → SA → scaffold."""
     import asyncio
 
     from jig.init_prompts import AutoPromptHandler
     from jig.init_workflow import run_init
 
     prompts = AutoPromptHandler() if auto else None
+
+    # ``--profile`` must be applied BEFORE ``run_init`` drives the
+    # resume loop past spec-gen — ``classify_resume`` checks
+    # ``cfg.profile.name`` to decide whether to route into
+    # ``PM_PROFILE_PASS``. Create the stub first so ``.jig/config.yaml``
+    # exists, then write the profile, then let ``run_init`` proceed.
+    if profile_name is not None:
+        from jig.init_workflow import create_stub
+
+        target = Path(name)
+        create_stub(target, name=target.name or name)
+        _apply_profile_at_start(target, profile_name)
+
     asyncio.run(
         run_init(
             name=name,

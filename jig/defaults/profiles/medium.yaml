@@ -1,11 +1,23 @@
 name: medium
 description: >
   Standard profile for multi-module projects with external integrations,
-  multiple datastores, or compliance requirements. Uses sa_mvp (produces
-  per-module contracts.yaml) and the full specialist reviewer federation
-  for non-trivial tickets. xs tickets still get the lightweight workflow
-  (no point spawning five reviewers on a one-file change).
-sa_role: sa_mvp
+  multiple datastores, or compliance requirements. Distinguishing feature
+  from ``small``: the ``feature-s-full`` workflow at ``s``-size brings
+  the full specialist reviewer federation (architectural, error-handling,
+  performance, security, pattern-conformance). xs tickets still get the
+  lightweight workflow (no point spawning five reviewers on a one-file
+  change).
+# Deferred: ``sa_role: sa_mvp`` is the long-term target — it produces
+# per-module ``contracts.yaml`` files for the contract-aware reviewers.
+# ``sa_mvp``'s exit is ``arch_finalize`` (Handoff phase=pm), which the
+# v1 init state machine doesn't yet recognise — it expects
+# ``sa_propose_scaffold``. Routing medium to ``sa_mvp`` today causes
+# the resume loop to spin respawning SA. For this PR, medium uses the
+# basic ``sa`` role; specialist reviewers gracefully skip the
+# contracts.yaml lookup (per the previously-merged graceful-skip fix).
+# Follow-up: extend ``classify_resume`` to recognise ``arch_finalize``
+# Handoffs as a valid architecture-done state, then flip this back.
+sa_role: sa
 workflows:
   default_by_size:
     xs: feature-xs

@@ -50,14 +50,18 @@ def test_small_profile_via_flag(fresh_project: Path) -> None:
 
 
 def test_medium_profile_via_flag(fresh_project: Path) -> None:
-    """``jig start --profile medium`` writes the medium profile: sa_mvp +
-    feature-s-full at s-size (the distinguishing routing decision)."""
+    """``jig start --profile medium`` writes the medium profile:
+    ``feature-s-full`` at s-size (the distinguishing routing decision).
+    The ``sa_mvp`` SA role is the long-term target but currently
+    deferred — medium uses the basic ``sa`` role; see the comment in
+    ``jig/defaults/profiles/medium.yaml``."""
     _apply_profile_at_start(fresh_project, "medium")
 
     cfg = load_config(fresh_project)
     assert cfg.profile.name == "medium"
-    assert cfg.profile.sa_role == "sa_mvp"
-    assert _resolve_sa_role(fresh_project) == "sa_mvp"
+    # Deferred: targeting sa_mvp eventually; basic ``sa`` for now.
+    assert cfg.profile.sa_role == "sa"
+    assert _resolve_sa_role(fresh_project) == "sa"
 
     # The s-size routing is the key difference vs small:
     # medium runs the full federation at s, small runs generalist only.

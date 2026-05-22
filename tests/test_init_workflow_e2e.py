@@ -478,12 +478,17 @@ async def test_e2e_resume_after_gap_prompt_picks_R(tmp_path: Path, monkeypatch) 
 
 async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
     """End-to-end: PM-1 proposes ``medium``, operator confirms, SA
-    runs as ``sa_mvp``, and the medium profile's workflow set lands
-    in ``.jig/workflows/``.
+    runs as the medium profile's SA role, and the medium profile's
+    workflow set lands in ``.jig/workflows/``.
 
     This is the integration confidence test for the new PO → PM-1
     → confirm → SA path. Mocks the agent runs but exercises the full
     init state machine + MCP handler + profile_loader.
+
+    Note: medium currently routes to the basic ``sa`` role (not the
+    long-term-target ``sa_mvp``). See the comment in
+    ``jig/defaults/profiles/medium.yaml`` for the deferred
+    ``arch_finalize`` integration.
     """
     from jig.config import load_config
     from jig.init_workflow import _resolve_sa_role
@@ -558,25 +563,6 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
             author="sa",
         )
 
-    @agent.handle(role="sa_mvp", ticket_id="architecture")
-    async def _sa_mvp(ctx: AgentSpawnContext) -> None:
-        # The production sa_mvp role calls ``arch_finalize`` against
-        # the per-module contracts pipeline, but for this end-to-end
-        # test we only care that the spawn requested ``sa_mvp`` (the
-        # profile-routed role). Posting a sa_propose_scaffold lets
-        # the init state machine terminate cleanly — the full sa_mvp
-        # discovery loop is exercised by sa_mvp's own tests.
-        sa_role_seen["value"] = ctx.role
-        await handle_sa_propose_scaffold(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            bus=ctx.bus,
-            template_name="python",
-            rationale="medium-scale arch",
-            config={},
-            author="sa_mvp",
-        )
-
     # Auto-accept all prompts.
     answers = iter(["Y", "Y", "Y", "Y", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
@@ -608,11 +594,14 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
     # 3. Profile applied to config.
     cfg = load_config(project)
     assert cfg.profile.name == "medium"
-    assert cfg.profile.sa_role == "sa_mvp"
+    # Deferred: long-term target is ``sa_mvp``; medium uses basic
+    # ``sa`` until v1 init learns to handle the ``arch_finalize`` exit.
+    assert cfg.profile.sa_role == "sa"
 
-    # 4. _resolve_sa_role agrees, and the SA spawn used sa_mvp.
-    assert _resolve_sa_role(project) == "sa_mvp"
-    assert sa_role_seen["value"] == "sa_mvp"
+    # 4. _resolve_sa_role agrees, and the SA spawn used the medium
+    # profile's sa role.
+    assert _resolve_sa_role(project) == "sa"
+    assert sa_role_seen["value"] == "sa"
 
     # 5. Medium-profile workflow files copied into .jig/.
     assert (project / ".jig" / "profiles" / "medium.yaml").is_file()

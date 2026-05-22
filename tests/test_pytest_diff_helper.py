@@ -450,6 +450,24 @@ def test_red_verdict_skipped_fails(tmp_path: Path) -> None:
     assert _red_verdict_from_junit(_junit(tmp_path, xml)) == 1
 
 
+def test_red_verdict_failure_plus_error_does_not_satisfy_gate(
+    tmp_path: Path,
+) -> None:
+    """Pytest can emit both ``<failure>`` and ``<error>`` on the same
+    testcase — for instance, a body assertion failure followed by a
+    teardown / fixture error. The error half means part of the test
+    didn't run cleanly, so we can't trust the failure as proof of
+    TDD red. Reject these alongside pure errors.
+    """
+    xml = (
+        "<testsuites><testsuite>"
+        f"<testcase classname='tests.test_x' name='test_a'>{_FAIL}{_ERR}</testcase>"
+        f"<testcase classname='tests.test_x' name='test_b'>{_FAIL}</testcase>"
+        "</testsuite></testsuites>"
+    )
+    assert _red_verdict_from_junit(_junit(tmp_path, xml)) == 1
+
+
 def test_red_verdict_errored_does_not_satisfy_gate(tmp_path: Path) -> None:
     """``<error>`` is a collection / fixture / import failure — the
     test never reached its assertions, so it can't have proved the

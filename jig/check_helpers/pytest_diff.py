@@ -383,15 +383,21 @@ def _red_verdict_from_junit(xml_path: Path) -> int:
         name = tc.get("name", "")
         ident = f"{classname}::{name}" if classname else name
         tags = {child.tag for child in tc}
-        if "failure" in tags:
-            # Genuine assertion failure — the test ran and produced
-            # the red outcome the gate demands.
-            continue
+        # An ``<error>`` on the testcase — even alongside a
+        # ``<failure>`` — disqualifies it. Pytest emits both when a
+        # test assertion fails AND a fixture/teardown raises; the
+        # error half means part of the test didn't run cleanly, so
+        # we can't trust the failure alone as proof of TDD red.
+        # Order matters: check error BEFORE failure so the joint
+        # case (both children present) lands here.
         if "error" in tags:
-            # Collection / fixture / import error: the test never
-            # reached its assertions. Doesn't satisfy TDD red.
             bad.append((ident, "errored"))
-        elif "skipped" in tags:
+            continue
+        if "failure" in tags:
+            # Genuine assertion failure with no error half — the
+            # test ran and produced the red outcome the gate demands.
+            continue
+        if "skipped" in tags:
             bad.append((ident, "skipped"))
         else:
             bad.append((ident, "passed"))

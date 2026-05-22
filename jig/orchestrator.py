@@ -2148,7 +2148,7 @@ class Orchestrator:
         """Create a planning ticket if the project is initialized but has none."""
         if self.tickets is None:
             return
-        arch = self._project_path / "docs" / "architecture.yaml"
+        arch = self._project_path / ".jig" / "spec" / "architecture.yaml"
         if not arch.is_file():
             return  # project not initialized
         existing = await self.tickets.get("planning")
@@ -2165,7 +2165,7 @@ class Orchestrator:
 
         from jig.ticket import Ticket
 
-        spec_path = self._project_path / "docs" / "project.structured.yaml"
+        spec_path = self._project_path / ".jig" / "spec" / "project.structured.yaml"
         await self.tickets.create(
             Ticket(
                 id="planning",

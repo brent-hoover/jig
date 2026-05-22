@@ -465,7 +465,7 @@ async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> N
     existing = await tickets.get("planning")
     if existing is not None:
         return
-    spec_path = project_path / "docs" / "project.structured.yaml"
+    spec_path = project_path / ".jig" / "spec" / "project.structured.yaml"
     description = (
         f"Break down the project spec into implementation tickets.\n\nSpec: {spec_path}"
     )

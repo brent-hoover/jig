@@ -661,7 +661,7 @@ class WebSocketServer:
 
             if self._project_path is None:
                 return None
-            spec_file = self._project_path / "docs" / "project.structured.yaml"
+            spec_file = self._project_path / ".jig" / "spec" / "project.structured.yaml"
             if not spec_file.is_file():
                 return None
             data = yaml.safe_load(spec_file.read_text()) or {}

@@ -265,9 +265,11 @@ async def run_init(
     try:
         log_display = log_file.relative_to(target)
     except ValueError:
-        # Defensive: if for some reason the log file isn't under
-        # ``target`` (custom log dir override), fall back to the
-        # absolute path. Not the common case.
+        # Shouldn't happen with the current ``configure_logging``
+        # impl — it hardcodes ``project_path / ".jig" / "logs"``,
+        # so ``log_file`` is always under ``target``. Defensive
+        # fallback for any future change that adds a custom log
+        # directory option.
         log_display = log_file
     console.print(
         f"[dim]Logging to {log_display}[/dim]",

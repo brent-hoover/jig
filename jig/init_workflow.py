@@ -160,6 +160,7 @@ async def run_init(
     console: "Console | None" = None,
     prompts: "PromptHandler | None" = None,
     brief_file: Path | None = None,
+    profile_name: str | None = None,
 ) -> None:
     """Top-level init flow. Dispatches fresh vs resume by classification.
 
@@ -168,6 +169,12 @@ async def run_init(
     SystemEvent so ``classify_resume`` skips ``PO_CONVERSATION`` and
     falls straight into ``SPEC_GENERATION``. Used by ``jig init --brief``
     for eval harnesses.
+
+    When ``profile_name`` is set (from ``jig init --profile``), the
+    named profile is applied AFTER the ``--force`` cleanup and
+    canonical ``create_stub`` — applying it earlier would race
+    ``shutil.rmtree(target / ".jig")`` and lose the write. The profile
+    is the eval / auto-mode bypass for the PM-1 selection pass.
     """
     from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
 
@@ -195,6 +202,15 @@ async def run_init(
         shutil.rmtree(target / ".jig")
 
     create_stub(target, name=project_name)
+    # ``--profile`` bypass: write the profile to config AFTER the
+    # canonical ``create_stub`` (so ``.jig/config.yaml`` exists) and
+    # AFTER any ``--force`` cleanup (so the rmtree doesn't delete the
+    # write). ``classify_resume`` then sees ``cfg.profile.name``
+    # populated on the next tick and skips ``PM_PROFILE_PASS``.
+    if profile_name is not None:
+        from jig.cli import _apply_profile_at_start
+
+        _apply_profile_at_start(target, profile_name)
     log_file = configure_logging(target, verbose=False, console=False)
     # Subdued + highlight=False so Rich doesn't auto-stylize the path
     # (default highlighting renders file paths in red+underline, which
@@ -406,12 +422,15 @@ async def _run_init_resume_loop(
                 # SWAP is hard-wired to flip between the two shipped
                 # profiles. ``handle_pm_propose_profile`` only accepts
                 # ``small`` or ``medium``, so the toggle is well-defined.
-                # Asserting here catches any future drift between the
-                # MCP allowlist and this branch.
-                assert chosen_name in {"small", "medium"}, (
-                    f"SWAP requires a shipped profile name; got {chosen_name!r}. "
-                    "handle_pm_propose_profile must restrict PM-1 to small/medium."
-                )
+                # A real runtime check (not ``assert`` — that's compiled
+                # out under ``-O``) catches any future drift between
+                # the MCP allowlist and this branch.
+                if chosen_name not in {"small", "medium"}:
+                    raise click.ClickException(
+                        f"SWAP requires a shipped profile name; got "
+                        f"{chosen_name!r}. handle_pm_propose_profile "
+                        "must restrict PM-1 to small/medium."
+                    )
                 chosen_name = "small" if chosen_name == "medium" else "medium"
             from jig.config import load_config, save_config
             from jig.profile_loader import (

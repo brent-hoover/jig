@@ -109,25 +109,13 @@ def init(
     from jig.init_workflow import run_init
 
     prompts = AutoPromptHandler() if auto else None
-
-    # ``--profile`` must be applied BEFORE ``run_init`` drives the
-    # resume loop past spec-gen — ``classify_resume`` checks
-    # ``cfg.profile.name`` to decide whether to route into
-    # ``PM_PROFILE_PASS``. Create the stub first so ``.jig/config.yaml``
-    # exists, then write the profile, then let ``run_init`` proceed.
-    if profile_name is not None:
-        from jig.init_workflow import create_stub
-
-        target = Path(name)
-        create_stub(target, name=target.name or name)
-        _apply_profile_at_start(target, profile_name)
-
     asyncio.run(
         run_init(
             name=name,
             force=force,
             brief_file=brief_file,
             prompts=prompts,
+            profile_name=profile_name,
         )
     )
 

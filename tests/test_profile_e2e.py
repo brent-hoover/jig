@@ -115,3 +115,87 @@ def test_apply_profile_helper_consistent_with_flag(fresh_project: Path) -> None:
     reloaded = load_config(fresh_project)
     assert reloaded.profile.name == "medium"
     assert resolve_workflow(reloaded, work_type="feature", size="s") == "feature-s-full"
+
+
+async def test_run_init_profile_survives_force_cleanup(tmp_path: Path) -> None:
+    """``jig init --force --profile <name>`` on an existing project
+    must end with the requested profile applied.
+
+    Regression test for roborev #87/#88: the original implementation
+    pre-applied the profile in ``cli.init`` *before* ``run_init`` ran
+    ``shutil.rmtree(target / ".jig")``, so ``--force`` deleted the
+    profile we just wrote and init proceeded without it.
+
+    The resume loop is patched to a no-op so the test focuses on the
+    setup-path ordering: classify → force-rmtree → create_stub →
+    apply-profile. The full agent lifecycle is exercised by other
+    e2e tests.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import create_stub, run_init
+
+    target = tmp_path / "proj"
+    # Pre-existing project with the template_applied_at marker that
+    # makes ``classify_directory`` return ALREADY_DONE.
+    create_stub(target, name="proj")
+    project_yaml = target / ".jig" / "project.yaml"
+    body = project_yaml.read_text()
+    project_yaml.write_text(body + "template_applied_at: 2026-01-01T00:00:00Z\n")
+    # Drop a sentinel in .jig so the rmtree path is observable; we
+    # expect this file to be gone after --force runs.
+    (target / ".jig" / "sentinel").write_text("pre-init")
+
+    # Patch the resume loop to a no-op so run_init returns after the
+    # setup path. The setup path is the unit under test here.
+    with patch("jig.init_workflow._run_init_resume_loop", new_callable=AsyncMock):
+        await run_init(
+            name=str(target),
+            force=True,
+            prompts=AutoPromptHandler(),
+            profile_name="small",
+        )
+
+    # The pre-init sentinel was removed by --force cleanup.
+    assert not (target / ".jig" / "sentinel").exists()
+    # The profile applied AFTER cleanup survives — config has the
+    # right name, and the profile template was copied into .jig/.
+    cfg = load_config(target)
+    assert cfg.profile.name == "small"
+    assert cfg.profile.sa_role == "sa"
+    assert (target / ".jig" / "profiles" / "small.yaml").is_file()
+
+
+async def test_run_init_rejects_already_done_before_writing_profile(
+    tmp_path: Path,
+) -> None:
+    """``run_init`` raises ClickException for an already-initialized
+    project (no --force) BEFORE applying the profile. The pre-existing
+    config must be untouched.
+    """
+    import click
+
+    import pytest as _pytest
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import create_stub, run_init
+
+    target = tmp_path / "done"
+    create_stub(target, name="done")
+    project_yaml = target / ".jig" / "project.yaml"
+    body = project_yaml.read_text()
+    project_yaml.write_text(body + "template_applied_at: 2026-01-01T00:00:00Z\n")
+    before = (target / ".jig" / "config.yaml").read_text()
+
+    with _pytest.raises(click.ClickException, match="already initialized"):
+        await run_init(
+            name=str(target),
+            force=False,
+            prompts=AutoPromptHandler(),
+            profile_name="small",
+        )
+
+    # Config untouched — profile was never written.
+    after = (target / ".jig" / "config.yaml").read_text()
+    assert before == after

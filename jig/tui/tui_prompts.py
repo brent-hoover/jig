@@ -138,6 +138,27 @@ class TuiPromptHandler:
         )
         return ConfirmChoice.parse(reply)
 
+    async def ask_profile_confirm(
+        self, *, name: str, rationale: str, console: "Console"
+    ) -> ConfirmChoice:
+        from jig.init_workflow import render_profile_confirm_prompt
+
+        rendered = render_profile_confirm_prompt(name=name, rationale=rationale)
+        reply = await self._round_trip(
+            {
+                "prompt_type": "profile_confirm",
+                "rendered": rendered,
+                "question": "Confirm profile?",
+                "profile_name": name,
+                "options": [
+                    {"key": "Y", "label": "Accept", "default": True},
+                    {"key": "swap", "label": "Use the other profile"},
+                    {"key": "n", "label": "Cancel"},
+                ],
+            }
+        )
+        return ConfirmChoice.parse(reply)
+
     async def ask_gap_decision(self, *, gaps: list[Gap], console: "Console") -> str:
         reply = await self._round_trip(
             {

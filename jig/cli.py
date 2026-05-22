@@ -153,6 +153,36 @@ def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> N
     click.echo("Orchestrator stopped.")
 
 
+def _apply_profile_at_start(project_path: Path, profile_name: str) -> None:
+    """Load + apply + persist the named profile before the orchestrator starts.
+
+    Idempotent: re-running with the same profile rewrites the same
+    config + template copies. Errors surface as ``click.ClickException``
+    so the CLI message is friendly (no Pydantic tracebacks).
+    """
+    from jig.config import load_config, save_config
+    from jig.profile_loader import (
+        apply_profile,
+        copy_profile_templates,
+        load_profile,
+    )
+
+    try:
+        profile = load_profile(profile_name, project_path=project_path)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    config = load_config(project_path)
+    config = apply_profile(config, profile)
+    save_config(project_path, config)
+    copy_profile_templates(profile, project_path)
+    click.echo(
+        f"Applied profile '{profile.name}' "
+        f"(sa_role={profile.sa_role}, "
+        f"workflows={dict(profile.workflows.default_by_size)})"
+    )
+
+
 @cli.command()
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -166,8 +196,27 @@ def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> N
 @click.option(
     "--no-docker", is_flag=True, help="Run without Docker container (no sandbox)."
 )
-def start(path: Path, ws_port: int, verbose: bool, no_docker: bool) -> None:
+@click.option(
+    "--profile",
+    "profile_name",
+    default=None,
+    help=(
+        "Project profile (small, medium, or any name in .jig/profiles/). "
+        "Sets the SA depth and per-size workflow routing. Skip to let the "
+        "PM raise needs_info instead."
+    ),
+)
+def start(
+    path: Path,
+    ws_port: int,
+    verbose: bool,
+    no_docker: bool,
+    profile_name: str | None,
+) -> None:
     """Start the Jig orchestrator daemon."""
+    if profile_name is not None:
+        _apply_profile_at_start(path, profile_name)
+
     from jig.container import (
         is_in_container,
         docker_available,

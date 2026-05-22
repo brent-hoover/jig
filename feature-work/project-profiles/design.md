@@ -1,10 +1,10 @@
 ---
 title: Project Profiles — Design
 type: design
-status: draft
+status: active
 owner: brent
 created: 2026-05-20
-updated: 2026-05-20
+updated: 2026-05-21
 problem: ./problem.md
 ---
 
@@ -20,10 +20,19 @@ profiles reference different workflow YAMLs for the same ticket size, so `medium
 get a different workflow (and thus a different reviewer set) than `small`'s `s`-sized tickets.
 
 Two built-in profiles ship with jig (`small`, `medium`). The selected profile is recorded in
-`.jig/config.yaml` and governs all subsequent ticket dispatch. The profile is chosen once at start —
-either via `--profile <name>` flag or via a `needs_info` stop where the PM describes the complexity
-signals and asks the operator to choose. Auto mode does not guess; it only auto-proceeds if the profile
-was passed explicitly.
+`.jig/config.yaml` and governs all subsequent ticket dispatch.
+
+The profile is chosen between brief and architecture by inserting a **PM-1 pass** into init: the PM
+agent reads the brief + structured spec, judges complexity, and proposes a profile. The operator gates
+the choice the same way they gate the SA template proposal — Y / swap to the other profile / n. After
+confirmation, the workflow applies the profile to config and the SA pass runs with the right role.
+
+For eval / auto mode, `--profile <name>` passed at `jig start` time pre-fills the config so the PM-1
+pass is skipped (classify_resume sees `profile.name` non-empty and routes straight to SA).
+
+Init flow becomes: `PO (brief) → PM-1 (profile, gated) → SA (with cfg.profile.sa_role) → PM-2
+(planning)`. PM-1 and PM-2 share the same `pm.yaml` role file; the prompt branches on ticket id
+(`profile` → propose; `planning` → break down).
 
 ## Approach
 
@@ -162,20 +171,29 @@ work unchanged.
 
 ### Profile selection
 
-**At `jig start`:**
+Two paths into `cfg.profile`:
 
-1. If `--profile <name>` is passed, load the named profile, merge its `workflows` block into the config,
-   set `config.profile.name` and `config.profile.sa_role`, and write `.jig/config.yaml`. No PM
-   involvement.
+**(A) `--profile <name>` at `jig start`** — eval / auto-mode bypass. Loads the named profile, applies
+it to config, copies templates, persists. PM-1 sees `cfg.profile.name` non-empty and is skipped.
 
-2. If no `--profile` flag, the PM runs its normal planning phase. Before creating any tickets, the PM
-   describes the project's complexity signals derived from the brief (scope, integrations, datastores,
-   protocols, compliance) and raises `needs_info` with a profile recommendation and the list of available
-   profiles. The operator responds; the orchestrator writes the selected profile to config.
+**(B) PM-1 pass** — default interactive path:
 
-3. In `--auto` / eval mode: if the profile was pre-specified (e.g. pinned in the brief's
-   synthetic-operator answers), the `needs_info` is auto-answered. If not, the run halts — profile
-   selection is not guessed.
+1. After PO completes and the structured spec exists, `classify_resume` returns
+   `PM_PROFILE_PASS`. The init loop spawns the PM agent against a new `profile` ticket.
+2. The PM prompt branches on ticket id: when id == `profile`, the agent reads the brief + structured
+   spec, assesses complexity (signals: external integrations, multiple datastores, uncommon protocols,
+   realtime, auth/PII, compliance, HA SLOs, multi-writer state, background jobs, public versioned APIs,
+   event-driven, plugins), picks ONE of `small` / `medium`, and calls
+   `pm_propose_profile(name, rationale)` exactly once. The handler posts a Note on the profile ticket
+   and resolves it. The agent ends without creating any other tickets.
+3. The next classify_resume returns `PM_PROFILE_CONFIRM_PROMPT`. The init loop invokes
+   `prompt_profile_confirm`, which surfaces the PM's choice + rationale to the operator with three
+   options: Y (accept), swap (use the other profile), n (abort).
+4. On Y or swap, the workflow calls `apply_profile + copy_profile_templates + save_config` directly.
+   The PM is NOT re-spawned for swap — there are only two profiles, so the workflow flips the name
+   itself.
+5. Next classify_resume falls through to `SA_CONVERSATION`. SA reads `cfg.profile.sa_role` and runs
+   as `sa` or `sa_mvp`.
 
 ### SA role selection at init
 
@@ -197,23 +215,22 @@ No changes to `resolve_workflow()`. Profile application writes the profile's `wo
 YAML embeds its own reviewer list, reviewer selection requires no additional profile machinery —
 the right workflow for the ticket size carries the right reviewers with it.
 
-### PM prompt additions
+### PM prompt structure
 
-The PM role prompt gains two new sections:
+The same `pm.yaml` role file handles both PM-1 (profile) and PM-2 (planning). The prompt branches at
+the top on ticket id:
 
-> **Profile selection**: Before creating any tickets, assess the project's complexity using the signals
-> in the brief. Look for: external service integrations, multiple datastores, uncommon protocols
-> (gRPC, WebSockets), realtime requirements, auth/sessions/permissions, PII or payments, compliance
-> requirements (HIPAA, SOC2, GDPR), high-availability SLOs, multiple writers to shared state,
-> background job processing, public versioned APIs, event-driven architecture, or plugin systems.
-> Use holistic judgment — no numerical thresholds. When in doubt, prefer the heavier profile.
-> Call `ask_question` with your assessment and profile recommendation before creating any tickets.
+> **Mode**: Check your ticket id first.
+>
+> - If it's `profile`: profile-selection mode. Read the brief + structured spec, assess complexity
+>   from the signals above, call `pm_propose_profile(name, rationale)` exactly once with `small` or
+>   `medium`, and end. Do not create tickets, do not use `ask_question`, do not read architecture
+>   artifacts (SA hasn't run yet).
+> - If it's `planning` (or anything else): planning mode. Follow the existing process.
 
-> **Ticket sizing — contract impact**: A ticket that amends or enforces an architectural contract
-> (ownership boundaries, integration AC, behavioral contracts, API surface) is never `xs` or `s`.
-> Size it `m` or larger so it gets the full spec→test→review→validate workflow with architectural
-> review. If a ticket starts as `s` and design reveals it touches a contract boundary, split it or
-> upsize it before handing off to dev.
+The existing planning-mode prompt also keeps the **contract-impact sizing** rule (sized this PR,
+pre-PM-1-rework): contract-touching tickets are never `xs` or `s`. Even on `medium`'s
+`feature-s-full` workflow, `xs` skips review entirely, which would silently miss contract concerns.
 
 ## Interfaces
 
@@ -307,3 +324,10 @@ addition to `Config` is minimal — two fields.
 ## Change log
 
 - 2026-05-20: Initial draft (brent)
+- 2026-05-21: Approved; first plan written.
+- 2026-05-21 (later): **Selection model rewritten**. The operator-as-decision-maker model
+  (`--profile` flag OR PM `needs_info` to operator) was rejected — the operator doesn't have the
+  data to judge project size from naming alone, and stopping init to ask is the wrong UX. Replaced
+  with: PM-1 pass between brief and SA reads the brief + spec and picks the profile; operator
+  confirms via Y/swap/n gate (mirroring SA template confirm). `--profile` flag preserved as
+  eval/auto bypass. Same `pm.yaml` role handles both passes via ticket-id mode detection.

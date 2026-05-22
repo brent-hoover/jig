@@ -380,6 +380,47 @@ async def _run_init_resume_loop(
                 console=console,
             )
             continue
+        if rs == ResumeState.PM_PROFILE_PASS:
+            await run_pm_profile_pass(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PM_PROFILE_CONFIRM_PROMPT:
+            decision, proposal = await prompt_profile_confirm(
+                threads, console=console, prompts=prompts
+            )
+            if decision == ConfirmChoice.NO:
+                console.print("Profile not approved. State saved.", markup=False)
+                return
+            # YES accepts PM's choice; SWAP flips to the other profile.
+            # Both branches apply directly — no PM re-spawn (only two
+            # profiles ship, so the workflow can flip without consulting
+            # the agent again).
+            chosen_name = proposal["name"]
+            if decision == ConfirmChoice.SWAP:
+                chosen_name = "small" if chosen_name == "medium" else "medium"
+            from jig.config import load_config, save_config
+            from jig.profile_loader import (
+                apply_profile,
+                copy_profile_templates,
+                load_profile,
+            )
+
+            profile = load_profile(chosen_name, project_path=target)
+            cfg = apply_profile(load_config(target), profile)
+            save_config(target, cfg)
+            copy_profile_templates(profile, target)
+            console.print(
+                f"Applied profile '{profile.name}' "
+                f"(sa_role={profile.sa_role}). Next: SA.",
+                markup=False,
+            )
+            continue
         if rs == ResumeState.SA_CONVERSATION:
             await run_sa_conversation(
                 project_path=target,
@@ -1025,6 +1066,130 @@ async def prompt_sa_confirm(
     return choice, proposal
 
 
+async def latest_profile_proposal(threads: ThreadStore) -> dict | None:
+    """Return the payload of the most recent ``pm_propose_profile`` Note
+    on the profile ticket, or ``None`` if none exists.
+
+    Mirrors ``latest_scaffold_proposal`` — the most-recent proposal wins
+    when multiple PM-1 passes happened (swap path doesn't re-spawn the
+    PM today, but a future change might).
+    """
+    entries = await threads.for_ticket("profile")
+    proposals = [
+        e
+        for e in entries
+        if isinstance(e, Note) and e.payload.get("kind") == "pm_propose_profile"
+    ]
+    if not proposals:
+        return None
+    return dict(proposals[-1].payload)
+
+
+def render_profile_confirm_prompt(*, name: str, rationale: str) -> str:
+    """Short Rich-formatted summary of the PM's profile choice, shown in
+    scrollback before the confirm prompt. Options (Y / swap / n) come
+    from the prompt panel — emit only the informational context here."""
+    return (
+        f"PM proposes profile: [bold bright_green]{name}[/bold bright_green]"
+        f"\n\nRationale:\n{rationale}"
+    )
+
+
+async def prompt_profile_confirm(
+    threads: ThreadStore,
+    *,
+    console: "Console | None" = None,
+    prompts: "PromptHandler | None" = None,
+) -> tuple[ConfirmChoice, dict]:
+    """Confirm prompt for the PM's profile proposal — mirrors ``prompt_sa_confirm``.
+
+    Returns the operator's choice + the proposal payload so the caller
+    can apply it (or flip to the other profile on SWAP) without
+    re-reading the thread.
+    """
+    from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
+
+    c = console or _spawn_console()
+    p = prompts or CliPromptHandler()
+    proposal = await latest_profile_proposal(threads)
+    if proposal is None:
+        raise RuntimeError("prompt_profile_confirm called with no proposal")
+    choice = await p.ask_profile_confirm(
+        name=proposal["name"],
+        rationale=proposal["rationale"],
+        console=c,
+    )
+    return choice, proposal
+
+
+async def run_pm_profile_pass(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Create (if needed) the profile ticket and spawn PM-1.
+
+    PM-1 reads the brief + structured spec, picks a profile, calls
+    ``pm_propose_profile`` exactly once, and exits. The init resume
+    loop picks up the proposal on the next iteration and routes to
+    ``PM_PROFILE_CONFIRM_PROMPT``.
+    """
+    profile_ticket = await tickets.get("profile")
+    if profile_ticket is None:
+        profile_ticket = Ticket(
+            id="profile",
+            work_type=WorkType.PROFILE,
+            title="Pick project profile",
+            created_by="cli",
+        )
+        await tickets.create(profile_ticket)
+    profile_ticket = await _reactivate_if_resolved(
+        tickets, profile_ticket, author="cli"
+    )
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "pm")
+    ctx = AgentSpawnContext(
+        role="pm",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=profile_ticket,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="Project Manager (profile selection)",
+        console=console,
+    )
+
+
+def _resolve_sa_role(project_path: Path) -> str:
+    """Return the SA role id for this project — profile-driven.
+
+    Reads ``cfg.profile.sa_role`` from ``.jig/config.yaml`` when set;
+    falls back to ``"sa"`` when the project predates project-profiles
+    (empty string default) or when config is missing entirely. The
+    fallback preserves the current behaviour for legacy projects.
+    """
+    from jig.config import load_config
+
+    try:
+        cfg = load_config(project_path)
+    except FileNotFoundError:
+        return "sa"
+    role_id = cfg.profile.sa_role.strip()
+    return role_id if role_id else "sa"
+
+
 async def run_sa_conversation(
     *,
     project_path: Path,
@@ -1049,9 +1214,10 @@ async def run_sa_conversation(
     # on first poll without this flip.
     arch = await _reactivate_if_resolved(tickets, arch, author="cli")
     project = load_project(project_path)
-    role_cfg = load_role(project_path, "sa")
+    sa_role_id = _resolve_sa_role(project_path)
+    role_cfg = load_role(project_path, sa_role_id)
     ctx = AgentSpawnContext(
-        role="sa",
+        role=sa_role_id,
         role_cfg=role_cfg,
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=arch,
@@ -1469,6 +1635,8 @@ class ResumeState(str, Enum):
     SPEC_GENERATION = "spec_generation"
     GAP_PROMPT = "gap_prompt"
     BRANCH_PROMPT = "branch_prompt"
+    PM_PROFILE_PASS = "pm_profile_pass"
+    PM_PROFILE_CONFIRM_PROMPT = "pm_profile_confirm_prompt"
     SA_CONVERSATION = "sa_conversation"
     NEEDS_ANSWER_ARCH = "needs_answer_arch"
     SA_CONFIRM_PROMPT = "sa_confirm_prompt"
@@ -1591,7 +1759,35 @@ async def classify_resume(
     if not has_spec_gen_event:
         return ResumeState.SPEC_GENERATION
 
-    # Spec generated. Now look at architecture ticket.
+    # Spec generated. Insert the PM-1 profile-selection pass before SA
+    # so SA can read ``cfg.profile.sa_role`` and run as the right role.
+    # Three gates:
+    #
+    # * ``cfg.profile.name`` already set (``--profile`` flag bypass, or
+    #   the operator confirmed a prior PM-1 proposal) → skip.
+    # * No ``pm_propose_profile`` Note on the profile ticket → spawn PM-1.
+    # * Proposal exists but profile still unset → operator gate.
+    from jig.config import load_config
+
+    try:
+        cfg = load_config(project_path)
+    except FileNotFoundError:
+        cfg = None
+    profile_name = cfg.profile.name.strip() if cfg is not None else ""
+    if not profile_name:
+        profile_ticket = await tickets.get("profile")
+        has_profile_proposal = False
+        if profile_ticket is not None:
+            profile_entries = await threads.for_ticket("profile")
+            has_profile_proposal = any(
+                isinstance(e, Note) and e.payload.get("kind") == "pm_propose_profile"
+                for e in profile_entries
+            )
+        if not has_profile_proposal:
+            return ResumeState.PM_PROFILE_PASS
+        return ResumeState.PM_PROFILE_CONFIRM_PROMPT
+
+    # Spec generated + profile set. Now look at architecture ticket.
     arch = await tickets.get("architecture")
     if arch is None:
         return ResumeState.BRANCH_PROMPT

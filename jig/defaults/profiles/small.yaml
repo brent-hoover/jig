@@ -1,0 +1,20 @@
+name: small
+description: >
+  Lightweight profile for simple projects: one or two modules, no external
+  integrations, no compliance requirements. Uses the generic SA (no contracts)
+  and the generalist reviewer. The only workflow distinction is xs (no test
+  phase) vs everything else (test → dev → review[generalist] → validate).
+  A good test bed for the orchestration pipeline.
+sa_role: sa
+workflows:
+  default_by_size:
+    xs: feature-xs
+    s: feature-s
+    m: feature-s
+    l: feature-s
+  available:
+    - feature-xs
+    - feature-s
+    - bugfix
+    - validation
+    - spike

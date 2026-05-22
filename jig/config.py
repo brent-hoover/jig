@@ -94,6 +94,30 @@ class RolesSection(BaseModel):
     sa: RoleAssignment | None = None
 
 
+class ProfileSection(BaseModel):
+    """Project profile binding: SA depth + per-size workflow routing.
+
+    Set once at start via ``--profile <name>`` (``jig.cli`` start path)
+    or via a PM ``needs_info`` stop (``init_workflow`` path). The
+    profile bundles two decisions — which SA role runs at init and
+    which workflow YAML governs each ticket size — so that smaller
+    projects don't pay the full multi-reviewer-federation cost.
+
+    Stored as the source of truth; the profile's workflows block is
+    merged into the top-level ``WorkflowsSection`` at apply time so
+    existing dispatch logic picks it up without modification.
+
+    Defaults preserve current behaviour for any legacy config without
+    a ``profile:`` block: ``name=""`` (unset) + ``sa_role="sa"``
+    (the v1 SA role).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = ""
+    sa_role: str = "sa"
+
+
 class EscalationSection(BaseModel):
     default_human: str = ""
 
@@ -157,6 +181,7 @@ class Config(BaseModel):
     workflows: WorkflowsSection = Field(default_factory=WorkflowsSection)
     ownership: OwnershipSection = Field(default_factory=OwnershipSection)
     roles: RolesSection = Field(default_factory=RolesSection)
+    profile: ProfileSection = Field(default_factory=ProfileSection)
     escalation: EscalationSection = Field(default_factory=EscalationSection)
     deadlock: DeadlockSection = Field(default_factory=DeadlockSection)
     orchestrator: OrchestratorSection = Field(

@@ -37,6 +37,10 @@ class PromptHandler(Protocol):
         self, *, template_name: str, rationale: str, console: "Console"
     ) -> "ConfirmChoice": ...
 
+    async def ask_profile_confirm(
+        self, *, name: str, rationale: str, console: "Console"
+    ) -> "ConfirmChoice": ...
+
     async def ask_gap_decision(
         self, *, gaps: "list[Gap]", console: "Console"
     ) -> str: ...  # "R" or "Q"
@@ -109,6 +113,24 @@ class CliPromptHandler:
         console.print(
             render_sa_confirm_prompt(template_name=template_name, rationale=rationale),
             markup=False,
+        )
+        reply = click.prompt("Choice", default="Y", show_default=False)
+        return ConfirmChoice.parse(reply)
+
+    async def ask_profile_confirm(
+        self, *, name: str, rationale: str, console: "Console"
+    ) -> ConfirmChoice:
+        from jig.init_workflow import render_profile_confirm_prompt
+
+        console.print(
+            render_profile_confirm_prompt(name=name, rationale=rationale),
+            markup=False,
+        )
+        # `swap` flips to the other profile (small ↔ medium) without
+        # re-spawning the PM; only two profiles ship so the workflow
+        # can resolve the flip itself.
+        console.print(
+            "Y = accept   swap = use the other profile   n = abort", markup=False
         )
         reply = click.prompt("Choice", default="Y", show_default=False)
         return ConfirmChoice.parse(reply)
@@ -202,6 +224,13 @@ class AutoPromptHandler:
     async def ask_sa_confirm(
         self, *, template_name: str, rationale: str, console: "Console"
     ) -> ConfirmChoice:
+        return ConfirmChoice.YES
+
+    async def ask_profile_confirm(
+        self, *, name: str, rationale: str, console: "Console"
+    ) -> ConfirmChoice:
+        # Eval / auto runs accept the PM's profile choice unconditionally;
+        # the brief drove the decision and there's no operator to weigh in.
         return ConfirmChoice.YES
 
     async def ask_gap_decision(self, *, gaps: "list[Gap]", console: "Console") -> str:

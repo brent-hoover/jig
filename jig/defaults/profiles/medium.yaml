@@ -1,0 +1,24 @@
+name: medium
+description: >
+  Standard profile for multi-module projects with external integrations,
+  multiple datastores, or compliance requirements. Uses sa_mvp (produces
+  per-module contracts.yaml) and the full specialist reviewer federation
+  for non-trivial tickets. xs tickets still get the lightweight workflow
+  (no point spawning five reviewers on a one-file change).
+sa_role: sa_mvp
+workflows:
+  default_by_size:
+    xs: feature-xs
+    s: feature-s-full
+    m: default
+    l: default
+  available:
+    - feature-xs
+    - feature-s
+    - feature-s-full
+    - default
+    - bugfix
+    - migration
+    - perf
+    - validation
+    - spike

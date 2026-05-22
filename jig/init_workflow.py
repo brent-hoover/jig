@@ -207,10 +207,29 @@ async def run_init(
     # AFTER any ``--force`` cleanup (so the rmtree doesn't delete the
     # write). ``classify_resume`` then sees ``cfg.profile.name``
     # populated on the next tick and skips ``PM_PROFILE_PASS``.
+    #
+    # Inlined here rather than calling ``cli._apply_profile_at_start``
+    # to keep the dependency direction CLI → workflow and route the
+    # status message through the caller-supplied console.
     if profile_name is not None:
-        from jig.cli import _apply_profile_at_start
+        from jig.config import load_config, save_config
+        from jig.profile_loader import (
+            apply_profile,
+            copy_profile_templates,
+            load_profile,
+        )
 
-        _apply_profile_at_start(target, profile_name)
+        try:
+            profile = load_profile(profile_name, project_path=target)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc)) from exc
+        cfg = apply_profile(load_config(target), profile)
+        save_config(target, cfg)
+        copy_profile_templates(profile, target)
+        console.print(
+            f"Applied profile '{profile.name}' (sa_role={profile.sa_role})",
+            markup=False,
+        )
     log_file = configure_logging(target, verbose=False, console=False)
     # Subdued + highlight=False so Rich doesn't auto-stylize the path
     # (default highlighting renders file paths in red+underline, which

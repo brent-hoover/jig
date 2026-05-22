@@ -176,8 +176,6 @@ async def test_run_init_rejects_already_done_before_writing_profile(
     """
     import click
 
-    import pytest as _pytest
-
     from jig.init_prompts import AutoPromptHandler
     from jig.init_workflow import create_stub, run_init
 
@@ -188,7 +186,7 @@ async def test_run_init_rejects_already_done_before_writing_profile(
     project_yaml.write_text(body + "template_applied_at: 2026-01-01T00:00:00Z\n")
     before = (target / ".jig" / "config.yaml").read_text()
 
-    with _pytest.raises(click.ClickException, match="already initialized"):
+    with pytest.raises(click.ClickException, match="already initialized"):
         await run_init(
             name=str(target),
             force=False,

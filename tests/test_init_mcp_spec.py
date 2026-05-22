@@ -1,4 +1,5 @@
 """spec_* MCP tool handlers."""
+
 from datetime import datetime, timezone
 
 import pytest
@@ -57,7 +58,7 @@ async def test_spec_publish_writes_file_and_emits_event(wired):
         advisory_notes=[],
         author="spec-generator",
     )
-    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
+    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
     assert spec_file.is_file()
     assert yaml.safe_load(spec_file.read_text())["name"] == "myproj"
     entries = await wired["threads"].for_ticket("brief")
@@ -107,7 +108,7 @@ async def test_spec_report_gaps_posts_note_with_payload(wired):
     assert notes[0].payload["gaps"][0]["kind"] == "missing"
     events = [e for e in entries if isinstance(e, SystemEvent)]
     assert any(e.event_type == "spec_gaps_reported" for e in events)
-    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
+    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
     assert not spec_file.exists()
 
 
@@ -129,15 +130,34 @@ async def test_spec_publish_with_multiple_advisory_notes_posts_one_note(wired):
     assert "clarify A" in text
     assert "consider B" in text
     assert "tighten C" in text
-    assert notes[0].payload["advisory_notes"] == ["clarify A", "consider B", "tighten C"]
+    assert notes[0].payload["advisory_notes"] == [
+        "clarify A",
+        "consider B",
+        "tighten C",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_spec_report_gaps_preserves_order_and_count(wired):
     gaps = [
-        Gap(kind="missing", location="Built", description="No items.", severity="blocking"),
-        Gap(kind="ambiguity", location="Non-goals", description="Vague.", severity="advisory"),
-        Gap(kind="contradiction", location="Planned (committed)", description="Conflicts with Built.", severity="blocking"),
+        Gap(
+            kind="missing",
+            location="Built",
+            description="No items.",
+            severity="blocking",
+        ),
+        Gap(
+            kind="ambiguity",
+            location="Non-goals",
+            description="Vague.",
+            severity="advisory",
+        ),
+        Gap(
+            kind="contradiction",
+            location="Planned (committed)",
+            description="Conflicts with Built.",
+            severity="blocking",
+        ),
     ]
     await handle_spec_report_gaps(
         tickets=wired["tickets"],
@@ -152,7 +172,11 @@ async def test_spec_report_gaps_preserves_order_and_count(wired):
     persisted = notes[0].payload["gaps"]
     assert len(persisted) == 3
     assert [g["kind"] for g in persisted] == ["missing", "ambiguity", "contradiction"]
-    assert [g["location"] for g in persisted] == ["Built", "Non-goals", "Planned (committed)"]
+    assert [g["location"] for g in persisted] == [
+        "Built",
+        "Non-goals",
+        "Planned (committed)",
+    ]
 
 
 @pytest.mark.asyncio
@@ -168,7 +192,7 @@ async def test_spec_publish_rejects_unparseable_yaml(wired):
             author="spec-generator",
         )
     # Atomicity: spec file must NOT exist after a failed publish.
-    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
+    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
     assert not spec_file.exists()
     # Atomicity: no spec_generated SystemEvent on the brief thread.
     entries = await wired["threads"].for_ticket("brief")
@@ -193,5 +217,5 @@ async def test_spec_publish_rejects_schema_invalid_yaml(wired):
             advisory_notes=[],
             author="spec-generator",
         )
-    spec_file = wired["project_path"] / "docs" / "project.structured.yaml"
+    spec_file = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
     assert not spec_file.exists()

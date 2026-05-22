@@ -5,6 +5,7 @@ stores and MCP handlers, replacing the agent spawn with a dispatch
 table that simulates each role's side effects before exit. No real
 Claude agents are launched.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -54,12 +55,11 @@ class FakeAgent:
     def __init__(self) -> None:
         self._handlers: dict[tuple[str, str], Handler] = {}
 
-    def handle(
-        self, *, role: str, ticket_id: str
-    ) -> Callable[[Handler], Handler]:
+    def handle(self, *, role: str, ticket_id: str) -> Callable[[Handler], Handler]:
         def deco(fn: Handler) -> Handler:
             self._handlers[(role, ticket_id)] = fn
             return fn
+
         return deco
 
     async def run(self, ctx: AgentSpawnContext, emitter=None) -> None:
@@ -125,17 +125,17 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
 
     # Both modules bind run_agent at import time (`from jig.agent import run_agent`),
     # so patching one alone leaves the other live. Patch both.
-    with patch("jig.init_workflow.run_agent", new=agent.run), \
-            patch("jig.spec_generator.run_agent", new=agent.run):
+    with (
+        patch("jig.init_workflow.run_agent", new=agent.run),
+        patch("jig.spec_generator.run_agent", new=agent.run),
+    ):
         await run_init(name="proj", force=False)
 
     project = tmp_path / "proj"
     assert (project / "docs" / "brief.md").is_file()
-    assert (project / "docs" / "project.structured.yaml").is_file()
-    assert (project / "docs" / "architecture.yaml").is_file()
-    arch = yaml.safe_load(
-        (project / "docs" / "architecture.yaml").read_text()
-    )
+    assert (project / ".jig" / "spec" / "project.structured.yaml").is_file()
+    assert (project / ".jig" / "spec" / "architecture.yaml").is_file()
+    arch = yaml.safe_load((project / ".jig" / "spec" / "architecture.yaml").read_text())
     assert arch["template"] == "python"
     assert arch["sa_path"] is True
     assert arch["rationale"] == "simple python CLI is enough"
@@ -176,12 +176,14 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
     answers = iter(["Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
-    with patch("jig.init_workflow.run_agent", new=agent.run), \
-            patch("jig.spec_generator.run_agent", new=agent.run):
+    with (
+        patch("jig.init_workflow.run_agent", new=agent.run),
+        patch("jig.spec_generator.run_agent", new=agent.run),
+    ):
         await run_init(name="directproj", force=False)
 
     project = tmp_path / "directproj"
-    arch_file = project / "docs" / "architecture.yaml"
+    arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False
@@ -240,24 +242,24 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("click.prompt", fake_prompt)
 
-    with patch("jig.init_workflow.run_agent", new=agent.run), \
-            patch("jig.spec_generator.run_agent", new=agent.run):
+    with (
+        patch("jig.init_workflow.run_agent", new=agent.run),
+        patch("jig.spec_generator.run_agent", new=agent.run),
+    ):
         with pytest.raises(KeyboardInterrupt):
             await run_init(name="resumeproj", force=False)
         # Second run picks up at BRANCH_PROMPT and lands the scaffold.
         await run_init(name="resumeproj", force=False)
 
     project = tmp_path / "resumeproj"
-    arch_file = project / "docs" / "architecture.yaml"
+    arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False
     assert "template" in arch
 
 
-async def test_story_brief_contains_po_and_specgen_trail(
-    tmp_path: Path, monkeypatch
-):
+async def test_story_brief_contains_po_and_specgen_trail(tmp_path: Path, monkeypatch):
     """Smoke test: jig story for the brief and architecture tickets shows
     the expected handoff, spec_generated, advisory note, sa_skipped, and
     scaffold_applied trail after a direct-path init.
@@ -295,8 +297,10 @@ async def test_story_brief_contains_po_and_specgen_trail(
     answers = iter(["Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
-    with patch("jig.init_workflow.run_agent", new=agent.run), \
-            patch("jig.spec_generator.run_agent", new=agent.run):
+    with (
+        patch("jig.init_workflow.run_agent", new=agent.run),
+        patch("jig.spec_generator.run_agent", new=agent.run),
+    ):
         await run_init(name="storyproj", force=False)
 
     project = tmp_path / "storyproj"
@@ -325,9 +329,7 @@ async def test_story_brief_contains_po_and_specgen_trail(
     assert "system_event/scaffold_applied" in arch_kinds
 
 
-async def test_e2e_resume_after_gap_prompt_picks_R(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_e2e_resume_after_gap_prompt_picks_R(tmp_path: Path, monkeypatch) -> None:
     """Picking R at the gap prompt must re-run PO then re-run the
     spec-generator — not loop on the stale gap event.
     """
@@ -388,12 +390,14 @@ async def test_e2e_resume_after_gap_prompt_picks_R(
     answers = iter(["Y", "R", "Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
-    with patch("jig.init_workflow.run_agent", new=agent.run), \
-            patch("jig.spec_generator.run_agent", new=agent.run):
+    with (
+        patch("jig.init_workflow.run_agent", new=agent.run),
+        patch("jig.spec_generator.run_agent", new=agent.run),
+    ):
         await run_init(name="gapproj", force=False)
 
     project = tmp_path / "gapproj"
-    arch_file = project / "docs" / "architecture.yaml"
+    arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     arch = yaml.safe_load(arch_file.read_text())
     assert arch["sa_path"] is False

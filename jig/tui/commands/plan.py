@@ -10,7 +10,7 @@ async def cmd_plan(*, project_path, orch, **_kwargs) -> dict[str, Any]:
     from jig.ticket import Ticket, WorkType
 
     jig_dir = project_path / ".jig"
-    if not (jig_dir.parent / "docs" / "architecture.yaml").is_file():
+    if not (jig_dir / "spec" / "architecture.yaml").is_file():
         return {"ok": False, "error": "Project not initialized. Run /init first."}
 
     store_dir = jig_dir / "store"

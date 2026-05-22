@@ -13,7 +13,11 @@ from jig.init_mcp import (
     handle_spec_load_existing,
 )
 from jig.spec_schema import (
-    Behavior, Capability, CapabilityState, NonGoal, StructuredSpec,
+    Behavior,
+    Capability,
+    CapabilityState,
+    NonGoal,
+    StructuredSpec,
 )
 
 
@@ -24,26 +28,34 @@ def _ts():
 @pytest.fixture
 def spec_path(tmp_path):
     spec = StructuredSpec(
-        name="x", summary="y",
+        name="x",
+        summary="y",
         capabilities=[
             Capability(
-                id="due-dates", title="Due dates",
+                id="due-dates",
+                title="Due dates",
                 state=CapabilityState.PLANNED,
-                behaviors=[Behavior(id="b1", description="x",
-                                    acceptance_criteria=["a"])],
-                created_at=_ts(), last_updated=_ts(), state_changed_at=_ts(),
+                behaviors=[
+                    Behavior(id="b1", description="x", acceptance_criteria=["a"])
+                ],
+                created_at=_ts(),
+                last_updated=_ts(),
+                state_changed_at=_ts(),
             ),
             Capability(
-                id="priorities", title="Priorities",
+                id="priorities",
+                title="Priorities",
                 state=CapabilityState.BACKLOG,
-                created_at=_ts(), last_updated=_ts(), state_changed_at=_ts(),
+                created_at=_ts(),
+                last_updated=_ts(),
+                state_changed_at=_ts(),
             ),
         ],
         non_goals=[NonGoal(id="no-multi-user", text="Multi-user")],
         generated_at=_ts(),
     )
-    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "docs" / "project.structured.yaml").write_text(
+    (tmp_path / ".jig" / "spec").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".jig" / "spec" / "project.structured.yaml").write_text(
         yaml.safe_dump(spec.model_dump(mode="json", by_alias=True))
     )
     return tmp_path
@@ -52,7 +64,8 @@ def spec_path(tmp_path):
 @pytest.mark.asyncio
 async def test_spec_list_capabilities_returns_summary(spec_path):
     out = await handle_spec_list_capabilities(
-        project_path=spec_path, state=None,
+        project_path=spec_path,
+        state=None,
     )
     assert {c["id"] for c in out} == {"due-dates", "priorities"}
     assert all({"id", "title", "state"} <= c.keys() for c in out)
@@ -61,7 +74,8 @@ async def test_spec_list_capabilities_returns_summary(spec_path):
 @pytest.mark.asyncio
 async def test_spec_list_capabilities_filters_by_state(spec_path):
     out = await handle_spec_list_capabilities(
-        project_path=spec_path, state="planned",
+        project_path=spec_path,
+        state="planned",
     )
     assert [c["id"] for c in out] == ["due-dates"]
 
@@ -69,7 +83,8 @@ async def test_spec_list_capabilities_filters_by_state(spec_path):
 @pytest.mark.asyncio
 async def test_spec_get_capability_returns_full_object(spec_path):
     out = await handle_spec_get_capability(
-        project_path=spec_path, id="due-dates",
+        project_path=spec_path,
+        id="due-dates",
     )
     assert out["id"] == "due-dates"
     assert len(out["behaviors"]) == 1
@@ -84,7 +99,9 @@ async def test_spec_get_capability_raises_on_unknown(spec_path):
 @pytest.mark.asyncio
 async def test_spec_get_behavior(spec_path):
     out = await handle_spec_get_behavior(
-        project_path=spec_path, capability_id="due-dates", behavior_id="b1",
+        project_path=spec_path,
+        capability_id="due-dates",
+        behavior_id="b1",
     )
     assert out["id"] == "b1"
 
@@ -98,7 +115,8 @@ async def test_spec_list_non_goals(spec_path):
 @pytest.mark.asyncio
 async def test_spec_get_non_goal(spec_path):
     out = await handle_spec_get_non_goal(
-        project_path=spec_path, id="no-multi-user",
+        project_path=spec_path,
+        id="no-multi-user",
     )
     assert out["text"] == "Multi-user"
 
@@ -141,7 +159,8 @@ async def test_spec_generate_from_brief_first_time(tmp_path):
     await tickets.load()
 
     result = await handle_spec_generate_from_brief(
-        project_path=tmp_path, tickets=tickets,
+        project_path=tmp_path,
+        tickets=tickets,
     )
     assert result["gaps"] == []
     spec = result["spec"]
@@ -165,7 +184,8 @@ async def test_spec_generate_from_brief_returns_format_gaps(tmp_path):
     await tickets.load()
 
     result = await handle_spec_generate_from_brief(
-        project_path=tmp_path, tickets=tickets,
+        project_path=tmp_path,
+        tickets=tickets,
     )
     assert result["spec"] is None
     assert len(result["gaps"]) >= 1
@@ -179,25 +199,31 @@ async def test_spec_generate_from_brief_preserves_metadata_on_regen(tmp_path):
     from jig.init_mcp import handle_spec_generate_from_brief
     from jig.store.tickets import TicketStore
     from jig.spec_schema import (
-        Capability, CapabilityState, StructuredSpec,
+        Capability,
+        CapabilityState,
+        StructuredSpec,
     )
     import yaml
 
     (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".jig" / "spec").mkdir(parents=True, exist_ok=True)
     earlier = datetime(2026, 1, 1, tzinfo=timezone.utc)
     existing = StructuredSpec(
-        name="x", summary="y",
+        name="x",
+        summary="y",
         capabilities=[
             Capability(
-                id="mobile-app", title="Mobile app",
+                id="mobile-app",
+                title="Mobile app",
                 state=CapabilityState.BACKLOG,
-                created_at=earlier, last_updated=earlier,
+                created_at=earlier,
+                last_updated=earlier,
                 state_changed_at=earlier,
             ),
         ],
         generated_at=earlier,
     )
-    (tmp_path / "docs" / "project.structured.yaml").write_text(
+    (tmp_path / ".jig" / "spec" / "project.structured.yaml").write_text(
         yaml.safe_dump(existing.model_dump(mode="json", by_alias=True))
     )
     (tmp_path / "docs" / "brief.md").write_text(
@@ -207,10 +233,13 @@ async def test_spec_generate_from_brief_preserves_metadata_on_regen(tmp_path):
     await tickets.load()
 
     result = await handle_spec_generate_from_brief(
-        project_path=tmp_path, tickets=tickets,
+        project_path=tmp_path,
+        tickets=tickets,
     )
     spec = result["spec"]
     assert spec is not None
     # Accept both +00:00 and Z suffix — YAML serialization normalises to Z.
     created_at = spec["capabilities"][0]["created_at"]
-    assert created_at.replace("+00:00", "Z") == earlier.isoformat().replace("+00:00", "Z")
+    assert created_at.replace("+00:00", "Z") == earlier.isoformat().replace(
+        "+00:00", "Z"
+    )

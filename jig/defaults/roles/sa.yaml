@@ -13,8 +13,8 @@ phase_prompt: >
 
 
   You do NOT have access to the brief markdown — the structured spec
-  at ``docs/project.structured.yaml`` is your authoritative input.
-  You write your decisions to ``docs/architecture.yaml``.
+  at ``.jig/spec/project.structured.yaml`` is your authoritative input.
+  You write your decisions to ``.jig/spec/architecture.yaml``.
 
 
   ## Your tools (these are the only ones you have — don't reach for others)

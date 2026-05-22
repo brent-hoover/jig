@@ -1,4 +1,5 @@
 """CLI init entry: directory state, stub creation, top-level dispatch."""
+
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -96,6 +97,7 @@ def test_create_stub(tmp_path: Path):
     assert (target / ".jig" / "project.yaml").is_file()
     assert (target / "docs" / "brief.md").is_file()
     import yaml
+
     data = yaml.safe_load((target / ".jig" / "project.yaml").read_text())
     assert data["name"] == "new"
     assert "id" in data
@@ -106,6 +108,7 @@ def test_create_stub_idempotent_when_consistent(tmp_path: Path):
     target = tmp_path / "new"
     create_stub(target, name="new")
     import yaml
+
     first = yaml.safe_load((target / ".jig" / "project.yaml").read_text())
     create_stub(target, name="new")  # should not raise, must not overwrite
     second = yaml.safe_load((target / ".jig" / "project.yaml").read_text())
@@ -254,8 +257,16 @@ async def test_latest_gap_note_returns_most_recent(tmp_path: Path):
             ticket_id="brief",
             author="spec-generator",
             text="first",
-            payload={"gaps": [{"kind": "missing", "severity": "blocking",
-                               "location": "x", "description": "d1"}]},
+            payload={
+                "gaps": [
+                    {
+                        "kind": "missing",
+                        "severity": "blocking",
+                        "location": "x",
+                        "description": "d1",
+                    }
+                ]
+            },
         )
     )
     await threads.post(
@@ -263,8 +274,16 @@ async def test_latest_gap_note_returns_most_recent(tmp_path: Path):
             ticket_id="brief",
             author="spec-generator",
             text="second",
-            payload={"gaps": [{"kind": "ambiguity", "severity": "blocking",
-                               "location": "y", "description": "d2"}]},
+            payload={
+                "gaps": [
+                    {
+                        "kind": "ambiguity",
+                        "severity": "blocking",
+                        "location": "y",
+                        "description": "d2",
+                    }
+                ]
+            },
         )
     )
     note = await latest_gap_note(threads)
@@ -328,16 +347,32 @@ def test_render_sa_confirm_prompt_shows_rationale():
 async def test_latest_scaffold_proposal_returns_most_recent(tmp_path: Path):
     threads = ThreadStore(tmp_path / "comments.jsonl")
     await threads.load()
-    await threads.post(Note(
-        ticket_id="architecture", author="sa", text="first",
-        payload={"kind": "sa_propose_scaffold", "template_name": "python",
-                 "rationale": "simple", "config": {}},
-    ))
-    await threads.post(Note(
-        ticket_id="architecture", author="sa", text="second",
-        payload={"kind": "sa_propose_scaffold", "template_name": "fastapi",
-                 "rationale": "async", "config": {}},
-    ))
+    await threads.post(
+        Note(
+            ticket_id="architecture",
+            author="sa",
+            text="first",
+            payload={
+                "kind": "sa_propose_scaffold",
+                "template_name": "python",
+                "rationale": "simple",
+                "config": {},
+            },
+        )
+    )
+    await threads.post(
+        Note(
+            ticket_id="architecture",
+            author="sa",
+            text="second",
+            payload={
+                "kind": "sa_propose_scaffold",
+                "template_name": "fastapi",
+                "rationale": "async",
+                "config": {},
+            },
+        )
+    )
     proposal = await latest_scaffold_proposal(threads)
     assert proposal is not None
     assert proposal["template_name"] == "fastapi"
@@ -347,7 +382,8 @@ async def test_run_sa_conversation_creates_arch_ticket_and_spawns(
     tmp_path: Path, monkeypatch
 ):
     tickets, threads, memory, bus = await _bootstrap_init_project(
-        tmp_path, roles=("sa",),
+        tmp_path,
+        roles=("sa",),
     )
     captured = {}
 
@@ -413,7 +449,7 @@ async def test_apply_scaffold_direct_path_writes_architecture_yaml(tmp_path: Pat
             threads=threads,
         )
 
-    arch_file = project / "docs" / "architecture.yaml"
+    arch_file = project / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     data = yaml.safe_load(arch_file.read_text())
     assert data["template"] == "python"
@@ -435,11 +471,14 @@ async def test_apply_scaffold_direct_path_writes_architecture_yaml(tmp_path: Pat
 async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
     create_stub(tmp_path / "p", name="p")
     project = tmp_path / "p"
-    arch_dir = project / "docs"
-    yaml_text = yaml.safe_dump({
-        "rationale": "fastapi is a good fit",
-        "data_stores": [{"type": "postgres", "purpose": "primary"}],
-    })
+    arch_dir = project / ".jig" / "spec"
+    arch_dir.mkdir(parents=True, exist_ok=True)
+    yaml_text = yaml.safe_dump(
+        {
+            "rationale": "fastapi is a good fit",
+            "data_stores": [{"type": "postgres", "purpose": "primary"}],
+        }
+    )
     (arch_dir / "architecture.yaml").write_text(yaml_text)
 
     tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
@@ -465,7 +504,7 @@ async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
             threads=threads,
         )
 
-    data = yaml.safe_load((project / "docs" / "architecture.yaml").read_text())
+    data = yaml.safe_load((project / ".jig" / "spec" / "architecture.yaml").read_text())
     assert data["rationale"] == "fastapi is a good fit"
     assert data["sa_path"] is True
     assert data["template"] == "fastapi"
@@ -501,6 +540,7 @@ async def test_apply_scaffold_installs_hooks_by_default(tmp_path: Path):
         )
 
     from jig.hooks import HOOK_NAMES, _is_jig_managed
+
     for name in HOOK_NAMES:
         assert _is_jig_managed(project / ".git" / "hooks" / name), (
             f"{name} not installed by default"
@@ -546,7 +586,7 @@ async def test_apply_scaffold_warns_and_succeeds_when_hook_install_fails(
     assert "hook install skipped" in out
     assert "simulated failure" in out
     # Scaffold's happy path still completed:
-    assert (project / "docs" / "architecture.yaml").is_file()
+    assert (project / ".jig" / "spec" / "architecture.yaml").is_file()
 
 
 def test_print_summary_includes_path_when_target_not_cwd(capsys):

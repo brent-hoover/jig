@@ -1,4 +1,5 @@
 """L0 PO MCP tool handlers + markdown renderer (Track B1, bones)."""
+
 from __future__ import annotations
 
 import pytest
@@ -71,8 +72,11 @@ def test_render_project_md_with_non_goals():
         problem="y",
         audience="z",
         non_goals=[
-            ProductNonGoal(id="no-cms", text="We will not build a CMS",
-                           rationale="out of scope for v2"),
+            ProductNonGoal(
+                id="no-cms",
+                text="We will not build a CMS",
+                rationale="out of scope for v2",
+            ),
             ProductNonGoal(id="no-recs", text="No recommendation engine"),
         ],
     )
@@ -144,7 +148,7 @@ async def test_l0_finalize_writes_structured_yaml(wired):
         ],
         author="po-l0",
     )
-    yaml_path = wired["project_path"] / "docs" / "project.structured.yaml"
+    yaml_path = wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
     assert yaml_path.is_file()
     data = yaml.safe_load(yaml_path.read_text())
     assert data["spec_version"] == 2
@@ -196,7 +200,7 @@ async def test_l0_finalize_emits_handoff(wired):
     assert len(handoffs) == 1
     assert handoffs[0].phase == "po-l1"
     assert "docs/brief.md" in handoffs[0].outputs
-    assert "docs/project.structured.yaml" in handoffs[0].outputs
+    assert ".jig/spec/project.structured.yaml" in handoffs[0].outputs
 
 
 @pytest.mark.asyncio
@@ -271,6 +275,8 @@ async def test_l0_finalize_idempotent_overwrite(wired):
     assert "second" in md
     assert "first pitch" not in md
     data = yaml.safe_load(
-        (wired["project_path"] / "docs" / "project.structured.yaml").read_text()
+        (
+            wired["project_path"] / ".jig" / "spec" / "project.structured.yaml"
+        ).read_text()
     )
     assert data["name"] == "second"

@@ -156,7 +156,7 @@ class JigApp(App):
 
     def _maybe_autostart_daemon(self) -> None:
         """Start the daemon automatically when the project is initialized but idle."""
-        arch = self.project_path / "docs" / "architecture.yaml"
+        arch = self.project_path / ".jig" / "spec" / "architecture.yaml"
         if not arch.is_file():
             return  # project not initialized yet
         status = daemon_status(self.project_path)

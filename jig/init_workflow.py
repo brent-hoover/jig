@@ -465,7 +465,7 @@ async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> N
     existing = await tickets.get("planning")
     if existing is not None:
         return
-    spec_path = project_path / "docs" / "project.structured.yaml"
+    spec_path = project_path / ".jig" / "spec" / "project.structured.yaml"
     description = (
         f"Break down the project spec into implementation tickets.\n\nSpec: {spec_path}"
     )
@@ -510,9 +510,11 @@ def _print_summary(
     c.print()
     c.print(f"  [bold cyan]Brief[/bold cyan]         {target}/docs/brief.md")
     c.print(
-        f"  [bold cyan]Spec[/bold cyan]          {target}/docs/project.structured.yaml"
+        f"  [bold cyan]Spec[/bold cyan]          {target}/.jig/spec/project.structured.yaml"
     )
-    c.print(f"  [bold cyan]Architecture[/bold cyan]  {target}/docs/architecture.yaml")
+    c.print(
+        f"  [bold cyan]Architecture[/bold cyan]  {target}/.jig/spec/architecture.yaml"
+    )
     c.print(
         f"  [bold cyan]Template[/bold cyan]      "
         f"[bright_green]{template_name}[/bright_green]"
@@ -1249,7 +1251,7 @@ async def apply_scaffold(
     )
 
     # 2. Finalize architecture.yaml — preserve any SA-authored fields.
-    arch_file = project_path / "docs" / "architecture.yaml"
+    arch_file = project_path / ".jig" / "spec" / "architecture.yaml"
     arch_file.parent.mkdir(parents=True, exist_ok=True)
     if arch_file.is_file():
         data = yaml.safe_load(arch_file.read_text()) or {}

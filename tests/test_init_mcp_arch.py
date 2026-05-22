@@ -1,4 +1,5 @@
 """spec_get_field / arch_* / sa_propose_scaffold MCP tool handlers."""
+
 import pytest
 import yaml
 
@@ -20,8 +21,7 @@ from jig.ticket import Ticket, WorkType
 @pytest.fixture
 async def wired(tmp_path):
     (tmp_path / ".jig" / "spec").mkdir(parents=True)
-    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "docs" / "project.structured.yaml").write_text(
+    (tmp_path / ".jig" / "spec" / "project.structured.yaml").write_text(
         yaml.safe_dump({"name": "myproj", "capabilities": {"due-dates": {}}})
     )
     tickets = TicketStore(tmp_path / "tickets.jsonl")
@@ -48,9 +48,7 @@ async def wired(tmp_path):
 
 @pytest.mark.asyncio
 async def test_spec_get_field_returns_value(wired):
-    v = await handle_spec_get_field(
-        project_path=wired["project_path"], path="name"
-    )
+    v = await handle_spec_get_field(project_path=wired["project_path"], path="name")
     assert v == "myproj"
 
 
@@ -64,9 +62,7 @@ async def test_spec_get_field_nested(wired):
 
 @pytest.mark.asyncio
 async def test_spec_get_field_missing_returns_none(wired):
-    v = await handle_spec_get_field(
-        project_path=wired["project_path"], path="nope"
-    )
+    v = await handle_spec_get_field(project_path=wired["project_path"], path="nope")
     assert v is None
 
 
@@ -86,7 +82,7 @@ async def test_arch_set_field_creates_file(wired):
         value="because I said so",
         author="sa",
     )
-    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
+    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
     assert arch_file.is_file()
     data = yaml.safe_load(arch_file.read_text())
     assert data["rationale"] == "because I said so"
@@ -101,7 +97,7 @@ async def test_arch_set_field_nested(wired):
         value={"type": "postgres", "purpose": "primary"},
         author="sa",
     )
-    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
+    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
     data = yaml.safe_load(arch_file.read_text())
     assert data["data_stores"][0]["type"] == "postgres"
 
@@ -115,9 +111,7 @@ async def test_arch_get_field_reads_back(wired):
         value="python",
         author="sa",
     )
-    v = await handle_arch_get_field(
-        project_path=wired["project_path"], path="language"
-    )
+    v = await handle_arch_get_field(project_path=wired["project_path"], path="language")
     assert v == "python"
 
 
@@ -190,12 +184,15 @@ async def test_arch_list_templates_returns_metadata():
     templates = await handle_arch_list_templates()
     assert templates, "expected at least one shipped template"
     names = {t["name"] for t in templates}
-    assert names & {"fastapi", "python"}, (
-        f"expected shipped templates in {names}"
-    )
+    assert names & {"fastapi", "python"}, f"expected shipped templates in {names}"
     for t in templates:
-        assert {"name", "description", "language", "framework",
-                "deploy_target"} <= t.keys()
+        assert {
+            "name",
+            "description",
+            "language",
+            "framework",
+            "deploy_target",
+        } <= t.keys()
         assert isinstance(t["name"], str)
         assert isinstance(t["language"], str)
 
@@ -223,7 +220,7 @@ async def test_arch_set_field_three_segment_path_with_list_index(wired):
         value="postgres",
         author="sa",
     )
-    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
+    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
     data = yaml.safe_load(arch_file.read_text())
     assert data == {"data_stores": [{"type": "postgres"}]}
 
@@ -244,7 +241,7 @@ async def test_arch_set_field_disjoint_writes_both_persist(wired):
         value="python",
         author="sa",
     )
-    arch_file = wired["project_path"] / "docs" / "architecture.yaml"
+    arch_file = wired["project_path"] / ".jig" / "spec" / "architecture.yaml"
     data = yaml.safe_load(arch_file.read_text())
     assert data["rationale"] == "async backend"
     assert data["language"] == "python"
@@ -267,7 +264,9 @@ async def test_arch_set_field_posts_tool_use_note(wired):
 
 
 @pytest.mark.asyncio
-async def test_arch_set_field_descend_list_with_non_numeric_key_raises_valueerror(wired):
+async def test_arch_set_field_descend_list_with_non_numeric_key_raises_valueerror(
+    wired,
+):
     # First, set up a list at "items".
     await handle_arch_set_field(
         threads=wired["threads"],

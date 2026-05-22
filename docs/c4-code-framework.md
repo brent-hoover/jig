@@ -56,7 +56,7 @@ Captures project pitch, problem, audience, and product-level non-goals in 3-5 tu
 
 **Key Functions**:
 - `handle_l0_finalize(tickets, threads, bus, project_path, name, pitch, problem, audience, non_goals, author) -> str`
-  - Constructs `Project` schema, writes `docs/brief.md` (markdown) + `docs/project.structured.yaml`
+  - Constructs `Project` schema, writes `docs/brief.md` (markdown) + `.jig/spec/project.structured.yaml`
   - Posts `Handoff` to thread, publishes orchestrator message, resolves post-handoff state
   - Returns handoff entry id
   - Location: lines 103-175
@@ -577,7 +577,7 @@ Top-level loaders for all artifacts:
 
 ```
 L0 (Project)
-  ↓ writes docs/brief.md + docs/project.structured.yaml
+  ↓ writes docs/brief.md + .jig/spec/project.structured.yaml
   ↓ posts Handoff("po-l1") → orchestrator routes to L1 PO
 L1 (Discovery)
   ↓ writes .jig/spec/discovery.md + .jig/spec/discovery.structured.yaml

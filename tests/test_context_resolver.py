@@ -553,7 +553,7 @@ async def test_resolve_project_spec_capability_via_context_resolver(tmp_path):
         StructuredSpec,
     )
 
-    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".jig" / "spec").mkdir(parents=True, exist_ok=True)
     spec = StructuredSpec(
         name="x",
         summary="y",
@@ -570,7 +570,7 @@ async def test_resolve_project_spec_capability_via_context_resolver(tmp_path):
         ],
         generated_at=datetime.now(timezone.utc),
     )
-    (tmp_path / "docs" / "project.structured.yaml").write_text(
+    (tmp_path / ".jig" / "spec" / "project.structured.yaml").write_text(
         yaml.safe_dump(spec.model_dump(mode="json", by_alias=True))
     )
     out = await _resolve_project(

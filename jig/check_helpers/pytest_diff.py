@@ -143,8 +143,7 @@ def _git_diff(base: str) -> str:
         # ``git diff`` failing (e.g. bad ref) is treated as a hard
         # error by the caller — log to stderr and return empty.
         sys.stderr.write(
-            f"pytest_diff: git diff against {base!r} failed: "
-            f"{result.stderr.strip()}\n"
+            f"pytest_diff: git diff against {base!r} failed: {result.stderr.strip()}\n"
         )
     return result.stdout
 
@@ -288,9 +287,7 @@ def _resolve_test_entries(
         try:
             tree = ast.parse(source)
         except SyntaxError:
-            sys.stderr.write(
-                f"pytest_diff: {path_rel} fails to parse; skipping\n"
-            )
+            sys.stderr.write(f"pytest_diff: {path_rel} fails to parse; skipping\n")
             continue
         source_lines = source.splitlines()
         for func, class_name in _walk_test_funcs(tree):
@@ -372,8 +369,7 @@ def _red_verdict_from_junit(xml_path: Path) -> int:
             bad.append((ident, "passed"))
     if bad:
         sys.stderr.write(
-            "tdd: every new test must fail at commit time, but the "
-            "following did not:\n"
+            "tdd: every new test must fail at commit time, but the following did not:\n"
         )
         for ident, outcome in bad:
             sys.stderr.write(f"  - {ident} ({outcome})\n")

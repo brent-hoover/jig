@@ -4,7 +4,7 @@ type: problem
 status: draft
 owner: brent
 created: 2026-05-22
-updated: 2026-05-22
+updated: 2026-05-22  # bumped after roborev #106 review
 ---
 
 # Reviewer file-scoping and test-reviewer expansion — Problem Statement
@@ -76,16 +76,55 @@ class of bug, less commonly triggered.
 
 Add a `reads_glob` field to each reviewer's role config. The
 orchestrator filters the diff (and the files made readable to the
-reviewer) by that glob before spawn. Non-test reviewers get
-`reads_glob: ["src/**"]`; the test reviewer gets
-`reads_glob: ["tests/**", "conftest.py", "pyproject.toml"]`. A
-reviewer literally cannot see files outside its scope, so it cannot
-file findings on them.
+reviewer) by that glob before spawn.
+
+The scope is an **include-set**, not just `src/**`, because
+implementation-owned non-test files (`pyproject.toml`, `uv.lock`,
+`Dockerfile`, `*.cfg`, top-level scripts) legitimately fall under
+security / architecture / performance / pattern-conformance
+review. Non-test reviewers get something like:
+
+```
+reads_glob:
+  - "src/**"
+  - "jig/**"          # this repo's package layout
+  - "pyproject.toml"
+  - "uv.lock"
+  - "Dockerfile"
+  - "scripts/**"
+  - "docs/**"
+exclude:
+  - "tests/**"
+  - "conftest.py"
+```
+
+The test reviewer gets:
+
+```
+reads_glob:
+  - "tests/**"
+  - "conftest.py"
+  - "pyproject.toml"   # for pytest config + dev deps
+```
+
+A reviewer literally cannot see files outside its scope, so it
+cannot file findings on them.
+
+**The orchestrator becomes the sole diff source.** Diff filtering
+at spawn time is meaningless if reviewers can shell out to
+`git diff main..HEAD` themselves and see everything. Each reviewer
+role's `allowed_tools` drops the unrestricted `Bash(git diff*)`
+entry. The orchestrator (or the per-agent MCP server) exposes a
+single `reviewer_get_diff` tool that returns the diff already
+scoped to the reviewer's `reads_glob`. Same applies to `Read` —
+non-test reviewers cannot Read paths under `tests/**`.
 
 Reinforce in the role prompts: "Files outside `reads_glob` are
-filtered out of your input. Do not spend turns probing for them.
-They're owned by another reviewer." This saves probing budget on
-top of the mechanical guard.
+filtered out of your input. There is no git-diff shell command
+available — use the `reviewer_get_diff` tool instead. Do not
+spend turns probing for files outside your scope; they're owned
+by another reviewer." This saves probing budget on top of the
+mechanical guard.
 
 Expand `reviewer-test-adequacy`'s prompt to cover the test-quality
 ground the other reviewers used to opportunistically cover:
@@ -153,12 +192,26 @@ cost as today.
 
 ## Requirements
 
-- Each reviewer role config carries a `reads_glob` field; non-test
-  reviewers exclude `tests/**`, the test reviewer is scoped to
-  test-related paths.
+- Each reviewer role config carries a `reads_glob` (include-set)
+  and an optional `exclude` (exclude-set). Non-test reviewers
+  include `src/**` and implementation-owned non-test paths
+  (`pyproject.toml`, `uv.lock`, `Dockerfile`, `scripts/**`,
+  `docs/**`) and exclude `tests/**` + `conftest.py`. The test
+  reviewer includes `tests/**` and `conftest.py` (plus
+  `pyproject.toml` for pytest config visibility).
 
-- Orchestrator filters the diff handed to each reviewer by its
-  `reads_glob`. A reviewer cannot see content outside its scope.
+- The orchestrator becomes the **sole diff source** for reviewers.
+  Each non-test reviewer role's `allowed_tools` drops the
+  unrestricted `Bash(git diff*)` entry. The orchestrator (or its
+  per-agent MCP server) exposes a `reviewer_get_diff` tool that
+  returns the diff pre-filtered by the reviewer's `reads_glob`.
+  Without this, an unscoped `git diff main..HEAD` still exposes
+  every file regardless of the orchestrator-side filter.
+
+- `Read` access is similarly path-restricted. Non-test reviewers
+  cannot read files under `tests/**`. Determines whether to use
+  the SDK's `allowed_tools` path-pattern syntax (if supported) or
+  a per-agent MCP `reviewer_read_file` that enforces scope.
 
 - A reviewer that nonetheless attempts to file a finding outside
   its scope is rejected at the routing layer (the finding's file
@@ -175,7 +228,8 @@ cost as today.
   fixture-duplication issue in tests is either flagged by
   test-adequacy alone (legitimate) or not flagged at all
   (acceptable per its quality bar); pattern-conformance never sees
-  the test files.
+  the test files via the orchestrator-served diff, MCP-served
+  Read, OR any remaining Bash escape hatch.
 
 ## Non-goals
 
@@ -230,17 +284,28 @@ cost as today.
 
 - [ ] Does the Claude Code SDK's `allowed_tools` support
   path-pattern restriction on `Read` (e.g. `Read(src/**)`)?
-  If yes, use it as a second layer of defence behind diff
-  filtering. If no, prompt + diff filter only.
+  If yes, use it as the enforcement layer for `Read`. If no,
+  introduce an MCP `reviewer_read_file` tool that enforces
+  scope and drop the unrestricted `Read` entry from reviewer
+  role configs.
+
+- [ ] Diff tooling: confirm we want a new
+  `reviewer_get_diff` MCP tool (returns scoped diff) rather
+  than `Bash(git diff -- <paths>)`. The MCP approach is more
+  robust (can't be composed around); the Bash form is lighter
+  but trusts the reviewer to use the right path-spec.
 
 - [ ] Where does the diff filter live — in `prompt_builder.py`
   (alongside context resolution) or in the reviewer-spawning
   path in `orchestrator.py`? Probably `prompt_builder` since
-  context already routes through there.
+  context already routes through there, but the MCP tool would
+  call into a shared helper either way.
 
-- [ ] What's the exact `reads_glob` for `reviewer-test-adequacy`?
-  Just `tests/**` and `conftest.py`? Also `pyproject.toml`
-  (for pytest config) and `pytest.ini`? Spec out before design.
+- [ ] Exact include-set for each non-test reviewer. The list in
+  "Simplest possible solution" is a starting point; finalise
+  during design. Possible per-reviewer divergence: security
+  may want `Dockerfile` + `uv.lock`; architectural may want
+  `docs/architecture/**`; performance may not need either.
 
 - [ ] Should the test-adequacy prompt's new Consistency section
   be a numbered subsection within "What you flag," or a peer
@@ -250,3 +315,8 @@ cost as today.
 ## Change log
 
 - 2026-05-22: Initial draft (brent)
+- 2026-05-22: Tighten enforcement after roborev #106 — orchestrator
+  becomes sole diff source, drop `Bash(git diff*)` from non-test
+  reviewers, switch to include-set scope so non-test
+  implementation-owned files (pyproject, lockfile, Dockerfile,
+  etc.) remain in review coverage. (brent)

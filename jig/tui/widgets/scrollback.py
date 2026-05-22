@@ -54,9 +54,17 @@ class Scrollback(RichLog):
         # never populated, no Selection is created, and the painting
         # branch below is unreachable. ``Log`` does this in
         # ``_render_line``; upstream ``RichLog`` doesn't.
+        #
+        # Only tag rows that map to actual content. Empty viewport
+        # rows below the buffer (``line_index >= len(self.lines)``)
+        # stay metadata-free, matching ``Log``'s behaviour — without
+        # this guard a drag starting from blank space below the
+        # transcript would create a selection over non-existent
+        # content.
         scroll_x, scroll_y = self.scroll_offset
         line_index = y + scroll_y
-        strip = strip.apply_offsets(scroll_x, line_index)
+        if line_index < len(self.lines):
+            strip = strip.apply_offsets(scroll_x, line_index)
         selection = self.text_selection
         if selection is None:
             return strip

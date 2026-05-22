@@ -219,6 +219,50 @@ async def test_scrollback_strips_carry_selection_offset_metadata(
 
 
 @pytest.mark.asyncio
+async def test_empty_rows_below_content_carry_no_offset_metadata(
+    tmp_path: Path,
+) -> None:
+    """Viewport rows past the end of ``self.lines`` must NOT carry
+    selection offset metadata. If they did, a drag starting from
+    blank space below the transcript would create a Selection over
+    content that doesn't exist. ``Log`` returns ``Strip.blank``
+    without offsets for these rows; ``Scrollback`` should match.
+    """
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import NowScreen
+    from jig.tui.widgets.scrollback import Scrollback
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        now = app.query_one(NowScreen)
+        scrollback = now.query_one("#scrollback", RichLog)
+        assert isinstance(scrollback, Scrollback)
+        scrollback.clear()
+        scrollback.write("only one line of content")
+        await pilot.pause()
+
+        # Row 0 is the populated line — should carry metadata.
+        populated = scrollback.render_line(0)
+        has_offset = any(
+            (seg.style.meta or {}).get("offset") is not None
+            for seg in populated
+            if seg.style is not None
+        )
+        assert has_offset, "populated row should carry offset metadata"
+
+        # Row 5 is past the buffer — should be blank without metadata.
+        empty = scrollback.render_line(5)
+        for seg in empty:
+            if seg.style is None:
+                continue
+            assert (seg.style.meta or {}).get("offset") is None, (
+                "empty viewport row below content must not carry "
+                f"offset metadata; got {seg.style.meta}"
+            )
+
+
+@pytest.mark.asyncio
 async def test_ctrl_c_binding_registered(tmp_path: Path) -> None:
     """The ctrl+c binding must exist at the App level and target
     ``copy_selection`` — otherwise Textual's system-level

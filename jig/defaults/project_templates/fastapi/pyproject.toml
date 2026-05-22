@@ -34,3 +34,6 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
+# src/ layout: tests import from ``myproject.app`` so mypy needs
+# ``src/`` on its module search path.
+mypy_path = "src"

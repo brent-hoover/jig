@@ -32,16 +32,17 @@ checks:
     severity: required
     timeout_s: 120
 
-  # Scoped to ``src/`` because every shipped project template
-  # (python, fastapi) uses a ``src/`` layout. Passing ``.`` would
-  # OVERRIDE any ``[tool.mypy] files = ...`` directive the operator
-  # has set in pyproject.toml AND would drag tests + generated
-  # files into the strict pass. Non-src/ projects (including jig
-  # itself, whose package root is ``jig/``) must override this
-  # entry in ``.jig/checks.yaml`` after init.
+  # Whole-repo strict scope. ``.`` checks every Python file in the
+  # working tree (mypy already auto-ignores ``__pycache__``,
+  # ``.venv``, and ``.git``). Tests are intentionally in scope:
+  # type annotations on test code serve as machine-readable
+  # schema for next-agent fixture consumers. Operators who need
+  # narrower scoping (large legacy codebases, intentionally
+  # untyped subtrees) override the command in
+  # ``.jig/checks.yaml``.
   mypy-strict:
     type: scripted
-    command: "uv run mypy --strict src/"
+    command: "uv run mypy --strict ."
     severity: required
     timeout_s: 300
 

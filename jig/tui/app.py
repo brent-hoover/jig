@@ -32,10 +32,21 @@ class JigApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        # ctrl+c is reserved for Textual's built-in "copy selection" action —
-        # see https://textual.textualize.io/FAQ . Use ctrl+q as the always-on
-        # quit hotkey for typing-mode users who can't press bare 'q'.
+        # ``ctrl+q`` is the always-on quit hotkey for typing-mode users
+        # (bare ``q`` is consumed by Input/TextArea). ``ctrl+c`` is
+        # bound below to a copy-selection action — earlier code freed
+        # ctrl+c expecting Textual's default to be "copy", but
+        # Textual's system-level default for ``ctrl+c`` is actually
+        # ``action_help_quit`` (just shows a notification). Input and
+        # TextArea have their own ``ctrl+c→copy`` for their internal
+        # selection; RichLog doesn't, so dragging a selection across
+        # the scrollback and hitting ctrl+c produced the quit
+        # notification instead of copying. The binding here reads
+        # ``screen.get_selected_text()`` (the App-level cross-widget
+        # selection populated by mouse drag) and routes it through
+        # ``copy_to_clipboard`` (which strips ZWSPs — see below).
         Binding("ctrl+q", "quit", "Quit", show=False),
+        Binding("ctrl+c", "copy_selection", "Copy selection", show=False),
         Binding("question_mark", "help", "Help", priority=True),
         # F1 always-fires (terminal doesn't send it as a printable char,
         # so Input doesn't consume it).
@@ -93,6 +104,37 @@ class JigApp(App):
         from jig.tui import ZWSP
 
         super().copy_to_clipboard(text.replace(ZWSP, ""))
+
+    def action_copy_selection(self) -> None:
+        """Copy the App's active text selection to the clipboard.
+
+        Textual's mouse-drag selection populates
+        ``Screen.get_selected_text()`` across whichever widgets the
+        drag crossed. We route the result through ``copy_to_clipboard``
+        so the ZWSP strip applies (otherwise pasting copied scrollback
+        into a shell breaks ``--flag`` arguments). When there's no
+        active selection we fall back to Textual's stock
+        "press ctrl+q to quit" notification — matches what a user
+        reflexively hitting ctrl+c with nothing selected used to see.
+        """
+        try:
+            text = self.screen.get_selected_text() or ""
+        except Exception:
+            text = ""
+        if text:
+            self.copy_to_clipboard(text)
+            self.screen.clear_selection()
+            self.notify("Copied selection", timeout=2)
+            return
+        # No selection — preserve the upstream "did you mean to quit?"
+        # affordance so reflexive ctrl+c presses don't fail silently.
+        for key, active_binding in self.active_bindings.items():
+            if active_binding.binding.action in ("quit", "app.quit"):
+                self.notify(
+                    f"Press [b]{key}[/b] to quit the app",
+                    title="Do you want to quit?",
+                )
+                return
 
     def __init__(self, project_path: Path) -> None:
         super().__init__()

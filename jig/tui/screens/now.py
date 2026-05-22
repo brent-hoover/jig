@@ -13,6 +13,7 @@ from textual.widgets import RichLog, Static, TextArea
 
 from jig.tui.slash import ParsedSlash, SlashParseError, parse_slash
 from jig.tui.widgets.multi_pane_stream import MultiPaneStream
+from jig.tui.widgets.scrollback import Scrollback
 
 
 # Authoritative list of slash commands the operator can use. Drives both
@@ -374,7 +375,15 @@ class NowScreen(Container):
         # min_width=0 lets ``shrink=True`` (the write-time default)
         # clamp the render width to the widget's actual content area,
         # so Markdown and other renderables wrap at the right place.
-        yield RichLog(
+        #
+        # ``Scrollback`` is a ``RichLog`` subclass that paints the
+        # text-selection highlight in ``render_line``. Upstream
+        # ``RichLog`` updates selection state but never overlays the
+        # ``screen--selection`` style on the rendered cells — so
+        # drag-selecting from the scrollback shows no highlight even
+        # though Textual is tracking the range internally. See
+        # ``jig.tui.widgets.scrollback`` for the override.
+        yield Scrollback(
             id="scrollback",
             auto_scroll=True,
             markup=True,

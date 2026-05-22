@@ -32,16 +32,29 @@ checks:
     severity: required
     timeout_s: 120
 
+  # Path scoping is delegated to ``[tool.mypy] files = ...`` in the
+  # project's pyproject.toml — the modern idiom. ``mypy --strict src/``
+  # would fail on any project that doesn't use a ``src/`` layout
+  # (including jig itself, whose root package is ``jig/``).
   mypy-strict:
     type: scripted
-    command: "uv run mypy --strict src/"
+    command: "uv run mypy --strict ."
     severity: required
     timeout_s: 300
 
   # Diff-scoped checks for the test + implement phases. The helper
   # reads ``JIG_TICKET_BASE`` (set by the orchestrator from the
-  # worktree's base branch) to know what to diff against; falls back
-  # to ``git merge-base HEAD origin/develop`` when unset.
+  # worktree's base branch) to know what to diff against; when unset,
+  # ``_detect_base`` probes candidate refs in order:
+  # ``origin/develop`` → ``develop`` → ``main`` → ``master`` →
+  # ``HEAD~1`` and uses the first that resolves.
+
+  # bare ``python`` (not ``uv run python``) is intentional for these
+  # two: the command must resolve to the interpreter that has the
+  # ``jig`` package on ``sys.path`` — system Python inside the Docker
+  # sandbox, the active venv when running ``--no-docker``. Switching
+  # to ``uv run python`` would resolve to the TARGET project's uv
+  # environment, which has no ``jig`` installed, breaking the helper.
 
   # Implement-phase: every test added/modified in this ticket's diff
   # must pass. Existing tests outside the diff are not checked (those

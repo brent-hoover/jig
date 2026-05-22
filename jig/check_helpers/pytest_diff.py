@@ -73,7 +73,12 @@ class _TestEntry:
 
 
 _DIFF_FILE_HEADER = re.compile(r"^\+\+\+ b/(.+)$")
-_TEST_FILE_PATH = re.compile(r"(?:^|/)test_[^/]+\.py$|/tests/.+_test\.py$")
+# Pytest's collection convention: a Python source file is a test
+# module when its basename is ``test_<...>.py`` or ``<...>_test.py``.
+# Both alternatives anchor at a path boundary (start of string or
+# ``/``) — git diff paths like ``tests/foo_test.py`` have NO leading
+# slash, so we mustn't require one.
+_TEST_FILE_PATH = re.compile(r"(?:^|/)test_[^/]+\.py$|(?:^|/)[^/]+_test\.py$")
 # ``@@ -<old>,<oldlen> +<new>,<newlen> @@``. The ``<oldlen>`` and
 # ``<newlen>`` parts are optional (git omits them when the count is
 # 1). We capture the new-side start line and length.

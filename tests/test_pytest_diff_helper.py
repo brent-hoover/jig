@@ -111,6 +111,28 @@ def test_changed_lines_nested_test_directory() -> None:
     assert _extract_changed_lines(diff) == {"tests/integration/test_flow.py": {10, 11}}
 
 
+def test_changed_lines_recognizes_underscore_test_suffix() -> None:
+    """Pytest collects both ``test_*.py`` and ``*_test.py``. Git
+    diff paths have no leading slash, so the path regex must accept
+    ``tests/foo_test.py`` (and ``pkg/foo_test.py``). Pre-fix the
+    second alternative required a leading ``/`` and silently dropped
+    every hunk for these files.
+    """
+    diff = """\
++++ b/tests/foo_test.py
+@@ -0,0 +1,2 @@
++def test_a():
++    pass
++++ b/pkg/bar_test.py
+@@ -0,0 +5,1 @@
++def test_b(): pass
+"""
+    assert _extract_changed_lines(diff) == {
+        "tests/foo_test.py": {1, 2},
+        "pkg/bar_test.py": {5},
+    }
+
+
 # ---------------------------------------------------------------------------
 # _resolve_test_entries
 # ---------------------------------------------------------------------------

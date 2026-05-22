@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -208,9 +209,7 @@ class ScriptedRunner:
         # sees both PATH-style globals AND the orchestrator's
         # per-ticket additions.
         if self._extra_env is not None:
-            import os as _os
-
-            spawn_env: dict[str, str] | None = {**_os.environ, **self._extra_env}
+            spawn_env: dict[str, str] | None = {**os.environ, **self._extra_env}
         else:
             spawn_env = None
         try:

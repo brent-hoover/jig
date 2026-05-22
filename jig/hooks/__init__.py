@@ -296,7 +296,13 @@ def _print_failure_summary(failures: list[str]) -> None:
 
 
 async def run_pre_commit(project_path: Path) -> int:
-    """Execute all required scripted checks in the catalog.
+    """Execute every required, hook-eligible scripted check in the catalog.
+
+    The shipped catalog targets workflow-phase handoff gates (full
+    pytest, mypy, the diff-scoped pytest helpers) — too heavy to run
+    on every commit. Only entries explicitly marked
+    ``hook_eligible: true`` in ``.jig/checks.yaml`` execute from this
+    hook. Operators opt in per check.
 
     Returns the exit code the hook should terminate with.
     """
@@ -304,10 +310,14 @@ async def run_pre_commit(project_path: Path) -> int:
     required_scripted = [
         (name, check)
         for name, check in catalog.root.items()
-        if isinstance(check, ScriptedCheck) and check.severity is CheckSeverity.REQUIRED
+        if isinstance(check, ScriptedCheck)
+        and check.severity is CheckSeverity.REQUIRED
+        and check.hook_eligible
     ]
     if not required_scripted:
-        click.echo("jig pre-commit: no required scripted checks; skipping")
+        click.echo(
+            "jig pre-commit: no hook-eligible required scripted checks; skipping"
+        )
         return 0
 
     failures: list[str] = []

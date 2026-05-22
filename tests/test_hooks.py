@@ -306,10 +306,60 @@ def _seed_catalog(project_path: Path, body: str) -> None:
 
 
 def test_run_pre_commit_no_catalog_exits_zero(tmp_path: Path, capsys):
+    # ``run_pre_commit`` now reads ``hook_eligible`` from each check
+    # and only runs the marked ones. With no project-local
+    # ``.jig/checks.yaml`` the loader still falls back to the shipped
+    # catalog, but none of the shipped entries are hook-eligible —
+    # so the hook is a no-op for unconfigured projects (matching
+    # prior behaviour before the catalog fallback was added).
     _git_init(tmp_path)
     rc = asyncio.run(run_pre_commit(tmp_path))
     assert rc == 0
-    assert "no required scripted checks" in capsys.readouterr().out
+    assert "no hook-eligible required scripted checks" in capsys.readouterr().out
+
+
+def test_run_pre_commit_shipped_catalog_not_hook_eligible(
+    tmp_path: Path, capsys
+) -> None:
+    """The shipped catalog must NOT run on every commit.
+
+    Regression guard: when ``load_check_catalog`` falls back to the
+    shipped ``jig/defaults/checks.yaml``, none of the entries
+    (``pytest-all``, ``mypy-strict``, ``pytest-new-tests-fail``,
+    etc.) are hook_eligible — running them on every commit would
+    catastrophically slow down operator workflows and the
+    contradictory red/green pair would always fail.
+    """
+    _git_init(tmp_path)
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0
+    # The shipped pytest entries didn't run — message confirms skip.
+    assert "no hook-eligible" in capsys.readouterr().out
+
+
+def test_run_pre_commit_runs_only_hook_eligible_checks(
+    tmp_path: Path, capsys
+) -> None:
+    """Mixed catalog: only entries with ``hook_eligible: true`` run."""
+    _git_init(tmp_path)
+    _seed_catalog(
+        tmp_path,
+        """
+checks:
+  fast-lint:
+    type: scripted
+    command: "true"
+    severity: required
+    hook_eligible: true
+  slow-suite:
+    type: scripted
+    command: "exit 1"
+    severity: required
+""",
+    )
+    # If ``slow-suite`` ran, the hook would fail (it exits 1).
+    rc = asyncio.run(run_pre_commit(tmp_path))
+    assert rc == 0
 
 
 def test_run_pre_commit_all_pass(tmp_path: Path, capsys):
@@ -322,10 +372,12 @@ checks:
     type: scripted
     command: "true"
     severity: required
+    hook_eligible: true
   format:
     type: scripted
     command: "true"
     severity: required
+    hook_eligible: true
 """,
     )
     rc = asyncio.run(run_pre_commit(tmp_path))
@@ -342,14 +394,17 @@ checks:
     type: scripted
     command: "true"
     severity: required
+    hook_eligible: true
   broken:
     type: scripted
     command: "exit 3"
     severity: required
+    hook_eligible: true
   alsobroken:
     type: scripted
     command: "exit 4"
     severity: required
+    hook_eligible: true
 """,
     )
     rc = asyncio.run(run_pre_commit(tmp_path))
@@ -370,6 +425,7 @@ checks:
     type: scripted
     command: "exit 1"
     severity: warning
+    hook_eligible: true
 """,
     )
     rc = asyncio.run(run_pre_commit(tmp_path))
@@ -386,6 +442,7 @@ checks:
     type: implementation_aware_agent
     template: "review the diff"
     severity: required
+    hook_eligible: true
 """,
     )
     rc = asyncio.run(run_pre_commit(tmp_path))

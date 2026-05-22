@@ -34,7 +34,10 @@ include = ["jig*"]
 # Synthetic operator persona YAMLs (Track H3, bones). bones ships only
 # methodical; MVP/Final extend with the rest.
 "jig.sim.personas" = ["*.yaml"]
-# Built-in defaults: roles, workflows, work_types, profiles shipped with the package.
+# Built-in defaults: roles, workflows, work_types, profiles, and the
+# shipped check catalog (loaded as a fallback when the project lacks
+# ``.jig/checks.yaml``).
+"jig.defaults" = ["checks.yaml"]
 "jig.defaults.roles" = ["*.yaml"]
 "jig.defaults.workflows" = ["*.yaml"]
 "jig.defaults.work_types" = ["*.yaml"]

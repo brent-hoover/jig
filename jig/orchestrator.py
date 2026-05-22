@@ -2618,6 +2618,23 @@ class Orchestrator:
             return
 
         catalog = load_check_catalog(self._project_path)
+        # Tell scripted checks (notably the diff-scoped pytest helpers
+        # at ``jig.check_helpers.pytest_diff``) what to diff against.
+        # We pass the LOCAL branch name (no ``origin/`` prefix) because
+        # worktrees are created off the project's local default branch
+        # and share its git object store — the local ref always
+        # resolves. A bare ``origin/<branch>`` would silently produce
+        # an empty diff (helper sees no new tests, gate passes
+        # vacuously) on hosts that haven't fetched the remote, or on
+        # projects with no remote configured at all. Chained tickets
+        # (branched off a prior ticket's branch) get a wider diff than
+        # strictly necessary — the gate runs more tests than minimally
+        # required but doesn't produce wrong verdicts. The helper
+        # validates the ref and exits non-zero if it doesn't resolve.
+        default_branch = (
+            self._project.default_branch if self._project is not None else "main"
+        )
+        extra_env = {"JIG_TICKET_BASE": default_branch}
         verdict = await run_handoff_gate(
             handoff_id=pending_hid,
             tickets=self.tickets,
@@ -2628,6 +2645,7 @@ class Orchestrator:
             worktree_path=worktree_path,
             project_path=self._project_path,
             bus=self.bus,
+            extra_env=extra_env,
         )
         if not verdict.passing:
             _logger.info(

@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -155,12 +156,19 @@ class ScriptedRunner:
         worktree_path: Path,
         author: str = "harness",
         bus: MessageBus | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> None:
         self._catalog = catalog
         self._results = results
         self._worktree = worktree_path
         self._author = author
         self._bus = bus
+        # Extra environment variables merged on top of the inherited
+        # ``os.environ`` when each check spawns its subprocess. The
+        # orchestrator uses this to thread ``JIG_TICKET_BASE`` (the
+        # ticket's worktree base ref) through to the diff-scoped
+        # pytest helpers — they need to know what to diff against.
+        self._extra_env = dict(extra_env) if extra_env else None
 
     async def run_check(
         self,
@@ -194,6 +202,16 @@ class ScriptedRunner:
         # interpretation is intentional so entries like ``pytest -q``
         # or ``cd sub && make`` work. Invoked via ``/bin/sh -c`` (exec
         # path, not string-to-shell) so the contract is explicit.
+        #
+        # Merge ``extra_env`` over inherited environment. Passing
+        # ``env=None`` inherits ``os.environ``; passing a dict
+        # replaces it entirely. Copy + overlay so the subprocess
+        # sees both PATH-style globals AND the orchestrator's
+        # per-ticket additions.
+        if self._extra_env is not None:
+            spawn_env: dict[str, str] | None = {**os.environ, **self._extra_env}
+        else:
+            spawn_env = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "/bin/sh",
@@ -202,6 +220,7 @@ class ScriptedRunner:
                 cwd=str(cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                env=spawn_env,
             )
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
             finished_at = datetime.now(timezone.utc)

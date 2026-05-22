@@ -1,0 +1,83 @@
+# Shipped check catalog for jig.
+#
+# ``load_check_catalog`` falls back to this file when the project
+# doesn't override at ``.jig/checks.yaml``. Profile-apply also copies
+# this file into ``.jig/checks.yaml`` so operators have an editable
+# starting point.
+#
+# Five entries cover the test/implement/validate phase gates:
+#
+# * ``pytest-all``, ``ruff-check``, ``mypy-strict`` — full-suite checks
+#   that fire at the validate phase. Catch regressions and integration
+#   breaks at the end-of-ticket boundary.
+#
+# * ``pytest-diff-tests``, ``pytest-new-tests-fail`` — diff-scoped
+#   checks for the test (red) and implement (green) phases. Scale to
+#   large projects by running only the tests in the current ticket's
+#   diff, not the full suite.
+#
+# See ``feature-work/test-rigor/design.md`` for the full rationale.
+
+checks:
+  # Full-suite checks for the validate phase.
+  pytest-all:
+    type: scripted
+    command: "uv run pytest -q"
+    severity: required
+    timeout_s: 900
+
+  ruff-check:
+    type: scripted
+    command: "uv run ruff check ."
+    severity: required
+    timeout_s: 120
+
+  # Path scoping is delegated to ``[tool.mypy] files = ...`` in the
+  # project's pyproject.toml. The shipped templates set this to
+  # ``["src", "tests"]`` — tests are intentionally in scope because
+  # type annotations on test code serve as machine-readable schema
+  # for next-agent fixture consumers. Operators applying jig to
+  # existing projects either set ``files`` themselves or override
+  # this command in ``.jig/checks.yaml``; mypy will say "no files
+  # to check" if neither is configured, which is loud and
+  # actionable.
+  mypy-strict:
+    type: scripted
+    command: "uv run mypy --strict"
+    severity: required
+    timeout_s: 300
+
+  # Diff-scoped checks for the test + implement phases. The helper
+  # reads ``JIG_TICKET_BASE`` (set by the orchestrator from the
+  # worktree's base branch) to know what to diff against; when unset,
+  # ``_detect_base`` probes candidate refs in order:
+  # ``origin/develop`` → ``develop`` → ``main`` → ``master`` →
+  # ``HEAD~1`` and uses the first that resolves.
+
+  # bare ``python`` (not ``uv run python``) is intentional for these
+  # two: the command must resolve to the interpreter that has the
+  # ``jig`` package on ``sys.path`` — system Python inside the Docker
+  # sandbox, the active venv when running ``--no-docker``. Switching
+  # to ``uv run python`` would resolve to the TARGET project's uv
+  # environment, which has no ``jig`` installed, breaking the helper.
+
+  # Implement-phase: every test added/modified in this ticket's diff
+  # must pass. Existing tests outside the diff are not checked (those
+  # land at the validate-phase ``pytest-all``).
+  pytest-diff-tests:
+    type: scripted
+    command: "python -m jig.check_helpers.pytest_diff green"
+    severity: required
+    timeout_s: 600
+
+  # Test-phase: every new test in this ticket's diff must FAIL at
+  # commit time. A test that's green-at-commit either tests existing
+  # behavior (not new) or asserts on shape / mock-self (not behavior).
+  # Tests legitimately green at commit need a ``# tdd-baseline: <reason>``
+  # comment above the function or a ``@pytest.mark.tdd_baseline`` marker
+  # to opt out.
+  pytest-new-tests-fail:
+    type: scripted
+    command: "python -m jig.check_helpers.pytest_diff red"
+    severity: required
+    timeout_s: 600

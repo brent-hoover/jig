@@ -108,9 +108,7 @@ def test_changed_lines_nested_test_directory() -> None:
 +def test_e2e():
 +    pass
 """
-    assert _extract_changed_lines(diff) == {
-        "tests/integration/test_flow.py": {10, 11}
-    }
+    assert _extract_changed_lines(diff) == {"tests/integration/test_flow.py": {10, 11}}
 
 
 # ---------------------------------------------------------------------------
@@ -123,12 +121,24 @@ def _write(p: Path, text: str) -> None:
     p.write_text(text)
 
 
+def _resolve(files_with_changes: dict[str, set[int]], worktree: Path):
+    """Test-side wrapper that asserts no fatal errors and returns entries.
+
+    Most tests are happy-path and expect a clean (entries, []) tuple;
+    asserting in the helper keeps each call site terse. Tests that
+    exercise the fatal path call ``_resolve_test_entries`` directly.
+    """
+    entries, fatal = _resolve_test_entries(files_with_changes, worktree)
+    assert fatal == [], f"unexpected fatal errors: {fatal}"
+    return entries
+
+
 def test_resolve_top_level_function(tmp_path: Path) -> None:
     _write(
         tmp_path / "tests" / "test_foo.py",
         "def test_alpha():\n    assert False\n",
     )
-    entries = _resolve_test_entries({"tests/test_foo.py": {1, 2}}, tmp_path)
+    entries = _resolve({"tests/test_foo.py": {1, 2}}, tmp_path)
     assert _select_node_ids(entries) == ["tests/test_foo.py::test_alpha"]
 
 
@@ -153,7 +163,7 @@ def test_resolve_method_inside_existing_class(tmp_path: Path) -> None:
     )
     _write(tmp_path / "tests" / "test_foo.py", body)
     # Lines 8-10 are the new method.
-    entries = _resolve_test_entries({"tests/test_foo.py": {8, 9, 10}}, tmp_path)
+    entries = _resolve({"tests/test_foo.py": {8, 9, 10}}, tmp_path)
     assert _select_node_ids(entries) == ["tests/test_foo.py::TestFoo::test_deep_method"]
 
 
@@ -175,14 +185,14 @@ def test_resolve_only_overlapping_functions_selected(tmp_path: Path) -> None:
     )
     _write(tmp_path / "tests" / "test_foo.py", body)
     # Line 5 is inside test_b.
-    entries = _resolve_test_entries({"tests/test_foo.py": {5}}, tmp_path)
+    entries = _resolve({"tests/test_foo.py": {5}}, tmp_path)
     assert _select_node_ids(entries) == ["tests/test_foo.py::test_b"]
 
 
 def test_resolve_async_function(tmp_path: Path) -> None:
     body = "async def test_alpha():\n    assert False\n"
     _write(tmp_path / "tests" / "test_foo.py", body)
-    entries = _resolve_test_entries({"tests/test_foo.py": {1, 2}}, tmp_path)
+    entries = _resolve({"tests/test_foo.py": {1, 2}}, tmp_path)
     assert _select_node_ids(entries) == ["tests/test_foo.py::test_alpha"]
 
 
@@ -196,7 +206,7 @@ def test_resolve_baseline_comment_marker(tmp_path: Path) -> None:
         ]
     )
     _write(tmp_path / "tests" / "test_x.py", body)
-    entries = _resolve_test_entries({"tests/test_x.py": {1, 2, 3}}, tmp_path)
+    entries = _resolve({"tests/test_x.py": {1, 2, 3}}, tmp_path)
     assert _select_node_ids(entries) == []
     assert len(entries) == 1
     assert entries[0].baseline is True
@@ -214,7 +224,7 @@ def test_resolve_baseline_decorator_plain(tmp_path: Path) -> None:
         ]
     )
     _write(tmp_path / "tests" / "test_x.py", body)
-    entries = _resolve_test_entries({"tests/test_x.py": {3, 4, 5}}, tmp_path)
+    entries = _resolve({"tests/test_x.py": {3, 4, 5}}, tmp_path)
     assert _select_node_ids(entries) == []
 
 
@@ -230,7 +240,7 @@ def test_resolve_baseline_decorator_call(tmp_path: Path) -> None:
         ]
     )
     _write(tmp_path / "tests" / "test_x.py", body)
-    entries = _resolve_test_entries({"tests/test_x.py": {3, 4, 5}}, tmp_path)
+    entries = _resolve({"tests/test_x.py": {3, 4, 5}}, tmp_path)
     assert _select_node_ids(entries) == []
 
 
@@ -249,7 +259,7 @@ def test_resolve_baseline_with_other_decorators(tmp_path: Path) -> None:
         ]
     )
     _write(tmp_path / "tests" / "test_x.py", body)
-    entries = _resolve_test_entries({"tests/test_x.py": {3, 4, 5, 6}}, tmp_path)
+    entries = _resolve({"tests/test_x.py": {3, 4, 5, 6}}, tmp_path)
     assert _select_node_ids(entries) == []
 
 
@@ -268,14 +278,38 @@ def test_resolve_baseline_comment_above_decorator(tmp_path: Path) -> None:
         ]
     )
     _write(tmp_path / "tests" / "test_x.py", body)
-    entries = _resolve_test_entries({"tests/test_x.py": {3, 4, 5, 6}}, tmp_path)
+    entries = _resolve({"tests/test_x.py": {3, 4, 5, 6}}, tmp_path)
     assert _select_node_ids(entries) == []
+
+
+def test_resolve_decorator_only_change_selects_function(tmp_path: Path) -> None:
+    """A change touching only a decorator line (e.g. adding a new
+    ``parametrize`` case above an existing ``def``) must still
+    select the function. Otherwise a developer can add a new
+    parametrized case without it being gated."""
+    body = "\n".join(
+        [
+            "import pytest",
+            "",
+            "@pytest.mark.parametrize('x', [1, 2, 3])",
+            "def test_smoke(x):",
+            "    assert x > 0",
+            "",
+        ]
+    )
+    _write(tmp_path / "tests" / "test_x.py", body)
+    # Only the decorator line (3) is in the change set; the def
+    # itself (4) and the body (5) are unchanged. Pre-fix this
+    # produced an empty selection because the overlap window
+    # started at ``def``.
+    entries = _resolve({"tests/test_x.py": {3}}, tmp_path)
+    assert _select_node_ids(entries) == ["tests/test_x.py::test_smoke"]
 
 
 def test_resolve_non_test_function_ignored(tmp_path: Path) -> None:
     body = "def _helper():\n    return 1\n"
     _write(tmp_path / "tests" / "test_foo.py", body)
-    entries = _resolve_test_entries({"tests/test_foo.py": {1, 2}}, tmp_path)
+    entries = _resolve({"tests/test_foo.py": {1, 2}}, tmp_path)
     assert _select_node_ids(entries) == []
 
 
@@ -291,23 +325,54 @@ def test_resolve_non_test_class_ignored(tmp_path: Path) -> None:
         ]
     )
     _write(tmp_path / "tests" / "test_foo.py", body)
-    entries = _resolve_test_entries({"tests/test_foo.py": {2, 3}}, tmp_path)
+    entries = _resolve({"tests/test_foo.py": {2, 3}}, tmp_path)
     assert _select_node_ids(entries) == []
 
 
-def test_resolve_missing_source_file_skipped(tmp_path: Path) -> None:
-    # File was deleted (e.g. test file removed in the diff). Nothing
-    # to resolve; helper must not raise.
-    entries = _resolve_test_entries(
-        {"tests/test_gone.py": {1, 2}}, tmp_path
-    )
+def test_resolve_missing_source_file_is_fatal(tmp_path: Path) -> None:
+    """A changed file the helper can't read is a fatal error.
+
+    Pre-fix this was silently skipped — if the file was the only
+    one in the diff, ``main`` returned 0 vacuously and disabled
+    the gate. Now ``_resolve_test_entries`` reports the failure
+    via the ``fatal`` return list, and ``main`` propagates it as
+    a non-zero exit.
+    """
+    entries, fatal = _resolve_test_entries({"tests/test_gone.py": {1, 2}}, tmp_path)
     assert entries == []
+    assert len(fatal) == 1
+    assert "tests/test_gone.py" in fatal[0]
 
 
-def test_resolve_syntax_error_skipped(tmp_path: Path) -> None:
+def test_resolve_syntax_error_is_fatal(tmp_path: Path) -> None:
     _write(tmp_path / "tests" / "test_broken.py", "def test_x(:\n    pass\n")
-    entries = _resolve_test_entries({"tests/test_broken.py": {1, 2}}, tmp_path)
+    entries, fatal = _resolve_test_entries({"tests/test_broken.py": {1, 2}}, tmp_path)
     assert entries == []
+    assert len(fatal) == 1
+    assert "tests/test_broken.py" in fatal[0]
+    assert "parse" in fatal[0]
+
+
+def test_resolve_one_broken_file_does_not_silence_other_good_files(
+    tmp_path: Path,
+) -> None:
+    """Mixed input: a parseable file and a broken file. The good
+    file still yields its entry; the broken one is reported as
+    fatal so the caller can fail the run rather than silently
+    proceeding with a partial answer.
+    """
+    _write(tmp_path / "tests" / "test_ok.py", "def test_a():\n    pass\n")
+    _write(tmp_path / "tests" / "test_broken.py", "def test_x(:\n    pass\n")
+    entries, fatal = _resolve_test_entries(
+        {
+            "tests/test_ok.py": {1, 2},
+            "tests/test_broken.py": {1, 2},
+        },
+        tmp_path,
+    )
+    assert _select_node_ids(entries) == ["tests/test_ok.py::test_a"]
+    assert len(fatal) == 1
+    assert "tests/test_broken.py" in fatal[0]
 
 
 def test_resolve_multiple_files(tmp_path: Path) -> None:
@@ -316,7 +381,7 @@ def test_resolve_multiple_files(tmp_path: Path) -> None:
         tmp_path / "tests" / "test_beta.py",
         "class TestB:\n    def test_x(self):\n        pass\n",
     )
-    entries = _resolve_test_entries(
+    entries = _resolve(
         {
             "tests/test_alpha.py": {1, 2},
             "tests/test_beta.py": {2, 3},
@@ -330,7 +395,9 @@ def test_resolve_multiple_files(tmp_path: Path) -> None:
 
 
 def test_resolve_empty_changes_returns_empty(tmp_path: Path) -> None:
-    assert _resolve_test_entries({}, tmp_path) == []
+    entries, fatal = _resolve_test_entries({}, tmp_path)
+    assert entries == []
+    assert fatal == []
 
 
 # ---------------------------------------------------------------------------
@@ -383,16 +450,21 @@ def test_red_verdict_skipped_fails(tmp_path: Path) -> None:
     assert _red_verdict_from_junit(_junit(tmp_path, xml)) == 1
 
 
-def test_red_verdict_errored_counts_as_failure(tmp_path: Path) -> None:
-    # ``<error>`` is a collection / fixture error — the test didn't
-    # pass, which is what TDD demands. Accept as red.
+def test_red_verdict_errored_does_not_satisfy_gate(tmp_path: Path) -> None:
+    """``<error>`` is a collection / fixture / import failure — the
+    test never reached its assertions, so it can't have proved the
+    new behaviour fails. The gate must reject errored testcases
+    (the helper's stated contract). A fixture that explicitly
+    raises before the assertion would otherwise satisfy red mode
+    without exercising the code under test.
+    """
     xml = (
         "<testsuites><testsuite>"
         f"<testcase classname='tests.test_x' name='test_a'>{_ERR}</testcase>"
         f"<testcase classname='tests.test_x' name='test_b'>{_FAIL}</testcase>"
         "</testsuite></testsuites>"
     )
-    assert _red_verdict_from_junit(_junit(tmp_path, xml)) == 0
+    assert _red_verdict_from_junit(_junit(tmp_path, xml)) == 1
 
 
 def test_red_verdict_empty_xml_fails(tmp_path: Path) -> None:
@@ -469,9 +541,7 @@ def test_ref_resolves_false_for_missing(tmp_path: Path) -> None:
         os.chdir(cwd)
 
 
-def test_main_fails_loudly_when_base_ref_missing(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_main_fails_loudly_when_base_ref_missing(tmp_path: Path, monkeypatch) -> None:
     """A bogus ``JIG_TICKET_BASE`` must fail the check, not vacuously pass.
 
     Pre-fix behaviour: ``git diff origin/missing..HEAD`` returned
@@ -490,9 +560,7 @@ def test_main_fails_loudly_when_base_ref_missing(
         os.chdir(cwd)
 
 
-def test_main_passes_vacuously_when_no_diff_tests(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_main_passes_vacuously_when_no_diff_tests(tmp_path: Path, monkeypatch) -> None:
     """A real ref resolving to no new test functions still passes 0.
 
     This is the documented "empty diff → vacuous pass" path.
@@ -512,3 +580,44 @@ def test_main_passes_vacuously_when_no_diff_tests(
 def test_main_rejects_unknown_mode() -> None:
     assert main(["pytest_diff", "bogus"]) == 2
     assert main(["pytest_diff"]) == 2
+
+
+def test_main_fails_when_changed_test_file_unparseable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """If a changed test file fails to parse, ``main`` must exit
+    non-zero even if no other test files were changed.
+
+    Pre-fix the helper silently skipped the file, ended up with
+    zero node-ids, and exited 0 — disabling the gate. The fix
+    propagates the parse failure as a hard error.
+    """
+    _git_init_with_commit(tmp_path)
+    # Author and commit a broken test file so it shows up in the
+    # diff against the initial commit.
+    broken = tmp_path / "tests" / "test_broken.py"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("def test_x(:\n    pass\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "broken",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    monkeypatch.setenv("JIG_TICKET_BASE", "HEAD~1")
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        assert main(["pytest_diff", "red"]) == 1
+        assert main(["pytest_diff", "green"]) == 1
+    finally:
+        os.chdir(cwd)

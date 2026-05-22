@@ -261,38 +261,60 @@ def _is_baseline(
 
 def _resolve_test_entries(
     files_with_changes: dict[str, set[int]], worktree: Path
-) -> list[_TestEntry]:
+) -> tuple[list[_TestEntry], list[str]]:
     """Build the pytest node-id list from changed line ranges + AST.
+
+    Returns ``(entries, fatal_errors)``. A non-empty ``fatal_errors``
+    list means at least one changed file could not be read or
+    parsed — the caller must treat that as a hard helper failure
+    rather than silently exiting zero (a broken changed test file
+    would otherwise bypass the gate by leaving us with zero
+    resolved node-ids).
 
     For each changed test file we parse the **current** source
     (post-change), enumerate every test function pytest would
-    collect, and check whether the function's line range overlaps
-    any changed line. Overlapping functions emit one node-id each;
-    baseline-marked functions are flagged for filtering downstream.
+    collect, and check whether the function's line range — including
+    its decorator span — overlaps any changed line. Overlapping
+    functions emit one node-id each; baseline-marked functions are
+    flagged for filtering downstream.
+
+    The start line is the first decorator (when any) rather than
+    the ``def`` itself, so changes that only touch decorators
+    (e.g. adding a new ``@pytest.mark.parametrize`` case) still
+    select the function.
     """
     entries: list[_TestEntry] = []
+    fatal: list[str] = []
     seen: set[str] = set()
     for path_rel, changed_lines in sorted(files_with_changes.items()):
         if not changed_lines:
             continue
         file_path = worktree / path_rel
-        if not file_path.is_file():
-            # File was deleted in the working copy (e.g. test file
-            # removed). Nothing to resolve.
-            continue
         try:
             source = file_path.read_text()
-        except OSError:
+        except OSError as exc:
+            # The diff lists this file on the ``+++ b/<path>`` side,
+            # so the post-change tree should contain it. A read
+            # failure here means an actual environment problem — fail
+            # loudly rather than silently dropping the file.
+            fatal.append(f"{path_rel}: cannot read source ({exc})")
             continue
         try:
             tree = ast.parse(source)
-        except SyntaxError:
-            sys.stderr.write(f"pytest_diff: {path_rel} fails to parse; skipping\n")
+        except SyntaxError as exc:
+            fatal.append(f"{path_rel}: cannot parse as Python ({exc})")
             continue
         source_lines = source.splitlines()
         for func, class_name in _walk_test_funcs(tree):
-            start = func.lineno
-            end = getattr(func, "end_lineno", start) or start
+            # Include decorator lines in the overlap window so
+            # decorator-only modifications (e.g. an added
+            # ``parametrize`` case above an unchanged ``def``) still
+            # select the function.
+            if func.decorator_list:
+                start = min(d.lineno for d in func.decorator_list)
+            else:
+                start = func.lineno
+            end = getattr(func, "end_lineno", func.lineno) or func.lineno
             if not any(start <= ln <= end for ln in changed_lines):
                 continue
             parts: list[str] = [path_rel]
@@ -306,7 +328,7 @@ def _resolve_test_entries(
             entries.append(
                 _TestEntry(node_id=node_id, baseline=_is_baseline(func, source_lines))
             )
-    return entries
+    return entries, fatal
 
 
 def _select_node_ids(entries: Iterable[_TestEntry]) -> list[str]:
@@ -323,10 +345,12 @@ def _run_pytest_green(node_ids: list[str]) -> int:
 def _red_verdict_from_junit(xml_path: Path) -> int:
     """Compute the red-mode exit code from a pytest junit-xml file.
 
-    Returns 0 only when every ``<testcase>`` has a ``<failure>`` or
-    ``<error>`` child — both count as "did not pass". Passed and
-    skipped testcases produce non-zero. An unreadable XML or one
-    with no testcases also produces non-zero (a silent zero would
+    Returns 0 only when every ``<testcase>`` has a ``<failure>``
+    child. ``<error>`` (collection / fixture / import failure) does
+    NOT satisfy the gate — an errored test never reached its
+    assertions, so it can't have proved the assertion fails. Passed
+    and skipped testcases also produce non-zero. An unreadable XML
+    or one with no testcases produces non-zero (a silent zero would
     disable the gate).
 
     Extracted from ``_run_pytest_red`` so the verdict logic is
@@ -359,11 +383,15 @@ def _red_verdict_from_junit(xml_path: Path) -> int:
         name = tc.get("name", "")
         ident = f"{classname}::{name}" if classname else name
         tags = {child.tag for child in tc}
-        if "failure" in tags or "error" in tags:
-            # Failures and errors both count as "red" — the test
-            # didn't pass, which is what TDD demands.
+        if "failure" in tags:
+            # Genuine assertion failure — the test ran and produced
+            # the red outcome the gate demands.
             continue
-        if "skipped" in tags:
+        if "error" in tags:
+            # Collection / fixture / import error: the test never
+            # reached its assertions. Doesn't satisfy TDD red.
+            bad.append((ident, "errored"))
+        elif "skipped" in tags:
             bad.append((ident, "skipped"))
         else:
             bad.append((ident, "passed"))
@@ -434,7 +462,15 @@ def main(argv: list[str]) -> int:
         return 1
     diff = _git_diff(base)
     files_changed = _extract_changed_lines(diff)
-    entries = _resolve_test_entries(files_changed, Path.cwd())
+    entries, fatal = _resolve_test_entries(files_changed, Path.cwd())
+    if fatal:
+        # A changed test file we can't read or parse means the gate
+        # cannot be trusted to fire correctly. Fail loudly instead
+        # of silently dropping the file (which would let a broken
+        # changed test slip through with a vacuous zero).
+        for msg in fatal:
+            sys.stderr.write(f"pytest_diff: {msg}\n")
+        return 1
     node_ids = _select_node_ids(entries)
     if not node_ids:
         # No new tests in the diff. Both red and green pass vacuously

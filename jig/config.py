@@ -316,6 +316,7 @@ __all__ = [
     "EscalationSection",
     "OrchestratorSection",
     "OwnershipSection",
+    "ProfileSection",
     "RoleAssignment",
     "RolesSection",
     "SpecOwnership",

@@ -119,6 +119,108 @@ async def test_resume_gap_prompt(wired):
     )
 
 
+async def test_resume_pm_profile_pass_after_spec(wired):
+    """Spec generated but profile not applied and no PM proposal yet
+    → ``classify_resume`` routes to ``PM_PROFILE_PASS`` so the resume
+    loop can spawn PM-1."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    # No _seed_profile, no profile ticket → PM_PROFILE_PASS.
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.PM_PROFILE_PASS
+    )
+
+
+async def test_resume_pm_profile_confirm_after_proposal(wired):
+    """PM has posted a profile proposal but profile is still empty
+    in config → ``classify_resume`` routes to
+    ``PM_PROFILE_CONFIRM_PROMPT`` so the operator gate fires."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    # Profile ticket + proposal Note exist; profile NOT yet applied.
+    await wired["tickets"].create(
+        Ticket(id="profile", work_type=WorkType.PROFILE, title="p", created_by="cli")
+    )
+    await wired["threads"].post(
+        Note(
+            ticket_id="profile",
+            author="pm",
+            text="propose",
+            payload={
+                "kind": "pm_propose_profile",
+                "name": "small",
+                "rationale": "simple",
+            },
+        )
+    )
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.PM_PROFILE_CONFIRM_PROMPT
+    )
+
+
+async def test_resume_skips_profile_when_preset(wired):
+    """``--profile`` flag bypass path: profile already applied to
+    config → ``classify_resume`` skips both PM_PROFILE states and
+    falls through to the architecture-ticket check."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    _seed_profile(wired["path"])
+    state = await classify_resume(
+        project_path=wired["path"],
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+    )
+    assert state == ResumeState.BRANCH_PROMPT  # no arch ticket yet
+    assert state != ResumeState.PM_PROFILE_PASS
+    assert state != ResumeState.PM_PROFILE_CONFIRM_PROMPT
+
+
 async def test_resume_branch_prompt(wired):
     await wired["tickets"].create(
         Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")

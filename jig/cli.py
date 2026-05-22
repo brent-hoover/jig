@@ -202,7 +202,13 @@ def _apply_profile_at_start(project_path: Path, profile_name: str) -> None:
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    config = load_config(project_path)
+    try:
+        config = load_config(project_path)
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            f"{project_path}/.jig/config.yaml not found — "
+            "run `jig init` before applying a profile."
+        ) from exc
     config = apply_profile(config, profile)
     save_config(project_path, config)
     copy_profile_templates(profile, project_path)

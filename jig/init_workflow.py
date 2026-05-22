@@ -403,6 +403,15 @@ async def _run_init_resume_loop(
             # the agent again).
             chosen_name = proposal["name"]
             if decision == ConfirmChoice.SWAP:
+                # SWAP is hard-wired to flip between the two shipped
+                # profiles. ``handle_pm_propose_profile`` only accepts
+                # ``small`` or ``medium``, so the toggle is well-defined.
+                # Asserting here catches any future drift between the
+                # MCP allowlist and this branch.
+                assert chosen_name in {"small", "medium"}, (
+                    f"SWAP requires a shipped profile name; got {chosen_name!r}. "
+                    "handle_pm_propose_profile must restrict PM-1 to small/medium."
+                )
                 chosen_name = "small" if chosen_name == "medium" else "medium"
             from jig.config import load_config, save_config
             from jig.profile_loader import (
@@ -411,8 +420,22 @@ async def _run_init_resume_loop(
                 load_profile,
             )
 
-            profile = load_profile(chosen_name, project_path=target)
-            cfg = apply_profile(load_config(target), profile)
+            try:
+                profile = load_profile(chosen_name, project_path=target)
+            except FileNotFoundError as exc:
+                # Shipped profiles don't disappear in practice, but a
+                # malformed install or partial-removal would land here.
+                # Surface as a friendly ClickException for consistency
+                # with ``_apply_profile_at_start``.
+                raise click.ClickException(str(exc)) from exc
+            try:
+                cfg = apply_profile(load_config(target), profile)
+            except FileNotFoundError as exc:
+                raise click.ClickException(
+                    f"{target}/.jig/config.yaml not found while applying "
+                    f"profile {chosen_name!r}. Init state is inconsistent — "
+                    "re-run `jig init`."
+                ) from exc
             save_config(target, cfg)
             copy_profile_templates(profile, target)
             console.print(
@@ -1168,6 +1191,7 @@ async def run_pm_profile_pass(
     await _run_agent_with_cli_output(
         ctx,
         role_label="Project Manager (profile selection)",
+        subtitle="Picking project profile from the brief",
         console=console,
     )
 

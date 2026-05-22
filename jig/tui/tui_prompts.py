@@ -25,6 +25,7 @@ from jig.init_workflow import (
     render_brief_for_approval,
     render_branch_prompt,
     render_gap_prompt,
+    render_profile_confirm_prompt,
     render_sa_confirm_prompt,
     render_template_list,
 )
@@ -141,8 +142,6 @@ class TuiPromptHandler:
     async def ask_profile_confirm(
         self, *, name: str, rationale: str, console: "Console"
     ) -> ConfirmChoice:
-        from jig.init_workflow import render_profile_confirm_prompt
-
         rendered = render_profile_confirm_prompt(name=name, rationale=rationale)
         reply = await self._round_trip(
             {

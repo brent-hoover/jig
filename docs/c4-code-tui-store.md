@@ -195,6 +195,25 @@
 
 ### Widgets
 
+#### MultiPaneStream (`jig/tui/widgets/multi_pane_stream.py`)
+
+- **Description**: Reusable Textual widget that splits N concurrent text streams into stacked panes. Used in the Now
+  screen to display parallel reviewer agent output without interleaving streams into the main scrollback. Each pane
+  shows the last K lines in compact mode; the operator focuses (j/k or 1–9) and expands (Enter) a pane to scroll
+  the full buffer. Esc returns to compact view.
+- **Location**: `jig/tui/widgets/multi_pane_stream.py`
+- **Methods**:
+  - `add_stream(stream_id: str, *, label: str = "", status: str = "running") -> None`: Register a new stream pane
+  - `append_line(stream_id: str, line: str) -> None`: Append a line to a stream's buffer
+  - `set_status(stream_id: str, status: str) -> None`: Update pane status icon (running/done/blocked/waiting/error)
+  - `set_label(stream_id: str, label: str) -> None`: Update pane label
+  - `remove_stream(stream_id: str) -> None`: Remove a stream pane
+  - `clear() -> None`: Remove all stream panes
+- **Status icons**: running, done, blocked, waiting, error
+- **Wiring** (in `NowScreen`): reviewer-* agent events (role starts with `reviewer-`) are routed to per-(ticket,
+  role) panes via `_handle_reviewer_event`; the widget becomes visible on the first reviewer start and docks above
+  the scrollback
+
 #### Sidebar (`jig/tui/widgets/sidebar.py`)
 
 - **Description**: Right-docked persistent panel showing Activity, Needs You, Queue, Tail subzones; fed by JigApp's message handler
@@ -308,12 +327,13 @@
 ### Specialized Stores
 
 **TicketStore** (`jig/store/tickets.py`)
-- **Description**: Typed collection for Ticket records with status-change event callbacks
+- **Description**: Typed collection for Ticket records with status-change and create event callbacks
 - **Location**: `jig/store/tickets.py` (lines 27-144)
 - **Methods**:
   - `set_status_change_callback(cb: StatusChangeCallback | None) -> None`: Register callback fired on status transitions
+  - `set_create_callback(cb: CreateCallback | None) -> None`: Register callback fired after every successful ticket create (broadcast-only; does not trigger orchestrator dispatch)
   - `load() -> None`: Load collection
-  - `create(ticket: Ticket) -> str`: Insert with uniqueness check, re-raise with friendly error
+  - `create(ticket: Ticket) -> str`: Insert with uniqueness check, re-raise with friendly error, fire create callback
   - `get(ticket_id: str) -> Ticket | None`: Fetch ticket
   - `update(ticket_id: str, **fields) -> Ticket`: Update, fire status-change callback if status changed, return loaded record
   - `update_status(ticket_id: str, status: TicketStatus) -> Ticket`: Convenience wrapper
@@ -322,10 +342,12 @@
   - `find_by_parent(parent_id: str) -> list[Ticket]`: Find children
   - `list_all() -> list[Ticket]`: All tickets
   - `find_ready() -> list[Ticket]`: Open top-level tickets whose dependencies (blocked_by) are all resolved
-  - `_fire_status_change(ticket_id: str, from_state: str | None, to_state: str) -> None`: Execute callback (sync or async)
+  - `_fire_status_change(ticket_id: str, from_state: str | None, to_state: str) -> None`: Execute status-change callback (sync or async)
+  - `_fire_create(ticket: Ticket) -> None`: Execute create callback (sync or async) via background task
 - **Attributes**:
   - `_collection: TypedCollection[Ticket]`: Indexed on work_type, status, assignee, parent_id
   - `_on_status_change: StatusChangeCallback | None`
+  - `_on_create: CreateCallback | None`
   - `_background_tasks: set[asyncio.Task]`: Track async callback tasks
 
 **ThreadStore** (`jig/store/threads.py`)
@@ -599,6 +621,16 @@ classDiagram
     }
     
     namespace Widgets {
+        class MultiPaneStream {
+            <<widget>>
+            +add_stream(stream_id, label, status) None
+            +append_line(stream_id, line) None
+            +set_status(stream_id, status) None
+            +set_label(stream_id, label) None
+            +remove_stream(stream_id) None
+            +clear() None
+        }
+
         class Sidebar {
             <<widget>>
             +update_thinking(data) None
@@ -728,6 +760,7 @@ classDiagram
             <<async>>
             -_collection: TypedCollection~Ticket~
             -_on_status_change: Callable
+            -_on_create: Callable
             -_background_tasks: set
             +load() None
             +create(ticket) str
@@ -740,6 +773,7 @@ classDiagram
             +list_all() list[Ticket]
             +find_ready() list[Ticket]
             +set_status_change_callback(cb) None
+            +set_create_callback(cb) None
         }
         
         class ThreadStore {

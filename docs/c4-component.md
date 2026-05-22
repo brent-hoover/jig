@@ -965,7 +965,9 @@ operator types.
 ### Software Features
 
 - **Four-pane layout**: Now, Tickets, Spec, Events — each as a `Container` subclass within a `TabbedContent`
-- **Now pane**: Scrollback display (RichLog), Composer (TextArea for input), thinking indicator, prompt display
+- **Now pane**: Scrollback display (RichLog), Composer (TextArea for input), thinking indicator, prompt display,
+  MultiPaneStream reviewer widget (docks above scrollback when reviewer agents are active; splits concurrent
+  reviewer streams into labeled, independently scrollable panes)
 - **Tickets pane**: Ticket list with status, size, and layer; `NewTicketModal`, `EditTicketModal`, `RawYamlModal`
 - **Spec pane**: Tree browser of `.jig/spec/` artifact hierarchy; `BriefModal` and spec modals
 - **Events pane**: Live event tail (RichLog); `EventDetailModal` for per-event drill-down

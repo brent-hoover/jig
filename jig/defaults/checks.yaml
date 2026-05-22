@@ -32,13 +32,16 @@ checks:
     severity: required
     timeout_s: 120
 
-  # Path scoping is delegated to ``[tool.mypy] files = ...`` in the
-  # project's pyproject.toml — the modern idiom. ``mypy --strict src/``
-  # would fail on any project that doesn't use a ``src/`` layout
-  # (including jig itself, whose root package is ``jig/``).
+  # Scoped to ``src/`` because every shipped project template
+  # (python, fastapi) uses a ``src/`` layout. Passing ``.`` would
+  # OVERRIDE any ``[tool.mypy] files = ...`` directive the operator
+  # has set in pyproject.toml AND would drag tests + generated
+  # files into the strict pass. Non-src/ projects (including jig
+  # itself, whose package root is ``jig/``) must override this
+  # entry in ``.jig/checks.yaml`` after init.
   mypy-strict:
     type: scripted
-    command: "uv run mypy --strict ."
+    command: "uv run mypy --strict src/"
     severity: required
     timeout_s: 300
 

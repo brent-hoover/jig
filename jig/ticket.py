@@ -205,6 +205,7 @@ class WorkType(str, Enum):
     MIGRATION = "migration"
     DOCS = "docs"
     BRIEF = "brief"
+    PROFILE = "profile"
     ARCHITECTURE = "architecture"
     PLANNING = "planning"
     CANONICALIZE = "canonicalize"

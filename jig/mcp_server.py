@@ -2707,6 +2707,34 @@ def create_agent_mcp_server(
 
         all_tools.append(arch_list_templates)
 
+    if "pm_propose_profile" in agent_cfg.allowed_tools:
+
+        @tool(
+            "pm_propose_profile",
+            "Propose a project profile for this project. "
+            "`name` must be 'small' or 'medium'. "
+            "`rationale` is a short prose explanation citing the brief / "
+            "spec signals that drove your choice. Call exactly once and "
+            "then end your run — the operator confirms via the init "
+            "workflow's profile gate.",
+            {
+                "name": str,
+                "rationale": str,
+            },
+        )
+        async def pm_propose_profile(args):
+            await init_mcp.handle_pm_propose_profile(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                name=args["name"],
+                rationale=args["rationale"],
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        all_tools.append(pm_propose_profile)
+
     if "sa_propose_scaffold" in agent_cfg.allowed_tools:
 
         @tool(

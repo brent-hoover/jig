@@ -372,6 +372,74 @@ async def handle_arch_list_templates() -> list[dict[str, Any]]:
     return out
 
 
+async def handle_pm_propose_profile(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    name: str,
+    rationale: str,
+    author: str,
+) -> None:
+    """Record PM-1's profile choice and resolve the profile ticket.
+
+    Mirrors ``handle_sa_propose_scaffold``: posts a Note on the
+    ``profile`` ticket with ``kind="pm_propose_profile"`` payload,
+    publishes an orchestrator-topic event for the init workflow to
+    pick up, then resolves the ticket via the shared handoff helper.
+
+    The workflow applies the profile to config and copies templates
+    AFTER the operator confirms — this handler does not mutate config.
+    """
+    # PM-1 is intentionally restricted to the two shipped profiles —
+    # the PM agent's complexity-assessment prompt only covers these
+    # cases, and the operator-confirm gate's SWAP toggle is also
+    # hard-wired to flip between exactly these two. Operators who
+    # author a custom ``.jig/profiles/<custom>.yaml`` apply it via
+    # ``jig start --profile <custom>`` (the CLI bypass), not via PM-1.
+    valid = {"small", "medium"}
+    if name not in valid:
+        raise ValueError(
+            f"unknown profile {name!r}. PM-1 may only propose one of the "
+            f"shipped profiles: {sorted(valid)}. Custom profiles in "
+            f".jig/profiles/ must be applied via `jig start --profile <name>`."
+        )
+    if not rationale.strip():
+        raise ValueError("rationale must not be empty")
+    await threads.post(
+        Note(
+            ticket_id="profile",
+            author=author,
+            text=f"Proposed profile: {name}\n\nRationale:\n{rationale}",
+            payload={
+                "kind": "pm_propose_profile",
+                "name": name,
+                "rationale": rationale,
+            },
+        )
+    )
+    await bus.publish(
+        Message(
+            sender=author,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "pm_propose_profile",
+                "ticket_id": "profile",
+                "name": name,
+            },
+            topic="orchestrator",
+        )
+    )
+    await _resolve_after_handoff(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id="profile",
+        author=author,
+    )
+
+
 async def handle_sa_propose_scaffold(
     *,
     tickets: TicketStore,

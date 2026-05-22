@@ -18,6 +18,7 @@ import yaml
 
 from jig.init_mcp import (
     handle_arch_set_field,
+    handle_pm_propose_profile,
     handle_po_finish_brief,
     handle_sa_propose_scaffold,
     handle_spec_publish,
@@ -100,6 +101,17 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             author="spec-generator",
         )
 
+    @agent.handle(role="pm", ticket_id="profile")
+    async def _pm_profile(ctx: AgentSpawnContext) -> None:
+        await handle_pm_propose_profile(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            name="small",
+            rationale="Single-module CLI, no integrations.",
+            author="pm",
+        )
+
     @agent.handle(role="sa", ticket_id="architecture")
     async def _sa(ctx: AgentSpawnContext) -> None:
         await handle_arch_set_field(
@@ -119,8 +131,9 @@ async def test_e2e_happy_path_with_sa(tmp_path: Path, monkeypatch):
             author="sa",
         )
 
-    # Auto-accept prompts: brief_approval=Y, branch=Y (SA), confirm=Y, init_complete="".
-    answers = iter(["Y", "Y", "Y", ""])
+    # Auto-accept prompts: brief_approval=Y, profile_confirm=Y, branch=Y (SA),
+    # sa_confirm=Y, init_complete="".
+    answers = iter(["Y", "Y", "Y", "Y", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     # Both modules bind run_agent at import time (`from jig.agent import run_agent`),
@@ -172,8 +185,20 @@ async def test_e2e_direct_path(tmp_path: Path, monkeypatch):
             author="spec-generator",
         )
 
-    # brief_approval=Y, branch="p" (direct), template pick="1", init_complete="".
-    answers = iter(["Y", "p", "1", ""])
+    @agent.handle(role="pm", ticket_id="profile")
+    async def _pm_profile(ctx: AgentSpawnContext) -> None:
+        await handle_pm_propose_profile(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            name="small",
+            rationale="Direct-path test fixture.",
+            author="pm",
+        )
+
+    # brief_approval=Y, profile_confirm=Y, branch="p" (direct),
+    # template pick="1", init_complete="".
+    answers = iter(["Y", "Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with (
@@ -225,10 +250,21 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
             author="spec-generator",
         )
 
-    # First run: brief_approval fires first (call 1 → "Y"), then
-    # BRANCH_PROMPT fires (call 2 → KeyboardInterrupt).
-    # Second run: resumes at BRANCH_PROMPT (brief already approved +
-    # spec already generated), picks direct path + template 1.
+    @agent.handle(role="pm", ticket_id="profile")
+    async def _pm_profile(ctx: AgentSpawnContext) -> None:
+        await handle_pm_propose_profile(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            name="small",
+            rationale="Resume test fixture.",
+            author="pm",
+        )
+
+    # First run: brief_approval (call 1 → "Y"), profile_confirm
+    # (call 2 → "Y"), then BRANCH_PROMPT (call 3 → KeyboardInterrupt).
+    # Second run: resumes at BRANCH_PROMPT (brief approved, spec
+    # generated, profile applied), picks direct path + template 1.
     second_answers = iter(["p", "1", ""])
     call_count = {"n": 0}
 
@@ -237,6 +273,8 @@ async def test_e2e_resume_after_spec_generation(tmp_path: Path, monkeypatch):
         if call_count["n"] == 1:
             return "Y"  # brief_approval
         if call_count["n"] == 2:
+            return "Y"  # profile_confirm
+        if call_count["n"] == 3:
             raise KeyboardInterrupt  # BRANCH_PROMPT
         return next(second_answers)
 
@@ -294,7 +332,18 @@ async def test_story_brief_contains_po_and_specgen_trail(tmp_path: Path, monkeyp
             author="spec-generator",
         )
 
-    answers = iter(["Y", "p", "1", ""])
+    @agent.handle(role="pm", ticket_id="profile")
+    async def _pm_profile(ctx: AgentSpawnContext) -> None:
+        await handle_pm_propose_profile(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            name="small",
+            rationale="Story-trail test fixture.",
+            author="pm",
+        )
+
+    answers = iter(["Y", "Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with (
@@ -386,8 +435,20 @@ async def test_e2e_resume_after_gap_prompt_picks_R(tmp_path: Path, monkeypatch) 
             author="spec-generator",
         )
 
-    # Sequence: brief_approval→Y, gap-prompt→R, brief_approval→Y, branch→p (direct), template→1, init_complete→"".
-    answers = iter(["Y", "R", "Y", "p", "1", ""])
+    @agent.handle(role="pm", ticket_id="profile")
+    async def _pm_profile(ctx: AgentSpawnContext) -> None:
+        await handle_pm_propose_profile(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            name="small",
+            rationale="Gap-resume test fixture.",
+            author="pm",
+        )
+
+    # Sequence: brief_approval→Y, gap-prompt→R, brief_approval→Y,
+    # profile_confirm→Y, branch→p (direct), template→1, init_complete→"".
+    answers = iter(["Y", "R", "Y", "Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with (
@@ -413,3 +474,217 @@ async def test_e2e_resume_after_gap_prompt_picks_R(tmp_path: Path, monkeypatch) 
     assert len(handoffs) == 2
     assert po_calls["n"] == 2
     assert sg_calls["n"] == 2
+
+
+async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
+    """End-to-end: PM-1 proposes ``medium``, operator confirms, SA
+    runs as the medium profile's SA role, and the medium profile's
+    workflow set lands in ``.jig/workflows/``.
+
+    This is the integration confidence test for the new PO → PM-1
+    → confirm → SA path. Mocks the agent runs but exercises the full
+    init state machine + MCP handler + profile_loader.
+
+    Note: medium currently routes to the basic ``sa`` role (not the
+    long-term-target ``sa_mvp``). See the comment in
+    ``jig/defaults/profiles/medium.yaml`` for the deferred
+    ``arch_finalize`` integration.
+    """
+    from jig.config import load_config
+    from jig.init_workflow import _resolve_sa_role
+    from jig.thread import Note
+
+    monkeypatch.chdir(tmp_path)
+    agent = FakeAgent()
+
+    @agent.handle(role="po", ticket_id="brief")
+    async def _po(ctx: AgentSpawnContext) -> None:
+        proj = ctx.worktree_path
+        (proj / "docs" / "brief.md").write_text(
+            "# medproj\n\n## Planned (committed)\n\n### X\nprose\n"
+        )
+        await handle_po_finish_brief(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            project_path=proj,
+            summary="done",
+            author="po",
+        )
+
+    @agent.handle(role="spec-generator", ticket_id="brief")
+    async def _sg(ctx: AgentSpawnContext) -> None:
+        await handle_spec_publish(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            project_path=ctx.worktree_path,
+            yaml_content=_valid_spec_yaml(name="medproj"),
+            advisory_notes=[],
+            author="spec-generator",
+        )
+
+    pm_profile_calls = {"n": 0}
+
+    @agent.handle(role="pm", ticket_id="profile")
+    async def _pm_profile(ctx: AgentSpawnContext) -> None:
+        pm_profile_calls["n"] += 1
+        await handle_pm_propose_profile(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            name="medium",
+            rationale=(
+                "Multiple datastores + external integrations + auth "
+                "all named in the brief."
+            ),
+            author="pm",
+        )
+
+    sa_role_seen = {"value": None}
+
+    @agent.handle(role="sa", ticket_id="architecture")
+    async def _sa_default(ctx: AgentSpawnContext) -> None:
+        sa_role_seen["value"] = ctx.role
+        await handle_arch_set_field(
+            threads=ctx.threads,
+            project_path=ctx.worktree_path,
+            path="rationale",
+            value="medium-scale arch",
+            author="sa",
+        )
+        await handle_sa_propose_scaffold(
+            tickets=ctx.tickets,
+            threads=ctx.threads,
+            bus=ctx.bus,
+            template_name="python",
+            rationale="placeholder",
+            config={},
+            author="sa",
+        )
+
+    # Auto-accept all prompts.
+    answers = iter(["Y", "Y", "Y", "Y", ""])
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
+
+    with (
+        patch("jig.init_workflow.run_agent", new=agent.run),
+        patch("jig.spec_generator.run_agent", new=agent.run),
+    ):
+        await run_init(name="medproj", force=False)
+
+    project = tmp_path / "medproj"
+
+    # 1. PM-1 ran once against the profile ticket.
+    assert pm_profile_calls["n"] == 1
+
+    # 2. pm_propose_profile Note exists on the profile ticket with
+    # the chosen name + rationale.
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    await threads.load()
+    profile_entries = await threads.for_ticket("profile")
+    proposals = [
+        e
+        for e in profile_entries
+        if isinstance(e, Note) and e.payload.get("kind") == "pm_propose_profile"
+    ]
+    assert len(proposals) == 1
+    assert proposals[0].payload["name"] == "medium"
+
+    # 3. Profile applied to config.
+    cfg = load_config(project)
+    assert cfg.profile.name == "medium"
+    # Deferred: long-term target is ``sa_mvp``; medium uses basic
+    # ``sa`` until v1 init learns to handle the ``arch_finalize`` exit.
+    assert cfg.profile.sa_role == "sa"
+
+    # 4. _resolve_sa_role agrees, and the SA spawn used the medium
+    # profile's sa role.
+    assert _resolve_sa_role(project) == "sa"
+    assert sa_role_seen["value"] == "sa"
+
+    # 5. Medium-profile workflow files copied into .jig/.
+    assert (project / ".jig" / "profiles" / "medium.yaml").is_file()
+    assert (project / ".jig" / "workflows" / "feature-s-full.yaml").is_file()
+
+
+async def test_pm_profile_pass_skipped_when_profile_preset(tmp_path: Path, monkeypatch):
+    """Eval/auto path: when ``cfg.profile.name`` is non-empty,
+    ``classify_resume`` skips ``PM_PROFILE_PASS`` and goes straight
+    from SPEC_GENERATION to the architecture-ticket path.
+
+    Tests ``classify_resume`` directly rather than the full
+    ``run_init`` loop — the loop would spin if the PM handler is a
+    no-op (no proposal posted → re-route to PM_PROFILE_PASS forever).
+    The state machine, not the loop, is the unit under test here.
+    """
+    from datetime import datetime, timezone
+
+    from jig.cli import _apply_profile_at_start
+    from jig.init_workflow import ResumeState, classify_resume, create_stub
+    from jig.thread import Handoff, SystemEvent
+    from jig.ticket import Ticket, WorkType
+
+    project = tmp_path / "preset"
+    create_stub(project, name="preset")
+    store_dir = project / ".jig" / "store"
+    tickets = TicketStore(store_dir / "tickets.jsonl")
+    threads = ThreadStore(store_dir / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+
+    # Hand-craft the state: brief ticket exists, PO handed off, spec
+    # was generated. (Skips actually running PO + spec-gen — we're
+    # asserting the classify_resume contract, not the agent loop.)
+    await tickets.create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await threads.post(
+        Handoff(
+            ticket_id="brief",
+            author="po",
+            phase="brief",
+            outputs=["docs/brief.md", ".jig/spec/project.structured.yaml"],
+            summary="done",
+        )
+    )
+    await threads.post(
+        SystemEvent(
+            ticket_id="brief",
+            author="user",
+            event_type="brief_approved",
+            content="approved",
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+    await threads.post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="generated",
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+
+    # Sanity: without a profile applied, classify_resume routes to
+    # PM_PROFILE_PASS.
+    state_before = await classify_resume(
+        project_path=project, tickets=tickets, threads=threads
+    )
+    assert state_before == ResumeState.PM_PROFILE_PASS
+
+    # Pre-apply the small profile (the eval / --profile bypass).
+    _apply_profile_at_start(project, "small")
+
+    # After apply: classify_resume falls through to the architecture
+    # path — no PM_PROFILE_PASS, no CONFIRM_PROMPT.
+    state_after = await classify_resume(
+        project_path=project, tickets=tickets, threads=threads
+    )
+    assert state_after != ResumeState.PM_PROFILE_PASS
+    assert state_after != ResumeState.PM_PROFILE_CONFIRM_PROMPT
+    assert state_after in {
+        ResumeState.BRANCH_PROMPT,  # no architecture ticket yet
+        ResumeState.SA_CONVERSATION,
+    }

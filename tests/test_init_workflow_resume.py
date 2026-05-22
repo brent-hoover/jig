@@ -3,11 +3,26 @@ from pathlib import Path
 import pytest
 import yaml
 
+from jig.config import load_config, save_config
 from jig.init_workflow import ResumeState, classify_resume, create_stub
+from jig.profile_loader import apply_profile, load_profile
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note, Question, SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
+
+
+def _seed_profile(project_path: Path, name: str = "small") -> None:
+    """Pre-apply a profile to skip ``PM_PROFILE_PASS`` for tests that
+    target downstream states (BRANCH_PROMPT, SA_*, etc.).
+
+    ``classify_resume`` now intercepts after SPEC_GENERATION to route
+    profile selection through PM-1. Tests written before profiles
+    existed expect downstream states directly, so they need the
+    profile pre-applied to fall through.
+    """
+    cfg = apply_profile(load_config(project_path), load_profile(name))
+    save_config(project_path, cfg)
 
 
 @pytest.fixture
@@ -74,8 +89,16 @@ async def test_resume_gap_prompt(wired):
             ticket_id="brief",
             author="spec-generator",
             text="gaps",
-            payload={"gaps": [{"kind": "missing", "severity": "blocking",
-                               "location": "x", "description": "d"}]},
+            payload={
+                "gaps": [
+                    {
+                        "kind": "missing",
+                        "severity": "blocking",
+                        "location": "x",
+                        "description": "d",
+                    }
+                ]
+            },
         )
     )
     await wired["threads"].post(
@@ -96,6 +119,108 @@ async def test_resume_gap_prompt(wired):
     )
 
 
+async def test_resume_pm_profile_pass_after_spec(wired):
+    """Spec generated but profile not applied and no PM proposal yet
+    → ``classify_resume`` routes to ``PM_PROFILE_PASS`` so the resume
+    loop can spawn PM-1."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    # No _seed_profile, no profile ticket → PM_PROFILE_PASS.
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.PM_PROFILE_PASS
+    )
+
+
+async def test_resume_pm_profile_confirm_after_proposal(wired):
+    """PM has posted a profile proposal but profile is still empty
+    in config → ``classify_resume`` routes to
+    ``PM_PROFILE_CONFIRM_PROMPT`` so the operator gate fires."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    # Profile ticket + proposal Note exist; profile NOT yet applied.
+    await wired["tickets"].create(
+        Ticket(id="profile", work_type=WorkType.PROFILE, title="p", created_by="cli")
+    )
+    await wired["threads"].post(
+        Note(
+            ticket_id="profile",
+            author="pm",
+            text="propose",
+            payload={
+                "kind": "pm_propose_profile",
+                "name": "small",
+                "rationale": "simple",
+            },
+        )
+    )
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.PM_PROFILE_CONFIRM_PROMPT
+    )
+
+
+async def test_resume_skips_profile_when_preset(wired):
+    """``--profile`` flag bypass path: profile already applied to
+    config → ``classify_resume`` skips both PM_PROFILE states and
+    falls through to the architecture-ticket check."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    _seed_profile(wired["path"])
+    state = await classify_resume(
+        project_path=wired["path"],
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+    )
+    assert state == ResumeState.BRANCH_PROMPT  # no arch ticket yet
+    assert state != ResumeState.PM_PROFILE_PASS
+    assert state != ResumeState.PM_PROFILE_CONFIRM_PROMPT
+
+
 async def test_resume_branch_prompt(wired):
     await wired["tickets"].create(
         Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
@@ -111,6 +236,7 @@ async def test_resume_branch_prompt(wired):
             content="",
         )
     )
+    _seed_profile(wired["path"])
     assert (
         await classify_resume(
             project_path=wired["path"],
@@ -141,6 +267,7 @@ async def test_resume_sa_in_progress(wired):
             created_by="cli",
         )
     )
+    _seed_profile(wired["path"])
     assert (
         await classify_resume(
             project_path=wired["path"],
@@ -184,6 +311,7 @@ async def test_resume_sa_confirm_prompt(wired):
             },
         )
     )
+    _seed_profile(wired["path"])
     assert (
         await classify_resume(
             project_path=wired["path"],
@@ -222,6 +350,7 @@ async def test_resume_direct_pick_pending(wired):
             content="",
         )
     )
+    _seed_profile(wired["path"])
     assert (
         await classify_resume(
             project_path=wired["path"],
@@ -327,6 +456,7 @@ async def test_resume_needs_answer_arch(wired):
             blocking=True,
         )
     )
+    _seed_profile(wired["path"])
     assert (
         await classify_resume(
             project_path=wired["path"],
@@ -424,8 +554,10 @@ async def test_resume_spec_generation_after_brief_approved(wired):
     )
     await wired["threads"].post(
         SystemEvent(
-            ticket_id="brief", author="cli",
-            event_type="brief_approved", content="approved",
+            ticket_id="brief",
+            author="cli",
+            event_type="brief_approved",
+            content="approved",
         )
     )
     assert (
@@ -445,13 +577,21 @@ async def test_resume_brief_approval_again_after_re_handoff(wired):
         Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
     )
     # First round
-    await wired["threads"].post(Handoff(ticket_id="brief", author="po", phase="spec-generator", summary=""))
-    await wired["threads"].post(SystemEvent(
-        ticket_id="brief", author="cli",
-        event_type="brief_approved", content="approved",
-    ))
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="cli",
+            event_type="brief_approved",
+            content="approved",
+        )
+    )
     # Second round (operator picked r the first time, PO re-finished)
-    await wired["threads"].post(Handoff(ticket_id="brief", author="po", phase="spec-generator", summary=""))
+    await wired["threads"].post(
+        Handoff(ticket_id="brief", author="po", phase="spec-generator", summary="")
+    )
     assert (
         await classify_resume(
             project_path=wired["path"],

@@ -1,0 +1,24 @@
+name: feature-s-full
+phases:
+  - name: test
+    role: test
+    task_template: "Write tests for: {ticket_title}"
+    acceptance_criteria: "Tests cover the specified behavior"
+  - name: implement
+    role: dev
+    task_template: "Implement the feature so tests pass for: {ticket_title}"
+    acceptance_criteria: "All tests pass"
+  - name: review
+    role: review
+    task_template: "Federated review of: {ticket_title}"
+    acceptance_criteria: "No critical or important issues found"
+    reviewers:
+      - "reviewer-pattern-conformance"
+      - "reviewer-error-handling"
+      - "reviewer-performance"
+      - "reviewer-security"
+      - "reviewer-architectural"
+  - name: validate
+    role: validate
+    task_template: "Validate the implementation for: {ticket_title}"
+    acceptance_criteria: "All tests pass, linters clean"

@@ -100,6 +100,72 @@ async def test_copy_selection_with_no_selection_shows_quit_hint(
 
 
 @pytest.mark.asyncio
+async def test_real_scrollback_selection_extracts_text(tmp_path: Path) -> None:
+    """Drive ``screen.get_selected_text`` through the real selection
+    plumbing — set a ``Selection`` on the scrollback widget the way
+    a live mouse drag would, then assert the action copies the
+    actual scrollback content (not a monkey-patched return).
+
+    Pre-fix this returned ``""`` because ``Widget.get_selection``
+    (inherited by ``RichLog``) calls ``self._render()`` and returns
+    ``None`` for line-API widgets — so even when Textual's selection
+    machinery tracked the drag correctly, the extracted text was
+    empty.
+    """
+    from textual.geometry import Offset
+    from textual.selection import Selection
+    from textual.widgets import RichLog
+
+    from jig.tui.screens.now import NowScreen
+    from jig.tui.widgets.scrollback import Scrollback
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(95, 30)):
+        now = app.query_one(NowScreen)
+        scrollback = now.query_one("#scrollback", RichLog)
+        # Verify wiring: NowScreen yields the Scrollback subclass, not
+        # plain RichLog. Without this, the rest of the test would
+        # exercise the upstream-broken path.
+        assert isinstance(scrollback, Scrollback)
+
+        # Clear the welcome-banner line so our test content is at a
+        # known y coordinate.
+        scrollback.clear()
+        scrollback.write("hello world this is a test")
+        await app._animator.wait_until_complete()
+
+        # Locate the line index our content landed on (after wrap
+        # accounting). Should be line 0 post-clear.
+        target_y: int | None = None
+        for idx, strip in enumerate(scrollback.lines):
+            text = "".join(seg.text for seg in strip)
+            if "world" in text:
+                target_y = idx
+                world_x = text.index("world")
+                break
+        assert target_y is not None, "test content not found in scrollback"
+
+        # Set a selection covering exactly "world" on that line.
+        # This is what ``_select_start`` / ``_select_end`` populate
+        # internally on a real mouse drag.
+        app.screen.selections = {
+            scrollback: Selection(
+                start=Offset(world_x, target_y),
+                end=Offset(world_x + 5, target_y),
+            ),
+        }
+        extracted = app.screen.get_selected_text()
+        assert extracted == "world", f"expected 'world', got {extracted!r}"
+
+        # End-to-end: ctrl+c action sees the selection and routes it
+        # to the clipboard. ``copy_to_clipboard`` strips ZWSPs (none
+        # here, but the path is identical).
+        app.action_copy_selection()
+        await app._animator.wait_until_complete()
+        assert app.clipboard == "world"
+
+
+@pytest.mark.asyncio
 async def test_ctrl_c_binding_registered(tmp_path: Path) -> None:
     """The ctrl+c binding must exist at the App level and target
     ``copy_selection`` — otherwise Textual's system-level

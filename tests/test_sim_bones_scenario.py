@@ -12,6 +12,7 @@ Run target: under 10 seconds, no LLM calls, no network.
 Real mode (``jig sim run --real``) is operator-invoked and not part
 of CI — see ``jig.sim.cli``.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -99,7 +100,7 @@ async def test_bones_scenario_writes_every_canonical_artifact(tmp_path: Path):
 
     expected = [
         "docs/brief.md",
-        "docs/project.structured.yaml",
+        ".jig/spec/project.structured.yaml",
         ".jig/spec/suites.yaml",
         ".jig/spec/suites/catalog/brief.md",
         ".jig/spec/suites/catalog/spec.structured.yaml",

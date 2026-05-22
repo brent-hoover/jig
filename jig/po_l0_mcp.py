@@ -34,7 +34,7 @@ def _project_md_path(project_path: Path) -> Path:
 
 
 def _project_structured_path(project_path: Path) -> Path:
-    return project_path / "docs" / "project.structured.yaml"
+    return project_path / ".jig" / "spec" / "project.structured.yaml"
 
 
 def render_project_md(project: Project) -> str:
@@ -147,7 +147,7 @@ async def handle_l0_finalize(
         phase="po-l1",
         outputs=[
             "docs/brief.md",
-            "docs/project.structured.yaml",
+            ".jig/spec/project.structured.yaml",
         ],
         summary=f"L0 captured: {project.name}",
     )

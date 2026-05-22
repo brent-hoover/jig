@@ -418,7 +418,7 @@ Markdown artifacts, then posts a `Handoff` thread entry which the Orchestrator d
 
 ### Software Features
 
-- **L0 — Project pitch capture**: 3–5 turn conversation; produces `docs/project.structured.yaml` and
+- **L0 — Project pitch capture**: 3–5 turn conversation; produces `.jig/spec/project.structured.yaml` and
   `docs/brief.md`; validates `Project` schema (pitch, problem, audience, non_goals)
 - **L1 — Journey-driven discovery**: Five-phase walk per persona (Frame/Elicit/Walk/Probe/Playback); stages
   personas/journeys/capabilities incrementally to sidecar YAML; detects and resolves state divergence on resume;
@@ -454,7 +454,7 @@ Markdown artifacts, then posts a `Handoff` thread entry which the Orchestrator d
 
 | Artifact | Level | Path |
 |----------|-------|------|
-| `Project` YAML | L0 | `docs/project.structured.yaml` |
+| `Project` YAML | L0 | `.jig/spec/project.structured.yaml` |
 | `docs/brief.md` | L0 | `docs/brief.md` |
 | `DiscoveryDoc` YAML | L1 | `.jig/spec/discovery.structured.yaml` |
 | `discovery.md` | L1 | `.jig/spec/discovery.md` |
@@ -1138,7 +1138,7 @@ Orchestrator._start_ready_tickets()
 
 ```
 L0 PO agent: l0_finalize()
-  → writes docs/project.structured.yaml
+  → writes .jig/spec/project.structured.yaml
   → posts Handoff("po-l1") → Orchestrator routes to L1 PO
 L1 PO agent: discovery_finalize()
   → writes .jig/spec/discovery.structured.yaml

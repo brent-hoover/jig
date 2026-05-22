@@ -51,7 +51,7 @@ steps:
         path: docs/brief.md
         contains: bones-walking-skeleton
       - kind: artifact_written
-        path: docs/project.structured.yaml
+        path: .jig/spec/project.structured.yaml
 
   # ---- L1 / L2 (operator hand-writes; bones skips the discovery agents) ---
   - kind: write_suites_yaml

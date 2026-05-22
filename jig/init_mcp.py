@@ -37,11 +37,11 @@ def _brief_path(project_path: Path) -> Path:
 
 
 def _spec_path(project_path: Path) -> Path:
-    return project_path / "docs" / "project.structured.yaml"
+    return project_path / ".jig" / "spec" / "project.structured.yaml"
 
 
 def _arch_path(project_path: Path) -> Path:
-    return project_path / "docs" / "architecture.yaml"
+    return project_path / ".jig" / "spec" / "architecture.yaml"
 
 
 def _yaml_get(data: Any, path: str) -> Any:

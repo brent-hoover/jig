@@ -29,3 +29,6 @@ warn_unused_configs = true
 # src/ layout: tests import from ``myproject`` so mypy needs
 # ``src/`` on its module search path.
 mypy_path = "src"
+# Whole-repo scope (src + tests). Test annotations are machine-
+# readable schema for next-agent fixture consumers.
+files = ["src", "tests"]

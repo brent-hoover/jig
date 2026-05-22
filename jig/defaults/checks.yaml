@@ -32,17 +32,18 @@ checks:
     severity: required
     timeout_s: 120
 
-  # Whole-repo strict scope. ``.`` checks every Python file in the
-  # working tree (mypy already auto-ignores ``__pycache__``,
-  # ``.venv``, and ``.git``). Tests are intentionally in scope:
-  # type annotations on test code serve as machine-readable
-  # schema for next-agent fixture consumers. Operators who need
-  # narrower scoping (large legacy codebases, intentionally
-  # untyped subtrees) override the command in
-  # ``.jig/checks.yaml``.
+  # Path scoping is delegated to ``[tool.mypy] files = ...`` in the
+  # project's pyproject.toml. The shipped templates set this to
+  # ``["src", "tests"]`` — tests are intentionally in scope because
+  # type annotations on test code serve as machine-readable schema
+  # for next-agent fixture consumers. Operators applying jig to
+  # existing projects either set ``files`` themselves or override
+  # this command in ``.jig/checks.yaml``; mypy will say "no files
+  # to check" if neither is configured, which is loud and
+  # actionable.
   mypy-strict:
     type: scripted
-    command: "uv run mypy --strict ."
+    command: "uv run mypy --strict"
     severity: required
     timeout_s: 300
 

@@ -195,13 +195,38 @@ async def run_init(
         raise click.ClickException(
             f"{target}/.jig is in an inconsistent state. Use --force to reset."
         )
+    # Snapshot operator-authored profile/workflow YAMLs across the
+    # ``--force`` rmtree. ``--force --profile <custom>`` would otherwise
+    # delete ``.jig/profiles/<custom>.yaml`` before ``load_profile``
+    # could resolve it; the same blast radius silently erases an
+    # operator's local override of a shipped profile name.
+    preserved_profiles: dict[str, str] = {}
+    preserved_workflows: dict[str, str] = {}
     if force and (target / ".jig").is_dir():
         confirmed = await prompts.ask_force_confirm(target=target, console=console)
         if not confirmed:
             raise click.ClickException("Aborted.")
+        for src in (target / ".jig" / "profiles").glob("*.yaml"):
+            preserved_profiles[src.name] = src.read_text(encoding="utf-8")
+        for src in (target / ".jig" / "workflows").glob("*.yaml"):
+            preserved_workflows[src.name] = src.read_text(encoding="utf-8")
         shutil.rmtree(target / ".jig")
 
     create_stub(target, name=project_name)
+    # Restore the snapshot (no-op if no force happened or no project-
+    # local YAMLs existed). Operator edits to shipped names survive
+    # the force, and operator-only profile / workflow YAMLs are not
+    # silently lost.
+    if preserved_profiles:
+        dest_dir = target / ".jig" / "profiles"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for fname, body in preserved_profiles.items():
+            (dest_dir / fname).write_text(body, encoding="utf-8")
+    if preserved_workflows:
+        dest_dir = target / ".jig" / "workflows"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for fname, body in preserved_workflows.items():
+            (dest_dir / fname).write_text(body, encoding="utf-8")
     # ``--profile`` bypass: write the profile to config AFTER the
     # canonical ``create_stub`` (so ``.jig/config.yaml`` exists) and
     # AFTER any ``--force`` cleanup (so the rmtree doesn't delete the

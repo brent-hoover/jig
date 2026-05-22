@@ -167,6 +167,65 @@ async def test_run_init_profile_survives_force_cleanup(tmp_path: Path) -> None:
     assert (target / ".jig" / "profiles" / "small.yaml").is_file()
 
 
+async def test_run_init_force_preserves_local_profile_yaml(tmp_path: Path) -> None:
+    """``jig init --force --profile <custom>`` must preserve any
+    project-local ``.jig/profiles/<custom>.yaml`` across the
+    ``shutil.rmtree`` so the load resolves it correctly.
+
+    Regression test for roborev #89/#90: the rmtree was wiping
+    operator-authored profile YAMLs (and overrides of shipped
+    names) before ``load_profile`` could see them.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    import yaml
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import create_stub, run_init
+
+    target = tmp_path / "custom"
+    # Pre-existing project marked ALREADY_DONE so ``--force`` is the
+    # only way through.
+    create_stub(target, name="custom")
+    project_yaml = target / ".jig" / "project.yaml"
+    project_yaml.write_text(
+        project_yaml.read_text() + "template_applied_at: 2026-01-01T00:00:00Z\n"
+    )
+    # Author a custom profile YAML that doesn't exist in shipped
+    # defaults. ``load_profile`` MUST be able to read this after the
+    # force-rmtree.
+    profiles_dir = target / ".jig" / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    custom_body = yaml.safe_dump(
+        {
+            "name": "operator",
+            "description": "Operator-authored profile",
+            "sa_role": "sa",
+            "workflows": {
+                "default_by_size": {"xs": "feature-xs", "s": "feature-s"},
+                "available": ["feature-xs", "feature-s"],
+            },
+        }
+    )
+    (profiles_dir / "operator.yaml").write_text(custom_body)
+
+    with patch("jig.init_workflow._run_init_resume_loop", new_callable=AsyncMock):
+        await run_init(
+            name=str(target),
+            force=True,
+            prompts=AutoPromptHandler(),
+            profile_name="operator",
+        )
+
+    # The custom YAML survived the rmtree.
+    assert (profiles_dir / "operator.yaml").is_file()
+    assert "Operator-authored profile" in (profiles_dir / "operator.yaml").read_text()
+    # Profile applied to config.
+    cfg = load_config(target)
+    assert cfg.profile.name == "operator"
+    assert cfg.profile.sa_role == "sa"
+
+
 async def test_run_init_rejects_already_done_before_writing_profile(
     tmp_path: Path,
 ) -> None:

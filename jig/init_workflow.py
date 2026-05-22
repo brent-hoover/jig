@@ -256,11 +256,23 @@ async def run_init(
             markup=False,
         )
     log_file = configure_logging(target, verbose=False, console=False)
-    # Subdued + highlight=False so Rich doesn't auto-stylize the path
-    # (default highlighting renders file paths in red+underline, which
-    # in the TUI's RichLog reads as an error).
+    # Render the path relative to the project so the line fits within
+    # the TUI's scrollback width without wrapping. The streaming
+    # console renders at fixed width=120 and the TUI's RichLog
+    # re-wraps at its actual (narrower) width, and the double-wrap
+    # corrupts the absolute path mid-filename. Relative form is
+    # ~35 chars vs ~90+ for the absolute form — fits cleanly.
+    try:
+        log_display = log_file.relative_to(target)
+    except ValueError:
+        # Shouldn't happen with the current ``configure_logging``
+        # impl — it hardcodes ``project_path / ".jig" / "logs"``,
+        # so ``log_file`` is always under ``target``. Defensive
+        # fallback for any future change that adds a custom log
+        # directory option.
+        log_display = log_file
     console.print(
-        f"[dim]Logging to {log_file}[/dim]",
+        f"[dim]Logging to {log_display}[/dim]",
         markup=True,
         highlight=False,
     )
@@ -1113,7 +1125,10 @@ class ConfirmChoice(str, Enum):
 def render_sa_confirm_prompt(*, template_name: str, rationale: str) -> str:
     # Options (Y/n/swap) come from the prompt panel; emit only the
     # informational context here so it doesn't duplicate in scrollback.
-    return f"SA proposes: [bold bright_green]{template_name}[/bold bright_green]\n\nRationale:\n{rationale}"
+    # Plain text — the CLI path uses ``console.print(..., markup=False)``
+    # and the TUI path wraps via ``Markdown(...)``. Rich markup tags
+    # would show through literally in both.
+    return f"SA proposes: {template_name}\n\nRationale:\n{rationale}"
 
 
 async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:
@@ -1172,13 +1187,15 @@ async def latest_profile_proposal(threads: ThreadStore) -> dict | None:
 
 
 def render_profile_confirm_prompt(*, name: str, rationale: str) -> str:
-    """Short Rich-formatted summary of the PM's profile choice, shown in
-    scrollback before the confirm prompt. Options (Y / swap / n) come
-    from the prompt panel — emit only the informational context here."""
-    return (
-        f"PM proposes profile: [bold bright_green]{name}[/bold bright_green]"
-        f"\n\nRationale:\n{rationale}"
-    )
+    """Short summary of the PM's profile choice, shown in scrollback
+    before the confirm prompt. Options (Y / swap / n) come from the
+    prompt panel — emit only the informational context here.
+
+    Plain text only: the CLI path uses ``console.print(..., markup=False)``
+    and the TUI path wraps via ``Markdown(...)``. Rich markup tags
+    don't render in either, so they'd show through literally.
+    """
+    return f"PM proposes profile: {name}\n\nRationale:\n{rationale}"
 
 
 async def prompt_profile_confirm(

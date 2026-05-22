@@ -226,6 +226,95 @@ async def test_run_init_force_preserves_local_profile_yaml(tmp_path: Path) -> No
     assert cfg.profile.sa_role == "sa"
 
 
+async def test_run_init_force_preserves_local_workflow_yaml(tmp_path: Path) -> None:
+    """``--force`` must also preserve operator-authored
+    ``.jig/workflows/<custom>.yaml`` across the ``shutil.rmtree``.
+
+    Companion regression test to ``test_run_init_force_preserves_
+    local_profile_yaml``: that one pins profile-YAML survival, this
+    one pins workflow-YAML survival. The reviewer flagged (job #91)
+    that the profile test alone didn't exercise the workflow
+    snapshot/restore path.
+
+    The custom profile references a custom workflow (``feature-tiny``);
+    after force, both files must still exist AND ``resolve_workflow``
+    must return the custom name for the corresponding size.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    import yaml
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import create_stub, run_init
+
+    target = tmp_path / "wfproj"
+    create_stub(target, name="wfproj")
+    project_yaml = target / ".jig" / "project.yaml"
+    project_yaml.write_text(
+        project_yaml.read_text() + "template_applied_at: 2026-01-01T00:00:00Z\n"
+    )
+
+    # Operator-authored custom workflow.
+    workflows_dir = target / ".jig" / "workflows"
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    custom_workflow_body = yaml.safe_dump(
+        {
+            "name": "feature-tiny",
+            "phases": [
+                {
+                    "name": "implement",
+                    "role": "dev",
+                    "task_template": "Implement: {ticket_title}",
+                    "acceptance_criteria": "Tests pass",
+                },
+                {
+                    "name": "validate",
+                    "role": "validate",
+                    "task_template": "Validate: {ticket_title}",
+                    "acceptance_criteria": "Lint clean",
+                },
+            ],
+        }
+    )
+    (workflows_dir / "feature-tiny.yaml").write_text(custom_workflow_body)
+
+    # Custom profile that REFERENCES the custom workflow.
+    profiles_dir = target / ".jig" / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    custom_profile_body = yaml.safe_dump(
+        {
+            "name": "tiny",
+            "description": "Operator profile using a custom workflow",
+            "sa_role": "sa",
+            "workflows": {
+                "default_by_size": {"xs": "feature-tiny", "s": "feature-tiny"},
+                "available": ["feature-tiny"],
+            },
+        }
+    )
+    (profiles_dir / "tiny.yaml").write_text(custom_profile_body)
+
+    with patch("jig.init_workflow._run_init_resume_loop", new_callable=AsyncMock):
+        await run_init(
+            name=str(target),
+            force=True,
+            prompts=AutoPromptHandler(),
+            profile_name="tiny",
+        )
+
+    # Both YAMLs survive.
+    assert (profiles_dir / "tiny.yaml").is_file()
+    assert (workflows_dir / "feature-tiny.yaml").is_file()
+    assert "feature-tiny" in (workflows_dir / "feature-tiny.yaml").read_text()
+
+    # Profile is committed and the workflow lookup picks the custom
+    # one (not a shipped default that happens to share a size key).
+    cfg = load_config(target)
+    assert cfg.profile.name == "tiny"
+    assert resolve_workflow(cfg, work_type="feature", size="xs") == "feature-tiny"
+    assert resolve_workflow(cfg, work_type="feature", size="s") == "feature-tiny"
+
+
 async def test_run_init_rejects_already_done_before_writing_profile(
     tmp_path: Path,
 ) -> None:

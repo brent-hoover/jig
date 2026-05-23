@@ -3064,9 +3064,7 @@ class Orchestrator:
             if not cfg.reads_glob:
                 survivors.append(c)
                 continue
-            if path_in_scope(
-                c.file, include=cfg.reads_glob, exclude=cfg.reads_exclude
-            ):
+            if path_in_scope(c.file, include=cfg.reads_glob, exclude=cfg.reads_exclude):
                 survivors.append(c)
             else:
                 _logger.warning(

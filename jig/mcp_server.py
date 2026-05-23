@@ -2892,9 +2892,7 @@ def create_agent_mcp_server(
                             }
                         except OSError as exc:
                             payload = {
-                                "error": (
-                                    f"could not read {path!r}: {exc}"
-                                ),
+                                "error": (f"could not read {path!r}: {exc}"),
                             }
                         else:
                             payload = {"content": content}

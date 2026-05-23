@@ -34,8 +34,8 @@ import pytest
 import jig.mcp_server as mcp_server_mod
 from jig.catalog import validate_catalog
 from jig.mcp_server import create_agent_mcp_server
-from jig.models import PhaseConfig, RoleConfig, WorkflowConfig
-from jig.persistence import init_project, save_role, save_workflow
+from jig.models import PhaseConfig, WorkflowConfig
+from jig.persistence import init_project, save_workflow
 from jig.reviewer_routing import _route_blocking_comments
 from jig.reviewers.comment import ReviewerComment, ReviewerCommentType, Severity
 from jig.store.bus import MessageBus

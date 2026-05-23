@@ -503,6 +503,15 @@ async def run_agent(
             # handlers that emit analytics events (ontology edits, etc.)
             # actually emit when invoked from a real agent.
             analytics_emitter=ctx.analytics_emitter,
+            # Per-ticket diff base for ``reviewer_get_diff``. All
+            # worktrees in jig branch from ``project.default_branch``
+            # (see ``orchestrator._create_worktree``), so the same
+            # ref serves as the ticket-base diff target for every
+            # reviewer spawn. Without this, ``reviewer_get_diff``
+            # falls back to env vars and branch probes which can
+            # show only the latest commit on chained / fix-loop
+            # tickets.
+            ticket_base_ref=ctx.project.default_branch,
         )
 
         mcp_servers: dict = {"jig": mcp_server}

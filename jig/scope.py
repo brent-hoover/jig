@@ -92,9 +92,14 @@ def glob_to_git_pathspec(
     """Translate an include + exclude glob list into a git pathspec list.
 
     The output is the argument list that follows ``--`` in a
-    ``git diff`` invocation. Each include glob passes through as-is
-    (git treats it as a pathspec); each exclude glob is wrapped in
-    git's explicit ``:(exclude)`` pathspec magic.
+    ``git diff`` invocation. Both include and exclude entries use
+    git's ``:(glob)`` pathspec magic so ``*`` and ``**`` behave the
+    same way our ``path_in_scope`` predicate does — ``*`` confined
+    to a single component, ``**`` spanning components. Without
+    ``:(glob)`` git falls back to fnmatch semantics where ``*``
+    can match ``/`` boundaries, which diverges from the
+    in-process predicate and lets ``reviewer_get_diff`` expose
+    files that ``reviewer_read_file`` would refuse.
 
     Args:
         include: Include globs. Empty → returns empty list, meaning
@@ -104,8 +109,8 @@ def glob_to_git_pathspec(
     Returns:
         Argument list for ``git diff -- <pathspec>...``.
     """
-    pathspec: list[str] = list(include)
-    pathspec.extend(f":(exclude){pattern}" for pattern in exclude)
+    pathspec: list[str] = [f":(glob){pattern}" for pattern in include]
+    pathspec.extend(f":(exclude,glob){pattern}" for pattern in exclude)
     return pathspec
 
 
@@ -211,6 +216,11 @@ def _translate(pattern: str) -> str:
             parts.append(pattern[i : end + 1])
             i = end + 1
             continue
-        parts.append(c)
+        # Default: any other character is a literal. Escape regex
+        # metacharacters that we haven't handled explicitly — ``{``,
+        # ``}``, ``\``, etc. — so they match themselves in paths
+        # (legal but unusual filenames) rather than causing
+        # ``re.error`` or wrong matches.
+        parts.append(re.escape(c))
         i += 1
     return "".join(parts)

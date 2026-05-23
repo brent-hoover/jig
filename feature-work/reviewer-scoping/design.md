@@ -58,7 +58,18 @@ async def reviewer_get_diff(args):
     return {"diff": result.stdout, "scope": pathspec}
 ```
 
-The `scope` field in the response is informational so the reviewer prompt can show "diff scoped to: src/**, pyproject.toml, ..." in the rendered context. The `base` arg defaults to the worktree's ticket base if absent (the existing `JIG_TICKET_BASE` env or a recorded base SHA on the ticket).
+The `scope` field in the response is informational so the reviewer prompt can show "diff scoped to: src/**, pyproject.toml, ..." in the rendered context. The `base` arg's default resolution chain is:
+
+1. `args.get("base")` — explicit override from the reviewer (rare).
+2. `ticket_base_ref` — passed by the orchestrator into the MCP
+   server at spawn time, derived from `Project.default_branch`
+   (matches the base used by `create_worktree`). This is the
+   authoritative per-ticket diff base; without it the chain
+   below can return wrong results on chained / fix-loop tickets.
+3. `JIG_TICKET_BASE` env var (legacy fallback for scripted
+   handoff-gate checks).
+4. Branch probe through `origin/develop` → `develop` → `main` →
+   `master` → `HEAD~1` (last-ditch for dev / CLI runs).
 
 ### Layer 3 — MCP `reviewer_read_file` tool
 
@@ -91,6 +102,7 @@ reads_glob:
   - "Dockerfile"
   - "scripts/**"
   - "docs/**"
+  - ".jig/spec/**"     # architecture.yaml + contracts.yaml (load-bearing)
 reads_exclude:
   - "tests/**"
   - "**/conftest.py"
@@ -99,10 +111,15 @@ reads_exclude:
 allowed_tools:
   - reviewer_read_file    # replaces Read
   - reviewer_get_diff     # replaces Bash(git diff*)
+  - Bash(find .jig/spec*) # kept — narrow pattern, lets reviewers enumerate spec files
   - reviewer_post_comment
   - graph_consumers_of
   - mark_finding_resolved
 ```
+
+(``reviewer-generalist`` gets the same shape — it's an LLM
+judgment reviewer dispatched by smaller workflows and would
+otherwise be an unscoped escape hatch.)
 
 `reviewer_test_adequacy.yaml`:
 

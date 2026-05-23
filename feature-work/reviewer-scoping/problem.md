@@ -200,13 +200,16 @@ cost as today.
   reviewer includes `tests/**` and `conftest.py` (plus
   `pyproject.toml` for pytest config visibility).
 
-- The orchestrator becomes the **sole diff source** for reviewers.
-  Each non-test reviewer role's `allowed_tools` drops the
-  unrestricted `Bash(git diff*)` entry. The orchestrator (or its
-  per-agent MCP server) exposes a `reviewer_get_diff` tool that
-  returns the diff pre-filtered by the reviewer's `reads_glob`.
-  Without this, an unscoped `git diff main..HEAD` still exposes
-  every file regardless of the orchestrator-side filter.
+- The orchestrator becomes the **sole diff source** for **every**
+  scoped reviewer — including `reviewer-test-adequacy` (its
+  scoped reads_glob is symmetric: tests-only means it must not be
+  able to ``git diff`` the src side either). All scoped reviewer
+  roles drop unrestricted `Bash(git diff*)` from `allowed_tools`.
+  The orchestrator's per-agent MCP server exposes
+  ``reviewer_get_diff`` that returns the diff pre-filtered by the
+  reviewer's ``reads_glob``. Without this, an unscoped
+  ``git diff main..HEAD`` still exposes every file regardless of
+  the orchestrator-side filter.
 
 - `Read` access is similarly path-restricted. Non-test reviewers
   cannot read files under `tests/**`. Determines whether to use
@@ -320,3 +323,7 @@ cost as today.
   reviewers, switch to include-set scope so non-test
   implementation-owned files (pyproject, lockfile, Dockerfile,
   etc.) remain in review coverage. (brent)
+- 2026-05-22: Clarify after roborev #109 — sole-diff-source rule
+  applies to EVERY scoped reviewer, not just non-test ones.
+  reviewer-test-adequacy is scoped too and drops
+  ``Bash(git diff*)`` symmetrically. (brent)

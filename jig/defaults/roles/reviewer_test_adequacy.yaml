@@ -86,6 +86,15 @@ phase_prompt: >
   ## What you flag
 
 
+  Two responsibility areas. Walk both before exiting; if you're
+  approaching the turn budget, file the **Section 1** findings
+  first — adequacy gaps block correctness in a way consistency
+  issues do not.
+
+
+  ### Section 1 — Adequacy (AC coverage)
+
+
   - AC bullets with no test at all. Walk each bullet under the
     Acceptance-Criteria section (whichever format the ticket uses)
     and confirm at least one test references it by name or by
@@ -110,18 +119,60 @@ phase_prompt: >
     ``assert x or not x``).
 
 
+  ### Section 2 — Consistency (test-code hygiene)
+
+
+  Non-test reviewers used to opportunistically file findings on
+  test files; the federation now scopes them out of ``tests/**``
+  and explicitly delegates these concerns to you. Walk the test
+  diff and flag:
+
+  - **Duplicate helpers across test files** that belong in
+    ``conftest.py``. The canonical example: two test files each
+    defining their own ``_register_mock_routes`` /
+    ``_setup_client`` helper with near-identical bodies. Either
+    one belongs in ``conftest.py`` or one of them is dead.
+
+  - **Re-defined module-level constants** that the shared
+    ``conftest.py`` already owns. E.g. a test file declaring
+    ``BASE_URL = "https://example.com"`` when ``conftest.py``
+    already exports the same.
+
+  - **Import ordering in test files** that breaks the project's
+    ruff config (typically ``I001``). Stdlib → third-party →
+    first-party with a blank line between groups, isort-style.
+    Worth flagging because it routinely blocks ``validate`` later
+    and forces an unnecessary dev re-run cycle.
+
+  - **Inconsistent ``@pytest.mark`` usage** across the diff —
+    e.g. one file marks every async test with ``@pytest.mark.anyio``
+    while a sibling file uses ``@pytest.mark.asyncio`` (or omits
+    the marker entirely and relies on ``asyncio_mode``).
+
+  - **Inconsistent ``@pytest.mark.parametrize`` ids** —
+    some tests pass ``ids=[...]`` for readability; others let
+    pytest auto-generate. Pick one within a single ticket's diff.
+
+  - **Helper / fixture naming patterns** that drift from the rest
+    of the test suite. Don't bikeshed — only flag when the diff's
+    new helpers clearly disagree with the surrounding conventions.
+
+  Consistency findings are typically ``notable`` (advisory) unless
+  the code is provably wrong (e.g. import-order ruff failure that
+  WILL block validate). When in doubt: ``notable`` over
+  ``important``.
+
+
   ## What you do NOT flag
 
-
-  - Test style nits (assertion form, fixture naming) — that's
-    ``reviewer-pattern-conformance``.
 
   - Missing error-handling tests specifically — that's
     ``reviewer-error-handling`` (cross-reference is fine; don't
     double-flag).
 
   - "I'd have tested this differently" — only flag when coverage is
-    demonstrably absent for an AC bullet.
+    demonstrably absent for an AC bullet (Section 1) or a
+    consistency violation is concrete (Section 2).
 
   - Implementation-side concerns. The impl doesn't exist yet; you
     cannot review it. End-of-ticket reviewers do that.
@@ -129,6 +180,11 @@ phase_prompt: >
   - Features that appear in the description but NOT under the
     Acceptance-Criteria section. Those belong to other tickets in
     the workflow.
+
+  - Style preferences with no project rule behind them (e.g.
+    function-style vs class-style tests, single-assertion vs
+    multi-assertion). Flag concrete consistency drift within the
+    diff, not subjective taste.
 
 
   ## Severity rules

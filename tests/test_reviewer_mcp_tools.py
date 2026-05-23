@@ -135,7 +135,7 @@ async def test_reviewer_get_diff_scopes_to_src_only(
     )
     assert "test_added_in_ticket" not in diff
     # ``scope`` echoes the pathspec for the reviewer's log.
-    assert payload["scope"] == ["src/**", ":(exclude)tests/**"]
+    assert payload["scope"] == [":(glob)src/**", ":(exclude,glob)tests/**"]
 
 
 @pytest.mark.asyncio
@@ -168,6 +168,75 @@ async def test_reviewer_get_diff_scopes_to_tests_only(
     diff = payload["diff"]
     assert "tests/feature_test.py" in diff
     assert "src/feature.py" not in diff
+
+
+@pytest.mark.asyncio
+async def test_reviewer_get_diff_uses_threaded_base_ref(
+    tmp_path: Path, stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``ticket_base_ref`` passed by the orchestrator at spawn-time
+    is the authoritative diff base. Without it the tool would
+    fall back to env vars or branch probes which can be wrong on
+    chained / fix-loop tickets."""
+    tickets, threads, memory, bus = stores
+    _seed_repo(tmp_path)
+    cfg = RoleConfig(
+        role="reviewer-pattern-conformance",
+        allowed_tools=["reviewer_get_diff"],
+        reads_glob=["src/**"],
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role=cfg.role,
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+        ticket_base_ref="HEAD~1",
+    )
+    tool = _get_tool(captured, "reviewer_get_diff")
+    # Call with NO ``base`` arg — the threaded base must be used.
+    payload = await _invoke(tool)
+    assert "diff" in payload
+    assert "src/feature.py" in payload["diff"]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_get_diff_arg_overrides_threaded_base(
+    tmp_path: Path, stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit ``base`` arg wins over the orchestrator-supplied
+    default. Lets the reviewer adjust if it needs a different
+    base for some reason (rare, but the override exists)."""
+    tickets, threads, memory, bus = stores
+    _seed_repo(tmp_path)
+    cfg = RoleConfig(
+        role="reviewer-pattern-conformance",
+        allowed_tools=["reviewer_get_diff"],
+        reads_glob=["src/**"],
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role=cfg.role,
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+        ticket_base_ref="some-bogus-default-that-would-fail",
+    )
+    tool = _get_tool(captured, "reviewer_get_diff")
+    payload = await _invoke(tool, base="HEAD~1")
+    # Explicit base wins, diff succeeds.
+    assert "diff" in payload
+    assert "src/feature.py" in payload["diff"]
 
 
 @pytest.mark.asyncio
@@ -346,6 +415,83 @@ async def test_reviewer_read_file_refuses_absolute_and_traversal(
             f"path {evil!r} was NOT refused; got {payload}"
         )
         assert "content" not in payload
+
+
+@pytest.mark.asyncio
+async def test_reviewer_read_file_refuses_symlink_to_excluded(
+    tmp_path: Path, stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A symlink at an in-scope path that targets an excluded path
+    must be refused after resolution. The reviewer can't route
+    around the exclude-set by planting a symlink."""
+    tickets, threads, memory, bus = stores
+    _setup_read_repo(tmp_path)
+    # Plant a symlink at src/leak → tests/test_api.py.
+    (tmp_path / "src" / "leak").symlink_to(
+        tmp_path / "tests" / "test_api.py"
+    )
+    cfg = RoleConfig(
+        role="reviewer-pattern-conformance",
+        allowed_tools=["reviewer_read_file"],
+        reads_glob=["src/**"],
+        reads_exclude=["tests/**"],
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role=cfg.role,
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    tool = _get_tool(captured, "reviewer_read_file")
+    payload = await _invoke(tool, path="src/leak")
+    assert "error" in payload
+    assert "content" not in payload
+    # Error message names the resolved target so the reviewer can
+    # see what happened, not just "denied."
+    assert "tests/test_api.py" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_read_file_refuses_symlink_outside_worktree(
+    tmp_path: Path, stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A symlink pointing outside the worktree boundary (e.g. to
+    /etc/passwd or a parent dir) must be refused. Worktree
+    containment is a load-bearing security boundary."""
+    tickets, threads, memory, bus = stores
+    _setup_read_repo(tmp_path)
+    # Create a file outside the worktree and a symlink into it.
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secrets\n")
+    (tmp_path / "src" / "escape").symlink_to(outside)
+    cfg = RoleConfig(
+        role="reviewer-pattern-conformance",
+        allowed_tools=["reviewer_read_file"],
+        reads_glob=["src/**"],
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role=cfg.role,
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+    )
+    tool = _get_tool(captured, "reviewer_read_file")
+    payload = await _invoke(tool, path="src/escape")
+    assert "error" in payload
+    assert "content" not in payload
+    assert "worktree boundary" in payload["error"]
 
 
 @pytest.mark.asyncio

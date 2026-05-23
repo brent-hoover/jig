@@ -200,33 +200,34 @@ class TestGlobToGitPathspec:
     def test_empty_returns_empty(self) -> None:
         assert glob_to_git_pathspec([], []) == []
 
-    def test_include_only(self) -> None:
+    def test_include_uses_glob_magic(self) -> None:
+        # ``:(glob)`` switches git from default fnmatch (where ``*``
+        # can match ``/``) to gitignore-style semantics that match
+        # our in-process ``path_in_scope`` predicate.
         assert glob_to_git_pathspec(["src/**", "*.py"], []) == [
-            "src/**",
-            "*.py",
+            ":(glob)src/**",
+            ":(glob)*.py",
         ]
 
-    def test_exclude_uses_git_pathspec_magic(self) -> None:
-        # Git's exclusion pathspec magic is ``:(exclude)<glob>`` (or
-        # the shorthand ``:!<glob>``). We emit the explicit form so
-        # the intent is obvious in log lines.
+    def test_exclude_combines_glob_and_exclude_magic(self) -> None:
+        # ``:(exclude,glob)<pattern>`` combines both magic words so
+        # the exclude side honours the same wildcard rules as the
+        # include side.
         assert glob_to_git_pathspec(["src/**"], ["tests/**"]) == [
-            "src/**",
-            ":(exclude)tests/**",
+            ":(glob)src/**",
+            ":(exclude,glob)tests/**",
         ]
 
     def test_includes_before_excludes(self) -> None:
-        # Ordering matters for readability of generated `git diff`
-        # command lines — includes first, then excludes.
         result = glob_to_git_pathspec(
             ["src/**", "pyproject.toml"],
             ["tests/**", "**/conftest.py"],
         )
         assert result == [
-            "src/**",
-            "pyproject.toml",
-            ":(exclude)tests/**",
-            ":(exclude)**/conftest.py",
+            ":(glob)src/**",
+            ":(glob)pyproject.toml",
+            ":(exclude,glob)tests/**",
+            ":(exclude,glob)**/conftest.py",
         ]
 
     def test_excludes_only(self) -> None:
@@ -234,5 +235,27 @@ class TestGlobToGitPathspec:
         every path as eligible and exclude the named ones. Useful for
         documenting what we DON'T want without enumerating the rest."""
         assert glob_to_git_pathspec([], ["tests/**"]) == [
-            ":(exclude)tests/**",
+            ":(exclude,glob)tests/**",
         ]
+
+
+class TestGlobSemanticsAlignWithPredicate:
+    """Both sides must agree on glob semantics — otherwise
+    ``reviewer_get_diff`` exposes files ``reviewer_read_file``
+    would refuse (the exact divergence roborev #112 / #113
+    flagged). The pathspec uses ``:(glob)`` magic so single ``*``
+    is confined to one component, matching ``path_in_scope``.
+    """
+
+    def test_root_only_star_py_matches_path_in_scope_semantics(self) -> None:
+        # ``path_in_scope("src/foo.py", include=["*.py"])`` is False
+        # (single ``*`` doesn't span the ``/``).
+        from jig.scope import path_in_scope
+
+        assert not path_in_scope("src/foo.py", include=["*.py"], exclude=[])
+        # The git pathspec should also fail to match — proven at
+        # the pathspec layer by the ``:(glob)`` prefix; this test
+        # documents the equivalence so the regression is obvious
+        # if someone reverts the magic prefix.
+        spec = glob_to_git_pathspec(["*.py"], [])
+        assert spec == [":(glob)*.py"]

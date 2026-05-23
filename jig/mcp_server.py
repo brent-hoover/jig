@@ -113,6 +113,7 @@ def create_agent_mcp_server(
     ticket_id: str = "",
     cycle: int = 0,
     analytics_emitter: "AnalyticsEmitter | None" = None,
+    ticket_base_ref: str | None = None,
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -2843,23 +2844,60 @@ def create_agent_mcp_server(
                     ),
                 }
             else:
+                # Resolve symlinks before reading. A path that
+                # passes ``path_in_scope`` (e.g. ``src/leak``) could
+                # itself be a symlink pointing outside the worktree
+                # or into a path the exclude-set forbids. After
+                # resolving, the realpath must (a) stay inside the
+                # worktree boundary and (b) still pass the scope
+                # check when expressed as a project-relative path.
+                worktree_root = worktree_path.resolve()
+                target = (worktree_path / path).resolve(strict=False)
                 try:
-                    content = (worktree_path / path).read_text()
-                except FileNotFoundError:
+                    rel_target = target.relative_to(worktree_root)
+                except ValueError:
                     payload = {
                         "error": (
-                            f"path {path!r} is in scope but does "
-                            "not exist in the worktree."
-                        ),
-                    }
-                except OSError as exc:
-                    payload = {
-                        "error": (
-                            f"could not read {path!r}: {exc}"
+                            f"path {path!r} resolves outside the "
+                            "worktree boundary (likely a symlink "
+                            "to an external path) — refused."
                         ),
                     }
                 else:
-                    payload = {"content": content}
+                    rel_posix = rel_target.as_posix()
+                    if not path_in_scope(
+                        rel_posix,
+                        include=agent_cfg.reads_glob,
+                        exclude=agent_cfg.reads_exclude,
+                    ):
+                        payload = {
+                            "error": (
+                                f"path {path!r} resolves to "
+                                f"{rel_posix!r}, which is outside "
+                                "this reviewer's scope. Symlinks "
+                                "cannot route around the scope "
+                                "filter."
+                            ),
+                        }
+                    else:
+                        try:
+                            content = target.read_text()
+                        except FileNotFoundError:
+                            payload = {
+                                "error": (
+                                    f"path {path!r} is in scope but "
+                                    "does not exist in the "
+                                    "worktree."
+                                ),
+                            }
+                        except OSError as exc:
+                            payload = {
+                                "error": (
+                                    f"could not read {path!r}: {exc}"
+                                ),
+                            }
+                        else:
+                            payload = {"content": content}
             import json
 
             return {"content": [{"type": "text", "text": json.dumps(payload)}]}
@@ -2890,6 +2928,14 @@ def create_agent_mcp_server(
             import subprocess
 
             base = (args.get("base") or "").strip()
+            if not base and ticket_base_ref:
+                # Orchestrator-supplied per-ticket base ref takes
+                # precedence over env / probe fallbacks. This is
+                # the authoritative diff base for chained tickets
+                # and fix-loop cycles where ``HEAD~1`` would show
+                # only the latest commit instead of the full
+                # ticket diff.
+                base = ticket_base_ref
             if not base:
                 base = os.environ.get("JIG_TICKET_BASE", "").strip()
             if not base:

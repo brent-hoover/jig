@@ -2957,6 +2957,21 @@ class Orchestrator:
                 if c.cycle == latest_cycle and c.severity in ("critical", "important")
             ]
 
+        # Filter out findings whose file is outside the issuing
+        # reviewer's ``reads_glob``. These are LLM-hallucinated
+        # comments — the reviewer literally couldn't have seen the
+        # file via ``reviewer_read_file``. They must NOT bounce the
+        # ticket: dropping here (rather than only in ``_route_one``
+        # later) means the survivor set determines whether we even
+        # take the blocking branch. If every blocking comment is
+        # hallucinated, we fall through to the check-failure-fallback
+        # path the same as if there were no blocking comments at
+        # all — instead of routing returning ``None`` and the
+        # caller failing the ticket on findings it should have
+        # ignored.
+        if blocking:
+            blocking = await self._filter_out_of_scope_comments(blocking)
+
         if blocking:
             route = await _route_blocking_comments(
                 workflow,
@@ -2967,7 +2982,9 @@ class Orchestrator:
             )
         else:
             # Check-failure / agent-blocked-without-comments path —
-            # legacy most-recent-dev fallback.
+            # legacy most-recent-dev fallback. Also covers the case
+            # where every blocking comment was out-of-scope and
+            # got filtered above.
             fix_idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, "dev")
             route = (fix_idx, "check-failure-fallback") if fix_idx is not None else None
 
@@ -2997,6 +3014,63 @@ class Orchestrator:
                     exc_info=True,
                 )
         return fix_idx
+
+    async def _filter_out_of_scope_comments(
+        self, comments: list[ReviewerComment]
+    ) -> list[ReviewerComment]:
+        """Drop reviewer comments whose ``file`` is outside the
+        issuing reviewer's ``reads_glob``.
+
+        Defence-in-depth filter applied BEFORE routing. The reviewer
+        couldn't have read the file via ``reviewer_read_file``, so
+        a finding citing it is either hallucinated or operator-
+        synthesised; either way the orchestrator should not treat
+        it as a blocking comment. Dropping here (rather than only
+        rejecting routes in ``_route_one``) lets the orchestrator's
+        upstream ``if blocking:`` branch evaluate against the
+        SURVIVOR set — when every blocking comment is hallucinated,
+        we fall through to the check-failure-fallback path
+        instead of failing the ticket.
+
+        Returns the subset of ``comments`` that survive the scope
+        check. Comments from reviewers whose role config we can't
+        load, or that don't declare ``reads_glob``, pass through
+        unchanged (matches legacy unscoped behaviour).
+        """
+        from jig.persistence import load_role
+        from jig.scope import path_in_scope
+
+        survivors: list[ReviewerComment] = []
+        for c in comments:
+            if c.file is None:
+                # Diff-wide findings have no file to scope-check.
+                survivors.append(c)
+                continue
+            try:
+                cfg = load_role(self._project_path, c.reviewer)
+            except FileNotFoundError:
+                # Unknown reviewer role — don't second-guess.
+                survivors.append(c)
+                continue
+            if not cfg.reads_glob:
+                survivors.append(c)
+                continue
+            if path_in_scope(
+                c.file, include=cfg.reads_glob, exclude=cfg.reads_exclude
+            ):
+                survivors.append(c)
+            else:
+                _logger.warning(
+                    "_filter_out_of_scope_comments: dropping "
+                    "blocking comment from %s on %s (reads_glob=%s, "
+                    "exclude=%s) — hallucinated finding on a file "
+                    "the reviewer could not have read.",
+                    c.reviewer,
+                    c.file,
+                    cfg.reads_glob,
+                    cfg.reads_exclude,
+                )
+        return survivors
 
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.

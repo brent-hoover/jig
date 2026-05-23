@@ -31,9 +31,9 @@ from jig.tui.app import JigApp
 from jig.tui.screens.now import NowScreen
 
 
-# Verbatim from /Users/brent/Projects/personal/jig_evals/hn-cli/.jig/logs/
-# jig-20260522-130221.jsonl — the two ``[pm:planning] text:`` log
-# lines from the run that produced the screenshot the user shared.
+# Verbatim from the hn-cli eval log run — the two
+# ``[pm:planning] text:`` log lines from the run that produced
+# the scrollback corruption the operator screenshot captured.
 PM_TEXT_1 = (
     "Now I have the full picture. Let me draft the plan and post it "
     "for approval."

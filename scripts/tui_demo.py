@@ -170,6 +170,41 @@ SCENES: list[tuple[str, list[dict]]] = [
             }),
         ],
     ),
+    # 8b ── PM text with embedded Markdown table + Unicode ambiguous-width
+    # chars. Verbatim from a real hn-cli planning run that triggers the
+    # scrollback corruption (truncated narrative, "kets"/"ing"/"by-s"
+    # fragments bleeding into the sidebar gutter). Single event with
+    # narrative + table on the same line — no newlines.
+    (
+        "PM planning text (corruption repro)",
+        [
+            _ev("agents", "text", {
+                "role": "pm",
+                "ticket_id": TICKET_ID,
+                "text": (
+                    "Now I have the full picture. Let me draft the plan "
+                    "and post it for approval."
+                ),
+            }),
+            _ev("agents", "text", {
+                "role": "pm",
+                "ticket_id": TICKET_ID,
+                "text": (
+                    "Here's the plan I've drafted: **4 tickets, linear "
+                    "chain** (≤2 tickets → no parallelism needed): "
+                    "| # | Title | Type | Size | Depends on | "
+                    "|---|-------|------|------|------------| "
+                    "| 1 | Core: project setup + `hn-cli top --limit N` "
+                    "| feature | m | — | "
+                    "| 2 | Filtering: `--min-score` and `--type` flags "
+                    "| feature | s | 1 | "
+                    "| 3 | JSON output: `--format json` | feature | s | 2 | "
+                    "| 4 | Integration validation | feature | "
+                    "m (validation) | 3 |"
+                ),
+            }),
+        ],
+    ),
     # 9 ── agent uses WebSearch
     (
         "Agent tool use (WebSearch)",

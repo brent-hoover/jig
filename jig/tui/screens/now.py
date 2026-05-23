@@ -13,6 +13,7 @@ from textual.widgets import RichLog, Static, TextArea
 
 from jig.tui.slash import ParsedSlash, SlashParseError, parse_slash
 from jig.tui.widgets.multi_pane_stream import MultiPaneStream
+from jig.tui.widgets.scrollback import Scrollback
 
 
 # Authoritative list of slash commands the operator can use. Drives both
@@ -362,7 +363,33 @@ class NowScreen(Container):
         # more reviewers are running. Hidden by default; toggled visible
         # in ``_handle_reviewer_event`` when the first reviewer starts.
         yield MultiPaneStream(id="reviewer-panes", lines_per_pane=5)
-        yield RichLog(id="scrollback", auto_scroll=True, markup=True, wrap=True)
+        # ``min_width=0`` is critical. Textual's default of 78 forces
+        # every rendered strip to be at least 78 cells wide, even when
+        # the widget's visible content area is narrower (e.g. when the
+        # right-docked Sidebar takes 36 cells off a 95-cell terminal,
+        # leaving ~53 cells for scrollback). The overflow strips get
+        # composited past the widget's right edge and bleed into the
+        # Sidebar's column space — visible as truncated narrative text
+        # ("...post it for approv") with leftover word fragments
+        # ("by-s", "ing", "kets") floating in the gutter. Setting
+        # min_width=0 lets ``shrink=True`` (the write-time default)
+        # clamp the render width to the widget's actual content area,
+        # so Markdown and other renderables wrap at the right place.
+        #
+        # ``Scrollback`` is a ``RichLog`` subclass that paints the
+        # text-selection highlight in ``render_line``. Upstream
+        # ``RichLog`` updates selection state but never overlays the
+        # ``screen--selection`` style on the rendered cells — so
+        # drag-selecting from the scrollback shows no highlight even
+        # though Textual is tracking the range internally. See
+        # ``jig.tui.widgets.scrollback`` for the override.
+        yield Scrollback(
+            id="scrollback",
+            auto_scroll=True,
+            markup=True,
+            wrap=True,
+            min_width=0,
+        )
         # Thinking indicator (live, in-place updates — replaces the broken
         # \r-overwriting rich Status spinner).
         yield Static("", id="thinking", markup=True)

@@ -48,6 +48,18 @@ RichLog, ListView, Tree {
     scrollbar-corner-color: #1a2030;
 }
 
+/* High-contrast text selection. The Textual default
+   (``$primary 50%`` ≈ #0178D4 at half opacity) is essentially
+   invisible against jig's dark-blue scrollback background
+   (#1a2030) — drag-selection visually appears not to be working
+   even when it is. Yellow on near-black is unambiguous and copies
+   to the system clipboard via the ``ctrl+c→action_copy_selection``
+   binding in ``app.py``. */
+Screen .screen--selection {
+    background: #f1c40f;
+    color: #1a1a1a;
+}
+
 /* When the scrollback gets focus (Shift+Tab), highlight it so the
    operator knows arrow keys now scroll instead of moving cursor. */
 RichLog:focus {

@@ -483,13 +483,14 @@ The factory imports and registers handlers from:
 
 | Class | Purpose |
 |-------|---------|
-| `Config` | Top-level config model: project, workflows, ownership, roles, escalation, deadlock, orchestrator, self_approval |
+| `Config` | Top-level config model: project, workflows, ownership, roles, escalation, deadlock, orchestrator, self_approval, profile |
 | `WorkflowsSection` | Workflow catalog: global defaults, available list, per-work-type overrides |
 | `OwnershipSection` | Field ownership (who controls spec sections, architecture, capability policy, etc.) |
 | `RolesSection` | PO / SA role wiring (assignment kind, human, helper template) |
 | `EscalationSection` | Default human escalation contact |
 | `OrchestratorSection` | Orchestrator knobs: run_review_federation, canonicalize_mode |
 | `DeadlockSection` | Age-based deadlock thresholds: nudge_after_s, escalate_after_s |
+| `ProfileSection` | Project profile binding: SA role depth + per-size workflow routing; defaults preserve legacy behaviour when absent |
 | `RoleAssignment` | Role staffing (human, human_with_helper, agent, or unset) |
 | `SpecOwnership` | Ownership of spec fields (behaviors, acceptance_criteria, design, technical_risks) |
 | `WorkflowTypeEntry` | Per-work-type workflow selection (default_by_size, available list) |
@@ -658,7 +659,7 @@ SelfApprovalPolicy = Literal["warn", "blocked"]
 |-------|---------|
 | `Ticket` | Main ticket record: id, title, description, status, work_type, size, assignee, created/updated timestamps, phase index, module/epic/suite metadata, plan fields (layer, dev_tier, etc.) |
 | `TicketStatus` | Enum: NEW, READY, IN_PROGRESS, BLOCKED, RESOLVED, FAILED, COMPLETED, DEFERRED |
-| `WorkType` | Enum: FEATURE, BUGFIX, REFACTOR, SPIKE, PERF, MIGRATION, DOCS, BRIEF, ARCHITECTURE, PLANNING, CANONICALIZE |
+| `WorkType` | Enum: FEATURE, BUGFIX, REFACTOR, SPIKE, PERF, MIGRATION, DOCS, BRIEF, ARCHITECTURE, PLANNING, CANONICALIZE, PROFILE |
 | `Size` | Enum: XS, S, M, L, XL |
 | `TicketPlanMetadata` | Typed view over v2 planning fields (suite_id, module_id, epic_id, layer, dev_tier, etc.) |
 | `TicketTouches` | Explicit cross-boundary declarations (modules, capabilities, APIs, events, data stores, migrations, etc.) |

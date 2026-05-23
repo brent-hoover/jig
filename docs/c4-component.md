@@ -584,9 +584,15 @@ Both agents post `Handoff` entries when complete, which the Orchestrator detects
 The PM System is the planning and dispatch layer between spec authoring and code implementation. It splits into two
 roles: the Planner PM (strategic, runs in passes) and the Coordinator PM (tactical, continuous).
 
-The Planner PM agent reads PO and SA artifacts after both complete. It decomposes capabilities into a three-layer
-build plan (bones / MVP / final) organized by epics. Each ticket is typed (tracer-bullet, spike, or standard),
-assigned a dev tier (standard, senior, or SA), and tagged with a reviewer set. The plan is written to
+The PM role runs in two distinct passes separated by the SA phase. **PM-1 (profile selection)** fires immediately
+after PO L0 completes, before the SA. The PM reads `docs/brief.md`, proposes a project profile (`small` or
+`medium`), and gates on operator confirmation. The chosen profile binds the SA role depth (`sa` vs `sa_mvp`) and
+per-size workflow routing (e.g., `feature-s` vs `feature-s-full` with the full reviewer federation). The profile is
+written to `.jig/config.yaml` and the `--profile` CLI flag on `jig start` bypasses PM-1 for eval/auto mode.
+
+**PM-2 (planning)** runs after both PO and SA complete. It reads PO and SA artifacts and decomposes capabilities
+into a three-layer build plan (bones / MVP / final) organized by epics. Each ticket is typed (tracer-bullet, spike,
+or standard), assigned a dev tier (standard, senior, or SA), and tagged with a reviewer set. The plan is written to
 `build-plan.yaml` via the `plan_finalize` MCP tool, which validates schema and hands off to the Coordinator.
 
 The Coordinator (implemented in `coordinator.py`) is the continuous dispatch layer. It materializes tickets from the
@@ -596,8 +602,10 @@ Planner PM passes use for sizing.
 
 ### Software Features
 
-- **Build plan authoring**: Planner PM writes `BuildPlan` YAML with epics, layers, ordering rule, and per-ticket
-  type/tier/reviewer assignments
+- **Profile selection (PM-1)**: Proposes a project profile (`small`/`medium`) from the brief; gates on operator
+  confirmation; writes the chosen profile to config, binding SA role depth and per-size workflow routing
+- **Build plan authoring (PM-2)**: Planner PM writes `BuildPlan` YAML with epics, layers, ordering rule, and
+  per-ticket type/tier/reviewer assignments
 - **Plan validation**: Schema validation, unique ticket ID enforcement, at least one bones ticket required
 - **Bones-first dispatch**: Coordinator enforces that all epics' bones complete before any MVP begins (per
   `OrderingRule`)
@@ -617,7 +625,8 @@ Planner PM passes use for sizing.
 
 | Tool | Agent | Description |
 |------|-------|-------------|
-| `plan_finalize(plan)` | Planner PM | Validate + write `BuildPlan`; hand off to Coordinator |
+| `pm_propose_profile(profile_name)` | Planner PM (PM-1) | Post profile proposal Note + resolve profile ticket |
+| `plan_finalize(plan)` | Planner PM (PM-2) | Validate + write `BuildPlan`; hand off to Coordinator |
 
 #### Exposed (Python)
 

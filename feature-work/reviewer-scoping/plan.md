@@ -1,10 +1,10 @@
 ---
 title: Reviewer file-scoping and test-reviewer expansion — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: brent
 created: 2026-05-22
-updated: 2026-05-22
+updated: 2026-05-22  # approved by operator, bumped to active
 design: ./design.md
 ---
 

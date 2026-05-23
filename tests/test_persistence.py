@@ -173,6 +173,40 @@ class TestAgentTypePersistence:
         with pytest.raises(FileNotFoundError):
             load_role(tmp_new_jig_project, "nope")
 
+    def test_reads_glob_round_trips(self, tmp_new_jig_project: Path) -> None:
+        """Reviewer file-scoping fields (``reads_glob`` /
+        ``reads_exclude``) persist through ``save_role`` /
+        ``load_role`` with their list shape preserved.
+
+        Defaults to empty lists when unset so legacy role configs
+        without the fields load cleanly — verified via the existing
+        round-trip tests above.
+        """
+        cfg = RoleConfig(
+            role="reviewer-pattern-conformance",
+            phase_prompt="…",
+            reads_glob=["src/**", "pyproject.toml"],
+            reads_exclude=["tests/**", "**/conftest.py"],
+        )
+        save_role(tmp_new_jig_project, cfg)
+        loaded = load_role(
+            tmp_new_jig_project, "reviewer-pattern-conformance"
+        )
+        assert loaded.reads_glob == ["src/**", "pyproject.toml"]
+        assert loaded.reads_exclude == ["tests/**", "**/conftest.py"]
+
+    def test_reads_glob_default_empty(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        """Roles that don't set the new fields keep the empty-list
+        default — i.e. the role operates unscoped, matching legacy
+        behaviour."""
+        cfg = RoleConfig(role="dev", phase_prompt="…")
+        save_role(tmp_new_jig_project, cfg)
+        loaded = load_role(tmp_new_jig_project, "dev")
+        assert loaded.reads_glob == []
+        assert loaded.reads_exclude == []
+
 
 class TestDefaultRoles:
     def test_creates_all_types(self, tmp_new_jig_project: Path) -> None:

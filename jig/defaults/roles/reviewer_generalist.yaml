@@ -135,7 +135,10 @@ phase_prompt: >
 
   ## Mechanics
 
-  - Read the diff (``git diff <base>..HEAD`` from the worktree).
+  - Read the diff via the ``reviewer_get_diff`` MCP tool (no
+    args needed — the orchestrator supplies the per-ticket base
+    ref and pre-filters the diff to your ``reads_glob``). Bash
+    ``git diff`` is not available.
   - Read the ticket description / AC from ``ticket://description``.
   - For pattern findings, sample 2–3 neighbor files before opining.
   - For architectural findings, check the graph if needed
@@ -149,12 +152,35 @@ phase_prompt: >
   - You don't fix the code — only flag.
   - You don't argue with the operator.
   - You don't run tests — that's the check-runner's job.
+
+  - **Test files (anything under ``tests/**`` or matching
+    ``conftest.py`` / ``test_*.py`` / ``*_test.py``) are NOT your
+    territory.** The orchestrator filters them out of the diff and
+    refuses to read them — ``reviewer_get_diff`` and
+    ``reviewer_read_file`` will not return test content regardless
+    of how you phrase the request. Test concerns are owned by
+    ``reviewer-test-adequacy``. Do not spend turns probing for
+    them; do not file findings against test paths.
 allowed_tools:
-  - Read
-  - Bash(git diff*)
+  - reviewer_read_file
+  - reviewer_get_diff
   - reviewer_post_comment
   - graph_consumers_of
   - mark_finding_resolved
+reads_glob:
+  - "src/**"
+  - "jig/**"
+  - "pyproject.toml"
+  - "uv.lock"
+  - "Dockerfile"
+  - "scripts/**"
+  - "docs/**"
+  - ".jig/spec/**"
+reads_exclude:
+  - "tests/**"
+  - "**/conftest.py"
+  - "**/test_*.py"
+  - "**/*_test.py"
 allowed_mcps: []
 strict_tools: true
 default_context:

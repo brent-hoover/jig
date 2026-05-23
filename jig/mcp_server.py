@@ -1,6 +1,9 @@
 """MCP server factory for agent ticket tools."""
 
+import asyncio
 import json
+import os
+import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -113,6 +116,7 @@ def create_agent_mcp_server(
     ticket_id: str = "",
     cycle: int = 0,
     analytics_emitter: "AnalyticsEmitter | None" = None,
+    ticket_base_ref: str | None = None,
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -2806,6 +2810,202 @@ def create_agent_mcp_server(
             }
 
         all_tools.append(recent_events)
+
+    if "reviewer_read_file" in agent_cfg.allowed_tools:
+        from jig.scope import path_in_scope
+
+        @tool(
+            "reviewer_read_file",
+            "Read a single file from the ticket worktree, scoped to "
+            "your role's ``reads_glob``. Use this instead of the "
+            "raw ``Read`` tool — the orchestrator enforces the "
+            "scope, so a path outside your role's scope returns an "
+            "error and you should not retry with a similar path. "
+            "Args: ``path`` (project-relative POSIX path, e.g. "
+            "``src/foo.py``). Absolute paths and any path "
+            "containing ``..`` are refused. Returns ``content`` on "
+            "success or ``error`` on out-of-scope / refused paths.",
+            {"path": str},
+        )
+        async def reviewer_read_file(args):
+            path = (args.get("path") or "").strip()
+            if not path_in_scope(
+                path,
+                include=agent_cfg.reads_glob,
+                exclude=agent_cfg.reads_exclude,
+            ):
+                payload = {
+                    "error": (
+                        f"path {path!r} is outside this reviewer's "
+                        f"scope. Your include patterns are "
+                        f"{agent_cfg.reads_glob!r}; exclude patterns "
+                        f"are {agent_cfg.reads_exclude!r}. If you "
+                        "believe this is a routing error, raise a "
+                        "finding via reviewer_post_comment with the "
+                        "file you expected to access — do not retry "
+                        "with a similar path."
+                    ),
+                }
+            else:
+                # Resolve symlinks before reading. A path that
+                # passes ``path_in_scope`` (e.g. ``src/leak``) could
+                # itself be a symlink pointing outside the worktree
+                # or into a path the exclude-set forbids. After
+                # resolving, the realpath must (a) stay inside the
+                # worktree boundary and (b) still pass the scope
+                # check when expressed as a project-relative path.
+                worktree_root = worktree_path.resolve()
+                target = (worktree_path / path).resolve(strict=False)
+                try:
+                    rel_target = target.relative_to(worktree_root)
+                except ValueError:
+                    payload = {
+                        "error": (
+                            f"path {path!r} resolves outside the "
+                            "worktree boundary (likely a symlink "
+                            "to an external path) — refused."
+                        ),
+                    }
+                else:
+                    rel_posix = rel_target.as_posix()
+                    if not path_in_scope(
+                        rel_posix,
+                        include=agent_cfg.reads_glob,
+                        exclude=agent_cfg.reads_exclude,
+                    ):
+                        payload = {
+                            "error": (
+                                f"path {path!r} resolves to "
+                                f"{rel_posix!r}, which is outside "
+                                "this reviewer's scope. Symlinks "
+                                "cannot route around the scope "
+                                "filter."
+                            ),
+                        }
+                    else:
+                        # ``Path.read_text`` is synchronous I/O.
+                        # The orchestrator runs many reviewer
+                        # agents on the same event loop; blocking
+                        # here would stall the others. Wrap in
+                        # ``asyncio.to_thread`` per CLAUDE.md's
+                        # "async by default for I/O" rule.
+                        try:
+                            content = await asyncio.to_thread(target.read_text)
+                        except FileNotFoundError:
+                            payload = {
+                                "error": (
+                                    f"path {path!r} is in scope but "
+                                    "does not exist in the "
+                                    "worktree."
+                                ),
+                            }
+                        except OSError as exc:
+                            payload = {
+                                "error": (f"could not read {path!r}: {exc}"),
+                            }
+                        else:
+                            payload = {"content": content}
+            return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        all_tools.append(reviewer_read_file)
+
+    if "reviewer_get_diff" in agent_cfg.allowed_tools:
+        from jig.scope import glob_to_git_pathspec
+
+        @tool(
+            "reviewer_get_diff",
+            "Return the unified diff for this ticket, scoped to the "
+            "files this reviewer is allowed to see. Use this instead "
+            "of shelling out to ``git diff`` — the orchestrator "
+            "filters the diff against your role's ``reads_glob`` / "
+            "``reads_exclude`` so out-of-scope files (e.g. test "
+            "files for non-test reviewers) are never visible. "
+            "Args: ``base`` (optional, the ref to diff against; "
+            "defaults to the ticket's base branch via "
+            "``JIG_TICKET_BASE`` env var, falling back to "
+            "``origin/develop``). Returns ``diff`` (unified diff "
+            "text) and ``scope`` (the pathspec actually used, for "
+            "your reference).",
+            {"base": str},
+        )
+        async def reviewer_get_diff(args):
+            # All git shell-outs go through ``asyncio.to_thread`` so
+            # this async handler doesn't block the orchestrator's
+            # event loop (concurrent reviewer agents share it).
+            # ``asyncio.create_subprocess_exec`` would also work but
+            # ``to_thread`` keeps the call sites tighter and matches
+            # the pattern in ``reviewer_routing._last_touching_phase``.
+            def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    cmd,
+                    cwd=str(worktree_path),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            base = (args.get("base") or "").strip()
+            if not base and ticket_base_ref:
+                # Orchestrator-supplied per-ticket base ref. Compute
+                # ``merge-base`` against HEAD so we diff against the
+                # commit where this ticket's branch DIVERGED from
+                # the base branch, not against the (possibly-moved)
+                # current tip. If unrelated tickets merge into the
+                # base branch between worktree creation and review,
+                # the divergence SHA still pins the ticket-only
+                # diff. Falls back to the raw ref if merge-base
+                # fails (no common ancestor, ref invalid).
+                mb = await asyncio.to_thread(
+                    _run, ["git", "merge-base", ticket_base_ref, "HEAD"]
+                )
+                if mb.returncode == 0 and mb.stdout.strip():
+                    base = mb.stdout.strip()
+                else:
+                    base = ticket_base_ref
+            if not base:
+                base = os.environ.get("JIG_TICKET_BASE", "").strip()
+            if not base:
+                # Probe the standard fallbacks. Manual / dev runs
+                # without an env var or arg still produce a useful
+                # diff.
+                for candidate in ("origin/develop", "develop", "main", "master"):
+                    probe = await asyncio.to_thread(
+                        _run,
+                        ["git", "rev-parse", "--verify", "--quiet", candidate],
+                    )
+                    if probe.returncode == 0:
+                        base = candidate
+                        break
+                else:
+                    base = "HEAD~1"
+            pathspec = glob_to_git_pathspec(
+                agent_cfg.reads_glob, agent_cfg.reads_exclude
+            )
+            cmd = ["git", "diff", f"{base}..HEAD"]
+            if pathspec:
+                cmd.append("--")
+                cmd.extend(pathspec)
+            result = await asyncio.to_thread(_run, cmd)
+            if result.returncode != 0:
+                # Fail loud — silent fallback to unscoped diff would
+                # defeat the entire mechanism. Surface the stderr to
+                # the reviewer so it can adjust the base ref.
+                payload = {
+                    "error": (
+                        f"git diff against {base!r} failed "
+                        f"(exit {result.returncode}): "
+                        f"{result.stderr.strip() or '<no stderr>'}"
+                    ),
+                    "scope": pathspec,
+                }
+            else:
+                payload = {
+                    "diff": result.stdout,
+                    "scope": pathspec,
+                }
+            return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        all_tools.append(reviewer_get_diff)
 
     if "reviewer_post_comment" in agent_cfg.allowed_tools:
 

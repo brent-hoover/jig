@@ -52,9 +52,20 @@ def _comment(
     severity: Severity = Severity.IMPORTANT,
     cycle: int = 0,
     reviewer: str = "reviewer-pattern-conformance",
-    type_: str = "pattern-divergence",
+    type_: str | None = None,
     prose: str = "f",
 ) -> ReviewerComment:
+    # Choose a representative ``type`` per reviewer when the caller
+    # doesn't override. Tests that pin routing/filtering shouldn't
+    # carry a stale ``pattern-divergence`` on a test-adequacy
+    # finding — the type field exists so downstream logic can
+    # distinguish reviewer mandates.
+    if type_ is None:
+        type_ = (
+            "test-adequacy"
+            if reviewer == "reviewer-test-adequacy"
+            else "pattern-divergence"
+        )
     return ReviewerComment(
         type=ReviewerCommentType(type_),
         severity=severity,
@@ -143,6 +154,11 @@ class TestRouteBlockedPhase:
         """Stale comments from an earlier cycle must not influence routing."""
         _save_project(tmp_path)
         # Seed before startup so the instance-scoped store picks them up.
+        # Use test-adequacy as the reviewer for the test-file finding —
+        # pattern-conformance's scope excludes tests/** post-feature, so
+        # such a comment would be dropped as out-of-scope (correct
+        # behaviour pinned by ``test_reviewer_scoping_e2e``); to exercise
+        # cycle-filtering we need a scoping-valid combination.
         await _seed_store(
             tmp_path,
             "tb-cycle",
@@ -150,7 +166,11 @@ class TestRouteBlockedPhase:
                 # Old cycle: a finding that would route to implement.
                 _comment(file="src/foo.py", cycle=0),
                 # Latest cycle: a finding that should route to test.
-                _comment(file="tests/test_x.py", cycle=1),
+                _comment(
+                    file="tests/test_x.py",
+                    cycle=1,
+                    reviewer="reviewer-test-adequacy",
+                ),
             ],
         )
         orch = Orchestrator(project_path=tmp_path)
@@ -212,10 +232,17 @@ class TestRouteBlockedPhase:
         """The chosen phase + route reason lands as a thread Note so
         operators can see why a given phase was selected for retry."""
         _save_project(tmp_path)
+        # See note in ``test_filters_to_latest_cycle_only``: use
+        # test-adequacy for findings on test files so the comment
+        # survives the orchestrator's out-of-scope filter.
         await _seed_store(
             tmp_path,
             "tb-note",
-            [_comment(file="tests/test_x.py", cycle=0)],
+            [_comment(
+                file="tests/test_x.py",
+                cycle=0,
+                reviewer="reviewer-test-adequacy",
+            )],
         )
         orch = Orchestrator(project_path=tmp_path)
         await orch.startup()
@@ -275,6 +302,16 @@ class TestReplay240db21fScenario:
         # test file. The reviewer's `file` is the test file
         # (tests/test_filter_flags.py) — and that's the file the dev
         # role cannot legally edit.
+        #
+        # Post-reviewer-scoping: pattern-conformance can no longer
+        # be the reviewer that raises this finding (its reads_glob
+        # excludes tests/**, so its findings on tests/ paths are
+        # dropped by ``_filter_out_of_scope_comments`` as
+        # hallucinations). The legitimate raiser of test-side
+        # consistency issues is now ``reviewer-test-adequacy``,
+        # whose mandate explicitly covers "duplicate helpers /
+        # constants that should live in conftest" — that's the
+        # same class of finding.
         await _seed_store(
             tmp_path,
             "tb-240db21f",
@@ -283,7 +320,7 @@ class TestReplay240db21fScenario:
                     file="tests/test_filter_flags.py",
                     severity=Severity.IMPORTANT,
                     cycle=0,
-                    reviewer="reviewer-pattern-conformance",
+                    reviewer="reviewer-test-adequacy",
                     prose=(
                         "Tests should import VALID_TYPES from cli.py "
                         "rather than redefining it locally — the test "
@@ -351,6 +388,7 @@ class TestReplay240db21fScenario:
                     file="tests/test_filter_flags.py",
                     severity=Severity.IMPORTANT,
                     cycle=0,
+                    reviewer="reviewer-test-adequacy",
                 ).model_copy(update={"ticket_id": "tb-post-startup"})
             )
 

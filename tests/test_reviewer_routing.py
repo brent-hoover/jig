@@ -289,6 +289,150 @@ class TestRouteOne:
         assert reason == "no-route"
 
 
+# ---------- _route_one out-of-scope defence-in-depth -----------------------
+
+
+class TestRouteOneOutOfScope:
+    """When a reviewer with ``reads_glob`` files a finding on a file
+    OUTSIDE that scope, ``_route_one`` drops the finding (returns
+    ``(None, "out-of-scope-finding")``) and logs a warning.
+
+    This is the defence-in-depth layer for reviewer-scoping
+    (feature-work/reviewer-scoping). The MCP tools
+    (``reviewer_get_diff`` / ``reviewer_read_file``) prevent the
+    reviewer from SEEING out-of-scope content; this routing-layer
+    check catches LLM-hallucinated findings that cite files the
+    reviewer never read.
+    """
+
+    def _wf(self) -> WorkflowConfig:
+        return WorkflowConfig(
+            name="default",
+            phases=[
+                _phase("test", "test", writes=["tests/**"]),
+                _review_phase("review-tests", ["reviewer-test-adequacy"]),
+                _phase("implement", "dev", writes=["src/**"]),
+                _review_phase("review", ["reviewer-pattern-conformance"]),
+            ],
+        )
+
+    def _scoped_reviewer_role(
+        self, project_path: Path, role: str
+    ) -> None:
+        """Write a role config with ``reads_glob`` so the routing
+        layer's load_role call finds it."""
+        from jig.models import RoleConfig
+        from jig.persistence import init_project, save_role
+
+        (project_path / ".git").mkdir(exist_ok=True)
+        if not (project_path / ".jig").is_dir():
+            init_project(project_path)
+        save_role(
+            project_path,
+            RoleConfig(
+                role=role,
+                phase_prompt="…",
+                reads_glob=["src/**"],
+                reads_exclude=["tests/**"],
+                allowed_tools=[
+                    "reviewer_read_file",
+                    "reviewer_get_diff",
+                    "reviewer_post_comment",
+                ],
+            ),
+        )
+
+    async def test_out_of_scope_finding_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """A non-test reviewer files on tests/test_x.py — the routing
+        layer drops it instead of bouncing back to test."""
+        from jig.reviewer_routing import _route_one
+
+        self._scoped_reviewer_role(tmp_path, "reviewer-pattern-conformance")
+        wf = self._wf()
+        c = _comment(file="tests/test_x.py")
+        idx, reason = await _route_one(
+            wf,
+            blocked_phase_idx=3,
+            comment=c,
+            worktree_path=tmp_path,
+            project_path=tmp_path,
+        )
+        assert idx is None
+        assert reason == "out-of-scope-finding"
+
+    async def test_in_scope_finding_routes_normally(
+        self, tmp_path: Path
+    ) -> None:
+        """Same reviewer, file in scope (src/foo.py) — routes
+        normally via writes-glob."""
+        from jig.reviewer_routing import _route_one
+
+        self._scoped_reviewer_role(tmp_path, "reviewer-pattern-conformance")
+        wf = self._wf()
+        c = _comment(file="src/foo.py")
+        idx, reason = await _route_one(
+            wf,
+            blocked_phase_idx=3,
+            comment=c,
+            worktree_path=tmp_path,
+            project_path=tmp_path,
+        )
+        assert idx == 2  # "implement" phase via writes-glob
+        assert "writes-glob" in reason
+
+    async def test_without_project_path_skips_scope_check(
+        self, tmp_path: Path
+    ) -> None:
+        """Back-compat: callers (e.g. ``fix_loop_bundle``) that don't
+        pass ``project_path`` get the legacy behaviour — the scope
+        check is silently skipped. Finding routes via writes-glob."""
+        from jig.reviewer_routing import _route_one
+
+        wf = self._wf()
+        c = _comment(file="tests/test_x.py")
+        # No project_path passed.
+        idx, reason = await _route_one(
+            wf, blocked_phase_idx=3, comment=c, worktree_path=tmp_path
+        )
+        # Routes via tests/** writes-glob — defence skipped.
+        assert idx == 0
+
+    async def test_role_without_reads_glob_skips_check(
+        self, tmp_path: Path
+    ) -> None:
+        """A reviewer that doesn't declare ``reads_glob`` is
+        considered unscoped — the routing check doesn't second-guess
+        its findings."""
+        from jig.models import RoleConfig
+        from jig.persistence import init_project, save_role
+        from jig.reviewer_routing import _route_one
+
+        (tmp_path / ".git").mkdir(exist_ok=True)
+        init_project(tmp_path)
+        # Unscoped role (legacy / pre-feature config).
+        save_role(
+            tmp_path,
+            RoleConfig(
+                role="reviewer-pattern-conformance",
+                phase_prompt="…",
+                allowed_tools=["Read", "Bash(git diff*)"],
+            ),
+        )
+        wf = self._wf()
+        c = _comment(file="tests/test_x.py")
+        idx, _reason = await _route_one(
+            wf,
+            blocked_phase_idx=3,
+            comment=c,
+            worktree_path=tmp_path,
+            project_path=tmp_path,
+        )
+        # Legacy role — routes via writes-glob to test phase.
+        assert idx == 0
+
+
 # ---------- _route_one multi-glob tie-break via trailers -------------------
 
 

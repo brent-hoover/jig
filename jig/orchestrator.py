@@ -895,6 +895,15 @@ class Orchestrator:
             for c in all_comments
             if c.severity in (Severity.CRITICAL.value, Severity.IMPORTANT.value)
         ]
+        # Drop hallucinated findings (file outside the issuing
+        # reviewer's ``reads_glob``) BEFORE deciding whether the
+        # review failed. Filtering only at the routing layer would
+        # still flip this phase to ``blocked``, taking the ticket
+        # down the retry path even if the only blockers were
+        # hallucinations. Keeping the filter here means the review
+        # passes cleanly when the survivor set is empty.
+        if blocking:
+            blocking = await self._filter_out_of_scope_comments(blocking)
 
         if blocking:
             n_crit = sum(1 for c in blocking if c.severity == Severity.CRITICAL.value)
@@ -2957,13 +2966,34 @@ class Orchestrator:
                 if c.cycle == latest_cycle and c.severity in ("critical", "important")
             ]
 
+        # Filter out findings whose file is outside the issuing
+        # reviewer's ``reads_glob``. These are LLM-hallucinated
+        # comments — the reviewer literally couldn't have seen the
+        # file via ``reviewer_read_file``. They must NOT bounce the
+        # ticket: dropping here (rather than only in ``_route_one``
+        # later) means the survivor set determines whether we even
+        # take the blocking branch. If every blocking comment is
+        # hallucinated, we fall through to the check-failure-fallback
+        # path the same as if there were no blocking comments at
+        # all — instead of routing returning ``None`` and the
+        # caller failing the ticket on findings it should have
+        # ignored.
+        if blocking:
+            blocking = await self._filter_out_of_scope_comments(blocking)
+
         if blocking:
             route = await _route_blocking_comments(
-                workflow, blocked_phase_idx, blocking, worktree
+                workflow,
+                blocked_phase_idx,
+                blocking,
+                worktree,
+                project_path=self._project_path,
             )
         else:
             # Check-failure / agent-blocked-without-comments path —
-            # legacy most-recent-dev fallback.
+            # legacy most-recent-dev fallback. Also covers the case
+            # where every blocking comment was out-of-scope and
+            # got filtered above.
             fix_idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, "dev")
             route = (fix_idx, "check-failure-fallback") if fix_idx is not None else None
 
@@ -2993,6 +3023,69 @@ class Orchestrator:
                     exc_info=True,
                 )
         return fix_idx
+
+    async def _filter_out_of_scope_comments(
+        self, comments: "list[ReviewerComment]"
+    ) -> "list[ReviewerComment]":
+        """Drop reviewer comments whose ``file`` is outside the
+        issuing reviewer's ``reads_glob``.
+
+        Defence-in-depth filter applied at two call sites:
+
+        1. ``_run_review_phase_federation`` — runs BEFORE the
+           ``status="blocked"`` decision. When the survivor set is
+           empty, the review **passes**: no blockers means nothing
+           to bounce on, the next phase proceeds normally.
+
+        2. ``_route_blocked_phase`` — runs again on the survivor
+           set after the review reported ``blocked``. Catches the
+           residual case (e.g. follow-up cycle's filter changed,
+           role config edits between phase end and routing). When
+           empty here, the orchestrator falls through to the
+           check-failure-fallback path (route to most-recent dev)
+           — same as if there were no blocking comments at all.
+
+        Either way the ticket does NOT fail on a federation
+        consisting entirely of out-of-scope (hallucinated)
+        findings.
+
+        Returns the subset of ``comments`` that survive the scope
+        check. Comments from reviewers whose role config we can't
+        load, or that don't declare ``reads_glob``, pass through
+        unchanged (matches legacy unscoped behaviour).
+        """
+        from jig.persistence import load_role
+        from jig.scope import path_in_scope
+
+        survivors: list[ReviewerComment] = []
+        for c in comments:
+            if c.file is None:
+                # Diff-wide findings have no file to scope-check.
+                survivors.append(c)
+                continue
+            try:
+                cfg = load_role(self._project_path, c.reviewer)
+            except FileNotFoundError:
+                # Unknown reviewer role — don't second-guess.
+                survivors.append(c)
+                continue
+            if not cfg.reads_glob:
+                survivors.append(c)
+                continue
+            if path_in_scope(c.file, include=cfg.reads_glob, exclude=cfg.reads_exclude):
+                survivors.append(c)
+            else:
+                _logger.warning(
+                    "_filter_out_of_scope_comments: dropping "
+                    "blocking comment from %s on %s (reads_glob=%s, "
+                    "exclude=%s) — hallucinated finding on a file "
+                    "the reviewer could not have read.",
+                    c.reviewer,
+                    c.file,
+                    cfg.reads_glob,
+                    cfg.reads_exclude,
+                )
+        return survivors
 
     async def _current_phase_index(self, ticket_id: str, workflow) -> int:
         """Return the index of the first phase that has not yet succeeded.

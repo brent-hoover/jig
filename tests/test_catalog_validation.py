@@ -98,6 +98,107 @@ class TestRoleReferences:
         validate_catalog(initialized_project)
 
 
+class TestReadsGlobInvariants:
+    """``reads_glob`` activates orchestrator-side scope filtering.
+
+    A role that declares ``reads_glob`` must (a) drop the escape
+    hatches that bypass the filter — ``Read`` and any
+    ``Bash(git diff*)`` form — and (b) include the MCP tools that
+    actually fetch content through the filter. The catalog
+    validator surfaces both failure modes loudly so they don't
+    silently regress to unscoped behaviour at runtime.
+    """
+
+    def test_reads_glob_with_read_in_allowed_tools_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="reviewer-bad",
+                phase_prompt="…",
+                reads_glob=["src/**"],
+                allowed_tools=[
+                    "Read",  # escape hatch
+                    "reviewer_get_diff",
+                    "reviewer_read_file",
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="'Read'"):
+            validate_catalog(initialized_project)
+
+    def test_reads_glob_with_bash_git_diff_in_allowed_tools_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="reviewer-bad",
+                phase_prompt="…",
+                reads_glob=["src/**"],
+                allowed_tools=[
+                    "Bash(git diff*)",  # escape hatch
+                    "reviewer_get_diff",
+                    "reviewer_read_file",
+                ],
+            ),
+        )
+        with pytest.raises(CatalogError, match="git diff"):
+            validate_catalog(initialized_project)
+
+    def test_reads_glob_missing_required_mcp_tools_fails(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="reviewer-bad",
+                phase_prompt="…",
+                reads_glob=["src/**"],
+                allowed_tools=["reviewer_post_comment"],  # no MCP read/diff
+            ),
+        )
+        with pytest.raises(CatalogError, match="reviewer_(get_diff|read_file)"):
+            validate_catalog(initialized_project)
+
+    def test_reads_glob_with_correct_mcp_tools_passes(
+        self, initialized_project: Path
+    ) -> None:
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="reviewer-good",
+                phase_prompt="…",
+                reads_glob=["src/**"],
+                reads_exclude=["tests/**"],
+                allowed_tools=[
+                    "reviewer_get_diff",
+                    "reviewer_read_file",
+                    "reviewer_post_comment",
+                ],
+            ),
+        )
+        # No exception.
+        validate_catalog(initialized_project)
+
+    def test_no_reads_glob_no_constraints(
+        self, initialized_project: Path
+    ) -> None:
+        """A role WITHOUT ``reads_glob`` is unscoped — the
+        invariants don't apply. Legacy roles with ``Read`` +
+        ``Bash(git diff*)`` continue to work unchanged."""
+        save_role(
+            initialized_project,
+            RoleConfig(
+                role="legacy-reviewer",
+                phase_prompt="…",
+                allowed_tools=["Read", "Bash(git diff*)"],
+            ),
+        )
+        validate_catalog(initialized_project)
+
+
 class TestCheckReferences:
     def test_unknown_check_fails(self, initialized_project: Path) -> None:
         save_workflow(

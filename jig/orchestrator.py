@@ -3025,8 +3025,8 @@ class Orchestrator:
         return fix_idx
 
     async def _filter_out_of_scope_comments(
-        self, comments: list[ReviewerComment]
-    ) -> list[ReviewerComment]:
+        self, comments: "list[ReviewerComment]"
+    ) -> "list[ReviewerComment]":
         """Drop reviewer comments whose ``file`` is outside the
         issuing reviewer's ``reads_glob``.
 

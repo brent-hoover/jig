@@ -69,10 +69,15 @@ class Scrollback(RichLog):
         if selection is None:
             return strip
         # Selection y is in the same coordinate space as the index
-        # into ``self.lines``.
+        # into ``self.lines``. Realistic failures are ``IndexError``
+        # (out-of-range line index after a trim race) or
+        # ``AttributeError`` (Textual renamed the method on a
+        # later release). Narrow on those rather than bare
+        # ``Exception`` so a logic error in our coordinate mapping
+        # surfaces instead of being silently swallowed.
         try:
             span = selection.get_span(line_index)
-        except Exception:
+        except (IndexError, AttributeError):
             return strip
         if span is None:
             return strip

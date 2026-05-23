@@ -7,6 +7,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.dom import NoScreen
 from textual.reactive import reactive
 from textual.widgets import TabbedContent, TabPane
 
@@ -117,9 +118,14 @@ class JigApp(App):
         "press ctrl+q to quit" notification — matches what a user
         reflexively hitting ctrl+c with nothing selected used to see.
         """
+        # Narrow the catch — realistic failures are ``AttributeError``
+        # (Textual renamed the method on a later release) or
+        # ``NoScreen`` (action fired mid-screen-pop). A broader
+        # ``Exception`` would mask logic bugs in the selection
+        # plumbing.
         try:
             text = self.screen.get_selected_text() or ""
-        except Exception:
+        except (AttributeError, NoScreen):
             text = ""
         if text:
             self.copy_to_clipboard(text)
@@ -459,16 +465,15 @@ class JigApp(App):
         With the scrollbar gone, the operator scrolls the transcript by
         focusing the RichLog and using up/down/page-up/page-down.
         """
-        from textual.widgets import RichLog
-
         from jig.tui.screens.now import JigTextArea
+        from jig.tui.widgets.scrollback import Scrollback
 
         try:
             now = self.query_one(NowScreen)
         except Exception:
             return
         try:
-            scrollback = now.query_one("#scrollback", RichLog)
+            scrollback = now.query_one("#scrollback", Scrollback)
             composer = now.query_one("#input", JigTextArea)
         except Exception:
             return

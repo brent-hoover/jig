@@ -147,7 +147,11 @@ async def test_real_scrollback_selection_extracts_text(tmp_path: Path) -> None:
 
         # Set a selection covering exactly "world" on that line.
         # This is what ``_select_start`` / ``_select_end`` populate
-        # internally on a real mouse drag.
+        # internally on a real mouse drag. Pilot doesn't expose a
+        # public API for seeding a Selection, so we assign directly
+        # to the private ``Screen.selections`` reactive (Textual
+        # 8.2.4). If that attribute moves/renames on an upgrade,
+        # this test fails loud and the rename is the search target.
         app.screen.selections = {
             scrollback: Selection(
                 start=Offset(world_x, target_y),

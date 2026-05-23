@@ -68,9 +68,13 @@ class RoleConfig(BaseModel):
     # matching one of these globs AND not matching any
     # ``reads_exclude`` entry. Both fields use POSIX-style globs
     # (``src/**``, ``pyproject.toml``, ``**/test_*.py``) matched via
-    # ``pathlib.PurePosixPath.match`` against project-relative paths.
-    # Empty (the default) means no scoping — the role uses its
-    # ``allowed_tools`` raw without per-path enforcement.
+    # ``jig.scope.path_in_scope`` — a custom glob-to-regex translator
+    # so ``**`` spans path components the way operators expect.
+    # (``PurePosixPath.match`` was rejected because its ``**``
+    # semantics are too restrictive; ``PurePath.full_match`` would
+    # work but is Python 3.13+ only.) Empty (the default) means no
+    # scoping — the role uses its ``allowed_tools`` raw without
+    # per-path enforcement.
     reads_glob: list[str] = []
     reads_exclude: list[str] = []
 

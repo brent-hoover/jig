@@ -71,7 +71,11 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff (``git diff main..HEAD`` from the worktree).
+  - Read the diff via the ``reviewer_get_diff`` MCP tool (no
+    args needed — the orchestrator supplies the per-ticket base
+    ref and pre-filters the diff to your ``reads_glob``). Bash
+    ``git diff`` is not available; tries return a permission
+    error.
 
   - For each new function / module / file, sample 2–3 nearby siblings
     (peer files in the same directory or adjacent layer) before

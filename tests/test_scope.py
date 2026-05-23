@@ -56,6 +56,20 @@ class TestPathInScopeIncludes:
             "src/foo.py", include=["*.py"], exclude=[]
         )
 
+    def test_negated_character_class(self) -> None:
+        """Glob ``[!abc]`` (skip a/b/c) translates to regex
+        ``[^abc]`` — without this, ``[!abc]`` in a glob would
+        match the literal characters ``!``, ``a``, ``b``, ``c``
+        (regex semantics) instead of negating them (glob
+        semantics). Shipped configs don't currently use this
+        form, but an operator writing ``reads_glob: ["[!.]**"]``
+        (skip hidden files) would otherwise get silently wrong
+        behaviour.
+        """
+        # ``[!.]*`` matches root-level files NOT starting with a dot.
+        assert path_in_scope("README.md", include=["[!.]*"], exclude=[])
+        assert not path_in_scope(".gitignore", include=["[!.]*"], exclude=[])
+
     def test_test_name_patterns(self) -> None:
         """The exact pattern set the test-adequacy reviewer uses to
         scope itself to test files."""

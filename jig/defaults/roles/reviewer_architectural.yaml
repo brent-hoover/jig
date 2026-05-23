@@ -98,12 +98,16 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff (``git diff main..HEAD`` from the worktree) and the
-    full ``architecture.yaml``. Then check whether per-module
-    ``contracts.yaml`` files exist:
-    ``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``. If none
-    exist, skip contract-specific checks (items 1 and 2 above) and focus
-    only on ``architecture.yaml`` cross-cutting policies (items 3–5).
+  - Read the diff via the ``reviewer_get_diff`` MCP tool (no
+    args needed — the orchestrator supplies the per-ticket base
+    ref and pre-filters the diff to your ``reads_glob``). Bash
+    ``git diff`` is not available. Then load the full
+    ``architecture.yaml`` via ``reviewer_read_file`` and check
+    whether per-module ``contracts.yaml`` files exist via
+    ``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``.
+    If none exist, skip contract-specific checks (items 1 and 2
+    above) and focus only on ``architecture.yaml`` cross-cutting
+    policies (items 3–5).
 
   - If contracts.yaml files exist, read the contracts of every module the
     diff touches. For every module-boundary crossing the diff introduces,

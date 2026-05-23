@@ -91,11 +91,16 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the diff (``git diff main..HEAD`` from the worktree) and the
-    cross-cutting policies block of ``architecture.yaml``. If
-    ``contracts.yaml`` files exist for the touched modules
-    (``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``), read
-    them for additional context; otherwise proceed without them.
+  - Read the diff via the ``reviewer_get_diff`` MCP tool (no
+    args needed — the orchestrator supplies the per-ticket base
+    ref and pre-filters the diff to your ``reads_glob``). Bash
+    ``git diff`` is not available. Then load the cross-cutting
+    policies block of ``architecture.yaml`` via
+    ``reviewer_read_file``. If ``contracts.yaml`` files exist
+    for the touched modules
+    (``Bash(find .jig/spec -name contracts.yaml 2>/dev/null)``),
+    read them for additional context; otherwise proceed without
+    them.
 
   - For each new branch / persistence call / external request, ask:
     is anything secret-shaped touching this path? Is anything

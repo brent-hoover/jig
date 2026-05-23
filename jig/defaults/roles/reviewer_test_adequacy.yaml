@@ -233,7 +233,10 @@ phase_prompt: >
   ## Mechanics
 
 
-  - Read the test diff (`git diff` against the test phase's commit).
+  - Read the test diff via the ``reviewer_get_diff`` MCP tool (no
+    args needed — the orchestrator supplies the per-ticket base
+    ref and pre-filters the diff to your ``reads_glob`` of
+    ``tests/**``). Bash ``git diff`` is not available.
 
   - Read the ticket description from ``ticket://description``.
     Locate the Acceptance-Criteria section (matching any of the

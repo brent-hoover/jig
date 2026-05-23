@@ -3030,16 +3030,24 @@ class Orchestrator:
         """Drop reviewer comments whose ``file`` is outside the
         issuing reviewer's ``reads_glob``.
 
-        Defence-in-depth filter applied BEFORE routing. The reviewer
-        couldn't have read the file via ``reviewer_read_file``, so
-        a finding citing it is either hallucinated or operator-
-        synthesised; either way the orchestrator should not treat
-        it as a blocking comment. Dropping here (rather than only
-        rejecting routes in ``_route_one``) lets the orchestrator's
-        upstream ``if blocking:`` branch evaluate against the
-        SURVIVOR set — when every blocking comment is hallucinated,
-        we fall through to the check-failure-fallback path
-        instead of failing the ticket.
+        Defence-in-depth filter applied at two call sites:
+
+        1. ``_run_review_phase_federation`` — runs BEFORE the
+           ``status="blocked"`` decision. When the survivor set is
+           empty, the review **passes**: no blockers means nothing
+           to bounce on, the next phase proceeds normally.
+
+        2. ``_route_blocked_phase`` — runs again on the survivor
+           set after the review reported ``blocked``. Catches the
+           residual case (e.g. follow-up cycle's filter changed,
+           role config edits between phase end and routing). When
+           empty here, the orchestrator falls through to the
+           check-failure-fallback path (route to most-recent dev)
+           — same as if there were no blocking comments at all.
+
+        Either way the ticket does NOT fail on a federation
+        consisting entirely of out-of-scope (hallucinated)
+        findings.
 
         Returns the subset of ``comments`` that survive the scope
         check. Comments from reviewers whose role config we can't

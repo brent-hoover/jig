@@ -206,14 +206,21 @@ def _translate(pattern: str) -> str:
             i += 1
             continue
         if c == "[":
-            # Character class — copy verbatim until the closing ``]``.
+            # Character class. Glob negation uses ``[!abc]`` (gitignore
+            # / fnmatch convention); regex uses ``[^abc]``. Translate
+            # the leading ``!`` so ``reads_glob: ["[!.]**"]`` (skip
+            # hidden files) does what the operator expects. Other
+            # contents copy verbatim.
             end = pattern.find("]", i + 1)
             if end == -1:
                 # Unclosed — treat literally.
                 parts.append(re.escape(c))
                 i += 1
                 continue
-            parts.append(pattern[i : end + 1])
+            class_body = pattern[i + 1 : end]
+            if class_body.startswith("!"):
+                class_body = "^" + class_body[1:]
+            parts.append("[" + class_body + "]")
             i = end + 1
             continue
         # Default: any other character is a literal. Escape regex

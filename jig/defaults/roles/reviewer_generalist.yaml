@@ -135,7 +135,10 @@ phase_prompt: >
 
   ## Mechanics
 
-  - Read the diff (``git diff <base>..HEAD`` from the worktree).
+  - Read the diff via the ``reviewer_get_diff`` MCP tool (no
+    args needed — the orchestrator supplies the per-ticket base
+    ref and pre-filters the diff to your ``reads_glob``). Bash
+    ``git diff`` is not available.
   - Read the ticket description / AC from ``ticket://description``.
   - For pattern findings, sample 2–3 neighbor files before opining.
   - For architectural findings, check the graph if needed

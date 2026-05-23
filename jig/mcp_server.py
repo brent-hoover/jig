@@ -1,6 +1,9 @@
 """MCP server factory for agent ticket tools."""
 
+import asyncio
 import json
+import os
+import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -2880,8 +2883,14 @@ def create_agent_mcp_server(
                             ),
                         }
                     else:
+                        # ``Path.read_text`` is synchronous I/O.
+                        # The orchestrator runs many reviewer
+                        # agents on the same event loop; blocking
+                        # here would stall the others. Wrap in
+                        # ``asyncio.to_thread`` per CLAUDE.md's
+                        # "async by default for I/O" rule.
                         try:
-                            content = target.read_text()
+                            content = await asyncio.to_thread(target.read_text)
                         except FileNotFoundError:
                             payload = {
                                 "error": (
@@ -2896,8 +2905,6 @@ def create_agent_mcp_server(
                             }
                         else:
                             payload = {"content": content}
-            import json
-
             return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
         all_tools.append(reviewer_read_file)
@@ -2922,8 +2929,20 @@ def create_agent_mcp_server(
             {"base": str},
         )
         async def reviewer_get_diff(args):
-            import os
-            import subprocess
+            # All git shell-outs go through ``asyncio.to_thread`` so
+            # this async handler doesn't block the orchestrator's
+            # event loop (concurrent reviewer agents share it).
+            # ``asyncio.create_subprocess_exec`` would also work but
+            # ``to_thread`` keeps the call sites tighter and matches
+            # the pattern in ``reviewer_routing._last_touching_phase``.
+            def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    cmd,
+                    cwd=str(worktree_path),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
 
             base = (args.get("base") or "").strip()
             if not base and ticket_base_ref:
@@ -2936,12 +2955,8 @@ def create_agent_mcp_server(
                 # the divergence SHA still pins the ticket-only
                 # diff. Falls back to the raw ref if merge-base
                 # fails (no common ancestor, ref invalid).
-                mb = subprocess.run(
-                    ["git", "merge-base", ticket_base_ref, "HEAD"],
-                    cwd=str(worktree_path),
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                mb = await asyncio.to_thread(
+                    _run, ["git", "merge-base", ticket_base_ref, "HEAD"]
                 )
                 if mb.returncode == 0 and mb.stdout.strip():
                     base = mb.stdout.strip()
@@ -2954,10 +2969,9 @@ def create_agent_mcp_server(
                 # without an env var or arg still produce a useful
                 # diff.
                 for candidate in ("origin/develop", "develop", "main", "master"):
-                    probe = subprocess.run(
+                    probe = await asyncio.to_thread(
+                        _run,
                         ["git", "rev-parse", "--verify", "--quiet", candidate],
-                        cwd=str(worktree_path),
-                        capture_output=True,
                     )
                     if probe.returncode == 0:
                         base = candidate
@@ -2971,13 +2985,7 @@ def create_agent_mcp_server(
             if pathspec:
                 cmd.append("--")
                 cmd.extend(pathspec)
-            result = subprocess.run(
-                cmd,
-                cwd=str(worktree_path),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            result = await asyncio.to_thread(_run, cmd)
             if result.returncode != 0:
                 # Fail loud — silent fallback to unscoped diff would
                 # defeat the entire mechanism. Surface the stderr to
@@ -2995,8 +3003,6 @@ def create_agent_mcp_server(
                     "diff": result.stdout,
                     "scope": pathspec,
                 }
-            import json
-
             return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
         all_tools.append(reviewer_get_diff)

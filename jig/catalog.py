@@ -142,10 +142,21 @@ def validate_catalog(
         # ``reads_glob`` operates in scoped mode: the orchestrator
         # filters its diff and reads via the new MCP tools. If the
         # role still lists ``Read`` or ``Bash(git diff*)`` in its
-        # ``allowed_tools`` those serve as escape hatches around the
-        # filter, which is the exact failure mode the feature exists
-        # to prevent. Fail loud at startup rather than letting a
+        # ``allowed_tools`` those serve as escape hatches around
+        # the filter — reject loudly at startup rather than let a
         # misconfigured role silently leak content.
+        #
+        # Limitation (deliberate): the validator rejects the
+        # KNOWN-BROAD escape hatches (unrestricted ``Read``;
+        # ``Bash(git diff*)``). Narrower Bash entries like
+        # ``Bash(find .jig/spec*)`` ARE allowed — operators
+        # legitimately need spec-file enumeration. These narrow
+        # forms can still enumerate (but not READ) paths outside
+        # the scope; that's the operator's responsibility to keep
+        # tight in role configs they author. A follow-up could
+        # validate that any ``Bash(<cmd> <prefix>*)`` prefix lies
+        # within ``reads_glob``, but for v1 the per-role manual
+        # review of tightly-bound Bash patterns is the contract.
         if role.reads_glob:
             disallowed_when_scoped = {"Read"}
             for tool in role.allowed_tools:

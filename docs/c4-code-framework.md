@@ -70,7 +70,7 @@ Captures project pitch, problem, audience, and product-level non-goals in 3-5 tu
 - `jig.thread.Handoff`
 - `jig.handoff_resolve.resolve_after_handoff`
 
-**State**: Writes to project path under `docs/`
+**State**: Writes `docs/brief.md` (human-facing) and `.jig/spec/project.structured.yaml` (agent-facing)
 
 ---
 

@@ -2929,13 +2929,26 @@ def create_agent_mcp_server(
 
             base = (args.get("base") or "").strip()
             if not base and ticket_base_ref:
-                # Orchestrator-supplied per-ticket base ref takes
-                # precedence over env / probe fallbacks. This is
-                # the authoritative diff base for chained tickets
-                # and fix-loop cycles where ``HEAD~1`` would show
-                # only the latest commit instead of the full
-                # ticket diff.
-                base = ticket_base_ref
+                # Orchestrator-supplied per-ticket base ref. Compute
+                # ``merge-base`` against HEAD so we diff against the
+                # commit where this ticket's branch DIVERGED from
+                # the base branch, not against the (possibly-moved)
+                # current tip. If unrelated tickets merge into the
+                # base branch between worktree creation and review,
+                # the divergence SHA still pins the ticket-only
+                # diff. Falls back to the raw ref if merge-base
+                # fails (no common ancestor, ref invalid).
+                mb = subprocess.run(
+                    ["git", "merge-base", ticket_base_ref, "HEAD"],
+                    cwd=str(worktree_path),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if mb.returncode == 0 and mb.stdout.strip():
+                    base = mb.stdout.strip()
+                else:
+                    base = ticket_base_ref
             if not base:
                 base = os.environ.get("JIG_TICKET_BASE", "").strip()
             if not base:

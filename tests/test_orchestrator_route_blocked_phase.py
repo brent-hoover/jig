@@ -52,9 +52,20 @@ def _comment(
     severity: Severity = Severity.IMPORTANT,
     cycle: int = 0,
     reviewer: str = "reviewer-pattern-conformance",
-    type_: str = "pattern-divergence",
+    type_: str | None = None,
     prose: str = "f",
 ) -> ReviewerComment:
+    # Choose a representative ``type`` per reviewer when the caller
+    # doesn't override. Tests that pin routing/filtering shouldn't
+    # carry a stale ``pattern-divergence`` on a test-adequacy
+    # finding — the type field exists so downstream logic can
+    # distinguish reviewer mandates.
+    if type_ is None:
+        type_ = (
+            "test-adequacy"
+            if reviewer == "reviewer-test-adequacy"
+            else "pattern-divergence"
+        )
     return ReviewerComment(
         type=ReviewerCommentType(type_),
         severity=severity,

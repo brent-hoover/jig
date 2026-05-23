@@ -895,6 +895,15 @@ class Orchestrator:
             for c in all_comments
             if c.severity in (Severity.CRITICAL.value, Severity.IMPORTANT.value)
         ]
+        # Drop hallucinated findings (file outside the issuing
+        # reviewer's ``reads_glob``) BEFORE deciding whether the
+        # review failed. Filtering only at the routing layer would
+        # still flip this phase to ``blocked``, taking the ticket
+        # down the retry path even if the only blockers were
+        # hallucinations. Keeping the filter here means the review
+        # passes cleanly when the survivor set is empty.
+        if blocking:
+            blocking = await self._filter_out_of_scope_comments(blocking)
 
         if blocking:
             n_crit = sum(1 for c in blocking if c.severity == Severity.CRITICAL.value)

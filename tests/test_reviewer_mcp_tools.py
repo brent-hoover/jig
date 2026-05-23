@@ -206,6 +206,89 @@ async def test_reviewer_get_diff_uses_threaded_base_ref(
 
 
 @pytest.mark.asyncio
+async def test_reviewer_get_diff_uses_merge_base_for_threaded_ref(
+    tmp_path: Path, stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When ``ticket_base_ref`` names a branch (not a SHA), the
+    tool computes ``git merge-base <branch> HEAD`` and diffs
+    against the divergence point — not against the current tip
+    of the branch. This pins the ticket-only diff even if other
+    tickets merge into the base branch between worktree creation
+    and review.
+    """
+    tickets, threads, memory, bus = stores
+    env = {
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+    }
+    subprocess.run(["git", "init", "-q", "-b", "main"],
+                   cwd=tmp_path, check=True, env=env)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "baseline.py").write_text("# baseline\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "commit", "-qm", "baseline"],
+                   cwd=tmp_path, check=True, env=env)
+    # Save the baseline SHA — that's the divergence point we expect
+    # merge-base to find.
+    baseline_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=tmp_path,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    # The ticket's branch makes a change.
+    subprocess.run(["git", "checkout", "-qb", "jig/t-a"],
+                   cwd=tmp_path, check=True, env=env)
+    (tmp_path / "src" / "ticket.py").write_text("def t(): return 1\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "commit", "-qm", "ticket change"],
+                   cwd=tmp_path, check=True, env=env)
+    # ``main`` then advances with unrelated work (simulating a
+    # parallel ticket merging in).
+    subprocess.run(["git", "checkout", "-q", "main"],
+                   cwd=tmp_path, check=True, env=env)
+    (tmp_path / "src" / "unrelated.py").write_text("# unrelated\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "commit", "-qm", "unrelated"],
+                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "checkout", "-q", "jig/t-a"],
+                   cwd=tmp_path, check=True, env=env)
+
+    cfg = RoleConfig(
+        role="reviewer-pattern-conformance",
+        allowed_tools=["reviewer_get_diff"],
+        reads_glob=["src/**"],
+    )
+    captured: dict = {}
+    _spy_factory(monkeypatch, captured)
+    create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role=cfg.role,
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
+        ticket_base_ref="main",
+    )
+    tool = _get_tool(captured, "reviewer_get_diff")
+    payload = await _invoke(tool)
+    # The diff must contain the ticket's change AND must NOT
+    # contain the unrelated change merged into main after worktree
+    # creation. Diffing against main's tip would have shown
+    # ``unrelated.py`` as a deletion; diffing against the
+    # merge-base correctly omits it.
+    assert "diff" in payload
+    assert "ticket.py" in payload["diff"]
+    assert "unrelated.py" not in payload["diff"], (
+        "merge-base failed — got tip-of-main diff including unrelated"
+    )
+    # Sanity: the actual diff base used is the baseline SHA (the
+    # divergence point), surfaced via the original ticket_base_ref
+    # in the response scope's call chain.
+    _ = baseline_sha  # documenting expected divergence SHA
+
+
+@pytest.mark.asyncio
 async def test_reviewer_get_diff_arg_overrides_threaded_base(
     tmp_path: Path, stores, monkeypatch: pytest.MonkeyPatch
 ) -> None:

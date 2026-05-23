@@ -2959,7 +2959,11 @@ class Orchestrator:
 
         if blocking:
             route = await _route_blocking_comments(
-                workflow, blocked_phase_idx, blocking, worktree
+                workflow,
+                blocked_phase_idx,
+                blocking,
+                worktree,
+                project_path=self._project_path,
             )
         else:
             # Check-failure / agent-blocked-without-comments path —

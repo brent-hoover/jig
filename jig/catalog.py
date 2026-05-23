@@ -138,6 +138,47 @@ def validate_catalog(
                 f"non-empty phase_prompt, or remove the workflow reference "
                 f"if this is a pseudo-role"
             )
+        # Reviewer file-scoping invariants. A role with non-empty
+        # ``reads_glob`` operates in scoped mode: the orchestrator
+        # filters its diff and reads via the new MCP tools. If the
+        # role still lists ``Read`` or ``Bash(git diff*)`` in its
+        # ``allowed_tools`` those serve as escape hatches around the
+        # filter, which is the exact failure mode the feature exists
+        # to prevent. Fail loud at startup rather than letting a
+        # misconfigured role silently leak content.
+        if role.reads_glob:
+            disallowed_when_scoped = {"Read"}
+            for tool in role.allowed_tools:
+                if tool in disallowed_when_scoped:
+                    fail(
+                        f"role {role.role!r} declares ``reads_glob`` "
+                        f"but ``allowed_tools`` still includes "
+                        f"{tool!r}. Drop {tool!r} and add "
+                        "``reviewer_read_file`` so file reads go "
+                        "through the orchestrator-side scope filter."
+                    )
+                if tool.startswith("Bash(") and "git diff" in tool:
+                    fail(
+                        f"role {role.role!r} declares ``reads_glob`` "
+                        f"but ``allowed_tools`` still includes "
+                        f"{tool!r}. Drop the git-diff Bash entry "
+                        "and add ``reviewer_get_diff`` so diff "
+                        "queries go through the scope filter."
+                    )
+            required_when_scoped = {
+                "reviewer_get_diff",
+                "reviewer_read_file",
+            }
+            missing = required_when_scoped - set(role.allowed_tools)
+            if missing:
+                fail(
+                    f"role {role.role!r} declares ``reads_glob`` "
+                    "but ``allowed_tools`` is missing "
+                    f"{sorted(missing)!r}. These MCP tools are the "
+                    "only diff / read surface a scoped reviewer has "
+                    "— without them the role has no way to fetch "
+                    "the content it's supposed to review."
+                )
 
     # Phase role + check references
     for wf in workflows:

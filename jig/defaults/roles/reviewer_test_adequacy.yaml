@@ -204,10 +204,17 @@ phase_prompt: >
   - You don't run the tests — that's the check-runner's job.
     Coverage-by-execution is orthogonal to coverage-by-construction.
 allowed_tools:
-  - Read
-  - Bash(git diff*)
+  - reviewer_read_file
+  - reviewer_get_diff
   - reviewer_post_comment
   - mark_finding_resolved
+reads_glob:
+  - "tests/**"
+  - "**/conftest.py"
+  - "**/test_*.py"
+  - "**/*_test.py"
+  - "pyproject.toml"
+reads_exclude: []
 allowed_mcps: []
 strict_tools: true
 default_context:

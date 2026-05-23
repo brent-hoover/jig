@@ -31,6 +31,8 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jig.persistence import load_role
+
 if TYPE_CHECKING:
     from jig.models import WorkflowConfig
     from jig.reviewers.comment import ReviewerComment
@@ -127,20 +129,60 @@ async def _route_one(
     blocked_phase_idx: int,
     comment: "ReviewerComment",
     worktree_path: Path,
+    *,
+    project_path: Path | None = None,
 ) -> tuple[int | None, str]:
     """Route a single blocking comment to a target phase.
 
     Returns ``(target_phase_idx, reason)``. ``target_phase_idx`` is
     ``None`` when no route is possible (no matching glob and no dev
-    phase to fall back on). ``reason`` is a short tag the orchestrator
-    surfaces in thread notes + analytics so operators can see why a
-    given phase was selected for retry.
+    phase to fall back on, OR the comment names a file outside the
+    issuing reviewer's ``reads_glob`` — see step 0 below).
+    ``reason`` is a short tag the orchestrator surfaces in thread
+    notes + analytics so operators can see why a given phase was
+    selected for retry.
 
     Async because the multi-glob-match tie-break shells out to ``git``
     via :func:`_last_touching_phase`. The synchronous fast paths (
     ``target_role``, single-glob match, fallback) return without
     awaiting anything.
+
+    ``project_path`` is optional for back-compat with existing call
+    sites (notably ``jig.fix_loop_bundle``) — when it's None the
+    out-of-scope check is skipped. The orchestrator's main routing
+    path passes it so the defence-in-depth fires.
     """
+    # 0. Reviewer file-scoping defence-in-depth. If the reviewer's
+    # role declares ``reads_glob`` and this comment names a file
+    # outside that scope, refuse to route. The reviewer literally
+    # could not have read the file via ``reviewer_read_file``, so
+    # any finding on it is either a hallucination or operator-
+    # mediated mischief — either way the orchestrator should not
+    # bounce the ticket on it. Log so the operator sees the
+    # rejected attempt.
+    if project_path is not None and comment.file:
+        try:
+            reviewer_cfg = load_role(project_path, comment.reviewer)
+        except FileNotFoundError:
+            reviewer_cfg = None
+        if reviewer_cfg is not None and reviewer_cfg.reads_glob:
+            from jig.scope import path_in_scope
+
+            if not path_in_scope(
+                comment.file,
+                include=reviewer_cfg.reads_glob,
+                exclude=reviewer_cfg.reads_exclude,
+            ):
+                _logger.warning(
+                    "_route_one: dropping out-of-scope finding from "
+                    "%s on %s (reads_glob=%s, exclude=%s)",
+                    comment.reviewer,
+                    comment.file,
+                    reviewer_cfg.reads_glob,
+                    reviewer_cfg.reads_exclude,
+                )
+                return None, "out-of-scope-finding"
+
     # 1. Reviewer-declared target role overrides file-based routing.
     target_role = getattr(comment, "target_role", None)
     if target_role:
@@ -197,6 +239,8 @@ async def _route_blocking_comments(
     blocked_phase_idx: int,
     comments: list["ReviewerComment"],
     worktree_path: Path,
+    *,
+    project_path: Path | None = None,
 ) -> tuple[int, str] | None:
     """Top-level router. Examines each blocking comment, determines its
     owning phase, and returns the **earliest** such phase before
@@ -216,7 +260,13 @@ async def _route_blocking_comments(
     targets: list[int] = []
     reasons: list[str] = []
     for c in comments:
-        idx, reason = await _route_one(workflow, blocked_phase_idx, c, worktree_path)
+        idx, reason = await _route_one(
+            workflow,
+            blocked_phase_idx,
+            c,
+            worktree_path,
+            project_path=project_path,
+        )
         if idx is not None:
             targets.append(idx)
             reasons.append(reason)

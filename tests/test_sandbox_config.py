@@ -213,6 +213,10 @@ class TestEnvIsolation:
         assert "CLAUDE_CODE_OAUTH_TOKEN" in cfg.passthrough_env_keys
         # API key is NOT forwarded — agents use OAuth.
         assert "ANTHROPIC_API_KEY" not in cfg.passthrough_env_keys
+        # CLAUDE_CONFIG_DIR is NOT forwarded — orchestrator sets it explicitly
+        # via extra_setenv to the jig-managed config dir. Passing it through
+        # would let the operator's personal config leak into agent sessions.
+        assert "CLAUDE_CONFIG_DIR" not in cfg.passthrough_env_keys
 
     def test_passthrough_emitted_as_setenv(
         self,

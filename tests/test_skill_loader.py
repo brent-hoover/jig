@@ -13,6 +13,12 @@ def _project(**overrides) -> Project:
     )
 
 
+def test_skill_description_loaded() -> None:
+    skills = load_all_skills()
+    git = next(s for s in skills if s.name == "git-conventions")
+    assert git.description
+
+
 def test_load_all_skills_returns_every_skill() -> None:
     skills = load_all_skills()
     names = {s.name for s in skills}

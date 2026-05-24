@@ -128,11 +128,16 @@ def _write_plugin(
 
     all_skills = _skill_files()
     # Filter to the declared list when non-empty; include all otherwise.
-    selected = (
-        [(n, d, b) for n, d, b in all_skills if n in skill_names]
-        if skill_names
-        else all_skills
-    )
+    if skill_names:
+        found = {n for n, _, _ in all_skills}
+        for name in skill_names:
+            if name not in found:
+                _logger.warning(
+                    "skill %r declared in role but not found in jig/skills/", name
+                )
+        selected = [(n, d, b) for n, d, b in all_skills if n in skill_names]
+    else:
+        selected = all_skills
 
     for name, description, body in selected:
         skill_dir = skills_dir / name

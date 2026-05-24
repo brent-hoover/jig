@@ -107,8 +107,7 @@ def _validate_against_schema(
         missing = [name for name in required if not _present(spec.fields.get(name))]
         if missing:
             errors.append(
-                f"missing required fields for size {spec.size.value}: "
-                f"{sorted(missing)}"
+                f"missing required fields for size {spec.size.value}: {sorted(missing)}"
             )
     if unknown:
         errors.append(f"unknown fields not declared in schema: {sorted(unknown)}")

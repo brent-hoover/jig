@@ -370,12 +370,13 @@ class TestMaterializeFromCapability:
 
 
 class TestSaveTicketSpecValidateFlag:
-    """``validate=False`` is the escape hatch the capability materialiser
-    needs to write L/XL feature specs. The capability never carries
-    ``design`` or ``technical_risks`` so strict validation would reject
-    the spec for sizes beyond M."""
+    """``enforce_required_fields=False`` is the escape hatch the
+    capability materialiser needs to write L/XL feature specs. The
+    capability never carries ``design`` or ``technical_risks`` so
+    strict validation would reject the spec for sizes beyond M.
+    Unknown-field validation still runs to catch misuses."""
 
-    def test_l_capability_spec_saves_without_validation(
+    def test_l_capability_spec_saves_without_required_check(
         self, initialized_project: Path
     ) -> None:
         cap = _capability(
@@ -395,16 +396,16 @@ class TestSaveTicketSpecValidateFlag:
             size=Size.L,
             capability=cap,
         )
-        # With validate=True (the default) this would raise because the
-        # feature schema requires ``design`` at L.
-        save_ticket_spec(initialized_project, spec, validate=False)
+        # With enforce_required_fields=True (the default) this would
+        # raise because the feature schema requires ``design`` at L.
+        save_ticket_spec(initialized_project, spec, enforce_required_fields=False)
         loaded = load_ticket_spec(initialized_project, "t-large")
         assert loaded is not None
         assert loaded.size == Size.L
         assert "design" not in loaded.fields
         assert loaded.fields["acceptance_criteria"] == ["covers L"]
 
-    def test_xl_capability_spec_saves_without_validation(
+    def test_xl_capability_spec_saves_without_required_check(
         self, initialized_project: Path
     ) -> None:
         cap = _capability(
@@ -424,12 +425,12 @@ class TestSaveTicketSpecValidateFlag:
             size=Size.XL,
             capability=cap,
         )
-        save_ticket_spec(initialized_project, spec, validate=False)
+        save_ticket_spec(initialized_project, spec, enforce_required_fields=False)
         loaded = load_ticket_spec(initialized_project, "t-xl")
         assert loaded is not None
         assert loaded.size == Size.XL
 
-    def test_default_validate_true_still_rejects_l_missing_design(
+    def test_default_still_rejects_l_missing_design(
         self, initialized_project: Path
     ) -> None:
         """Regression guard: only the capability materialiser opts out.
@@ -454,3 +455,28 @@ class TestSaveTicketSpecValidateFlag:
         )
         with pytest.raises(SpecValidationError):
             save_ticket_spec(initialized_project, spec)
+
+    def test_unknown_fields_still_rejected_when_required_check_off(
+        self, initialized_project: Path
+    ) -> None:
+        """``enforce_required_fields=False`` does not bypass the
+        unknown-fields check. A spec containing a field the work-type
+        schema doesn't declare must still fail loudly — otherwise a
+        custom schema or a misrouted materialiser could persist
+        feature-shaped fields into an unrelated work-type spec."""
+        spec = TicketSpec(
+            ticket_id="t-bogus",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            fields={
+                "summary": "x",
+                "behaviors": [
+                    {"id": "B1", "description": "x", "acceptance_criteria": ["ac"]}
+                ],
+                "acceptance_criteria": ["ac"],
+                "out_of_scope": ["nope"],
+                "field_not_in_schema": "this is not allowed",
+            },
+        )
+        with pytest.raises(SpecValidationError, match="unknown fields"):
+            save_ticket_spec(initialized_project, spec, enforce_required_fields=False)

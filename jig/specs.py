@@ -79,29 +79,37 @@ def _spec_path(project_path: Path, ticket_id: str) -> Path:
 # ---- schema check --------------------------------------------------------
 
 
-def _validate_against_schema(spec: TicketSpec, schema: WorkTypeSchema) -> None:
+def _validate_against_schema(
+    spec: TicketSpec,
+    schema: WorkTypeSchema,
+    *,
+    enforce_required_fields: bool = True,
+) -> None:
     """Validate ``spec.fields`` against the work-type schema.
 
     Two checks per doc 03:
 
     1. Every field mandated by the schema for ``spec.size`` must be
        present (and non-empty — empty-string or empty-list doesn't
-       satisfy "required").
+       satisfy "required"). Skipped when ``enforce_required_fields``
+       is ``False`` (the capability-materialiser path — see
+       :func:`save_ticket_spec`).
     2. No field name outside ``required ∪ optional`` may appear.
        Projects that want a field not in the schema edit the schema
-       (it's version-controlled).
+       (it's version-controlled). Always runs.
     """
-    required = schema.required_fields_for_size(spec.size)
     allowed = schema.allowed_fields()
-
-    missing = [name for name in required if not _present(spec.fields.get(name))]
     unknown = [name for name in spec.fields if name not in allowed]
 
     errors: list[str] = []
-    if missing:
-        errors.append(
-            f"missing required fields for size {spec.size.value}: {sorted(missing)}"
-        )
+    if enforce_required_fields:
+        required = schema.required_fields_for_size(spec.size)
+        missing = [name for name in required if not _present(spec.fields.get(name))]
+        if missing:
+            errors.append(
+                f"missing required fields for size {spec.size.value}: "
+                f"{sorted(missing)}"
+            )
     if unknown:
         errors.append(f"unknown fields not declared in schema: {sorted(unknown)}")
     if errors:
@@ -185,7 +193,7 @@ def save_ticket_spec(
     spec: TicketSpec,
     *,
     bump_version: bool = True,
-    validate: bool = True,
+    enforce_required_fields: bool = True,
 ) -> TicketSpec:
     """Validate against the work-type schema, then write.
 
@@ -194,16 +202,20 @@ def save_ticket_spec(
     version is already authoritative (e.g., proposal-accept paths that
     computed the new version themselves).
 
-    ``validate=False`` skips the size-based required-field check. The
-    only intended caller is the capability materialiser, which writes
-    whatever fields the project-spec capability carried — L/XL feature
-    tickets would otherwise be rejected for missing ``design`` /
-    ``technical_risks`` (the capability never carries those). Proposal-
-    accept and operator-edit paths always validate.
+    ``enforce_required_fields=False`` skips only the size-based
+    "missing required field" check. The unknown-fields check still
+    runs, so a misuse that tries to write fields the work-type schema
+    doesn't declare will still fail loudly. The only intended caller
+    is the capability materialiser, which writes whatever fields the
+    project-spec capability carried — L/XL feature tickets would
+    otherwise be rejected for missing ``design`` / ``technical_risks``
+    (the capability never carries those). Proposal-accept and
+    operator-edit paths always enforce required fields.
     """
-    if validate:
-        schema = load_work_type_schema(project_path, spec.work_type.value)
-        _validate_against_schema(spec, schema)
+    schema = load_work_type_schema(project_path, spec.work_type.value)
+    _validate_against_schema(
+        spec, schema, enforce_required_fields=enforce_required_fields
+    )
 
     if bump_version:
         existing = load_ticket_spec(project_path, spec.ticket_id)

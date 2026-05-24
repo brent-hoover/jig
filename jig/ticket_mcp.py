@@ -44,6 +44,10 @@ def _maybe_materialize_ticket_spec(
 
     Skipped silently when:
 
+    * ``ticket.work_type`` is not ``feature``. Capabilities encode user-
+      visible behaviour; only feature tickets can legitimately derive
+      from one. A bugfix / chore / etc. that carries ``derived_from``
+      is treated as a metadata-only link.
     * ``ticket.derived_from`` does not match ``project://spec/capabilities/<id>``;
     * ``.jig/spec/project.structured.yaml`` is absent;
     * the referenced capability id is not in the spec;
@@ -58,6 +62,15 @@ def _maybe_materialize_ticket_spec(
         materialize_ticket_spec_from_capability,
         save_ticket_spec,
     )
+
+    if ticket.work_type != WorkType.FEATURE:
+        _logger.debug(
+            "ticket %s: work_type %s is not feature; skipping capability "
+            "spec materialisation",
+            ticket.id,
+            ticket.work_type.value,
+        )
+        return
 
     uri = ticket.derived_from or ""
     if not uri.startswith(_CAPABILITY_URI_PREFIX):
@@ -99,12 +112,15 @@ def _maybe_materialize_ticket_spec(
         size=ticket.size,
         capability=capability,
     )
-    # ``validate=False`` because the capability only carries M-level
-    # fields (summary / behaviors / acceptance_criteria / out_of_scope).
-    # L/XL tickets need ``design`` and ``technical_risks`` added through
-    # a proposal before the spec is canonically "complete" for its size.
+    # ``enforce_required_fields=False`` because the capability only
+    # carries M-level fields (summary / behaviors / acceptance_criteria
+    # / out_of_scope). L/XL tickets need ``design`` and
+    # ``technical_risks`` added through a proposal before the spec is
+    # canonically "complete" for its size. The unknown-fields check
+    # still runs — a custom feature schema that drops one of our four
+    # fields will surface as a validation error here.
     try:
-        save_ticket_spec(project_path, ticket_spec, validate=False)
+        save_ticket_spec(project_path, ticket_spec, enforce_required_fields=False)
     except SpecValidationError as exc:
         _logger.warning(
             "ticket %s: materialised spec failed work-type validation: %s",

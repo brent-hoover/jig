@@ -716,8 +716,8 @@ async def test_create_ticket_materialises_spec_for_large_ticket(
     """L/XL feature tickets get a spec from the capability even though
     the work-type schema would otherwise require ``design`` /
     ``technical_risks`` for that size — the materialiser writes with
-    ``validate=False`` because the project-spec capability never
-    carries those fields."""
+    ``enforce_required_fields=False`` because the project-spec
+    capability never carries those fields."""
     from jig.specs import load_ticket_spec
 
     tickets, _threads, bus = stores
@@ -741,6 +741,42 @@ async def test_create_ticket_materialises_spec_for_large_ticket(
     assert spec is not None
     assert "acceptance_criteria" in spec.fields
     assert "design" not in spec.fields
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_non_feature_with_derived_from_skips_spec(
+    stores, tmp_path: Path
+) -> None:
+    """A bugfix ticket carrying ``derived_from`` is treated as a
+    metadata-only link — no spec is materialised. The feature-shape
+    fields the materialiser would otherwise emit are not in the bugfix
+    work-type schema, so the guard prevents the materialiser from
+    writing fields that don't belong on that ticket's spec."""
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    _write_project_spec(project, "fetch-top")
+
+    ticket_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="pm",
+        args={
+            "work_type": "bugfix",
+            "title": "fix bug",
+            "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+            "derived_from": "project://spec/capabilities/fetch-top",
+        },
+        project_path=project,
+    )
+    ticket = await tickets.get(ticket_id)
+    assert ticket is not None
+    # The link is preserved on the ticket record for traceability.
+    assert ticket.derived_from == "project://spec/capabilities/fetch-top"
+    # But no spec was materialised — bugfix can't accept feature-shape
+    # fields.
+    assert load_ticket_spec(project, ticket_id) is None
 
 
 @pytest.mark.asyncio

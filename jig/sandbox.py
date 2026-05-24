@@ -24,9 +24,35 @@ from claude_agent_sdk.types import ClaudeAgentOptions
 _logger = logging.getLogger(__name__)
 
 
+SANDBOX_WORKSPACE = "/workspace"
+"""Sandbox-absolute path where every agent's worktree is bind-mounted.
+
+Paired with :class:`BwrapConfig.workspace` and the agent's actual process
+cwd (set by bwrap ``--chdir``). Code that constructs prompts or SDK
+options for sandboxed agents must use this — passing the host-side
+worktree path leaks an absolute prefix the agent will mistakenly use
+for tool calls."""
+
+
 def sandbox_available() -> bool:
     """Return True when running inside the jig Docker container."""
     return bool(os.environ.get("JIG_IN_CONTAINER"))
+
+
+def sandbox_visible_worktree(host_path: Path) -> str:
+    """Return the worktree path as it appears to a sandboxed agent.
+
+    Inside the jig container bwrap bind-mounts every agent's worktree at
+    :data:`SANDBOX_WORKSPACE` and ``--chdir``s there, so the host path is
+    not what the agent sees. Outside the container the host path is the
+    actual cwd.
+
+    Used both for prompt construction (the "Working Directory" section)
+    and the SDK's ``ClaudeAgentOptions.cwd`` so the agent's view of its
+    cwd matches reality. Without this, agents resolve relative paths
+    against the host-side string and miss files that exist at
+    ``/workspace/...``."""
+    return SANDBOX_WORKSPACE if sandbox_available() else str(host_path)
 
 
 def _normalise_mount_path(path: str) -> tuple[str, ...]:
@@ -106,7 +132,7 @@ class BwrapConfig:
     hide_paths: list[str] = field(default_factory=list)
     """Paths to overlay with empty tmpfs (hides content from agent)."""
 
-    workspace: str = "/workspace"
+    workspace: str = SANDBOX_WORKSPACE
     """Mount point inside the sandbox where the worktree appears."""
 
     passthrough_env_keys: tuple[str, ...] = _DEFAULT_PASSTHROUGH_ENV

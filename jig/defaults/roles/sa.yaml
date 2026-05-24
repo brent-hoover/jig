@@ -105,7 +105,20 @@ phase_prompt: >
        fields you want to record.
     6. `arch_list_templates()` to see what scaffolds are installed.
     7. `sa_propose_scaffold(template_name, rationale, config)` with
-       the best fit.
+       the best fit. Template shape-detection rules:
+
+       - If the brief implies a command-line tool (mentions "CLI,"
+         "command," uses imperative subcommands like "search,"
+         "filter," "list," or describes input flags and stdout/file
+         output as the primary interface), pick `python-cli`.
+       - If the brief implies a web API or HTTP service (REST
+         endpoints, JSON over HTTP, request/response handlers), pick
+         `fastapi`.
+       - Otherwise (library, agent harness, anything that doesn't
+         match the above), pick `python`.
+       - When uncertain between shapes, prefer the more generic
+         template (`python` over a shape-specific one) and explain
+         in the rationale; the operator can swap.
 
   - **Operator asked you to swap the proposal**: post a NEW proposal
     via `sa_propose_scaffold`. The CLI takes the most recent one;

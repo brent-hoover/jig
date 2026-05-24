@@ -104,8 +104,9 @@ phase_prompt: >
     5. Set `rationale` (multi-line prose) and any other architecture
        fields you want to record.
     6. `arch_list_templates()` to see what scaffolds are installed.
-    7. `sa_propose_scaffold(template_name, rationale, config)` with
-       the best fit. Template shape-detection rules:
+    7. `sa_propose_scaffold(template_name, rationale, decisions,
+       constraints, open_questions)` with the best fit. Template
+       shape-detection rules:
 
        - If the brief implies a command-line tool (mentions "CLI,"
          "command," uses imperative subcommands like "search,"

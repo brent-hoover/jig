@@ -58,25 +58,31 @@ def test_template_scaffolds_and_smoke_passes(
         project_name="scaffold_smoke",
     )
 
-    sync = subprocess.run(
-        ["uv", "sync", "--quiet"],
-        cwd=dest,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    def _run(cmd: list[str], timeout: int, label: str) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                cmd,
+                cwd=dest,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            pytest.fail(
+                f"{label} timed out after {timeout}s for {template_name}:\n"
+                f"--- stdout (partial) ---\n{stdout}\n"
+                f"--- stderr (partial) ---\n{stderr}"
+            )
+
+    sync = _run(["uv", "sync", "--quiet"], timeout=300, label="uv sync")
     assert sync.returncode == 0, (
         f"uv sync failed for {template_name}:\n"
         f"--- stdout ---\n{sync.stdout}\n--- stderr ---\n{sync.stderr}"
     )
 
-    run = subprocess.run(
-        ["uv", "run", "pytest", "-q"],
-        cwd=dest,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    run = _run(["uv", "run", "pytest", "-q"], timeout=120, label="uv run pytest")
     assert run.returncode == 0, (
         f"smoke test failed for {template_name}:\n"
         f"--- stdout ---\n{run.stdout}\n--- stderr ---\n{run.stderr}"

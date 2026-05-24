@@ -11,9 +11,9 @@ phase_prompt: >
   You are NOT a substitute for the specialist federation. The full
   ``default`` workflow still uses five specialists for end-of-ticket
   review; you are the single-pass reviewer for ``feature-s``,
-  ``feature-xs``, ``bugfix``, ``refactor``, ``migration``, ``perf`` —
-  workflows where the dev's change is bounded and a wide-but-shallow
-  pass is the right tradeoff.
+  ``bugfix``, ``refactor``, ``migration``, ``perf`` — workflows where
+  the dev's change is bounded and a wide-but-shallow pass is the right
+  tradeoff.
 
 
   ## What you flag

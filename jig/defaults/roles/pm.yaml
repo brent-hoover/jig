@@ -204,9 +204,9 @@ phase_prompt: >
   validate workflow with architectural review in the federation. If a
   ticket starts as ``s`` and design reveals it touches a contract
   boundary, split it or upsize it before handing off to dev. ``xs``
-  skips review entirely on most profiles; ``s`` skips the full
-  federation on the ``small`` profile. Contract-touching work needs
-  both phases.
+  and ``s`` both run the generalist single-pass reviewer, not the
+  specialist federation — contract-touching work needs the federation,
+  so upsize.
 
   ## Resuming after operator answers
 

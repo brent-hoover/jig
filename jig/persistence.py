@@ -297,8 +297,40 @@ def _workflow_path_shipped(name: str) -> Path:
     return _defaults_dir() / "workflows" / f"{name}.yaml"
 
 
+# Workflow rename aliases. Resolved by ``load_workflow`` before file
+# lookup so existing-project tickets persisted with the old workflow
+# name keep loading after the file is deleted. Logged at WARN once per
+# process per (alias, canonical) pair via ``_WORKFLOW_ALIAS_LOGGED``.
+# Entries get removed when no live project references the old name.
+_WORKFLOW_ALIASES: dict[str, str] = {
+    # feature-xs deleted (had no test phase). Existing tickets resolve
+    # to feature-s, which adds a test phase to the pipeline.
+    "feature-xs": "feature-s",
+}
+_WORKFLOW_ALIAS_LOGGED: set[str] = set()
+
+
+def _resolve_workflow_alias(name: str) -> str:
+    """Return the canonical workflow name, applying a rename alias if
+    one is registered. Logs the rewrite at WARN on first resolution
+    per process so operators see legacy refs being upgraded."""
+    canonical = _WORKFLOW_ALIASES.get(name)
+    if canonical is None:
+        return name
+    if name not in _WORKFLOW_ALIAS_LOGGED:
+        _WORKFLOW_ALIAS_LOGGED.add(name)
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "workflow alias resolved",
+            extra={"original": name, "resolved": canonical, "site": "load_workflow"},
+        )
+    return canonical
+
+
 def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
     """Load a workflow config, preferring the project override over the shipped default."""
+    name = _resolve_workflow_alias(name)
     project_path_file = _workflow_path_project(project_path, name)
     if project_path_file.is_file():
         data = yaml.safe_load(project_path_file.read_text())

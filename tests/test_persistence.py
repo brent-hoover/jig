@@ -399,6 +399,66 @@ class TestWorkflowPersistence:
         assert loaded.phases[0].reviewers == ["reviewer-test-adequacy"]
 
 
+class TestWorkflowAlias:
+    """``feature-xs`` was deleted; tickets persisted with that workflow
+    name resolve transparently to ``feature-s`` via the alias map in
+    ``persistence`` so loading doesn't 404. The rewrite logs at WARN
+    once per process per alias so operators can see legacy refs being
+    upgraded."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_alias_log(self) -> None:
+        from jig import persistence
+
+        persistence._WORKFLOW_ALIAS_LOGGED.clear()
+        yield
+        persistence._WORKFLOW_ALIAS_LOGGED.clear()
+
+    def test_feature_xs_resolves_to_feature_s(
+        self, tmp_new_jig_project: Path
+    ) -> None:
+        loaded = load_workflow(tmp_new_jig_project, "feature-xs")
+        assert loaded.name == "feature-s"
+        phase_names = [p.name for p in loaded.phases]
+        assert "test" in phase_names, (
+            "alias must resolve to a workflow with a test phase — that's "
+            "the whole point of the rename"
+        )
+
+    def test_alias_logs_warn_on_first_resolution(
+        self,
+        tmp_new_jig_project: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="jig.persistence")
+        load_workflow(tmp_new_jig_project, "feature-xs")
+        warnings = [
+            r for r in caplog.records if r.message == "workflow alias resolved"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0].original == "feature-xs"
+        assert warnings[0].resolved == "feature-s"
+
+    def test_alias_does_not_double_log(
+        self,
+        tmp_new_jig_project: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="jig.persistence")
+        load_workflow(tmp_new_jig_project, "feature-xs")
+        load_workflow(tmp_new_jig_project, "feature-xs")
+        warnings = [
+            r for r in caplog.records if r.message == "workflow alias resolved"
+        ]
+        assert len(warnings) == 1, (
+            "the dedupe set must prevent the second call from re-logging"
+        )
+
+
 class TestDefaultWorkflow:
     def test_creates_default(self, tmp_new_jig_project: Path) -> None:
         save_default_workflow(tmp_new_jig_project)
@@ -553,7 +613,7 @@ class TestResolveWorkflowName:
     ) -> None:
         # "default" ticket_workflow should resolve via work_type schema.
         result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "xs")
-        assert result == "feature-xs"
+        assert result == "feature-s"  # xs now maps to feature-s (feature-xs deleted)
 
     def test_workflow_by_size_s(self, tmp_new_jig_project: Path) -> None:
         result = resolve_workflow_name(tmp_new_jig_project, "default", "feature", "s")
@@ -584,7 +644,7 @@ class TestResolveWorkflowName:
         self, tmp_new_jig_project: Path
     ) -> None:
         result = resolve_workflow_name(tmp_new_jig_project, "", "feature", "xs")
-        assert result == "feature-xs"
+        assert result == "feature-s"  # xs now maps to feature-s (feature-xs deleted)
 
     def test_no_work_type_returns_default(self, tmp_new_jig_project: Path) -> None:
         result = resolve_workflow_name(tmp_new_jig_project, "default", None, None)

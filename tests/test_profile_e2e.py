@@ -39,14 +39,15 @@ def test_small_profile_via_flag(fresh_project: Path) -> None:
     # 2. SA role lookup reads from the profile.
     assert _resolve_sa_role(fresh_project) == "sa"
 
-    # 3. Workflow routing: s → feature-s (the lightweight one).
+    # 3. Workflow routing: s → feature-s; xs collapses to feature-s too
+    # (feature-xs was deleted — every size in the small profile now goes
+    # through the test-included workflow).
     assert resolve_workflow(cfg, work_type="feature", size="s") == "feature-s"
-    assert resolve_workflow(cfg, work_type="feature", size="xs") == "feature-xs"
+    assert resolve_workflow(cfg, work_type="feature", size="xs") == "feature-s"
 
     # 4. Profile + referenced workflows copied into .jig/.
     assert (fresh_project / ".jig" / "profiles" / "small.yaml").is_file()
     assert (fresh_project / ".jig" / "workflows" / "feature-s.yaml").is_file()
-    assert (fresh_project / ".jig" / "workflows" / "feature-xs.yaml").is_file()
 
 
 def test_medium_profile_via_flag(fresh_project: Path) -> None:

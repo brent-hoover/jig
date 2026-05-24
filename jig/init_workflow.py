@@ -600,14 +600,26 @@ async def _run_init_resume_loop(
 
 
 async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> None:
-    """Create the planning ticket if one doesn't already exist."""
+    """Create the planning ticket if one doesn't already exist.
+
+    Description surfaces what the chosen template has already shipped so
+    the PM (which lacks file-read tools, per `feedback_pm_no_file_tools`)
+    knows not to create scaffolding/skeleton tickets that duplicate
+    template output.
+    """
     existing = await tickets.get("planning")
     if existing is not None:
         return
     spec_path = project_path / ".jig" / "spec" / "project.structured.yaml"
-    description = (
-        f"Break down the project spec into implementation tickets.\n\nSpec: {spec_path}"
-    )
+    description_parts = [
+        "Break down the project spec into implementation tickets.",
+        "",
+        f"Spec: {spec_path}",
+    ]
+    scaffold_section = _scaffold_summary_for_pm(project_path)
+    if scaffold_section:
+        description_parts.extend(["", scaffold_section])
+    description = "\n".join(description_parts)
     await tickets.create(
         Ticket(
             id="planning",
@@ -618,6 +630,55 @@ async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> N
             created_by="cli",
         )
     )
+
+
+def _scaffold_summary_for_pm(project_path: Path) -> str:
+    """Render the 'already scaffolded' inventory the PM consumes via ticket
+    description. Reads ``.jig/spec/architecture.yaml`` written by
+    ``apply_scaffold``. Returns an empty string when the file is missing
+    or malformed — callers append the result unconditionally."""
+    arch_path = project_path / ".jig" / "spec" / "architecture.yaml"
+    if not arch_path.is_file():
+        return ""
+    try:
+        data = yaml.safe_load(arch_path.read_text()) or {}
+    except yaml.YAMLError:
+        return ""
+    template = data.get("template")
+    if not template:
+        return ""
+    lines = [
+        "## Already scaffolded — do NOT plan tickets for these",
+        "",
+        f"The `{template}` template has already been applied. The following",
+        "are in place on disk; planning a 'project setup' or 'skeleton' ticket",
+        "would duplicate work. Start your plan with the first real capability.",
+        "",
+        f"- **Template**: `{template}`",
+    ]
+    language = data.get("language")
+    if language:
+        lines.append(f"- **Language**: {language}")
+    framework = data.get("framework")
+    if framework:
+        lines.append(f"- **Framework**: {framework}")
+    decisions = data.get("decisions")
+    if isinstance(decisions, dict) and decisions:
+        lines.append("- **Architecture decisions** (already recorded):")
+        for key, value in decisions.items():
+            lines.append(f"  - `{key}`: {value}")
+    lines.extend(
+        [
+            "",
+            "Every shipped template provides: project layout, `pyproject.toml`",
+            "with pytest/ruff/mypy configured, build-system, `.gitignore`,",
+            "README stub, and a passing smoke test. Shape-specific templates",
+            "additionally provide their characteristic shell code (e.g.",
+            "`python-cli` ships the typer entry + injectable httpx transport;",
+            "`fastapi` ships the FastAPI app + `/health` endpoint).",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _print_already_done(target: Path, *, console: "Console | None" = None) -> None:

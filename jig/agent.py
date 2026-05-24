@@ -555,7 +555,9 @@ async def run_agent(
         agent_config_dir = ensure_agent_config_dir(
             skill_names=role_skills,
             spawn_dir_name=_spawn_config_id,
-            sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH if sandbox_available() else None,
+            sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH
+            if sandbox_available()
+            else None,
         )
         if not sandbox_available():
             sdk_kwargs["env"] = {

@@ -641,8 +641,14 @@ def _scaffold_summary_for_pm(project_path: Path) -> str:
     if not arch_path.is_file():
         return ""
     try:
-        data = yaml.safe_load(arch_path.read_text()) or {}
+        data = yaml.safe_load(arch_path.read_text())
     except yaml.YAMLError:
+        return ""
+    # yaml.safe_load on a top-level list / string / scalar returns a
+    # non-mapping; .get() would raise AttributeError. Skip — the file
+    # is syntactically valid but not the expected shape, treat same as
+    # missing.
+    if not isinstance(data, dict):
         return ""
     template = data.get("template")
     if not template:

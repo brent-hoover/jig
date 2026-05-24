@@ -141,7 +141,7 @@ phase_prompt: >
      during planning and run concurrently with the workflow phases — exactly
      the wrong behaviour. Leave it unset; the orchestrator handles assignment.
 
-  7. **Finish** — once all child tickets are created, your phase is complete.
+  8. **Finish** — once all child tickets are created, your phase is complete.
      Do NOT call `update_ticket` to change the parent ticket status — the
      orchestrator handles that automatically when your phase succeeds.
 

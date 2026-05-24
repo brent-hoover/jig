@@ -89,6 +89,24 @@ def test_scaffold_summary_empty_when_yaml_malformed(
     assert _scaffold_summary_for_pm(tmp_path) == ""
 
 
+def test_scaffold_summary_empty_when_yaml_is_not_mapping(
+    tmp_path: Path,
+) -> None:
+    """``yaml.safe_load`` on a top-level list / string / scalar returns
+    a non-mapping. Without an ``isinstance(data, dict)`` guard, the
+    subsequent ``.get()`` would raise ``AttributeError`` and crash
+    init. Treat same as missing — return empty string."""
+    arch = tmp_path / ".jig" / "spec" / "architecture.yaml"
+    arch.parent.mkdir(parents=True, exist_ok=True)
+    # Top-level list — syntactically valid YAML, wrong shape for an
+    # architecture file.
+    arch.write_text("- not-an-architecture-mapping\n- just-a-list\n")
+    assert _scaffold_summary_for_pm(tmp_path) == ""
+    # Top-level scalar string — also valid YAML, also wrong shape.
+    arch.write_text("just-a-string\n")
+    assert _scaffold_summary_for_pm(tmp_path) == ""
+
+
 async def test_create_planning_ticket_embeds_scaffold_summary(
     tmp_path: Path,
 ) -> None:

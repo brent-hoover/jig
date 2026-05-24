@@ -229,7 +229,7 @@ served to each subprocess over stdio:
 | SA | `jig.sa_mcp`, `jig.sa_incremental_mcp` | sa_finalize, sa_edit_module |
 | VD | `jig.vd_mcp` | vd_finalize, vd_add_wireframe |
 | Planner PM | `jig.planner_pm_mcp` | plan_finalize |
-| Reviewer | `jig.reviewer_mcp` | post_comment |
+| Reviewer | `jig.reviewer_mcp`, `jig.mcp_server` | post_comment; reviewer_get_diff, reviewer_read_file (opt-in scoped tools) |
 | Checkpoints | `jig.checkpoint_mcp` | checkpoint save/restore |
 | Ontology | `jig.po_ontology_mcp` | ontology_add_term |
 | Quartermaster | `jig.quartermaster` | briefing generation |

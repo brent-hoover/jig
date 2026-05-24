@@ -415,7 +415,7 @@ The factory imports and registers handlers from:
 - `jig.po_l0_mcp`, `jig.po_l1_mcp`, `jig.po_l2_mcp`, `jig.po_l3_mcp` — PO tools (layered)
 - `jig.po_ontology_mcp` — Ontology edits
 - `jig.quartermaster` — Quartermaster tools
-- `jig.reviewer_mcp` — Reviewer operations
+- `jig.reviewer_mcp` — Reviewer `post_comment` operation; `reviewer_get_diff` and `reviewer_read_file` (scoped diff/read for roles with `reads_glob`) registered inline in `mcp_server.py`
 - `jig.sa_incremental_mcp`, `jig.sa_mcp` — SA tools
 - `jig.thread_mcp` — Thread operations (questions, answers, objections, handoffs, escalations)
 - `jig.ticket_mcp` — Ticket CRUD operations
@@ -560,6 +560,8 @@ SelfApprovalPolicy = Literal["warn", "blocked"]
 | `capabilities` | `CapabilityDeclaration \| None` | Tool/path/param capability constraints |
 | `cross_ticket_access` | `bool` | Permit cross-ticket tool calls (default False) |
 | `allow_add_dependency` | `bool` | Permit `add_dependency` tool (runs pkg manager outside bwrap) |
+| `reads_glob` | `list[str]` | Include glob patterns for reviewer file-scoping; empty = unscoped (default `[]`) |
+| `reads_exclude` | `list[str]` | Exclude glob patterns for reviewer file-scoping; exclude wins over include (default `[]`) |
 
 **Dependencies**:
 - `pydantic` — Model validation, discriminated unions

@@ -369,7 +369,7 @@ sandboxing of the Claude Code subprocess itself.
 | PO L3 | `jig.po_l3_mcp` | `l3_finalize` |
 | SA | `jig.sa_mcp`, `jig.sa_incremental_mcp` | `sa_finalize`, incremental architecture edits |
 | Planner PM | `jig.planner_pm_mcp` | `plan_finalize` |
-| Reviewer | `jig.reviewer_mcp` | `post_comment` |
+| Reviewer | `jig.reviewer_mcp`, `jig.mcp_server` | `post_comment`; `reviewer_get_diff`, `reviewer_read_file` (opt-in scoped tools for roles with `reads_glob`) |
 | Checkpoints | `jig.checkpoint_mcp` | checkpoint save/restore |
 | Ontology | `jig.po_ontology_mcp` | domain term add/update |
 | Quartermaster | `jig.quartermaster` | briefing generation tools |
@@ -732,6 +732,8 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
 | Tool | Description |
 |------|-------------|
 | `post_comment(reviewer_role, args, ticket_id, cycle)` | Validate + persist one `ReviewerComment` |
+| `reviewer_get_diff(base)` | Return scoped unified diff against base ref; enforces role's `reads_glob` / `reads_exclude`; opt-in via `allowed_tools` |
+| `reviewer_read_file(path)` | Return file content from the worktree; enforces role's `reads_glob` / `reads_exclude`; opt-in via `allowed_tools` |
 
 #### Exposed (Python)
 

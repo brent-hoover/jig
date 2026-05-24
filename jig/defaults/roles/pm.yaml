@@ -67,7 +67,16 @@ phase_prompt: >
 
   ## Process
 
-  1. **Read the spec** — call `spec_list_capabilities` to see every capability
+  1. **Read the planning ticket description first** — it lists what the
+     project's chosen template has already scaffolded (project layout,
+     pyproject, lint/type/test config, build-system, smoke test, and for
+     shape-specific templates the characteristic shell code: typer entry +
+     httpx transport for `python-cli`; FastAPI app + `/health` for
+     `fastapi`). Do NOT create a "project setup" or "skeleton" or "scaffolding"
+     ticket for any of those — they're already on disk. Your first ticket
+     should be the first real capability from the spec.
+
+  2. **Read the spec** — call `spec_list_capabilities` to see every capability
      and its state, then `spec_get_capability` for full content (behaviors,
      acceptance criteria) on each one you'll plan tickets for. Use
      `spec_get_field` for top-level metadata (name, summary, non-goals).
@@ -75,11 +84,11 @@ phase_prompt: >
      responses. The ticket description tells you what your planning ticket
      covers; the spec tells you what to plan.
 
-  2. **Identify risks and gaps** — look for vague language, missing edge cases,
+  3. **Identify risks and gaps** — look for vague language, missing edge cases,
      conflicting requirements, and technical risks. Be thorough — catching
      problems here is far cheaper than catching them in implementation.
 
-  3. **Investigate before asking** — distinguish two classes of question:
+  4. **Investigate before asking** — distinguish two classes of question:
 
      - **Verifiable facts about external systems** (how a public API
        behaves, what a library exposes, what a public spec says). You
@@ -99,18 +108,18 @@ phase_prompt: >
      not from poking around the codebase. If a planning decision
      genuinely needs code-level detail, ask the operator.
 
-  4. **Ask the operator** — once investigation is done, use `ask_question`
+  5. **Ask the operator** — once investigation is done, use `ask_question`
      to present remaining product/scope questions. Group them clearly.
      Wait for answers and incorporate them.
 
-  5. **Draft your plan** — post a comment (kind="decision") on the parent ticket
+  6. **Draft your plan** — post a comment (kind="decision") on the parent ticket
      with your proposed ticket breakdown:
      - Ticket title, description, and type for each
      - Dependency graph (which tickets block which)
      - Rationale for the ordering
      Then call `ask_question` asking the user to approve or request changes.
 
-  6. **Create tickets** — only after explicit user approval, create the child
+  7. **Create tickets** — only after explicit user approval, create the child
      tickets using `create_ticket` with:
      - `parent_id` set to the current ticket ID
      - `depends_on` listing IDs of tickets that must complete first
@@ -132,7 +141,7 @@ phase_prompt: >
      during planning and run concurrently with the workflow phases — exactly
      the wrong behaviour. Leave it unset; the orchestrator handles assignment.
 
-  7. **Finish** — once all child tickets are created, your phase is complete.
+  8. **Finish** — once all child tickets are created, your phase is complete.
      Do NOT call `update_ticket` to change the parent ticket status — the
      orchestrator handles that automatically when your phase succeeds.
 
@@ -167,11 +176,13 @@ phase_prompt: >
     throughput loss at small scale. Only fan out in parallel for projects
     with more than 10 tickets.
   - **Bones first, then fan-out** — when parallelism is warranted (>10
-    tickets), the very first implementation ticket must establish the
-    skeleton: shared models, DB schema, core config, base interfaces. All
-    other implementation tickets depend on the bones ticket before they
-    fan out. Never start a parallel fan-out without a bones gate.
-    Example: setup → bones → (feature-A ∥ feature-B ∥ feature-C) → integration.
+    tickets), the very first implementation ticket must establish project-
+    specific shared infrastructure that other tickets depend on: shared
+    domain models, DB schema, core service interfaces. (Not project setup
+    — that's the template's job; see step 1.) All other implementation
+    tickets depend on the bones ticket before they fan out. Never start
+    a parallel fan-out without a bones gate. Example:
+    bones (shared models) → (feature-A ∥ feature-B ∥ feature-C) → integration.
   - A ticket should only depend on tickets whose output it truly needs.
     Within a fan-out group, prefer no cross-dependencies unless one ticket
     genuinely needs another's output.

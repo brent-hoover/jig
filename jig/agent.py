@@ -540,6 +540,9 @@ async def run_agent(
         # Empty / None means no extra env (typical bones runs and any
         # role that doesn't touch dev services).
         sdk_kwargs: dict = {}
+        # Cache once — sandbox_available() is a pure env-var check but we
+        # reference it several times below and want a single consistent value.
+        _use_sandbox = sandbox_available()
         # Always route agents through a jig-managed Claude config dir so
         # personal hooks (e.g. superpowers SessionStart) and the operator's
         # global CLAUDE.md don't leak into non-interactive agent sessions.
@@ -555,17 +558,15 @@ async def run_agent(
         agent_config_dir = ensure_agent_config_dir(
             skill_names=role_skills,
             spawn_dir_name=_spawn_config_id,
-            sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH
-            if sandbox_available()
-            else None,
+            sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH if _use_sandbox else None,
         )
-        if not sandbox_available():
+        if not _use_sandbox:
             sdk_kwargs["env"] = {
                 **(dict(ctx.extra_env) if ctx.extra_env else {}),
                 "CLAUDE_CONFIG_DIR": str(agent_config_dir),
             }
-        elif ctx.extra_env:
-            sdk_kwargs["env"] = dict(ctx.extra_env)
+        # In the bwrap path ctx.extra_env is forwarded via extra_setenv below
+        # (bwrap's --clearenv drops anything set through sdk_kwargs["env"]).
 
         options = ClaudeAgentOptions(
             cwd=str(ctx.worktree_path),
@@ -644,7 +645,7 @@ async def run_agent(
         tag = f"{ctx.role}:{tid}"
         # Build sandboxed transport when running inside the jig container
         transport = None
-        if sandbox_available():
+        if _use_sandbox:
             # Only mount the policy + hook-bin dirs when we actually wrote
             # a rules.json for this spawn. Without declared capabilities
             # the settings.json registers no hooks, so the sandbox doesn't

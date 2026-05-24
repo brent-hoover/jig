@@ -70,22 +70,20 @@ async def test_prompt_uses_workspace_when_in_container(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """In-container prompts must report cwd as /workspace, not the host
-    worktree path. The host path inside a Docker daemon is /project for
+    worktree path. In production the host path is /project for
     spec-generator, and /project is tmpfs-hidden inside the sandbox —
     so an agent that trusted the host path would resolve absolute reads
-    against an empty tmpfs."""
-    # The minimal RoleConfig in _make_ctx has no required_context /
-    # default_context, so build_agent_prompt never stats /project. Guard
-    # the assumption so a misconfigured host with a real /project
-    # directory can't false-pass.
-    assert not Path("/project").exists(), (
-        "test assumes /project does not exist on host"
-    )
+    against an empty tmpfs.
+
+    Uses a synthetic absolute host path rather than the literal
+    ``/project`` so the test doesn't depend on host-filesystem state
+    (jig itself runs in a container that DOES mount /project)."""
     monkeypatch.setenv("JIG_IN_CONTAINER", "1")
-    ctx = await _make_ctx(tmp_path, Path("/project"))
+    host_worktree = Path("/__jig_test_host_worktree__")
+    ctx = await _make_ctx(tmp_path, host_worktree)
     prompt = await build_agent_prompt(ctx)
     assert "working directory is `/workspace`" in prompt
-    assert "working directory is `/project`" not in prompt
+    assert f"working directory is `{host_worktree}`" not in prompt
 
 
 async def test_prompt_uses_host_path_outside_container(

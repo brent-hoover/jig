@@ -780,6 +780,109 @@ async def test_create_ticket_non_feature_with_derived_from_skips_spec(
 
 
 @pytest.mark.asyncio
+async def test_create_ticket_with_malformed_project_spec_dispatches(
+    stores, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A malformed project.structured.yaml must not orphan a ticket.
+    Materialisation logs a warning and skips; dispatch still fires."""
+    import logging
+
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    (project / ".jig" / "spec").mkdir(parents=True, exist_ok=True)
+    # Garbage that yaml.safe_load can parse but pydantic rejects.
+    (project / ".jig" / "spec" / "project.structured.yaml").write_text(
+        "this: is\nnot: a structured spec\n"
+    )
+
+    queue = await bus.subscribe("orchestrator")
+    with caplog.at_level(logging.WARNING, logger="jig.ticket_mcp"):
+        ticket_id = await handle_create_ticket(
+            tickets=tickets,
+            bus=bus,
+            sender="pm",
+            args={
+                "work_type": "feature",
+                "title": "would-have-orphaned",
+                "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+                "derived_from": "project://spec/capabilities/anything",
+            },
+            project_path=project,
+        )
+
+    assert await tickets.get(ticket_id) is not None
+    assert load_ticket_spec(project, ticket_id) is None
+    # Dispatch event MUST have fired — the contract this test exists to
+    # protect.
+    msg = await queue.get()
+    assert msg.payload["kind"] == "ticket_created"
+    assert msg.payload["ticket_id"] == ticket_id
+    # And the materialisation failure surfaced in the log.
+    assert any("failed to load project spec" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_with_capability_lacking_ac_warns(
+    stores, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A capability with no AC (neither top-level nor per-behavior)
+    produces a spec with empty acceptance_criteria. The reviewer-test-
+    adequacy gate would have nothing to check; surface that as a
+    warning instead of silently shipping an ungated feature."""
+    import logging
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    # Project spec with one capability that has *no* AC at all. This
+    # uses ``backlog`` state because PLANNED requires AC by schema.
+    (project / ".jig" / "spec").mkdir(parents=True, exist_ok=True)
+    (project / ".jig" / "spec" / "project.structured.yaml").write_text(
+        """name: ac-less
+summary: A capability with no AC
+spec_version: 1
+generated_at: '2026-05-24T00:00:00Z'
+capabilities:
+  - id: empty-cap
+    title: Has no AC
+    state: backlog
+    summary: nothing to test
+    behaviors: []
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded: []
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: '2026-05-24T00:00:00Z'
+    last_updated: '2026-05-24T00:00:00Z'
+    state_changed_at: '2026-05-24T00:00:00Z'
+non_goals: []
+"""
+    )
+
+    with caplog.at_level(logging.WARNING, logger="jig.ticket_mcp"):
+        await handle_create_ticket(
+            tickets=tickets,
+            bus=bus,
+            sender="pm",
+            args={
+                "work_type": "feature",
+                "title": "ungated",
+                "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+                "derived_from": "project://spec/capabilities/empty-cap",
+            },
+            project_path=project,
+        )
+
+    assert any(
+        "materialised with no acceptance_criteria" in r.message for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_ticket_with_no_project_spec_skips_silently(
     stores, tmp_path: Path
 ) -> None:

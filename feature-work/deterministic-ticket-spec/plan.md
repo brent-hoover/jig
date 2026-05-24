@@ -1,7 +1,7 @@
 ---
 title: Deterministic Ticket Spec — Implementation Plan
 type: plan
-status: draft
+status: archived
 owner: brent
 created: 2026-05-24
 updated: 2026-05-24

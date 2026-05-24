@@ -33,8 +33,13 @@ If both are true:
 - Build a `TicketSpec` with `fields` populated from the capability:
   - `summary` ← `capability.summary`
   - `behaviors` ← `capability.behaviors` (serialized as a list of dicts with their AC)
-  - `acceptance_criteria` ← `capability.acceptance_criteria` (top-level, if any)
-- Write it via `save_ticket_spec(project_path, ticket_spec)`.
+  - `acceptance_criteria` ← `capability.acceptance_criteria` when populated. When the capability's
+    top-level list is empty, fall back to the concatenation of every `behaviors[*].acceptance_criteria`
+    so the spec carries the AC the test agent needs even when the spec author put it all under behaviours.
+  - `out_of_scope` ← `capability.excluded`
+- Write it via `save_ticket_spec(project_path, ticket_spec, enforce_required_fields=False)`. The
+  required-field check is bypassed (the project-spec capability never carries `design` or
+  `technical_risks` for L/XL tickets); the unknown-fields check still runs.
 
 If either condition is false, creation proceeds as today — no spec is written, no error raised. This is
 best-effort enrichment, not a gate.
@@ -110,7 +115,6 @@ for every ticket regardless of workflow. No new abstractions required.
 
 ## Out of scope
 
-- Updating `reviewer-test-adequacy` to mechanically verify AC coverage against the spec (valuable follow-on).
 - Populating `TicketSpec` for tickets not derived from the project spec (bugfix, chore, etc.).
 - The semantic gap pass originally planned for the spec agent. Deferred indefinitely.
 

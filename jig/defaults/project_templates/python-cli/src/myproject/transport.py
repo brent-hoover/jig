@@ -46,9 +46,7 @@ class Transport:
         response.raise_for_status()
         data = response.json()
         if not isinstance(data, dict):
-            raise TypeError(
-                f"expected JSON object, got {type(data).__name__}"
-            )
+            raise TypeError(f"expected JSON object, got {type(data).__name__}")
         return data
 
     async def aclose(self) -> None:

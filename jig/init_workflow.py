@@ -635,8 +635,9 @@ async def _create_planning_ticket(tickets: TicketStore, project_path: Path) -> N
 def _scaffold_summary_for_pm(project_path: Path) -> str:
     """Render the 'already scaffolded' inventory the PM consumes via ticket
     description. Reads ``.jig/spec/architecture.yaml`` written by
-    ``apply_scaffold``. Returns an empty string when the file is missing
-    or malformed — callers append the result unconditionally."""
+    ``apply_scaffold``. Returns an empty string when the file is missing,
+    is malformed, isn't a mapping, or lacks a ``template`` field —
+    callers skip the section when the result is empty."""
     arch_path = project_path / ".jig" / "spec" / "architecture.yaml"
     if not arch_path.is_file():
         return ""

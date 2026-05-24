@@ -54,10 +54,7 @@ def test_scaffold_summary_lists_template_and_blocks_setup_tickets(
     assert "typer" in summary
     assert "httpx" in summary
     # The actionable instruction the PM needs.
-    assert (
-        "do NOT plan tickets" in summary.lower()
-        or "do not plan tickets" in summary.lower()
-    )
+    assert "do not plan tickets" in summary.lower()
     assert "skeleton" in summary.lower()
 
 

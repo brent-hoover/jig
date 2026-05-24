@@ -710,6 +710,40 @@ async def test_create_ticket_with_unknown_capability_logs_warning(
 
 
 @pytest.mark.asyncio
+async def test_create_ticket_materialises_spec_for_large_ticket(
+    stores, tmp_path: Path
+) -> None:
+    """L/XL feature tickets get a spec from the capability even though
+    the work-type schema would otherwise require ``design`` /
+    ``technical_risks`` for that size — the materialiser writes with
+    ``validate=False`` because the project-spec capability never
+    carries those fields."""
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    _write_project_spec(project, "fetch-top")
+
+    ticket_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="pm",
+        args={
+            "work_type": "feature",
+            "title": "big ticket",
+            "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+            "derived_from": "project://spec/capabilities/fetch-top",
+            "size": "l",
+        },
+        project_path=project,
+    )
+    spec = load_ticket_spec(project, ticket_id)
+    assert spec is not None
+    assert "acceptance_criteria" in spec.fields
+    assert "design" not in spec.fields
+
+
+@pytest.mark.asyncio
 async def test_create_ticket_with_no_project_spec_skips_silently(
     stores, tmp_path: Path
 ) -> None:

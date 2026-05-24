@@ -185,6 +185,7 @@ def save_ticket_spec(
     spec: TicketSpec,
     *,
     bump_version: bool = True,
+    validate: bool = True,
 ) -> TicketSpec:
     """Validate against the work-type schema, then write.
 
@@ -192,9 +193,17 @@ def save_ticket_spec(
     overrides win. ``bump_version=False`` is used when the on-disk
     version is already authoritative (e.g., proposal-accept paths that
     computed the new version themselves).
+
+    ``validate=False`` skips the size-based required-field check. The
+    only intended caller is the capability materialiser, which writes
+    whatever fields the project-spec capability carried — L/XL feature
+    tickets would otherwise be rejected for missing ``design`` /
+    ``technical_risks`` (the capability never carries those). Proposal-
+    accept and operator-edit paths always validate.
     """
-    schema = load_work_type_schema(project_path, spec.work_type.value)
-    _validate_against_schema(spec, schema)
+    if validate:
+        schema = load_work_type_schema(project_path, spec.work_type.value)
+        _validate_against_schema(spec, schema)
 
     if bump_version:
         existing = load_ticket_spec(project_path, spec.ticket_id)

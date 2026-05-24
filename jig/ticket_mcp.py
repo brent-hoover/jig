@@ -99,8 +99,12 @@ def _maybe_materialize_ticket_spec(
         size=ticket.size,
         capability=capability,
     )
+    # ``validate=False`` because the capability only carries M-level
+    # fields (summary / behaviors / acceptance_criteria / out_of_scope).
+    # L/XL tickets need ``design`` and ``technical_risks`` added through
+    # a proposal before the spec is canonically "complete" for its size.
     try:
-        save_ticket_spec(project_path, ticket_spec)
+        save_ticket_spec(project_path, ticket_spec, validate=False)
     except SpecValidationError as exc:
         _logger.warning(
             "ticket %s: materialised spec failed work-type validation: %s",

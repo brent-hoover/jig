@@ -38,5 +38,11 @@ ownership:
   dependencies: sa
 
 section_locks:
-  behaviors: {locked_after_phase: spec}
-  acceptance_criteria: {locked_after_phase: spec}
+  # AC is materialised at ticket creation from the project spec
+  # capability (see ``deterministic-ticket-spec`` feature). The default
+  # workflow no longer has a ``spec`` phase; locks now fire once the
+  # ``test`` phase has been accepted — tests are written against the
+  # AC, so mutating either field afterwards would invalidate the
+  # test contract.
+  behaviors: {locked_after_phase: test}
+  acceptance_criteria: {locked_after_phase: test}

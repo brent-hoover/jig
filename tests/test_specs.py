@@ -367,3 +367,90 @@ class TestMaterializeFromCapability:
         assert loaded.fields["summary"] == "Pull stories"
         assert loaded.fields["acceptance_criteria"] == ["Exit 0", "N lines"]
         assert loaded.fields["out_of_scope"] == ["pagination"]
+
+
+class TestSaveTicketSpecValidateFlag:
+    """``validate=False`` is the escape hatch the capability materialiser
+    needs to write L/XL feature specs. The capability never carries
+    ``design`` or ``technical_risks`` so strict validation would reject
+    the spec for sizes beyond M."""
+
+    def test_l_capability_spec_saves_without_validation(
+        self, initialized_project: Path
+    ) -> None:
+        cap = _capability(
+            summary="something big",
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["covers L"],
+                )
+            ],
+            excluded=["a"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-large",
+            work_type=WorkType.FEATURE,
+            size=Size.L,
+            capability=cap,
+        )
+        # With validate=True (the default) this would raise because the
+        # feature schema requires ``design`` at L.
+        save_ticket_spec(initialized_project, spec, validate=False)
+        loaded = load_ticket_spec(initialized_project, "t-large")
+        assert loaded is not None
+        assert loaded.size == Size.L
+        assert "design" not in loaded.fields
+        assert loaded.fields["acceptance_criteria"] == ["covers L"]
+
+    def test_xl_capability_spec_saves_without_validation(
+        self, initialized_project: Path
+    ) -> None:
+        cap = _capability(
+            summary="something huge",
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["covers XL"],
+                )
+            ],
+            excluded=["a"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-xl",
+            work_type=WorkType.FEATURE,
+            size=Size.XL,
+            capability=cap,
+        )
+        save_ticket_spec(initialized_project, spec, validate=False)
+        loaded = load_ticket_spec(initialized_project, "t-xl")
+        assert loaded is not None
+        assert loaded.size == Size.XL
+
+    def test_default_validate_true_still_rejects_l_missing_design(
+        self, initialized_project: Path
+    ) -> None:
+        """Regression guard: only the capability materialiser opts out.
+        A direct save_ticket_spec call against an incomplete L spec must
+        still fail loudly so the proposal-accept / operator-edit paths
+        keep their existing strictness."""
+        cap = _capability(
+            summary="x",
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["ok"],
+                )
+            ],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-strict",
+            work_type=WorkType.FEATURE,
+            size=Size.L,
+            capability=cap,
+        )
+        with pytest.raises(SpecValidationError):
+            save_ticket_spec(initialized_project, spec)

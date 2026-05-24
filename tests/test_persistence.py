@@ -189,15 +189,11 @@ class TestAgentTypePersistence:
             reads_exclude=["tests/**", "**/conftest.py"],
         )
         save_role(tmp_new_jig_project, cfg)
-        loaded = load_role(
-            tmp_new_jig_project, "reviewer-pattern-conformance"
-        )
+        loaded = load_role(tmp_new_jig_project, "reviewer-pattern-conformance")
         assert loaded.reads_glob == ["src/**", "pyproject.toml"]
         assert loaded.reads_exclude == ["tests/**", "**/conftest.py"]
 
-    def test_reads_glob_default_empty(
-        self, tmp_new_jig_project: Path
-    ) -> None:
+    def test_reads_glob_default_empty(self, tmp_new_jig_project: Path) -> None:
         """Roles that don't set the new fields keep the empty-list
         default — i.e. the role operates unscoped, matching legacy
         behaviour."""

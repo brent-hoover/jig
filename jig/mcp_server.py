@@ -146,7 +146,9 @@ def create_agent_mcp_server(
     @tool(
         "create_ticket",
         "Create a new ticket. Use depends_on to list ticket IDs that must be resolved before this ticket can start. "
-        "Set workflow to 'project' for tickets that need PM planning breakdown.",
+        "Set workflow to 'project' for tickets that need PM planning breakdown. "
+        "Set derived_from to 'project://spec/capabilities/<id>' for feature tickets implementing a capability "
+        "in the project spec — this materialises the capability's AC into the ticket spec at creation time.",
         {
             "work_type": str,
             "size": str,
@@ -157,6 +159,7 @@ def create_agent_mcp_server(
             "depends_on": list,
             "workflow": str,
             "labels": list,
+            "derived_from": str,
         },
     )
     async def create_ticket(args):

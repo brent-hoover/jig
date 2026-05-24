@@ -304,6 +304,12 @@ def _workflow_path_shipped(name: str) -> Path:
 # persisted with a workflow name whose file has since been removed.
 # Logged at WARN once per process per alias via ``_WORKFLOW_ALIAS_LOGGED``.
 # Entries get removed when no live project references the old name.
+#
+# Invariant: every alias target must ultimately resolve to a file
+# (shipped or project-local). Chains are followed via recursion in
+# ``load_workflow``, so a cycle like ``{"A": "B", "B": "A"}`` where
+# neither name has a file would infinite-loop. Keep the map small and
+# point each entry at a name that ships.
 _WORKFLOW_ALIASES: dict[str, str] = {
     # feature-xs deleted (had no test phase). Existing tickets resolve
     # to feature-s, which adds a test phase to the pipeline.
@@ -313,9 +319,7 @@ _WORKFLOW_ALIAS_LOGGED: set[str] = set()
 
 
 def _log_alias_rewrite(original: str, resolved: str) -> None:
-    """Log a workflow-alias rewrite at WARN, once per process per
-    alias. Module-level dedupe set ``_WORKFLOW_ALIAS_LOGGED`` tracks
-    seen aliases — tests that need isolation clear it in a fixture."""
+    """Log a workflow-alias rewrite at WARN, deduped per-process via _WORKFLOW_ALIAS_LOGGED."""
     if original in _WORKFLOW_ALIAS_LOGGED:
         return
     _WORKFLOW_ALIAS_LOGGED.add(original)

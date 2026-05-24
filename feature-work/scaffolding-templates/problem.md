@@ -24,8 +24,11 @@ Today the init flow already does template-based scaffolding. The sequence is:
 
 The bundled `python` template at `jig/defaults/project_templates/python/` ships: `pyproject.toml` (pytest + ruff + mypy strict
 already configured), `.gitignore`, `README.md`, empty `src/myproject/__init__.py`, empty `tests/__init__.py`. It is
-shape-agnostic — it does not include CLI scaffolding, web-API scaffolding, or any other project-shape-specific shell code.
-File substitution is `myproject` → project-name only; there are no cookiecutter-style prompts.
+shape-agnostic — it does not include CLI scaffolding or any project-shape-specific shell code. A sibling `fastapi` template
+also ships (`jig/defaults/project_templates/fastapi/` with a `FastAPI()` app, a `/health` endpoint, and a `test_health.py`
+smoke test using `ASGITransport`); this work treats `fastapi` as prior art for what a shape-specific template looks like.
+The gap this problem addresses is the CLI shape (and other shapes as they come up), not the web-API shape that's already
+covered. File substitution in the copier is `myproject` → project-name only; there are no cookiecutter-style prompts.
 
 `feature-xs` is `implement → review → validate` — no `test` phase, by explicit profile design
 (`small.yaml`: *"The only workflow distinction is xs (no test phase) vs everything else"*).
@@ -75,8 +78,10 @@ evals for today (CLI tools). Larger template-catalog work is deferred — see No
 
 - **Failure modes**: A bad template (broken `pyproject.toml`, smoke test that doesn't run) would propagate into every project
   built from it. Templates are committed source and should be tested in CI like any other code path. The current copier
-  (`_apply_template_files`) already does atomic write; the failure mode that needs to be added is "the template's smoke test
-  fails immediately after scaffold" — should that block init? Probably yes, to fail loudly. Design-relevant.
+  (`_apply_template_files`) uses direct `write_text` / `write_bytes` per file — only the post-copy `architecture.yaml` /
+  `project.yaml` updates use `atomic_write_text`. If atomicity matters (mid-copy crash leaves a half-scaffolded project), the
+  design needs to add it explicitly. The failure mode that needs to be added is "the template's smoke test fails immediately
+  after scaffold" — should that block init? Probably yes, to fail loudly. Design-relevant.
 
 - **Cross-cutting policies**: N/A immediately — templates are jig-bundled and reviewed-as-code. User-supplied templates raise
   a trust question but that is explicitly deferred (see Non-goals).

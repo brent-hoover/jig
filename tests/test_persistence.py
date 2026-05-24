@@ -458,6 +458,37 @@ class TestWorkflowAlias:
             "the dedupe set must prevent the second call from re-logging"
         )
 
+    def test_project_local_legacy_workflow_wins_over_alias(
+        self,
+        tmp_new_jig_project: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Operator-customized ``.jig/workflows/feature-xs.yaml`` must
+        be honored even though the shipped name was deleted — the
+        alias is a fallback for the missing-file case, not a hard
+        rewrite. Without this, operator overrides would silently
+        evaporate after a jig upgrade."""
+        import logging
+
+        save_workflow(
+            tmp_new_jig_project,
+            WorkflowConfig(
+                name="feature-xs",
+                phases=[PhaseConfig(name="implement", role="dev")],
+            ),
+        )
+        caplog.set_level(logging.WARNING, logger="jig.persistence")
+        loaded = load_workflow(tmp_new_jig_project, "feature-xs")
+        assert loaded.name == "feature-xs"
+        assert [p.name for p in loaded.phases] == ["implement"]
+        warnings = [
+            r for r in caplog.records if r.message == "workflow alias resolved"
+        ]
+        assert warnings == [], (
+            "alias must NOT fire when a project-local file exists for the "
+            "requested name — that would silently bypass operator customization"
+        )
+
 
 class TestDefaultWorkflow:
     def test_creates_default(self, tmp_new_jig_project: Path) -> None:

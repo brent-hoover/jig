@@ -36,19 +36,24 @@ blast radius if anything goes sideways. PR 2 stacks on develop after PR 1 lands.
 
 #### 1.1 — Add workflow alias in `load_workflow`
 
-**What:** In `jig/persistence.py`, add a module-level dict `_WORKFLOW_ALIASES = {"feature-xs": "feature-s"}`. In
-`load_workflow`, resolve `name` through the alias dict before either file lookup. When an alias fires, log at WARN level once
-per process with a structured payload (`{"original": name, "resolved": canonical, "site": "load_workflow"}`) — use a module-
-level `set()` of seen aliases to dedupe so we don't log on every ticket lookup. Drop the dedupe state if a test needs
-isolation (`pytest` fixture can `_WORKFLOW_ALIASES_LOGGED.clear()`).
+**What:** In `jig/persistence.py`, add a module-level dict `_WORKFLOW_ALIASES = {"feature-xs": "feature-s"}`. The alias is
+applied as a **fallback** in `load_workflow` — try the requested name's project-local path first, then the shipped path,
+then (only if both miss) recurse with the alias target. This preserves operator-customized `.jig/workflows/<old>.yaml`
+files: if the project has its own copy of the legacy workflow, the alias does not fire. When the alias does fire, log at
+WARN level once per process with a structured payload (`{"original": name, "resolved": canonical, "site": "load_workflow"}`)
+— use a module-level `set()` of seen aliases to dedupe so we don't log on every ticket lookup. Drop the dedupe state if a
+test needs isolation (`pytest` fixture can `_WORKFLOW_ALIAS_LOGGED.clear()`).
 
-**Why:** Lets existing-project tickets with `workflow: feature-xs` resolve to `feature-s` after the workflow file is deleted.
+**Why:** Lets existing-project tickets with `workflow: feature-xs` resolve to `feature-s` after the workflow file is deleted,
+without silently bypassing operator-customized workflows that still use the old name.
 
 **Verify:**
 
-- New unit test in `tests/test_persistence.py` (or wherever `load_workflow` is tested today): asserts
-  `load_workflow(project_path, "feature-xs")` returns the `feature-s` workflow object, and asserts the WARN log fires.
-- Second call to the same alias doesn't double-log.
+- New unit tests in `tests/test_persistence.py`:
+  1. `load_workflow(project_path, "feature-xs")` returns the `feature-s` workflow when no project-local copy exists.
+  2. WARN log fires on first resolution (with structured `original` / `resolved` fields).
+  3. Second call to the same alias doesn't double-log.
+  4. A project-local `.jig/workflows/feature-xs.yaml` wins — the alias does NOT fire, the operator's workflow loads as-is.
 
 #### 1.2 — Delete `feature-xs.yaml` and update references
 
@@ -140,21 +145,34 @@ explicitly-superseded references.
 - `cd /tmp/scaffold-test && uv sync && uv run pytest -q` passes.
 - `uv run scaffold_test --help` prints typer help text.
 
-#### 2.2 — Add `tests/test_template_smoke.py`
+#### 2.2 — Backfill smoke tests for existing templates + add `tests/test_template_smoke.py`
 
-**What:** Pytest-collected test that:
+**What:**
 
-1. Discovers each subdirectory under `jig/defaults/project_templates/`.
-2. For each: creates a tmp dir, calls `_apply_template_files(template_name=<name>, dest=tmp_dir, project_name="scaffold_test")`.
-3. Subprocess: `uv sync --directory tmp_dir` then `uv run --directory tmp_dir pytest -q`.
-4. Asserts exit 0 and a non-empty stdout that mentions "passed."
+- **Add `jig/defaults/project_templates/python/tests/test_smoke.py`** asserting `import myproject` succeeds. The bare
+  `python` template currently has an empty `tests/__init__.py` and no test files; without this, the smoke runner's
+  `pytest -q` would exit code 5 ("no tests collected") and fail. Every shipped template must declare what
+  "successfully scaffolded" means for it.
+- **Verify `jig/defaults/project_templates/fastapi/tests/test_health.py` still works** post-rename (it does — `test_health`
+  is collectable by `pytest`; no change needed). Calling this out as a verify step so the runner is known to handle every
+  bundled template, not just the new one.
+- **Add `tests/test_template_smoke.py`** pytest-collected test that:
 
-**Why:** CI catches a broken template before it reaches an `jig init` run.
+  1. Discovers each subdirectory under `jig/defaults/project_templates/`.
+  2. For each: creates a tmp dir, calls
+     `_apply_template_files(template_name=<name>, dest=tmp_dir, project_name="scaffold_test")`.
+  3. Subprocess: `uv sync --directory tmp_dir` then `uv run --directory tmp_dir pytest -q`.
+  4. Asserts exit 0.
+
+**Why:** CI catches a broken template (any of `python`, `fastapi`, or the new `python-cli`) before it reaches a `jig init`
+run.
 
 **Verify:**
 
-- The test runs locally (`uv run pytest tests/test_template_smoke.py -v`) and passes for both `python` and `python-cli`.
+- `uv run pytest tests/test_template_smoke.py -v` passes for all three bundled templates.
 - Deliberately break `python-cli/src/myproject/cli.py` (e.g. syntax error) — test fails with a clear error.
+- Deliberately delete the new `python/tests/test_smoke.py` — the runner exits code 5 on the `python` template and the test
+  fails (proves the "no-tests-is-failure" contract holds).
 
 #### 2.3 — Add `collect_ignore` so pytest doesn't double-collect template tests
 
@@ -216,8 +234,10 @@ on a feature ticket.
 ## Rollback
 
 **PR 1:** Revert. The deleted `feature-xs.yaml` was only referenced by the profile files and a couple of comment lines —
-nothing structural. The alias is additive and safe to keep even if we revert the workflow deletion (it just becomes a
-redundant identity-like mapping that fires for no one).
+nothing structural. **The alias must be reverted along with the workflow deletion**: if `feature-xs.yaml` is restored but
+the alias entry remains, `load_workflow(..., "feature-xs")` still falls back through the alias to `feature-s` only when the
+restored file is missing — which is the correct behavior after the fallback fix. Still, leaving the alias entry in place
+post-revert is dead code and a future trap; the revert should drop the `_WORKFLOW_ALIASES["feature-xs"]` entry too.
 
 **PR 2:** Revert. The new template is purely additive — `python` is unchanged. SA's prompt addition is a single section;
 removing it returns SA to the pre-change behavior. `tests/test_template_smoke.py` is additive; removing it loses CI

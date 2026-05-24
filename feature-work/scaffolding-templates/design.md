@@ -62,7 +62,9 @@ PR 1. The phrasing nit in `pm.yaml` (the comment line) is a docs-only update.
 
 ```
 template.yaml                      # metadata: language, framework=typer, deploy_target=null
-pyproject.toml                     # inherits python template's config; adds typer + httpx deps
+pyproject.toml                     # inherits python template's config; adds typer + httpx deps;
+                                   # [project.scripts] myproject = "myproject.cli:app"
+                                   # so `myproject --help` works from the installed entry point
 README.md                          # CLI-shape readme stub
 .gitignore                         # same as python template
 src/myproject/__init__.py
@@ -70,8 +72,13 @@ src/myproject/__main__.py          # python -m myproject entry → cli.app()
 src/myproject/cli.py               # typer.Typer() app with a `hello` placeholder command
 src/myproject/transport.py         # injectable httpx.AsyncClient wrapper (constructor takes client)
 tests/__init__.py
-tests/test_smoke.py                # asserts `myproject --help` runs and exits 0
+tests/test_smoke.py                # asserts the typer app's --help runs cleanly (via
+                                   # typer.testing.CliRunner so no install step needed)
 ```
+
+The `[project.scripts]` entry is required — without it the `myproject --help` invocation the smoke test pattern assumes
+won't work post-install. Using `typer.testing.CliRunner` in the smoke test side-steps the install step entirely, which is
+faster and works without `uv sync` having created the script wrapper.
 
 **Template parametrization.** Hard-code typer + httpx for MVP. The existing `_apply_template_files` substitutes `myproject`
 → project name; no other variables. Rationale: the SA already records `cli_framework: typer` and `http_client: httpx` as
@@ -93,13 +100,20 @@ No new tool calls, no metadata-driven template registry. The SA already enumerat
 calls `sa_propose_scaffold(template_name, ...)`. The choice is a prompt-level instruction.
 
 **Smoke test CI.** No new CI job. A pytest-collected test at `tests/test_template_smoke.py` iterates each directory under
-`jig/defaults/project_templates/`, scaffolds it into `tmp_path` via `_apply_template_files`, then runs the template's smoke
-test via subprocess (`uv run pytest tests/test_smoke.py` inside the scaffolded project). Asserts exit 0. Runs automatically
-as part of the existing `pytest tests/` step in `.github/workflows/ci.yml` — no workflow YAML changes needed.
+`jig/defaults/project_templates/`, scaffolds it into `tmp_path` via `_apply_template_files`, then runs the template's whole
+test suite via subprocess (`uv sync && uv run pytest -q` inside the scaffolded project). Asserts exit code 0. Runs
+automatically as part of the existing `pytest tests/` step in `.github/workflows/ci.yml` — no workflow YAML changes needed.
 
-One pytest-collection caveat: the smoke tests inside template directories (`jig/defaults/project_templates/*/tests/test_smoke.py`)
+**Template contract:** each template MUST ship at least one collectable test under `tests/` (any filename) that asserts a
+basic property (the existing `fastapi` template's `tests/test_health.py` is the model). The bare `python` template ships an
+empty `tests/__init__.py` today — this design adds a `tests/test_smoke.py` to it that does the minimum (`import myproject`
+succeeds) so the loop has something to collect. Templates with no tests would cause `pytest` to exit 5 ("no tests
+collected"), which the runner treats as a failure — intentional, to force every shipped template to declare what
+"successfully scaffolded" means for it.
+
+One pytest-collection caveat: the smoke tests inside template directories (`jig/defaults/project_templates/*/tests/*.py`)
 would otherwise be collected by the main test run with the wrong project name. The plan doc handles this with a
-`norecursedirs` / `collect_ignore` entry pointing at `jig/defaults/project_templates/`.
+`norecursedirs` entry pointing at `jig/defaults/project_templates/`.
 
 ### Interactions between Part 1 and Part 2
 

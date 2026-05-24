@@ -1,0 +1,5 @@
+description: "Python CLI tool with typer + httpx and a working --help smoke test."
+language: python
+framework: typer
+deploy_target: null
+package_manager: uv

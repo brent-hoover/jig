@@ -46,8 +46,12 @@ include = ["jig*"]
 # Project templates copied at scaffolding time. Each template ships
 # template.yaml at the top plus a tree of source files (src/, tests/),
 # config (pyproject.toml, README.md, .gitignore). The "**/*" glob picks
-# up everything; setuptools turns that into recursive package-data.
-"jig.defaults.project_templates" = ["**/*"]
+# up regular files; "**/.*" is the explicit dotfile pass because
+# pathlib-glob (which setuptools uses) does NOT match hidden files with
+# "*". Without the dotfile pattern, .gitignore (and any future
+# .dockerignore / .env.example / etc.) silently miss the built wheel
+# and scaffolded projects come up incomplete.
+"jig.defaults.project_templates" = ["**/*", "**/.*"]
 # Eval resource files loaded from `Path(__file__).parent` at runtime —
 # task fixtures, rubrics, and the watcher analyzer prompt.
 "jig.evals.prompt_style_eval" = ["tasks/**/*", "rubric/*.yaml"]
@@ -56,6 +60,11 @@ include = ["jig*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Bundled project templates carry their own tests/test_*.py files for
+# the template-smoke runner to exercise. Don't collect them with the
+# main suite — they'd run with the literal unsubstituted ``myproject``
+# package name and fail at import time.
+norecursedirs = ["jig/defaults/project_templates"]
 # Custom markers. ``real`` opts into tests that exercise real-mode
 # wiring with a monkeypatched Claude SDK; the FULL real-mode run
 # (operator-only, costs LLM tokens) is invoked via

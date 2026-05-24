@@ -31,6 +31,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from jig.spec_schema import Capability
 from jig.ticket import Size, WorkType
 from jig.work_types import WorkTypeSchema, load_work_type_schema
 
@@ -127,6 +128,49 @@ def _present(value: Any) -> bool:
 # ---- public API -----------------------------------------------------------
 
 
+def materialize_ticket_spec_from_capability(
+    *,
+    ticket_id: str,
+    work_type: WorkType,
+    size: Size,
+    capability: Capability,
+) -> TicketSpec:
+    """Project a Capability's AC into a TicketSpec.
+
+    Pure function — does not touch disk. Maps the capability's structured
+    fields onto the feature work-type field names:
+
+    * ``summary`` ← capability summary
+    * ``behaviors`` ← capability behaviors, each serialised as a dict
+    * ``acceptance_criteria`` ← capability-level AC if populated; otherwise
+      a flattened concatenation of every ``behaviors[*].acceptance_criteria``
+      so the work-type schema's "AC must be present" invariant holds
+      even when the spec author put all AC inside behaviors.
+    * ``out_of_scope`` ← capability ``excluded`` items
+
+    Returns a ``TicketSpec`` ready for ``save_ticket_spec``, which is
+    where schema validation against ``work_type`` happens. Callers that
+    catch ``SpecValidationError`` get best-effort semantics — a spec is
+    written only when it satisfies the work-type schema.
+    """
+    acceptance_criteria: list[str] = list(capability.acceptance_criteria)
+    if not acceptance_criteria:
+        for behavior in capability.behaviors:
+            acceptance_criteria.extend(behavior.acceptance_criteria)
+    fields: dict[str, Any] = {
+        "summary": capability.summary,
+        "behaviors": [b.model_dump(mode="json") for b in capability.behaviors],
+        "acceptance_criteria": acceptance_criteria,
+        "out_of_scope": list(capability.excluded),
+    }
+    return TicketSpec(
+        ticket_id=ticket_id,
+        work_type=work_type,
+        size=size,
+        fields=fields,
+    )
+
+
 def load_ticket_spec(project_path: Path, ticket_id: str) -> TicketSpec | None:
     """Load a ticket spec if one exists; otherwise None."""
     path = _spec_path(project_path, ticket_id)
@@ -192,5 +236,6 @@ __all__ = [
     "delete_ticket_spec",
     "list_ticket_specs",
     "load_ticket_spec",
+    "materialize_ticket_spec_from_capability",
     "save_ticket_spec",
 ]

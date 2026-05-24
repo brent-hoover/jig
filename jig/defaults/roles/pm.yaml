@@ -116,6 +116,13 @@ phase_prompt: >
      - `depends_on` listing IDs of tickets that must complete first
      - `work_type` should reflect the nature of the work: "feature", "bugfix",
        "refactor", "docs", "migration", "perf", or "spike"
+     - `derived_from` set to `project://spec/capabilities/<capability-id>` for
+       feature tickets that implement a capability in the project spec. This
+       triggers automatic materialisation of the capability's AC into the
+       ticket spec, which the test agent consumes as its test contract.
+       Multi-capability tickets pass the primary capability id; secondary
+       capabilities are mentioned in the description. Non-feature work
+       (bugfix / docs / refactor) omits `derived_from`.
      - `workflow` should be "default" unless this is the final integration
        ticket (use "validation") or you have a specific reason to override;
        the orchestrator automatically selects the right phase sequence from

@@ -107,7 +107,9 @@ async def test_create_ticket_with_wired_callback_broadcasts_once(stores) -> None
     # Exactly one broadcast publish (the handler's own), not two
     # (handler + un-suppressed callback).
     broadcast_history = await bus.get_history(f"tickets.{ticket_id}", limit=10)
-    creates = [m for m in broadcast_history if m.payload.get("kind") == "ticket_created"]
+    creates = [
+        m for m in broadcast_history if m.payload.get("kind") == "ticket_created"
+    ]
     assert len(creates) == 1, (
         f"expected exactly one ticket_created broadcast on tickets.{ticket_id}, "
         f"got {len(creates)} — store callback double-published"
@@ -562,3 +564,174 @@ async def test_request_context_allows_uppercase_filename(tmp_path: Path) -> None
         args={"path": "README.md"},
     )
     assert result == "ok"
+
+
+# ---- spec materialisation from project spec (Phase 3 follow-on) -----------
+
+
+def _write_project_spec(project_path: Path, cap_id: str) -> None:
+    """Write a minimal project.structured.yaml with one capability."""
+    spec_dir = project_path / ".jig" / "spec"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "project.structured.yaml").write_text(
+        f"""name: test-project
+summary: A small thing
+spec_version: 1
+generated_at: '2026-05-24T00:00:00Z'
+capabilities:
+  - id: {cap_id}
+    title: Fetch stories
+    state: planned
+    summary: Pull top HN stories.
+    behaviors:
+      - id: run-top
+        description: "`hn-cli top` prints N stories"
+        acceptance_criteria:
+          - Exit code is 0 on success.
+          - Output has N lines.
+    acceptance_criteria: []
+    examples: []
+    done_enough: []
+    excluded:
+      - pagination
+    open_questions: []
+    tickets: []
+    aliases: []
+    created_at: '2026-05-24T00:00:00Z'
+    last_updated: '2026-05-24T00:00:00Z'
+    state_changed_at: '2026-05-24T00:00:00Z'
+non_goals: []
+"""
+    )
+
+
+def _initialised_project(tmp_path: Path) -> Path:
+    """tmp project ready for spec save (has .git + init_project applied)."""
+    from jig.persistence import init_project
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git").mkdir()
+    init_project(tmp_path)
+    return tmp_path
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_materialises_spec_from_capability(
+    stores, tmp_path: Path
+) -> None:
+    """When derived_from points at a project-spec capability, the ticket
+    spec is written inline as part of handle_create_ticket."""
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    _write_project_spec(project, "fetch-top")
+
+    ticket_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="pm",
+        args={
+            "work_type": "feature",
+            "title": "Fetch top stories",
+            "description": "stuff\n\n" + TICKET_AC_PLACEHOLDER,
+            "derived_from": "project://spec/capabilities/fetch-top",
+            "size": "m",
+        },
+        project_path=project,
+    )
+
+    spec = load_ticket_spec(project, ticket_id)
+    assert spec is not None
+    assert spec.fields["summary"] == "Pull top HN stories."
+    assert spec.fields["acceptance_criteria"] == [
+        "Exit code is 0 on success.",
+        "Output has N lines.",
+    ]
+    assert spec.fields["out_of_scope"] == ["pagination"]
+    assert len(spec.fields["behaviors"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_without_derived_from_writes_no_spec(
+    stores, tmp_path: Path
+) -> None:
+    """Tickets created without derived_from leave .jig/specs/ untouched."""
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    _write_project_spec(project, "fetch-top")
+
+    ticket_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="pm",
+        args={
+            "work_type": "feature",
+            "title": "Some ticket",
+            "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+        },
+        project_path=project,
+    )
+    assert load_ticket_spec(project, ticket_id) is None
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_with_unknown_capability_logs_warning(
+    stores, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Bogus derived_from URI logs a warning but ticket is still created."""
+    import logging
+
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    _write_project_spec(project, "fetch-top")
+
+    with caplog.at_level(logging.WARNING, logger="jig.ticket_mcp"):
+        ticket_id = await handle_create_ticket(
+            tickets=tickets,
+            bus=bus,
+            sender="pm",
+            args={
+                "work_type": "feature",
+                "title": "Bogus",
+                "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+                "derived_from": "project://spec/capabilities/does-not-exist",
+            },
+            project_path=project,
+        )
+
+    assert await tickets.get(ticket_id) is not None
+    assert load_ticket_spec(project, ticket_id) is None
+    assert any("does-not-exist" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_with_no_project_spec_skips_silently(
+    stores, tmp_path: Path
+) -> None:
+    """If project.structured.yaml is absent, materialisation is skipped
+    without raising. Ticket creation succeeds."""
+    from jig.specs import load_ticket_spec
+
+    tickets, _threads, bus = stores
+    project = _initialised_project(tmp_path / "proj")
+    # No _write_project_spec call — file is intentionally absent.
+
+    ticket_id = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="pm",
+        args={
+            "work_type": "feature",
+            "title": "Foo",
+            "description": "x\n\n" + TICKET_AC_PLACEHOLDER,
+            "derived_from": "project://spec/capabilities/anything",
+        },
+        project_path=project,
+    )
+    assert await tickets.get(ticket_id) is not None
+    assert load_ticket_spec(project, ticket_id) is None

@@ -32,6 +32,82 @@ _logger = logging.getLogger(__name__)
 
 _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 
+_CAPABILITY_URI_PREFIX = "project://spec/capabilities/"
+
+
+def _maybe_materialize_ticket_spec(
+    *,
+    project_path: Path,
+    ticket: Ticket,
+) -> None:
+    """Look up the ticket's capability and write its AC as a TicketSpec.
+
+    Skipped silently when:
+
+    * ``ticket.derived_from`` does not match ``project://spec/capabilities/<id>``;
+    * ``.jig/spec/project.structured.yaml`` is absent;
+    * the referenced capability id is not in the spec;
+    * the materialised spec fails work-type validation.
+
+    Each skip path logs a warning so the operator can see why a ticket
+    arrived without a spec; nothing here is a hard error.
+    """
+    from jig.spec_loader import load_structured_spec
+    from jig.specs import (
+        SpecValidationError,
+        materialize_ticket_spec_from_capability,
+        save_ticket_spec,
+    )
+
+    uri = ticket.derived_from or ""
+    if not uri.startswith(_CAPABILITY_URI_PREFIX):
+        _logger.debug(
+            "ticket %s: derived_from %r does not point at a capability; skipping spec",
+            ticket.id,
+            uri,
+        )
+        return
+
+    cap_id = uri[len(_CAPABILITY_URI_PREFIX) :].strip("/")
+    if not cap_id:
+        _logger.warning(
+            "ticket %s: derived_from %r has empty capability id", ticket.id, uri
+        )
+        return
+
+    try:
+        spec, _ = load_structured_spec(project_path)
+    except FileNotFoundError:
+        _logger.debug(
+            "ticket %s: no project.structured.yaml; skipping spec materialisation",
+            ticket.id,
+        )
+        return
+
+    capability = spec.capability_by_id_or_alias(cap_id)
+    if capability is None:
+        _logger.warning(
+            "ticket %s: capability %r not found in project spec; skipping",
+            ticket.id,
+            cap_id,
+        )
+        return
+
+    ticket_spec = materialize_ticket_spec_from_capability(
+        ticket_id=ticket.id,
+        work_type=ticket.work_type,
+        size=ticket.size,
+        capability=capability,
+    )
+    try:
+        save_ticket_spec(project_path, ticket_spec)
+    except SpecValidationError as exc:
+        _logger.warning(
+            "ticket %s: materialised spec failed work-type validation: %s",
+            ticket.id,
+            exc,
+        )
+
 
 async def handle_create_ticket(
     *,
@@ -69,6 +145,7 @@ async def handle_create_ticket(
         "labels": args.get("labels", []),
         "created_by": sender,
         "size": size,
+        "derived_from": args.get("derived_from"),
     }
     if "workflow" in args:
         ticket_kwargs["workflow"] = args["workflow"]
@@ -168,6 +245,15 @@ async def handle_create_ticket(
         dep = await tickets.get(dep_id)
         if dep is not None and ticket_id not in dep.blocks:
             await tickets.update(dep_id, blocks=dep.blocks + [ticket_id])
+
+    # Materialise a TicketSpec inline when the ticket is derived from a
+    # project-spec capability. Best-effort — a failure here logs and
+    # continues; the ticket is still created.
+    if ticket.derived_from and project_path is not None:
+        _maybe_materialize_ticket_spec(
+            project_path=project_path,
+            ticket=ticket,
+        )
 
     # Publish both orchestrator (for dispatch) and broadcast (for TUI
     # subscribers). PM-driven create needs dispatch immediately —

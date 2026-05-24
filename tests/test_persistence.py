@@ -409,10 +409,9 @@ class TestDefaultWorkflow:
         workflow = load_workflow(tmp_new_jig_project, "default")
         assert workflow.name == "default"
         phase_names = [p.name for p in workflow.phases]
-        # review-routing step 6: review-tests phase inserted between
-        # test and implement.
+        # The spec phase was removed (deterministic-ticket-spec): the AC is
+        # materialised at ticket creation time from project.structured.yaml.
         assert phase_names == [
-            "spec",
             "test",
             "review-tests",
             "implement",
@@ -426,7 +425,6 @@ class TestDefaultWorkflow:
         workflow = load_workflow(tmp_new_jig_project, "default")
         roles = {p.name: p.role for p in workflow.phases}
         assert roles == {
-            "spec": "spec",
             "test": "test",
             "review-tests": "review",
             "implement": "dev",
@@ -466,14 +464,12 @@ class TestDefaultWorkflow:
         }
 
     def test_writes_declared_on_writing_phases(self, tmp_new_jig_project: Path) -> None:
-        """spec, test, implement, document declare ``writes:``. The
+        """test, implement, document declare ``writes:``. The
         router uses these to map a file → owning phase."""
         workflow = load_workflow(tmp_new_jig_project, "default")
         writes = {p.name: p.writes for p in workflow.phases}
         # Specific globs locked in so a regression in default.yaml
         # surfaces on this test, not at routing time.
-        assert "docs/spec/**" in writes["spec"]
-        assert "docs/decisions/**" in writes["spec"]
         assert "tests/**" in writes["test"]
         assert "src/**" in writes["implement"]
         assert "pyproject.toml" in writes["implement"]

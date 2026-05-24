@@ -42,11 +42,13 @@ workflow with a `test` phase. After PR 2, the `python-cli` shell stops being age
 - `jig/defaults/roles/pm.yaml` — the xs sizing rule (line ~206) is rephrased: xs still exists as a size but means "small
   scoped change with a test phase," not "skip TDD."
 
-**Workflow-loader alias.** Where workflows are loaded from disk (`workflow_loader` or similar — exact site to be confirmed
-during plan), add a static alias map: `{"feature-xs": "feature-s"}`. Loader resolves through the alias before reading from
-disk. Any existing-project ticket persisted with `workflow: feature-xs` resolves transparently to `feature-s` and runs the
-full pipeline (including the test phase that the ticket was originally created without). The alias is logged at WARN level on
-first resolution per session so operators see the rewrite happen.
+**Workflow-loader alias.** In `jig/persistence.py::load_workflow`, add a static alias map:
+`{"feature-xs": "feature-s"}`. The alias is applied as a **fallback** — the loader first tries the project-local file for
+the requested name (`.jig/workflows/<name>.yaml`), then the shipped file (`jig/defaults/workflows/<name>.yaml`), and only
+falls through to the alias rewrite if both are missing. This preserves operator-customized
+`.jig/workflows/feature-xs.yaml` (which would otherwise be silently bypassed by a hard alias) while still letting tickets
+persisted with a workflow name whose file has since been removed resolve cleanly. The alias is logged at WARN level on
+first resolution per process so operators see the rewrite happen; a module-level dedupe set prevents per-call spam.
 
 Aliases are removable. The plan doc will mark "delete the alias entry" as the cleanup step for a future PR once we have data
 that no live projects reference `feature-xs` anymore.
@@ -212,9 +214,9 @@ existing-project behavior. The new template is one directory + one CI step.
 
 ## Open questions
 
-- [ ] **Where exactly does the workflow alias live?** `jig/workflow_loader.py` is the obvious site name but the current
-  load path needs to be confirmed during plan (`jig/cli.py` and `jig/orchestrator.py` both load workflows; the alias has to
-  apply at the read point, not later). Plan-doc question.
+- [x] **Where exactly does the workflow alias live?** Resolved during PR 1: alias lives in `jig/persistence.py` next to
+  `load_workflow` — every consumer routes through that function, so a single fallback site covers
+  `jig/cli.py`, `jig/orchestrator.py`, and the rest.
 - [ ] **What does `python-cli`'s smoke test assert beyond `--help`?** Floor: `myproject --help` exits 0. Stretch: stub
   command produces stub output (proves the transport wires correctly). Plan-doc decision.
 - [ ] **Does `tests/test_template_smoke.py` cache the scaffold + uv sync per session, or pay both costs per template every

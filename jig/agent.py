@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import re
+import shutil
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -452,6 +454,7 @@ async def run_agent(
     _phase_token = _phase_var.set(ctx.phase.name if ctx.phase else None)
     _role_token = _role_var.set(ctx.role)
     _agent_token = _agent_id_var.set(_agent_id)
+    agent_config_dir: Path | None = None
     try:
         initial_prompt = await build_agent_prompt(ctx)
         _logger.info("prompt built for %s (%d chars)", ctx.role, len(initial_prompt))
@@ -537,12 +540,18 @@ async def run_agent(
         # Empty / None means no extra env (typical bones runs and any
         # role that doesn't touch dev services).
         sdk_kwargs: dict = {}
-        # Always route agents through the jig-managed Claude config dir so
+        # Always route agents through a jig-managed Claude config dir so
         # personal hooks (e.g. superpowers SessionStart) and the operator's
         # global CLAUDE.md don't leak into non-interactive agent sessions.
-        # For bwrap spawns this is set via extra_setenv instead (below).
+        # Each spawn gets its own isolated directory to avoid concurrent agents
+        # with different skill sets clobbering each other's plugin installs.
+        # For bwrap spawns CLAUDE_CONFIG_DIR is set via extra_setenv (below).
         role_skills = ctx.role_cfg.skills or []
-        agent_config_dir = ensure_agent_config_dir(skill_names=role_skills)
+        _spawn_config_id = uuid.uuid4().hex[:12]
+        agent_config_dir = ensure_agent_config_dir(
+            skill_names=role_skills,
+            spawn_dir_name=_spawn_config_id,
+        )
         if not sandbox_available():
             sdk_kwargs["env"] = {
                 **(dict(ctx.extra_env) if ctx.extra_env else {}),
@@ -649,8 +658,11 @@ async def run_agent(
             # with a minimal config that only exposes jig's own skills.
             # ensure_agent_config_dir() writes installPath values using the
             # sandbox-visible path so Claude Code can resolve skill files.
+            # Mounted read-write so the Claude CLI can write session state,
+            # logs, and cache into CLAUDE_CONFIG_DIR without hitting EROFS.
             bwrap_agent_config = ensure_agent_config_dir(
                 skill_names=role_skills,
+                spawn_dir_name=_spawn_config_id,
                 sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH,
             )
             extra_setenv += (("CLAUDE_CONFIG_DIR", SANDBOX_CLAUDE_CONFIG_PATH),)
@@ -665,7 +677,7 @@ async def run_agent(
                 worktree_host_path=ctx.worktree_path,
                 policy_dir_host_path=cap.policy_dir,
                 hook_bin_host_path=hook_bin,
-                extra_ro_binds=[(str(bwrap_agent_config), SANDBOX_CLAUDE_CONFIG_PATH)],
+                extra_rw_binds=[(str(bwrap_agent_config), SANDBOX_CLAUDE_CONFIG_PATH)],
                 extra_setenv=extra_setenv,
                 hide_paths=hide_paths,
             )
@@ -960,6 +972,8 @@ async def run_agent(
         _phase_var.reset(_phase_token)
         _role_var.reset(_role_token)
         _agent_id_var.reset(_agent_token)
+        if agent_config_dir is not None:
+            shutil.rmtree(agent_config_dir, ignore_errors=True)
 
 
 def _is_relevant(msg: Message, ctx: AgentSpawnContext) -> bool:

@@ -59,11 +59,19 @@ def ensure_agent_config_dir(
     *,
     skill_names: list[str] | None = None,
     sandbox_config_path: str | None = None,
+    spawn_dir_name: str | None = None,
 ) -> Path:
     """Create or refresh the jig-managed Claude config directory.
 
-    Writes the plugin structure to ``~/.jig/claude-agent-config/``.  The
-    ``installPath`` values in ``installed_plugins.json`` are rooted at
+    When ``spawn_dir_name`` is given, writes to
+    ``~/.jig/claude-agent-configs/<spawn_dir_name>/`` — an isolated directory
+    for a single agent spawn. Callers should remove this directory after the
+    agent exits (``shutil.rmtree(path, ignore_errors=True)``).
+
+    When ``spawn_dir_name`` is omitted, falls back to the shared
+    ``~/.jig/claude-agent-config/`` path (legacy / non-concurrent use).
+
+    The ``installPath`` values in ``installed_plugins.json`` are rooted at
     ``sandbox_config_path`` when provided (for bwrap, where the host dir is
     mounted at a different path), or at the host path otherwise.
 
@@ -74,7 +82,10 @@ def ensure_agent_config_dir(
     Returns the host path of the config directory so callers can mount or
     reference it.
     """
-    host_dir = Path.home() / ".jig" / "claude-agent-config"
+    if spawn_dir_name:
+        host_dir = Path.home() / ".jig" / "claude-agent-configs" / spawn_dir_name
+    else:
+        host_dir = Path.home() / ".jig" / "claude-agent-config"
     host_dir.mkdir(parents=True, exist_ok=True)
 
     config_base = Path(sandbox_config_path) if sandbox_config_path else host_dir

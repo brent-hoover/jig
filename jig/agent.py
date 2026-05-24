@@ -38,7 +38,12 @@ from jig.persistence import list_roles, load_conventions
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.agent_config import SANDBOX_CLAUDE_CONFIG_PATH, ensure_agent_config_dir
-from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
+from jig.sandbox import (
+    BwrapConfig,
+    BwrapTransport,
+    sandbox_available,
+    sandbox_visible_worktree,
+)
 from jig.skill_loader import load_all_skills, match_skills
 from jig.store import Message
 from jig.thread import SystemEvent
@@ -252,7 +257,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         environment_md=env_md,
         resolved_context=resolved_context,
         all_roles=all_roles,
-        worktree_path=str(ctx.worktree_path),
+        worktree_path=sandbox_visible_worktree(ctx.worktree_path),
         phase=ctx.phase,
         evaluator_bundle=evaluator_bundle,
         conflict_bundle=conflict_bundle,
@@ -569,7 +574,7 @@ async def run_agent(
         # (bwrap's --clearenv drops anything set through sdk_kwargs["env"]).
 
         options = ClaudeAgentOptions(
-            cwd=str(ctx.worktree_path),
+            cwd=sandbox_visible_worktree(ctx.worktree_path),
             allowed_tools=ctx.role_cfg.allowed_tools,
             disallowed_tools=disallowed,
             system_prompt=ctx.role_cfg.phase_prompt,

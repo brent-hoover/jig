@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from jig.sandbox import BwrapConfig
+from jig.sandbox import SANDBOX_WORKSPACE, BwrapConfig, sandbox_visible_worktree
 
 
 def _pair_positions(args: list[str], flag: str) -> list[tuple[str, str]]:
@@ -300,3 +300,24 @@ class TestProjectHidden:
             if a == "--tmpfs" and i + 1 < len(args)
         ]
         assert "/project" in tmpfs_targets
+
+
+class TestSandboxVisibleWorktree:
+    """When the orchestrator runs inside the jig container, every agent's
+    worktree is bind-mounted at /workspace. Prompts and SDK options that
+    use the host path leak an absolute prefix the agent then uses for
+    tool calls — and for spec-generator the host path (``/project``) is
+    intentionally tmpfs-hidden, so absolute Reads fail."""
+
+    def test_returns_workspace_when_in_container(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("JIG_IN_CONTAINER", "1")
+        assert sandbox_visible_worktree(tmp_path) == SANDBOX_WORKSPACE
+        assert sandbox_visible_worktree(Path("/project")) == SANDBOX_WORKSPACE
+
+    def test_returns_host_path_outside_container(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("JIG_IN_CONTAINER", raising=False)
+        assert sandbox_visible_worktree(tmp_path) == str(tmp_path)

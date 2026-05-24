@@ -1,5 +1,6 @@
 ---
 name: vitest
+description: "How to use Vitest for TypeScript/JavaScript testing in this project"
 applies_to:
   language: typescript
 ---

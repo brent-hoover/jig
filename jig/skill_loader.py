@@ -15,6 +15,7 @@ class Skill:
     source_filename: str
     applies_to: dict[str, Any]
     content: str
+    description: str = ""
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict, str]:
@@ -41,12 +42,14 @@ def load_all_skills() -> list[Skill]:
         front, body = _parse_frontmatter(raw)
         name = front.get("name", entry.name.removesuffix(".md"))
         applies_to = front.get("applies_to") or {}
+        description = front.get("description", "")
         results.append(
             Skill(
                 name=name,
                 source_filename=entry.name,
                 applies_to=applies_to,
                 content=body,
+                description=description,
             )
         )
     return results

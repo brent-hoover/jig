@@ -1,5 +1,6 @@
 ---
 name: uv
+description: "How to use uv for Python package management in this project"
 applies_to:
   language: python
   package_manager: uv

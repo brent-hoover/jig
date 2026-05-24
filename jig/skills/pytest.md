@@ -1,5 +1,6 @@
 ---
 name: pytest
+description: "pytest patterns and best practices for Python testing in this project"
 applies_to:
   language: python
 ---

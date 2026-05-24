@@ -1,5 +1,6 @@
 ---
 name: typescript
+description: "TypeScript coding patterns and conventions for this project"
 applies_to:
   language: typescript
 ---

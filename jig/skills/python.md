@@ -1,5 +1,6 @@
 ---
 name: python
+description: "Python coding patterns and conventions for this project"
 applies_to:
   language: python
 ---

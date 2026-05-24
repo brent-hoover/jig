@@ -1,5 +1,6 @@
 ---
 name: ruff
+description: "How to use ruff for Python linting and formatting"
 applies_to:
   language: python
 ---

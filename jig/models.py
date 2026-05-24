@@ -77,6 +77,11 @@ class RoleConfig(BaseModel):
     # per-path enforcement.
     reads_glob: list[str] = []
     reads_exclude: list[str] = []
+    # Skills this role's agents can invoke via the Skill tool. Names must
+    # match the ``name`` field in a jig/skills/*.md file. When non-empty,
+    # only the listed skills are installed in the agent's Claude config plugin;
+    # when empty, all jig skills are available (default for dev-style roles).
+    skills: list[str] = []
 
 
 # ---- Evaluator assignment (doc 10, Phase 5 Task C) --------------------------

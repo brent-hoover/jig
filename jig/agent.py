@@ -35,6 +35,7 @@ from jig.mcp_server import create_agent_mcp_server
 from jig.persistence import list_roles, load_conventions
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext, SpawnReason
+from jig.agent_config import SANDBOX_CLAUDE_CONFIG_PATH, ensure_agent_config_dir
 from jig.sandbox import BwrapConfig, BwrapTransport, sandbox_available
 from jig.skill_loader import load_all_skills, match_skills
 from jig.store import Message
@@ -536,7 +537,17 @@ async def run_agent(
         # Empty / None means no extra env (typical bones runs and any
         # role that doesn't touch dev services).
         sdk_kwargs: dict = {}
-        if ctx.extra_env:
+        # Always route agents through the jig-managed Claude config dir so
+        # personal hooks (e.g. superpowers SessionStart) and the operator's
+        # global CLAUDE.md don't leak into non-interactive agent sessions.
+        # For bwrap spawns this is set via extra_setenv instead (below).
+        agent_config_dir = ensure_agent_config_dir()
+        if not sandbox_available():
+            sdk_kwargs["env"] = {
+                **(dict(ctx.extra_env) if ctx.extra_env else {}),
+                "CLAUDE_CONFIG_DIR": str(agent_config_dir),
+            }
+        elif ctx.extra_env:
             sdk_kwargs["env"] = dict(ctx.extra_env)
 
         options = ClaudeAgentOptions(
@@ -631,6 +642,16 @@ async def run_agent(
                 if ctx.extra_env
                 else ()
             )
+            # Mount the jig-managed Claude config dir into the sandbox and
+            # set CLAUDE_CONFIG_DIR to point at it. This replaces the
+            # operator's ~/.claude (which carries personal hooks / CLAUDE.md)
+            # with a minimal config that only exposes jig's own skills.
+            # ensure_agent_config_dir() writes installPath values using the
+            # sandbox-visible path so Claude Code can resolve skill files.
+            bwrap_agent_config = ensure_agent_config_dir(
+                sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH
+            )
+            extra_setenv += (("CLAUDE_CONFIG_DIR", SANDBOX_CLAUDE_CONFIG_PATH),)
             # Hide the orchestrator's project mount and any sibling
             # state from the agent. The agent's worktree is bind-mounted
             # at /workspace independently, so /project can be tmpfs-ed
@@ -642,6 +663,7 @@ async def run_agent(
                 worktree_host_path=ctx.worktree_path,
                 policy_dir_host_path=cap.policy_dir,
                 hook_bin_host_path=hook_bin,
+                extra_ro_binds=[(str(bwrap_agent_config), SANDBOX_CLAUDE_CONFIG_PATH)],
                 extra_setenv=extra_setenv,
                 hide_paths=hide_paths,
             )

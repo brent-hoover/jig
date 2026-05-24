@@ -1,5 +1,6 @@
 ---
 name: pnpm
+description: "How to use pnpm for package management in this project"
 applies_to:
   language: typescript
   package_manager: pnpm

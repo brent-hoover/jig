@@ -62,15 +62,13 @@ _DEFAULT_PASSTHROUGH_ENV: tuple[str, ...] = (
     "TERM",
     "TMPDIR",
     "SHELL",
-    # The bundled claude CLI (SDK >= 0.1.80) writes logs/state to its
-    # config dir. Inside bwrap, ~/.claude is read-only (ro-bind from the
-    # container) so we need CLAUDE_CONFIG_DIR pointing to a writable path.
-    # /tmp is tmpfs inside bwrap, so any sub-path there is writable.
-    "CLAUDE_CONFIG_DIR",
     # OAuth token for the bundled claude CLI. The mounted ~/.claude.json
     # only has profile info (host credentials are in the keychain), so
     # auth inside bwrap requires this env var.
     "CLAUDE_CODE_OAUTH_TOKEN",
+    # Note: CLAUDE_CONFIG_DIR is NOT passed through. The orchestrator sets
+    # it explicitly via extra_setenv to the jig-managed config dir, which
+    # isolates agents from personal hooks and provides jig's own skills.
 )
 
 

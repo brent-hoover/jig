@@ -1,5 +1,6 @@
 ---
 name: jig-mcp-tools
+description: "Reference for all Jig MCP tools in your session: create_ticket, comment_on_ticket, update_ticket, commit_progress, and more"
 applies_to: {}
 ---
 

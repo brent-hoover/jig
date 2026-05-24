@@ -1,5 +1,6 @@
 ---
 name: git-conventions
+description: "Git commit and branch naming conventions for this project"
 applies_to: {}
 ---
 

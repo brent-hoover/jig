@@ -121,7 +121,6 @@ reads_glob:
   - "src/**"
   - "jig/**"
   - "pyproject.toml"
-  - "uv.lock"
   - "Dockerfile"
   - "scripts/**"
   - "docs/**"

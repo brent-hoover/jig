@@ -252,3 +252,4 @@ cython_debug/
 evals/runs/
 evals/analyzer-recommendations/
 .worktrees/
+.antigravitycli/

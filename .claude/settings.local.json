@@ -182,7 +182,8 @@
       "Bash(git -C /Users/brent/Projects/personal/jig push origin --delete feat/init-workflow)",
       "Bash(python3 *)",
       "Read(//Users/brent/Projects/personal/jig_evals/hn-cli/.jig/**)",
-      "Read(//Users/brent/Projects/personal/jig_evals/hn-cli/.jig/run/**)"
+      "Read(//Users/brent/Projects/personal/jig_evals/hn-cli/.jig/run/**)",
+      "Bash(roborev fix *)"
     ]
   }
 }

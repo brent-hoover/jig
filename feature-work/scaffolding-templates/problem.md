@@ -1,7 +1,7 @@
 ---
 title: Scaffolding via Templates — Problem Statement
 type: problem
-status: draft
+status: active
 owner: brent
 created: 2026-05-24
 updated: 2026-05-24

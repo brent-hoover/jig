@@ -297,8 +297,48 @@ def _workflow_path_shipped(name: str) -> Path:
     return _defaults_dir() / "workflows" / f"{name}.yaml"
 
 
+# Workflow rename aliases. Applied by ``load_workflow`` ONLY as a
+# fallback when the requested name has no project-local or shipped
+# file — so operator-customized ``.jig/workflows/<old>.yaml`` and any
+# remaining shipped copy still win. The alias kicks in for tickets
+# persisted with a workflow name whose file has since been removed.
+# Logged at WARN once per process per alias via ``_WORKFLOW_ALIAS_LOGGED``.
+# Entries get removed when no live project references the old name.
+#
+# Invariant: every alias target must ultimately resolve to a file
+# (shipped or project-local). Chains are followed via recursion in
+# ``load_workflow``, so a cycle like ``{"A": "B", "B": "A"}`` where
+# neither name has a file would infinite-loop. Keep the map small and
+# point each entry at a name that ships.
+_WORKFLOW_ALIASES: dict[str, str] = {
+    # feature-xs deleted (had no test phase). Existing tickets resolve
+    # to feature-s, which adds a test phase to the pipeline.
+    "feature-xs": "feature-s",
+}
+_WORKFLOW_ALIAS_LOGGED: set[str] = set()
+
+
+def _log_alias_rewrite(original: str, resolved: str) -> None:
+    """Log a workflow-alias rewrite at WARN, deduped per-process via _WORKFLOW_ALIAS_LOGGED."""
+    if original in _WORKFLOW_ALIAS_LOGGED:
+        return
+    _WORKFLOW_ALIAS_LOGGED.add(original)
+    import logging as _logging
+
+    _logging.getLogger(__name__).warning(
+        "workflow alias resolved",
+        extra={"original": original, "resolved": resolved, "site": "load_workflow"},
+    )
+
+
 def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
-    """Load a workflow config, preferring the project override over the shipped default."""
+    """Load a workflow config, preferring the project override over the shipped default.
+
+    Falls back to the rename alias in ``_WORKFLOW_ALIASES`` only when
+    no file exists under the requested name — operator-customized
+    ``.jig/workflows/<old>.yaml`` and any still-shipped copy under the
+    legacy name take precedence over the alias rewrite.
+    """
     project_path_file = _workflow_path_project(project_path, name)
     if project_path_file.is_file():
         data = yaml.safe_load(project_path_file.read_text())
@@ -311,6 +351,10 @@ def load_workflow(project_path: Path, name: str) -> WorkflowConfig:
         workflow = WorkflowConfig.model_validate(data)
         _validate_review_routing_fields(workflow, source=shipped_path)
         return workflow
+    canonical = _WORKFLOW_ALIASES.get(name)
+    if canonical is not None:
+        _log_alias_rewrite(name, canonical)
+        return load_workflow(project_path, canonical)
     raise FileNotFoundError(
         f"workflow {name!r} not found (looked in {project_path_file} and {shipped_path})"
     )

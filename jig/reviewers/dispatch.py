@@ -103,9 +103,9 @@ TEST_ADEQUACY_REVIEWER_ID = "reviewer-test-adequacy"
 
 # Single-pass generalist that covers all five specialist axes (pattern,
 # error-handling, architectural, performance, security) in one review.
-# Used in the smaller workflows (feature-s, feature-xs, bugfix, refactor,
-# migration, perf) where spawning five specialists isn't worth the cost.
-# The default workflow keeps its specialist federation.
+# Used in the smaller workflows (feature-s, bugfix, refactor, migration,
+# perf) where spawning five specialists isn't worth the cost. The
+# default workflow keeps its specialist federation.
 GENERALIST_REVIEWER_ID = "reviewer-generalist"
 
 # LLM-driven reviewer ids — the federation members that are *spawned as

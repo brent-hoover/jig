@@ -34,7 +34,9 @@ class TestLoadProfile:
         p = load_profile("small")
         assert p.name == "small"
         assert p.sa_role == "sa"
-        assert p.workflows.default_by_size["xs"] == "feature-xs"
+        # xs now maps to feature-s (feature-xs deleted; every size in the
+        # small profile goes through the test-included workflow).
+        assert p.workflows.default_by_size["xs"] == "feature-s"
 
     def test_loads_shipped_medium(self) -> None:
         p = load_profile("medium")
@@ -83,11 +85,12 @@ class TestApplyProfile:
     def test_merges_workflow_routing(self, tmp_path: Path) -> None:
         cfg = _bare_config(tmp_path)
         applied = apply_profile(cfg, load_profile("small"))
-        assert applied.workflows.default_by_size["xs"] == "feature-xs"
+        assert applied.workflows.default_by_size["xs"] == "feature-s"
         assert applied.workflows.default_by_size["s"] == "feature-s"
         # Profile's allowlist replaces the workflow's available list.
-        assert "feature-xs" in applied.workflows.available
         assert "feature-s" in applied.workflows.available
+        # feature-xs no longer in the allowlist — workflow was deleted.
+        assert "feature-xs" not in applied.workflows.available
 
     def test_does_not_mutate_input(self, tmp_path: Path) -> None:
         cfg = _bare_config(tmp_path)
@@ -100,10 +103,11 @@ class TestCopyProfileTemplates:
     def test_copies_profile_and_referenced_workflows(self, tmp_path: Path) -> None:
         copy_profile_templates(load_profile("medium"), tmp_path)
         assert (tmp_path / ".jig" / "profiles" / "medium.yaml").is_file()
-        # medium references feature-xs, feature-s-full, default, etc.
-        # — each must land in .jig/workflows/.
+        # medium references feature-s, feature-s-full, default, etc.
+        # — each must land in .jig/workflows/. (feature-xs was deleted;
+        # xs now maps to feature-s.)
+        assert (tmp_path / ".jig" / "workflows" / "feature-s.yaml").is_file()
         assert (tmp_path / ".jig" / "workflows" / "feature-s-full.yaml").is_file()
-        assert (tmp_path / ".jig" / "workflows" / "feature-xs.yaml").is_file()
         assert (tmp_path / ".jig" / "workflows" / "default.yaml").is_file()
 
     def test_idempotent_when_files_exist(self, tmp_path: Path) -> None:

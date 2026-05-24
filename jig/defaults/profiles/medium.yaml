@@ -4,9 +4,9 @@ description: >
   multiple datastores, or compliance requirements. Distinguishing feature
   from ``small``: the ``feature-s-full`` workflow at ``s``-size brings
   the full specialist reviewer federation (architectural, error-handling,
-  performance, security, pattern-conformance). xs tickets still get the
-  lightweight workflow (no point spawning five reviewers on a one-file
-  change).
+  performance, security, pattern-conformance). xs tickets share the same
+  ``feature-s`` workflow as ``small`` — no spawn of the five-reviewer
+  federation on a one-file change, but still TDD.
 # Deferred: ``sa_role: sa_mvp`` is the long-term target — it produces
 # per-module ``contracts.yaml`` files for the contract-aware reviewers.
 # ``sa_mvp``'s exit is ``arch_finalize`` (Handoff phase=pm), which the
@@ -20,12 +20,11 @@ description: >
 sa_role: sa
 workflows:
   default_by_size:
-    xs: feature-xs
+    xs: feature-s
     s: feature-s-full
     m: default
     l: default
   available:
-    - feature-xs
     - feature-s
     - feature-s-full
     - default

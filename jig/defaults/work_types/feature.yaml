@@ -2,7 +2,7 @@
 work_type: feature
 workflow: default
 workflow_by_size:
-  xs: feature-xs   # implement → validate only
+  xs: feature-s    # test → implement → validate (was feature-xs; deleted)
   s: feature-s     # test → implement → validate
   m: default       # full pipeline
   l: default

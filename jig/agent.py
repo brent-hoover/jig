@@ -584,7 +584,8 @@ async def run_agent(
             **sdk_kwargs,
         )
         _logger.info(
-            "agent config: cwd=%s tools=%s mcps=%s",
+            "agent config: cwd=%s host_worktree=%s tools=%s mcps=%s",
+            options.cwd,
             ctx.worktree_path,
             ctx.role_cfg.allowed_tools,
             ctx.role_cfg.allowed_mcps or ["jig"],

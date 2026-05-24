@@ -66,7 +66,6 @@ async def _make_ctx(tmp_path: Path, worktree_path: Path) -> AgentSpawnContext:
     )
 
 
-@pytest.mark.asyncio
 async def test_prompt_uses_workspace_when_in_container(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -75,15 +74,20 @@ async def test_prompt_uses_workspace_when_in_container(
     spec-generator, and /project is tmpfs-hidden inside the sandbox —
     so an agent that trusted the host path would resolve absolute reads
     against an empty tmpfs."""
+    # The minimal RoleConfig in _make_ctx has no required_context /
+    # default_context, so build_agent_prompt never stats /project. Guard
+    # the assumption so a misconfigured host with a real /project
+    # directory can't false-pass.
+    assert not Path("/project").exists(), (
+        "test assumes /project does not exist on host"
+    )
     monkeypatch.setenv("JIG_IN_CONTAINER", "1")
-    host_worktree = Path("/project")
-    ctx = await _make_ctx(tmp_path, host_worktree)
+    ctx = await _make_ctx(tmp_path, Path("/project"))
     prompt = await build_agent_prompt(ctx)
     assert "working directory is `/workspace`" in prompt
     assert "working directory is `/project`" not in prompt
 
 
-@pytest.mark.asyncio
 async def test_prompt_uses_host_path_outside_container(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -278,3 +278,6 @@ allowed_mcps: []
 strict_tools: true
 default_context:
   - "ticket://description"
+skills:
+  - jig-mcp-tools
+  - git-conventions

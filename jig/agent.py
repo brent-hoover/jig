@@ -541,7 +541,8 @@ async def run_agent(
         # personal hooks (e.g. superpowers SessionStart) and the operator's
         # global CLAUDE.md don't leak into non-interactive agent sessions.
         # For bwrap spawns this is set via extra_setenv instead (below).
-        agent_config_dir = ensure_agent_config_dir()
+        role_skills = ctx.role_cfg.skills or []
+        agent_config_dir = ensure_agent_config_dir(skill_names=role_skills)
         if not sandbox_available():
             sdk_kwargs["env"] = {
                 **(dict(ctx.extra_env) if ctx.extra_env else {}),
@@ -649,7 +650,8 @@ async def run_agent(
             # ensure_agent_config_dir() writes installPath values using the
             # sandbox-visible path so Claude Code can resolve skill files.
             bwrap_agent_config = ensure_agent_config_dir(
-                sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH
+                skill_names=role_skills,
+                sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH,
             )
             extra_setenv += (("CLAUDE_CONFIG_DIR", SANDBOX_CLAUDE_CONFIG_PATH),)
             # Hide the orchestrator's project mount and any sibling

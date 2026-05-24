@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
@@ -54,13 +55,21 @@ def _skill_files() -> list[tuple[str, str, str]]:
     return result
 
 
-def ensure_agent_config_dir(*, sandbox_config_path: str | None = None) -> Path:
+def ensure_agent_config_dir(
+    *,
+    skill_names: list[str] | None = None,
+    sandbox_config_path: str | None = None,
+) -> Path:
     """Create or refresh the jig-managed Claude config directory.
 
     Writes the plugin structure to ``~/.jig/claude-agent-config/``.  The
     ``installPath`` values in ``installed_plugins.json`` are rooted at
     ``sandbox_config_path`` when provided (for bwrap, where the host dir is
     mounted at a different path), or at the host path otherwise.
+
+    ``skill_names``: when provided, only skills whose ``name`` is in this list
+    are included in the plugin. When ``None`` or empty, all jig skills are
+    included (broad default for roles that don't declare specific skills).
 
     Returns the host path of the config directory so callers can mount or
     reference it.
@@ -71,9 +80,14 @@ def ensure_agent_config_dir(*, sandbox_config_path: str | None = None) -> Path:
     config_base = Path(sandbox_config_path) if sandbox_config_path else host_dir
 
     _write_settings(host_dir)
-    _write_plugin(host_dir, config_base)
+    _write_plugin(host_dir, config_base, skill_names=skill_names or [])
 
-    _logger.debug("jig agent config dir ready at %s (config_base=%s)", host_dir, config_base)
+    _logger.debug(
+        "jig agent config dir ready at %s (skills=%s config_base=%s)",
+        host_dir,
+        skill_names,
+        config_base,
+    )
     return host_dir
 
 
@@ -83,16 +97,33 @@ def _write_settings(config_dir: Path) -> None:
     )
 
 
-def _write_plugin(config_dir: Path, config_base: Path) -> None:
+def _write_plugin(
+    config_dir: Path,
+    config_base: Path,
+    *,
+    skill_names: list[str],
+) -> None:
     plugin_dir = (
         config_dir / "plugins" / "cache" / "jig" / "jig-skills" / _PLUGIN_VERSION
     )
     plugin_dir.mkdir(parents=True, exist_ok=True)
 
     skills_dir = plugin_dir / "skills"
-    skills_dir.mkdir(exist_ok=True)
+    # Wipe and recreate so stale skill dirs from a prior run (different
+    # skill_names list) don't linger and show up in the session reminder.
+    if skills_dir.exists():
+        shutil.rmtree(skills_dir)
+    skills_dir.mkdir()
 
-    for name, description, body in _skill_files():
+    all_skills = _skill_files()
+    # Filter to the declared list when non-empty; include all otherwise.
+    selected = (
+        [(n, d, b) for n, d, b in all_skills if n in skill_names]
+        if skill_names
+        else all_skills
+    )
+
+    for name, description, body in selected:
         skill_dir = skills_dir / name
         skill_dir.mkdir(exist_ok=True)
         front = f"---\nname: {name}\n"

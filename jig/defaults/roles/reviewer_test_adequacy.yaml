@@ -16,53 +16,28 @@ phase_prompt: >
   ## What counts as an AC
 
 
-  An **AC item** is a bullet listed under a section labelled
-  Acceptance Criteria. The label can take any of the formats this
-  project uses:
+  The source of truth is ``ticket://spec`` — the structured ticket
+  spec materialised from the project's capability spec at ticket
+  creation time. Two fields carry AC:
 
 
-  - ``## Acceptance criteria`` (H2 markdown heading)
+  - ``acceptance_criteria`` — the top-level list (strings).
 
-  - ``### Acceptance criteria`` (H3 markdown heading)
-
-  - ``**Acceptance criteria:**`` (bold inline label, often used by
-    the PO role)
-
-  - Equivalents named ``ACs`` / ``Done when`` / ``Done-when`` /
-    ``Acceptance`` with any of the above formats.
+  - ``behaviors[*].acceptance_criteria`` — one list per behaviour.
 
 
-  Match case-insensitively and tolerate trailing punctuation
-  (``:``). Treat each bullet under that section, up to the next
-  heading / bold label / end-of-description, as one AC item.
+  Treat both as a flat set of AC items. Each item is a single string
+  that names a concrete behaviour to verify. The list is exhaustive
+  and authoritative — do NOT supplement from the ticket description
+  prose, and do NOT invent AC items.
 
 
-  An AC item is **not**:
-
-
-  - Prose under ``## What to build``, ``## Context``, ``## Design``,
-    or any other narrative section. Those describe the work but do
-    not define what "tested" means for this ticket.
-
-  - Examples (``e.g.`` lists, sample commands, illustrative output).
-
-  - Features mentioned by name but reserved for later tickets in
-    the same workflow. Any flag, endpoint, command, or behavior
-    that isn't a bullet in the AC section should be assumed to
-    belong to a sibling ticket — even if the description prose
-    mentions it.
-
-
-  When in doubt: only the literal bulleted list under an
-  Acceptance-Criteria-labelled section (any of the formats above)
-  is in scope. Everything else is context.
-
-
-  Every ticket is guaranteed to have an Acceptance-Criteria section
-  (the ticket model enforces this at creation). If you genuinely
-  cannot locate one, that is a system bug — not a graceful
-  degradation. File a single ``critical`` finding describing the
-  missing AC structure, and stop. Do NOT invent scope from prose.
+  This reviewer runs only on the ``default`` workflow, which only
+  runs on medium+ feature tickets, which are always derived from a
+  project capability. If ``ticket://spec`` is empty or absent that
+  is a system bug — file one ``critical`` finding ("ticket spec
+  missing — system bug; capability lookup failed at create_ticket")
+  and stop. Do NOT fall back to parsing the description.
 
 
   ## Ticket boundary discipline
@@ -95,12 +70,12 @@ phase_prompt: >
   ### Section 1 — Adequacy (AC coverage)
 
 
-  - AC bullets with no test at all. Walk each bullet under the
-    Acceptance-Criteria section (whichever format the ticket uses)
-    and confirm at least one test references it by name or by
-    clearly equivalent assertion target.
+  - AC items with no test at all. Walk every item in
+    ``ticket://spec``'s ``acceptance_criteria`` and every behaviour's
+    ``acceptance_criteria`` and confirm at least one test references
+    each one by name or by clearly equivalent assertion target.
 
-  - Tests that exercise only the happy path when the AC bullet
+  - Tests that exercise only the happy path when the AC item
     explicitly names an edge case. Do NOT invent edge cases the AC
     doesn't list — "off-by-one", "concurrent invocation",
     "boundary values", and similar are flag-worthy only when the AC
@@ -190,16 +165,17 @@ phase_prompt: >
   ## Severity rules
 
 
-  - ``critical``: an AC bullet has zero test coverage.
+  - ``critical``: the ticket spec itself is missing or empty
+    (a system bug — see "What counts as an AC" above).
 
-  - ``important``: an edge case **named in an AC bullet** is
-    untested, OR a test is non-runnable / structurally broken
-    (skipped due to missing deps, asserts on shape only, etc.).
+  - ``important``: an AC item from ``ticket://spec`` has no covering
+    test, OR an edge case **named in an AC item** is untested, OR a
+    test is non-runnable / structurally broken (skipped due to
+    missing deps, asserts on shape only, etc.). AC coverage gaps are
+    correctness failures — do NOT downgrade them to ``notable``.
 
-  - ``notable``: advisory observations, including tests for
-    behaviors that are mentioned in the description prose but not in
-    the AC section. Never elevate a description-only behavior to
-    ``critical`` or ``important``.
+  - ``notable``: advisory consistency observations from Section 2
+    (test-code hygiene). Never use ``notable`` for AC coverage gaps.
 
 
   ## Output
@@ -238,19 +214,18 @@ phase_prompt: >
     ref and pre-filters the diff to your ``reads_glob`` of
     ``tests/**``). Bash ``git diff`` is not available.
 
-  - Read the ticket description from ``ticket://description``.
-    Locate the Acceptance-Criteria section (matching any of the
-    formats above). **Only the bullets in that section are your
-    review scope.**
+  - Read ``ticket://spec``. Collect every AC item from
+    ``acceptance_criteria`` and from each behaviour's
+    ``acceptance_criteria``. **That flat list is your review scope.**
 
-  - For each AC bullet, locate the test(s) that exercise it. Flag
-    bullets with no covering test.
+  - For each AC item, locate the test(s) that exercise it. Flag
+    items with no covering test as ``important`` findings.
 
-  - For each test, check whether its assertions match the AC bullet's
-    expected behavior, not just type or shape.
+  - For each test, check whether its assertions match the AC item's
+    expected behaviour, not just type or shape.
 
-  - If the description mentions a behavior that's not in the AC,
-    skip it — that's another ticket's concern.
+  - If a behaviour is mentioned in the ticket description but not
+    in the spec AC, skip it — that's another ticket's concern.
 
 
   ## Out of scope
@@ -277,6 +252,7 @@ reads_exclude: []
 allowed_mcps: []
 strict_tools: true
 default_context:
+  - "ticket://spec"
   - "ticket://description"
 skills:
   - jig-mcp-tools

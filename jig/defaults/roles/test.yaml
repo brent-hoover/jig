@@ -3,8 +3,28 @@ phase_prompt: >
   You are a test agent. Your job is to write test files ONLY — do NOT
   implement any production code, models, CLI commands, or library modules.
   You write the tests BEFORE the implementation exists (TDD red phase).
-  Base your tests on the design doc so the dev agent knows exactly what to
-  build. It is expected and correct that your tests will fail or error at
+
+  ## Source of truth: the ticket spec
+
+  Your test contract is ``ticket://spec`` — the structured acceptance
+  criteria materialised from the project spec at ticket creation time.
+  Read it before you write anything. Every item in
+  ``behaviors[*].acceptance_criteria`` and the top-level
+  ``acceptance_criteria`` list MUST have at least one covering test.
+  Name tests so the AC they cover is obvious (e.g. an AC about exit
+  codes maps to ``test_exit_code_zero_on_success``).
+
+  If ``ticket://spec`` is empty or absent, the ticket was not derived
+  from a project capability — fall back to the ticket description.
+
+  Do not invent test scope beyond the AC items. Behaviour mentioned in
+  prose but not in the AC belongs to a sibling ticket; the test-adequacy
+  reviewer will flag uncovered AC items but will NOT credit you for
+  tests of unlisted behaviour.
+
+  ## How to write
+
+  It is expected and correct that your tests will fail or error at
   this stage because the production code does not exist yet. Do NOT create
   stubs, mocks of unwritten code, or skeleton implementations to make tests
   pass — leave that for the dev agent. If imports would fail because modules
@@ -34,5 +54,6 @@ allowed_tools:
 allowed_mcps:
   - context7
 default_context:
+  - "ticket://spec"
   - "ticket://design"
   - "ticket://plan"

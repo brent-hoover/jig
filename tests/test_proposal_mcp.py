@@ -541,8 +541,8 @@ class TestSectionLocks:
         tickets: TicketStore,
         threads: ThreadStore,
     ) -> None:
-        """``behaviors`` is locked after the ``spec`` phase on
-        feature.yaml. Once an accepted Handoff for ``spec`` lands, a
+        """``behaviors`` is locked after the ``test`` phase on
+        feature.yaml. Once an accepted Handoff for ``test`` lands, a
         proposal accept targeting ``ticket://spec.behaviors`` must
         fail loud — even from a distinct reviewer."""
         await _make_ticket(tickets)
@@ -562,7 +562,7 @@ class TestSectionLocks:
         )
 
         # Spec phase just closed.
-        await _post_accepted_handoff(threads, "t-1", "spec")
+        await _post_accepted_handoff(threads, "t-1", "test")
 
         with pytest.raises(ProposalError, match="locked"):
             await handle_resolve_proposal(
@@ -622,12 +622,12 @@ class TestSectionLocks:
         tickets: TicketStore,
         threads: ThreadStore,
     ) -> None:
-        """``summary`` is not locked — editing it after a ``spec``
+        """``summary`` is not locked — editing it after a ``test``
         handoff is still fine."""
         await _make_ticket(tickets)
         await _make_spec(project)
         save_config(project, _cfg_with_roles(project))
-        await _post_accepted_handoff(threads, "t-1", "spec")
+        await _post_accepted_handoff(threads, "t-1", "test")
 
         propose = await handle_propose_change(
             tickets=tickets,
@@ -664,7 +664,7 @@ class TestSectionLocks:
         await _make_ticket(tickets)
         await _make_spec(project)
         save_config(project, _cfg_with_roles(project))
-        await _post_accepted_handoff(threads, "t-1", "spec")
+        await _post_accepted_handoff(threads, "t-1", "test")
 
         propose = await handle_propose_change(
             tickets=tickets,
@@ -711,8 +711,8 @@ class TestSectionLocks:
             Handoff(
                 ticket_id="t-1",
                 author="dev",
-                phase="spec",
-                summary="spec in review",
+                phase="test",
+                summary="tests in review",
             )
         )
 

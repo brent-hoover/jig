@@ -350,3 +350,72 @@ async def test_ask_question_keeps_distinct_questions(
 
     qs = [e for e in await threads.for_ticket(ticket_id) if isinstance(e, Question)]
     assert [q.question for q in qs] == ["who?", "what?", "why?"]
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_tool_declares_derived_from(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """``derived_from`` is the contract surface that triggers ticket-spec
+    materialisation from the project capability. If the MCP schema
+    doesn't declare it, PM agents may omit or reject the field."""
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
+    cfg = RoleConfig(role="pm", phase_prompt="")
+
+    captured: dict = {}
+    _patch_create_server(monkeypatch, captured)
+
+    mcp_server.create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="pm",
+        agent_cfg=cfg,
+        worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
+    )
+    tools_by_name = {t.name: t for t in captured["tools"]}
+    create = tools_by_name["create_ticket"]
+    assert "derived_from" in create.input_schema, (
+        "derived_from missing from create_ticket schema — PM agents won't be "
+        "able to trigger ticket-spec materialisation"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_tool_forwards_derived_from(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """End-to-end: the MCP tool handler must pass ``derived_from`` from the
+    incoming args through to ``handle_create_ticket`` so the ticket lands
+    on disk with the URI populated."""
+    tickets, threads, memory, bus = await _make_common_stores(tmp_path)
+    cfg = RoleConfig(role="pm", phase_prompt="")
+
+    captured: dict = {}
+    _patch_create_server(monkeypatch, captured)
+
+    mcp_server.create_agent_mcp_server(
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="pm",
+        agent_cfg=cfg,
+        worktree_path=tmp_path / "worktree",
+        project_path=tmp_path,
+    )
+    tools_by_name = {t.name: t for t in captured["tools"]}
+    result = await tools_by_name["create_ticket"].handler(
+        {
+            "work_type": "feature",
+            "title": "wire it up",
+            "description": TICKET_AC_PLACEHOLDER,
+            "derived_from": "project://spec/capabilities/some-cap",
+        }
+    )
+    ticket_id = result["content"][0]["text"]
+    ticket = await tickets.get(ticket_id)
+    assert ticket is not None
+    assert ticket.derived_from == "project://spec/capabilities/some-cap"

@@ -9,13 +9,17 @@ from pathlib import Path
 import pytest
 import yaml
 
+from datetime import datetime, timezone
+
 from jig.persistence import init_project
+from jig.spec_schema import Behavior, Capability, CapabilityState
 from jig.specs import (
     SpecValidationError,
     TicketSpec,
     delete_ticket_spec,
     list_ticket_specs,
     load_ticket_spec,
+    materialize_ticket_spec_from_capability,
     save_ticket_spec,
 )
 from jig.ticket import Size, WorkType
@@ -185,3 +189,294 @@ class TestYAMLShapeOnDisk:
         )
         assert raw["fields"]["behaviors"][0]["id"] == "B1"
         assert raw["fields"]["behaviors"][0]["then"] == ["save", "notify"]
+
+
+def _capability(
+    cap_id: str = "fetch-top-stories",
+    *,
+    behaviors: list[Behavior] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    excluded: list[str] | None = None,
+    summary: str = "Fetch HN top stories",
+) -> Capability:
+    now = datetime.now(timezone.utc)
+    return Capability(
+        id=cap_id,
+        title="Fetch top stories",
+        state=CapabilityState.PLANNED,
+        summary=summary,
+        behaviors=behaviors
+        if behaviors is not None
+        else [
+            Behavior(
+                id="run-top",
+                description="`hn-cli top --limit N` prints N stories.",
+                acceptance_criteria=["Exit code is 0 on success."],
+            )
+        ],
+        acceptance_criteria=acceptance_criteria or [],
+        excluded=excluded if excluded is not None else [],
+        created_at=now,
+        last_updated=now,
+        state_changed_at=now,
+    )
+
+
+class TestMaterializeFromCapability:
+    def test_maps_all_four_fields(self) -> None:
+        cap = _capability(
+            summary="Pull stories",
+            excluded=["pagination", "caching"],
+            acceptance_criteria=["Top-level AC item"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            capability=cap,
+        )
+        assert spec.ticket_id == "t-1"
+        assert spec.work_type == WorkType.FEATURE
+        assert spec.size == Size.M
+        assert spec.fields["summary"] == "Pull stories"
+        assert spec.fields["acceptance_criteria"] == ["Top-level AC item"]
+        assert spec.fields["out_of_scope"] == ["pagination", "caching"]
+        assert len(spec.fields["behaviors"]) == 1
+
+    def test_behaviors_serialise_as_plain_dicts(self) -> None:
+        cap = _capability(
+            behaviors=[
+                Behavior(
+                    id="b-one",
+                    description="behaviour one",
+                    acceptance_criteria=["AC one"],
+                ),
+                Behavior(
+                    id="b-two",
+                    description="behaviour two",
+                    acceptance_criteria=["AC two-a", "AC two-b"],
+                ),
+            ]
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            capability=cap,
+        )
+        behaviors = spec.fields["behaviors"]
+        assert all(isinstance(b, dict) for b in behaviors)
+        assert behaviors[0]["id"] == "b-one"
+        assert behaviors[0]["acceptance_criteria"] == ["AC one"]
+        assert behaviors[1]["acceptance_criteria"] == ["AC two-a", "AC two-b"]
+        # Round-trips through YAML without losing structure.
+        roundtripped = yaml.safe_load(yaml.safe_dump(spec.fields))
+        assert roundtripped["behaviors"][0]["id"] == "b-one"
+
+    def test_empty_excluded_yields_empty_list(self) -> None:
+        cap = _capability(excluded=[])
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            capability=cap,
+        )
+        # Field must be present (not omitted) so the schema-validation path
+        # can detect it as empty rather than missing.
+        assert "out_of_scope" in spec.fields
+        assert spec.fields["out_of_scope"] == []
+
+    def test_empty_top_level_ac_flattens_behavior_ac(self) -> None:
+        """When capability.acceptance_criteria is empty, the materialiser
+        flattens every behavior's AC into the top-level list so the work-
+        type schema's AC-presence invariant holds."""
+        cap = _capability(
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["from b1 #1", "from b1 #2"],
+                ),
+                Behavior(
+                    id="b2",
+                    description="y",
+                    acceptance_criteria=["from b2"],
+                ),
+            ],
+            acceptance_criteria=[],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            capability=cap,
+        )
+        assert spec.fields["acceptance_criteria"] == [
+            "from b1 #1",
+            "from b1 #2",
+            "from b2",
+        ]
+
+    def test_capability_ac_wins_over_behavior_flatten(self) -> None:
+        """If the capability has top-level AC, the materialiser uses it
+        verbatim and does not also flatten behaviors — otherwise the same
+        AC item might appear twice."""
+        cap = _capability(
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["behaviour AC"],
+                )
+            ],
+            acceptance_criteria=["top-level AC"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-1",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            capability=cap,
+        )
+        assert spec.fields["acceptance_criteria"] == ["top-level AC"]
+
+    def test_materialised_spec_round_trips_save_load(
+        self, initialized_project: Path
+    ) -> None:
+        """End-to-end: a materialised spec must satisfy the feature work-
+        type schema and survive save_ticket_spec → load_ticket_spec."""
+        cap = _capability(
+            summary="Pull stories",
+            behaviors=[
+                Behavior(
+                    id="run-top",
+                    description="prints stories",
+                    acceptance_criteria=["Exit 0", "N lines"],
+                )
+            ],
+            excluded=["pagination"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-cap",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            capability=cap,
+        )
+        save_ticket_spec(initialized_project, spec)
+        loaded = load_ticket_spec(initialized_project, "t-cap")
+        assert loaded is not None
+        assert loaded.fields["summary"] == "Pull stories"
+        assert loaded.fields["acceptance_criteria"] == ["Exit 0", "N lines"]
+        assert loaded.fields["out_of_scope"] == ["pagination"]
+
+
+class TestSaveTicketSpecValidateFlag:
+    """``enforce_required_fields=False`` is the escape hatch the
+    capability materialiser needs to write L/XL feature specs. The
+    capability never carries ``design`` or ``technical_risks`` so
+    strict validation would reject the spec for sizes beyond M.
+    Unknown-field validation still runs to catch misuses."""
+
+    def test_l_capability_spec_saves_without_required_check(
+        self, initialized_project: Path
+    ) -> None:
+        cap = _capability(
+            summary="something big",
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["covers L"],
+                )
+            ],
+            excluded=["a"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-large",
+            work_type=WorkType.FEATURE,
+            size=Size.L,
+            capability=cap,
+        )
+        # With enforce_required_fields=True (the default) this would
+        # raise because the feature schema requires ``design`` at L.
+        save_ticket_spec(initialized_project, spec, enforce_required_fields=False)
+        loaded = load_ticket_spec(initialized_project, "t-large")
+        assert loaded is not None
+        assert loaded.size == Size.L
+        assert "design" not in loaded.fields
+        assert loaded.fields["acceptance_criteria"] == ["covers L"]
+
+    def test_xl_capability_spec_saves_without_required_check(
+        self, initialized_project: Path
+    ) -> None:
+        cap = _capability(
+            summary="something huge",
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["covers XL"],
+                )
+            ],
+            excluded=["a"],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-xl",
+            work_type=WorkType.FEATURE,
+            size=Size.XL,
+            capability=cap,
+        )
+        save_ticket_spec(initialized_project, spec, enforce_required_fields=False)
+        loaded = load_ticket_spec(initialized_project, "t-xl")
+        assert loaded is not None
+        assert loaded.size == Size.XL
+
+    def test_default_still_rejects_l_missing_design(
+        self, initialized_project: Path
+    ) -> None:
+        """Regression guard: only the capability materialiser opts out.
+        A direct save_ticket_spec call against an incomplete L spec must
+        still fail loudly so the proposal-accept / operator-edit paths
+        keep their existing strictness."""
+        cap = _capability(
+            summary="x",
+            behaviors=[
+                Behavior(
+                    id="b1",
+                    description="x",
+                    acceptance_criteria=["ok"],
+                )
+            ],
+        )
+        spec = materialize_ticket_spec_from_capability(
+            ticket_id="t-strict",
+            work_type=WorkType.FEATURE,
+            size=Size.L,
+            capability=cap,
+        )
+        with pytest.raises(SpecValidationError):
+            save_ticket_spec(initialized_project, spec)
+
+    def test_unknown_fields_still_rejected_when_required_check_off(
+        self, initialized_project: Path
+    ) -> None:
+        """``enforce_required_fields=False`` does not bypass the
+        unknown-fields check. A spec containing a field the work-type
+        schema doesn't declare must still fail loudly — otherwise a
+        custom schema or a misrouted materialiser could persist
+        feature-shaped fields into an unrelated work-type spec."""
+        spec = TicketSpec(
+            ticket_id="t-bogus",
+            work_type=WorkType.FEATURE,
+            size=Size.M,
+            fields={
+                "summary": "x",
+                "behaviors": [
+                    {"id": "B1", "description": "x", "acceptance_criteria": ["ac"]}
+                ],
+                "acceptance_criteria": ["ac"],
+                "out_of_scope": ["nope"],
+                "field_not_in_schema": "this is not allowed",
+            },
+        )
+        with pytest.raises(SpecValidationError, match="unknown fields"):
+            save_ticket_spec(initialized_project, spec, enforce_required_fields=False)

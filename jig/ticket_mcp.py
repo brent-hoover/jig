@@ -32,6 +32,133 @@ _logger = logging.getLogger(__name__)
 
 _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 
+_CAPABILITY_URI_PREFIX = "project://spec/capabilities/"
+
+
+def _maybe_materialize_ticket_spec(
+    *,
+    project_path: Path,
+    ticket: Ticket,
+) -> None:
+    """Look up the ticket's capability and write its AC as a TicketSpec.
+
+    Best-effort: every failure path returns without raising so the
+    caller's ``publish_ticket_created`` still fires. An exception
+    leaking out of here would orphan an already-persisted ticket
+    (created but never dispatched).
+
+    Skip paths and log levels:
+
+    * ``debug`` for expected non-paths — non-feature work types and
+      tickets whose ``derived_from`` doesn't target a capability URI.
+    * ``debug`` when no project spec exists (typical for bare
+      projects that haven't run ``jig init`` yet).
+    * ``warning`` for likely misconfigurations — empty cap id, unknown
+      cap id, materialised spec the work-type schema rejects, or any
+      unexpected error while reading / writing the spec.
+    """
+    from jig.spec_loader import load_structured_spec
+    from jig.specs import (
+        SpecValidationError,
+        materialize_ticket_spec_from_capability,
+        save_ticket_spec,
+    )
+
+    if ticket.work_type != WorkType.FEATURE:
+        _logger.debug(
+            "ticket %s: work_type %s is not feature; skipping capability "
+            "spec materialisation",
+            ticket.id,
+            ticket.work_type.value,
+        )
+        return
+
+    uri = ticket.derived_from or ""
+    if not uri.startswith(_CAPABILITY_URI_PREFIX):
+        _logger.debug(
+            "ticket %s: derived_from %r does not point at a capability; skipping spec",
+            ticket.id,
+            uri,
+        )
+        return
+
+    cap_id = uri[len(_CAPABILITY_URI_PREFIX) :].strip("/")
+    if not cap_id:
+        _logger.warning(
+            "ticket %s: derived_from %r has empty capability id", ticket.id, uri
+        )
+        return
+
+    try:
+        spec, _ = load_structured_spec(project_path)
+    except FileNotFoundError:
+        _logger.debug(
+            "ticket %s: no project.structured.yaml; skipping spec materialisation",
+            ticket.id,
+        )
+        return
+    except Exception:  # noqa: BLE001 — best-effort enrichment must not orphan tickets
+        # Malformed YAML, pydantic ValidationError on the structured
+        # spec, permission denied — anything else surfaces here. We
+        # log and skip so ticket dispatch still fires.
+        _logger.warning(
+            "ticket %s: failed to load project spec for materialisation",
+            ticket.id,
+            exc_info=True,
+        )
+        return
+
+    capability = spec.capability_by_id_or_alias(cap_id)
+    if capability is None:
+        _logger.warning(
+            "ticket %s: capability %r not found in project spec; skipping",
+            ticket.id,
+            cap_id,
+        )
+        return
+
+    ticket_spec = materialize_ticket_spec_from_capability(
+        ticket_id=ticket.id,
+        work_type=ticket.work_type,
+        size=ticket.size,
+        capability=capability,
+    )
+    if not ticket_spec.fields.get("acceptance_criteria"):
+        # The capability has no AC anywhere — neither top-level nor
+        # per-behaviour. The materialised spec exists but reviewer-
+        # test-adequacy will have nothing to check coverage against.
+        # Surface the configuration gap so it's visible in logs.
+        _logger.warning(
+            "ticket %s: capability %r materialised with no acceptance_criteria "
+            "(reviewer-test-adequacy will have nothing to gate on)",
+            ticket.id,
+            cap_id,
+        )
+    # ``enforce_required_fields=False`` because the capability only
+    # carries M-level fields (summary / behaviors / acceptance_criteria
+    # / out_of_scope). L/XL tickets need ``design`` and
+    # ``technical_risks`` added through a proposal before the spec is
+    # canonically "complete" for its size. The unknown-fields check
+    # still runs — a custom feature schema that drops one of our four
+    # fields will surface as a validation error here.
+    try:
+        save_ticket_spec(project_path, ticket_spec, enforce_required_fields=False)
+    except SpecValidationError as exc:
+        _logger.warning(
+            "ticket %s: materialised spec failed work-type validation: %s",
+            ticket.id,
+            exc,
+        )
+    except Exception:  # noqa: BLE001 — best-effort enrichment must not orphan tickets
+        # OSError (disk full, permission denied), unexpected
+        # serialisation errors. Same contract as the load path: log,
+        # skip, let dispatch proceed.
+        _logger.warning(
+            "ticket %s: failed to write materialised spec",
+            ticket.id,
+            exc_info=True,
+        )
+
 
 async def handle_create_ticket(
     *,
@@ -69,6 +196,7 @@ async def handle_create_ticket(
         "labels": args.get("labels", []),
         "created_by": sender,
         "size": size,
+        "derived_from": args.get("derived_from"),
     }
     if "workflow" in args:
         ticket_kwargs["workflow"] = args["workflow"]
@@ -168,6 +296,15 @@ async def handle_create_ticket(
         dep = await tickets.get(dep_id)
         if dep is not None and ticket_id not in dep.blocks:
             await tickets.update(dep_id, blocks=dep.blocks + [ticket_id])
+
+    # Materialise a TicketSpec inline when the ticket is derived from a
+    # project-spec capability. Best-effort — a failure here logs and
+    # continues; the ticket is still created.
+    if ticket.derived_from and project_path is not None:
+        _maybe_materialize_ticket_spec(
+            project_path=project_path,
+            ticket=ticket,
+        )
 
     # Publish both orchestrator (for dispatch) and broadcast (for TUI
     # subscribers). PM-driven create needs dispatch immediately —

@@ -75,10 +75,12 @@ class TestLockedSectionFields:
         surfaces both as ``field → phase``."""
         schema = load_work_type_schema(tmp_path, "feature")
         locks = locked_section_fields(schema)
-        # feature.yaml locks behaviors + acceptance_criteria after `spec`.
+        # feature.yaml locks behaviors + acceptance_criteria after `test`
+        # (post deterministic-ticket-spec: AC is materialised at create
+        # time; locks fire once tests are written against it).
         assert locks == {
-            "behaviors": "spec",
-            "acceptance_criteria": "spec",
+            "behaviors": "test",
+            "acceptance_criteria": "test",
         }
 
     def test_empty_when_no_locks(self, tmp_path: Path) -> None:
@@ -124,13 +126,13 @@ class TestLockedSectionsForTicket:
                 description=TICKET_AC_PLACEHOLDER,
             )
         )
-        await _post_accepted_handoff(threads, ticket_id, "spec")
+        await _post_accepted_handoff(threads, ticket_id, "test")
         locked = await locked_sections_for_ticket(
             tmp_path, threads, ticket_id, WorkType.FEATURE
         )
         assert locked == {
-            "behaviors": "spec",
-            "acceptance_criteria": "spec",
+            "behaviors": "test",
+            "acceptance_criteria": "test",
         }
 
     @pytest.mark.asyncio

@@ -226,7 +226,7 @@ class TestValidate:
     def test_validate_ticket_reports_locked_sections(
         self, runner: CliRunner, git_jig_project: Path
     ) -> None:
-        """Task M pre-flight: an accepted ``spec`` handoff on a
+        """Task M pre-flight: an accepted ``test`` handoff on a
         feature ticket locks ``behaviors`` + ``acceptance_criteria``;
         those surface by name with their locking phase."""
         import asyncio
@@ -255,8 +255,8 @@ class TestValidate:
                 Handoff(
                     ticket_id="t-locked",
                     author="dev",
-                    phase="spec",
-                    summary="spec done",
+                    phase="test",
+                    summary="tests done",
                     acceptance_state="accepted",
                     accepted_by="reviewer",
                 )
@@ -279,7 +279,7 @@ class TestValidate:
         assert "locked sections" in out
         assert "behaviors" in out
         assert "acceptance_criteria" in out
-        assert "spec" in out  # locking phase
+        assert "test" in out  # locking phase
 
     def test_dry_run_reports_broken_catalog(
         self, runner: CliRunner, git_jig_project: Path

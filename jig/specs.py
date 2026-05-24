@@ -31,6 +31,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from jig.spec_schema import Capability
 from jig.ticket import Size, WorkType
 from jig.work_types import WorkTypeSchema, load_work_type_schema
 
@@ -78,29 +79,36 @@ def _spec_path(project_path: Path, ticket_id: str) -> Path:
 # ---- schema check --------------------------------------------------------
 
 
-def _validate_against_schema(spec: TicketSpec, schema: WorkTypeSchema) -> None:
+def _validate_against_schema(
+    spec: TicketSpec,
+    schema: WorkTypeSchema,
+    *,
+    enforce_required_fields: bool = True,
+) -> None:
     """Validate ``spec.fields`` against the work-type schema.
 
     Two checks per doc 03:
 
     1. Every field mandated by the schema for ``spec.size`` must be
        present (and non-empty — empty-string or empty-list doesn't
-       satisfy "required").
+       satisfy "required"). Skipped when ``enforce_required_fields``
+       is ``False`` (the capability-materialiser path — see
+       :func:`save_ticket_spec`).
     2. No field name outside ``required ∪ optional`` may appear.
        Projects that want a field not in the schema edit the schema
-       (it's version-controlled).
+       (it's version-controlled). Always runs.
     """
-    required = schema.required_fields_for_size(spec.size)
     allowed = schema.allowed_fields()
-
-    missing = [name for name in required if not _present(spec.fields.get(name))]
     unknown = [name for name in spec.fields if name not in allowed]
 
     errors: list[str] = []
-    if missing:
-        errors.append(
-            f"missing required fields for size {spec.size.value}: {sorted(missing)}"
-        )
+    if enforce_required_fields:
+        required = schema.required_fields_for_size(spec.size)
+        missing = [name for name in required if not _present(spec.fields.get(name))]
+        if missing:
+            errors.append(
+                f"missing required fields for size {spec.size.value}: {sorted(missing)}"
+            )
     if unknown:
         errors.append(f"unknown fields not declared in schema: {sorted(unknown)}")
     if errors:
@@ -127,6 +135,49 @@ def _present(value: Any) -> bool:
 # ---- public API -----------------------------------------------------------
 
 
+def materialize_ticket_spec_from_capability(
+    *,
+    ticket_id: str,
+    work_type: WorkType,
+    size: Size,
+    capability: Capability,
+) -> TicketSpec:
+    """Project a Capability's AC into a TicketSpec.
+
+    Pure function — does not touch disk. Maps the capability's structured
+    fields onto the feature work-type field names:
+
+    * ``summary`` ← capability summary
+    * ``behaviors`` ← capability behaviors, each serialised as a dict
+    * ``acceptance_criteria`` ← capability-level AC if populated; otherwise
+      a flattened concatenation of every ``behaviors[*].acceptance_criteria``
+      so the work-type schema's "AC must be present" invariant holds
+      even when the spec author put all AC inside behaviors.
+    * ``out_of_scope`` ← capability ``excluded`` items
+
+    Returns a ``TicketSpec`` ready for ``save_ticket_spec``, which is
+    where schema validation against ``work_type`` happens. Callers that
+    catch ``SpecValidationError`` get best-effort semantics — a spec is
+    written only when it satisfies the work-type schema.
+    """
+    acceptance_criteria: list[str] = list(capability.acceptance_criteria)
+    if not acceptance_criteria:
+        for behavior in capability.behaviors:
+            acceptance_criteria.extend(behavior.acceptance_criteria)
+    fields: dict[str, Any] = {
+        "summary": capability.summary,
+        "behaviors": [b.model_dump(mode="json") for b in capability.behaviors],
+        "acceptance_criteria": acceptance_criteria,
+        "out_of_scope": list(capability.excluded),
+    }
+    return TicketSpec(
+        ticket_id=ticket_id,
+        work_type=work_type,
+        size=size,
+        fields=fields,
+    )
+
+
 def load_ticket_spec(project_path: Path, ticket_id: str) -> TicketSpec | None:
     """Load a ticket spec if one exists; otherwise None."""
     path = _spec_path(project_path, ticket_id)
@@ -141,6 +192,7 @@ def save_ticket_spec(
     spec: TicketSpec,
     *,
     bump_version: bool = True,
+    enforce_required_fields: bool = True,
 ) -> TicketSpec:
     """Validate against the work-type schema, then write.
 
@@ -148,9 +200,21 @@ def save_ticket_spec(
     overrides win. ``bump_version=False`` is used when the on-disk
     version is already authoritative (e.g., proposal-accept paths that
     computed the new version themselves).
+
+    ``enforce_required_fields=False`` skips only the size-based
+    "missing required field" check. The unknown-fields check still
+    runs, so a misuse that tries to write fields the work-type schema
+    doesn't declare will still fail loudly. The only intended caller
+    is the capability materialiser, which writes whatever fields the
+    project-spec capability carried — L/XL feature tickets would
+    otherwise be rejected for missing ``design`` / ``technical_risks``
+    (the capability never carries those). Proposal-accept and
+    operator-edit paths always enforce required fields.
     """
     schema = load_work_type_schema(project_path, spec.work_type.value)
-    _validate_against_schema(spec, schema)
+    _validate_against_schema(
+        spec, schema, enforce_required_fields=enforce_required_fields
+    )
 
     if bump_version:
         existing = load_ticket_spec(project_path, spec.ticket_id)
@@ -192,5 +256,6 @@ __all__ = [
     "delete_ticket_spec",
     "list_ticket_specs",
     "load_ticket_spec",
+    "materialize_ticket_spec_from_capability",
     "save_ticket_spec",
 ]

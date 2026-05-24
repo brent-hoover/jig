@@ -1,15 +1,8 @@
 name: default
 phases:
-  - name: spec
-    role: spec
-    task_template: "Draft a design document for: {ticket_title}"
-    acceptance_criteria: "Design doc covers all requirements"
-    writes:
-      - "docs/spec/**"
-      - "docs/decisions/**"
   - name: test
     role: test
-    task_template: "Write tests based on the design doc for: {ticket_title}"
+    task_template: "Write tests for: {ticket_title}"
     acceptance_criteria: "Tests cover specified behavior and edge cases"
     writes:
       - "tests/**"

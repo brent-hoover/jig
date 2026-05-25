@@ -129,6 +129,9 @@ naturally into the existing model without new types, files, or index changes.
   is the current guard).
 - Staleness detection or expiration.
 - Exposing `tags` in the MCP tool.
+- Per-role opt-in for receiving cross-role learnings (e.g. `receives_cross_role_learnings:
+  bool` on `RoleConfig`). Roles are user-defined; a blanket allowlist would need to be
+  maintained by the operator. Follow-on if needed in practice.
 
 ## Open questions
 

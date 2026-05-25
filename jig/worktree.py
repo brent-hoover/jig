@@ -148,10 +148,14 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
     "jig wins" holds even for un-scaffolded projects.
 
     Uncommittable mechanism: ``git update-index --skip-worktree`` when the
-    file is tracked, per-worktree ``info/exclude`` (resolved via
-    ``git rev-parse --git-path``) otherwise. Both are best-effort — git
-    failures log a warning but do not raise, since the content placement is
-    the primary guarantee.
+    file is tracked, otherwise an entry in ``info/exclude`` (resolved via
+    ``git rev-parse --git-path``). Note: ``info/exclude`` is SHARED between
+    the main repo and any linked worktrees — git has no per-worktree exclude
+    file. Writing ``CLAUDE.md`` from a linked worktree means the main
+    checkout will also ignore it; an acceptable concession since operators
+    rarely want to track a root ``CLAUDE.md``. Both git operations are
+    best-effort — failures log a warning but do not raise, since the
+    content placement is the primary guarantee.
 
     No-op when ``worktree_path`` equals ``project_path``. Some jig spawns
     (init/spec-generator/concierge) run with the real project root as their
@@ -227,8 +231,10 @@ async def _mark_skip_worktree(worktree_path: Path, relpath: str) -> None:
 
 
 async def _add_to_local_exclude(worktree_path: Path, relpath: str) -> None:
-    """Idempotently append ``relpath`` to this worktree's ``info/exclude``.
-    ``git rev-parse --git-path info/exclude`` resolves to the per-worktree path."""
+    """Idempotently append ``relpath`` to ``info/exclude`` (shared between the
+    main repo and any linked worktrees; git has no per-worktree exclude file).
+    Resolved via ``git rev-parse --git-path info/exclude`` so the call still
+    works in linked worktrees where ``.git`` is a file, not a directory."""
     exclude_path = await _resolve_info_exclude_path(worktree_path)
     if exclude_path is None:
         _logger.warning(
@@ -248,7 +254,9 @@ async def _add_to_local_exclude(worktree_path: Path, relpath: str) -> None:
 
 
 async def _resolve_info_exclude_path(worktree_path: Path) -> Path | None:
-    """Return the per-worktree ``info/exclude`` path, or None on git failure."""
+    """Return the ``info/exclude`` path git reports for ``worktree_path``, or
+    ``None`` on git failure. In linked worktrees this resolves to the main
+    repo's ``.git/info/exclude`` (shared, not per-worktree)."""
     rc, stdout, _ = await _git_capture(
         worktree_path, "rev-parse", "--git-path", "info/exclude"
     )

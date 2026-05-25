@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 
+from jig.safe_path import validate_safe_path_segment
 from jig.skill_loader import _parse_frontmatter
 
 _logger = logging.getLogger(__name__)
@@ -128,6 +129,13 @@ def _write_global_claude_md(config_dir: Path, *, role: str | None) -> None:
 
     Missing global file is non-fatal: log and skip. Claude Code falls back to
     seeing no user-global CLAUDE.md, matching pre-feature behavior.
+
+    ``role`` is validated via :func:`validate_safe_path_segment` before being
+    used in the addendum path: project workflow YAML can supply arbitrary role
+    strings, and a value like ``../../etc/passwd`` would otherwise let an
+    attacker read files outside ``jig/defaults/roles`` and inject them into
+    the agent's CLAUDE.md. Validation failure logs a warning and falls back to
+    the global-only file.
     """
     defaults = _defaults_dir()
     global_md = defaults / "agent_claude_md.md"
@@ -139,13 +147,22 @@ def _write_global_claude_md(config_dir: Path, *, role: str | None) -> None:
         return
     content = global_md.read_text(encoding="utf-8")
     if role:
-        addendum = defaults / "roles" / role / "CLAUDE.md"
-        if addendum.is_file():
-            content = (
-                content.rstrip()
-                + "\n\n"
-                + addendum.read_text(encoding="utf-8").lstrip()
+        try:
+            validate_safe_path_segment(role, "role")
+        except ValueError as exc:
+            _logger.warning(
+                "ignoring per-role CLAUDE.md addendum for unsafe role %r: %s",
+                role,
+                exc,
             )
+        else:
+            addendum = defaults / "roles" / role / "CLAUDE.md"
+            if addendum.is_file():
+                content = (
+                    content.rstrip()
+                    + "\n\n"
+                    + addendum.read_text(encoding="utf-8").lstrip()
+                )
     (config_dir / "CLAUDE.md").write_text(content, encoding="utf-8")
 
 

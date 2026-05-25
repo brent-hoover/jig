@@ -53,7 +53,7 @@ for un-scaffolded projects.
 5. **`jig/worktree.py`** — new helper:
 
    ```python
-   def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
+   async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
        """Render <project>/.jig/CLAUDE.md into <worktree>/CLAUDE.md and mark it uncommittable.
        Writes a stub if the project source is missing."""
    ```
@@ -83,9 +83,11 @@ for un-scaffolded projects.
      present either way; the only risk is a spurious modification appearing in `git status`.
 
 6. **`jig/agent.py`** — pass `role=ctx.role` into the existing `ensure_agent_config_dir` call so
-   the role addendum can be resolved. Also call `sync_project_claude_md(ctx.worktree_path,
-   ctx.project_path)` immediately before the `ClaudeAgentOptions` construction. Single call site
-   for each, same per-spawn lifecycle.
+   the role addendum can be resolved. Also `await sync_project_claude_md(ctx.worktree_path,
+   ctx.project_path)` immediately before the `ClaudeAgentOptions` construction. Single call
+   site for each, same per-spawn lifecycle. The helper is async to keep its git subprocess
+   calls off the event loop and match `worktree.py`'s module-wide convention (``_run_git`` via
+   ``asyncio.create_subprocess_exec``).
 
 ### Lifecycle
 
@@ -101,7 +103,7 @@ Spawn time (every agent on every ticket):
        -> reads jig/defaults/agent_claude_md.md
        -> reads jig/defaults/roles/<role>/CLAUDE.md if present
        -> writes concatenation to <CLAUDE_CONFIG_DIR>/CLAUDE.md
-    -> sync_project_claude_md(worktree, project_path)          # NEW
+    -> await sync_project_claude_md(worktree, project_path)    # NEW (async)
        -> writes <worktree>/CLAUDE.md
        -> marks it skip-worktree or .git/info/exclude
     -> SDK call (existing)
@@ -140,7 +142,7 @@ _MISSING_PROJECT_STUB: str = (
     "Add them at .jig/CLAUDE.md in the project root.\n"
 )
 
-def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None: ...
+async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None: ...
 ```
 
 ```python
@@ -257,3 +259,12 @@ invariant idiomatically. Two small file writes per spawn — negligible.
   `info/exclude` is resolved via `git rev-parse --git-path` rather than a raw
   `<worktree>/.git/info/exclude` path (roborev #159 HIGH — linked worktrees have `.git` as a
   file, not a directory) (brent)
+- 2026-05-25: Corrected info/exclude documentation — it is SHARED across the main repo and any
+  linked worktrees (git has no per-worktree exclude file), not per-worktree. Concession
+  documented in the algorithm section (roborev #162 LOW + Claude PR review) (brent)
+- 2026-05-25: Switched `sync_project_claude_md` signature to `async def` and the lifecycle
+  snippet to `await sync_project_claude_md(...)` to match the implementation (roborev #163 LOW)
+  (brent)
+- 2026-05-25: Hardened the per-role addendum lookup against path traversal — `role` is now
+  validated by `validate_safe_path_segment` before being used in the addendum path
+  (roborev #164 HIGH) (brent)

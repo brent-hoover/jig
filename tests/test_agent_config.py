@@ -211,3 +211,32 @@ class TestWriteGlobalClaudeMd:
         (fake_defaults / "agent_claude_md.md").write_text("# v2\n")
         ensure_agent_config_dir()
         assert (host / "CLAUDE.md").read_text() == "# v2\n"
+
+    def test_unsafe_role_is_rejected_not_read_via_traversal(
+        self,
+        config_home: Path,
+        fake_defaults: Path,
+        tmp_path: Path,
+    ) -> None:
+        """A malicious role string like ``../../<somewhere>`` must not let the
+        agent_config dir read or inject a CLAUDE.md from outside
+        ``jig/defaults/roles``. validate_safe_path_segment blocks anything
+        containing path separators / uppercase / dots."""
+        (fake_defaults / "agent_claude_md.md").write_text("# global\n")
+        # Plant a CLAUDE.md outside the defaults tree that traversal would reach.
+        attacker_target = tmp_path / "attacker"
+        attacker_target.mkdir()
+        (attacker_target / "CLAUDE.md").write_text("# PWNED — leaked content\n")
+        # Compute a relative role string that, if not validated, would resolve
+        # to attacker_target/CLAUDE.md when joined under fake_defaults/roles.
+        # The role lookup is `defaults/roles/<role>/CLAUDE.md` so we need
+        # `<role>` to step up out of `roles/` and into `attacker`.
+        from os.path import relpath
+
+        traversal_role = relpath(attacker_target, fake_defaults / "roles")
+
+        host = ensure_agent_config_dir(role=traversal_role)
+
+        text = (host / "CLAUDE.md").read_text()
+        assert "PWNED" not in text
+        assert text == "# global\n"

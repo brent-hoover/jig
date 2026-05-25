@@ -1,4 +1,16 @@
-"""Agents screen — live view of running agents and their configuration."""
+"""Agents screen — grid dashboard of running agents.
+
+Each currently-running (or recently-running) agent gets a compact card
+in a responsive 3-column grid. Card border color signals health:
+
+  - green  → active and making progress
+  - yellow → active but quiet past the stuck threshold (no current tool)
+  - grey   → inactive (phase finished)
+
+Replaces the prior master/detail layout (left list + right detail
+panel) which forced operators to click into one agent at a time —
+unworkable for monitoring parallel work across many tickets.
+"""
 
 from __future__ import annotations
 
@@ -7,10 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import ScrollableContainer, Vertical
+from textual.containers import Grid
+from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, ListItem, ListView, Static
+from textual.widgets import Static
 
 
 @dataclass
@@ -40,158 +53,135 @@ _ROLE_COLORS: dict[str, str] = {
 }
 
 
-class _AgentListItem(ListItem):
-    def __init__(self, agent: AgentState, agent_key: str) -> None:
-        super().__init__()
-        self.agent_key = agent_key  # "ticket_id:role" — unique per concurrent agent
-        self._agent = agent
-
-    def compose(self) -> ComposeResult:
-        color = _ROLE_COLORS.get(self._agent.role, "white")
-        spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        spin = (
-            spinners[self._agent.elapsed % len(spinners)] if self._agent.active else "·"
-        )
-        title = self._agent.ticket_title or self._agent.ticket_id[:8]
-        if len(title) > 28:
-            title = title[:25] + "…"
-        yield Static(
-            f"[{color}]{spin} {self._agent.role}[/{color}] [dim]{title}[/dim]",
-            markup=True,
-        )
+# An agent whose ``elapsed`` (orchestrator thinking-event counter)
+# hasn't advanced past this many seconds without a current tool call
+# is treated as stuck for dashboard purposes — card border goes yellow.
+# Future iteration could compare last-update wall-clock to now rather
+# than relying on the counter; this is an adequate first cut.
+_STUCK_THRESHOLD_S = 30
 
 
-class _DetailPanel(Widget):
-    """Right panel showing full agent details."""
+def _slug(key: str) -> str:
+    """Sanitize an agent_key for use as a widget id (no ``:`` / ``.``)."""
+    return key.replace(":", "-").replace(".", "-")
+
+
+class _AgentCard(Widget):
+    """Compact dashboard card for one running (or recently-running) agent.
+
+    Border color is the health signal: green = active, yellow = stuck
+    (active but no current tool past the stuck threshold), grey =
+    inactive (phase finished). Card content shows role, ticket title,
+    elapsed, current tool, and the last 3 tool calls — enough to scan
+    parallel work and spot the outliers without drilling in.
+    """
 
     DEFAULT_CSS = """
-    _DetailPanel {
-        height: 1fr;
-        padding: 1 2;
+    _AgentCard {
+        border: round $accent-darken-2;
+        background: #131a28;
+        padding: 0 1;
+        height: 100%;
     }
-    _DetailPanel .section-header {
-        color: $accent;
-        text-style: bold;
-        margin-top: 1;
+    _AgentCard.stuck {
+        border: round $warning;
     }
-    _DetailPanel .prompt-text {
-        color: $text-muted;
-        margin-left: 2;
+    _AgentCard.inactive {
+        border: round $accent-darken-3;
+        background: #0d1218;
     }
-    _DetailPanel #no-agent {
-        color: $text-disabled;
-        margin: 4 0 0 2;
+    _AgentCard #body {
+        padding: 0;
     }
     """
 
-    def compose(self) -> ComposeResult:
-        yield ScrollableContainer(
-            Static("", id="detail-content", markup=True),
-            id="detail-scroll",
-        )
+    def __init__(self, agent: AgentState, agent_key: str) -> None:
+        super().__init__(id=f"card-{_slug(agent_key)}")
+        self.agent_key = agent_key
+        self._agent = agent
+        self._body = Static("", id="body", markup=True)
 
-    def show_agent(self, agent: AgentState | None) -> None:
-        try:
-            content = self.query_one("#detail-content", Static)
-        except Exception:
-            return
-        if agent is None:
-            content.update("[dim]no agent selected[/dim]")
-            return
-        color = _ROLE_COLORS.get(agent.role, "white")
-        spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        spin = spinners[agent.elapsed % len(spinners)] if agent.active else "·"
-        phase_str = f"  [dim]phase:[/dim] {agent.phase}" if agent.phase else ""
+    def compose(self) -> ComposeResult:
+        yield self._body
+
+    def on_mount(self) -> None:
+        self.refresh_card()
+
+    def update_agent(self, agent: AgentState) -> None:
+        self._agent = agent
+        self.refresh_card()
+
+    def _status(self) -> tuple[str, str]:
+        """Return ``(css-class, dot-markup)`` per current health."""
+        if not self._agent.active:
+            return "inactive", "[grey46]●[/grey46]"
+        if (
+            self._agent.elapsed > _STUCK_THRESHOLD_S
+            and self._agent.current_tool is None
+        ):
+            return "stuck", "[yellow]●[/yellow]"
+        return "", "[green]●[/green]"
+
+    def refresh_card(self) -> None:
+        status_class, dot = self._status()
+        for cls in ("stuck", "inactive"):
+            if status_class == cls:
+                self.add_class(cls)
+            else:
+                self.remove_class(cls)
+
+        role_color = _ROLE_COLORS.get(self._agent.role, "white")
+        title = self._agent.ticket_title or self._agent.ticket_id[:8]
+        if len(title) > 28:
+            title = title[:25] + "…"
 
         lines: list[str] = []
-
-        # ── Header ─────────────────────────────────────────────────────────
         lines.append(
-            f"[{color} bold]{spin} {agent.role.upper()}[/{color} bold]"
-            f"  [dim]({agent.elapsed}s)[/dim]{phase_str}"
+            f"{dot} [{role_color} bold]{self._agent.role.upper()}[/{role_color} bold]"
+            f"  [dim]{self._agent.elapsed}s[/dim]"
         )
-        lines.append(f"[dim]ticket:[/dim] {agent.ticket_title or agent.ticket_id[:8]}")
-        lines.append(f"[dim]id:[/dim] [dim]{agent.ticket_id[:16]}[/dim]")
-
-        # ── Current tool ───────────────────────────────────────────────────
-        if agent.current_tool:
-            lines.append("")
-            lines.append("[bold $accent]▸ Current tool[/bold $accent]")
-            lines.append(f"  {agent.current_tool}")
-
-        # ── Recent tools ───────────────────────────────────────────────────
-        if agent.recent_tools:
-            lines.append("")
-            lines.append("[bold $accent]Recent tools[/bold $accent]")
-            for tool, detail in agent.recent_tools[:8]:
-                detail_trunc = detail[:60] + "…" if len(detail) > 60 else detail
-                lines.append(f"  [cyan]{tool:<14}[/cyan] [dim]{detail_trunc}[/dim]")
-
-        # ── Allowed tools ──────────────────────────────────────────────────
+        lines.append(f"[dim]ticket:[/dim] {title}")
         lines.append("")
-        lines.append("[bold $accent]Allowed tools[/bold $accent]")
-        if agent.allowed_tools:
-            # wrap into rows of ~4
-            rows = [
-                agent.allowed_tools[i : i + 4]
-                for i in range(0, len(agent.allowed_tools), 4)
-            ]
-            for row in rows:
-                lines.append("  " + "  ".join(f"[green]{t}[/green]" for t in row))
+        if self._agent.current_tool:
+            lines.append(f"[$accent]▸[/$accent] {self._agent.current_tool[:38]}")
         else:
-            lines.append("  [dim](all tools)[/dim]")
-
-        # ── Skills / MCPs ──────────────────────────────────────────────────
+            lines.append("[dim]▸ idle[/dim]")
         lines.append("")
-        lines.append("[bold $accent]Skills / MCPs[/bold $accent]")
-        if agent.allowed_mcps:
-            for mcp in agent.allowed_mcps:
-                lines.append(f"  [magenta]◆[/magenta] {mcp}")
+        if self._agent.recent_tools:
+            lines.append("[dim]recent:[/dim]")
+            for tool, detail in self._agent.recent_tools[:3]:
+                detail_trunc = detail[:24] + "…" if len(detail) > 24 else detail
+                lines.append(
+                    f"  [cyan]{tool[:12]:<12}[/cyan] [dim]{detail_trunc}[/dim]"
+                )
         else:
-            lines.append("  [dim]none[/dim]")
-
-        # ── Phase prompt ───────────────────────────────────────────────────
-        lines.append("")
-        lines.append("[bold $accent]Phase prompt[/bold $accent]")
-        if agent.phase_prompt:
-            # Show first 800 chars so the panel doesn't become a wall of text
-            prompt_preview = agent.phase_prompt.strip()[:800]
-            if len(agent.phase_prompt.strip()) > 800:
-                prompt_preview += "\n[dim]… (truncated)[/dim]"
-            for ln in prompt_preview.splitlines():
-                lines.append(f"  [dim]{ln}[/dim]")
-        else:
-            lines.append("  [dim](not available)[/dim]")
-
-        content.update("\n".join(lines))
+            lines.append("[dim]recent: (none yet)[/dim]")
+        self._body.update("\n".join(lines))
 
 
 class AgentsScreen(Widget):
-    """Full-pane agents view: list on the left, detail on the right."""
+    """Full-pane agents dashboard — grid of ``_AgentCard`` widgets, one
+    per running (or recently-running) agent. Operator scans all parallel
+    work at a glance; card border colour signals health (active / stuck
+    / done). Replaces the prior list+detail layout that forced one-at-
+    a-time deep dives.
+    """
 
     DEFAULT_CSS = """
     AgentsScreen {
         border: round $accent;
         margin: 1 2;
         background: #1a2030;
-        layout: horizontal;
     }
-    AgentsScreen #agents-list-pane {
-        width: 32;
-        border-right: solid $accent-darken-2;
-        padding: 0 1;
+    AgentsScreen #empty-msg {
+        padding: 4 2;
+        color: $text-disabled;
     }
-    AgentsScreen #agents-list-pane Label {
-        color: $accent;
-        text-style: bold;
-        padding: 0 0 1 0;
-    }
-    AgentsScreen #agents-list {
+    AgentsScreen #agents-grid {
+        grid-size: 3;
+        grid-gutter: 1;
+        padding: 1;
         height: 1fr;
-        background: #1a2030;
-    }
-    AgentsScreen #agents-detail-pane {
-        width: 1fr;
     }
     """
 
@@ -200,16 +190,22 @@ class AgentsScreen(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._agents: dict[str, AgentState] = {}  # "ticket_id:role" → state
-        self._selected_key: str | None = None
 
     def set_project_path(self, path: Path | None) -> None:
         self.project_path = path
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="agents-list-pane"):
-            yield Label("Agents")
-            yield ListView(id="agents-list")
-        yield _DetailPanel(id="agents-detail-pane")
+        yield Static(
+            "[dim]no agents have started yet[/dim]",
+            id="empty-msg",
+            markup=True,
+        )
+        yield Grid(id="agents-grid")
+
+    def on_mount(self) -> None:
+        # Initial visibility — empty placeholder shows, grid hides.
+        # _rebuild_grid is the single source of truth for the toggle.
+        self._rebuild_grid()
 
     # ── Event handlers ────────────────────────────────────────────────────
 
@@ -228,9 +224,7 @@ class AgentsScreen(Widget):
         )
         self._load_role_config(agent)
         self._agents[agent_key] = agent
-        self._selected_key = agent_key
-        self._rebuild_list()
-        self._refresh_detail()
+        self._rebuild_grid()
 
     def handle_agent_thinking(self, data: dict) -> None:
         role = data.get("role", "agent")
@@ -243,9 +237,7 @@ class AgentsScreen(Widget):
         agent = self._agents[agent_key]
         agent.elapsed = elapsed
         agent.active = active
-        self._rebuild_list()
-        if self._selected_key == agent_key:
-            self._refresh_detail()
+        self._rebuild_grid()
 
     def handle_agent_tool(self, data: dict) -> None:
         role = data.get("role", "agent")
@@ -259,8 +251,7 @@ class AgentsScreen(Widget):
         agent.current_tool = f"{tool}  {detail[:50]}" if detail else tool
         agent.recent_tools.insert(0, (tool, detail))
         agent.recent_tools = agent.recent_tools[:10]
-        if self._selected_key == agent_key:
-            self._refresh_detail()
+        self._rebuild_grid()
 
     def handle_agent_tool_result(self, data: dict) -> None:
         role = data.get("role", "agent")
@@ -268,14 +259,7 @@ class AgentsScreen(Widget):
         agent_key = f"{ticket_id}:{role}" if ticket_id else role
         if agent_key in self._agents:
             self._agents[agent_key].current_tool = None
-        if self._selected_key == agent_key:
-            self._refresh_detail()
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        item = event.item
-        if isinstance(item, _AgentListItem):
-            self._selected_key = item.agent_key
-            self._refresh_detail()
+        self._rebuild_grid()
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
@@ -294,55 +278,36 @@ class AgentsScreen(Widget):
         except Exception:
             pass
 
-    def _rebuild_list(self) -> None:
+    def _rebuild_grid(self) -> None:
+        """Sync the card grid to ``self._agents``: mount cards for new
+        agents, update cards for existing ones, remove cards for departed
+        ones, toggle the empty-state placeholder visibility."""
         try:
-            lv = self.query_one("#agents-list", ListView)
-        except Exception:
+            grid = self.query_one("#agents-grid", Grid)
+            empty = self.query_one("#empty-msg", Static)
+        except NoMatches:
+            # Compose hasn't finished — early event from on_mount race.
             return
-        existing_keys = {
-            item.agent_key for item in lv.children if isinstance(item, _AgentListItem)
-        }
+
+        empty.display = not self._agents
+        grid.display = bool(self._agents)
+
         new_keys = set(self._agents.keys())
+        existing_cards: dict[str, _AgentCard] = {
+            card.agent_key: card
+            for card in grid.children
+            if isinstance(card, _AgentCard)
+        }
 
-        # Remove stale
-        for item in list(lv.children):
-            if isinstance(item, _AgentListItem) and item.agent_key not in new_keys:
-                item.remove()
+        # Remove stale cards.
+        for card_key, card in existing_cards.items():
+            if card_key not in new_keys:
+                card.remove()
 
-        # Update or add
+        # Update existing, mount new.
         for agent_key, agent in self._agents.items():
-            if agent_key in existing_keys:
-                for item in lv.children:
-                    if isinstance(item, _AgentListItem) and item.agent_key == agent_key:
-                        item._agent = agent
-                        try:
-                            label = item.query_one(Static)
-                            color = _ROLE_COLORS.get(agent.role, "white")
-                            spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-                            spin = (
-                                spinners[agent.elapsed % len(spinners)]
-                                if agent.active
-                                else "·"
-                            )
-                            title = agent.ticket_title or agent.ticket_id[:8]
-                            if len(title) > 28:
-                                title = title[:25] + "…"
-                            label.update(
-                                f"[{color}]{spin} {agent.role}[/{color}] [dim]{title}[/dim]"
-                            )
-                        except Exception:
-                            pass
+            existing = existing_cards.get(agent_key)
+            if existing is not None:
+                existing.update_agent(agent)
             else:
-                lv.append(_AgentListItem(agent, agent_key))
-
-    def _refresh_detail(self) -> None:
-        try:
-            panel = self.query_one(_DetailPanel)
-        except Exception:
-            return
-        agent = (
-            self._agents.get(self._selected_key or "") if self._selected_key else None
-        )
-        if agent is None and self._agents:
-            agent = next(iter(self._agents.values()))
-        panel.show_agent(agent)
+                grid.mount(_AgentCard(agent, agent_key))

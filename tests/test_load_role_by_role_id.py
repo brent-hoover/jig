@@ -5,9 +5,11 @@ Many shipped roles use hyphenated IDs (``reviewer-test-adequacy``,
 (``reviewer_test_adequacy.yaml``, ``planner_pm.yaml``, ``l0_po.yaml``).
 The orchestrator's federation spawn path threads an explicit
 ``role_file`` arg through ``spawn_review_agent_for_id``, so it works
-fine. The TUI's agents-detail pane calls ``load_role(path, agent.role)``
-with the hyphenated id, which previously raised FileNotFoundError and
-left the display as "(not available)" / "all tools".
+fine. The TUI's AgentsScreen calls ``load_role(path, agent.role)``
+with the hyphenated id (per ``_load_role_config`` on each
+``handle_agent_start``); a regression there previously raised
+FileNotFoundError and left the underlying ``AgentState`` with empty
+``allowed_tools`` / ``phase_prompt`` fields.
 
 This test pins the lookup contract: ``load_role`` must resolve every
 shipped role by its ``role:`` field value, regardless of how the file

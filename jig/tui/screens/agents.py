@@ -316,8 +316,9 @@ class AgentsScreen(Widget):
 
     def _rebuild_grid(self) -> None:
         """Sync the card grid to ``self._agents``: mount cards for new
-        agents, update cards for existing ones, remove cards for departed
-        ones, toggle the empty-state placeholder visibility."""
+        agents, update cards for existing ones, toggle the empty-state
+        placeholder visibility. No card removal — ``self._agents`` is
+        append-only (see inline comment)."""
         try:
             grid = self.query_one("#agents-grid", Grid)
             empty = self.query_one("#empty-msg", Static)

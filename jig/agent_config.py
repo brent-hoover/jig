@@ -8,7 +8,10 @@ into reviewer and other non-interactive agents.
 
 This module creates a minimal jig-controlled config directory that:
 
-- Has no personal hooks or global CLAUDE.md.
+- Has no personal hooks.
+- Ships a jig-authored global ``CLAUDE.md`` (with an optional per-role
+  addendum) so agents see jig's orchestrator conventions instead of the
+  operator's personal one.
 - Installs jig's own skills as a proper Claude Code plugin so agents can
   invoke them via the Skill tool (MCP-tool reference, git conventions, etc.)
 
@@ -29,6 +32,7 @@ from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 
+from jig.safe_path import validate_safe_path_segment
 from jig.skill_loader import _parse_frontmatter
 
 _logger = logging.getLogger(__name__)
@@ -60,6 +64,7 @@ def ensure_agent_config_dir(
     skill_names: list[str] | None = None,
     sandbox_config_path: str | None = None,
     spawn_dir_name: str | None = None,
+    role: str | None = None,
 ) -> Path:
     """Create or refresh the jig-managed Claude config directory.
 
@@ -79,6 +84,10 @@ def ensure_agent_config_dir(
     are included in the plugin. When ``None`` or empty, all jig skills are
     included (broad default for roles that don't declare specific skills).
 
+    ``role``: when given, ``jig/defaults/roles/<role>/CLAUDE.md`` is appended
+    to the shipped global CLAUDE.md (blank-line separator) before it is written
+    to ``<config_dir>/CLAUDE.md``. Missing addendum file → global only.
+
     Returns the host path of the config directory so callers can mount or
     reference it.
     """
@@ -92,12 +101,14 @@ def ensure_agent_config_dir(
 
     _write_settings(host_dir)
     _write_plugin(host_dir, config_base, skill_names=skill_names or [])
+    _write_global_claude_md(host_dir, role=role)
 
     _logger.debug(
-        "jig agent config dir ready at %s (skills=%s config_base=%s)",
+        "jig agent config dir ready at %s (skills=%s config_base=%s role=%s)",
         host_dir,
         skill_names,
         config_base,
+        role,
     )
     return host_dir
 
@@ -106,6 +117,53 @@ def _write_settings(config_dir: Path) -> None:
     (config_dir / "settings.json").write_text(
         json.dumps({}, indent=2), encoding="utf-8"
     )
+
+
+def _defaults_dir() -> Path:
+    return Path(__file__).resolve().parent / "defaults"
+
+
+def _write_global_claude_md(config_dir: Path, *, role: str | None) -> None:
+    """Write ``<config_dir>/CLAUDE.md`` from the shipped global file, optionally
+    appending a per-role addendum (separator: a single blank line).
+
+    Missing global file is non-fatal: log and skip. Claude Code falls back to
+    seeing no user-global CLAUDE.md, matching pre-feature behavior.
+
+    ``role`` is validated via :func:`validate_safe_path_segment` before being
+    used in the addendum path: project workflow YAML can supply arbitrary role
+    strings, and a value like ``../../etc/passwd`` would otherwise let an
+    attacker read files outside ``jig/defaults/roles`` and inject them into
+    the agent's CLAUDE.md. Validation failure logs a warning and falls back to
+    the global-only file.
+    """
+    defaults = _defaults_dir()
+    global_md = defaults / "agent_claude_md.md"
+    if not global_md.is_file():
+        _logger.warning(
+            "shipped agent_claude_md.md missing at %s; skipping global CLAUDE.md",
+            global_md,
+        )
+        return
+    content = global_md.read_text(encoding="utf-8")
+    if role:
+        try:
+            validate_safe_path_segment(role, "role")
+        except ValueError as exc:
+            _logger.warning(
+                "ignoring per-role CLAUDE.md addendum for unsafe role %r: %s",
+                role,
+                exc,
+            )
+        else:
+            addendum = defaults / "roles" / role / "CLAUDE.md"
+            if addendum.is_file():
+                content = (
+                    content.rstrip()
+                    + "\n\n"
+                    + addendum.read_text(encoding="utf-8").lstrip()
+                )
+    (config_dir / "CLAUDE.md").write_text(content, encoding="utf-8")
 
 
 def _write_plugin(

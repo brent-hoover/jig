@@ -99,7 +99,7 @@ async def test_pm_planning_text_does_not_drop_chars(tmp_path: Path) -> None:
         # Sanity: PM_TEXT_1's last word must be intact somewhere.
         assert "approval." in flat, (
             "PM_TEXT_1's tail 'approval.' was dropped during render. "
-            f"Got lines:\n  " + "\n  ".join(repr(line) for line in lines)
+            "Got lines:\n  " + "\n  ".join(repr(line) for line in lines)
         )
 
 

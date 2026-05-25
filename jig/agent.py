@@ -38,6 +38,7 @@ from jig.persistence import list_roles, load_conventions
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.agent_config import SANDBOX_CLAUDE_CONFIG_PATH, ensure_agent_config_dir
+from jig.worktree import sync_project_claude_md
 from jig.sandbox import (
     BwrapConfig,
     BwrapTransport,
@@ -564,7 +565,13 @@ async def run_agent(
             skill_names=role_skills,
             spawn_dir_name=_spawn_config_id,
             sandbox_config_path=SANDBOX_CLAUDE_CONFIG_PATH if _use_sandbox else None,
+            role=ctx.role,
         )
+        # Inject the project's <project>/.jig/CLAUDE.md (or a stub) into the
+        # worktree as <worktree>/CLAUDE.md, marked uncommittable. Suppresses
+        # any project-committed /CLAUDE.md so jig agents only see jig-managed
+        # project guidance — see feature-work/agent-claude-md/design.md.
+        await sync_project_claude_md(ctx.worktree_path, ctx.project.path_or_default())
         if not _use_sandbox:
             sdk_kwargs["env"] = {
                 **(dict(ctx.extra_env) if ctx.extra_env else {}),

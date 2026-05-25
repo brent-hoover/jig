@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -56,13 +57,19 @@ async def _make_context(tmp_path: Path) -> AgentSpawnContext:
     tid = await tickets.create(t)
     loaded = await tickets.get(tid)
     assert loaded is not None
+    # run_agent calls sync_project_claude_md which writes to <worktree>/CLAUDE.md
+    # and shells out to git for skip-worktree / info-exclude bookkeeping. Init
+    # an empty git repo so both succeed without raising.
+    worktree = tmp_path / "worktree"
+    worktree.mkdir(exist_ok=True)
+    subprocess.run(["git", "init"], cwd=worktree, check=True, capture_output=True)
     return AgentSpawnContext(
         role="dev",
         role_cfg=RoleConfig(role="dev", phase_prompt="be dev"),
         spawn_reason=SpawnReason.PHASE_PRIMARY,
         ticket=loaded,
         parent=None,
-        worktree_path=tmp_path / "worktree",
+        worktree_path=worktree,
         project=Project(
             id="p",
             name="p",

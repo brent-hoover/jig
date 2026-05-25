@@ -653,6 +653,11 @@ async def handle_record_learning(
     args: dict,
 ) -> str:
     roles: list[str] = args.get("roles") or [role]
+    invalid = [r for r in roles if not isinstance(r, str) or not r.strip()]
+    if invalid:
+        raise ValueError(
+            f"Invalid roles entries: {invalid!r}. Each role must be a non-empty string."
+        )
     await memory.add_role_learning(roles=roles, content=args["content"])
     return f"learning recorded for {', '.join(roles)}"
 

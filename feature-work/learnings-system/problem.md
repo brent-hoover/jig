@@ -62,42 +62,41 @@ learnings. Load the full file into every dev/test/review agent's prompt.
 
 - Must fit within the existing JSONL append-store and `MemoryStore` architecture; no new
   external storage or services.
-- Project learnings injected into agent prompts must be token-budgeted to avoid context blowout.
 - No migration script required — existing role-scoped learning records are unaffected.
 - The `record_learning` MCP tool interface must extend gracefully (optional new parameters)
   without breaking existing callers.
 
 ## Requirements
 
-- An agent (dev/test/review) can record a learning as project-scoped with optional tags.
-- A project-scoped learning persists across tickets and roles within the same project run.
-- Subsequent agents of any qualifying role load relevant project learnings into their prompt.
-- Loading is bounded by a configurable token/entry budget.
-- "Relevant" loading uses tag intersection when tags are present; falls back to recency.
+- An agent can record a learning with an explicit list of target roles.
+- A learning written with `roles=["dev","test"]` is visible to both dev and test agents
+  subsequently spawned in the same project, regardless of ticket.
+- Omitting `roles` records the learning only for the calling agent's role (existing behavior).
+- Each entry in `roles` must be a non-empty string; invalid entries are rejected.
 
 ## Non-goals
 
-- Summarization or compaction of the learnings corpus.
+- Tag-scoped or token-budgeted loading — the existing `limit=20` in `get_role_learnings`
+  is the current guard; further budgeting is a follow-on.
+- A separate `## Project Learnings` prompt section — learnings from other roles surface
+  naturally in the existing `## Memories` section.
 - Expiration / staleness detection (accepted risk; follow-on).
-- PM/SA agents loading project learnings.
+- PM/SA agents loading cross-role learnings.
 - UI or CLI interface for browsing/editing project learnings.
 
 ## Success criteria
 
-- A dev agent calls `record_learning` with `project_scoped=true`; a test agent spawned
-  subsequently on a different ticket sees that entry in its prompt context.
-- Project learnings appear under a `## Project Learnings` section in dev/test/review agent
-  prompts.
-- The load is token-budgeted; the system does not inject more than the configured limit.
-- Unit tests confirm persistence, retrieval, tag filtering, and budget enforcement.
+- An agent calls `record_learning` with `roles=["dev","test"]`; a test agent spawned
+  subsequently on a different ticket sees that entry in its `## Memories` context.
+- Omitting `roles` is backward-compatible — learning is recorded only for the calling role.
+- Invalid `roles` entries (non-string, empty) are rejected with a clear error.
+- Unit tests confirm fan-out persistence, per-role retrieval, and default behavior.
 
 ## Open questions
 
-- [ ] Tag vocabulary: free-form strings (simpler, risks synonym drift) vs. a curated enum?
-- [ ] Who sets tags: the writing agent as an optional argument vs. required?
-- [ ] Load strategy: "all project learnings up to budget" (simpler) vs. "tag-intersection
-  first, recency fallback" (more scalable)?
+None — resolved during design; see `design.md`.
 
 ## Change log
 
 - 2026-05-25: Initial draft (Brent Hoover)
+- 2026-05-25: Align requirements/success criteria with roles fan-out implementation (Brent Hoover)

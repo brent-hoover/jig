@@ -219,3 +219,16 @@ async def test_add_role_learning_returns_ids_for_each_role(tmp_path):
     ids = await mem.add_role_learning(roles=["dev", "test"], content="tip")
     assert len(ids) == 2
     assert all(isinstance(i, str) for i in ids)
+
+
+async def test_get_role_learnings_returns_most_recent_when_over_limit(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    for i in range(22):
+        await mem.add_role_learning(roles=["dev"], content=f"old learning {i}")
+    await mem.add_role_learning(roles=["dev"], content="newest learning")
+
+    results = await mem.get_role_learnings("dev", limit=20)
+    contents = [r.content for r in results]
+    assert "newest learning" in contents
+    assert len(results) == 20

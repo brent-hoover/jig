@@ -153,5 +153,5 @@ class MemoryStore:
 
     async def get_role_learnings(self, role: str, limit: int = 20) -> list[Learning]:
         results = await self._learnings.find_where(role=role)
-        results.sort(key=lambda learning: learning.timestamp)
-        return results[:limit]
+        results.sort(key=lambda learning: learning.timestamp, reverse=True)
+        return list(reversed(results[:limit]))

@@ -1,7 +1,7 @@
 ---
 title: Agent CLAUDE.md Injection — Design
 type: design
-status: draft
+status: active
 owner: brent
 created: 2026-05-25
 updated: 2026-05-25
@@ -68,12 +68,17 @@ for un-scaffolded projects.
    - Write content atomically to `<worktree_path>/CLAUDE.md`.
    - Determine tracked-ness: `git -C <worktree> ls-files --error-unmatch CLAUDE.md`.
      - If tracked (the project committed a `/CLAUDE.md`): `git update-index --skip-worktree CLAUDE.md`.
-     - If untracked: resolve the per-worktree exclude path via
-       `git -C <worktree> rev-parse --git-path info/exclude` (this returns the linked-worktree
-       gitdir's `info/exclude` for `git worktree add`-style worktrees where `.git` is a file, and
-       the main `.git/info/exclude` for regular repos). Append `CLAUDE.md\n` idempotently (read,
-       check for the line, append only if missing). Naive concatenation of `<worktree>/.git/info/exclude`
-       would write to a non-existent path in linked worktrees.
+     - If untracked: resolve the exclude path via
+       `git -C <worktree> rev-parse --git-path info/exclude`. **Important:** `info/exclude` is
+       shared across the main repo and all linked worktrees (git has no per-worktree exclude
+       file — `info/exclude` is not in the per-worktree extension list). So this writes to the
+       main `.git/info/exclude`, which means the operator's main checkout will also ignore
+       `CLAUDE.md`. Acceptable concession: operators rarely want to track a root `CLAUDE.md`
+       anyway, and can edit `info/exclude` manually if they do. We still need to resolve via
+       `git rev-parse` rather than naive concatenation of `<worktree>/.git/info/exclude`, because
+       in linked worktrees `.git` is a *file* (pointing at the per-worktree gitdir), not a
+       directory — the naive path would not exist. Append `CLAUDE.md\n` idempotently (read,
+       check for the line, append only if missing).
    - Both git commands logged on failure (warning) but never raised. The injected content is
      present either way; the only risk is a spurious modification appearing in `git status`.
 

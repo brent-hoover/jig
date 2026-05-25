@@ -118,24 +118,39 @@ def _make_project_with_claude_md(tmp_path: Path, content: str | None) -> Path:
     return project
 
 
+def _resolve_exclude_path(repo: Path) -> Path:
+    """Resolve a repo's per-worktree info/exclude via git itself (mirrors
+    production). Used by tests instead of hardcoded ``.git/info/exclude`` so
+    the assertion is robust to linked-worktree layout differences."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-path", "info/exclude"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    p = Path(result.stdout.strip())
+    return p if p.is_absolute() else repo / p
+
+
 class TestSyncProjectClaudeMd:
-    def test_copies_project_source_into_worktree(
+    async def test_copies_project_source_into_worktree(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
         project = _make_project_with_claude_md(tmp_path, "project content\n")
-        sync_project_claude_md(git_repo, project)
+        await sync_project_claude_md(git_repo, project)
         assert (git_repo / "CLAUDE.md").read_text() == "project content\n"
 
-    def test_writes_stub_when_project_source_missing(
+    async def test_writes_stub_when_project_source_missing(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
         project = _make_project_with_claude_md(tmp_path, None)
-        sync_project_claude_md(git_repo, project)
+        await sync_project_claude_md(git_repo, project)
         content = (git_repo / "CLAUDE.md").read_text()
         assert "jig-managed" in content
         assert ".jig/CLAUDE.md" in content
 
-    def test_skip_worktree_set_when_claude_md_tracked(
+    async def test_skip_worktree_set_when_claude_md_tracked(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
         # Commit a CLAUDE.md so it's tracked in the index.
@@ -146,7 +161,7 @@ class TestSyncProjectClaudeMd:
         )
 
         project = _make_project_with_claude_md(tmp_path, "overwritten\n")
-        sync_project_claude_md(git_repo, project)
+        await sync_project_claude_md(git_repo, project)
 
         result = subprocess.run(
             ["git", "ls-files", "-v", "CLAUDE.md"],
@@ -158,29 +173,31 @@ class TestSyncProjectClaudeMd:
         # Lowercase letter prefix indicates skip-worktree bit set (S/s).
         assert result.stdout.startswith(("S ", "s "))
 
-    def test_info_exclude_used_when_claude_md_untracked(
+    async def test_info_exclude_used_when_claude_md_untracked(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
         project = _make_project_with_claude_md(tmp_path, "untracked content\n")
-        sync_project_claude_md(git_repo, project)
+        await sync_project_claude_md(git_repo, project)
 
-        exclude_path = git_repo / ".git" / "info" / "exclude"
+        exclude_path = _resolve_exclude_path(git_repo)
         assert "CLAUDE.md" in exclude_path.read_text().splitlines()
 
-    def test_info_exclude_is_idempotent(self, git_repo: Path, tmp_path: Path) -> None:
-        project = _make_project_with_claude_md(tmp_path, "content\n")
-        for _ in range(3):
-            sync_project_claude_md(git_repo, project)
-
-        exclude_path = git_repo / ".git" / "info" / "exclude"
-        lines = exclude_path.read_text().splitlines()
-        assert lines.count("CLAUDE.md") == 1
-
-    def test_git_status_clean_after_sync_untracked(
+    async def test_info_exclude_is_idempotent(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
         project = _make_project_with_claude_md(tmp_path, "content\n")
-        sync_project_claude_md(git_repo, project)
+        for _ in range(3):
+            await sync_project_claude_md(git_repo, project)
+
+        exclude_path = _resolve_exclude_path(git_repo)
+        lines = exclude_path.read_text().splitlines()
+        assert lines.count("CLAUDE.md") == 1
+
+    async def test_git_status_clean_after_sync_untracked(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        project = _make_project_with_claude_md(tmp_path, "content\n")
+        await sync_project_claude_md(git_repo, project)
 
         result = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -191,7 +208,7 @@ class TestSyncProjectClaudeMd:
         )
         assert "CLAUDE.md" not in result.stdout
 
-    def test_git_status_clean_after_sync_tracked(
+    async def test_git_status_clean_after_sync_tracked(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
         (git_repo / "CLAUDE.md").write_text("original\n")
@@ -201,7 +218,7 @@ class TestSyncProjectClaudeMd:
         )
 
         project = _make_project_with_claude_md(tmp_path, "overwritten\n")
-        sync_project_claude_md(git_repo, project)
+        await sync_project_claude_md(git_repo, project)
 
         result = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -212,7 +229,7 @@ class TestSyncProjectClaudeMd:
         )
         assert "CLAUDE.md" not in result.stdout
 
-    def test_project_root_spawn_is_a_noop(self, git_repo: Path) -> None:
+    async def test_project_root_spawn_is_a_noop(self, git_repo: Path) -> None:
         """Some jig spawns (init/spec-generator/concierge) use the project root
         AS their worktree. Sync must skip rather than clobber the operator's
         checked-in root CLAUDE.md."""
@@ -223,7 +240,7 @@ class TestSyncProjectClaudeMd:
         )
 
         # worktree_path == project_path simulates the init/spec_generator path.
-        sync_project_claude_md(git_repo, git_repo)
+        await sync_project_claude_md(git_repo, git_repo)
 
         # Content untouched.
         assert (
@@ -239,14 +256,27 @@ class TestSyncProjectClaudeMd:
         )
         assert result.stdout.startswith("H ")
 
-    def test_linked_worktree_info_exclude_is_per_worktree(
+    async def test_linked_worktree_info_exclude_is_shared(
         self, git_repo: Path, tmp_path: Path
     ) -> None:
-        """In a real linked worktree (created by ``git worktree add``),
-        ``.git`` is a file pointing at the per-worktree gitdir, and
-        ``info/exclude`` is per-worktree. Resolving via
-        ``git rev-parse --git-path info/exclude`` must land in the linked
-        worktree's exclude, not the main repo's."""
+        """``info/exclude`` is shared between the main repo and any linked
+        worktrees created by ``git worktree add`` — git has no per-worktree
+        exclude file. ``git rev-parse --git-path info/exclude`` returns the
+        main repo's path from both.
+
+        Acceptable concession for jig: writing ``CLAUDE.md`` to the exclude
+        from a linked worktree also makes the main checkout ignore it.
+        Operators rarely want to track a root CLAUDE.md anyway (and can
+        edit info/exclude by hand if they do). The important property is
+        that ``.git`` in a linked worktree is a FILE not a directory, so
+        the original `<worktree>/.git/info/exclude` path would FAIL —
+        resolving via ``git rev-parse --git-path`` is required."""
+        main_exclude_path = _resolve_exclude_path(git_repo)
+        main_exclude_before = (
+            main_exclude_path.read_text() if main_exclude_path.is_file() else ""
+        )
+        assert "CLAUDE.md" not in main_exclude_before.splitlines()
+
         subprocess.run(
             ["git", "worktree", "add", "../linked", "-b", "linked-branch"],
             cwd=git_repo,
@@ -255,28 +285,22 @@ class TestSyncProjectClaudeMd:
         )
         linked = git_repo.parent / "linked"
         try:
-            # .git is a file in linked worktrees, not a directory.
+            # .git is a file in linked worktrees, not a directory. This is the
+            # property that breaks naive `<worktree>/.git/info/exclude` access.
             assert (linked / ".git").is_file()
 
             project = _make_project_with_claude_md(tmp_path, "linked content\n")
-            sync_project_claude_md(linked, project)
+            await sync_project_claude_md(linked, project)
 
-            # The linked worktree's per-worktree info/exclude should now contain
-            # CLAUDE.md, NOT the main repo's exclude.
-            git_dir_result = subprocess.run(
-                ["git", "rev-parse", "--git-path", "info/exclude"],
-                cwd=linked,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            exclude_relpath = git_dir_result.stdout.strip()
-            exclude_path = Path(exclude_relpath)
-            if not exclude_path.is_absolute():
-                exclude_path = linked / exclude_path
-            assert "CLAUDE.md" in exclude_path.read_text().splitlines()
+            # rev-parse from the linked worktree resolves to the shared exclude.
+            linked_exclude = _resolve_exclude_path(linked)
+            assert linked_exclude.resolve() == main_exclude_path.resolve()
 
-            # And git status in the linked worktree is clean.
+            # CLAUDE.md appears exactly once (idempotent + shared = no dup).
+            lines = linked_exclude.read_text().splitlines()
+            assert lines.count("CLAUDE.md") == 1
+
+            # git status in the linked worktree is clean.
             status = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=linked,

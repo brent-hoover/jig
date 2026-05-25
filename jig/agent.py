@@ -571,7 +571,7 @@ async def run_agent(
         # worktree as <worktree>/CLAUDE.md, marked uncommittable. Suppresses
         # any project-committed /CLAUDE.md so jig agents only see jig-managed
         # project guidance — see feature-work/agent-claude-md/design.md.
-        sync_project_claude_md(ctx.worktree_path, ctx.project.path_or_default())
+        await sync_project_claude_md(ctx.worktree_path, ctx.project.path_or_default())
         if not _use_sandbox:
             sdk_kwargs["env"] = {
                 **(dict(ctx.extra_env) if ctx.extra_env else {}),

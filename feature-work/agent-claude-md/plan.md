@@ -1,7 +1,7 @@
 ---
 title: Agent CLAUDE.md Injection — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: brent
 created: 2026-05-25
 updated: 2026-05-25
@@ -104,19 +104,23 @@ content the behavior is inert in agent output but end-to-end testable.
   - `python` — `uv run pytest`, package layout, placeholders for "where the code lives" / "common pitfalls".
   - `python-cli` — same shape, CLI-entry-point notes, `[project.scripts]` reference.
   - `fastapi` — `uvicorn`, async conventions, `httpx`/test client patterns.
-- `jig/defaults/roles/<role>/CLAUDE.md` for the roles with concrete need. Use the role IDs jig
-  actually ships (per `jig/defaults/roles/*.yaml`) — no `reviewer` or `developer` role exists.
-  First-cut targets:
+- `jig/defaults/roles/<role>/CLAUDE.md` for the roles with concrete need. Use the runtime role
+  IDs declared inside the yaml files' `role:` field (which are hyphenated), NOT the
+  underscored filenames. `head jig/defaults/roles/reviewer_generalist.yaml` shows
+  `role: reviewer-generalist`; `_write_global_claude_md` looks up addendums by the runtime
+  role string, so the addendum directory name must match the hyphenated form. First-cut
+  targets:
   - `dev` — coding stance, test-first preferences, scope discipline.
-  - `reviewer_generalist` — finding-quality bar, IMPORTANT vs notable, no-flag-redundant patterns.
-  - **Open question for PR 2**: should the seven `reviewer_*` roles
-    (`reviewer_generalist`, `reviewer_architectural`, `reviewer_error_handling`,
-    `reviewer_pattern_conformance`, `reviewer_performance`, `reviewer_security`,
-    `reviewer_test_adequacy`) share content? Options:
+  - `reviewer-generalist` — finding-quality bar, IMPORTANT vs notable,
+    no-flag-redundant patterns.
+  - **Open question for PR 2**: should the seven `reviewer-*` roles
+    (`reviewer-generalist`, `reviewer-architectural`, `reviewer-error-handling`,
+    `reviewer-pattern-conformance`, `reviewer-performance`, `reviewer-security`,
+    `reviewer-test-adequacy`) share content? Options:
     (a) ship one addendum per reviewer role (lots of duplication);
     (b) extend `_write_global_claude_md` with a prefix-fallback lookup
-        (`reviewer_generalist` → fall back to `reviewer/CLAUDE.md`) — small code change;
-    (c) ship only `reviewer_generalist` for now, leave the six specialists addendum-less.
+        (`reviewer-generalist` → fall back to `reviewer/CLAUDE.md`) — small code change;
+    (c) ship only `reviewer-generalist` for now, leave the six specialists addendum-less.
     Decide before authoring the files. Default if undecided: (c) — minimal scope, defer the
     mechanism choice.
 
@@ -130,8 +134,8 @@ correctness.
 
 - `tests/test_agent_claude_md_content.py` (new):
   - Shipped global file mentions a set of known-stable MCP tool names (catches rename drift).
-  - `dev` and `reviewer_generalist` addendums exist and are non-empty.
-  - `_write_global_claude_md(role="reviewer_generalist")` produces output containing both global
+  - `dev` and `reviewer-generalist` addendums exist and are non-empty.
+  - `_write_global_claude_md(role="reviewer-generalist")` produces output containing both global
     and reviewer content in the right order.
 - `tests/test_apply_template_files.py` (new or extended): for each template, scaffolding writes
   `<dest>/.jig/CLAUDE.md` containing expected stack markers (e.g. `uv run pytest` for python,
@@ -140,7 +144,7 @@ correctness.
 - `uv run pytest tests/test_agent_claude_md_content.py tests/test_apply_template_files.py -v`
   passes.
 - Manual: spawn an agent, observe early actions respect documented conventions (commit-message
-  style, no-graceful-fallback). Spawn a `reviewer_generalist` on a ticket, observe behavior
+  style, no-graceful-fallback). Spawn a `reviewer-generalist` on a ticket, observe behavior
   aligns with the reviewer addendum. Run `jig init` against an empty project for each template,
   confirm `.jig/CLAUDE.md` shows up with the right starter content.
 
@@ -178,3 +182,7 @@ agent spawn cycle with a confusing CLAUDE.md, immediately fixable by reverting.
 - 2026-05-25: Fixed role IDs (`dev`, `reviewer_generalist`) to match actual jig role names;
   flagged the seven `reviewer_*` roles as an open question for PR 2 (roborev #159 MEDIUM)
   (brent)
+- 2026-05-25: Corrected role IDs again — runtime role strings inside the yaml files use
+  hyphens (`reviewer-generalist`), not the underscored filenames. `_write_global_claude_md`
+  looks up addendums by runtime role string, so the path naming must match
+  (roborev #162 MEDIUM) (brent)

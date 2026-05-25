@@ -1,7 +1,7 @@
 ---
 title: Agent CLAUDE.md Injection — Problem Statement
 type: problem
-status: draft
+status: active
 owner: brent
 created: 2026-05-25
 updated: 2026-05-25

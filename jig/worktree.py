@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import subprocess
 from pathlib import Path
 
 from jig.models import MergeStrategy
@@ -140,7 +139,7 @@ _MISSING_PROJECT_STUB = (
 )
 
 
-def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
+async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
     """Render ``<project>/.jig/CLAUDE.md`` into ``<worktree>/CLAUDE.md`` and
     mark it uncommittable so it never appears in ``git status`` or commits.
 
@@ -159,6 +158,10 @@ def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
     worktree — calling sync there would clobber the operator's checked-in
     root ``CLAUDE.md`` and the skip-worktree mark would hide the damage from
     ``git status``.
+
+    Async to match the rest of ``worktree.py`` (which uses
+    ``asyncio.create_subprocess_exec`` via ``_run_git``) — keeps git work
+    off the event loop when many spawns overlap.
     """
     if worktree_path.resolve() == project_path.resolve():
         _logger.debug(
@@ -175,43 +178,58 @@ def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
     dst = worktree_path / "CLAUDE.md"
     dst.write_text(content, encoding="utf-8")
 
-    if _is_tracked(worktree_path, "CLAUDE.md"):
-        _mark_skip_worktree(worktree_path, "CLAUDE.md")
+    if await _is_tracked(worktree_path, "CLAUDE.md"):
+        await _mark_skip_worktree(worktree_path, "CLAUDE.md")
     else:
-        _add_to_local_exclude(worktree_path, "CLAUDE.md")
+        await _add_to_local_exclude(worktree_path, "CLAUDE.md")
 
 
-def _is_tracked(worktree_path: Path, relpath: str) -> bool:
-    """Return True when ``relpath`` is tracked in the worktree's git index."""
-    result = subprocess.run(
-        ["git", "ls-files", "--error-unmatch", "--", relpath],
-        cwd=worktree_path,
-        capture_output=True,
+async def _git_capture(cwd: Path, *args: str) -> tuple[int, str, str]:
+    """Run ``git *args`` in ``cwd`` and return ``(returncode, stdout, stderr)``.
+    Async equivalent of ``subprocess.run(..., capture_output=True)`` — never
+    raises on non-zero exit, lets the caller decide."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    return result.returncode == 0
+    stdout, stderr = await proc.communicate()
+    return (
+        proc.returncode or 0,
+        stdout.decode(errors="replace"),
+        stderr.decode(errors="replace"),
+    )
 
 
-def _mark_skip_worktree(worktree_path: Path, relpath: str) -> None:
+async def _is_tracked(worktree_path: Path, relpath: str) -> bool:
+    """Return True when ``relpath`` is tracked in the worktree's git index."""
+    rc, _, _ = await _git_capture(
+        worktree_path, "ls-files", "--error-unmatch", "--", relpath
+    )
+    return rc == 0
+
+
+async def _mark_skip_worktree(worktree_path: Path, relpath: str) -> None:
     """Set the skip-worktree bit so local edits to ``relpath`` never show in
     ``git status`` or get staged. Best-effort: log a warning on failure."""
-    result = subprocess.run(
-        ["git", "update-index", "--skip-worktree", "--", relpath],
-        cwd=worktree_path,
-        capture_output=True,
+    rc, _, stderr = await _git_capture(
+        worktree_path, "update-index", "--skip-worktree", "--", relpath
     )
-    if result.returncode != 0:
+    if rc != 0:
         _logger.warning(
             "git update-index --skip-worktree %s failed in %s: %s",
             relpath,
             worktree_path,
-            result.stderr.decode(errors="replace").strip(),
+            stderr.strip(),
         )
 
 
-def _add_to_local_exclude(worktree_path: Path, relpath: str) -> None:
+async def _add_to_local_exclude(worktree_path: Path, relpath: str) -> None:
     """Idempotently append ``relpath`` to this worktree's ``info/exclude``.
     ``git rev-parse --git-path info/exclude`` resolves to the per-worktree path."""
-    exclude_path = _resolve_info_exclude_path(worktree_path)
+    exclude_path = await _resolve_info_exclude_path(worktree_path)
     if exclude_path is None:
         _logger.warning(
             "could not resolve .git/info/exclude for %s; %s may show as untracked",
@@ -219,25 +237,24 @@ def _add_to_local_exclude(worktree_path: Path, relpath: str) -> None:
             relpath,
         )
         return
-    existing = exclude_path.read_text() if exclude_path.is_file() else ""
+    existing = (
+        exclude_path.read_text(encoding="utf-8") if exclude_path.is_file() else ""
+    )
     if relpath in existing.splitlines():
         return
     exclude_path.parent.mkdir(parents=True, exist_ok=True)
     sep = "" if (not existing or existing.endswith("\n")) else "\n"
-    exclude_path.write_text(f"{existing}{sep}{relpath}\n")
+    exclude_path.write_text(f"{existing}{sep}{relpath}\n", encoding="utf-8")
 
 
-def _resolve_info_exclude_path(worktree_path: Path) -> Path | None:
+async def _resolve_info_exclude_path(worktree_path: Path) -> Path | None:
     """Return the per-worktree ``info/exclude`` path, or None on git failure."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-path", "info/exclude"],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
+    rc, stdout, _ = await _git_capture(
+        worktree_path, "rev-parse", "--git-path", "info/exclude"
     )
-    if result.returncode != 0:
+    if rc != 0:
         return None
-    relpath = result.stdout.strip()
+    relpath = stdout.strip()
     if not relpath:
         return None
     path = Path(relpath)

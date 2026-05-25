@@ -85,7 +85,7 @@ def _ticket(
     ticket_id: str = "t-1",
     layer: str = "mvp",
     module_id: str | None = "auth",
-) -> "Ticket":
+):
     from jig.ticket import Ticket
 
     return Ticket(

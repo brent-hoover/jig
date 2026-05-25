@@ -652,7 +652,12 @@ async def handle_record_learning(
     role: str,
     args: dict,
 ) -> str:
-    roles: list[str] = args.get("roles") or [role]
+    raw_roles = args.get("roles")
+    if raw_roles is not None and not isinstance(raw_roles, list):
+        raise ValueError(
+            f"Invalid roles: expected a list, got {type(raw_roles).__name__!r}."
+        )
+    roles: list[str] = raw_roles or [role]
     invalid = [r for r in roles if not isinstance(r, str) or not r.strip()]
     if invalid:
         raise ValueError(

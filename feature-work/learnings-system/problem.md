@@ -81,7 +81,10 @@ learnings. Load the full file into every dev/test/review agent's prompt.
 - A separate `## Project Learnings` prompt section — learnings from other roles surface
   naturally in the existing `## Memories` section.
 - Expiration / staleness detection (accepted risk; follow-on).
-- PM/SA agents loading cross-role learnings.
+- Allowlist enforcement for which roles may be targeted — roles are project-defined in YAML
+  and not available to the MCP handler; the tool description guides agents toward appropriate
+  targets (dev/test/review). Targeting planning roles (pm/sa) by mistake wastes a record but
+  causes no harm.
 - UI or CLI interface for browsing/editing project learnings.
 
 ## Success criteria

@@ -497,6 +497,24 @@ async def test_record_learning_rejects_invalid_roles(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_record_learning_rejects_non_list_roles(tmp_path: Path) -> None:
+    from jig.store.memory import MemoryStore
+    from jig.ticket_mcp import handle_record_learning
+
+    memory = MemoryStore(tmp_path)
+    await memory.load()
+    with pytest.raises(ValueError, match="roles"):
+        await handle_record_learning(
+            memory=memory,
+            role="dev",
+            args={"content": "tip", "roles": "dev"},
+        )
+    # confirm no records were written
+    assert await memory.get_role_learnings("d") == []
+    assert await memory.get_role_learnings("dev") == []
+
+
+@pytest.mark.asyncio
 async def test_request_context_reads_worktree_file(tmp_path: Path) -> None:
     from jig.ticket_mcp import handle_request_context
 

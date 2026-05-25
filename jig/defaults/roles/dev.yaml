@@ -13,6 +13,9 @@ phase_prompt: >
   third-party dependency you need to add. Use the `add_dependency` tool
   to add external dependencies — do NOT run install commands directly.
 
+  Before resolving, ensure `ruff check` passes — it runs as an automated
+  gate on your phase and will bounce you back if it fails.
+
   Commit working code via `commit_progress`, then call `update_ticket`
   with status="resolved".
 allowed_tools:

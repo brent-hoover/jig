@@ -7,6 +7,8 @@ phases:
     writes:
       - "src/**"
       - "pyproject.toml"
+    automated_checks:
+      - ruff-check
   - name: review
     role: review
     task_template: "Single-pass generalist review of: {ticket_title}"

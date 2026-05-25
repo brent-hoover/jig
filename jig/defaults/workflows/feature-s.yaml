@@ -6,12 +6,14 @@ phases:
     acceptance_criteria: "Tests cover the specified behavior"
     automated_checks:
       - pytest-new-tests-fail
+      - ruff-check
   - name: implement
     role: dev
     task_template: "Implement the feature so tests pass for: {ticket_title}"
     acceptance_criteria: "All tests pass"
     automated_checks:
       - pytest-diff-tests
+      - ruff-check
       - mypy-strict
   - name: review
     role: review

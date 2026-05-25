@@ -8,6 +8,7 @@ phases:
       - "tests/**"
     automated_checks:
       - pytest-new-tests-fail
+      - ruff-check
   - name: review-tests
     role: review
     task_template: "Review the test diff against the AC for: {ticket_title}"
@@ -24,6 +25,7 @@ phases:
       - "**/*.lock"
     automated_checks:
       - pytest-diff-tests
+      - ruff-check
       - mypy-strict
   - name: review
     role: review

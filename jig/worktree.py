@@ -4,6 +4,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from jig.atomic import atomic_write_text
 from jig.models import MergeStrategy
 from jig.safe_path import validate_safe_path_segment
 
@@ -194,14 +195,12 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
         content = _MISSING_PROJECT_STUB
 
     dst = worktree_path / "CLAUDE.md"
-    # Same symlink defense on the write side: if the project tracks (or an
-    # attacker plants) CLAUDE.md at the worktree root as a symlink,
-    # write_text() would follow the link and overwrite an external target.
-    # Unlink removes only the link, not its target; write_text then creates
-    # a fresh regular file.
-    if dst.is_symlink():
-        dst.unlink()
-    dst.write_text(content, encoding="utf-8")
+    # Atomic write via tempfile + os.replace: avoids both the symlink-follow
+    # problem on the write side (os.replace replaces the directory entry
+    # itself rather than following a symlink to write the target) and the
+    # TOCTOU race a naive unlink-then-write would open (where another local
+    # process recreates dst as a symlink between unlink and write).
+    atomic_write_text(dst, content)
 
     if await _is_tracked(worktree_path, "CLAUDE.md"):
         await _mark_skip_worktree(worktree_path, "CLAUDE.md")

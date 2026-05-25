@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from jig.worktree import MergeConflictError, commit_worktree, create_worktree, remove_worktree
+from jig.worktree import (
+    MergeConflictError,
+    commit_worktree,
+    create_worktree,
+    remove_worktree,
+    sync_project_claude_md,
+)
 
 
 def test_merge_conflict_error_conflicted_files_default_empty() -> None:
@@ -99,3 +105,109 @@ class TestRemoveWorktree:
         assert wt_path.is_dir()
         await remove_worktree(git_repo, "issue-1")
         assert not wt_path.is_dir()
+
+
+def _make_project_with_claude_md(tmp_path: Path, content: str | None) -> Path:
+    """Build a minimal <project>/.jig/CLAUDE.md tree for sync tests.
+    ``content=None`` produces a project without the file."""
+    project = tmp_path / "project"
+    project.mkdir()
+    if content is not None:
+        (project / ".jig").mkdir()
+        (project / ".jig" / "CLAUDE.md").write_text(content)
+    return project
+
+
+class TestSyncProjectClaudeMd:
+    def test_copies_project_source_into_worktree(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        project = _make_project_with_claude_md(tmp_path, "project content\n")
+        sync_project_claude_md(git_repo, project)
+        assert (git_repo / "CLAUDE.md").read_text() == "project content\n"
+
+    def test_writes_stub_when_project_source_missing(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        project = _make_project_with_claude_md(tmp_path, None)
+        sync_project_claude_md(git_repo, project)
+        content = (git_repo / "CLAUDE.md").read_text()
+        assert "jig-managed" in content
+        assert ".jig/CLAUDE.md" in content
+
+    def test_skip_worktree_set_when_claude_md_tracked(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        # Commit a CLAUDE.md so it's tracked in the index.
+        (git_repo / "CLAUDE.md").write_text("original\n")
+        subprocess.run(["git", "add", "CLAUDE.md"], cwd=git_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "add CLAUDE.md"], cwd=git_repo, check=True
+        )
+
+        project = _make_project_with_claude_md(tmp_path, "overwritten\n")
+        sync_project_claude_md(git_repo, project)
+
+        result = subprocess.run(
+            ["git", "ls-files", "-v", "CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # Lowercase letter prefix indicates skip-worktree bit set (S/s).
+        assert result.stdout.startswith(("S ", "s "))
+
+    def test_info_exclude_used_when_claude_md_untracked(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        project = _make_project_with_claude_md(tmp_path, "untracked content\n")
+        sync_project_claude_md(git_repo, project)
+
+        exclude_path = git_repo / ".git" / "info" / "exclude"
+        assert "CLAUDE.md" in exclude_path.read_text().splitlines()
+
+    def test_info_exclude_is_idempotent(self, git_repo: Path, tmp_path: Path) -> None:
+        project = _make_project_with_claude_md(tmp_path, "content\n")
+        for _ in range(3):
+            sync_project_claude_md(git_repo, project)
+
+        exclude_path = git_repo / ".git" / "info" / "exclude"
+        lines = exclude_path.read_text().splitlines()
+        assert lines.count("CLAUDE.md") == 1
+
+    def test_git_status_clean_after_sync_untracked(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        project = _make_project_with_claude_md(tmp_path, "content\n")
+        sync_project_claude_md(git_repo, project)
+
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "CLAUDE.md" not in result.stdout
+
+    def test_git_status_clean_after_sync_tracked(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        (git_repo / "CLAUDE.md").write_text("original\n")
+        subprocess.run(["git", "add", "CLAUDE.md"], cwd=git_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "add CLAUDE.md"], cwd=git_repo, check=True
+        )
+
+        project = _make_project_with_claude_md(tmp_path, "overwritten\n")
+        sync_project_claude_md(git_repo, project)
+
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "CLAUDE.md" not in result.stdout

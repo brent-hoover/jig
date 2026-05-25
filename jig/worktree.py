@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import subprocess
 from pathlib import Path
 
 from jig.models import MergeStrategy
@@ -129,6 +130,103 @@ def install_per_commit_hook_or_warn(worktree_path: Path, ticket_id: str) -> str 
             "fire on each commit for this ticket."
         )
     return None
+
+
+_MISSING_PROJECT_STUB = (
+    "# Project Notes (jig-managed)\n"
+    "\n"
+    "No project-specific notes have been set yet. "
+    "Add them at `.jig/CLAUDE.md` in the project root to make them visible to agents.\n"
+)
+
+
+def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
+    """Render ``<project>/.jig/CLAUDE.md`` into ``<worktree>/CLAUDE.md`` and
+    mark it uncommittable so it never appears in ``git status`` or commits.
+
+    When the project source is missing, writes ``_MISSING_PROJECT_STUB`` instead
+    so the project's committed ``/CLAUDE.md`` (if any) is still suppressed —
+    "jig wins" holds even for un-scaffolded projects.
+
+    Uncommittable mechanism: ``git update-index --skip-worktree`` when the
+    file is tracked in this repo, ``.git/info/exclude`` (per-worktree)
+    otherwise. Both are best-effort — git failures log a warning but do not
+    raise, since the content placement is the primary guarantee.
+    """
+    src = project_path / ".jig" / "CLAUDE.md"
+    content = (
+        src.read_text(encoding="utf-8") if src.is_file() else _MISSING_PROJECT_STUB
+    )
+    dst = worktree_path / "CLAUDE.md"
+    dst.write_text(content, encoding="utf-8")
+
+    if _is_tracked(worktree_path, "CLAUDE.md"):
+        _mark_skip_worktree(worktree_path, "CLAUDE.md")
+    else:
+        _add_to_local_exclude(worktree_path, "CLAUDE.md")
+
+
+def _is_tracked(worktree_path: Path, relpath: str) -> bool:
+    """Return True when ``relpath`` is tracked in the worktree's git index."""
+    result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", relpath],
+        cwd=worktree_path,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _mark_skip_worktree(worktree_path: Path, relpath: str) -> None:
+    """Set the skip-worktree bit so local edits to ``relpath`` never show in
+    ``git status`` or get staged. Best-effort: log a warning on failure."""
+    result = subprocess.run(
+        ["git", "update-index", "--skip-worktree", "--", relpath],
+        cwd=worktree_path,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        _logger.warning(
+            "git update-index --skip-worktree %s failed in %s: %s",
+            relpath,
+            worktree_path,
+            result.stderr.decode(errors="replace").strip(),
+        )
+
+
+def _add_to_local_exclude(worktree_path: Path, relpath: str) -> None:
+    """Idempotently append ``relpath`` to this worktree's ``info/exclude``.
+    ``git rev-parse --git-path info/exclude`` resolves to the per-worktree path."""
+    exclude_path = _resolve_info_exclude_path(worktree_path)
+    if exclude_path is None:
+        _logger.warning(
+            "could not resolve .git/info/exclude for %s; %s may show as untracked",
+            worktree_path,
+            relpath,
+        )
+        return
+    existing = exclude_path.read_text() if exclude_path.is_file() else ""
+    if relpath in existing.splitlines():
+        return
+    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    sep = "" if (not existing or existing.endswith("\n")) else "\n"
+    exclude_path.write_text(f"{existing}{sep}{relpath}\n")
+
+
+def _resolve_info_exclude_path(worktree_path: Path) -> Path | None:
+    """Return the per-worktree ``info/exclude`` path, or None on git failure."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-path", "info/exclude"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    relpath = result.stdout.strip()
+    if not relpath:
+        return None
+    path = Path(relpath)
+    return path if path.is_absolute() else worktree_path / path
 
 
 async def _auto_lint(worktree_path: Path) -> list[str]:

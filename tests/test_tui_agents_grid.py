@@ -66,39 +66,89 @@ async def test_agents_screen_mounts_card_per_agent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_card_marked_stuck_when_elapsed_exceeds_threshold_with_no_current_tool(
+async def test_card_marked_stuck_when_idle_past_threshold(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Active agent past the stuck threshold with no current tool gets
-    the ``stuck`` class on its card; receiving a tool call clears it."""
+    """A tool result starts the idle clock (``idle_since``). When more
+    than ``_STUCK_THRESHOLD_S`` wall-clock seconds pass without the
+    next tool call, the card flips to the ``stuck`` class. The next
+    tool call clears it.
+
+    Uses a monkeypatched ``time.monotonic`` so the test doesn't have
+    to actually wait the threshold out."""
+    fake_clock = [1000.0]
+    monkeypatch.setattr("jig.tui.screens.agents.time.monotonic", lambda: fake_clock[0])
     app = JigApp(project_path=tmp_path)
     async with app.run_test():
         screen = app.query_one(AgentsScreen)
         screen.handle_agent_start(_agent_start("review", "T-3"))
 
-        # Advance elapsed past the stuck threshold; no current_tool set.
-        screen.handle_agent_thinking(
-            {
-                "role": "review",
-                "ticket_id": "T-3",
-                "elapsed": _STUCK_THRESHOLD_S + 5,
-                "active": True,
-            }
-        )
+        # Fresh-spawned: not stuck (idle_since is None).
         card = screen.query_one("#card-T-3-review", _AgentCard)
+        assert "stuck" not in card.classes
+
+        # Tool fires then completes — idle_since = 1000.0.
+        screen.handle_agent_tool(
+            {"role": "review", "ticket_id": "T-3", "tool": "Read", "detail": "x.py"}
+        )
+        assert "stuck" not in card.classes  # tool in flight, not idle
+        screen.handle_agent_tool_result({"role": "review", "ticket_id": "T-3"})
+        assert "stuck" not in card.classes  # just went idle, not past threshold
+
+        # Advance the clock past the threshold; re-render via any handler.
+        fake_clock[0] = 1000.0 + _STUCK_THRESHOLD_S + 1
+        screen.handle_agent_thinking(
+            {"role": "review", "ticket_id": "T-3", "elapsed": 0, "active": True}
+        )
         assert "stuck" in card.classes
         assert "inactive" not in card.classes
 
-        # Receiving a tool call clears the stuck state.
+        # Next tool call clears the stuck state immediately.
         screen.handle_agent_tool(
-            {
-                "role": "review",
-                "ticket_id": "T-3",
-                "tool": "Read",
-                "detail": "src/foo.py",
-            }
+            {"role": "review", "ticket_id": "T-3", "tool": "Edit", "detail": "x.py"}
         )
         assert "stuck" not in card.classes
+
+
+@pytest.mark.asyncio
+async def test_tool_result_sets_idle_since_and_clears_current_tool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``handle_agent_tool_result`` is the boundary that starts the
+    idle clock — pins both the AgentState mutation and the card
+    re-render path."""
+    fake_clock = [500.0]
+    monkeypatch.setattr("jig.tui.screens.agents.time.monotonic", lambda: fake_clock[0])
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        screen = app.query_one(AgentsScreen)
+        screen.handle_agent_start(_agent_start("dev", "T-5"))
+        screen.handle_agent_tool(
+            {"role": "dev", "ticket_id": "T-5", "tool": "Read", "detail": "a.py"}
+        )
+        agent = screen._agents["T-5:dev"]
+        assert agent.current_tool is not None
+        assert agent.idle_since is None
+
+        screen.handle_agent_tool_result({"role": "dev", "ticket_id": "T-5"})
+        assert agent.current_tool is None
+        assert agent.idle_since == 500.0
+
+
+@pytest.mark.asyncio
+async def test_tool_result_for_unknown_agent_is_a_noop(
+    tmp_path: Path,
+) -> None:
+    """A tool_result event for an agent we never saw the start of
+    should not crash and should not mutate state."""
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        screen = app.query_one(AgentsScreen)
+        # No handle_agent_start call → agent isn't in self._agents.
+        screen.handle_agent_tool_result({"role": "ghost", "ticket_id": "T-ghost"})
+        assert screen._agents == {}
 
 
 @pytest.mark.asyncio

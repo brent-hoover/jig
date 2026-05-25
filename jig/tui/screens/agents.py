@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.containers import Grid
 from textual.css.query import NoMatches
@@ -40,6 +41,13 @@ class AgentState:
     allowed_tools: list[str] = field(default_factory=list)
     allowed_mcps: list[str] = field(default_factory=list)
     phase_prompt: str = ""
+    # Wall-clock (monotonic) seconds at which ``current_tool`` last
+    # cleared — i.e. when this agent last became idle. ``None`` means
+    # the agent has not gone idle since its current_tool was set (or
+    # since spawn). Used by the stuck heuristic to fire only when
+    # idle time exceeds the threshold, not whenever total elapsed
+    # lifetime does.
+    idle_since: float | None = None
 
 
 _ROLE_COLORS: dict[str, str] = {
@@ -53,11 +61,11 @@ _ROLE_COLORS: dict[str, str] = {
 }
 
 
-# An agent whose ``elapsed`` (orchestrator thinking-event counter)
-# hasn't advanced past this many seconds without a current tool call
-# is treated as stuck for dashboard purposes — card border goes yellow.
-# Future iteration could compare last-update wall-clock to now rather
-# than relying on the counter; this is an adequate first cut.
+# Seconds of continuous idle time (no current tool in flight) before
+# the card border flips yellow. Compared against wall-clock monotonic
+# time, NOT the orchestrator's lifetime ``elapsed`` counter — using
+# elapsed produced false positives during every normal between-tools
+# pause for long-running agents.
 _STUCK_THRESHOLD_S = 30
 
 
@@ -112,12 +120,20 @@ class _AgentCard(Widget):
         self.refresh_card()
 
     def _status(self) -> tuple[str, str]:
-        """Return ``(css-class, dot-markup)`` per current health."""
+        """Return ``(css-class, dot-markup)`` per current health.
+
+        Stuck = continuously idle (no current tool) for longer than
+        ``_STUCK_THRESHOLD_S`` wall-clock seconds. ``idle_since`` is
+        set in ``handle_agent_tool_result`` and cleared in
+        ``handle_agent_tool``, so the moment the next tool fires the
+        yellow indicator goes away.
+        """
         if not self._agent.active:
             return "inactive", "[grey46]●[/grey46]"
+        idle_since = self._agent.idle_since
         if (
-            self._agent.elapsed > _STUCK_THRESHOLD_S
-            and self._agent.current_tool is None
+            idle_since is not None
+            and (time.monotonic() - idle_since) > _STUCK_THRESHOLD_S
         ):
             return "stuck", "[yellow]●[/yellow]"
         return "", "[green]●[/green]"
@@ -135,15 +151,24 @@ class _AgentCard(Widget):
         if len(title) > 28:
             title = title[:25] + "…"
 
+        # Role and ticket fields come from external event data (ticket
+        # titles, tool names, tool details) and are interpolated into
+        # markup strings rendered with markup=True. Escape any literal
+        # ``[`` / ``]`` to prevent a stray ``[/dim]`` in a ticket title
+        # or tool detail from breaking surrounding markup.
+        role_safe = escape(self._agent.role.upper())
+        title_safe = escape(title)
+
         lines: list[str] = []
         lines.append(
-            f"{dot} [{role_color} bold]{self._agent.role.upper()}[/{role_color} bold]"
+            f"{dot} [{role_color} bold]{role_safe}[/{role_color} bold]"
             f"  [dim]{self._agent.elapsed}s[/dim]"
         )
-        lines.append(f"[dim]ticket:[/dim] {title}")
+        lines.append(f"[dim]ticket:[/dim] {title_safe}")
         lines.append("")
         if self._agent.current_tool:
-            lines.append(f"[$accent]▸[/$accent] {self._agent.current_tool[:38]}")
+            current_safe = escape(self._agent.current_tool[:38])
+            lines.append(f"[cyan]▸[/cyan] {current_safe}")
         else:
             lines.append("[dim]▸ idle[/dim]")
         lines.append("")
@@ -151,9 +176,9 @@ class _AgentCard(Widget):
             lines.append("[dim]recent:[/dim]")
             for tool, detail in self._agent.recent_tools[:3]:
                 detail_trunc = detail[:24] + "…" if len(detail) > 24 else detail
-                lines.append(
-                    f"  [cyan]{tool[:12]:<12}[/cyan] [dim]{detail_trunc}[/dim]"
-                )
+                tool_safe = escape(tool[:12])
+                detail_safe = escape(detail_trunc)
+                lines.append(f"  [cyan]{tool_safe:<12}[/cyan] [dim]{detail_safe}[/dim]")
         else:
             lines.append("[dim]recent: (none yet)[/dim]")
         self._body.update("\n".join(lines))
@@ -249,6 +274,7 @@ class AgentsScreen(Widget):
             return
         agent = self._agents[agent_key]
         agent.current_tool = f"{tool}  {detail[:50]}" if detail else tool
+        agent.idle_since = None  # tool in flight — agent is busy
         agent.recent_tools.insert(0, (tool, detail))
         agent.recent_tools = agent.recent_tools[:10]
         self._rebuild_grid()
@@ -257,26 +283,36 @@ class AgentsScreen(Widget):
         role = data.get("role", "agent")
         ticket_id = data.get("ticket_id", "")
         agent_key = f"{ticket_id}:{role}" if ticket_id else role
-        if agent_key in self._agents:
-            self._agents[agent_key].current_tool = None
+        if agent_key not in self._agents:
+            return
+        agent = self._agents[agent_key]
+        agent.current_tool = None
+        agent.idle_since = time.monotonic()  # start the idle clock
         self._rebuild_grid()
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
     def _load_role_config(self, agent: AgentState) -> None:
-        """Try to read role config from .jig/roles/<role>.yaml."""
+        """Try to read role config from .jig/roles/<role>.yaml.
+
+        ``load_role`` raises ``FileNotFoundError`` when the role file
+        is absent (legit — not every project ships every role).
+        Anything else (import errors, malformed YAML caught by
+        pydantic, etc.) is a real bug and should surface, so the
+        catch is narrow.
+        """
         path = self.project_path
         if path is None:
             return
-        try:
-            from jig.persistence import load_role
+        from jig.persistence import load_role
 
+        try:
             cfg = load_role(path, agent.role)
-            agent.allowed_tools = list(cfg.allowed_tools)
-            agent.allowed_mcps = list(cfg.allowed_mcps)
-            agent.phase_prompt = cfg.phase_prompt or ""
-        except Exception:
-            pass
+        except FileNotFoundError:
+            return
+        agent.allowed_tools = list(cfg.allowed_tools)
+        agent.allowed_mcps = list(cfg.allowed_mcps)
+        agent.phase_prompt = cfg.phase_prompt or ""
 
     def _rebuild_grid(self) -> None:
         """Sync the card grid to ``self._agents``: mount cards for new
@@ -292,19 +328,17 @@ class AgentsScreen(Widget):
         empty.display = not self._agents
         grid.display = bool(self._agents)
 
-        new_keys = set(self._agents.keys())
         existing_cards: dict[str, _AgentCard] = {
             card.agent_key: card
             for card in grid.children
             if isinstance(card, _AgentCard)
         }
 
-        # Remove stale cards.
-        for card_key, card in existing_cards.items():
-            if card_key not in new_keys:
-                card.remove()
-
-        # Update existing, mount new.
+        # ``self._agents`` is append-only — once an agent appears it
+        # stays (as a grey "inactive" card after its phase finishes)
+        # so the operator can still see "this is what ran." No
+        # removal pass needed today; revisit if/when agent eviction
+        # becomes a thing.
         for agent_key, agent in self._agents.items():
             existing = existing_cards.get(agent_key)
             if existing is not None:

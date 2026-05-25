@@ -229,6 +229,34 @@ class TestSyncProjectClaudeMd:
         )
         assert "CLAUDE.md" not in result.stdout
 
+    async def test_symlink_at_destination_does_not_overwrite_target(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """If a project plants a CLAUDE.md SYMLINK at the worktree root —
+        tracked or untracked — naive ``write_text`` would follow the link and
+        clobber whatever the link points to (potentially a file outside the
+        worktree). Sync must unlink the symlink first, then write a regular
+        file at that path."""
+        # File OUTSIDE the worktree that an attacker symlinks into the
+        # worktree as CLAUDE.md.
+        outside_target = tmp_path / "outside-target.txt"
+        outside_target.write_text("operator's important file\n")
+
+        # Plant the symlink inside the worktree.
+        symlink_path = git_repo / "CLAUDE.md"
+        symlink_path.symlink_to(outside_target)
+        assert symlink_path.is_symlink()
+
+        project = _make_project_with_claude_md(tmp_path, "jig content\n")
+        await sync_project_claude_md(git_repo, project)
+
+        # Outside file is untouched — link was unlinked, not followed.
+        assert outside_target.read_text() == "operator's important file\n"
+        # Inside the worktree, CLAUDE.md is now a regular file with jig content.
+        assert not symlink_path.is_symlink()
+        assert symlink_path.is_file()
+        assert symlink_path.read_text() == "jig content\n"
+
     async def test_project_root_spawn_is_a_noop(self, git_repo: Path) -> None:
         """Some jig spawns (init/spec-generator/concierge) use the project root
         AS their worktree. Sync must skip rather than clobber the operator's

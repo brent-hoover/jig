@@ -180,6 +180,14 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
         src.read_text(encoding="utf-8") if src.is_file() else _MISSING_PROJECT_STUB
     )
     dst = worktree_path / "CLAUDE.md"
+    # If the project has tracked or planted a CLAUDE.md *symlink* at the
+    # worktree root, write_text() would follow the link and overwrite the
+    # target — potentially a file outside the worktree. Unlink the symlink
+    # (removes only the link, not its target) before writing a fresh regular
+    # file. The subsequent skip-worktree / info-exclude bookkeeping then
+    # treats the regular file appropriately.
+    if dst.is_symlink():
+        dst.unlink()
     dst.write_text(content, encoding="utf-8")
 
     if await _is_tracked(worktree_path, "CLAUDE.md"):

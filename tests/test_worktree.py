@@ -180,7 +180,8 @@ class TestSyncProjectClaudeMd:
         await sync_project_claude_md(git_repo, project)
 
         exclude_path = _resolve_exclude_path(git_repo)
-        assert "CLAUDE.md" in exclude_path.read_text().splitlines()
+        # Anchored pattern — leading "/" in gitignore syntax matches root only.
+        assert "/CLAUDE.md" in exclude_path.read_text().splitlines()
 
     async def test_info_exclude_is_idempotent(
         self, git_repo: Path, tmp_path: Path
@@ -191,7 +192,72 @@ class TestSyncProjectClaudeMd:
 
         exclude_path = _resolve_exclude_path(git_repo)
         lines = exclude_path.read_text().splitlines()
-        assert lines.count("CLAUDE.md") == 1
+        assert lines.count("/CLAUDE.md") == 1
+
+    async def test_anchored_exclude_keeps_nested_claude_md_visible(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """The exclude entry must be ``/CLAUDE.md`` (root-anchored), not
+        ``CLAUDE.md`` (unanchored). An unanchored entry would silently
+        suppress nested files like ``docs/CLAUDE.md`` or
+        ``feature-work/foo/CLAUDE.md`` — agents could create those and they'd
+        never get committed."""
+        project = _make_project_with_claude_md(tmp_path, "content\n")
+        await sync_project_claude_md(git_repo, project)
+
+        # Plant a nested CLAUDE.md that should remain visible to git.
+        (git_repo / "docs").mkdir()
+        (git_repo / "docs" / "CLAUDE.md").write_text("nested content\n")
+
+        # Use git check-ignore — definitive answer on whether a path is
+        # ignored, independent of status's directory collapsing.
+        nested_check = subprocess.run(
+            ["git", "check-ignore", "docs/CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+        )
+        # Exit 1 = not ignored (what we want); exit 0 = ignored (the bug).
+        assert nested_check.returncode == 1, (
+            f"nested docs/CLAUDE.md should not be ignored; "
+            f"got rc={nested_check.returncode} stdout={nested_check.stdout!r}"
+        )
+
+        # Root CLAUDE.md must still be ignored.
+        root_check = subprocess.run(
+            ["git", "check-ignore", "CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+        )
+        assert root_check.returncode == 0
+
+    async def test_symlinked_project_source_is_rejected(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Same class of attack as the dst symlink, but on the READ side:
+        a project (or attacker who can write <project>/.jig/) points
+        .jig/CLAUDE.md at a file outside the project root. Sync must not
+        follow the link — falls back to the stub and logs a warning."""
+        # Sensitive file outside the project that an attacker wants leaked
+        # into the agent worktree.
+        outside_secret = tmp_path / "outside-secret.txt"
+        outside_secret.write_text("OPERATOR_SECRET_DO_NOT_LEAK\n")
+
+        # Set up a project whose .jig/CLAUDE.md is a SYMLINK to the secret.
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".jig").mkdir()
+        (project / ".jig" / "CLAUDE.md").symlink_to(outside_secret)
+        assert (project / ".jig" / "CLAUDE.md").is_symlink()
+
+        await sync_project_claude_md(git_repo, project)
+
+        # Worktree CLAUDE.md must NOT contain the secret.
+        worktree_claude = (git_repo / "CLAUDE.md").read_text()
+        assert "OPERATOR_SECRET" not in worktree_claude
+        # Falls back to the missing-project stub.
+        assert "jig-managed" in worktree_claude
 
     async def test_git_status_clean_after_sync_untracked(
         self, git_repo: Path, tmp_path: Path
@@ -324,9 +390,9 @@ class TestSyncProjectClaudeMd:
             linked_exclude = _resolve_exclude_path(linked)
             assert linked_exclude.resolve() == main_exclude_path.resolve()
 
-            # CLAUDE.md appears exactly once (idempotent + shared = no dup).
+            # /CLAUDE.md (anchored) appears exactly once.
             lines = linked_exclude.read_text().splitlines()
-            assert lines.count("CLAUDE.md") == 1
+            assert lines.count("/CLAUDE.md") == 1
 
             # git status in the linked worktree is clean.
             status = subprocess.run(

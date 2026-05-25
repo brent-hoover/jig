@@ -176,16 +176,29 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
         return
 
     src = project_path / ".jig" / "CLAUDE.md"
-    content = (
-        src.read_text(encoding="utf-8") if src.is_file() else _MISSING_PROJECT_STUB
-    )
+    # Reject symlinked source: a project (or an attacker who can write
+    # <project>/.jig/) could point .jig/CLAUDE.md outside the repo and the
+    # orchestrator would copy that host file into the agent worktree,
+    # bypassing the sandbox boundary. Treat a symlinked source as missing
+    # and use the stub instead, with a warning so the operator sees it.
+    if src.is_symlink():
+        _logger.warning(
+            "sync_project_claude_md: %s is a symlink; refusing to follow — "
+            "using missing-project stub instead",
+            src,
+        )
+        content = _MISSING_PROJECT_STUB
+    elif src.is_file():
+        content = src.read_text(encoding="utf-8")
+    else:
+        content = _MISSING_PROJECT_STUB
+
     dst = worktree_path / "CLAUDE.md"
-    # If the project has tracked or planted a CLAUDE.md *symlink* at the
-    # worktree root, write_text() would follow the link and overwrite the
-    # target — potentially a file outside the worktree. Unlink the symlink
-    # (removes only the link, not its target) before writing a fresh regular
-    # file. The subsequent skip-worktree / info-exclude bookkeeping then
-    # treats the regular file appropriately.
+    # Same symlink defense on the write side: if the project tracks (or an
+    # attacker plants) CLAUDE.md at the worktree root as a symlink,
+    # write_text() would follow the link and overwrite an external target.
+    # Unlink removes only the link, not its target; write_text then creates
+    # a fresh regular file.
     if dst.is_symlink():
         dst.unlink()
     dst.write_text(content, encoding="utf-8")
@@ -193,7 +206,9 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
     if await _is_tracked(worktree_path, "CLAUDE.md"):
         await _mark_skip_worktree(worktree_path, "CLAUDE.md")
     else:
-        await _add_to_local_exclude(worktree_path, "CLAUDE.md")
+        # Anchored pattern (leading "/" in gitignore syntax = repo root only)
+        # so nested `docs/CLAUDE.md` etc. remain visible to git.
+        await _add_to_local_exclude(worktree_path, "/CLAUDE.md")
 
 
 async def _git_capture(cwd: Path, *args: str) -> tuple[int, str, str]:

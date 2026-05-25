@@ -1,7 +1,7 @@
 ---
 title: Shared Learnings System — Problem Statement
 type: problem
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-05-25
 updated: 2026-05-25

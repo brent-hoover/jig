@@ -140,6 +140,8 @@ class MemoryStore:
         return "\n".join(parts)
 
     async def add_role_learning(self, *, roles: list[str], content: str) -> list[str]:
+        if not roles:
+            raise ValueError("roles must contain at least one role")
         ids = []
         for role in roles:
             learning = Learning(

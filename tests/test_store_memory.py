@@ -1,3 +1,5 @@
+import pytest
+
 from jig.store.memory import Handoff, Learning, MemoryStore
 
 
@@ -219,6 +221,13 @@ async def test_add_role_learning_returns_ids_for_each_role(tmp_path):
     ids = await mem.add_role_learning(roles=["dev", "test"], content="tip")
     assert len(ids) == 2
     assert all(isinstance(i, str) for i in ids)
+
+
+async def test_add_role_learning_rejects_empty_roles(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    with pytest.raises(ValueError, match="roles"):
+        await mem.add_role_learning(roles=[], content="tip")
 
 
 async def test_get_role_learnings_returns_most_recent_when_over_limit(tmp_path):

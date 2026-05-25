@@ -461,8 +461,8 @@ async def test_record_learning_fans_out_to_multiple_roles(tmp_path: Path) -> Non
     )
     dev = await memory.get_role_learnings("dev")
     test = await memory.get_role_learnings("test")
-    assert [l.content for l in dev] == ["use disable_error_codes not ignore_errors"]
-    assert [l.content for l in test] == ["use disable_error_codes not ignore_errors"]
+    assert [learning.content for learning in dev] == ["use disable_error_codes not ignore_errors"]
+    assert [learning.content for learning in test] == ["use disable_error_codes not ignore_errors"]
 
 
 @pytest.mark.asyncio

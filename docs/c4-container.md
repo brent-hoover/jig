@@ -252,7 +252,9 @@ over stdio, or as the subprocess exit code and stdout captured by the SDK.
 - **Sandboxing (host mode)**: bwrap wraps the subprocess directly on the host (Linux only)
 - **Worktree**: Each dev-role agent writes to an isolated git worktree under `.worktrees/` in the project root
 - **Environment**: `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_PERMISSION_MODE=bypassPermissions`,
-  `CLAUDE_CONFIG_DIR=/tmp/jig-claude-config`, `GIT_CONFIG_COUNT=1` (disables GPG signing)
+  `CLAUDE_CONFIG_DIR=~/.jig/claude-agent-configs/<spawn-uuid>/` (per-spawn isolated dir on host; bound into
+  sandbox at `/jig/claude-config` in Docker/bwrap mode; removed after agent exits),
+  `GIT_CONFIG_COUNT=1` (disables GPG signing)
 
 ---
 

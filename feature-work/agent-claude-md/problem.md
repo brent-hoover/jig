@@ -114,7 +114,11 @@ small file writes per spawn.
 
 - No operator-level customization of the global file (no `~/.jig/CLAUDE.md` override mechanism).
   Operators who really want to tweak it edit the shipped file in their checkout.
-- No per-role variants — every agent on a given project sees the same two files regardless of role.
+- No project-level or operator-level overrides of the per-role addendum. Per-role addendums are
+  package-shipped only (the design covers a single addendum slot at
+  `jig/defaults/roles/<role>/CLAUDE.md` so e.g. reviewers can carry distinct guidance from
+  developers). The original "no per-role variants" non-goal was relaxed during brainstorming —
+  see the design's Alternatives section.
 - No content-level merging of the global and project files. They remain two separate files in two
   separate locations and Claude Code loads both on its own.
 - No touching the project's source repo — only the worktree and the CLAUDE_CONFIG_DIR.
@@ -143,3 +147,5 @@ None. All initial open questions resolved during brainstorming (see Change log).
 - 2026-05-25: Resolved open questions — missing-file behavior is "write minimal stub", no
   migration mechanism, per-template starter content, real global content drafted as part of this
   feature (brent)
+- 2026-05-25: Relaxed "no per-role variants" non-goal to align with the per-role addendum
+  decision in the design (roborev #159 LOW) (brent)

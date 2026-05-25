@@ -149,10 +149,25 @@ def sync_project_claude_md(worktree_path: Path, project_path: Path) -> None:
     "jig wins" holds even for un-scaffolded projects.
 
     Uncommittable mechanism: ``git update-index --skip-worktree`` when the
-    file is tracked in this repo, ``.git/info/exclude`` (per-worktree)
-    otherwise. Both are best-effort — git failures log a warning but do not
-    raise, since the content placement is the primary guarantee.
+    file is tracked, per-worktree ``info/exclude`` (resolved via
+    ``git rev-parse --git-path``) otherwise. Both are best-effort — git
+    failures log a warning but do not raise, since the content placement is
+    the primary guarantee.
+
+    No-op when ``worktree_path`` equals ``project_path``. Some jig spawns
+    (init/spec-generator/concierge) run with the real project root as their
+    worktree — calling sync there would clobber the operator's checked-in
+    root ``CLAUDE.md`` and the skip-worktree mark would hide the damage from
+    ``git status``.
     """
+    if worktree_path.resolve() == project_path.resolve():
+        _logger.debug(
+            "sync_project_claude_md: project-root spawn at %s — skipping to avoid "
+            "clobbering operator's root CLAUDE.md",
+            worktree_path,
+        )
+        return
+
     src = project_path / ".jig" / "CLAUDE.md"
     content = (
         src.read_text(encoding="utf-8") if src.is_file() else _MISSING_PROJECT_STUB

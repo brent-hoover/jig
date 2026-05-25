@@ -59,12 +59,21 @@ for un-scaffolded projects.
    ```
 
    Algorithm:
+   - Short-circuit: if `worktree_path.resolve() == project_path.resolve()`, return without
+     touching the filesystem. Some jig spawns (init / spec-generator / concierge) run with the
+     real project root as their worktree; calling sync there would clobber the operator's
+     checked-in root `CLAUDE.md` and the skip-worktree mark would hide the damage from
+     `git status`.
    - Read `<project_path>/.jig/CLAUDE.md`. If missing, use `_MISSING_PROJECT_STUB`.
    - Write content atomically to `<worktree_path>/CLAUDE.md`.
    - Determine tracked-ness: `git -C <worktree> ls-files --error-unmatch CLAUDE.md`.
      - If tracked (the project committed a `/CLAUDE.md`): `git update-index --skip-worktree CLAUDE.md`.
-     - If untracked: append `CLAUDE.md\n` to `<worktree>/.git/info/exclude` (idempotently — read,
-       check for the line, append only if missing).
+     - If untracked: resolve the per-worktree exclude path via
+       `git -C <worktree> rev-parse --git-path info/exclude` (this returns the linked-worktree
+       gitdir's `info/exclude` for `git worktree add`-style worktrees where `.git` is a file, and
+       the main `.git/info/exclude` for regular repos). Append `CLAUDE.md\n` idempotently (read,
+       check for the line, append only if missing). Naive concatenation of `<worktree>/.git/info/exclude`
+       would write to a non-existent path in linked worktrees.
    - Both git commands logged on failure (warning) but never raised. The injected content is
      present either way; the only risk is a spurious modification appearing in `git status`.
 
@@ -238,3 +247,8 @@ invariant idiomatically. Two small file writes per spawn — negligible.
 - 2026-05-25: Added per-role addendum mechanism (package-shipped only, no project override) —
   reviewer / developer / etc. can carry distinct conventions concatenated onto the global file
   (brent)
+- 2026-05-25: Documented the project-root short-circuit (roborev #160 HIGH — init / spec-gen /
+  concierge spawns use project-root-as-worktree) and clarified that the per-worktree
+  `info/exclude` is resolved via `git rev-parse --git-path` rather than a raw
+  `<worktree>/.git/info/exclude` path (roborev #159 HIGH — linked worktrees have `.git` as a
+  file, not a directory) (brent)

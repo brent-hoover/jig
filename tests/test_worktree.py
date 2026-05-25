@@ -211,3 +211,83 @@ class TestSyncProjectClaudeMd:
             check=True,
         )
         assert "CLAUDE.md" not in result.stdout
+
+    def test_project_root_spawn_is_a_noop(self, git_repo: Path) -> None:
+        """Some jig spawns (init/spec-generator/concierge) use the project root
+        AS their worktree. Sync must skip rather than clobber the operator's
+        checked-in root CLAUDE.md."""
+        (git_repo / "CLAUDE.md").write_text("operator's real root CLAUDE.md\n")
+        subprocess.run(["git", "add", "CLAUDE.md"], cwd=git_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "add CLAUDE.md"], cwd=git_repo, check=True
+        )
+
+        # worktree_path == project_path simulates the init/spec_generator path.
+        sync_project_claude_md(git_repo, git_repo)
+
+        # Content untouched.
+        assert (
+            git_repo / "CLAUDE.md"
+        ).read_text() == "operator's real root CLAUDE.md\n"
+        # No skip-worktree applied — operator can still edit + commit normally.
+        result = subprocess.run(
+            ["git", "ls-files", "-v", "CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout.startswith("H ")
+
+    def test_linked_worktree_info_exclude_is_per_worktree(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """In a real linked worktree (created by ``git worktree add``),
+        ``.git`` is a file pointing at the per-worktree gitdir, and
+        ``info/exclude`` is per-worktree. Resolving via
+        ``git rev-parse --git-path info/exclude`` must land in the linked
+        worktree's exclude, not the main repo's."""
+        subprocess.run(
+            ["git", "worktree", "add", "../linked", "-b", "linked-branch"],
+            cwd=git_repo,
+            check=True,
+            capture_output=True,
+        )
+        linked = git_repo.parent / "linked"
+        try:
+            # .git is a file in linked worktrees, not a directory.
+            assert (linked / ".git").is_file()
+
+            project = _make_project_with_claude_md(tmp_path, "linked content\n")
+            sync_project_claude_md(linked, project)
+
+            # The linked worktree's per-worktree info/exclude should now contain
+            # CLAUDE.md, NOT the main repo's exclude.
+            git_dir_result = subprocess.run(
+                ["git", "rev-parse", "--git-path", "info/exclude"],
+                cwd=linked,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            exclude_relpath = git_dir_result.stdout.strip()
+            exclude_path = Path(exclude_relpath)
+            if not exclude_path.is_absolute():
+                exclude_path = linked / exclude_path
+            assert "CLAUDE.md" in exclude_path.read_text().splitlines()
+
+            # And git status in the linked worktree is clean.
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=linked,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            assert "CLAUDE.md" not in status.stdout
+        finally:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(linked)],
+                cwd=git_repo,
+                capture_output=True,
+            )

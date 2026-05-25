@@ -37,9 +37,14 @@ include = ["jig*"]
 "jig.sim.personas" = ["*.yaml"]
 # Built-in defaults: roles, workflows, work_types, profiles, and the
 # shipped check catalog (loaded as a fallback when the project lacks
-# ``.jig/checks.yaml``).
-"jig.defaults" = ["checks.yaml"]
-"jig.defaults.roles" = ["*.yaml"]
+# ``.jig/checks.yaml``). ``*.md`` covers ``agent_claude_md.md`` (the
+# global CLAUDE.md injected into every agent spawn) and any future
+# top-level markdown defaults.
+"jig.defaults" = ["checks.yaml", "*.md"]
+# ``**/*.md`` covers per-role ``CLAUDE.md`` addendums shipped at
+# ``jig/defaults/roles/<role>/CLAUDE.md`` and concatenated onto the
+# global agent CLAUDE.md at spawn time (jig.agent_config).
+"jig.defaults.roles" = ["*.yaml", "**/*.md"]
 "jig.defaults.workflows" = ["*.yaml"]
 "jig.defaults.work_types" = ["*.yaml"]
 "jig.defaults.profiles" = ["*.yaml"]

@@ -1,15 +1,20 @@
-"""Right-docked Sidebar with four subzones (Activity / Needs You / Queue / Tail).
+"""Bottom-docked Sidebar — TabbedContent over three subzones.
 
 Per ``ontology.md`` "Sidebar" terminology. Visible regardless of which
 Pane is active so the operator always has a peripheral view of:
 
   - Activity:  which agents are currently thinking / running
-  - Needs You: tickets currently blocked on operator input
-  - Queue:     which tickets are open / waiting
-  - Tail:      the most recent bus events
+                 (tab badge: count of active agents)
+  - Tickets:   which tickets are open / waiting
+                 (tab badge: count of open tickets)
+  - Recent:    the most recent bus events
 
 Each subzone is fed by JigApp's ``_handle_daemon_message`` fan-out
 when relevant snapshots / events arrive.
+
+The earlier "Needs You" zone has been folded into the rest of the
+flow — actionable prompts surface as ticket status changes (Tickets)
+and as events in Recent rather than as a dedicated zone.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Static, TabbedContent, TabPane
 
 from jig.tui import ligature_safe
 
@@ -50,46 +55,39 @@ class _Zone(Vertical):
         self._body.update("\n".join(lines))
 
 
+_TAB_BASE_LABELS: dict[str, str] = {
+    "activity-tab": "Activity",
+    "tickets-tab": "Tickets",
+    "recent-tab": "Recent",
+}
+
+
 class Sidebar(Widget):
-    """Right-docked persistent sidebar with three subzones."""
+    """Bottom-docked persistent sidebar — TabbedContent over Activity / Tickets / Recent."""
 
     DEFAULT_CSS = """
     Sidebar {
-        width: 36;
-        dock: right;
+        height: 33%;
+        dock: bottom;
         background: #1a2030;
-        border-left: solid $accent;
+        border: round $accent;
+        margin: 0 2 1 2;
     }
-    Sidebar > Vertical {
+    Sidebar TabbedContent {
         height: 1fr;
     }
-    Sidebar #activity {
-        height: auto;
-        min-height: 4;
-        max-height: 30;
+    Sidebar TabPane {
         padding: 0 1 1 1;
-        border-bottom: dashed $accent-darken-2;
     }
-    Sidebar #needs-you {
-        height: auto;
-        min-height: 3;
-        max-height: 10;
-        padding: 0 1 1 1;
-        background: #2a2418;
-        border-bottom: dashed $warning;
-    }
-    Sidebar #queue {
+    Sidebar #activity, Sidebar #queue, Sidebar #tail {
         height: 1fr;
-        padding: 0 1 1 1;
-        border-bottom: dashed $accent-darken-2;
-    }
-    Sidebar #tail {
-        height: 12;
-        padding: 0 1;
+        padding: 0;
     }
     .zone-header {
-        height: 1;
-        margin-bottom: 0;
+        /* Per-zone header is redundant when tabs already label the
+           current view. Hidden, but kept in _Zone.compose so the body
+           renderer stays unchanged. */
+        display: none;
     }
     """
 
@@ -101,30 +99,40 @@ class Sidebar(Widget):
         ] = {}  # "ticket_id:role" → [(tool, detail)]
         self._tickets: dict[str, dict[str, Any]] = {}
         self._events: list[dict[str, Any]] = []
-        self._active_prompt: dict | None = None
 
     def compose(self) -> ComposeResult:
-        with Vertical():
-            yield _Zone(
-                zone_id="activity",
-                title="Activity",
-                empty="no agents running",
-            )
-            yield _Zone(
-                zone_id="needs-you",
-                title="Needs You",
-                empty="nothing waiting on you",
-            )
-            yield _Zone(
-                zone_id="queue",
-                title="Tickets",
-                empty="no open tickets",
-            )
-            yield _Zone(
-                zone_id="tail",
-                title="Recent",
-                empty="no events yet",
-            )
+        with TabbedContent(initial="activity-tab"):
+            with TabPane("Activity", id="activity-tab"):
+                yield _Zone(
+                    zone_id="activity",
+                    title="Activity",
+                    empty="no agents running",
+                )
+            with TabPane("Tickets", id="tickets-tab"):
+                yield _Zone(
+                    zone_id="queue",
+                    title="Tickets",
+                    empty="no open tickets",
+                )
+            with TabPane("Recent", id="recent-tab"):
+                yield _Zone(
+                    zone_id="tail",
+                    title="Recent",
+                    empty="no events yet",
+                )
+
+    def _set_tab_badge(self, tab_id: str, count: int) -> None:
+        """Set the visible tab label to ``Base`` or ``Base (count)``.
+        Silently no-op if the TabbedContent isn't mounted yet (early-init events)."""
+        base = _TAB_BASE_LABELS.get(tab_id)
+        if base is None:
+            return
+        try:
+            tabs = self.query_one(TabbedContent)
+            tab = tabs.get_tab(tab_id)
+        except Exception:
+            return
+        tab.label = base if count == 0 else f"{base} ({count})"
 
     # ---------------------------------------------------------------------
     # Activity — driven by agent_thinking events
@@ -171,6 +179,7 @@ class Sidebar(Widget):
         all_keys: list[str] = list(
             dict.fromkeys(list(self._active_agents) + list(self._agent_tools))
         )
+        self._set_tab_badge("activity-tab", len(all_keys))
         if not all_keys:
             zone.set_lines([])
             return
@@ -213,7 +222,6 @@ class Sidebar(Widget):
         else:
             self._tickets = {t["id"]: t for t in data if "id" in t}
         self._render_queue()
-        self._render_needs_you()
 
     def update_ticket_event(self, kind: str, data: dict) -> None:
         ticket_payload = (
@@ -228,7 +236,6 @@ class Sidebar(Widget):
             merged["id"] = ticket_id
         self._tickets[ticket_id] = merged
         self._render_queue()
-        self._render_needs_you()
 
     _STATUS_GLYPH = {
         "open": "○",
@@ -254,55 +261,6 @@ class Sidebar(Widget):
         {"open", "in_progress", "blocked", "needs_info", "merge_conflict"}
     )
 
-    def update_prompt(self, data: dict | None) -> None:
-        """Called when a prompt becomes active (data) or is resolved (None)."""
-        self._active_prompt = data
-        self._render_needs_you()
-
-    def _render_needs_you(self) -> None:
-        """Render tickets currently blocked on operator input.
-
-        Driven from the tickets snapshot — every ticket with status
-        ``needs_info`` (or ``merge_conflict``, which also requires
-        operator action) shows up here so the operator can see at a
-        glance what's actually waiting on them.
-        """
-        try:
-            zone = self.query_one("#needs-you", _Zone)
-        except Exception:
-            return
-        actionable = [
-            t
-            for t in self._tickets.values()
-            if t.get("status") in ("needs_info", "merge_conflict")
-        ]
-        # Sort: needs_info before merge_conflict (input is less destructive
-        # than resolving a conflict, do the easy ones first).
-        actionable.sort(key=lambda t: 0 if t.get("status") == "needs_info" else 1)
-        lines = []
-        if self._active_prompt:
-            _TYPE_LABELS = {
-                "brief_approval": "approve brief",
-                "question_answer": "answer question",
-                "init_complete": "confirm init",
-                "direct_template": "fill template",
-            }
-            pt = self._active_prompt.get("prompt_type", "")
-            label = _TYPE_LABELS.get(pt, pt.replace("_", " ") or "respond to prompt")
-            lines.append(f"[bold magenta]▶[/bold magenta] {label}")
-        for t in actionable[:6]:
-            status = t.get("status", "")
-            # Truncate before ligature_safe — ZWSPs inflate len().
-            title = t.get("title", "(untitled)")
-            if len(title) > 24:
-                title = title[:21] + "…"
-            title = ligature_safe(title)
-            if status == "needs_info":
-                lines.append(f"[bold yellow]?[/bold yellow] {title}")
-            else:
-                lines.append(f"[bold yellow]⚠[/bold yellow] {title}")
-        zone.set_lines(lines)
-
     def _render_queue(self) -> None:
         try:
             zone = self.query_one("#queue", _Zone)
@@ -314,6 +272,7 @@ class Sidebar(Widget):
             for t in self._tickets.values()
             if t.get("status", "open") in self._OPEN_STATUSES
         ]
+        self._set_tab_badge("tickets-tab", len(open_tickets))
         # Sort: needs_info first, then in_progress, then open, then blocked.
         order = {
             "needs_info": 0,

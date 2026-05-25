@@ -4,6 +4,7 @@ These don't run the TUI in a real terminal (Textual provides a
 ``Pilot`` for headless testing). They verify the app composes
 correctly, screens are mounted, and tab navigation works.
 """
+
 from pathlib import Path
 
 import pytest
@@ -99,25 +100,28 @@ async def test_now_routes_input_to_prompt_reply_in_answering_mode(tmp_path: Path
         now = app.query_one(NowScreen)
 
         # Simulate a prompt_request arriving from the daemon
-        await now.handle_daemon_event({
-            "type": "event",
-            "topic": "prompts",
-            "kind": "request",
-            "data": {
-                "prompt_id": "abc-123",
-                "prompt_type": "brief_approval",
-                "rendered": "(brief preview here)",
-                "question": "Approve brief?",
-                "options": [
-                    {"key": "Y", "label": "Yes", "default": True},
-                    {"key": "n", "label": "No"},
-                ],
-            },
-        })
+        await now.handle_daemon_event(
+            {
+                "type": "event",
+                "topic": "prompts",
+                "kind": "request",
+                "data": {
+                    "prompt_id": "abc-123",
+                    "prompt_type": "brief_approval",
+                    "rendered": "(brief preview here)",
+                    "question": "Approve brief?",
+                    "options": [
+                        {"key": "Y", "label": "Yes", "default": True},
+                        {"key": "n", "label": "No"},
+                    ],
+                },
+            }
+        )
 
         # Verify we're in answering mode — hint is written to scrollback
         # (TextArea has no placeholder; the hint appears as a dim scrollback line)
         from textual.widgets import RichLog
+
         scrollback = app.query_one("#scrollback", RichLog)
         sb_text = "\n".join(str(line) for line in scrollback.lines)
         assert now._active_prompt_id == "abc-123", "should be in answering mode"
@@ -151,12 +155,14 @@ async def test_now_renders_agent_render_events_to_scrollback(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test():
         now = app.query_one(NowScreen)
-        await now.handle_daemon_event({
-            "type": "event",
-            "topic": "agents",
-            "kind": "render",
-            "data": {"content": "TEST_RENDERED_LINE"},
-        })
+        await now.handle_daemon_event(
+            {
+                "type": "event",
+                "topic": "agents",
+                "kind": "render",
+                "data": {"content": "TEST_RENDERED_LINE"},
+            }
+        )
         scrollback = app.query_one("#scrollback", RichLog)
         text = "\n".join(str(line) for line in scrollback.lines)
         assert "TEST_RENDERED_LINE" in text
@@ -171,12 +177,14 @@ async def test_now_renders_agent_text_events_to_scrollback(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test():
         now = app.query_one(NowScreen)
-        await now.handle_daemon_event({
-            "type": "event",
-            "topic": "agents",
-            "kind": "text",
-            "data": {"role": "concierge", "text": "Hello operator!"},
-        })
+        await now.handle_daemon_event(
+            {
+                "type": "event",
+                "topic": "agents",
+                "kind": "text",
+                "data": {"role": "concierge", "text": "Hello operator!"},
+            }
+        )
         scrollback = app.query_one("#scrollback", RichLog)
         text = "\n".join(str(line) for line in scrollback.lines)
         assert "concierge" in text and "Hello operator!" in text
@@ -191,8 +199,10 @@ async def test_now_routes_free_text_to_concierge_command(tmp_path: Path):
     sent_commands: list[tuple[str, dict]] = []
 
     async with app.run_test() as pilot:
+
         async def fake_send_command(name, args):
             sent_commands.append((name, args))
+
         app.client.send_command = fake_send_command  # type: ignore[method-assign]
 
         now = app.query_one(NowScreen)
@@ -289,21 +299,25 @@ async def test_thinking_indicator_shows_and_hides(tmp_path: Path):
         assert "visible" not in indicator.classes
 
         # Active → shown
-        await now.handle_daemon_event({
-            "type": "event",
-            "topic": "agents",
-            "kind": "thinking",
-            "data": {"role": "po", "elapsed": 5, "active": True},
-        })
+        await now.handle_daemon_event(
+            {
+                "type": "event",
+                "topic": "agents",
+                "kind": "thinking",
+                "data": {"role": "po", "elapsed": 5, "active": True},
+            }
+        )
         assert "visible" in indicator.classes
 
         # Inactive → hidden
-        await now.handle_daemon_event({
-            "type": "event",
-            "topic": "agents",
-            "kind": "thinking",
-            "data": {"role": "po", "elapsed": 12, "active": False},
-        })
+        await now.handle_daemon_event(
+            {
+                "type": "event",
+                "topic": "agents",
+                "kind": "thinking",
+                "data": {"role": "po", "elapsed": 12, "active": False},
+            }
+        )
         assert "visible" not in indicator.classes
 
 
@@ -313,15 +327,17 @@ async def test_sidebar_mounts_and_receives_data(tmp_path: Path):
     from jig.tui.widgets.sidebar import Sidebar
 
     app = JigApp(project_path=tmp_path)
-    async with app.run_test() as pilot:
+    async with app.run_test():
         sidebar = app.query_one(Sidebar)
         assert sidebar is not None
 
         # Feed a tickets snapshot through the sidebar's public API
-        sidebar.update_tickets_snapshot([
-            {"id": "T-1", "title": "Fix the thing", "status": "open"},
-            {"id": "T-2", "title": "Do the other thing", "status": "in_progress"},
-        ])
+        sidebar.update_tickets_snapshot(
+            [
+                {"id": "T-1", "title": "Fix the thing", "status": "open"},
+                {"id": "T-2", "title": "Do the other thing", "status": "in_progress"},
+            ]
+        )
 
         # Assert immediately — the update is synchronous; pausing risks
         # a real daemon on :9100 sending a snapshot and resetting state.
@@ -370,3 +386,81 @@ async def test_ctrl_s_toggles_sidebar(tmp_path: Path):
 
         await pilot.press("ctrl+s")
         assert "-hidden" not in sidebar.classes
+
+
+@pytest.mark.asyncio
+async def test_sidebar_exposes_three_tabs(tmp_path: Path):
+    """The bottom-docked sidebar uses a TabbedContent over Activity /
+    Tickets / Recent — these three tab ids are the public contract the
+    badge-update helpers (and any external observer) depend on."""
+    from textual.widgets import TabbedContent
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        sidebar = app.query_one(Sidebar)
+        tabs = sidebar.query_one(TabbedContent)
+        tab_ids = [pane.id for pane in tabs.query("TabPane")]
+        assert tab_ids == ["activity-tab", "tickets-tab", "recent-tab"]
+
+
+@pytest.mark.asyncio
+async def test_sidebar_activity_badge_reflects_agent_count(tmp_path: Path):
+    """Driving update_thinking with two distinct agents should produce
+    'Activity (2)' on the tab label; clearing back to zero restores
+    the base label 'Activity'."""
+    from textual.widgets import TabbedContent
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        sidebar = app.query_one(Sidebar)
+        tabs = sidebar.query_one(TabbedContent)
+        activity_tab = tabs.get_tab("activity-tab")
+
+        # Two active agents on different tickets.
+        sidebar.update_thinking(
+            {"role": "dev", "ticket_id": "T-1", "elapsed": 5, "active": True}
+        )
+        sidebar.update_thinking(
+            {"role": "test", "ticket_id": "T-2", "elapsed": 3, "active": True}
+        )
+        assert str(activity_tab.label) == "Activity (2)"
+
+        # Drop one; badge updates to (1).
+        sidebar.update_thinking(
+            {"role": "dev", "ticket_id": "T-1", "elapsed": 5, "active": False}
+        )
+        assert str(activity_tab.label) == "Activity (1)"
+
+
+@pytest.mark.asyncio
+async def test_sidebar_tickets_badge_reflects_open_count(tmp_path: Path):
+    """A tickets snapshot with N open / in-progress / blocked tickets
+    should produce 'Tickets (N)' on the tab label. Closed / resolved
+    tickets are not counted."""
+    from textual.widgets import TabbedContent
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        sidebar = app.query_one(Sidebar)
+        tabs = sidebar.query_one(TabbedContent)
+        tickets_tab = tabs.get_tab("tickets-tab")
+
+        sidebar.update_tickets_snapshot(
+            [
+                {"id": "T-1", "title": "open one", "status": "open"},
+                {"id": "T-2", "title": "in-flight one", "status": "in_progress"},
+                {"id": "T-3", "title": "done one", "status": "resolved"},
+                {"id": "T-4", "title": "closed one", "status": "closed"},
+            ]
+        )
+        assert str(tickets_tab.label) == "Tickets (2)"
+
+        # Clear: badge collapses to the base label.
+        sidebar.update_tickets_snapshot([])
+        assert str(tickets_tab.label) == "Tickets"

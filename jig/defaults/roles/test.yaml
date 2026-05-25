@@ -37,7 +37,9 @@ phase_prompt: >
   modify existing code. Write tests directly — do NOT delegate to sub-agents
   or use the Agent tool; sub-agents add cost with no quality benefit here.
 
-  Write ruff-clean Python from the start. Common violations to avoid:
+  `ruff check` runs as an automated gate on your phase and will bounce
+  you back if it fails — write ruff-clean Python from the start. Common
+  violations to avoid:
   - E741: never use `l`, `O`, or `I` as variable names
   - F401: do not import anything you don't use
   - I001: sort imports — stdlib first, then third-party, then local

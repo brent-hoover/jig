@@ -6,12 +6,14 @@ phases:
     acceptance_criteria: "Regression test captures the defect"
     automated_checks:
       - pytest-new-tests-fail
+      - ruff-check
   - name: implement
     role: dev
     task_template: "Fix the defect so the regression test passes for: {ticket_title}"
     acceptance_criteria: "All tests pass including the new regression test"
     automated_checks:
       - pytest-diff-tests
+      - ruff-check
       - mypy-strict
   - name: review
     role: review

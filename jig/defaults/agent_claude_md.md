@@ -38,9 +38,12 @@ list. The tools you'll use most:
   move to another role.
 
 **Working code**
-- `commit_progress` — commit your changes in the worktree. Pass a conventional-commit message.
-  Use this rather than raw `git commit`; it goes through the same per-commit reviewer hooks the
-  human flow uses.
+- `commit_progress` — commit your changes in the worktree. Pass a SHORT description of what
+  changed (e.g. `"add CRUD endpoints for todos"`, `"fix off-by-one in pagination"`). The tool
+  wraps it as `feat(<your-role>): <message>` — do NOT prepend your own `feat(...)` /
+  `fix(...)` prefix or you'll end up with nested subjects like `feat(dev): feat(api): ...`.
+  Body / refs / multi-line context belong in `thread_note`, not the commit message. Use this
+  rather than raw `git commit` — it runs the per-commit reviewer hooks the human flow uses.
 - `add_dependency` — declare an external dependency rather than running install commands.
 
 **Knowledge**
@@ -64,7 +67,14 @@ not a silent partial resolution.
 
 ## Commits
 
-Use the conventional-commit format. Subject under 70 characters, imperative, present tense:
+Prefer the `commit_progress` MCP tool over raw `git commit` — it runs jig's per-commit
+reviewer hooks and links the commit to the ticket. Pass a SHORT description (one line,
+under 70 chars, imperative, present tense, describing what changed); the tool wraps it as
+`feat(<your-role>): <message>` automatically. Don't pass a full conventional-commit string
+yourself — that produces nested subjects like `feat(dev): feat(api): ...`.
+
+If you need to use raw `git commit` (rare), follow the conventional-commit format yourself.
+Subject under 70 characters, imperative, present tense:
 
 ```
 fix(scope): Short description of the change
@@ -82,8 +92,6 @@ Refs <ticket-id> if relevant.
   exist for reasons that aren't always visible to you.
 - If a hook fails, fix the cause and create a NEW commit. Do not `--amend` a failed commit;
   the hook prevented the commit from existing, so amending modifies an earlier one.
-
-The `commit_progress` MCP tool wraps this — prefer it over raw `git commit`.
 
 ## Comments in code
 

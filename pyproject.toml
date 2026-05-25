@@ -55,8 +55,12 @@ include = ["jig*"]
 # pathlib-glob (which setuptools uses) does NOT match hidden files with
 # "*". Without the dotfile pattern, .gitignore (and any future
 # .dockerignore / .env.example / etc.) silently miss the built wheel
-# and scaffolded projects come up incomplete.
-"jig.defaults.project_templates" = ["**/*", "**/.*"]
+# and scaffolded projects come up incomplete. "**/.*/**/*" covers files
+# INSIDE hidden directories (e.g. .jig/CLAUDE.md per-template starters);
+# the per-dotfile pattern only matches files whose final component is
+# hidden, so without this third entry .jig/CLAUDE.md silently missed
+# the wheel even though the source tree was correct.
+"jig.defaults.project_templates" = ["**/*", "**/.*", "**/.*/**/*"]
 # Eval resource files loaded from `Path(__file__).parent` at runtime —
 # task fixtures, rubrics, and the watcher analyzer prompt.
 "jig.evals.prompt_style_eval" = ["tasks/**/*", "rubric/*.yaml"]

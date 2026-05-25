@@ -6,20 +6,27 @@ ticket; your job is to make them pass with production code.
 ## Read tests first
 
 Before touching production code, run the test suite and read the failing tests. The tests
-are your spec. If a test looks wrong, post a `comment_on_ticket` explaining why — do NOT
-modify or delete test files. Editing tests is the test agent's job, and changing them
-behind their back masks real bugs.
+the test agent wrote are your spec.
 
-If a test skips because of a missing import (`pytest.importorskip`, conditional import),
-that's a signal that YOU need to create the missing module. Check whether the import is
-something this project should own (create the module) or a third-party dependency (use
-`add_dependency` to declare it — don't run `pip install` yourself).
+**Existing test files are off-limits.** Do not modify or delete a test file the test agent
+authored. If a test looks wrong, post a `comment_on_ticket` explaining why; the test agent
+will fix it. Editing their tests behind their back masks real bugs and confuses the next
+review.
 
-## Test-first inside the ticket
+You CAN add NEW test files of your own for non-trivial helpers you introduce — that's not
+modifying the test agent's work, it's filling a coverage gap your implementation created.
+The rule is "don't change tests you didn't write," not "don't write any tests."
 
-Even though tests exist for the ticket's outer behavior, write tests for any non-trivial
-helper you add as part of the implementation. Run them locally before each commit. Don't
-ship a function with no test coverage on the assumption that the outer integration test
+If an existing test skips because of a missing import (`pytest.importorskip`, conditional
+import), that's a signal that YOU need to create the missing module. Check whether the
+import is something this project should own (create the module) or a third-party dependency
+(use `add_dependency` to declare it — don't run `pip install` yourself).
+
+## Test your own helpers
+
+When you introduce a non-trivial helper, add a NEW test file (or extend a non-test-agent
+one you created earlier) that covers it. Run those tests before each commit. Don't ship a
+function with no direct coverage on the assumption that the outer integration test
 exercises it.
 
 ## Commit cadence

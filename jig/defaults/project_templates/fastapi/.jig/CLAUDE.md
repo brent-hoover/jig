@@ -17,14 +17,16 @@ project-specific sections below as the design takes shape.
 ```
 src/<package>/
   __init__.py
-  main.py           # FastAPI app instance (typically `app = FastAPI(...)`)
+  app.py            # FastAPI app instance (`app = FastAPI(...)`)
   ...               # routers, models, dependencies as the design evolves
 tests/              # pytest suite — endpoint tests use httpx async client
 pyproject.toml
 Dockerfile          # If present, the deploy target
 ```
 
-`<package>` is the snake-cased `[project] name`.
+`<package>` is the snake-cased `[project] name`. The FastAPI app instance lives at
+`<package>.app:app` (module `app.py`, attribute `app`) — that's the import path uvicorn
+and the test client need.
 
 ## Common commands
 
@@ -34,7 +36,7 @@ uv run pytest tests/ -v                          # Run the test suite
 uv run ruff check .                              # Lint
 uv run ruff format .                             # Format
 uv run mypy src                                  # Type-check
-uv run uvicorn <package>.main:app --reload       # Local dev server (port 8000)
+uv run uvicorn <package>.app:app --reload        # Local dev server (port 8000)
 ```
 
 For new dependencies use the `add_dependency` MCP tool — don't edit `pyproject.toml`

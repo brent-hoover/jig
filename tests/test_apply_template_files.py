@@ -54,12 +54,37 @@ def test_apply_template_files_writes_jig_claude_md(
     )
 
 
-def test_apply_template_files_substitutes_project_name(tmp_path: Path) -> None:
-    """Sanity: the per-template starter doesn't accidentally introduce a
-    `myproject` string that should have been substituted away. The template
-    copy already runs the `myproject` -> `<package>` substitution; any new
-    file added to the template tree needs to either use the placeholder or
-    be substitution-stable."""
+@pytest.mark.parametrize("template", ["python", "python-cli", "fastapi"])
+def test_template_starter_uses_placeholder_not_literal_myproject(
+    template: str,
+) -> None:
+    """Check the SOURCE `.jig/CLAUDE.md` directly, not the scaffolded
+    output. `_apply_template_files` does a `myproject` → project-name
+    substitution; if a starter contains literal `myproject`, the
+    substitution silently rewrites it to whatever the user named their
+    project and the doc diverges from what's checked in. We want the
+    starter to use `<package>` as an explicit placeholder so its text
+    survives substitution unchanged. Checking source rather than
+    scaffold output makes the assertion meaningful — checking output
+    would always pass because `myproject` would be gone by then either
+    way."""
+    from jig.agent_config import _defaults_dir
+
+    starter = _defaults_dir() / "project_templates" / template / ".jig" / "CLAUDE.md"
+    text = starter.read_text(encoding="utf-8")
+    assert "myproject" not in text, (
+        f"{template} starter contains literal 'myproject' — use "
+        f"`<package>` placeholder so substitution doesn't silently "
+        f"rewrite it"
+    )
+
+
+def test_apply_template_files_substitutes_project_name_in_pyproject(
+    tmp_path: Path,
+) -> None:
+    """Sanity check that the substitution itself still works on a file
+    where `myproject` IS the intended placeholder (pyproject.toml's
+    `name = "myproject"` and `packages = ["src/myproject"]`)."""
     dest = tmp_path / "scaffolded"
     dest.mkdir()
 
@@ -69,10 +94,7 @@ def test_apply_template_files_substitutes_project_name(tmp_path: Path) -> None:
         project_name="example_project",
     )
 
-    starter_text = (dest / ".jig" / "CLAUDE.md").read_text(encoding="utf-8")
-    # The shipped starter uses `<package>` as a placeholder, not `myproject`,
-    # so this should never trip — but if a future edit accidentally writes
-    # `myproject` literally, the substitution would silently rewrite it to
-    # `example_project` here and downstream content would diverge from
-    # what's checked in.
-    assert "myproject" not in starter_text
+    pyproject_text = (dest / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'name = "example_project"' in pyproject_text
+    assert 'packages = ["src/example_project"]' in pyproject_text
+    assert "myproject" not in pyproject_text

@@ -114,12 +114,10 @@ naturally into the existing model without new types, files, or index changes.
 
 ## Risks
 
-- **Role name typos / wrong targets** — if an agent passes `roles=["devi"]` or `roles=["pm"]`,
-  the record is written under a role that either never loads it (typo) or that we'd prefer not
-  to receive cross-role learnings (planning roles). Roles are project-defined in YAML and not
-  available to the MCP handler, so allowlist enforcement is not possible at this layer.
-  Mitigation: tool description guides agents toward implementation roles (dev/test/review);
-  a mistaken record wastes a JSONL entry but causes no correctness harm.
+- **Role name typos / wrong targets** — `handle_record_learning` validates each requested role
+  against `valid_roles` (the project's known role set, passed in from `create_agent_mcp_server`)
+  and rejects unknown names. When `valid_roles` is empty (e.g. in tests without a full project
+  context), the check is skipped. An empty `roles=[]` list is rejected with a clear error.
 - **Fan-out amplification** — a learning written to 5 roles stores 5 records. At current
   scale (tens of learnings per run, 3–4 roles) this is negligible. Worth noting if the corpus
   ever grows large.

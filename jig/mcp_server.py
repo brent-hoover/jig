@@ -792,7 +792,7 @@ def create_agent_mcp_server(
     )
     async def record_learning(args):
         text = await ticket_mcp.handle_record_learning(
-            memory=memory, role=agent_role, args=args
+            memory=memory, role=agent_role, args=args, valid_roles=valid_roles
         )
         return {"content": [{"type": "text", "text": text}]}
 

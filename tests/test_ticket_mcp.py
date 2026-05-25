@@ -448,6 +448,40 @@ async def test_record_learning_writes_to_memory_store(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_record_learning_fans_out_to_multiple_roles(tmp_path: Path) -> None:
+    from jig.store.memory import MemoryStore
+    from jig.ticket_mcp import handle_record_learning
+
+    memory = MemoryStore(tmp_path)
+    await memory.load()
+    await handle_record_learning(
+        memory=memory,
+        role="dev",
+        args={"content": "use disable_error_codes not ignore_errors", "roles": ["dev", "test"]},
+    )
+    dev = await memory.get_role_learnings("dev")
+    test = await memory.get_role_learnings("test")
+    assert [l.content for l in dev] == ["use disable_error_codes not ignore_errors"]
+    assert [l.content for l in test] == ["use disable_error_codes not ignore_errors"]
+
+
+@pytest.mark.asyncio
+async def test_record_learning_defaults_to_calling_role(tmp_path: Path) -> None:
+    from jig.store.memory import MemoryStore
+    from jig.ticket_mcp import handle_record_learning
+
+    memory = MemoryStore(tmp_path)
+    await memory.load()
+    await handle_record_learning(
+        memory=memory,
+        role="review",
+        args={"content": "tip"},
+    )
+    assert len(await memory.get_role_learnings("review")) == 1
+    assert len(await memory.get_role_learnings("dev")) == 0
+
+
+@pytest.mark.asyncio
 async def test_request_context_reads_worktree_file(tmp_path: Path) -> None:
     from jig.ticket_mcp import handle_request_context
 

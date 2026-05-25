@@ -652,8 +652,9 @@ async def handle_record_learning(
     role: str,
     args: dict,
 ) -> str:
-    await memory.add_role_learning(role=role, content=args["content"])
-    return f"learning recorded for {role}"
+    roles: list[str] = args.get("roles") or [role]
+    await memory.add_role_learning(roles=roles, content=args["content"])
+    return f"learning recorded for {', '.join(roles)}"
 
 
 async def handle_request_context(

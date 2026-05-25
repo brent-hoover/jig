@@ -139,14 +139,17 @@ class MemoryStore:
                 parts.append(f"- {learning.content}{tag_suffix}")
         return "\n".join(parts)
 
-    async def add_role_learning(self, *, role: str, content: str) -> str:
-        learning = Learning(
-            ticket_id="",
-            phase="",
-            content=content,
-            role=role,
-        )
-        return await self._learnings.insert(learning)
+    async def add_role_learning(self, *, roles: list[str], content: str) -> list[str]:
+        ids = []
+        for role in roles:
+            learning = Learning(
+                ticket_id="",
+                phase="",
+                content=content,
+                role=role,
+            )
+            ids.append(await self._learnings.insert(learning))
+        return ids
 
     async def get_role_learnings(self, role: str, limit: int = 20) -> list[Learning]:
         results = await self._learnings.find_where(role=role)

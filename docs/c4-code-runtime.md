@@ -562,6 +562,7 @@ SelfApprovalPolicy = Literal["warn", "blocked"]
 | `allow_add_dependency` | `bool` | Permit `add_dependency` tool (runs pkg manager outside bwrap) |
 | `reads_glob` | `list[str]` | Include glob patterns for reviewer file-scoping; empty = unscoped (default `[]`) |
 | `reads_exclude` | `list[str]` | Exclude glob patterns for reviewer file-scoping; exclude wins over include (default `[]`) |
+| `skills` | `list[str]` | Skill names to install in the agent's per-spawn Claude Code plugin; empty = all jig skills installed (default `[]`) |
 
 **Dependencies**:
 - `pydantic` — Model validation, discriminated unions

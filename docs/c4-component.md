@@ -310,9 +310,9 @@ the `BuildPlan` artifact, then hands off to the Coordinator to begin materializa
 - **Name**: Agent Runtime
 - **Type**: Library / Subprocess Manager
 - **Technology**: Python, asyncio, `claude_agent_sdk`, bubblewrap (Linux)
-- **Primary files**: `jig/agent.py`, `jig/runtime.py`, `jig/mcp_server.py`, `jig/sandbox.py`,
-  `jig/capability_compiler.py`, `jig/context_resolver.py`, `jig/prompt_builder.py`, `jig/skill_loader.py`,
-  `jig/helper_spawn.py`, `jig/dev_env/`
+- **Primary files**: `jig/agent.py`, `jig/agent_config.py`, `jig/runtime.py`, `jig/mcp_server.py`,
+  `jig/sandbox.py`, `jig/capability_compiler.py`, `jig/context_resolver.py`, `jig/prompt_builder.py`,
+  `jig/skill_loader.py`, `jig/helper_spawn.py`, `jig/dev_env/`
 
 ### Responsibility
 
@@ -343,7 +343,9 @@ sandboxing of the Claude Code subprocess itself.
 - **Bubblewrap sandboxing**: `BwrapTransport` overrides the SDK's subprocess launch to prepend namespace isolation
   arguments
 - **Dev environment provisioning**: Provisions ephemeral per-agent dev environment fixtures; cleans up on agent exit
-- **Skill loading**: Loads Claude Code skills from the project's skills directory and injects matching ones per role
+- **Skill loading**: Installs role-appropriate jig skills into a per-spawn isolated Claude Code config dir
+  (`~/.jig/claude-agent-configs/<uuid>/`); roles with a non-empty `skills` list get only those skills, otherwise
+  all jig skills are installed; isolates agents from the operator's personal Claude hooks and global CLAUDE.md
 
 ### Interfaces
 

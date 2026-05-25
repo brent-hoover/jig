@@ -1118,11 +1118,7 @@ class NowScreen(Container):
                     scrollback.auto_scroll = True
                 if prompt_type == "init_complete":
                     self.app._maybe_autostart_daemon()
-                # The "Needs You" sidebar zone (which used to consume
-                # update_prompt) was removed when the sidebar became a
-                # TabbedContent over Activity / Tickets / Recent. The
-                # operator now sees prompt status inline in NowScreen's
-                # prompt panel; no sidebar notification needed.
+                # Sidebar prompt notification removed with the Needs-You zone — prompt status lives in NowScreen's inline panel.
             self._clear_input()
             return
 
@@ -1180,11 +1176,7 @@ class NowScreen(Container):
                     scrollback.auto_scroll = True
                 if prompt_type == "init_complete":
                     self.app._maybe_autostart_daemon()
-                # The "Needs You" sidebar zone (which used to consume
-                # update_prompt) was removed when the sidebar became a
-                # TabbedContent over Activity / Tickets / Recent. The
-                # operator now sees prompt status inline in NowScreen's
-                # prompt panel; no sidebar notification needed.
+                # Sidebar prompt notification removed with the Needs-You zone — prompt status lives in NowScreen's inline panel.
             try:
                 event.input.clear()
             except Exception:

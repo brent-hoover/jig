@@ -435,6 +435,12 @@ async def test_sidebar_activity_badge_reflects_agent_count(tmp_path: Path):
         )
         assert str(activity_tab.label) == "Activity (1)"
 
+        # Drop the other; badge collapses to the base label.
+        sidebar.update_thinking(
+            {"role": "test", "ticket_id": "T-2", "elapsed": 3, "active": False}
+        )
+        assert str(activity_tab.label) == "Activity"
+
 
 @pytest.mark.asyncio
 async def test_sidebar_tickets_badge_reflects_open_count(tmp_path: Path):

@@ -24,6 +24,7 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Static, TabbedContent, TabPane
 
@@ -58,6 +59,9 @@ class _Zone(Vertical):
 _TAB_BASE_LABELS: dict[str, str] = {
     "activity-tab": "Activity",
     "tickets-tab": "Tickets",
+    # recent-tab base label reserved — a raw event count isn't actionable
+    # for the operator today, so no caller drives a badge here yet, but
+    # the entry stays so any future "(N new since last seen)" hook works.
     "recent-tab": "Recent",
 }
 
@@ -130,7 +134,11 @@ class Sidebar(Widget):
         try:
             tabs = self.query_one(TabbedContent)
             tab = tabs.get_tab(tab_id)
-        except Exception:
+        except NoMatches:
+            # TabbedContent not in the DOM yet (early-init events fire
+            # before compose finishes). Narrow catch — any other
+            # exception (typo'd tab_id, Textual API change) should
+            # surface, not be silently dropped.
             return
         tab.label = base if count == 0 else f"{base} ({count})"
 

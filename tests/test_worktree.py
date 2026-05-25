@@ -233,6 +233,83 @@ class TestSyncProjectClaudeMd:
         )
         assert root_check.returncode == 0
 
+    async def test_legacy_exclude_migrated_when_root_claude_md_tracked(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Legacy migration must run REGARDLESS of tracked/untracked. If a
+        repo has a tracked root CLAUDE.md AND a legacy unanchored
+        ``CLAUDE.md`` entry in info/exclude, the tracked path takes
+        skip-worktree but the legacy line would stay and keep ignoring
+        nested files. Purge runs before the tracked-vs-untracked branch."""
+        # Tracked root CLAUDE.md.
+        (git_repo / "CLAUDE.md").write_text("original\n")
+        subprocess.run(["git", "add", "CLAUDE.md"], cwd=git_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "add CLAUDE.md"], cwd=git_repo, check=True
+        )
+        # Legacy unanchored entry in info/exclude.
+        exclude_path = _resolve_exclude_path(git_repo)
+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        exclude_path.write_text("# pre-existing\nCLAUDE.md\n")
+        # Confirm nested files are ignored before sync.
+        (git_repo / "docs").mkdir()
+        (git_repo / "docs" / "CLAUDE.md").write_text("nested\n")
+        before = subprocess.run(
+            ["git", "check-ignore", "docs/CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+        )
+        assert before.returncode == 0
+
+        project = _make_project_with_claude_md(tmp_path, "overwritten\n")
+        await sync_project_claude_md(git_repo, project)
+
+        # Legacy line removed even though we took the skip-worktree branch.
+        assert "CLAUDE.md" not in exclude_path.read_text().splitlines()
+        # No `/CLAUDE.md` line added either — root file is tracked, doesn't
+        # need an exclude entry.
+        assert "/CLAUDE.md" not in exclude_path.read_text().splitlines()
+        # And nested files are no longer ignored.
+        after = subprocess.run(
+            ["git", "check-ignore", "docs/CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+        )
+        assert after.returncode == 1
+
+    async def test_symlinked_jig_dir_is_rejected(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """If ``<project>/.jig`` ITSELF is a symlink (not just .jig/CLAUDE.md),
+        the read must not follow it — opening the parent directory with
+        ``O_NOFOLLOW | O_DIRECTORY`` rejects the symlink. Otherwise an
+        attacker who replaces .jig with a symlink to some external dir
+        could leak that dir's CLAUDE.md into the agent worktree."""
+        # External dir with a real CLAUDE.md that an attacker wants leaked.
+        external = tmp_path / "external-attacker-dir"
+        external.mkdir()
+        (external / "CLAUDE.md").write_text("LEAKED_VIA_DIR_SYMLINK\n")
+
+        project = tmp_path / "project"
+        project.mkdir()
+        # Plant the .jig symlink pointing at the external dir.
+        (project / ".jig").symlink_to(external)
+        assert (project / ".jig").is_symlink()
+        # Sanity: through the symlink, .jig/CLAUDE.md *would* read the external file.
+        assert (project / ".jig" / "CLAUDE.md").read_text() == (
+            "LEAKED_VIA_DIR_SYMLINK\n"
+        )
+
+        await sync_project_claude_md(git_repo, project)
+
+        # Worktree CLAUDE.md must NOT contain the leaked content.
+        worktree_claude = (git_repo / "CLAUDE.md").read_text()
+        assert "LEAKED" not in worktree_claude
+        # Falls back to the missing-project stub.
+        assert "jig-managed" in worktree_claude
+
     async def test_legacy_unanchored_exclude_is_migrated(
         self, git_repo: Path, tmp_path: Path
     ) -> None:

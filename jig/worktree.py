@@ -179,8 +179,7 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
         )
         return
 
-    src = project_path / ".jig" / "CLAUDE.md"
-    content = _read_project_source_safely(src)
+    content = _read_project_source_safely(project_path / ".jig", "CLAUDE.md")
 
     dst = worktree_path / "CLAUDE.md"
     # Atomic write via tempfile + os.replace: avoids both the symlink-follow
@@ -190,36 +189,36 @@ async def sync_project_claude_md(worktree_path: Path, project_path: Path) -> Non
     # process recreates dst as a symlink between unlink and write).
     atomic_write_text(dst, content)
 
+    # Migrate any legacy unanchored "CLAUDE.md" exclude entry left by earlier
+    # versions of this code, REGARDLESS of whether the file ends up tracked
+    # (skip-worktree branch) or untracked (info/exclude branch). A tracked
+    # root CLAUDE.md + stale legacy entry would otherwise keep nested
+    # `docs/CLAUDE.md` etc. silently ignored.
+    await _purge_local_exclude_patterns(worktree_path, ("CLAUDE.md",))
+
     if await _is_tracked(worktree_path, "CLAUDE.md"):
         await _mark_skip_worktree(worktree_path, "CLAUDE.md")
     else:
         # Anchored pattern (leading "/" in gitignore syntax = repo root only)
-        # so nested `docs/CLAUDE.md` etc. remain visible to git. Pass the
-        # legacy unanchored form to clear out any entry written by earlier
-        # versions of this code, which would silently ignore every nested
-        # `CLAUDE.md` in the repo.
-        await _add_to_local_exclude(
-            worktree_path, "/CLAUDE.md", legacy_patterns=("CLAUDE.md",)
-        )
+        # so nested `docs/CLAUDE.md` etc. remain visible to git.
+        await _add_to_local_exclude(worktree_path, "/CLAUDE.md")
 
 
-def _read_project_source_safely(src: Path) -> str:
-    """Read ``src`` as text, refusing to follow symlinks. Returns the missing-
-    project stub when the source is absent, a symlink, or not a regular file.
+def _read_project_source_safely(parent: Path, name: str) -> str:
+    """Read ``parent / name`` as text, refusing to follow symlinks on either
+    the parent directory OR the final component. Returns the missing-project
+    stub when the source is absent, a symlink, not a directory, or not a
+    regular file.
 
-    Uses ``os.open(O_NOFOLLOW)`` + ``os.fstat`` so the symlink check and the
-    read happen on the same file descriptor — eliminates the TOCTOU window a
-    check-then-read pair would leave open (a project, or an attacker who can
-    write ``<project>/.jig/``, could swap the file for a symlink between
-    ``is_symlink()`` and ``read_text()`` and leak host content into the agent
-    worktree)."""
-    # O_NONBLOCK so we don't hang forever when ``src`` is a FIFO with no
-    # writer. For regular files O_NONBLOCK is a no-op (regular files are
-    # always "ready" for reads), so the subsequent read still works
-    # normally — and for FIFOs/sockets/etc. we'll reject via the S_ISREG
-    # check below before reading anything.
+    Uses ``os.open(parent, O_NOFOLLOW | O_DIRECTORY)`` for the parent and
+    ``os.open(name, ..., dir_fd=parent_fd)`` (openat) for the child, so
+    neither a symlinked ``.jig/`` directory nor a symlinked ``CLAUDE.md``
+    can escape the project root. ``O_NONBLOCK`` avoids hanging on FIFOs,
+    and ``os.fstat`` rejects non-regular files before any data is read.
+    Single-fd open + fstat closes the TOCTOU window a check-then-read pair
+    would leave open."""
     try:
-        fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        dir_fd = os.open(parent, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
     except FileNotFoundError:
         return _MISSING_PROJECT_STUB
     except OSError as exc:
@@ -227,29 +226,61 @@ def _read_project_source_safely(src: Path) -> str:
             _logger.warning(
                 "sync_project_claude_md: %s is a symlink; refusing to follow "
                 "— using missing-project stub instead",
-                src,
+                parent,
+            )
+            return _MISSING_PROJECT_STUB
+        if exc.errno == errno.ENOTDIR:
+            _logger.warning(
+                "sync_project_claude_md: %s is not a directory; using "
+                "missing-project stub instead",
+                parent,
             )
             return _MISSING_PROJECT_STUB
         raise
     try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            _logger.warning(
-                "sync_project_claude_md: %s is not a regular file (mode=%o); "
-                "using missing-project stub instead",
-                src,
-                st.st_mode,
+        try:
+            fd = os.open(
+                name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=dir_fd,
             )
+        except FileNotFoundError:
             return _MISSING_PROJECT_STUB
-        with os.fdopen(fd, "r", encoding="utf-8") as f:
-            fd = -1  # transferred to fdopen
-            return f.read()
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                _logger.warning(
+                    "sync_project_claude_md: %s/%s is a symlink; refusing to "
+                    "follow — using missing-project stub instead",
+                    parent,
+                    name,
+                )
+                return _MISSING_PROJECT_STUB
+            raise
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                _logger.warning(
+                    "sync_project_claude_md: %s/%s is not a regular file "
+                    "(mode=%o); using missing-project stub instead",
+                    parent,
+                    name,
+                    st.st_mode,
+                )
+                return _MISSING_PROJECT_STUB
+            with os.fdopen(fd, "r", encoding="utf-8") as f:
+                fd = -1  # transferred to fdopen
+                return f.read()
+        finally:
+            if fd != -1:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
     finally:
-        if fd != -1:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+        try:
+            os.close(dir_fd)
+        except OSError:
+            pass
 
 
 async def _git_capture(cwd: Path, *args: str) -> tuple[int, str, str]:
@@ -294,21 +325,12 @@ async def _mark_skip_worktree(worktree_path: Path, relpath: str) -> None:
         )
 
 
-async def _add_to_local_exclude(
-    worktree_path: Path,
-    pattern: str,
-    *,
-    legacy_patterns: tuple[str, ...] = (),
-) -> None:
+async def _add_to_local_exclude(worktree_path: Path, pattern: str) -> None:
     """Idempotently add ``pattern`` to ``info/exclude`` (shared between the
     main repo and any linked worktrees; git has no per-worktree exclude file).
     Resolved via ``git rev-parse --git-path info/exclude`` so the call still
     works in linked worktrees where ``.git`` is a file, not a directory.
-
-    Any line in ``legacy_patterns`` is removed before ``pattern`` is added.
-    Used to migrate entries left by earlier versions of this code: e.g.
-    ``"CLAUDE.md"`` (unanchored, matches nested files) → ``"/CLAUDE.md"``
-    (root-only). The file is rewritten only if its content actually changes."""
+    Rewrites the file only if its content actually changes."""
     exclude_path = await _resolve_info_exclude_path(worktree_path)
     if exclude_path is None:
         _logger.warning(
@@ -320,14 +342,31 @@ async def _add_to_local_exclude(
     existing = (
         exclude_path.read_text(encoding="utf-8") if exclude_path.is_file() else ""
     )
-    lines = existing.splitlines()
-    legacy_set = set(legacy_patterns)
-    new_lines = [ln for ln in lines if ln not in legacy_set]
-    if pattern not in new_lines:
-        new_lines.append(pattern)
-    if new_lines == lines:
+    if pattern in existing.splitlines():
         return
     exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    sep = "" if (not existing or existing.endswith("\n")) else "\n"
+    exclude_path.write_text(f"{existing}{sep}{pattern}\n", encoding="utf-8")
+
+
+async def _purge_local_exclude_patterns(
+    worktree_path: Path, patterns: tuple[str, ...]
+) -> None:
+    """Remove any line in ``patterns`` from ``info/exclude``. No-op when the
+    file doesn't exist or none of the patterns are present.
+
+    Called independently of the tracked/untracked branch so that a legacy
+    entry written by an earlier (buggy) version of this code is cleaned up
+    even when the current sync would take the skip-worktree branch."""
+    exclude_path = await _resolve_info_exclude_path(worktree_path)
+    if exclude_path is None or not exclude_path.is_file():
+        return
+    existing = exclude_path.read_text(encoding="utf-8")
+    lines = existing.splitlines()
+    pattern_set = set(patterns)
+    new_lines = [ln for ln in lines if ln not in pattern_set]
+    if new_lines == lines:
+        return
     new_content = "\n".join(new_lines) + ("\n" if new_lines else "")
     exclude_path.write_text(new_content, encoding="utf-8")
 

@@ -1247,7 +1247,7 @@ class NowScreen(Container):
                 "                        (or move within multi-line text)\n"
                 "  Ctrl+I                paste clipboard image (saves to .jig/uploads/)\n"
                 "  Ctrl+P                pause/resume scrollback auto-scroll\n"
-                "  Ctrl+S                toggle right-side Sidebar\n"
+                "  Ctrl+S                toggle bottom Sidebar\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."
             )

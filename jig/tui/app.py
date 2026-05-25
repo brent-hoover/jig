@@ -270,14 +270,10 @@ class JigApp(App):
                     self._sidebar_safe(
                         lambda s: s.update_tool_use(msg.get("data") or {})
                     )
-                # prompt request/response drives Sidebar's Needs You subzone
-                if topic == "prompts":
-                    kind = msg.get("kind")
-                    if kind == "request":
-                        data = msg.get("data") or {}
-                        self._sidebar_safe(lambda s: s.update_prompt(data))
-                    elif kind == "response":
-                        self._sidebar_safe(lambda s: s.update_prompt(None))
+                # (The "Needs You" sidebar zone was removed when the sidebar
+                #  was reorganized into a TabbedContent — prompt requests now
+                #  surface via the ticket-status flow into the Tickets tab
+                #  and via NowScreen's inline prompt panel.)
                 # Route all agent events to the Agents screen
                 self._agents_screen_safe(msg.get("kind", ""), msg.get("data") or {})
                 # Lifecycle events (ticket_dispatched / ticket_completed /

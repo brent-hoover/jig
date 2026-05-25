@@ -1118,7 +1118,7 @@ class NowScreen(Container):
                     scrollback.auto_scroll = True
                 if prompt_type == "init_complete":
                     self.app._maybe_autostart_daemon()
-                self.app._sidebar_safe(lambda s: s.update_prompt(None))
+                # Sidebar prompt notification removed with the Needs-You zone — prompt status lives in NowScreen's inline panel.
             self._clear_input()
             return
 
@@ -1176,7 +1176,7 @@ class NowScreen(Container):
                     scrollback.auto_scroll = True
                 if prompt_type == "init_complete":
                     self.app._maybe_autostart_daemon()
-                self.app._sidebar_safe(lambda s: s.update_prompt(None))
+                # Sidebar prompt notification removed with the Needs-You zone — prompt status lives in NowScreen's inline panel.
             try:
                 event.input.clear()
             except Exception:
@@ -1239,7 +1239,7 @@ class NowScreen(Container):
                 "                        (or move within multi-line text)\n"
                 "  Ctrl+I                paste clipboard image (saves to .jig/uploads/)\n"
                 "  Ctrl+P                pause/resume scrollback auto-scroll\n"
-                "  Ctrl+S                toggle right-side Sidebar\n"
+                "  Ctrl+S                toggle bottom Sidebar\n"
                 "\n"
                 "[dim]Tip:[/dim] type free text (no leading /) to ask the concierge."
             )

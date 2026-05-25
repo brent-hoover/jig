@@ -1,3 +1,5 @@
+import pytest
+
 from jig.store.memory import Handoff, Learning, MemoryStore
 
 
@@ -173,9 +175,9 @@ async def test_context_block_empty_returns_empty_string(tmp_path):
 async def test_add_and_get_role_learning(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
-    await mem.add_role_learning(role="dev", content="always uv run pytest")
-    await mem.add_role_learning(role="dev", content="use pathlib not os.path")
-    await mem.add_role_learning(role="qa", content="run full suite before signoff")
+    await mem.add_role_learning(roles=["dev"], content="always uv run pytest")
+    await mem.add_role_learning(roles=["dev"], content="use pathlib not os.path")
+    await mem.add_role_learning(roles=["qa"], content="run full suite before signoff")
 
     dev_memories = await mem.get_role_learnings("dev")
     assert [m.content for m in dev_memories] == [
@@ -195,8 +197,47 @@ async def test_role_learnings_empty_when_none(tmp_path):
 async def test_role_learnings_persist_across_reload(tmp_path):
     mem = MemoryStore(tmp_path)
     await mem.load()
-    await mem.add_role_learning(role="dev", content="x")
+    await mem.add_role_learning(roles=["dev"], content="x")
 
     mem2 = MemoryStore(tmp_path)
     await mem2.load()
     assert [m.content for m in await mem2.get_role_learnings("dev")] == ["x"]
+
+
+async def test_add_role_learning_fans_out_to_multiple_roles(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    await mem.add_role_learning(roles=["dev", "test"], content="use uv run pytest")
+
+    dev = await mem.get_role_learnings("dev")
+    test = await mem.get_role_learnings("test")
+    assert [m.content for m in dev] == ["use uv run pytest"]
+    assert [m.content for m in test] == ["use uv run pytest"]
+
+
+async def test_add_role_learning_returns_ids_for_each_role(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    ids = await mem.add_role_learning(roles=["dev", "test"], content="tip")
+    assert len(ids) == 2
+    assert all(isinstance(i, str) for i in ids)
+
+
+async def test_add_role_learning_rejects_empty_roles(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    with pytest.raises(ValueError, match="roles"):
+        await mem.add_role_learning(roles=[], content="tip")
+
+
+async def test_get_role_learnings_returns_most_recent_when_over_limit(tmp_path):
+    mem = MemoryStore(tmp_path)
+    await mem.load()
+    for i in range(22):
+        await mem.add_role_learning(roles=["dev"], content=f"old learning {i}")
+    await mem.add_role_learning(roles=["dev"], content="newest learning")
+
+    results = await mem.get_role_learnings("dev", limit=20)
+    contents = [r.content for r in results]
+    assert "newest learning" in contents
+    assert len(results) == 20

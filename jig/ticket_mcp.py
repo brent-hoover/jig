@@ -651,9 +651,29 @@ async def handle_record_learning(
     memory: MemoryStore,
     role: str,
     args: dict,
+    valid_roles: frozenset[str] = frozenset(),
 ) -> str:
-    await memory.add_role_learning(role=role, content=args["content"])
-    return f"learning recorded for {role}"
+    raw_roles = args.get("roles")
+    if raw_roles is not None and not isinstance(raw_roles, list):
+        raise ValueError(
+            f"Invalid roles: expected a list, got {type(raw_roles).__name__!r}."
+        )
+    if raw_roles is not None and len(raw_roles) == 0:
+        raise ValueError("Invalid roles: list must not be empty.")
+    roles: list[str] = raw_roles or [role]
+    invalid = [r for r in roles if not isinstance(r, str) or not r.strip()]
+    if invalid:
+        raise ValueError(
+            f"Invalid roles entries: {invalid!r}. Each role must be a non-empty string."
+        )
+    if valid_roles:
+        unknown = [r for r in roles if r not in valid_roles]
+        if unknown:
+            raise ValueError(
+                f"Invalid roles: unknown role(s) {unknown!r}. Valid roles: {sorted(valid_roles)}"
+            )
+    await memory.add_role_learning(roles=roles, content=args["content"])
+    return f"learning recorded for {', '.join(roles)}"
 
 
 async def handle_request_context(

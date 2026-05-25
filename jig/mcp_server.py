@@ -782,12 +782,17 @@ def create_agent_mcp_server(
 
     @tool(
         "record_learning",
-        "Record a learning or lesson learned for your role",
-        {"content": str},
+        (
+            "Record a learning or lesson learned. Use 'roles' (list of role name strings, "
+            'e.g. ["dev", "test", "review"]) to share with other roles when the finding '
+            "applies beyond your own — such as a project-wide workaround, type-narrowing "
+            "pattern, or dependency quirk. Omit 'roles' to record only for your own role."
+        ),
+        {"content": str, "roles": list},
     )
     async def record_learning(args):
         text = await ticket_mcp.handle_record_learning(
-            memory=memory, role=agent_role, args=args
+            memory=memory, role=agent_role, args=args, valid_roles=valid_roles
         )
         return {"content": [{"type": "text", "text": text}]}
 

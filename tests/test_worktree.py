@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -231,6 +232,69 @@ class TestSyncProjectClaudeMd:
             text=True,
         )
         assert root_check.returncode == 0
+
+    async def test_legacy_unanchored_exclude_is_migrated(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Earlier versions of this code wrote unanchored ``CLAUDE.md`` to
+        info/exclude — that pattern matches every CLAUDE.md anywhere in the
+        repo, silently suppressing nested docs. When sync runs against a
+        worktree that has the legacy entry, it must remove the legacy form
+        and add the anchored ``/CLAUDE.md`` form so nested files are no
+        longer ignored."""
+        # Seed the exclude with the legacy unanchored entry.
+        exclude_path = _resolve_exclude_path(git_repo)
+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        exclude_path.write_text("# pre-existing comment\nCLAUDE.md\n")
+
+        # Confirm nested files ARE ignored before migration.
+        (git_repo / "docs").mkdir()
+        (git_repo / "docs" / "CLAUDE.md").write_text("nested\n")
+        before = subprocess.run(
+            ["git", "check-ignore", "docs/CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+        )
+        assert before.returncode == 0  # ignored
+
+        project = _make_project_with_claude_md(tmp_path, "content\n")
+        await sync_project_claude_md(git_repo, project)
+
+        # Legacy line removed, anchored line added.
+        lines = exclude_path.read_text().splitlines()
+        assert "CLAUDE.md" not in lines
+        assert "/CLAUDE.md" in lines
+
+        # And nested files are now visible.
+        after = subprocess.run(
+            ["git", "check-ignore", "docs/CLAUDE.md"],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+        )
+        assert after.returncode == 1  # not ignored
+
+    async def test_source_swap_during_sync_does_not_leak_outside(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Deterministic check that source-side symlink rejection happens on
+        the SAME file descriptor as the read (O_NOFOLLOW + fstat). We can't
+        race a real swap reliably, but we can confirm a non-regular source
+        (here: a FIFO) is also refused, which exercises the same
+        ``stat.S_ISREG`` branch that closes the TOCTOU."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".jig").mkdir()
+        fifo_path = project / ".jig" / "CLAUDE.md"
+        os.mkfifo(fifo_path)
+        assert not fifo_path.is_file()
+
+        await sync_project_claude_md(git_repo, project)
+
+        # Worktree CLAUDE.md falls back to the stub — the FIFO was not read.
+        worktree_claude = (git_repo / "CLAUDE.md").read_text()
+        assert "jig-managed" in worktree_claude
 
     async def test_symlinked_project_source_is_rejected(
         self, git_repo: Path, tmp_path: Path

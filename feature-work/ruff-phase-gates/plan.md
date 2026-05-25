@@ -26,16 +26,15 @@ exists. Workflows first so the gate is in place, then prompts so agents know to 
 
 ### 1. Add `ruff-check` to implement and test phases in all workflow files
 
-**What:** Edit `jig/defaults/workflows/default.yaml`, `feature-s.yaml`, `feature-s-full.yaml`,
-`bugfix.yaml`, `migration.yaml`, `perf.yaml`, and `refactor.yaml`. For each file that has a
-`test` phase, add `ruff-check` to its `automated_checks`. For each file that has an `implement`
-phase, add `ruff-check` to its `automated_checks`. Skip `spike.yaml` — spikes are exploratory
-and have no checks defined.
+**What:** Edit all workflow files that have a `test` or `implement` phase:
+`default.yaml`, `feature-s.yaml`, `feature-s-full.yaml`, `bugfix.yaml`, `migration.yaml`,
+`perf.yaml`, `refactor.yaml`, and `spike.yaml`. Add `ruff-check` to `automated_checks` on
+each matching phase.
 
 **Why:** This is the gate. Without it, ruff violations are not caught until validate.
 
-**Verify:** `grep -A5 "name: implement\|name: test" jig/defaults/workflows/*.yaml | grep ruff`
-shows `ruff-check` under every implement and test phase.
+**Verify:** `grep -c "ruff-check" jig/defaults/workflows/*.yaml` — every file with a test or
+implement phase should show a count ≥ 1.
 
 ### 2. Update `dev.yaml` and `test.yaml` role prompts
 
@@ -55,7 +54,6 @@ Revert the workflow YAML edits and prompt changes — no data migration, no sche
 
 - Adding `mypy` or other linters to earlier phases.
 - Changing the validate phase checks (already correct).
-- `spike.yaml` — no checks defined there by design.
 
 ## Change log
 

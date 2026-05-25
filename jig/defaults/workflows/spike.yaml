@@ -4,3 +4,5 @@ phases:
     role: dev
     task_template: "Explore the question and write up findings within the time-box for: {ticket_title}"
     acceptance_criteria: "Exit criteria met; findings documented in the ticket thread"
+    automated_checks:
+      - ruff-check

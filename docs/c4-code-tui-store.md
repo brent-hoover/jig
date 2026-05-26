@@ -145,20 +145,23 @@
 
 #### AgentsScreen (`jig/tui/screens/agents.py`)
 
-- **Description**: Live list of running agents with role/status/tool tracking + detail panel on selection
-- **Location**: `jig/tui/screens/agents.py` (lines 1-150+)
-- **AgentState** dataclass (lines 17-30):
+- **Description**: 3-column grid dashboard of running agents; one compact `_AgentCard` per agent with health-signal
+  border colour (green = active, yellow = stuck, grey = inactive). Replaced the earlier master/detail layout
+  (left ListView + right detail panel).
+- **Location**: `jig/tui/screens/agents.py`
+- **AgentState** dataclass:
   - Fields: role, ticket_id, ticket_title, phase, started_at, elapsed, active, current_tool, recent_tools, allowed_tools, allowed_mcps, phase_prompt
-- **_AgentListItem** (lines 43-62): Renders spinning indicator + role + ticket title
-- **_DetailPanel** (lines 64-150+): Right panel showing full agent details (tools, MCPs, etc.)
+- **_AgentCard**: Compact card widget showing role, ticket title, elapsed, current tool, last 3 tool calls; CSS
+  classes `stuck` / `inactive` drive border colour; `update_agent(agent)` refreshes card in place
+- **_slug(key)**: Helper sanitising agent keys (colon/dot → dash) for use as Textual widget IDs
+- **_STUCK_THRESHOLD_S = 30**: Seconds of `elapsed` counter without a current tool before a card is classed "stuck"
 - **Methods**:
-  - `handle_agent_start(data: dict) -> None`: Register new agent state
-  - `handle_agent_thinking(data: dict) -> None`: Update current thinking context
-  - `handle_agent_tool(data: dict) -> None`: Add to recent tools list, mark current
-  - `handle_agent_tool_result(data: dict) -> None`: Clear current tool on result
+  - `handle_agent_start(data: dict) -> None`: Register new agent state; rebuild grid
+  - `handle_agent_thinking(data: dict) -> None`: Update current thinking context; rebuild grid
+  - `handle_agent_tool(data: dict) -> None`: Add to recent tools list, mark current; rebuild grid
+  - `handle_agent_tool_result(data: dict) -> None`: Clear current tool on result; rebuild grid
 - **Reactive Properties**:
   - `agents: dict[str, AgentState]`: Map of "ticket_id:role" → AgentState
-  - `selected_key: str | None`: Currently selected agent key
 
 #### DiscoveryScreen (`jig/tui/screens/discovery.py`)
 
@@ -197,18 +200,22 @@
 
 #### Sidebar (`jig/tui/widgets/sidebar.py`)
 
-- **Description**: Right-docked persistent panel showing Activity, Needs You, Queue, Tail subzones; fed by JigApp's message handler
-- **Location**: `jig/tui/widgets/sidebar.py` (lines 51-100+)
+- **Description**: Bottom-docked persistent sidebar with `TabbedContent` over three tabs: Activity (active agents,
+  badge = active-agent count), Tickets (open tickets, badge = open-ticket count), Recent (latest bus events); fed
+  by JigApp's message handler. Replaced the earlier right-docked four-zone layout (Activity / Needs You / Queue /
+  Tail); the "Needs You" zone was removed — prompt status surfaces inline in NowScreen's prompt panel instead.
+- **Location**: `jig/tui/widgets/sidebar.py`
 - **Methods**:
-  - `update_thinking(data: dict) -> None`: Update Activity zone with agent thinking state
-  - `update_tool_use(data: dict) -> None`: Track tool history per agent in Activity
-  - `update_prompt(data: dict | None) -> None`: Display pending operator input prompt in Needs You zone
-  - `update_ticket_event(kind: str, data: dict) -> None`: Update Queue zone with ticket status/count
-  - `append_event(data: dict) -> None`: Append event line to Tail zone (recent bus events)
-  - `update_tickets_snapshot(data: list[dict]) -> None`: Refresh Queue zone from ticket snapshot
-  - `update_events_snapshot(data: list[dict]) -> None`: Refresh Tail zone from events snapshot
+  - `update_thinking(data: dict) -> None`: Update Activity tab with agent thinking state; refreshes Activity badge
+  - `update_tool_use(data: dict) -> None`: Track tool history per agent in Activity tab
+  - `update_ticket_event(kind: str, data: dict) -> None`: Update Tickets tab with ticket status/count; refreshes
+    Tickets badge
+  - `append_event(data: dict) -> None`: Append event line to Recent tab (latest bus events)
+  - `update_tickets_snapshot(data: list[dict]) -> None`: Refresh Tickets tab from ticket snapshot
+  - `update_events_snapshot(data: list[dict]) -> None`: Refresh Recent tab from events snapshot
   - `toggle_class("-hidden") -> None`: Show/hide sidebar via CSS class toggle
-- **_Zone** helper (lines 29-48): Titled subzone container with header + body content
+- **_Zone** helper: Titled subzone container with header + body content
+- **_set_tab_badge(tab_id, count)**: Updates a tab's visible label to `Name (N)` when count > 0, base label otherwise
 
 #### JigFooter (`jig/tui/widgets/footer.py`)
 
@@ -364,8 +371,9 @@
   - `add_learning(ticket_id, phase, content, tags) -> str`: Insert Learning
   - `get_learnings(ticket_id, tags, limit) -> list[Learning]`: Query with optional tag filter
   - `get_context_block(ticket_id, to_phase) -> str`: Build markdown context from handoff + learnings
-  - `add_role_learning(role, content) -> str`: Cross-ticket learning scoped to role
-  - `get_role_learnings(role, limit) -> list[Learning]`: Fetch role-scoped learnings
+  - `add_role_learning(roles, content) -> list[str]`: Fan-out cross-ticket learning to one or more roles; returns
+    list of created Learning ids (one per role); raises ValueError if roles is empty
+  - `get_role_learnings(role, limit) -> list[Learning]`: Fetch role-scoped learnings, most-recent-first
 
 **CheckpointStore** (`jig/store/checkpoints.py`)
 - **Description**: Append-only checkpoint storage with phase-boundary pruning (marks old records historical)
@@ -465,7 +473,6 @@ JigApp._handle_daemon_message
        ├→ event (type=result) → NowScreen (handle_command_result)
        ├→ event (agents topic) → AgentsScreen/Sidebar (handle_agent_*)
        ├→ event (tickets topic) → TicketsScreen/Sidebar (handle_event)
-       ├→ event (prompts topic) → Sidebar (update_prompt)
        └→ event (events topic) → EventsScreen/Sidebar (handle_snapshot / append_event)
 ```
 
@@ -603,7 +610,6 @@ classDiagram
             <<widget>>
             +update_thinking(data) None
             +update_tool_use(data) None
-            +update_prompt(data) None
             +update_ticket_event(kind, data) None
             +append_event(data) None
             +toggle_class(name) None
@@ -767,7 +773,7 @@ classDiagram
             +add_learning(ticket_id, phase, content, tags) str
             +get_learnings(ticket_id, tags, limit) list[Learning]
             +get_context_block(ticket_id, to_phase) str
-            +add_role_learning(role, content) str
+            +add_role_learning(roles, content) list[str]
             +get_role_learnings(role, limit) list[Learning]
         }
         

@@ -250,6 +250,14 @@ class JigApp(App):
                 else:
                     await ev_screen.handle_snapshot(msg.get("data"))
                 self._sidebar_safe(lambda s: s.update_events_snapshot(msg.get("data")))
+            if topic == "agents":
+                # Restore the Activity sidebar from the snapshot so a
+                # TUI restart / reconnect mid-run picks up currently-running
+                # agents immediately instead of waiting on the next live
+                # heartbeat (~1s gap). Each row matches the agent_thinking
+                # payload shape, so reuse the same update_thinking path.
+                for row in msg.get("data") or []:
+                    self._sidebar_safe(lambda s, r=row: s.update_thinking(r))
             return
 
         if msg_type == "event":

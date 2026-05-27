@@ -310,9 +310,9 @@ the `BuildPlan` artifact, then hands off to the Coordinator to begin materializa
 - **Name**: Agent Runtime
 - **Type**: Library / Subprocess Manager
 - **Technology**: Python, asyncio, `claude_agent_sdk`, bubblewrap (Linux)
-- **Primary files**: `jig/agent.py`, `jig/agent_config.py`, `jig/runtime.py`, `jig/mcp_server.py`,
-  `jig/sandbox.py`, `jig/capability_compiler.py`, `jig/context_resolver.py`, `jig/prompt_builder.py`,
-  `jig/skill_loader.py`, `jig/helper_spawn.py`, `jig/dev_env/`
+- **Primary files**: `jig/agent.py`, `jig/agent_config.py`, `jig/worktree.py`, `jig/runtime.py`,
+  `jig/mcp_server.py`, `jig/sandbox.py`, `jig/capability_compiler.py`, `jig/context_resolver.py`,
+  `jig/prompt_builder.py`, `jig/skill_loader.py`, `jig/helper_spawn.py`, `jig/dev_env/`
 
 ### Responsibility
 
@@ -343,9 +343,14 @@ sandboxing of the Claude Code subprocess itself.
 - **Bubblewrap sandboxing**: `BwrapTransport` overrides the SDK's subprocess launch to prepend namespace isolation
   arguments
 - **Dev environment provisioning**: Provisions ephemeral per-agent dev environment fixtures; cleans up on agent exit
-- **Skill loading**: Installs role-appropriate jig skills into a per-spawn isolated Claude Code config dir
-  (`~/.jig/claude-agent-configs/<uuid>/`); roles with a non-empty `skills` list get only those skills, otherwise
-  all jig skills are installed; isolates agents from the operator's personal Claude hooks and global CLAUDE.md
+- **Skill loading and CLAUDE.md injection**: Installs role-appropriate jig skills into a per-spawn isolated Claude
+  Code config dir (`~/.jig/claude-agent-configs/<uuid>/`); roles with a non-empty `skills` list get only those
+  skills, otherwise all jig skills are installed; writes a jig-managed global `CLAUDE.md` to the config dir
+  (from `jig/defaults/agent_claude_md.md`, with an optional per-role addendum at
+  `jig/defaults/roles/<role>/CLAUDE.md`) so agents see jig's orchestrator conventions rather than the operator's
+  personal CLAUDE.md; also syncs the project's `.jig/CLAUDE.md` (or a stub) into each worktree as
+  `<worktree>/CLAUDE.md` and marks it uncommittable via `git update-index --skip-worktree` or
+  per-worktree `info/exclude`
 
 ### Interfaces
 

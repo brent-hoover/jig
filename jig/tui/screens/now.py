@@ -999,6 +999,7 @@ class NowScreen(Container):
 
     async def _render_prompt_request(self, data: dict) -> None:
         """Render a prompt request inline and switch to answering mode."""
+        from rich.markdown import Markdown
         from rich.rule import Rule
 
         scrollback = self.query_one("#scrollback", RichLog)
@@ -1010,8 +1011,6 @@ class NowScreen(Container):
         self._active_prompt_type = prompt_type
 
         if prompt_type == "question_answer":
-            from rich.markdown import Markdown
-
             asker = data.get("asker", "agent")
             idx = data.get("index", 1)
             total = data.get("total", 1)
@@ -1021,25 +1020,32 @@ class NowScreen(Container):
             # prompt panel's 600-char truncation. PMs often paste long
             # multi-ticket plans here; the operator must be able to scroll
             # up and read the whole thing.
-            question_text = (
-                data.get("question_text") or data.get("question") or ""
-            ).strip()
+            #
+            # Explicit None check rather than `or` chaining: the canonical
+            # field is ``question_text``; ``question`` is the older protocol
+            # field kept for compatibility. Treating empty string as missing
+            # keeps an empty question from printing a blank Markdown block.
+            question_text = data.get("question_text")
+            if not question_text:
+                question_text = data.get("question") or ""
+            question_text = question_text.strip()
             if question_text:
+                # Thin separator between the attribution label and the
+                # Markdown body so multi-paragraph questions read as a
+                # distinct block — matches the brief_approval pattern.
+                scrollback.write(Rule(style="dim cyan"))
                 scrollback.write(Markdown(question_text))
+                scrollback.write(Rule(style="dim cyan"))
         else:
             rendered = data.get("rendered")
             if rendered:
                 if prompt_type == "brief_approval":
-                    from rich.markdown import Markdown
-
                     scrollback.auto_scroll = False
                     scrollback.write(Rule(title="Brief", style="yellow"))
                     scrollback.write(Markdown(rendered))
                     scrollback.write(Rule(style="yellow"))
                     self.call_after_refresh(scrollback.scroll_home)
                 else:
-                    from rich.markdown import Markdown
-
                     scrollback.write(Markdown(rendered))
             question = data.get("question")
             if question:

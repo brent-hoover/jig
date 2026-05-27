@@ -55,12 +55,36 @@ include = ["jig*"]
 # pathlib-glob (which setuptools uses) does NOT match hidden files with
 # "*". Without the dotfile pattern, .gitignore (and any future
 # .dockerignore / .env.example / etc.) silently miss the built wheel
-# and scaffolded projects come up incomplete.
-"jig.defaults.project_templates" = ["**/*", "**/.*"]
+# and scaffolded projects come up incomplete. "**/.jig/**/*" specifically
+# covers per-template .jig/CLAUDE.md starters — the per-dotfile pattern
+# only matches files whose final component is hidden, so without this
+# third entry .jig/CLAUDE.md silently missed the wheel even though the
+# source tree was correct. The narrow ".jig/" form is deliberate: a
+# broader "**/.*/**/*" pattern would also bundle .ruff_cache/,
+# __pycache__/, .mypy_cache/ binary artifacts that happen to exist in
+# the template trees (already skipped at scaffold time via the
+# skip_dirs set in init_workflow._apply_template_files, but otherwise
+# would inflate the wheel).
+"jig.defaults.project_templates" = ["**/*", "**/.*", "**/.jig/**/*"]
 # Eval resource files loaded from `Path(__file__).parent` at runtime —
 # task fixtures, rubrics, and the watcher analyzer prompt.
 "jig.evals.prompt_style_eval" = ["tasks/**/*", "rubric/*.yaml"]
 "jig.evals.watcher" = ["prompts/*.md"]
+
+# Setuptools' globs traverse INTO hidden directories (fnmatch doesn't have
+# the shell rule of "* skips leading dots"), so a stale `.ruff_cache/`,
+# `__pycache__/`, or `.mypy_cache/` left in a template tree from a local
+# build would get bundled into the wheel. Scaffolding already skips these
+# at copy time (see `skip_dirs` in `init_workflow._apply_template_files`),
+# but excluding them at packaging time keeps the wheel clean regardless of
+# the local source-tree state.
+[tool.setuptools.exclude-package-data]
+"jig.defaults.project_templates" = [
+    "**/.ruff_cache/**",
+    "**/__pycache__/**",
+    "**/.mypy_cache/**",
+    "**/.pytest_cache/**",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

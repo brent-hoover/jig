@@ -255,6 +255,7 @@ The module enforces role-based tool access via `_STRICT_DENY_BUILTINS` (frozense
 - `jig.prompt_builder` — `build_initial_prompt()`
 - `jig.skill_loader` — `load_all_skills()`, `match_skills()`
 - `jig.persistence` — `load_role()`, `list_roles()`, `load_conventions()`
+- `jig.worktree` — `sync_project_claude_md()` (injects project CLAUDE.md into agent worktree)
 - `jig.sandbox` — Bwrap sandbox config/transport
 - `jig.runtime` — `AgentSpawnContext`, `SpawnReason`
 

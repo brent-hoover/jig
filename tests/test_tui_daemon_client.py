@@ -154,3 +154,118 @@ async def test_run_with_reconnect_resets_backoff_on_success():
     # of what it was before. The _max_delay cap (0.1) only limits *further* bumps.
     # We started at 0.05 and the reset must bring it back to exactly 1.0.
     assert client._reconnect_delay == 1.0
+
+
+@pytest.mark.asyncio
+async def test_run_with_reconnect_closes_socket_before_retry():
+    """The dead websocket must be closed before the reconnect loop sleeps,
+    otherwise sockets pile up across reconnects (issue #102)."""
+    websockets_created: list = []
+    second_connected = asyncio.Event()
+    call_count = 0
+
+    async def fake_connect(url, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        ws = _make_mock_ws([])  # yields nothing → messages() exits cleanly
+        websockets_created.append(ws)
+        if call_count == 2:
+            second_connected.set()
+        return ws
+
+    client = DaemonClient(
+        addr_provider=lambda: "ws://localhost:9999",
+        _max_delay=0.05,
+        connect_factory=fake_connect,
+    )
+    client._reconnect_delay = 0.05
+
+    task = asyncio.create_task(
+        client.run_with_reconnect(
+            lambda m: asyncio.sleep(0), lambda s: None, ["tickets"]
+        )
+    )
+    await asyncio.wait_for(second_connected.wait(), timeout=2.0)
+    # Give the close-before-retry path a moment to fire.
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except (asyncio.CancelledError, Exception):
+        pass
+
+    # First websocket must have been closed before the second was opened.
+    assert len(websockets_created) >= 2
+    websockets_created[0].close.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_closes_existing_socket():
+    """connect() must close any pre-existing self._ws before opening a new
+    one (issue #102)."""
+    websockets_created: list = []
+
+    async def fake_connect(url, **kwargs):
+        ws = _make_mock_ws([])
+        websockets_created.append(ws)
+        return ws
+
+    client = DaemonClient(
+        addr_provider=lambda: "ws://localhost:9999",
+        connect_factory=fake_connect,
+    )
+
+    await client.connect()
+    first_ws = client._ws
+    assert first_ws is not None
+
+    await client.connect()  # should close first_ws
+
+    first_ws.close.assert_called()
+    assert client._ws is websockets_created[1]
+
+
+@pytest.mark.asyncio
+async def test_reconnect_logs_exception_type(caplog):
+    """The reconnect handler must surface the exception class name so
+    operators can diagnose disconnect causes from the log (issue #103)."""
+    import logging
+
+    class CustomBoom(RuntimeError):
+        pass
+
+    attempt = 0
+
+    async def fake_connect(url, **kwargs):
+        nonlocal attempt
+        attempt += 1
+        if attempt == 1:
+            raise CustomBoom("first try fails")
+        # Second attempt: succeed and exit.
+        return _make_mock_ws([])
+
+    client = DaemonClient(
+        addr_provider=lambda: "ws://localhost:9999",
+        _max_delay=0.05,
+        connect_factory=fake_connect,
+    )
+    client._reconnect_delay = 0.05
+
+    with caplog.at_level(logging.WARNING, logger="jig.tui.daemon_client"):
+        task = asyncio.create_task(
+            client.run_with_reconnect(
+                lambda m: asyncio.sleep(0), lambda s: None, ["tickets"]
+            )
+        )
+        await asyncio.sleep(0.2)  # let first failure + retry happen
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    # The WARNING line must mention the exception type by name.
+    assert any("CustomBoom" in r.message for r in caplog.records), (
+        f"expected 'CustomBoom' in warning records, got: "
+        f"{[r.message for r in caplog.records]}"
+    )

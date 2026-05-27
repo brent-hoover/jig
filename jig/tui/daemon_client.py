@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from websockets.asyncio.client import ClientConnection, connect as _ws_connect
+from websockets.exceptions import ConnectionClosed
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,20 @@ class DaemonClient:
     )
 
     async def connect(self) -> None:
+        # Close any pre-existing socket before opening a new one. Without
+        # this, a reconnect cycle leaks the previous ClientConnection — it
+        # stays half-alive until OS-level ping timeout, accumulating into
+        # dozens of ESTABLISHED sockets per TUI process over a long session
+        # and causing duplicate subscribe storms on the daemon side.
+        if self._ws is not None:
+            try:
+                await self._ws.close()
+            except Exception:
+                # Best-effort: socket may already be closed by the remote.
+                # The close() failure mode isn't recoverable here — the
+                # important thing is to drop our reference.
+                logger.debug("close of previous ws raised; continuing", exc_info=True)
+            self._ws = None
         self.state = ConnectionState.CONNECTING
         url = self.addr_provider()
         self._ws = await self.connect_factory(url, ping_interval=20)
@@ -89,8 +104,34 @@ class DaemonClient:
                 async for msg in self.messages():
                     await on_message(msg)
             except Exception as exc:
-                # Daemon-client must never die; log and retry.
-                logger.warning("daemon connection lost: %s", exc, exc_info=True)
+                # Daemon-client must never die; log and retry. Include the
+                # exception class name so a reconnect storm can be diagnosed
+                # from the log without combing through tracebacks — and for
+                # ConnectionClosed subclasses surface code/reason which carry
+                # the close protocol detail (1006 vs 1011 etc.).
+                exc_type = type(exc).__name__
+                extra = ""
+                if isinstance(exc, ConnectionClosed):
+                    extra = f" code={exc.code} reason={exc.reason!r}"
+                logger.warning(
+                    "daemon connection lost (%s): %s%s",
+                    exc_type,
+                    exc,
+                    extra,
+                    exc_info=True,
+                )
+            finally:
+                # Drop the dead socket before sleeping. Without this the
+                # ClientConnection lingers across the retry and gets
+                # overwritten by the next connect(), leaking sockets.
+                if self._ws is not None:
+                    try:
+                        await self._ws.close()
+                    except Exception:
+                        logger.debug(
+                            "close of dead ws raised; continuing", exc_info=True
+                        )
+                    self._ws = None
             self.state = ConnectionState.RECONNECTING
             on_state_change(self.state)
             await asyncio.sleep(self._reconnect_delay)

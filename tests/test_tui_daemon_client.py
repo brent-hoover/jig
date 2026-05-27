@@ -43,7 +43,7 @@ def _make_mock_ws(messages: list[dict] | None = None):
     ws.close = AsyncMock()
 
     async def _aiter(self):
-        for m in (messages or []):
+        for m in messages or []:
             yield json.dumps(m)
 
     ws.__aiter__ = _aiter
@@ -158,45 +158,72 @@ async def test_run_with_reconnect_resets_backoff_on_success():
 
 @pytest.mark.asyncio
 async def test_run_with_reconnect_closes_socket_before_retry():
-    """The dead websocket must be closed before the reconnect loop sleeps,
-    otherwise sockets pile up across reconnects (issue #102)."""
+    """The dead websocket must be closed BEFORE the reconnect loop sleeps,
+    not by the next ``connect()`` call. Without this, sockets pile up
+    across reconnects (issue #102, tightened per roborev #207).
+
+    The test uses a reconnect delay long enough that the second connect
+    would not race past the close, and asserts the first ws's close()
+    fires while the second connect is still pending. If the close only
+    happened in ``connect()`` on the next attempt, this would fail because
+    the close-fired event would not be set during the reconnect sleep.
+    """
     websockets_created: list = []
-    second_connected = asyncio.Event()
+    first_close_called = asyncio.Event()
+    second_connect_started = asyncio.Event()
     call_count = 0
+
+    async def first_close():
+        first_close_called.set()
+
+    async def second_close():
+        pass
 
     async def fake_connect(url, **kwargs):
         nonlocal call_count
         call_count += 1
-        ws = _make_mock_ws([])  # yields nothing → messages() exits cleanly
-        websockets_created.append(ws)
         if call_count == 2:
-            second_connected.set()
+            second_connect_started.set()
+        ws = _make_mock_ws([])  # yields nothing → messages() exits cleanly
+        ws.close = AsyncMock(
+            side_effect=first_close if call_count == 1 else second_close
+        )
+        websockets_created.append(ws)
         return ws
 
     client = DaemonClient(
         addr_provider=lambda: "ws://localhost:9999",
-        _max_delay=0.05,
+        # Long enough that the close must happen during reconnect sleep,
+        # not as a side-effect of the next connect() call.
+        _max_delay=0.5,
         connect_factory=fake_connect,
     )
-    client._reconnect_delay = 0.05
+    client._reconnect_delay = 0.3
 
     task = asyncio.create_task(
         client.run_with_reconnect(
             lambda m: asyncio.sleep(0), lambda s: None, ["tickets"]
         )
     )
-    await asyncio.wait_for(second_connected.wait(), timeout=2.0)
-    # Give the close-before-retry path a moment to fire.
-    await asyncio.sleep(0.05)
-    task.cancel()
     try:
-        await task
-    except (asyncio.CancelledError, Exception):
-        pass
+        # The first close must fire while the second connect is still pending.
+        # If close only happened inside connect(), first_close_called would only
+        # set _after_ second_connect_started — this wait would time out.
+        await asyncio.wait_for(first_close_called.wait(), timeout=2.0)
+        assert not second_connect_started.is_set(), (
+            "first ws.close() did not fire before the second connect attempt — "
+            "the close-before-retry guarantee is broken"
+        )
+        # And the second connect does eventually run (the loop made progress).
+        await asyncio.wait_for(second_connect_started.wait(), timeout=2.0)
+    finally:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
-    # First websocket must have been closed before the second was opened.
     assert len(websockets_created) >= 2
-    websockets_created[0].close.assert_called()
 
 
 @pytest.mark.asyncio

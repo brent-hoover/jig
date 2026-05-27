@@ -598,10 +598,11 @@ class NowScreen(Container):
         header_label = type_map.get(prompt_type, prompt_type.replace("_", " ").title())
 
         # Truncate very long questions so the panel doesn't blow past
-        # max-height. The full text remains in scrollback above.
+        # max-height. The full text is written to scrollback above by
+        # ``_render_prompt_request`` so the operator can scroll up to read it.
         body = question_text
         if len(body) > 600:
-            body = body[:597].rstrip() + "…"
+            body = body[:597].rstrip() + "… [dim](full text in scrollback above)[/dim]"
 
         # Build the panel content.
         lines = [
@@ -1009,13 +1010,22 @@ class NowScreen(Container):
         self._active_prompt_type = prompt_type
 
         if prompt_type == "question_answer":
+            from rich.markdown import Markdown
+
             asker = data.get("asker", "agent")
             idx = data.get("index", 1)
             total = data.get("total", 1)
             suffix = f" ({idx}/{total})" if total > 1 else ""
-            scrollback.write(
-                f"[dim cyan]› {asker} asked{suffix} — see prompt below[/dim cyan]"
-            )
+            scrollback.write(f"[dim cyan]› {asker} asked{suffix}[/dim cyan]")
+            # Write the full question text to scrollback so it survives the
+            # prompt panel's 600-char truncation. PMs often paste long
+            # multi-ticket plans here; the operator must be able to scroll
+            # up and read the whole thing.
+            question_text = (
+                data.get("question_text") or data.get("question") or ""
+            ).strip()
+            if question_text:
+                scrollback.write(Markdown(question_text))
         else:
             rendered = data.get("rendered")
             if rendered:

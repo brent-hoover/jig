@@ -348,6 +348,29 @@ class Orchestrator:
         self._analyzer_last_terminal_ids = frozenset()
         await self.startup()
 
+    async def list_active_agents(self) -> list[dict]:
+        """Return currently-running agents in ``agent_thinking`` payload shape.
+
+        Consumed by ``ws_server._build_snapshot`` for the ``agents`` topic so
+        the TUI's Activity sidebar can be restored from the snapshot on
+        (re)subscribe without waiting for the next live heartbeat. Source of
+        truth is ``StallDetector.in_flight_agents`` — already updated on
+        every agent spawn/finish in ``_run_agent_with_analytics``.
+        """
+        now = time.monotonic()
+        agents: list[dict] = []
+        for agent_key, started in self._stall_detector.in_flight_agents.items():
+            ticket_id, _, role = agent_key.partition(":")
+            agents.append(
+                {
+                    "role": role,
+                    "ticket_id": ticket_id,
+                    "elapsed": int(now - started),
+                    "active": True,
+                }
+            )
+        return agents
+
     # ---- analytics --------------------------------------------------------
 
     def _on_ticket_status_change(

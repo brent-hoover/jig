@@ -45,6 +45,30 @@ async def test_orchestrator_reload_promotes_to_configured(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_list_active_agents_returns_in_flight_agents(tmp_path: Path):
+    """list_active_agents() projects StallDetector.in_flight_agents into the
+    agent_thinking event payload shape so ws_server's agents snapshot can
+    populate the TUI sidebar without waiting for the next live heartbeat
+    (issue #101)."""
+    orch = Orchestrator(project_path=tmp_path, emitter=EventEmitter())
+
+    # Empty when no agents are running.
+    assert await orch.list_active_agents() == []
+
+    # Simulate two agents in flight.
+    orch._stall_detector.record_agent_start("ticket-abc:test")
+    orch._stall_detector.record_agent_start("ticket-xyz:dev")
+
+    agents = await orch.list_active_agents()
+    by_role = {a["role"]: a for a in agents}
+    assert set(by_role) == {"test", "dev"}
+    assert by_role["test"]["ticket_id"] == "ticket-abc"
+    assert by_role["dev"]["ticket_id"] == "ticket-xyz"
+    assert all(a["active"] is True for a in agents)
+    assert all(isinstance(a["elapsed"], int) for a in agents)
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_reload_is_noop_when_already_configured(tmp_path: Path):
     """reload() is a no-op when the orchestrator is already in configured mode."""
     jig_dir = tmp_path / ".jig"

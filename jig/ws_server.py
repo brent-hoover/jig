@@ -668,11 +668,6 @@ class WebSocketServer:
             spec = StructuredSpec.model_validate(data)
             return spec.model_dump(mode="json", by_alias=True)
         if topic == "agents":
-            if not hasattr(self._orch, "list_active_agents"):
-                logger.warning(
-                    "snapshot for topic 'agents' is empty: missing helper list_active_agents"
-                )
-                return []
             return await self._orch.list_active_agents()
         if topic == "events":
             msgs = await self._orch.bus.recent(limit=100)

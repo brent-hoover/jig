@@ -16,13 +16,9 @@ import pytest
 from jig.agent_config import _defaults_dir, _write_global_claude_md
 
 
-def _defaults() -> Path:
-    return _defaults_dir()
-
-
 class TestShippedGlobalContent:
     def test_global_file_exists_and_is_non_empty(self) -> None:
-        global_md = _defaults() / "agent_claude_md.md"
+        global_md = _defaults_dir() / "agent_claude_md.md"
         assert global_md.is_file()
         text = global_md.read_text(encoding="utf-8")
         assert len(text) > 200, "global CLAUDE.md looks like a placeholder"
@@ -30,24 +26,38 @@ class TestShippedGlobalContent:
     @pytest.mark.parametrize(
         "tool_name",
         [
+            # Ticket lifecycle
             "create_ticket",
             "read_ticket",
             "update_ticket",
             "list_tickets",
+            # Conversation
             "comment_on_ticket",
             "read_comments",
             "thread_ask",
             "thread_answer",
+            "thread_resolve_question",
             "thread_note",
+            "thread_decide",
+            "thread_handoff",
+            "thread_accept_handoff",
+            "thread_reject_handoff",
+            # Working code
             "commit_progress",
             "add_dependency",
+            # Knowledge
             "record_learning",
         ],
     )
     def test_global_mentions_known_mcp_tools(self, tool_name: str) -> None:
         """If a shipped MCP tool gets renamed, the global doc should call it
-        out — this test fails when the doc still references the old name."""
-        global_md = _defaults() / "agent_claude_md.md"
+        out — this test fails when the doc still references the old name.
+
+        Covers every MCP tool the global doc explicitly names. A rename in
+        ``mcp_server.py`` without the corresponding doc update should trip
+        this test; an unrelated tool added to the codebase is fine to omit
+        until the doc actually mentions it."""
+        global_md = _defaults_dir() / "agent_claude_md.md"
         text = global_md.read_text(encoding="utf-8")
         assert tool_name in text, (
             f"global CLAUDE.md missing reference to MCP tool {tool_name!r}"
@@ -55,7 +65,7 @@ class TestShippedGlobalContent:
 
     def test_global_covers_required_sections(self) -> None:
         """Catches accidental wholesale gutting of the doc."""
-        global_md = _defaults() / "agent_claude_md.md"
+        global_md = _defaults_dir() / "agent_claude_md.md"
         text = global_md.read_text(encoding="utf-8")
         for needle in (
             "Acceptance Criteria",
@@ -71,7 +81,7 @@ class TestShippedGlobalContent:
 class TestShippedRoleAddendums:
     @pytest.mark.parametrize("role", ["dev", "reviewer-generalist"])
     def test_role_addendum_exists_and_is_non_empty(self, role: str) -> None:
-        addendum = _defaults() / "roles" / role / "CLAUDE.md"
+        addendum = _defaults_dir() / "roles" / role / "CLAUDE.md"
         assert addendum.is_file(), (
             f"shipped per-role addendum missing for role {role!r}"
         )
@@ -112,7 +122,9 @@ class TestShippedTemplateStarters:
     def test_template_ships_starter_with_stack_marker(
         self, template: str, marker: str
     ) -> None:
-        starter = _defaults() / "project_templates" / template / ".jig" / "CLAUDE.md"
+        starter = (
+            _defaults_dir() / "project_templates" / template / ".jig" / "CLAUDE.md"
+        )
         assert starter.is_file(), f"{template} template missing .jig/CLAUDE.md starter"
         text = starter.read_text(encoding="utf-8")
         assert marker in text, (

@@ -20,6 +20,9 @@ RUN npm install -g @anthropic-ai/claude-code
 # ruff (used by orchestrator for auto-lint in worktrees)
 RUN pip install --no-cache-dir ruff
 
+# semgrep (used by the canonicalizer agent for rule-based convention enforcement)
+RUN pip install --no-cache-dir semgrep
+
 # gh CLI (used by orchestrator for PR creation)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

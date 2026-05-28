@@ -51,6 +51,7 @@ from jig.thread_mcp import (
     handle_thread_reject_handoff,
 )
 from jig.ticket import Ticket, WorkType
+from jig.worktree import CommitResult
 from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
@@ -794,8 +795,8 @@ class TestCommitProgressHooks:
 
         tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
 
-        async def fake_commit(worktree: Path, message: str) -> str:
-            return "aabbccdd1122"
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            return CommitResult(sha="aabbccdd1122", metrics=None)
 
         with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
             result = await handle_commit_progress(
@@ -824,7 +825,7 @@ class TestCommitProgressHooks:
 
         tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
 
-        async def lint_boom(worktree: Path, message: str) -> str:
+        async def lint_boom(worktree: Path, message: str) -> CommitResult:
             raise LintError(["E501 too long", "F401 unused"])
 
         with patch("jig.ticket_mcp.commit_worktree", side_effect=lint_boom):

@@ -566,7 +566,8 @@ async def handle_commit_progress(
     commit_message = f"feat({sender}): {subject}"
 
     try:
-        sha = await commit_worktree(worktree_path, commit_message)
+        commit_result = await commit_worktree(worktree_path, commit_message)
+        sha = commit_result.sha
     except LintError as exc:
         # Harness-triggered: lint/test hook fires regardless of outcome
         # per doc 09. The failing lint output surfaces as open_questions

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from jig.code_metrics import ChangeMetrics
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
     from jig.models import PhaseConfig, WorkflowConfig
@@ -706,6 +707,7 @@ class Orchestrator:
 
         worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
         worktree_arg = worktree_path if worktree_path.exists() else None
+        base_ref = self._project.default_branch if self._project is not None else "main"
 
         # ---- run dispatch with single-retry policy --------------------
         try:
@@ -714,6 +716,7 @@ class Orchestrator:
                 self._project_path,
                 self,
                 worktree_path=worktree_arg,
+                base_ref=base_ref,
             )
         except Exception:
             _logger.warning(
@@ -728,6 +731,7 @@ class Orchestrator:
                     self._project_path,
                     self,
                     worktree_path=worktree_arg,
+                    base_ref=base_ref,
                 )
             except Exception:
                 _logger.error(
@@ -853,6 +857,7 @@ class Orchestrator:
             prior_acks_snapshot = await _acks_store.for_ticket(ticket_id)
 
         reviewers_list = phase.reviewers if phase is not None else None
+        base_ref = self._project.default_branch if self._project is not None else "main"
         try:
             by_reviewer = await dispatch_with_llm_spawn(
                 ticket,
@@ -861,6 +866,7 @@ class Orchestrator:
                 worktree_path=worktree_path,
                 reviewers=reviewers_list,
                 cycle=cycle,
+                base_ref=base_ref,
             )
         except ValueError:
             # ValueError from dispatch_with_llm_spawn means a workflow
@@ -982,6 +988,7 @@ class Orchestrator:
         project_root: Path,
         worktree_path: Path | None = None,
         cycle: int = 0,
+        code_metrics: "ChangeMetrics | None" = None,
     ) -> None:
         """Spawn one LLM-driven federation reviewer (Block 3).
 
@@ -1049,6 +1056,7 @@ class Orchestrator:
             bus=self.bus,
             checkpoints=self.checkpoints,
             verify_bundle=verify_bundle,
+            code_metrics=code_metrics,
             cycle=cycle,
             initial_bus_message={
                 "kind": "review_federation_spawn",
@@ -2779,9 +2787,10 @@ class Orchestrator:
         from jig.worktree import commit_worktree
 
         try:
-            sha = await commit_worktree(
+            result = await commit_worktree(
                 worktree, f"chore({phase_name}): auto-commit after phase"
             )
+            sha = result.sha
         except Exception as exc:
             _logger.warning(
                 "auto-commit failed after %s: %s",

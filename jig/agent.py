@@ -265,6 +265,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         replan_bundle=replan_bundle,
         fix_loop_bundle=fix_loop_bundle,
         verify_bundle=verify_bundle,
+        code_metrics=ctx.code_metrics,
         conventions_md=conventions_md,
     )
 

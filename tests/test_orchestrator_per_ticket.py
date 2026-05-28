@@ -10,6 +10,7 @@ from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.thread import SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
+from jig.worktree import CommitResult
 from tests._test_ticket import TICKET_AC_PLACEHOLDER
 
 
@@ -189,7 +190,7 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
         remove_calls.append("called")
 
     async def fake_commit(*args, **kwargs):
-        return None
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.merge_ticket", conflicting_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
@@ -508,7 +509,7 @@ async def test_resolver_success_routes_to_resolved(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr("jig.worktree.remove_worktree", lambda *a, **k: None)
 
     async def fake_commit_wt(*args, **kwargs):
-        return None
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_wt)
 
@@ -580,7 +581,7 @@ async def test_resolver_failure_routes_to_merge_conflict(
     monkeypatch.setattr("jig.worktree.remove_worktree", lambda *a, **k: None)
 
     async def fake_commit_wt2(*args, **kwargs):
-        return None
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_wt2)
 
@@ -662,8 +663,8 @@ async def test_start_ready_tickets_respects_max_parallel(
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
 
-    async def fake_commit_mp(*a, **k) -> None:
-        return None
+    async def fake_commit_mp(*a, **k) -> CommitResult:
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_mp)
 
@@ -731,8 +732,8 @@ async def test_start_ready_tickets_no_cap_when_max_parallel_none(
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
 
-    async def fake_commit_mp2(*a, **k) -> None:
-        return None
+    async def fake_commit_mp2(*a, **k) -> CommitResult:
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.commit_worktree", fake_commit_mp2)
 
@@ -923,8 +924,8 @@ async def test_replan_fired_after_successful_conflict_resolution(
     async def fake_remove(*a, **k) -> None:
         return None
 
-    async def fake_commit(*a, **k) -> None:
-        return None
+    async def fake_commit(*a, **k) -> CommitResult:
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr(
         "jig.worktree.merge_ticket", merge_first_conflicts_then_succeeds
@@ -1001,8 +1002,8 @@ async def test_replan_not_fired_when_resolver_fails(
     async def fake_remove_2(*a, **k) -> None:
         return None
 
-    async def fake_commit_2(*a, **k) -> None:
-        return None
+    async def fake_commit_2(*a, **k) -> CommitResult:
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.merge_ticket", always_conflict)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove_2)

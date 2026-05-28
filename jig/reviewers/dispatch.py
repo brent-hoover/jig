@@ -45,6 +45,7 @@ accidentally suppress security/perf/arch coverage by omission.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
@@ -964,9 +965,16 @@ async def dispatch_with_llm_spawn(
         # cycle by design.
         pre_existing_ids.add(_comment_signature(c))
 
-    import asyncio as _asyncio
+    # Objective code-quality signal for the change under review — computed
+    # once and handed to every LLM reviewer's prompt. Signal only; a failure
+    # degrades to None (no metrics section) without blocking the federation.
+    code_metrics = None
+    if worktree_path is not None:
+        from jig.code_metrics import compute_change_metrics
 
-    await _asyncio.gather(
+        code_metrics = await compute_change_metrics(worktree_path, base_ref=base_ref)
+
+    await asyncio.gather(
         *[
             orchestrator.spawn_review_agent_for_id(
                 reviewer_id=p.reviewer_id,
@@ -975,6 +983,7 @@ async def dispatch_with_llm_spawn(
                 project_root=project_root,
                 worktree_path=worktree_path,
                 cycle=cycle,
+                code_metrics=code_metrics,
             )
             for p in pendings
         ]

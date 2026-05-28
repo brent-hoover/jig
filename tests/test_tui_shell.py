@@ -443,6 +443,40 @@ async def test_sidebar_activity_badge_reflects_agent_count(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_agents_snapshot_restores_activity_sidebar(tmp_path: Path):
+    """An ``agents`` topic snapshot must restore the Activity sidebar so a
+    mid-run TUI reconnect doesn't have to wait for the next live heartbeat
+    (~1s) to repopulate. Each row matches the agent_thinking payload shape
+    (role, ticket_id, elapsed, active) and goes through update_thinking.
+    Regression for roborev #206.
+    """
+    from textual.widgets import TabbedContent
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test():
+        sidebar = app.query_one(Sidebar)
+        tabs = sidebar.query_one(TabbedContent)
+        activity_tab = tabs.get_tab("activity-tab")
+        assert str(activity_tab.label) == "Activity"
+
+        # Drive the agents snapshot through the app's daemon-message handler,
+        # the same path the real WS client uses.
+        await app._handle_daemon_message(
+            {
+                "type": "snapshot",
+                "topic": "agents",
+                "data": [
+                    {"role": "dev", "ticket_id": "T-1", "elapsed": 5, "active": True},
+                    {"role": "test", "ticket_id": "T-2", "elapsed": 3, "active": True},
+                ],
+            }
+        )
+        assert str(activity_tab.label) == "Activity (2)"
+
+
+@pytest.mark.asyncio
 async def test_sidebar_tickets_badge_reflects_open_count(tmp_path: Path):
     """A tickets snapshot with N open / in-progress / blocked tickets
     should produce 'Tickets (N)' on the tab label. Closed / resolved

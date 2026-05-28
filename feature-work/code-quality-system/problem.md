@@ -37,7 +37,7 @@ knowledge source none of the above currently uses.
 
 ## Problem
 
-There is no unified, measurable notion of code quality for agent output, and three concrete gaps block one:
+There is no unified, measurable notion of code quality for agent output, and four concrete gaps block one:
 
 1. **The canonicalization engine is non-functional end-to-end.** Semgrep is plumbed but not installed/sandboxed
    and ships no rules, so the deterministic-detection investment produces nothing.

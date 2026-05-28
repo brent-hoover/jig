@@ -668,3 +668,33 @@ async def test_recent_subject_uses_full_width_on_wide_terminal(tmp_path: Path):
         assert kept > 40, (
             f"recent subject still capped short on wide terminal: {kept} chars"
         )
+
+
+@pytest.mark.asyncio
+async def test_recent_subject_dropped_when_no_room(tmp_path: Path):
+    """At an extremely narrow width the subject budget computes to 0; the
+    subject must be dropped entirely rather than forced to a minimum — this
+    exercises the ``avail_subject <= 0`` branch in _render_tail directly
+    (PR #106 review follow-up).
+
+    At 22 cols inner width is 14. The "⚡ merge conflict" label (16 chars) is
+    capped to the full 14, leaving ``avail_subject = max(0, 14 - 14 - 1) = 0``.
+    The old code forced ``max(4, …)`` subject chars even here.
+    """
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(22, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_events_snapshot(
+            [{"kind": "ticket_merge_conflict", "title": "Q" * 90}]
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#tail-body", Static)
+        rendered = str(body.render())
+        assert rendered.count("Q") == 0, (
+            f"subject not dropped at zero budget: {rendered!r}"
+        )

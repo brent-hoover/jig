@@ -25,6 +25,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.css.query import NoMatches
+from textual.events import Resize
 from textual.widget import Widget
 from textual.widgets import Static, TabbedContent, TabPane
 
@@ -172,7 +173,7 @@ class Sidebar(Widget):
             return _FALLBACK_TEXT_WIDTH
         return max(1, w - _TABPANE_H_PADDING)
 
-    def on_resize(self, event: object) -> None:
+    def on_resize(self, event: Resize) -> None:
         """Re-truncate every zone against the new width.
 
         Fires on first layout and on terminal resize. Without this, a zone
@@ -234,6 +235,8 @@ class Sidebar(Widget):
             zone.set_lines([])
             return
         spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        # Constant for this render call — compute once, not per agent.
+        inner = self._zone_text_width()
         lines = []
         for agent_key in all_keys:
             state = self._active_agents.get(agent_key)
@@ -247,7 +250,6 @@ class Sidebar(Widget):
                 )
             else:
                 lines.append(f"  [bold]{role}[/bold]")
-            inner = self._zone_text_width()
             for tool, detail in list(self._agent_tools.get(agent_key, [])):
                 # Strip MCP namespace prefix: mcp__<ns>__<tool> → <tool>
                 display_tool = tool
@@ -433,14 +435,17 @@ class Sidebar(Widget):
            even when the event only carried the id.
         3. Short ticket id as the last resort (better than nothing).
         """
+        # Return the raw subject — _render_tail owns truncation (against the
+        # live width) and ligature_safe, so it can truncate *before* the ZWSP
+        # substitution the way _render_queue does. Pre-truncating here would
+        # cap the subject before the dynamic budget is even known.
         for path in (
             ev.get("title"),
             (ev.get("data") or {}).get("title"),
             (ev.get("payload") or {}).get("title"),
         ):
             if isinstance(path, str) and path.strip():
-                truncated = path[:24] + ("…" if len(path) > 24 else "")
-                return ligature_safe(truncated)
+                return path
 
         # Resolve via the cached ticket store.
         ticket_id = None
@@ -456,9 +461,7 @@ class Sidebar(Widget):
         if ticket_id:
             t = self._tickets.get(ticket_id)
             if t and t.get("title"):
-                title = t["title"]
-                truncated = title[:24] + ("…" if len(title) > 24 else "")
-                return ligature_safe(truncated)
+                return t["title"]
             return ticket_id[:8]
         return ""
 
@@ -489,6 +492,10 @@ class Sidebar(Widget):
                 # Truncate to at most avail_subject visible cells *including*
                 # the ellipsis, so the row never exceeds its budget.
                 subject = subject[: avail_subject - 1] + "…"
+            # ligature_safe AFTER truncation — ZWSPs inflate len() and would
+            # be split mid-insertion if truncated post-substitution.
+            if subject:
+                subject = ligature_safe(subject)
             subject_part = f" [dim]{subject}[/dim]" if subject else ""
             lines.append(f"{ts_part}[cyan]{label}[/cyan]{subject_part}")
         zone.set_lines(lines)

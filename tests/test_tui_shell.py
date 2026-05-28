@@ -555,8 +555,12 @@ async def test_queue_title_truncated_on_narrow_terminal(tmp_path: Path):
         rendered = str(body.render())
         kept = rendered.count("x")
         # A 50-col terminal can't fit 80 chars — must truncate — but should
-        # still keep more than the old fixed 23-char cap would have.
+        # still keep more than the old fixed 23-char cap would have. The lower
+        # bound catches a regression back to the hardcoded 26-char limit.
         assert kept < 80, f"title not truncated on narrow terminal: {kept} chars"
+        assert kept > 23, (
+            f"narrow terminal should keep more than the old 23-char cap, got {kept}"
+        )
         assert "…" in rendered, "expected ellipsis marker on truncated title"
 
 
@@ -639,3 +643,28 @@ async def test_recent_subject_does_not_overflow_on_narrow_terminal(tmp_path: Pat
             assert len(line) <= inner, (
                 f"recent row overflows zone budget: {len(line)} > {inner}: {line!r}"
             )
+
+
+@pytest.mark.asyncio
+async def test_recent_subject_uses_full_width_on_wide_terminal(tmp_path: Path):
+    """On a wide terminal the Recent subject should use the live width, not
+    the legacy 24-char pre-cap that _extract_subject used to apply (PR #106
+    review). Regression guard: the cap removal must let long subjects through.
+    """
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_events_snapshot([{"kind": "ticket_created", "title": "W" * 90}])
+        await pilot.pause()
+
+        body = sidebar.query_one("#tail-body", Static)
+        kept = str(body.render()).count("W")
+        # Old code pre-capped subjects at 24 chars; a 120-col terminal has
+        # room for far more once the cap is removed.
+        assert kept > 40, (
+            f"recent subject still capped short on wide terminal: {kept} chars"
+        )

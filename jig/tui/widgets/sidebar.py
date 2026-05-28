@@ -33,6 +33,18 @@ from jig.tui import ligature_safe
 
 _HEADER_STYLE = "bold $accent on $boost"
 
+# Horizontal chrome inside the Sidebar that eats into the usable text width
+# of each zone body: the TabPane padding is ``0 1 1 1`` (1 cell left + 1 right).
+# The Sidebar's own border is already excluded by ``content_region``; the
+# _Zone bodies carry no padding of their own.
+_TABPANE_H_PADDING = 2
+
+# Pre-layout fallback width, in cells. Used only before Textual has computed
+# the Sidebar's region (early-init renders fire before first layout) — once a
+# Resize lands, truncation switches to the real derived width. Matches the
+# legacy right-docked column width so first-paint truncation isn't jarring.
+_FALLBACK_TEXT_WIDTH = 34
+
 
 class _Zone(Vertical):
     """A subzone of the Sidebar — a titled vertical block."""
@@ -142,6 +154,36 @@ class Sidebar(Widget):
             return
         tab.label = base if count == 0 else f"{base} ({count})"
 
+    def _zone_text_width(self) -> int:
+        """Usable inner text width for a zone body, in cells.
+
+        Derived from the Sidebar's own ``content_region`` (which excludes the
+        border) minus the TabPane horizontal padding. Read from the Sidebar
+        rather than a per-zone body because the body of an *inactive* tab has
+        no computed region until that tab is shown — the Sidebar itself is
+        always laid out, and the bottom-docked layout makes every zone the
+        same full-terminal width, so one value serves all three zones.
+
+        Falls back to ``_FALLBACK_TEXT_WIDTH`` before first layout (region
+        width still 0); ``on_resize`` re-renders once the real width is known.
+        """
+        w = self.content_region.width
+        if w <= 0:
+            return _FALLBACK_TEXT_WIDTH
+        return max(1, w - _TABPANE_H_PADDING)
+
+    def on_resize(self, event: object) -> None:
+        """Re-truncate every zone against the new width.
+
+        Fires on first layout and on terminal resize. Without this, a zone
+        rendered once from a snapshot (e.g. the tickets snapshot that arrives
+        at subscribe, before layout) would keep its pre-layout fallback-width
+        truncation forever, and titles wouldn't reflow when the terminal grows.
+        """
+        self._render_activity()
+        self._render_queue()
+        self._render_tail()
+
     # ---------------------------------------------------------------------
     # Activity — driven by agent_thinking events
     # ---------------------------------------------------------------------
@@ -205,15 +247,20 @@ class Sidebar(Widget):
                 )
             else:
                 lines.append(f"  [bold]{role}[/bold]")
+            inner = self._zone_text_width()
             for tool, detail in list(self._agent_tools.get(agent_key, [])):
                 # Strip MCP namespace prefix: mcp__<ns>__<tool> → <tool>
                 display_tool = tool
                 if display_tool.startswith("mcp__") and display_tool.count("__") >= 2:
                     display_tool = display_tool.split("__", 2)[2]
-                # Sidebar inner width 34. Format: "  ▸ {tool}: {detail}" — overhead 6 chars.
-                if len(display_tool) > 14:
-                    display_tool = display_tool[:13] + "…"
-                avail = max(6, 34 - 6 - len(display_tool))
+                # Line format "  ▸ {tool}: {detail}" — fixed glyphs/spaces
+                # (2 indent + "▸ " + ": ") cost 6 cells. Cap the tool name at
+                # half the line so a pathological name can't eat everything;
+                # normally a no-op since tool names are short.
+                tool_cap = max(14, inner // 2)
+                if len(display_tool) > tool_cap:
+                    display_tool = display_tool[: tool_cap - 1] + "…"
+                avail = max(6, inner - 6 - len(display_tool))
                 detail_trunc = detail[:avail] + "…" if len(detail) > avail else detail
                 lines.append(
                     f"  [dim]▸[/dim] [bold dim]{display_tool}[/bold dim][dim]: {detail_trunc}[/dim]"
@@ -290,6 +337,8 @@ class Sidebar(Widget):
             "merge_conflict": 4,
         }
         open_tickets.sort(key=lambda t: order.get(t.get("status", "open"), 99))
+        # Line format "{glyph} {title}" — glyph + space cost 2 cells.
+        avail = max(8, self._zone_text_width() - 2)
         lines = []
         for t in open_tickets[:10]:
             status = t.get("status", "open")
@@ -297,8 +346,8 @@ class Sidebar(Widget):
             color = self._STATUS_COLOR.get(status, "white")
             # Truncate before ligature_safe — ZWSPs inflate len().
             title = t.get("title", "(untitled)")
-            if len(title) > 26:
-                title = title[:23] + "…"
+            if len(title) > avail:
+                title = title[: avail - 1] + "…"
             title = ligature_safe(title)
             lines.append(f"[{color}]{glyph}[/] {title}")
         zone.set_lines(lines)
@@ -418,6 +467,9 @@ class Sidebar(Widget):
             zone = self.query_one("#tail", _Zone)
         except Exception:
             return
+        # Compute subject budget against the live width so label + subject
+        # never exceeds one line. Line format "{ts} {label} {subject}".
+        inner = self._zone_text_width()
         lines = []
         for ev in self._events[-8:]:
             ts = self._extract_timestamp(ev)
@@ -425,12 +477,10 @@ class Sidebar(Widget):
             label = self._KIND_LABELS.get(raw_kind, raw_kind or "·")
             subject = self._extract_subject(ev)
             ts_part = f"[dim]{ts}[/dim] " if ts else ""
-            # Sidebar inner width 34. Compute subject budget dynamically so
-            # label + subject never exceeds one line.
             ts_visible = len(ts) + 1 if ts else 0
             if len(label) > 14:
                 label = label[:13] + "…"
-            avail_subject = max(0, 34 - ts_visible - len(label) - 1)
+            avail_subject = max(0, inner - ts_visible - len(label) - 1)
             if subject and len(subject) > avail_subject:
                 subject = subject[: max(4, avail_subject - 1)] + "…"
             subject_part = f" [dim]{subject}[/dim]" if subject else ""

@@ -504,3 +504,115 @@ async def test_sidebar_tickets_badge_reflects_open_count(tmp_path: Path):
         # Clear: badge collapses to the base label.
         sidebar.update_tickets_snapshot([])
         assert str(tickets_tab.label) == "Tickets"
+
+
+@pytest.mark.asyncio
+async def test_queue_title_uses_full_width_on_wide_terminal(tmp_path: Path):
+    """On a wide terminal the bottom-docked Tickets zone should use the full
+    available width, not the legacy ~26-char column budget (issue #92)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        long_title = "x" * 80
+        sidebar.update_tickets_snapshot(
+            [{"id": "T-1", "title": long_title, "status": "open"}]
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#queue-body", Static)
+        rendered = str(body.render())
+        # ligature_safe may insert ZWSPs, so count the literal title chars
+        # rather than measuring len(). Old code capped at 23; a 120-col
+        # terminal has room for the whole 80-char title.
+        assert rendered.count("x") > 50, (
+            f"title truncated too aggressively on wide terminal: "
+            f"{rendered.count('x')} chars kept"
+        )
+
+
+@pytest.mark.asyncio
+async def test_queue_title_truncated_on_narrow_terminal(tmp_path: Path):
+    """On a narrow terminal the title must still be truncated so it doesn't
+    overflow the zone width (issue #92 — no regression on small terminals)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(50, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        long_title = "x" * 80
+        sidebar.update_tickets_snapshot(
+            [{"id": "T-1", "title": long_title, "status": "open"}]
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#queue-body", Static)
+        rendered = str(body.render())
+        kept = rendered.count("x")
+        # A 50-col terminal can't fit 80 chars — must truncate — but should
+        # still keep more than the old fixed 23-char cap would have.
+        assert kept < 80, f"title not truncated on narrow terminal: {kept} chars"
+        assert "…" in rendered, "expected ellipsis marker on truncated title"
+
+
+@pytest.mark.asyncio
+async def test_activity_detail_uses_full_width_on_wide_terminal(tmp_path: Path):
+    """On a wide terminal the Activity zone tool-detail line should use the
+    full width, not the legacy 34-col budget (issue #92)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_thinking(
+            {"role": "dev", "ticket_id": "T-1", "elapsed": 1, "active": True}
+        )
+        sidebar.update_tool_use(
+            {"role": "dev", "ticket_id": "T-1", "tool": "Read", "detail": "y" * 100}
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#activity-body", Static)
+        rendered = str(body.render())
+        # Old budget kept ~24 detail chars; a 120-col terminal fits ~100.
+        assert rendered.count("y") > 50, (
+            f"tool detail truncated too aggressively on wide terminal: "
+            f"{rendered.count('y')} chars kept"
+        )
+
+
+@pytest.mark.asyncio
+async def test_sidebar_reflows_on_resize(tmp_path: Path):
+    """Resizing the terminal must re-truncate zone content against the new
+    width — a title rendered narrow then widened should regain characters
+    (issue #92: on_resize re-render)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(50, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        long_title = "z" * 90
+        sidebar.update_tickets_snapshot(
+            [{"id": "T-1", "title": long_title, "status": "open"}]
+        )
+        await pilot.pause()
+        body = sidebar.query_one("#queue-body", Static)
+        narrow_kept = str(body.render()).count("z")
+
+        # Grow the terminal; on_resize should re-render with the new budget.
+        await pilot.resize_terminal(140, 30)
+        await pilot.pause()
+        wide_kept = str(body.render()).count("z")
+
+        assert wide_kept > narrow_kept, (
+            f"title did not reflow on resize: narrow={narrow_kept} wide={wide_kept}"
+        )

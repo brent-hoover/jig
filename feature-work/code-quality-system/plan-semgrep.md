@@ -180,8 +180,8 @@ rules:
     languages: [python]
     severity: WARNING
     message: "logger.warn() is deprecated; use logger.warning()."
-    pattern: $LOG.warn(...)
-    fix: $LOG.warning(...)
+    pattern: $LOG.warn($...ARGS)   # capture args so the fix preserves them
+    fix: $LOG.warning($...ARGS)
 ```
 
 - [ ] **Step 4: Create the detect-only rule**
@@ -231,8 +231,9 @@ RUN pip install --no-cache-dir semgrep
 
 - [ ] **Step 2: Verify it builds and the binary is present in-image**
 
-Run: `docker build -t jig-semgrep-check . && docker run --rm jig-semgrep-check semgrep --version`
-Expected: image builds; prints a semgrep version. (This is a heavier step — run once to confirm.)
+Run: `docker build -t jig-semgrep-check . && docker run --rm --entrypoint semgrep jig-semgrep-check --version`
+Expected: image builds; prints a semgrep version. (`--entrypoint semgrep` is required — the image's
+`ENTRYPOINT` is `jig`, so without it the args go to `jig`. This is a heavier step — run once to confirm.)
 
 - [ ] **Step 3: Commit**
 
@@ -341,6 +342,11 @@ edit and the new dependency; nothing else is touched.
 - The AI-audit taxonomy rules + `taxonomy.yaml` (sub-issue B).
 - Reviewer-facing disposition (sub-issue C).
 - Measurement/attribution (sub-issue D).
+- **Deprecations path fix (pre-existing #17 gap):** the canonicalizer runbook runs
+  `semgrep --config .jig/rules/deprecations.yml`, but that file is modelled as a `deprecations:` manifest that
+  needs `DeprecationsConfig.to_semgrep_rules()` conversion before Semgrep can read it. This predates this PR
+  (introduced in #17 / PR #20) and fixing it properly (convert to a temp rule file, or switch the format +
+  loaders + tests) is its own change. Flagged via roborev #220; to be tracked separately, not fixed in A.
 
 ## Change log
 
@@ -349,3 +355,6 @@ edit and the new dependency; nothing else is touched.
   vacuous offline-guard substring match (`semgrep` + `--config` independently); hoisted `import json` and
   dropped unused `shutil`/`pytest` imports; exact `check_id` match for the swallowed-exception rule
   (Brent Hoover)
+- 2026-05-28: roborev (#220/#222) fixes — `prefer-logger-warning` now captures args (`$...ARGS`) so autofix
+  preserves them (+ regression test); Docker verify uses `--entrypoint semgrep`; recorded the pre-existing
+  deprecations-format gap as out-of-scope (Brent Hoover)

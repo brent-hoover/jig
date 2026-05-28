@@ -9,5 +9,5 @@ rules:
     languages: [python]
     severity: WARNING
     message: "logger.warn() is deprecated; use logger.warning()."
-    pattern: $LOG.warn(...)
-    fix: $LOG.warning(...)
+    pattern: $LOG.warn($...ARGS)
+    fix: $LOG.warning($...ARGS)

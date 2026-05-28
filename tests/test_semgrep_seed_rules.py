@@ -49,6 +49,22 @@ def test_eq_none_rule_autofixes(tmp_path: Path) -> None:
     assert "== None" not in target.read_text()
 
 
+def test_logger_warn_autofix_preserves_arguments(tmp_path: Path) -> None:
+    target = tmp_path / "log.py"
+    target.write_text('def f(log):\n    log.warn("boom", exc_info=True)\n')
+    proc = _semgrep(
+        "--config", str(RULES_DIR / "style.yml"), "--autofix", str(target), cwd=tmp_path
+    )
+    assert proc.returncode in (0, 1), proc.stderr
+    fixed = target.read_text()
+    assert "log.warning(" in fixed
+    # The original arguments must survive the rewrite (regression: a bare
+    # `...` in the fix template drops them).
+    assert '"boom"' in fixed
+    assert "exc_info=True" in fixed
+    assert "..." not in fixed
+
+
 def test_bare_except_pass_is_detected(tmp_path: Path) -> None:
     target = tmp_path / "e.py"
     target.write_text("def f():\n    try:\n        g()\n    except:\n        pass\n")

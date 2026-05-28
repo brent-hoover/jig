@@ -17,7 +17,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 from radon.complexity import cc_visit
 
 _logger = logging.getLogger(__name__)
@@ -63,18 +63,26 @@ def max_cyclomatic(code: str) -> int:
 
 
 class ChangeMetrics(BaseModel):
-    """Objective metrics over the Python files a change touched."""
+    """Objective metrics over the Python files a change touched.
+
+    Immutable value object. ``flagged`` is derived from ``max_cc`` rather than
+    stored, so it can never disagree with the threshold.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     max_cc: int = Field(ge=0)
     max_cc_location: str | None = None
     ruff_findings: int = Field(ge=0)
     loc_delta: int
-    flagged: bool
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def flagged(self) -> bool:
+        return self.max_cc > CC_FLAG_THRESHOLD
 
 
-_EMPTY = ChangeMetrics(
-    max_cc=0, max_cc_location=None, ruff_findings=0, loc_delta=0, flagged=False
-)
+_EMPTY = ChangeMetrics(max_cc=0, max_cc_location=None, ruff_findings=0, loc_delta=0)
 
 
 async def _run(cmd: list[str], cwd: Path) -> tuple[int, str]:
@@ -180,7 +188,6 @@ async def compute_change_metrics(
             max_cc_location=max_cc_location,
             ruff_findings=ruff_findings,
             loc_delta=loc_delta,
-            flagged=max_cc > CC_FLAG_THRESHOLD,
         )
     except (OSError, ValueError):
         _logger.warning(

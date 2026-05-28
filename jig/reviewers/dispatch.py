@@ -45,6 +45,7 @@ accidentally suppress security/perf/arch coverage by omission.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
@@ -973,9 +974,7 @@ async def dispatch_with_llm_spawn(
 
         code_metrics = await compute_change_metrics(worktree_path, base_ref=base_ref)
 
-    import asyncio as _asyncio
-
-    await _asyncio.gather(
+    await asyncio.gather(
         *[
             orchestrator.spawn_review_agent_for_id(
                 reviewer_id=p.reviewer_id,

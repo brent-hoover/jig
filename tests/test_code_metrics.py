@@ -86,7 +86,6 @@ def test_changemetrics_flagged_derives_from_threshold(
         max_cc_location=None,
         ruff_findings=0,
         loc_delta=0,
-        flagged=max_cc > CC_FLAG_THRESHOLD,
     )
     assert m.flagged is expected
 

@@ -17,8 +17,8 @@ def test_flagged_metrics_render_block_with_high_annotation() -> None:
         max_cc_location="foo.py:handle_request",
         ruff_findings=0,
         loc_delta=340,
-        flagged=True,
     )
+    assert m.flagged is True  # derived from max_cc > threshold
     out = _code_metrics_section(m)
 
     assert "## Objective Code Metrics" in out
@@ -35,8 +35,8 @@ def test_unflagged_metrics_render_without_high_annotation() -> None:
         max_cc_location="foo.py:small",
         ruff_findings=2,
         loc_delta=-15,
-        flagged=False,
     )
+    assert m.flagged is False
     out = _code_metrics_section(m)
 
     assert "## Objective Code Metrics" in out
@@ -52,7 +52,6 @@ def test_no_functions_renders_without_location() -> None:
         max_cc_location=None,
         ruff_findings=0,
         loc_delta=3,
-        flagged=False,
     )
     out = _code_metrics_section(m)
 

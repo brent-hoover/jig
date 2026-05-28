@@ -435,6 +435,27 @@ class TestDispatchWithLlmSpawn:
         assert "complex.py" in (metrics.max_cc_location or "")
 
     @pytest.mark.asyncio
+    async def test_no_worktree_passes_none_code_metrics(self, tmp_path: Path) -> None:
+        """When dispatch runs without a worktree (a valid production path) the
+        metrics computation is skipped and reviewers get code_metrics=None —
+        no crash, no spurious metrics block."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=None,
+        )
+
+        assert orch.code_metrics_calls, "expected at least one reviewer spawn"
+        assert all(m is None for m in orch.code_metrics_calls)
+
+    @pytest.mark.asyncio
     async def test_merges_mechanical_and_llm_results(self, tmp_path: Path) -> None:
         """Mechanical comments + LLM-spawned comments come back in one map."""
         _write_arch(tmp_path)

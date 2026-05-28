@@ -55,7 +55,7 @@ phase_prompt: >
   If ``.jig/rules/semgrep/`` exists (a directory of semgrep rule files),
   run:
 
-      semgrep --config .jig/rules/semgrep/ --autofix <CHANGED_FILES>
+      semgrep --metrics off --config .jig/rules/semgrep/ --autofix <CHANGED_FILES>
 
 
   For every file semgrep autofixed, log an audit entry with
@@ -82,7 +82,7 @@ phase_prompt: >
   If ``.jig/rules/deprecations.yml`` exists, run it through semgrep the
   same way:
 
-      semgrep --config .jig/rules/deprecations.yml --autofix <CHANGED_FILES>
+      semgrep --metrics off --config .jig/rules/deprecations.yml --autofix <CHANGED_FILES>
 
 
   Log audit entries with ``rule_source="deprecation"`` for autofixed

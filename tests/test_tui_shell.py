@@ -504,3 +504,197 @@ async def test_sidebar_tickets_badge_reflects_open_count(tmp_path: Path):
         # Clear: badge collapses to the base label.
         sidebar.update_tickets_snapshot([])
         assert str(tickets_tab.label) == "Tickets"
+
+
+@pytest.mark.asyncio
+async def test_queue_title_uses_full_width_on_wide_terminal(tmp_path: Path):
+    """On a wide terminal the bottom-docked Tickets zone should use the full
+    available width, not the legacy ~26-char column budget (issue #92)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        long_title = "x" * 80
+        sidebar.update_tickets_snapshot(
+            [{"id": "T-1", "title": long_title, "status": "open"}]
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#queue-body", Static)
+        rendered = str(body.render())
+        # ligature_safe may insert ZWSPs, so count the literal title chars
+        # rather than measuring len(). Old code capped at 23; a 120-col
+        # terminal has room for the whole 80-char title.
+        assert rendered.count("x") > 50, (
+            f"title truncated too aggressively on wide terminal: "
+            f"{rendered.count('x')} chars kept"
+        )
+
+
+@pytest.mark.asyncio
+async def test_queue_title_truncated_on_narrow_terminal(tmp_path: Path):
+    """On a narrow terminal the title must still be truncated so it doesn't
+    overflow the zone width (issue #92 — no regression on small terminals)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(50, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        long_title = "x" * 80
+        sidebar.update_tickets_snapshot(
+            [{"id": "T-1", "title": long_title, "status": "open"}]
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#queue-body", Static)
+        rendered = str(body.render())
+        kept = rendered.count("x")
+        # A 50-col terminal can't fit 80 chars — must truncate — but should
+        # still keep more than the old fixed 23-char cap would have. The lower
+        # bound catches a regression back to the hardcoded 26-char limit.
+        assert kept < 80, f"title not truncated on narrow terminal: {kept} chars"
+        assert kept > 23, (
+            f"narrow terminal should keep more than the old 23-char cap, got {kept}"
+        )
+        assert "…" in rendered, "expected ellipsis marker on truncated title"
+
+
+@pytest.mark.asyncio
+async def test_activity_detail_uses_full_width_on_wide_terminal(tmp_path: Path):
+    """On a wide terminal the Activity zone tool-detail line should use the
+    full width, not the legacy 34-col budget (issue #92)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_thinking(
+            {"role": "dev", "ticket_id": "T-1", "elapsed": 1, "active": True}
+        )
+        sidebar.update_tool_use(
+            {"role": "dev", "ticket_id": "T-1", "tool": "Read", "detail": "y" * 100}
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#activity-body", Static)
+        rendered = str(body.render())
+        # Old budget kept ~24 detail chars; a 120-col terminal fits ~100.
+        assert rendered.count("y") > 50, (
+            f"tool detail truncated too aggressively on wide terminal: "
+            f"{rendered.count('y')} chars kept"
+        )
+
+
+@pytest.mark.asyncio
+async def test_sidebar_reflows_on_resize(tmp_path: Path):
+    """Resizing the terminal must re-truncate zone content against the new
+    width — a title rendered narrow then widened should regain characters
+    (issue #92: on_resize re-render)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(50, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        long_title = "z" * 90
+        sidebar.update_tickets_snapshot(
+            [{"id": "T-1", "title": long_title, "status": "open"}]
+        )
+        await pilot.pause()
+        body = sidebar.query_one("#queue-body", Static)
+        narrow_kept = str(body.render()).count("z")
+
+        # Grow the terminal; on_resize should re-render with the new budget.
+        await pilot.resize_terminal(140, 30)
+        await pilot.pause()
+        wide_kept = str(body.render()).count("z")
+
+        assert wide_kept > narrow_kept, (
+            f"title did not reflow on resize: narrow={narrow_kept} wide={wide_kept}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_recent_subject_does_not_overflow_on_narrow_terminal(tmp_path: Path):
+    """A long Recent-event subject must never push a row past the zone's
+    one-line budget at narrow widths (roborev #211 — the old `max(4, …)`
+    floor could overflow)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(46, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_events_snapshot([{"kind": "ticket_created", "title": "Q" * 90}])
+        await pilot.pause()
+
+        inner = sidebar._zone_text_width()
+        body = sidebar.query_one("#tail-body", Static)
+        for line in str(body.render()).splitlines():
+            assert len(line) <= inner, (
+                f"recent row overflows zone budget: {len(line)} > {inner}: {line!r}"
+            )
+
+
+@pytest.mark.asyncio
+async def test_recent_subject_uses_full_width_on_wide_terminal(tmp_path: Path):
+    """On a wide terminal the Recent subject should use the live width, not
+    the legacy 24-char pre-cap that _extract_subject used to apply (PR #106
+    review). Regression guard: the cap removal must let long subjects through.
+    """
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(120, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_events_snapshot([{"kind": "ticket_created", "title": "W" * 90}])
+        await pilot.pause()
+
+        body = sidebar.query_one("#tail-body", Static)
+        kept = str(body.render()).count("W")
+        # Old code pre-capped subjects at 24 chars; a 120-col terminal has
+        # room for far more once the cap is removed.
+        assert kept > 40, (
+            f"recent subject still capped short on wide terminal: {kept} chars"
+        )
+
+
+@pytest.mark.asyncio
+async def test_recent_subject_dropped_when_no_room(tmp_path: Path):
+    """At an extremely narrow width the subject budget computes to 0; the
+    subject must be dropped entirely rather than forced to a minimum — this
+    exercises the ``avail_subject <= 0`` branch in _render_tail directly
+    (PR #106 review follow-up).
+
+    At 22 cols inner width is 14. The "⚡ merge conflict" label (16 chars) is
+    capped to the full 14, leaving ``avail_subject = max(0, 14 - 14 - 1) = 0``.
+    The old code forced ``max(4, …)`` subject chars even here.
+    """
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(22, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_events_snapshot(
+            [{"kind": "ticket_merge_conflict", "title": "Q" * 90}]
+        )
+        await pilot.pause()
+
+        body = sidebar.query_one("#tail-body", Static)
+        rendered = str(body.render())
+        assert rendered.count("Q") == 0, (
+            f"subject not dropped at zero budget: {rendered!r}"
+        )

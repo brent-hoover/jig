@@ -1,0 +1,13 @@
+rules:
+  - id: use-is-none
+    languages: [python]
+    severity: WARNING
+    message: "Use 'is None' instead of '== None' (identity, not equality)."
+    pattern: $X == None
+    fix: $X is None
+  - id: prefer-logger-warning
+    languages: [python]
+    severity: WARNING
+    message: "logger.warn() is deprecated; use logger.warning()."
+    pattern: $LOG.warn(...)
+    fix: $LOG.warning(...)

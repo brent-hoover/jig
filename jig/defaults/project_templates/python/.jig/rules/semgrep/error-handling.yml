@@ -1,0 +1,10 @@
+rules:
+  - id: no-swallowed-exception
+    languages: [python]
+    severity: ERROR
+    message: "Swallowed exception: a bare 'except: pass' hides errors. Handle or re-raise."
+    pattern: |
+      try:
+          ...
+      except:
+          pass

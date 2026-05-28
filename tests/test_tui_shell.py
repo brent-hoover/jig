@@ -616,3 +616,26 @@ async def test_sidebar_reflows_on_resize(tmp_path: Path):
         assert wide_kept > narrow_kept, (
             f"title did not reflow on resize: narrow={narrow_kept} wide={wide_kept}"
         )
+
+
+@pytest.mark.asyncio
+async def test_recent_subject_does_not_overflow_on_narrow_terminal(tmp_path: Path):
+    """A long Recent-event subject must never push a row past the zone's
+    one-line budget at narrow widths (roborev #211 — the old `max(4, …)`
+    floor could overflow)."""
+    from textual.widgets import Static
+
+    from jig.tui.widgets.sidebar import Sidebar
+
+    app = JigApp(project_path=tmp_path)
+    async with app.run_test(size=(46, 30)) as pilot:
+        sidebar = app.query_one(Sidebar)
+        sidebar.update_events_snapshot([{"kind": "ticket_created", "title": "Q" * 90}])
+        await pilot.pause()
+
+        inner = sidebar._zone_text_width()
+        body = sidebar.query_one("#tail-body", Static)
+        for line in str(body.render()).splitlines():
+            assert len(line) <= inner, (
+                f"recent row overflows zone budget: {len(line)} > {inner}: {line!r}"
+            )

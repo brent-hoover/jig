@@ -481,8 +481,14 @@ class Sidebar(Widget):
             if len(label) > 14:
                 label = label[:13] + "…"
             avail_subject = max(0, inner - ts_visible - len(label) - 1)
-            if subject and len(subject) > avail_subject:
-                subject = subject[: max(4, avail_subject - 1)] + "…"
+            if avail_subject <= 0:
+                # No room for a subject without overflowing the one-line
+                # budget — drop it entirely rather than forcing a minimum.
+                subject = ""
+            elif len(subject) > avail_subject:
+                # Truncate to at most avail_subject visible cells *including*
+                # the ellipsis, so the row never exceeds its budget.
+                subject = subject[: avail_subject - 1] + "…"
             subject_part = f" [dim]{subject}[/dim]" if subject else ""
             lines.append(f"{ts_part}[cyan]{label}[/cyan]{subject_part}")
         zone.set_lines(lines)

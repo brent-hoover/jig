@@ -1748,6 +1748,7 @@ async def _handle_invoke_federation_execution(
             project_root: Path,
             worktree_path: Path | None = None,
             cycle: int = 0,
+            code_metrics=None,
         ) -> None:
             spawn_calls.append((reviewer_id, ticket.id, role_file))
             for comment in canned_by_reviewer.get(reviewer_id, []):

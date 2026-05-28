@@ -394,6 +394,47 @@ class TestDispatchWithLlmSpawn:
         assert all(m is metrics for m in orch.code_metrics_calls)
 
     @pytest.mark.asyncio
+    async def test_code_metrics_honor_non_main_base_ref(self, tmp_path: Path) -> None:
+        """The metrics base must follow the project's default branch, not a
+        hardcoded ``main``. On a repo whose default branch is ``develop`` with a
+        clean committed worktree, a ``main`` fallback would diff nothing and
+        zero the signal; the real base must surface the committed change."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        worktree.mkdir(parents=True, exist_ok=True)
+        _git(worktree, "init", "-b", "develop")  # default branch is NOT main
+        _git(worktree, "config", "user.email", "test@example.com")
+        _git(worktree, "config", "user.name", "Test")
+        _git(worktree, "config", "commit.gpgsign", "false")
+        _git(worktree, "commit", "--allow-empty", "-m", "base")
+        _git(worktree, "checkout", "-b", "jig/tb-fed")
+        lines = ["def grade(s):", "    if s >= 0:", "        return 0"]
+        for i in range(1, 13):
+            lines += [f"    elif s >= {i}:", f"        return {i}"]
+        lines += ["    else:", "        return -1", ""]
+        (worktree / "complex.py").write_text("\n".join(lines))
+        _git(worktree, "add", "-A")
+        _git(worktree, "commit", "-m", "head")
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            base_ref="develop",
+        )
+
+        assert orch.code_metrics_calls
+        metrics = orch.code_metrics_calls[0]
+        assert metrics is not None
+        assert metrics.flagged is True  # committed change is visible vs develop
+        assert "complex.py" in (metrics.max_cc_location or "")
+
+    @pytest.mark.asyncio
     async def test_merges_mechanical_and_llm_results(self, tmp_path: Path) -> None:
         """Mechanical comments + LLM-spawned comments come back in one map."""
         _write_arch(tmp_path)

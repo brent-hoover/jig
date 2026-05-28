@@ -707,6 +707,7 @@ class Orchestrator:
 
         worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
         worktree_arg = worktree_path if worktree_path.exists() else None
+        base_ref = self._project.default_branch if self._project is not None else "main"
 
         # ---- run dispatch with single-retry policy --------------------
         try:
@@ -715,6 +716,7 @@ class Orchestrator:
                 self._project_path,
                 self,
                 worktree_path=worktree_arg,
+                base_ref=base_ref,
             )
         except Exception:
             _logger.warning(
@@ -729,6 +731,7 @@ class Orchestrator:
                     self._project_path,
                     self,
                     worktree_path=worktree_arg,
+                    base_ref=base_ref,
                 )
             except Exception:
                 _logger.error(
@@ -854,6 +857,7 @@ class Orchestrator:
             prior_acks_snapshot = await _acks_store.for_ticket(ticket_id)
 
         reviewers_list = phase.reviewers if phase is not None else None
+        base_ref = self._project.default_branch if self._project is not None else "main"
         try:
             by_reviewer = await dispatch_with_llm_spawn(
                 ticket,
@@ -862,6 +866,7 @@ class Orchestrator:
                 worktree_path=worktree_path,
                 reviewers=reviewers_list,
                 cycle=cycle,
+                base_ref=base_ref,
             )
         except ValueError:
             # ValueError from dispatch_with_llm_spawn means a workflow

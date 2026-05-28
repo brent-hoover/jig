@@ -23,6 +23,8 @@ def test_runbook_runs_semgrep_offline() -> None:
     semgrep_lines = [
         line for line in prompt.splitlines() if "semgrep" in line and "--config" in line
     ]
-    assert semgrep_lines, "expected at least one semgrep --config invocation in the runbook"
+    assert semgrep_lines, (
+        "expected at least one semgrep --config invocation in the runbook"
+    )
     for line in semgrep_lines:
         assert "--metrics off" in line, f"semgrep call missing --metrics off: {line}"

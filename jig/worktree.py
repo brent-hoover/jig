@@ -5,13 +5,29 @@ import errno
 import logging
 import os
 import stat
+from dataclasses import dataclass
 from pathlib import Path
 
 from jig.atomic import atomic_write_text
+from jig.code_metrics import ChangeMetrics, compute_change_metrics
 from jig.models import MergeStrategy
 from jig.safe_path import validate_safe_path_segment
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CommitResult:
+    """Outcome of :func:`commit_worktree`.
+
+    ``sha`` is the new commit SHA, or ``None`` when there was nothing to commit.
+    ``metrics`` is the deterministic code-quality signal for the committed
+    change, or ``None`` when nothing was committed or the signal failed to
+    compute (a signal failure must never block the commit).
+    """
+
+    sha: str | None
+    metrics: ChangeMetrics | None
 
 
 class LintError(Exception):
@@ -446,11 +462,13 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     return errors
 
 
-async def commit_worktree(worktree_path: Path, message: str) -> str | None:
+async def commit_worktree(worktree_path: Path, message: str) -> CommitResult:
     """Commit all changes in a worktree.
 
-    Returns the commit SHA, or None if there were no changes.
-    Raises ``LintError`` if there are unfixable lint violations.
+    Returns a :class:`CommitResult` carrying the new commit SHA (``None`` if
+    there were no changes) and the deterministic code-quality metrics for the
+    committed change. Raises ``LintError`` if there are unfixable lint
+    violations.
     """
     lint_errors = await _auto_lint(worktree_path)
     if lint_errors:
@@ -469,11 +487,36 @@ async def commit_worktree(worktree_path: Path, message: str) -> str | None:
     )
     await proc.communicate()
     if proc.returncode == 0:
-        return None  # Nothing staged
+        return CommitResult(sha=None, metrics=None)  # Nothing staged
+
+    # Code-quality signal for exactly the staged change (compared to HEAD,
+    # which is still the pre-commit tip here). Signal only — a failure must
+    # never block the commit, so it degrades to ``metrics=None``.
+    metrics: ChangeMetrics | None
+    try:
+        metrics = await compute_change_metrics(worktree_path, base_ref="HEAD")
+    except Exception:
+        _logger.warning(
+            "commit_worktree: code metrics failed for %s; committing without signal",
+            worktree_path,
+            exc_info=True,
+        )
+        metrics = None
 
     await _run_git(worktree_path, "commit", "-m", message)
     sha = await _run_git(worktree_path, "rev-parse", "HEAD")
-    return sha
+
+    if metrics is not None:
+        _logger.info(
+            "commit %s code metrics: max_cc=%d%s ruff_findings=%d loc_delta=%+d%s",
+            sha[:7],
+            metrics.max_cc,
+            f" ({metrics.max_cc_location})" if metrics.max_cc_location else "",
+            metrics.ruff_findings,
+            metrics.loc_delta,
+            "  [FLAGGED]" if metrics.flagged else "",
+        )
+    return CommitResult(sha=sha, metrics=metrics)
 
 
 async def remove_worktree(

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from jig.code_metrics import ChangeMetrics
     from jig.coordinator import Coordinator
     from jig.events import EventEmitter
     from jig.models import PhaseConfig, WorkflowConfig
@@ -982,6 +983,7 @@ class Orchestrator:
         project_root: Path,
         worktree_path: Path | None = None,
         cycle: int = 0,
+        code_metrics: "ChangeMetrics | None" = None,
     ) -> None:
         """Spawn one LLM-driven federation reviewer (Block 3).
 
@@ -1049,6 +1051,7 @@ class Orchestrator:
             bus=self.bus,
             checkpoints=self.checkpoints,
             verify_bundle=verify_bundle,
+            code_metrics=code_metrics,
             cycle=cycle,
             initial_bus_message={
                 "kind": "review_federation_spawn",
@@ -2779,9 +2782,10 @@ class Orchestrator:
         from jig.worktree import commit_worktree
 
         try:
-            sha = await commit_worktree(
+            result = await commit_worktree(
                 worktree, f"chore({phase_name}): auto-commit after phase"
             )
+            sha = result.sha
         except Exception as exc:
             _logger.warning(
                 "auto-commit failed after %s: %s",

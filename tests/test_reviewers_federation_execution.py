@@ -191,6 +191,8 @@ class _FakeOrchestrator:
         injections: dict[str, list[ReviewerComment]] | None = None,
     ) -> None:
         self.calls: list[tuple[str, str, str]] = []  # (id, ticket_id, role_file)
+        # Code metrics handed to each spawned reviewer (radon-quality-signals).
+        self.code_metrics_calls: list = []
         self._injections = injections or {}
 
     async def spawn_review_agent_for_id(
@@ -202,8 +204,10 @@ class _FakeOrchestrator:
         project_root: Path,
         worktree_path: Path | None = None,
         cycle: int = 0,
+        code_metrics=None,
     ) -> None:
         self.calls.append((reviewer_id, ticket.id, role_file))
+        self.code_metrics_calls.append(code_metrics)
         canned = self._injections.get(reviewer_id, [])
         if not canned:
             return
@@ -349,6 +353,45 @@ class TestDispatchWithLlmSpawn:
         # The mock orchestrator was asked to spawn the security reviewer.
         ids_spawned = [c[0] for c in orch.calls]
         assert SECURITY_REVIEWER_ID in ids_spawned
+
+    @pytest.mark.asyncio
+    async def test_code_metrics_threaded_to_spawned_reviewers(
+        self, tmp_path: Path
+    ) -> None:
+        """radon-quality-signals: dispatch computes the change's code metrics
+        once and hands them to every spawned LLM reviewer's prompt context."""
+        _write_arch(tmp_path)
+        _write_contracts(tmp_path)
+        _write_spec(tmp_path)
+        worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+        _init_worktree(worktree)
+
+        # Commit a high-complexity function so the metrics flag fires.
+        lines = ["def grade(s):", "    if s >= 0:", "        return 0"]
+        for i in range(1, 13):
+            lines += [f"    elif s >= {i}:", f"        return {i}"]
+        lines += ["    else:", "        return -1", ""]
+        (worktree / "complex.py").write_text("\n".join(lines))
+        _git(worktree, "add", "-A")
+        _git(worktree, "commit", "-m", "add complex")
+
+        orch = _FakeOrchestrator()
+
+        await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+        )
+
+        assert orch.code_metrics_calls, "expected at least one reviewer spawn"
+        metrics = orch.code_metrics_calls[0]
+        assert metrics is not None
+        assert metrics.max_cc >= 11
+        assert metrics.flagged is True
+        assert "complex.py" in (metrics.max_cc_location or "")
+        # Same object handed to every spawned reviewer (computed once).
+        assert all(m is metrics for m in orch.code_metrics_calls)
 
     @pytest.mark.asyncio
     async def test_merges_mechanical_and_llm_results(self, tmp_path: Path) -> None:

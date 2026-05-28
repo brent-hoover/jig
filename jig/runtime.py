@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from jig.code_metrics import ChangeMetrics
 from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.store import MessageBus
@@ -84,6 +85,11 @@ class AgentSpawnContext:
     # "Previous Cycle Findings" section. Populated on cycle 2+ when the
     # ticket has any acks. None on cycle 1.
     verify_bundle: dict | None = None
+    # radon-quality-signals — deterministic code metrics (max CC, ruff
+    # findings, LoC delta) for the change under review, rendered into the
+    # reviewer prompt's "Objective Code Metrics" section. Populated for
+    # federation reviewer spawns; None for non-reviewer spawns.
+    code_metrics: ChangeMetrics | None = None
     # fix-loop-context — current fix-loop cycle (0 = first review pass,
     # 1+ = post-block re-runs). Threaded into the MCP server so
     # mark_finding_addressed / mark_finding_resolved get the right cycle

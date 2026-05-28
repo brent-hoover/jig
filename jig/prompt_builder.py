@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from jig.code_metrics import CC_FLAG_THRESHOLD, ChangeMetrics
 from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.runtime import SpawnReason
@@ -611,6 +612,33 @@ def _verify_findings_section(bundle: dict | None) -> str:
     return "".join(lines)
 
 
+def _code_metrics_section(metrics: ChangeMetrics | None) -> str:
+    """Render the objective code-metrics block for a reviewer prompt.
+
+    Gives the LLM reviewer deterministic numbers — max cyclomatic complexity,
+    ruff finding count, net LoC delta — to react to alongside its judgment.
+    Signal only; ``None`` (no metrics computed) renders nothing.
+    """
+    if metrics is None:
+        return ""
+
+    cc_line = f"- max cyclomatic complexity: {metrics.max_cc}"
+    if metrics.max_cc_location:
+        cc_line += f" ({metrics.max_cc_location})"
+    if metrics.flagged:
+        cc_line += f" — HIGH (> {CC_FLAG_THRESHOLD})"
+
+    return (
+        "## Objective Code Metrics (changed files)\n\n"
+        "Deterministic measurements of the change under review. Use them to "
+        "ground your judgment — high complexity or a large LoC delta with few "
+        "tests is worth a closer look — not as a verdict on their own.\n\n"
+        f"{cc_line}\n"
+        f"- ruff findings: {metrics.ruff_findings}\n"
+        f"- LoC delta: {metrics.loc_delta:+d}\n\n"
+    )
+
+
 def _worktree_section(worktree_path: str | None) -> str:
     if not worktree_path:
         return ""
@@ -648,6 +676,7 @@ def build_initial_prompt(
     replan_bundle: dict[str, Any] | None = None,
     fix_loop_bundle: dict[str, Any] | None = None,
     verify_bundle: dict[str, Any] | None = None,
+    code_metrics: ChangeMetrics | None = None,
     conventions_md: str | None = None,
 ) -> str:
     # Evaluator spawns carry a pre-assembled bundle (handoff id +
@@ -676,6 +705,7 @@ def build_initial_prompt(
         if spawn_reason == SpawnReason.FIX_LOOP_RETRY
         else "",
         _verify_findings_section(verify_bundle),
+        _code_metrics_section(code_metrics),
         _instructions_section(
             ticket,
             spawn_reason,

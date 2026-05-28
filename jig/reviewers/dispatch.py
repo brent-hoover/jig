@@ -964,6 +964,15 @@ async def dispatch_with_llm_spawn(
         # cycle by design.
         pre_existing_ids.add(_comment_signature(c))
 
+    # Objective code-quality signal for the change under review — computed
+    # once and handed to every LLM reviewer's prompt. Signal only; a failure
+    # degrades to None (no metrics section) without blocking the federation.
+    code_metrics = None
+    if worktree_path is not None:
+        from jig.code_metrics import compute_change_metrics
+
+        code_metrics = await compute_change_metrics(worktree_path, base_ref=base_ref)
+
     import asyncio as _asyncio
 
     await _asyncio.gather(
@@ -975,6 +984,7 @@ async def dispatch_with_llm_spawn(
                 project_root=project_root,
                 worktree_path=worktree_path,
                 cycle=cycle,
+                code_metrics=code_metrics,
             )
             for p in pendings
         ]

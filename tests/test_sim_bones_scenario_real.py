@@ -26,6 +26,7 @@ To run the FULL real-mode invocation against the real Claude API
 Bones cost target: < $1, runtime < 10 min
 (see ``docs/v2.0/implementation/v2-plan.md`` §"Milestones / gates").
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -37,6 +38,7 @@ from click.testing import CliRunner
 from jig.sim.cli import sim
 from jig.sim.driver import Driver
 from jig.sim.scenario import load_scenario
+from jig.worktree import CommitResult
 
 SCENARIO_PATH = (
     Path(__file__).parent / "scenarios" / "bones-walking-skeleton.scenario.yaml"
@@ -131,6 +133,7 @@ def _stub_orchestrator_completion(monkeypatch: pytest.MonkeyPatch) -> None:
     orchestrator to think the worktree exists, which is a
     cheap pre-existing dir.
     """
+
     async def fake_merge(*args, **kwargs):
         return "stub-merge-real"
 
@@ -138,7 +141,7 @@ def _stub_orchestrator_completion(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     async def fake_commit(*args, **kwargs):
-        return None
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
@@ -195,8 +198,13 @@ def test_driver_real_mode_flag_routes_dev_to_orchestrator_handler():
 
     assert mock_driver.real_mode is False
     assert real_driver.real_mode is True
-    assert mock_driver._handlers[StepKind.MOCK_DEV_COMMIT.value] is _handle_mock_dev_commit
-    assert real_driver._handlers[StepKind.MOCK_DEV_COMMIT.value] is _handle_real_dev_dispatch
+    assert (
+        mock_driver._handlers[StepKind.MOCK_DEV_COMMIT.value] is _handle_mock_dev_commit
+    )
+    assert (
+        real_driver._handlers[StepKind.MOCK_DEV_COMMIT.value]
+        is _handle_real_dev_dispatch
+    )
 
 
 @pytest.mark.real
@@ -251,9 +259,7 @@ async def test_real_mode_dev_dispatch_invokes_orchestrator(
         estimated_cost_usd_max=full_scenario.estimated_cost_usd_max,
         steps=steps_through_dev,
         final_assertions=[
-            TicketStatusAssertion(
-                ticket_id="tb-catalog-ingest", status="resolved"
-            ),
+            TicketStatusAssertion(ticket_id="tb-catalog-ingest", status="resolved"),
             AnalyticsEventEmittedAssertion(event_kind="agent_spawned"),
             AnalyticsEventEmittedAssertion(event_kind="agent_completed"),
         ],
@@ -271,12 +277,8 @@ async def test_real_mode_dev_dispatch_invokes_orchestrator(
 
     # Spawn/complete events are how the bones-done gate measures cost +
     # latency, so guard their presence explicitly.
-    spawn_events = [
-        e for e in report.captured_events if e.kind == "agent_spawned"
-    ]
-    complete_events = [
-        e for e in report.captured_events if e.kind == "agent_completed"
-    ]
+    spawn_events = [e for e in report.captured_events if e.kind == "agent_spawned"]
+    complete_events = [e for e in report.captured_events if e.kind == "agent_completed"]
     assert spawn_events, "expected at least one AgentSpawned event in real mode"
     assert complete_events, "expected at least one AgentCompleted event in real mode"
 

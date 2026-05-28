@@ -10,41 +10,12 @@ from __future__ import annotations
 import asyncio
 import json
 
-from radon.complexity import cc_visit
-
+# Canonical definitions live in jig.code_metrics (one radon call site for the
+# whole codebase); re-exported here for the eval harness's existing callers.
+from jig.code_metrics import count_loc, max_cyclomatic
 from jig.evals.prompt_style_eval.models import StaticMetrics
 
-
-def count_loc(code: str) -> int:
-    """Non-blank, non-comment lines.
-
-    Bare comments don't count. A line that has code followed by a trailing
-    comment counts (the code is still there)."""
-    n = 0
-    for raw in code.splitlines():
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#"):
-            continue
-        n += 1
-    return n
-
-
-def max_cyclomatic(code: str) -> int:
-    """Largest cyclomatic complexity across all functions/methods.
-
-    Returns 0 if the snippet has no functions/methods or if it doesn't parse;
-    a syntax error elsewhere in the eval pipeline will already have flagged
-    the run as ``code`` with a failing test suite.
-    """
-    try:
-        blocks = cc_visit(code)
-    except SyntaxError:
-        return 0
-    if not blocks:
-        return 0
-    return max(block.complexity for block in blocks)
+__all__ = ["compute", "count_loc", "max_cyclomatic", "run_ruff"]
 
 
 async def run_ruff(code: str) -> tuple[int, dict[str, int]]:

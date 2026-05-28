@@ -83,21 +83,57 @@ class TestCommitWorktree:
     async def test_commits_changes(self, git_repo: Path):
         wt_path = await create_worktree(git_repo, "issue-1", "main")
         (wt_path / "design.md").write_text("# Design\n")
-        sha = await commit_worktree(wt_path, "spec: draft design doc")
-        assert sha  # non-empty string
-        result = subprocess.run(
+        result = await commit_worktree(wt_path, "spec: draft design doc")
+        assert result.sha  # non-empty string
+        log = subprocess.run(
             ["git", "log", "--oneline", "-1"],
             cwd=wt_path,
             capture_output=True,
             text=True,
             check=True,
         )
-        assert "spec: draft design doc" in result.stdout
+        assert "spec: draft design doc" in log.stdout
 
-    async def test_returns_none_if_no_changes(self, git_repo: Path):
+    async def test_returns_none_sha_if_no_changes(self, git_repo: Path):
         wt_path = await create_worktree(git_repo, "issue-1", "main")
-        sha = await commit_worktree(wt_path, "nothing to commit")
-        assert sha is None
+        result = await commit_worktree(wt_path, "nothing to commit")
+        assert result.sha is None
+        assert result.metrics is None
+
+    async def test_commit_result_carries_change_metrics(self, git_repo: Path):
+        wt_path = await create_worktree(git_repo, "issue-1", "main")
+        # A function whose cyclomatic complexity clears the flag threshold.
+        lines = ["def grade(score):", "    if score >= 0:", "        return 0"]
+        for i in range(1, 13):
+            lines += [f"    elif score >= {i}:", f"        return {i}"]
+        lines += ["    else:", "        return -1", ""]
+        (wt_path / "feature.py").write_text("\n".join(lines))
+
+        result = await commit_worktree(wt_path, "feat: add grade")
+
+        assert result.sha
+        assert result.metrics is not None
+        assert result.metrics.max_cc >= 11
+        assert result.metrics.flagged is True
+        assert result.metrics.max_cc_location is not None
+        assert "feature.py" in result.metrics.max_cc_location
+
+    async def test_commit_succeeds_when_metrics_computation_raises(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # The signal must never block a commit: even if metrics blow up,
+        # the commit still lands.
+        async def boom(*_a, **_k):
+            raise RuntimeError("radon exploded")
+
+        monkeypatch.setattr("jig.worktree.compute_change_metrics", boom)
+        wt_path = await create_worktree(git_repo, "issue-1", "main")
+        (wt_path / "design.md").write_text("# Design\n")
+
+        result = await commit_worktree(wt_path, "spec: draft")
+
+        assert result.sha
+        assert result.metrics is None
 
 
 class TestRemoveWorktree:

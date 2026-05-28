@@ -14,6 +14,7 @@ from jig.models import RoleConfig, WorkflowConfig
 from jig.orchestrator import Orchestrator
 from jig.persistence import save_role, save_workflow
 from jig.project import Project, save_project
+from jig.worktree import CommitResult
 
 
 def build_orch(
@@ -82,7 +83,7 @@ def build_orch(
         # repository" and fail the phase. Stub a successful no-op so
         # the worktree contract matches what production looks like
         # for tests that don't actually exercise git.
-        return None
+        return CommitResult(sha=None, metrics=None)
 
     monkeypatch.setattr("jig.worktree.merge_ticket", fake_merge)
     monkeypatch.setattr("jig.worktree.remove_worktree", fake_remove)
@@ -91,7 +92,9 @@ def build_orch(
     return orch
 
 
-async def poll_until(predicate, *, timeout_s: float = 5.0, step_s: float = 0.05) -> bool:
+async def poll_until(
+    predicate, *, timeout_s: float = 5.0, step_s: float = 0.05
+) -> bool:
     """Poll ``predicate`` every ``step_s`` seconds until it returns
     truthy or ``timeout_s`` elapses. Returns the final truthiness —
     callers assert on a specific condition, so ``True`` means the

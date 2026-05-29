@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-18
+updated: 2026-05-29
 ---
 
 # C4 Container Level: Jig Agent Orchestration Framework
@@ -297,7 +297,7 @@ Same WebSocket API as the Daemon Process, exposed on the mapped host port.
 | Base | `python:3.12-slim` |
 | System tools | `bubblewrap`, `git`, `curl`, `ca-certificates`, `gnupg` |
 | Runtime | Node.js 22.x (from NodeSource), `@anthropic-ai/claude-code` (npm global) |
-| Python tooling | `ruff` (auto-lint in worktrees), `gh` CLI (PR creation) |
+| Python tooling | `ruff` (auto-lint in worktrees), `semgrep` (canonicalizer convention enforcement), `gh` CLI (PR creation) |
 | Application | `jig` package installed from `/opt/jig` |
 | User | Non-root user `jig`; `/workspace` owned by `jig` |
 | Environment | `CLAUDE_CODE_PERMISSION_MODE=bypassPermissions`, `JIG_IN_CONTAINER=1`, GPG signing disabled |

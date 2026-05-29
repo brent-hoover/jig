@@ -55,7 +55,7 @@ phase_prompt: >
   If ``.jig/rules/semgrep/`` exists (a directory of semgrep rule files),
   run:
 
-      semgrep --config .jig/rules/semgrep/ --autofix <CHANGED_FILES>
+      semgrep --metrics off --config .jig/rules/semgrep/ --autofix <CHANGED_FILES>
 
 
   For every file semgrep autofixed, log an audit entry with
@@ -79,10 +79,17 @@ phase_prompt: >
   ## Step 3 — deprecation rules
 
 
-  If ``.jig/rules/deprecations.yml`` exists, run it through semgrep the
-  same way:
+  If ``.jig/rules/deprecations.yml`` exists, first render it to a semgrep
+  rule file — the manifest is a ``deprecations:`` config, not native semgrep
+  YAML, so semgrep cannot consume it directly — then run semgrep against the
+  rendered file. Use a per-run temp file via ``mktemp`` (never a fixed path —
+  canonicalizers run in parallel), only scan if the render succeeds, and clean
+  up afterward:
 
-      semgrep --config .jig/rules/deprecations.yml --autofix <CHANGED_FILES>
+      DEP_RULES=$(mktemp)
+      jig render deprecations > "$DEP_RULES" \
+        && semgrep --metrics off --config "$DEP_RULES" --autofix <CHANGED_FILES>
+      rm -f "$DEP_RULES"
 
 
   Log audit entries with ``rule_source="deprecation"`` for autofixed

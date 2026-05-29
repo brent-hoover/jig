@@ -79,10 +79,13 @@ phase_prompt: >
   ## Step 3 — deprecation rules
 
 
-  If ``.jig/rules/deprecations.yml`` exists, run it through semgrep the
-  same way:
+  If ``.jig/rules/deprecations.yml`` exists, first render it to a semgrep
+  rule file — the manifest is a ``deprecations:`` config, not native semgrep
+  YAML, so semgrep cannot consume it directly — then run semgrep against the
+  rendered file:
 
-      semgrep --metrics off --config .jig/rules/deprecations.yml --autofix <CHANGED_FILES>
+      jig render deprecations > /tmp/jig-deprecations.yml
+      semgrep --metrics off --config /tmp/jig-deprecations.yml --autofix <CHANGED_FILES>
 
 
   Log audit entries with ``rule_source="deprecation"`` for autofixed

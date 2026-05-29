@@ -342,11 +342,19 @@ edit and the new dependency; nothing else is touched.
 - The AI-audit taxonomy rules + `taxonomy.yaml` (sub-issue B).
 - Reviewer-facing disposition (sub-issue C).
 - Measurement/attribution (sub-issue D).
-- **Deprecations path fix (pre-existing #17 gap):** the canonicalizer runbook runs
-  `semgrep --config .jig/rules/deprecations.yml`, but that file is modelled as a `deprecations:` manifest that
-  needs `DeprecationsConfig.to_semgrep_rules()` conversion before Semgrep can read it. This predates this PR
-  (introduced in #17 / PR #20) and fixing it properly (convert to a temp rule file, or switch the format +
-  loaders + tests) is its own change. Flagged via roborev #220; to be tracked separately, not fixed in A.
+
+## Late addition — deprecations render path (roborev #220, pulled into this PR)
+
+The canonicalizer runbook ran `semgrep --config .jig/rules/deprecations.yml`, but that file is a
+`deprecations:` manifest, not native semgrep YAML — so semgrep couldn't parse it (a pre-existing #17/PR#20
+gap). Rather than defer, fixed it here since it's small and makes the canonicalizer's semgrep usage correct
+end-to-end:
+
+- Added `jig render deprecations [--path]` — loads the manifest and prints
+  `DeprecationsConfig.to_semgrep_rules()` as semgrep YAML to stdout (`jig/cli.py`, `render` group).
+- Runbook Step 3 now renders to a temp file first, then scans it.
+- Tests (`tests/test_render_deprecations.py`): the CLI emits a `rules:` set, and the rendered output passes
+  real `semgrep --validate`.
 
 ## Change log
 
@@ -356,5 +364,6 @@ edit and the new dependency; nothing else is touched.
   dropped unused `shutil`/`pytest` imports; exact `check_id` match for the swallowed-exception rule
   (Brent Hoover)
 - 2026-05-28: roborev (#220/#222) fixes — `prefer-logger-warning` now captures args (`$...ARGS`) so autofix
-  preserves them (+ regression test); Docker verify uses `--entrypoint semgrep`; recorded the pre-existing
-  deprecations-format gap as out-of-scope (Brent Hoover)
+  preserves them (+ regression test); Docker verify uses `--entrypoint semgrep` (Brent Hoover)
+- 2026-05-28: pulled the deprecations-format fix into this PR (was deferred) — added `jig render deprecations`
+  + runbook render-first + tests, so the canonicalizer's deprecations path actually works (Brent Hoover)

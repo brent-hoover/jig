@@ -633,6 +633,30 @@ def render_pydantic(module_id: str, contract_id: str, path: Path) -> None:
         raise click.ClickException(str(exc))
 
 
+@render_group.command("deprecations")
+@click.option(
+    "--path",
+    default=".",
+    type=click.Path(exists=True, path_type=Path),
+    help="Project path.",
+)
+def render_deprecations(path: Path) -> None:
+    """Render .jig/rules/deprecations.yml as a semgrep rule set to stdout.
+
+    The deprecations manifest is a ``deprecations:`` config, not native semgrep
+    YAML, so semgrep can't consume it directly. This converts it via
+    ``DeprecationsConfig.to_semgrep_rules()`` so the output can be passed to
+    ``semgrep --config``. The canonicalizer runbook renders to a temp file
+    before scanning.
+    """
+    import yaml
+
+    from jig.canonicalize import load_deprecations
+
+    config = load_deprecations(path)
+    click.echo(yaml.safe_dump(config.to_semgrep_rules(), sort_keys=False))
+
+
 @cli.group("quartermaster")
 def quartermaster_group() -> None:
     """Quartermaster briefing + feedback loop (Track I)."""

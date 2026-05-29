@@ -367,3 +367,6 @@ end-to-end:
   preserves them (+ regression test); Docker verify uses `--entrypoint semgrep` (Brent Hoover)
 - 2026-05-28: pulled the deprecations-format fix into this PR (was deferred) — added `jig render deprecations`
   + runbook render-first + tests, so the canonicalizer's deprecations path actually works (Brent Hoover)
+- 2026-05-29: roborev #227 fix — deprecations render now uses a per-run `mktemp` temp file (not a fixed
+  `/tmp` path) with render→scan chaining + cleanup, so parallel canonicalizer runs can't clobber each other;
+  added a guard test (Brent Hoover)

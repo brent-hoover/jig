@@ -82,10 +82,14 @@ phase_prompt: >
   If ``.jig/rules/deprecations.yml`` exists, first render it to a semgrep
   rule file — the manifest is a ``deprecations:`` config, not native semgrep
   YAML, so semgrep cannot consume it directly — then run semgrep against the
-  rendered file:
+  rendered file. Use a per-run temp file via ``mktemp`` (never a fixed path —
+  canonicalizers run in parallel), only scan if the render succeeds, and clean
+  up afterward:
 
-      jig render deprecations > /tmp/jig-deprecations.yml
-      semgrep --metrics off --config /tmp/jig-deprecations.yml --autofix <CHANGED_FILES>
+      DEP_RULES=$(mktemp)
+      jig render deprecations > "$DEP_RULES" \
+        && semgrep --metrics off --config "$DEP_RULES" --autofix <CHANGED_FILES>
+      rm -f "$DEP_RULES"
 
 
   Log audit entries with ``rule_source="deprecation"`` for autofixed

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from jig.code_quality.taxonomy import scan_taxonomy
 
 
@@ -32,6 +34,28 @@ def test_scan_maps_ruff_findings_to_taxonomy_ids(tmp_path: Path) -> None:
 def test_scan_clean_file_no_hits(tmp_path: Path) -> None:
     f = tmp_path / "ok.py"
     f.write_text("def g(x: int) -> int:\n    return x + 1\n")
+    assert scan_taxonomy(tmp_path, [f]) == []
+
+
+def test_scan_degrades_on_malformed_ruff_output(
+    tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"
+) -> None:
+    """Signal-only contract: if ruff emits valid JSON with an unexpected shape
+    (a non-dict finding, a non-dict location, a non-numeric row), the scan must
+    degrade to ``[]`` — not raise into the async caller."""
+    import subprocess
+
+    from jig.code_quality import taxonomy as taxonomy_mod
+
+    # A list-of-strings is valid JSON but a string has no ``.get`` — would raise
+    # AttributeError if the parsing loop weren't guarded.
+    fake = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout='["weird"]', stderr=""
+    )
+    monkeypatch.setattr(taxonomy_mod.subprocess, "run", lambda *_a, **_k: fake)
+
+    f = tmp_path / "bad.py"
+    f.write_text("def g(x=[]):\n    return x\n")
     assert scan_taxonomy(tmp_path, [f]) == []
 
 

@@ -186,8 +186,17 @@ async def compute_change_metrics(
                 max_cc_location = f"{rel}:{name}" if name else rel
 
         ruff_findings = await _count_ruff_findings(worktree_path, on_disk)
+        # ``scan_taxonomy`` uses a synchronous ``subprocess.run`` (kept sync so
+        # tests can call it directly); offload it to a thread so we don't block
+        # the event loop while ruff runs.
+        loop = asyncio.get_running_loop()
         taxonomy_hits = tuple(
-            scan_taxonomy(worktree_path, [worktree_path / rel for rel in on_disk])
+            await loop.run_in_executor(
+                None,
+                scan_taxonomy,
+                worktree_path,
+                [worktree_path / rel for rel in on_disk],
+            )
         )
         return ChangeMetrics(
             max_cc=max_cc,

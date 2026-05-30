@@ -51,14 +51,19 @@ def load_taxonomy() -> tuple[TaxonomyEntry, ...]:
     return tuple(TaxonomyEntry.model_validate(item) for item in raw)
 
 
-def taxonomy_ruff_select() -> list[str]:
-    """The curated ruff ``--select`` list: every ruff rule the taxonomy maps to."""
-    return sorted(
-        {
-            e.detection.ref
-            for e in load_taxonomy()
-            if e.detection.kind == "ruff" and e.detection.ref
-        }
+@cache
+def taxonomy_ruff_select() -> tuple[str, ...]:
+    """The curated ruff ``--select`` list: every ruff rule the taxonomy maps to.
+
+    Cached for the process lifetime — the manifest is static."""
+    return tuple(
+        sorted(
+            {
+                e.detection.ref
+                for e in load_taxonomy()
+                if e.detection.kind == "ruff" and e.detection.ref
+            }
+        )
     )
 
 
@@ -91,6 +96,10 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
     by_code = {
         e.detection.ref: e for e in load_taxonomy() if e.detection.kind == "ruff"
     }
+    # Signal-only contract: the whole scan must degrade to ``[]`` on any
+    # tooling / shape error, never raise. The guard covers the subprocess,
+    # JSON parsing, and the per-finding shape-walk (ruff could in principle
+    # emit valid JSON with an unexpected structure).
     try:
         proc = subprocess.run(
             [
@@ -109,29 +118,30 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
             cwd=worktree_path,
             capture_output=True,
             text=True,
+            timeout=30,  # ruff should be fast; bound it as a safety net.
         )
         raw = proc.stdout.strip()
         findings = json.loads(raw) if raw else []
-    except (OSError, ValueError):
+        hits: list[TaxonomyHit] = []
+        for fnd in findings:
+            entry = by_code.get(fnd.get("code"))
+            if entry is None:
+                continue
+            loc = fnd.get("location") or {}
+            hits.append(
+                TaxonomyHit(
+                    id=entry.id,
+                    category=entry.category,
+                    file=fnd.get("filename", ""),
+                    line=int(loc.get("row", 0) or 0),
+                    reviewer=entry.owning_reviewer,
+                )
+            )
+        return hits
+    except (OSError, ValueError, AttributeError, TypeError, subprocess.TimeoutExpired):
         _logger.warning(
             "taxonomy scan failed for %s; reporting no hits",
             worktree_path,
             exc_info=True,
         )
         return []
-    hits: list[TaxonomyHit] = []
-    for fnd in findings:
-        entry = by_code.get(fnd.get("code"))
-        if entry is None:
-            continue
-        loc = fnd.get("location", {})
-        hits.append(
-            TaxonomyHit(
-                id=entry.id,
-                category=entry.category,
-                file=fnd.get("filename", ""),
-                line=int(loc.get("row", 0) or 0),
-                reviewer=entry.owning_reviewer,
-            )
-        )
-    return hits

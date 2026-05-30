@@ -32,7 +32,9 @@ def test_detection_kinds_and_refs() -> None:
 def test_owning_reviewers_are_known() -> None:
     known = known_llm_reviewer_ids()
     for e in load_taxonomy():
-        assert e.owning_reviewer in known, f"{e.id}: unknown reviewer {e.owning_reviewer}"
+        assert e.owning_reviewer in known, (
+            f"{e.id}: unknown reviewer {e.owning_reviewer}"
+        )
 
 
 def test_ten_ruff_entries() -> None:

@@ -96,6 +96,11 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
             [
                 "ruff",
                 "check",
+                # --isolated keeps the taxonomy signal jig-owned and comparable
+                # across any target repo — the project's own ruff config
+                # (especially ``per-file-ignores``) must not be able to suppress
+                # taxonomy hits.
+                "--isolated",
                 "--select",
                 ",".join(select),
                 "--output-format=json",

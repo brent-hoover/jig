@@ -33,3 +33,21 @@ def test_scan_clean_file_no_hits(tmp_path: Path) -> None:
     f = tmp_path / "ok.py"
     f.write_text("def g(x: int) -> int:\n    return x + 1\n")
     assert scan_taxonomy(tmp_path, [f]) == []
+
+
+def test_scan_ignores_target_project_ruff_config(tmp_path: Path) -> None:
+    """The taxonomy signal must be jig-owned and comparable — a target repo's
+    ruff config (e.g. ``ignore = ["B006"]`` or per-file-ignores) must not be
+    able to suppress taxonomy hits. ``ruff --isolated`` enforces this."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.ruff.lint]\n"
+        'ignore = ["B006", "T201", "BLE001"]\n'
+        "[tool.ruff.lint.per-file-ignores]\n"
+        '"bad.py" = ["B006", "T201", "BLE001"]\n'
+    )
+    f = tmp_path / "bad.py"
+    f.write_text("def g(x=[]):\n    return x\n")  # B006 -> TAX-LANG-001
+    hits = scan_taxonomy(tmp_path, [f])
+    assert any(h.id == "TAX-LANG-001" for h in hits), (
+        f"target ruff config suppressed the taxonomy hit: {hits}"
+    )

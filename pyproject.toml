@@ -49,6 +49,9 @@ include = ["jig*"]
 "jig.defaults.workflows" = ["*.yaml"]
 "jig.defaults.work_types" = ["*.yaml"]
 "jig.defaults.profiles" = ["*.yaml"]
+# AI-audit taxonomy manifest (jig-shipped, loaded via importlib.resources at
+# runtime — must be in the wheel or load_taxonomy() fails for installed jig).
+"jig.code_quality" = ["*.yaml"]
 # Project templates copied at scaffolding time. Each template ships
 # template.yaml at the top plus a tree of source files (src/, tests/),
 # config (pyproject.toml, README.md, .gitignore). The "**/*" glob picks

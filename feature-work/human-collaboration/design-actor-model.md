@@ -140,6 +140,14 @@ class Config(BaseModel):
 - **Backward compatible:** `humans` defaults to `[]`, so every existing `config.yaml` still validates. An empty
   list degenerates to a single git-seeded operator at resolution time (see §4), so old projects keep working
   with zero edits.
+- **`extra="forbid"` is deliberate and scoped to the entry.** A typo'd key inside a human entry (e.g. `role:`
+  instead of `roles:`) should fail loud, not be silently dropped — consistent with `ProfileSection`,
+  `OrchestratorSection`, and `PhaseConfig`, which also use `forbid`. The codebase mixes conventions
+  (`SpecOwnership`/`OwnershipSection`/`RolesSection` use `extra="allow"` because they intentionally accept
+  open-ended extension keys; `Config` itself uses the pydantic default). `forbid` on `HumanEntry` governs **only
+  the keys within a single human dict** — it does not, and cannot, reject extension keys at the `Config` level
+  or in the `allow` sections, which validate independently. So adding `humans:` does not tighten validation of
+  any existing config section.
 - **Seeding:** `init_project` writes one `HumanEntry` whose `handle` is slugified from `git config user.name`
   (fallback `user.email` local-part, then `"operator"`), `display_name` from git, all three roles.
 - **Handle shape** reuses the safe-segment regex so handles never carry colons or collide with path/topic

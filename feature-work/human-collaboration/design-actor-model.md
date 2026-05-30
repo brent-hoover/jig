@@ -247,9 +247,12 @@ single-operator experience is the one-entry degenerate case.
 
 - **Two human-declaration surfaces coexist** (`humans:` for actor identity/capabilities vs. `roles[].human` for
   role staffing). Trade-off accepted for this sub-project (no migration). Risk: they can drift (a `human:` in
-  `roles[]` not present in `humans:`). Mitigation: `load_config` emits a warning (not a hard error) when a
-  `roles[].human` / `escalation.default_human` / evaluator `user` names a handle absent from `humans:`. A
-  future sub-project may consolidate.
+  `roles[]` not present in `humans:`). Mitigation: `load_config` **hard-errors** when a `roles[].human` /
+  `escalation.default_human` / evaluator `user` names a handle absent from `humans:` — `humans:` is the single
+  source of truth for who exists, and a staffed-but-undeclared human is a config bug that must fail loud, not a
+  silent fallback. Practically: adding the `humans:` section means every human already named elsewhere in the
+  config must appear there. (jig has no production deployments and config is regenerable, so this is a one-time
+  authoring step, not a migration.) A future sub-project may consolidate the two surfaces entirely.
 - **Handle/role collision** would make resolution ambiguous → rejected loudly at `load_config`.
 - **Agent capability derivation is heuristic** (`reviewer*` → reviewer, etc.). Trade-off: humans are the
   primary reviewers/validators in #116; agent derivation only matters where an agent fills those seats, and is
@@ -265,7 +268,8 @@ single-operator experience is the one-entry degenerate case.
   alias, and unknown (raises). Agent `roles` derivation (plain → `{worker}`; `reviewer_*` → `{worker,
   reviewer}`; configured validator role → includes `{validator}`). Human/agent handle collision rejection.
 - **Unit (config):** parse a multi-entry `humans:`; default `[]` still validates; handle-shape rejection; git
-  seeding when `humans == []`; drift warning when `roles[].human` names an unknown handle.
+  seeding when `humans == []`; **hard error** when `roles[].human` / `escalation.default_human` / evaluator
+  `user` names a handle absent from a non-empty `humans:`.
 - **Unit (current actor):** `resolve_current_actor` returns the sole human; returns git-seeded operator when
   `humans == []`.
 - **Integration:** `assignee` round-trips through `create_ticket`/`update_ticket` for an agent role and a human
@@ -289,10 +293,14 @@ afterward.
 
 ## Open questions
 
-- [ ] Should the `roles[].human` ↔ `humans:` drift check be warn-only (proposed) or a hard error? Leaning warn,
-      to avoid breaking configs that staff a role with a human not yet in `humans:`.
 - [ ] Does any existing consumer of `config.roles[].human` need to resolve through `resolve_actor` now, or can
       that wait for SP3/SP6? (Proposed: wait — SP1 stays read-additive.)
+
+## Resolved questions
+
+- **Drift check is a hard error** (settled 2026-05-30). A `roles[].human` / `escalation.default_human` /
+  evaluator `user` naming a handle absent from a non-empty `humans:` fails `load_config` loudly. `humans:` is
+  the single source of truth for who exists; no silent fallback.
 
 ## Change log
 

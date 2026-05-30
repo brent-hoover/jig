@@ -100,14 +100,16 @@ class Actor(BaseModel):
 
 - **Humans:** `roles` comes straight from the `humans:` entry.
 - **Agents:** `roles` is *derived* from the role id so we don't hand-maintain a second list. Derivation uses
-  explicit, checkable rules against the **actual shipped role ids**, which are all hyphenated (the underscore
-  forms like `reviewer_security` are only the YAML *filenames* — the `role:` field inside is hyphenated, and
-  `review.yaml`'s id is `reviewer-generalist`):
+  explicit, checkable rules against the **actual shipped role ids**. (Note the `role:` id is *not* the YAML
+  filename: `review.yaml` declares `role: review`, while `reviewer_generalist.yaml` declares
+  `role: reviewer-generalist` — the specialist reviewer ids are hyphenated even though their filenames use
+  underscores.)
   - every agent role contributes `WORKER`;
-  - `REVIEWER` if `role.startswith("reviewer-")` (covers `reviewer-generalist`, `reviewer-security`,
-    `reviewer-architectural`, `reviewer-performance`, `reviewer-error-handling`, `reviewer-pattern-conformance`,
-    `reviewer-test-adequacy`). (If a project defines a custom role whose id uses an underscore, that's a
-    compatibility consideration for the rule, not a shipped id.)
+  - `REVIEWER` if `role == "review"` **or** `role.startswith("reviewer-")`. This covers the shipped generic
+    `review` role *and* the specialists: `reviewer-generalist`, `reviewer-security`, `reviewer-architectural`,
+    `reviewer-performance`, `reviewer-error-handling`, `reviewer-pattern-conformance`, `reviewer-test-adequacy`.
+    (A custom role whose id used an underscore would be a compatibility consideration for the rule, not a
+    shipped id — none ship today.)
   - `VALIDATOR` if `role == "validate"` (the shipped validation-phase role; jig's validation workflows set
     `role: validate` and do not configure an evaluator, so validator capability must key off the role id, not a
     "close-phase evaluator"). Human validator capability is separate — it comes from a human's `roles`
@@ -310,8 +312,8 @@ single-operator experience is the one-entry degenerate case.
 ## Testing strategy
 
 - **Unit (`jig/actor.py`):** `resolve_actor` for an agent role, a human handle, `orchestrator`, the `"user"`
-  alias, and unknown (raises). Agent `roles` derivation against real (hyphenated) role ids: `dev` →
-  `{worker}`; `reviewer-generalist` and `reviewer-security` → `{worker, reviewer}`; `validate` →
+  alias, and unknown (raises). Agent `roles` derivation against real role ids: `dev` → `{worker}`; the generic
+  `review` and the specialists `reviewer-generalist` / `reviewer-security` → `{worker, reviewer}`; `validate` →
   `{worker, validator}`. Human/agent handle collision rejection; reserved-handle (`user`/`system`/
   `orchestrator`) rejection in `humans:`.
 - **Unit (config):** parse a multi-entry `humans:`; default `[]` still validates; handle-shape rejection; git

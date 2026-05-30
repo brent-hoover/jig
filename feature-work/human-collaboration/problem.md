@@ -48,10 +48,10 @@ What exists today (verified in the codebase, 2026-05-30):
 - **Human input today**: agents `thread_ask` (target can be `any_human`); the operator answers in the `/now`
   TUI pane, which drives the `answer_questions` WS command and resumes the ticket. This is the only existing
   human-in-the-loop path, and it is *pull* (agent asks) not *direct* (human acts).
-- **Ticket CRUD already spans MCP, WS, TUI, and CLI** — not MCP-only. Agents create/update/list/comment via MCP
-  tools; the TUI form and the WebSocket path (`ws_server.py`) and `jig` CLI also create/update tickets through
-  shared handlers. What's missing is a single **surface-agnostic action layer** (and a web/HTTP surface), not
-  basic CRUD over a surface.
+- **Ticket CRUD is spread unevenly across surfaces.** Agents create/update/list/comment via MCP tools; the TUI
+  form and the WebSocket path (`ws_server.py`) create *and* update; the `jig ticket` CLI today exposes only
+  `create` (no `update`). What's missing is a single **surface-agnostic action layer** (and a web/HTTP surface)
+  that gives every surface — including a CLI `update`/reorder/assign — the same operations.
 
 ## Why now / why it matters
 
@@ -117,8 +117,8 @@ A solution must achieve:
   git identity seeding the default. (To be settled in the actor-model sub-project design.)
 - **How "only the human assigns" coexists with automatic dispatch.** Proposal: today's auto-dispatch is the
   human's *standing delegation* — agents self-dispatch only from the pool the human has left agent-assignable;
-  assigning to `human:*` parks the ticket in a "waiting on human" state and pushes it to the human's inbox.
-  Needs validation.
+  assigning a ticket to a human actor handle parks it in a "waiting on human" state and pushes it to the human's
+  inbox. Needs validation.
 - **Validator close-gate mechanics.** Does the validator role attach per-ticket, per-workflow, or per-project?
   How does it interact with the federation's existing `resolved` disposition?
 - **Human inbox.** Generalize the existing `/now` Q&A pane into a push inbox (assigned work + review requests +
@@ -151,8 +151,8 @@ Dependency-ordered; foundation is (1) and (2). Each becomes its own `problem →
 2. **Surface-agnostic action layer** — one backend module (assign, reassign, set-priority/rank, reorder, claim,
    ready-for-review, submit-review, validate/close) over the existing WS + a small HTTP layer; CLI/TUI/Web are
    thin clients. *Foundation.*
-3. **Dispatch routing for human tickets** — `human:*` assignee parks in "waiting on human" + emits to the inbox;
-   `agent:*` keeps current behavior.
+3. **Dispatch routing for human tickets** — a ticket whose `assignee` resolves to a human actor parks in
+   "waiting on human" + emits to the inbox; an agent-role assignee keeps current behavior.
 4. **Ticket model: ordering** — add `rank`; wire priority/grouping to existing `epic_id`/`labels`.
 5. **Human inbox** — generalize the `/now` pane into a push inbox (assigned work, review requests, questions).
 6. **Humans in the review flow** — optional human federation reviewers + configurable validator with exclusive

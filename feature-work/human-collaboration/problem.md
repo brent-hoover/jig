@@ -29,7 +29,14 @@ What exists today (verified in the codebase, 2026-05-30):
 - **Dispatch** (`jig/orchestrator.py`, `jig/store/tickets.py`): fully automatic. `find_ready()` picks `open`
   top-level tickets whose deps are `resolved` and spawns agents per workflow phase. No assignee routing.
 - **Closing**: no auto-close. Tickets land in `resolved`/`failed`/`blocked`; the operator closes manually via
-  `update_ticket(status="closed")`. There is no "validator" role with exclusive close authority.
+  `update_ticket(status="closed")`. There is no *exclusive* validator close-gate yet — but the building block
+  exists: `SpecificHumanEvaluator(user)` (`models.py`) already lets a named human gate a phase's acceptance.
+- **Human staffing already exists (Phase 3).** `config.roles.<role>` (`RoleAssignment`) declares whether a role
+  is `human`/`human_with_helper`/`agent` plus a `human:` identity; `jig/ownership.py` resolves work to that
+  human; `config.escalation.default_human` is the project fallback human. The actor model builds on these, not
+  beside them.
+- **`assignee` validation is real, not absent.** `_check_assignee` (`mcp_server.py`) already rejects assignees
+  outside `valid_roles | {orchestrator, user}`; this epic *widens* the allowed set to include human handles.
 - **TUI** (`jig/tui/`): a read-mostly Textual UI. A **Kanban `BoardView` already exists** (status columns,
   status icons) but has no drag and no human actions. Talks to the backend over a WebSocket (`ws_server.py`).
 - **Review federation** (`jig/orchestrator.py`, `jig/reviewers/`, `reviewer_mcp.py`, `finding_ack_mcp.py`):
@@ -130,8 +137,10 @@ A solution must achieve:
 
 Dependency-ordered; foundation is (1) and (2). Each becomes its own `problem → design → plan` cycle.
 
-1. **Actor model** — namespaced actor refs (`agent:dev` / `human:brent`), thin roster, trust-based current-actor
-   selection. Makes `assignee` meaningful and type-aware. *Foundation.*
+1. **Actor model** — a thin `Actor(handle, type, roles)` registry over bare handles (no colon namespacing),
+   humans declared in a `config.yaml` `humans:` section (built on the existing `config.roles[].human` /
+   `ownership.py` / `SpecificHumanEvaluator` machinery), trust-based current-actor selection. Makes `assignee`
+   meaningful and type-aware. *Foundation.* See [design-actor-model.md](./design-actor-model.md).
 2. **Surface-agnostic action layer** — one backend module (assign, reassign, set-priority/rank, reorder, claim,
    ready-for-review, submit-review, validate/close) over the existing WS + a small HTTP layer; CLI/TUI/Web are
    thin clients. *Foundation.*

@@ -210,3 +210,20 @@ async def test_ruff_findings_counted(base_repo: Path) -> None:
     m = await compute_change_metrics(base_repo, base_ref="main")
 
     assert m.ruff_findings >= 1
+
+
+async def test_change_metrics_includes_taxonomy_hits(base_repo: Path) -> None:
+    # B006 (mutable default arg) maps to TAX-LANG-001 in the taxonomy.
+    (base_repo / "feature.py").write_text("def g(x=[]):\n    return x\n")
+
+    m = await compute_change_metrics(base_repo, base_ref="main")
+
+    assert any(h.id == "TAX-LANG-001" for h in m.taxonomy_hits), m.taxonomy_hits
+
+
+async def test_change_metrics_no_taxonomy_hits_on_clean_change(base_repo: Path) -> None:
+    (base_repo / "feature.py").write_text("def g(x: int) -> int:\n    return x + 1\n")
+
+    m = await compute_change_metrics(base_repo, base_ref="main")
+
+    assert m.taxonomy_hits == ()

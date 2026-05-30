@@ -1,0 +1,80 @@
+# AI-audit taxonomy manifest — the single source mapping each AI-shaped defect
+# pattern to its detection (ruff rule code, or judgment-only) and the federation
+# reviewer that owns it. See feature-work/code-quality-system/design.md.
+#
+# 10 patterns are deterministic (ruff); 14 are judgment-only (catalogued here,
+# surfaced into reviewer prompts by sub-issue C). Source taxonomy:
+# https://kenrinzero.github.io/ai-code-audit-taxonomy/
+
+- {id: TAX-ERR-001, category: error-handling, title: swallowed exceptions,
+   detection: {kind: ruff, ref: BLE001}, owning_reviewer: reviewer-error-handling,
+   cue: "except Exception: pass / bare except with no re-raise"}
+- {id: TAX-ERR-002, category: error-handling, title: inconsistent error handling,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-error-handling,
+   cue: "mixed exception strategies across the same module"}
+- {id: TAX-ERR-003, category: error-handling, title: brittle error detection,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-error-handling,
+   cue: "matching exceptions by string message"}
+- {id: TAX-SEC-001, category: security, title: string-built SQL,
+   detection: {kind: ruff, ref: S608}, owning_reviewer: reviewer-security,
+   cue: "f-string / concatenation building SQL"}
+- {id: TAX-SEC-002, category: security, title: shell=True subprocess,
+   detection: {kind: ruff, ref: S602}, owning_reviewer: reviewer-security,
+   cue: "subprocess(..., shell=True)"}
+- {id: TAX-SEC-003, category: security, title: tarfile extractall without filter,
+   detection: {kind: ruff, ref: S202}, owning_reviewer: reviewer-security,
+   cue: ".extractall() with no members filter"}
+- {id: TAX-REL-001, category: reliability, title: missing network timeout,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "requests/httpx call without timeout="}
+- {id: TAX-REL-002, category: reliability, title: resource leak (no context manager),
+   detection: {kind: ruff, ref: SIM115}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "open() not used as a context manager"}
+- {id: TAX-ASYNC-001, category: async, title: async-await mismatch,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "calling an async function without await"}
+- {id: TAX-ASYNC-002, category: async, title: sleep-based synchronization,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "time.sleep()/asyncio.sleep() used to coordinate tasks"}
+- {id: TAX-OBS-001, category: observability, title: print instead of logging,
+   detection: {kind: ruff, ref: T201}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "print() in library/non-entrypoint code"}
+- {id: TAX-OBS-002, category: observability, title: f-string in logger call,
+   detection: {kind: ruff, ref: G004}, owning_reviewer: reviewer-pattern-conformance,
+   cue: 'logger.info(f"...") instead of %-args'}
+- {id: TAX-CF-001, category: control-flow, title: off-by-one,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "range(len(x)) vs range(len(x)-1) / boundary indices"}
+- {id: TAX-CF-002, category: control-flow, title: swapped arguments,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "positional args passed in the wrong order"}
+- {id: TAX-STRUCT-001, category: structure, title: near-identical siblings,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "duplicated near-identical functions/blocks"}
+- {id: TAX-STRUCT-002, category: structure, title: unjustified lazy import,
+   detection: {kind: ruff, ref: PLC0415}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "import inside a function with no stated reason"}
+- {id: TAX-LANG-001, category: language-pitfall, title: mutable default arguments,
+   detection: {kind: ruff, ref: B006}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "def f(x=[]) / def f(x={})"}
+- {id: TAX-LANG-002, category: language-pitfall, title: assert for runtime validation,
+   detection: {kind: ruff, ref: S101}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "assert used to validate runtime input"}
+- {id: TAX-CFG-001, category: configuration, title: hardcoded config values,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "magic hosts/ports/paths instead of config"}
+- {id: TAX-CONS-001, category: consistency, title: convention drift,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "naming/style inconsistent with the surrounding code"}
+- {id: TAX-DOC-001, category: documentation, title: narrating comments,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "comments restating what the code already says"}
+- {id: TAX-TEST-001, category: testing, title: weak test assertion,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-test-adequacy,
+   cue: "assert truthy / asserting on shape not behavior"}
+- {id: TAX-DEF-001, category: defensive-programming, title: unreachable defensive guard,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "guard that prior code makes impossible"}
+- {id: TAX-LIB-001, category: library-usage, title: wrong tool for the job,
+   detection: {kind: judgment, ref: null}, owning_reviewer: reviewer-pattern-conformance,
+   cue: "hand-rolled logic where a stdlib/dep fits"}

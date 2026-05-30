@@ -20,6 +20,8 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from radon.complexity import cc_visit
 
+from jig.code_quality.taxonomy import TaxonomyHit, scan_taxonomy
+
 _logger = logging.getLogger(__name__)
 
 # McCabe's classic ceiling and the radon B/C rank boundary. At or below this a
@@ -75,6 +77,7 @@ class ChangeMetrics(BaseModel):
     max_cc_location: str | None = None
     ruff_findings: int = Field(ge=0)
     loc_delta: int
+    taxonomy_hits: tuple[TaxonomyHit, ...] = ()
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -183,11 +186,24 @@ async def compute_change_metrics(
                 max_cc_location = f"{rel}:{name}" if name else rel
 
         ruff_findings = await _count_ruff_findings(worktree_path, on_disk)
+        # ``scan_taxonomy`` uses a synchronous ``subprocess.run`` (kept sync so
+        # tests can call it directly); offload it to a thread so we don't block
+        # the event loop while ruff runs.
+        loop = asyncio.get_running_loop()
+        taxonomy_hits = tuple(
+            await loop.run_in_executor(
+                None,
+                scan_taxonomy,
+                worktree_path,
+                [worktree_path / rel for rel in on_disk],
+            )
+        )
         return ChangeMetrics(
             max_cc=max_cc,
             max_cc_location=max_cc_location,
             ruff_findings=ruff_findings,
             loc_delta=loc_delta,
+            taxonomy_hits=taxonomy_hits,
         )
     except (OSError, ValueError):
         _logger.warning(

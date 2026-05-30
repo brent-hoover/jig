@@ -23,9 +23,11 @@ workflow agents already use, not a special case bolted on the side. This is the 
 What exists today (verified in the codebase, 2026-05-30):
 
 - **Ticket model** (`jig/ticket.py`): 8-state `TicketStatus` (`open`, `in_progress`, `blocked`, `needs_info`,
-  `failed`, `merge_conflict`, `resolved`, `closed`); an `assignee: str | None` field that exists but is
-  **unused**; grouping fields already present (`parent_id`, `epic_id`, `suite_id`, `module_id`, `labels`,
-  `blocked_by`/`blocks`). No `rank`/explicit ordering field.
+  `failed`, `merge_conflict`, `resolved`, `closed`); an `assignee: str | None` field that is **not used for
+  dispatch/work routing** today, though it is already indexed/filterable (`find_by_assignee`), validated in the
+  MCP create/update handlers, used as a message-bus target, and populated by ownership routing — the missing
+  piece is lifecycle routing, not all usage; grouping fields already present (`parent_id`, `epic_id`,
+  `suite_id`, `module_id`, `labels`, `blocked_by`/`blocks`). No `rank`/explicit ordering field.
 - **Dispatch** (`jig/orchestrator.py`, `jig/store/tickets.py`): fully automatic. `find_ready()` picks `open`
   top-level tickets whose deps are `resolved` and spawns agents per workflow phase. No assignee routing.
 - **Closing**: no auto-close. Tickets land in `resolved`/`failed`/`blocked`; the operator closes manually via
@@ -46,7 +48,10 @@ What exists today (verified in the codebase, 2026-05-30):
 - **Human input today**: agents `thread_ask` (target can be `any_human`); the operator answers in the `/now`
   TUI pane, which drives the `answer_questions` WS command and resumes the ticket. This is the only existing
   human-in-the-loop path, and it is *pull* (agent asks) not *direct* (human acts).
-- **No HTTP/web surface.** CRUD is MCP-tool-only (agent-shaped) plus the TUI form.
+- **Ticket CRUD already spans MCP, WS, TUI, and CLI** — not MCP-only. Agents create/update/list/comment via MCP
+  tools; the TUI form and the WebSocket path (`ws_server.py`) and `jig` CLI also create/update tickets through
+  shared handlers. What's missing is a single **surface-agnostic action layer** (and a web/HTTP surface), not
+  basic CRUD over a surface.
 
 ## Why now / why it matters
 
@@ -99,8 +104,10 @@ A solution must achieve:
   must not fork backend logic per surface.
 - Respect the sandbox model: agents run in bwrap/Docker; the orchestrator (and human-facing surfaces) run
   outside it.
-- `assignee` should become a **namespaced actor reference** (`agent:dev`, `human:brent`) so dispatch can route
-  on type without special-casing.
+- `assignee` should become a **type-aware bare actor handle** (e.g. `dev`, `brent`) resolved through the actor
+  registry to its type, so dispatch can route on type without special-casing. (Colon-namespaced refs like
+  `agent:dev`/`human:brent` were considered and rejected — see [design-actor-model.md](./design-actor-model.md)
+  § Alternatives.)
 - No migration scripts — jig has no production deployments; existing `.jig/store` data is regenerable.
 
 ## Open questions

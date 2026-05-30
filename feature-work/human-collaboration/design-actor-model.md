@@ -99,11 +99,17 @@ class Actor(BaseModel):
 ```
 
 - **Humans:** `roles` comes straight from the `humans:` entry.
-- **Agents:** `roles` is *derived* from the role name/config so we don't hand-maintain a second list — every
-  agent role is a `WORKER`; a role whose name starts `reviewer` (or that appears in any phase's `reviewers`)
-  also gets `REVIEWER`; the role configured as a close-phase evaluator contributes `VALIDATOR`. (Derivation is
-  best-effort and only used where an agent could fill that seat; humans are the primary validators in #116.)
-- **System:** the singleton `orchestrator` actor, `roles=∅`.
+- **Agents:** `roles` is *derived* from the role id so we don't hand-maintain a second list. Derivation uses
+  explicit, checkable rules against the **actual shipped role ids** (which mix hyphen and underscore):
+  - every agent role contributes `WORKER`;
+  - `REVIEWER` if `role == "review"` or `role.startswith("reviewer-")` or `role.startswith("reviewer_")`
+    (covers `review`, `reviewer-generalist`, `reviewer_security`, `reviewer_architectural`, …);
+  - `VALIDATOR` if `role == "validate"` (the shipped validation-phase role; jig's validation workflows set
+    `role: validate` and do not configure an evaluator, so validator capability must key off the role id, not a
+    "close-phase evaluator"). Human validator capability is separate — it comes from a human's `roles`
+    containing `validator`, and SP6 additionally honours `SpecificHumanEvaluator(user)` (see §6).
+- **System:** the singleton `orchestrator` actor (handle `"orchestrator"`), `roles=∅`. `"user"`, `"system"`,
+  and `"orchestrator"` are **reserved handles** — a `humans:` entry may not claim them (rejected at load).
 
 ### 2. `humans:` config section (`jig/config.py`)
 
@@ -137,24 +143,32 @@ class Config(BaseModel):
 
 ### 3. `resolve_actor(handle, config)`
 
+The resolver needs the **role catalog**, which is project-path based (`jig/persistence.py` exposes
+`load_role(project_path, name)` and `list_role_names(project_path)`; there is no `role_exists(handle, config)`
+and `Config` does not carry role ids). So the resolver takes `project_path` (or a precomputed role-name set)
+alongside `config`:
+
 ```python
-def resolve_actor(handle: str, config: Config) -> Actor:
+def resolve_actor(handle: str, *, config: Config, project_path: Path) -> Actor:
     if handle in ("orchestrator", "system"):
         return _SYSTEM_ACTOR
-    if handle == "user":                       # legacy alias
+    if handle == "user":                          # legacy alias for the operator (also the shipped `user` role)
         return _current_or_seeded_human(config)
-    for h in config.humans:                    # humans win ties (collisions rejected at load)
+    for h in config.humans:                       # humans win ties (collisions rejected at load)
         if h.handle == handle:
             return _human_actor(h)
-    if role_exists(handle, config):            # defaults/roles/ or .jig/roles/
-        return _agent_actor(handle, config)
+    if handle in list_role_names(project_path):   # existing project-path-based catalog API
+        return _agent_actor(handle, project_path)
     raise UnknownActorError(handle)
 ```
 
 - **Single flat handle namespace.** A human handle must not equal an agent role name; the collision is rejected
   at config load with a loud error (so resolution is unambiguous and callers branch on `actor.type`, never on
-  string parsing).
-- **`"user"` legacy alias** keeps every historical JSONL record (`author="user"`) resolvable with no backfill.
+  string parsing). Collision-checking uses `list_role_names(project_path)`, the same catalog API.
+- **`"user"` is the operator alias.** jig already ships a `user` *pseudo-role* (`role: user`,
+  `work_type: thread`, "operator-authored thread entries attributed to a human"), so intercepting `"user"`
+  before catalog lookup and returning the operator human is *coherent* with its existing meaning — not a
+  shadowing hack. It also keeps every historical JSONL record (`author="user"`) resolvable with no backfill.
 
 ### 4. `resolve_current_actor(config)` — the selection seam
 
@@ -169,23 +183,30 @@ def resolve_current_actor(config: Config) -> Actor:
 `author=resolve_current_actor(config).handle`. Because the seam exists now, adding selection later touches only
 this one function.
 
-### 5. Assignee validation (widen, don't replace)
+### 5. Assignee validation (widen, and validate at the shared layer)
 
-`mcp_server.py:138` currently builds `_allowed_assignees = valid_roles | {"orchestrator", "user"}`. Widen it to
-include known human handles, delegating to the registry so there's no second list to maintain:
+`mcp_server.py:138` currently builds `_allowed_assignees = valid_roles | {"orchestrator", "user"}` and rejects
+anything outside it — but **that check only fires on the MCP create/update path.** Tickets are also created and
+updated through the WebSocket path (`ws_server.py`) and the `jig` CLI; today those can persist an arbitrary
+`assignee`. To avoid leaving invalid actor handles for SP3's dispatcher to choke on, the registry-backed check
+must live in the **shared ticket handler** that all three surfaces call (`ticket_mcp.handle_create_ticket` /
+`handle_update_ticket`), not in the MCP-only `_check_assignee` wrapper:
 
 ```python
-def _check_assignee(assignee: str | None) -> None:
+# in the shared create/update handler, reached by MCP, WS, and CLI:
+def _validate_assignee(assignee: str | None, *, config: Config, project_path: Path) -> None:
     if not assignee:
         return
     try:
-        resolve_actor(assignee, config)        # roles ∪ humans ∪ {orchestrator, user}
+        resolve_actor(assignee, config=config, project_path=project_path)   # roles ∪ humans ∪ reserved
     except UnknownActorError:
         raise ValueError(f"unknown assignee {assignee!r}")
 ```
 
-`find_by_assignee` and the `assignee` index already work; they now receive meaningful values. `assignee` may
-name an agent role (today's behavior) or a human handle (new) — per-ticket human assignment falls out for free.
+`mcp_server.py`'s existing `_check_assignee` becomes a thin pass-through (or is removed in favour of the shared
+check). `find_by_assignee` and the `assignee` index already work; they now receive meaningful, validated values
+on **every** surface. `assignee` may name an agent role (today's behavior) or a human handle (new) — per-ticket
+human assignment falls out for free.
 
 ### 6. Seams left for later sub-projects (no behavior here)
 
@@ -200,13 +221,18 @@ SP1.
 
 ## Interfaces
 
-- **New module `jig/actor.py`:** `ActorType`, `ActorRole`, `Actor`, `resolve_actor(handle, config)`,
-  `resolve_current_actor(config)`, `UnknownActorError`.
-- **`jig/config.py`:** new `HumanEntry` model + `Config.humans: list[HumanEntry]`; collision/handle-shape
-  validation in `load_config`; export additions in `__all__`.
+- **New module `jig/actor.py`:** `ActorType`, `ActorRole`, `Actor`,
+  `resolve_actor(handle, *, config, project_path)`, `resolve_current_actor(config)`, `UnknownActorError`.
+- **`jig/config.py`:** new `HumanEntry` model + `Config.humans: list[HumanEntry]`; handle-shape, reserved-handle,
+  and role-collision validation in `load_config` (the latter using `list_role_names(project_path)`); drift check
+  for `roles[].human` / `escalation.default_human` (config-local fields only — see Risks); export additions in
+  `__all__`.
+- **Shared ticket handler (`ticket_mcp.py`):** registry-backed `assignee` validation on create/update, reached
+  by MCP, WS, and CLI. `mcp_server.py`'s `_check_assignee` becomes a pass-through / is removed.
 - **`.jig/config.yaml`:** new optional `humans:` section (back-compatible default `[]`).
-- **`mcp_server.py`:** `_check_assignee` widened to registry-backed validation.
 - **`ws_server.py`:** operator attribution sourced from `resolve_current_actor`.
+- **Workflow/catalog validation:** `SpecificHumanEvaluator.user` references validated against `config.humans`
+  here (not in `load_config`), since evaluator specs live in workflow YAML — see Risks.
 
 ## Data model
 
@@ -247,12 +273,19 @@ single-operator experience is the one-entry degenerate case.
 
 - **Two human-declaration surfaces coexist** (`humans:` for actor identity/capabilities vs. `roles[].human` for
   role staffing). Trade-off accepted for this sub-project (no migration). Risk: they can drift (a `human:` in
-  `roles[]` not present in `humans:`). Mitigation: `load_config` **hard-errors** when a `roles[].human` /
-  `escalation.default_human` / evaluator `user` names a handle absent from `humans:` — `humans:` is the single
-  source of truth for who exists, and a staffed-but-undeclared human is a config bug that must fail loud, not a
-  silent fallback. Practically: adding the `humans:` section means every human already named elsewhere in the
-  config must appear there. (jig has no production deployments and config is regenerable, so this is a one-time
-  authoring step, not a migration.) A future sub-project may consolidate the two surfaces entirely.
+  `roles[]` not present in `humans:`). Mitigation, **split by where the data lives**:
+  - `load_config` **hard-errors** when a *config-local* human reference — `config.roles[].human` or
+    `config.escalation.default_human` — names a handle absent from a non-empty `humans:`. These fields are in
+    `.jig/config.yaml`, so `load_config` can see them.
+  - `SpecificHumanEvaluator.user` references are **not** checked in `load_config`: evaluator specs live in
+    **workflow YAML** (`PhaseConfig.evaluator`), which `load_config` does not (and should not) parse. They are
+    validated in the **workflow/catalog validation** pass, where both the workflows and `config.humans` are
+    available. (Earlier drafts wrongly assigned this to `load_config`.)
+
+  `humans:` is the single source of truth for who exists; a staffed-but-undeclared human is a config bug that
+  fails loud, not a silent fallback. Practically: every human named elsewhere must appear in `humans:`. (jig has
+  no production deployments and config is regenerable, so this is a one-time authoring step, not a migration.) A
+  future sub-project may consolidate the two surfaces entirely.
 - **Handle/role collision** would make resolution ambiguous → rejected loudly at `load_config`.
 - **Agent capability derivation is heuristic** (`reviewer*` → reviewer, etc.). Trade-off: humans are the
   primary reviewers/validators in #116; agent derivation only matters where an agent fills those seats, and is
@@ -265,11 +298,15 @@ single-operator experience is the one-entry degenerate case.
 ## Testing strategy
 
 - **Unit (`jig/actor.py`):** `resolve_actor` for an agent role, a human handle, `orchestrator`, the `"user"`
-  alias, and unknown (raises). Agent `roles` derivation (plain → `{worker}`; `reviewer_*` → `{worker,
-  reviewer}`; configured validator role → includes `{validator}`). Human/agent handle collision rejection.
+  alias, and unknown (raises). Agent `roles` derivation against real role ids: `dev` → `{worker}`;
+  `reviewer-generalist` and `reviewer_security` and `review` → `{worker, reviewer}`; `validate` →
+  `{worker, validator}`. Human/agent handle collision rejection; reserved-handle (`user`/`system`/
+  `orchestrator`) rejection in `humans:`.
 - **Unit (config):** parse a multi-entry `humans:`; default `[]` still validates; handle-shape rejection; git
-  seeding when `humans == []`; **hard error** when `roles[].human` / `escalation.default_human` / evaluator
-  `user` names a handle absent from a non-empty `humans:`.
+  seeding when `humans == []`; **hard error** when `roles[].human` / `escalation.default_human` names a handle
+  absent from a non-empty `humans:`.
+- **Unit (workflow/catalog validation):** **hard error** when a `SpecificHumanEvaluator.user` in a workflow
+  names a handle absent from `config.humans` (validated here, not in `load_config`).
 - **Unit (current actor):** `resolve_current_actor` returns the sole human; returns git-seeded operator when
   `humans == []`.
 - **Integration:** `assignee` round-trips through `create_ticket`/`update_ticket` for an agent role and a human
@@ -283,8 +320,10 @@ single-operator experience is the one-entry degenerate case.
 No data migration (no production deployments; `.jig/store` regenerable). Additive rollout:
 
 1. Add `jig/actor.py` (Actor + resolve_actor + resolve_current_actor).
-2. Add `HumanEntry` + `Config.humans` + collision/shape/drift validation; default `[]` keeps old configs valid.
-3. Widen `_check_assignee` to registry-backed validation.
+2. Add `HumanEntry` + `Config.humans` + handle-shape/reserved/collision/drift validation; default `[]` keeps
+   old configs valid.
+3. Move registry-backed `assignee` validation into the shared ticket handler (MCP/WS/CLI); reduce
+   `_check_assignee` to a pass-through.
 4. Swap hard-coded `"user"` attribution in `ws_server.py` for `resolve_current_actor().handle`.
 5. `init_project` seeds a one-entry `humans:` from git for new projects.
 
@@ -298,9 +337,10 @@ afterward.
 
 ## Resolved questions
 
-- **Drift check is a hard error** (settled 2026-05-30). A `roles[].human` / `escalation.default_human` /
-  evaluator `user` naming a handle absent from a non-empty `humans:` fails `load_config` loudly. `humans:` is
-  the single source of truth for who exists; no silent fallback.
+- **Drift check is a hard error** (settled 2026-05-30), applied at the layer that can see each field:
+  `load_config` hard-errors on `roles[].human` / `escalation.default_human` absent from a non-empty `humans:`;
+  workflow/catalog validation hard-errors on `SpecificHumanEvaluator.user` absent from `config.humans`.
+  `humans:` is the single source of truth for who exists; no silent fallback.
 
 ## Change log
 
@@ -309,3 +349,11 @@ afterward.
   SpecificHumanEvaluator); humans declared in a `config.yaml` `humans:` section with global per-person roles[];
   corrected two errors in the first draft (_check_assignee is a real validator, not a stub; a human/role model
   already exists). (brent)
+- 2026-05-30: Addressed roborev review (jobs #237–241): `resolve_actor` takes `project_path` and uses
+  `list_role_names` (no invented `role_exists`); explicit agent-capability rules against real role ids
+  (`review`/`reviewer-*`/`reviewer_*` → reviewer, `validate` → validator); assignee validation moved to the
+  shared ticket handler so WS/CLI paths validate too; drift check split by data location (`load_config` for
+  config-local fields, workflow/catalog validation for `SpecificHumanEvaluator.user`); `user`/`system`/
+  `orchestrator` reserved handles; clarified `"user"` is the shipped operator pseudo-role; problem.md
+  current-state claims corrected (assignee partially used; CRUD spans MCP/WS/TUI/CLI; bare handles not
+  namespaced refs). (brent)

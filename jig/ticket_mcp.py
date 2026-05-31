@@ -20,6 +20,7 @@ from jig.thread import (
     SystemEvent,
     ThreadEntry,
 )
+from jig.hooks import _CONVENTIONAL_RE as _CC_RE
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
@@ -555,15 +556,25 @@ async def handle_commit_progress(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    # Build a conventional commit: feat(role): agent's description
+    # Build a conventional commit message.
     # Fall back to ticket title if the agent just passed the ticket ID or empty text.
     subject = agent_message.strip()
     if not subject or subject == ticket_id:
         subject = ticket.title
-    # Truncate subject to conventional commit length
-    if len(subject) > 72:
-        subject = subject[:69] + "..."
-    commit_message = f"feat({sender}): {subject}"
+    # If the agent already wrote a conventional commit subject, preserve it and
+    # append [role] so git log shows attribution without clobbering the agent's
+    # scope. Otherwise wrap with feat({sender}): as before.
+    _has_cc_prefix = bool(_CC_RE.match(subject))
+    if _has_cc_prefix:
+        suffix = f" [{sender}]"
+        max_subject = 72 - len(suffix)
+        if len(subject) > max_subject:
+            subject = subject[: max_subject - 3] + "..."
+        commit_message = f"{subject}{suffix}"
+    else:
+        if len(subject) > 72:
+            subject = subject[:69] + "..."
+        commit_message = f"feat({sender}): {subject}"
 
     try:
         commit_result = await commit_worktree(worktree_path, commit_message)

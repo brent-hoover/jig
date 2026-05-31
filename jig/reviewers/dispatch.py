@@ -46,11 +46,14 @@ accidentally suppress security/perf/arch coverage by omission.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+_logger = logging.getLogger(__name__)
 
 from jig.reviewers.comment import ReviewerComment
 from jig.ticket import Ticket, WorkType
@@ -973,6 +976,24 @@ async def dispatch_with_llm_spawn(
         from jig.code_metrics import compute_change_metrics
 
         code_metrics = await compute_change_metrics(worktree_path, base_ref=base_ref)
+
+    # "Never silent drop" (design §4): if a deterministic taxonomy hit's
+    # owning_reviewer isn't in the spawned set, log a warning rather than let
+    # the hit silently disappear from the review surface. Measurement-side
+    # capture of these hits lives in sub-issue D (the AuditStore snapshot).
+    if code_metrics is not None and code_metrics.taxonomy_hits:
+        spawned_ids = {p.reviewer_id for p in pendings}
+        for hit in code_metrics.taxonomy_hits:
+            if hit.reviewer not in spawned_ids:
+                _logger.warning(
+                    "taxonomy hit [%s] %s:%d owned by %r had no selected reviewer "
+                    "(spawned: %s) — no prompt-side surface this run",
+                    hit.id,
+                    hit.file,
+                    hit.line,
+                    hit.reviewer,
+                    sorted(spawned_ids),
+                )
 
     await asyncio.gather(
         *[

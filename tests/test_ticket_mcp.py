@@ -388,7 +388,45 @@ async def test_commit_progress_creates_commit_and_system_event(
     ]
     assert len(commits) == 1
     assert commits[0].commit_sha == result["sha"]
-    assert commits[0].content == "add a.txt [dev]"
+    assert commits[0].content == "feat(dev): add a.txt"
+
+
+@pytest.mark.asyncio
+async def test_commit_progress_cc_subject_gets_role_suffix(
+    stores, tmp_path
+) -> None:
+    import subprocess
+
+    tickets, threads, bus = stores
+
+    work = tmp_path / "worktree"
+    work.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
+    (work / "b.txt").write_text("world")
+
+    tid = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="u",
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
+    )
+    from jig.ticket_mcp import handle_commit_progress
+
+    result = await handle_commit_progress(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender="dev",
+        worktree_path=work,
+        args={"ticket_id": tid, "message": "feat(filtering): implement type routing"},
+    )
+    entries = await threads.for_ticket(tid)
+    commits = [
+        e for e in entries if e.kind == "system_event" and e.event_type == "commit"
+    ]
+    assert commits[0].content == "feat(filtering): implement type routing [dev]"
 
 
 @pytest.mark.asyncio

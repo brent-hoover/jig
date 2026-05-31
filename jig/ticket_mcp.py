@@ -555,17 +555,32 @@ async def handle_commit_progress(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    # Build a conventional commit: agent's description [role]
+    # Build a conventional commit message.
     # Fall back to ticket title if the agent just passed the ticket ID or empty text.
     subject = agent_message.strip()
     if not subject or subject == ticket_id:
         subject = ticket.title
-    # Truncate subject to conventional commit length (accounting for role suffix)
-    suffix = f" [{sender}]"
-    max_subject = 72 - len(suffix)
-    if len(subject) > max_subject:
-        subject = subject[: max_subject - 3] + "..."
-    commit_message = f"{subject}{suffix}"
+    # If the agent already wrote a conventional commit subject, preserve it and
+    # append [role] so git log shows attribution without clobbering the agent's
+    # scope. Otherwise wrap with feat({sender}): as before.
+    _CC_TYPES = (
+        "feat", "fix", "ref", "docs", "test", "chore", "perf",
+        "style", "ci", "build", "revert", "meta",
+    )
+    _has_cc_prefix = any(
+        subject.startswith(f"{t}(") or subject.startswith(f"{t}:")
+        for t in _CC_TYPES
+    )
+    if _has_cc_prefix:
+        suffix = f" [{sender}]"
+        max_subject = 72 - len(suffix)
+        if len(subject) > max_subject:
+            subject = subject[: max_subject - 3] + "..."
+        commit_message = f"{subject}{suffix}"
+    else:
+        if len(subject) > 72:
+            subject = subject[:69] + "..."
+        commit_message = f"feat({sender}): {subject}"
 
     try:
         sha = await commit_worktree(worktree_path, commit_message)

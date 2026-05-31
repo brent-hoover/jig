@@ -20,6 +20,7 @@ from jig.thread import (
     SystemEvent,
     ThreadEntry,
 )
+from jig.hooks import _CONVENTIONAL_RE as _CC_RE
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
@@ -33,26 +34,6 @@ _logger = logging.getLogger(__name__)
 _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 
 _CAPABILITY_URI_PREFIX = "project://spec/capabilities/"
-
-# Conventional commit types recognised in agent-supplied subjects.
-# Used to detect whether an agent already wrote a CC-prefixed subject so we
-# can append [role] rather than wrapping with feat({sender}):.
-_CC_TYPES = frozenset(
-    (
-        "feat",
-        "fix",
-        "refactor",
-        "docs",
-        "test",
-        "chore",
-        "perf",
-        "style",
-        "ci",
-        "build",
-        "revert",
-        "meta",
-    )
-)
 
 
 def _maybe_materialize_ticket_spec(
@@ -583,13 +564,7 @@ async def handle_commit_progress(
     # If the agent already wrote a conventional commit subject, preserve it and
     # append [role] so git log shows attribution without clobbering the agent's
     # scope. Otherwise wrap with feat({sender}): as before.
-    _has_cc_prefix = any(
-        subject.startswith(f"{t}(")
-        or subject.startswith(f"{t}:")
-        or subject.startswith(f"{t}!(")
-        or subject.startswith(f"{t}!:")
-        for t in _CC_TYPES
-    )
+    _has_cc_prefix = bool(_CC_RE.match(subject))
     if _has_cc_prefix:
         suffix = f" [{sender}]"
         max_subject = 72 - len(suffix)

@@ -266,9 +266,11 @@ async def test_unmatched_taxonomy_hits_warn_no_silent_drop(
 
     from jig.code_metrics import ChangeMetrics
     from jig.code_quality.taxonomy import TaxonomyHit
-    from jig.reviewers import dispatch as dispatch_mod
 
     # Stub compute_change_metrics so we control the hits.
+    # NOTE: dispatch.py uses a LOCAL ``from jig.code_metrics import compute_change_metrics``
+    # — patch the source module so the late import picks up the fake. Patching
+    # ``dispatch_mod.compute_change_metrics`` does not work (no module-level symbol).
     async def fake_compute(*_a, **_k):
         return ChangeMetrics(
             max_cc=0,
@@ -277,16 +279,23 @@ async def test_unmatched_taxonomy_hits_warn_no_silent_drop(
             loc_delta=0,
             taxonomy_hits=(
                 TaxonomyHit(
-                    id="TAX-TEST-001",
-                    category="testing",
+                    # Use ``reviewer-performance``: a known LLM reviewer that's
+                    # only auto-selected on a perf-budget signal — so on a
+                    # touches-auth/MVP ticket it's reliably *absent* from the
+                    # spawned set, exercising the warning path.
+                    # (``reviewer-test-adequacy`` would NOT work: it's
+                    # default-on for MVP feature tickets, so a hit owned by it
+                    # is correctly routed and no warning fires.)
+                    id="TAX-XYZ-001",
+                    category="perf",
                     file="x.py",
                     line=1,
-                    reviewer="reviewer-test-adequacy",
+                    reviewer="reviewer-performance",
                 ),
             ),
         )
 
-    monkeypatch.setattr(dispatch_mod, "compute_change_metrics", fake_compute)
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
 
     _write_arch(tmp_path)
     _write_contracts(tmp_path)
@@ -304,7 +313,7 @@ async def test_unmatched_taxonomy_hits_warn_no_silent_drop(
         )
 
     assert any(
-        "TAX-TEST-001" in rec.message and "reviewer-test-adequacy" in rec.message
+        "TAX-XYZ-001" in rec.message and "reviewer-performance" in rec.message
         for rec in caplog.records
     ), "expected a warning naming the unrouted hit"
 ```

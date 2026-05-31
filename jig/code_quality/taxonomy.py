@@ -67,6 +67,24 @@ def taxonomy_ruff_select() -> tuple[str, ...]:
     )
 
 
+@cache
+def entries_for_reviewer(reviewer_id: str) -> tuple[TaxonomyEntry, ...]:
+    """Manifest entries whose ``owning_reviewer`` matches ``reviewer_id``.
+
+    Returns an empty tuple for unknown ids — callers route based on the result
+    and an unknown reviewer simply yields no block. Cached: the manifest is
+    static, and this is called per reviewer prompt build."""
+    return tuple(e for e in load_taxonomy() if e.owning_reviewer == reviewer_id)
+
+
+def hits_for_reviewer(
+    hits: tuple["TaxonomyHit", ...] | list["TaxonomyHit"],
+    reviewer_id: str,
+) -> tuple["TaxonomyHit", ...]:
+    """Filter ``hits`` to those owned by ``reviewer_id``."""
+    return tuple(h for h in hits if h.reviewer == reviewer_id)
+
+
 class TaxonomyHit(BaseModel):
     """One concrete deterministic detection of a taxonomy pattern in changed code."""
 

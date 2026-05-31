@@ -560,15 +560,21 @@ async def handle_commit_progress(
     subject = agent_message.strip()
     if not subject or subject == ticket_id:
         subject = ticket.title
-    # Conventional-commit subject is capped at 72 chars AND must keep the
-    # ``feat(<scope>): <subject>`` shape (the repo's ``commit-msg`` hook
-    # rejects anything else). Cap the scope first so the prefix always fits,
-    # then truncate the subject within the remaining budget.
+    # Conventional-commit subject must be a single line, capped at 72 chars,
+    # in the ``feat(<scope>): <subject>`` shape (or unscoped ``feat: ...``).
+    # ``RoleConfig.role`` is unconstrained, so sanitize the scope to a safe
+    # alphabet first (a stray ')' or newline would otherwise break the shape)
+    # and then cap its length so the prefix always fits.
+    import re
+
     _MAX_LINE = 72
     _PREFIX_OVERHEAD = len("feat(): ")  # 8 chars of unavoidable structure
     _MIN_SUBJECT = 10
-    scope = sender[: _MAX_LINE - _PREFIX_OVERHEAD - _MIN_SUBJECT]
-    prefix = f"feat({scope}): "
+    safe_scope = re.sub(r"[^A-Za-z0-9_./-]", "", sender)
+    safe_scope = safe_scope[: _MAX_LINE - _PREFIX_OVERHEAD - _MIN_SUBJECT]
+    prefix = f"feat({safe_scope}): " if safe_scope else "feat: "
+    # Subject must also be single-line; replace any embedded newlines.
+    subject = subject.replace("\n", " ").replace("\r", " ")
     budget = _MAX_LINE - len(prefix)
     if len(subject) > budget:
         subject = (subject[: budget - 3] + "...") if budget >= 3 else subject[:budget]

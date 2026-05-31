@@ -53,13 +53,13 @@ from typing import Literal, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-_logger = logging.getLogger(__name__)
-
 from jig.reviewers.comment import ReviewerComment
 from jig.ticket import Ticket, WorkType
 
 if TYPE_CHECKING:  # pragma: no cover — typing-only
     from jig.orchestrator import Orchestrator
+
+_logger = logging.getLogger(__name__)
 
 # Reviewer ids. The constants live here (rather than in the per-reviewer
 # modules) so the dispatch table can reference them without a circular

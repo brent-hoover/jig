@@ -818,7 +818,6 @@ class TestPerPhaseReviewerScoping:
         assert ids_spawned.count(GENERALIST_REVIEWER_ID) == 1
 
 
-
 @pytest.mark.asyncio
 async def test_unmatched_taxonomy_hits_warn_no_silent_drop(
     tmp_path: Path, monkeypatch, caplog
@@ -874,4 +873,6 @@ async def test_unmatched_taxonomy_hits_warn_no_silent_drop(
     assert any(
         "TAX-XYZ-001" in rec.message and "reviewer-performance" in rec.message
         for rec in caplog.records
-    ), f"expected a warning naming the unrouted hit; records: {[r.message for r in caplog.records]}"
+    ), (
+        f"expected a warning naming the unrouted hit; records: {[r.message for r in caplog.records]}"
+    )

@@ -880,6 +880,38 @@ class TestCommitProgressHooks:
         assert msg.startswith("feat(dev): "), msg
         assert len(msg) <= 72, f"commit subject {len(msg)} chars: {msg!r}"
 
+    @pytest.mark.asyncio
+    async def test_commit_subject_capped_even_for_pathologically_long_sender(
+        self, tmp_path: Path
+    ) -> None:
+        """RoleConfig.role is unconstrained, so a sender long enough to push
+        the bare ``feat({sender}): `` past 72 chars must still be capped."""
+        from jig.ticket_mcp import handle_commit_progress
+
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        captured: list[str] = []
+
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            captured.append(message)
+            return CommitResult(sha="aabb", metrics=None)
+
+        long_sender = "a" * 80  # `feat({sender}): ` alone is 88 chars
+        with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
+            await handle_commit_progress(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender=long_sender,
+                worktree_path=tmp_path,
+                args={"ticket_id": ticket_id, "message": "x" * 100},
+                checkpoints=checkpoints,
+                phase_name="implement",
+            )
+
+        assert captured
+        msg = captured[0]
+        assert len(msg) <= 72, f"commit subject {len(msg)} chars: {msg!r}"
+
 
 # ---- integration: thread_handoff ------------------------------------------
 

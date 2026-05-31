@@ -149,6 +149,9 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
                 "--select",
                 ",".join(select),
                 "--output-format=json",
+                # ``--`` ends option parsing so a changed file whose name
+                # starts with ``-`` (legal on disk) isn't mistaken for a flag.
+                "--",
                 *files,
             ],
             cwd=worktree_path,

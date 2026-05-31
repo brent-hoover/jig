@@ -846,6 +846,40 @@ class TestCommitProgressHooks:
         assert cps[0].position == "tests red"
         assert cps[0].open_questions == ["E501 too long", "F401 unused"]
 
+    @pytest.mark.asyncio
+    async def test_commit_message_respects_conventional_72_char_limit(
+        self, tmp_path: Path
+    ) -> None:
+        """The conventional-commit subject line cap is 72 chars total. The prior
+        truncation capped only the subject portion BEFORE adding the
+        ``feat({sender}): `` prefix, so a long agent message produced an
+        83-char line for a 3-char sender like ``dev``."""
+        from jig.ticket_mcp import handle_commit_progress
+
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        captured: list[str] = []
+
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            captured.append(message)
+            return CommitResult(sha="aabb", metrics=None)
+
+        with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
+            await handle_commit_progress(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                worktree_path=tmp_path,
+                args={"ticket_id": ticket_id, "message": "x" * 100},
+                checkpoints=checkpoints,
+                phase_name="implement",
+            )
+
+        assert captured, "commit_worktree was not called"
+        msg = captured[0]
+        assert msg.startswith("feat(dev): "), msg
+        assert len(msg) <= 72, f"commit subject {len(msg)} chars: {msg!r}"
+
 
 # ---- integration: thread_handoff ------------------------------------------
 

@@ -560,10 +560,17 @@ async def handle_commit_progress(
     subject = agent_message.strip()
     if not subject or subject == ticket_id:
         subject = ticket.title
-    # Truncate subject to conventional commit length
-    if len(subject) > 72:
-        subject = subject[:69] + "..."
-    commit_message = f"feat({sender}): {subject}"
+    # Truncate so the *whole* line stays ≤72 chars (conventional-commit cap).
+    # Without subtracting the prefix length, a 3-char sender like "dev" produced
+    # an 83-char line for any subject ≥61 chars.
+    prefix = f"feat({sender}): "
+    budget = 72 - len(prefix)
+    if budget < 3:
+        # Pathologically long sender — keep some signal but accept overflow.
+        subject = subject[:10] if len(subject) > 10 else subject
+    elif len(subject) > budget:
+        subject = subject[: budget - 3] + "..."
+    commit_message = f"{prefix}{subject}"
 
     try:
         commit_result = await commit_worktree(worktree_path, commit_message)

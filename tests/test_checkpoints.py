@@ -911,6 +911,14 @@ class TestCommitProgressHooks:
         assert captured
         msg = captured[0]
         assert len(msg) <= 72, f"commit subject {len(msg)} chars: {msg!r}"
+        # Conventional-commit shape must survive scope truncation — the
+        # commit-msg hook rejects anything that doesn't match
+        # ``feat(<scope>): <subject>``.
+        import re
+
+        assert re.match(r"^feat\([^)]+\): .+$", msg), (
+            f"commit subject lost conventional-commit shape: {msg!r}"
+        )
 
 
 # ---- integration: thread_handoff ------------------------------------------

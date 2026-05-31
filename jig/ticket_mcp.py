@@ -560,13 +560,19 @@ async def handle_commit_progress(
     subject = agent_message.strip()
     if not subject or subject == ticket_id:
         subject = ticket.title
-    # Conventional-commit subject line is capped at 72 chars total. ``sender``
-    # is the role name (unconstrained ``RoleConfig.role``), so we cap the
-    # whole composed line — not just the subject portion — to guarantee the
-    # cap holds for both long subjects and pathologically long senders.
-    commit_message = f"feat({sender}): {subject}"
-    if len(commit_message) > 72:
-        commit_message = commit_message[:69] + "..."
+    # Conventional-commit subject is capped at 72 chars AND must keep the
+    # ``feat(<scope>): <subject>`` shape (the repo's ``commit-msg`` hook
+    # rejects anything else). Cap the scope first so the prefix always fits,
+    # then truncate the subject within the remaining budget.
+    _MAX_LINE = 72
+    _PREFIX_OVERHEAD = len("feat(): ")  # 8 chars of unavoidable structure
+    _MIN_SUBJECT = 10
+    scope = sender[: _MAX_LINE - _PREFIX_OVERHEAD - _MIN_SUBJECT]
+    prefix = f"feat({scope}): "
+    budget = _MAX_LINE - len(prefix)
+    if len(subject) > budget:
+        subject = (subject[: budget - 3] + "...") if budget >= 3 else subject[:budget]
+    commit_message = f"{prefix}{subject}"
 
     try:
         commit_result = await commit_worktree(worktree_path, commit_message)

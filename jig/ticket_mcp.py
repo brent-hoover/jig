@@ -34,6 +34,26 @@ _WRITABLE_KINDS = frozenset({"comment", "decision", "question", "answer"})
 
 _CAPABILITY_URI_PREFIX = "project://spec/capabilities/"
 
+# Conventional commit types recognised in agent-supplied subjects.
+# Used to detect whether an agent already wrote a CC-prefixed subject so we
+# can append [role] rather than wrapping with feat({sender}):.
+_CC_TYPES = frozenset(
+    (
+        "feat",
+        "fix",
+        "refactor",
+        "docs",
+        "test",
+        "chore",
+        "perf",
+        "style",
+        "ci",
+        "build",
+        "revert",
+        "meta",
+    )
+)
+
 
 def _maybe_materialize_ticket_spec(
     *,
@@ -563,22 +583,12 @@ async def handle_commit_progress(
     # If the agent already wrote a conventional commit subject, preserve it and
     # append [role] so git log shows attribution without clobbering the agent's
     # scope. Otherwise wrap with feat({sender}): as before.
-    _CC_TYPES = (
-        "feat",
-        "fix",
-        "ref",
-        "docs",
-        "test",
-        "chore",
-        "perf",
-        "style",
-        "ci",
-        "build",
-        "revert",
-        "meta",
-    )
     _has_cc_prefix = any(
-        subject.startswith(f"{t}(") or subject.startswith(f"{t}:") for t in _CC_TYPES
+        subject.startswith(f"{t}(")
+        or subject.startswith(f"{t}:")
+        or subject.startswith(f"{t}!(")
+        or subject.startswith(f"{t}!:")
+        for t in _CC_TYPES
     )
     if _has_cc_prefix:
         suffix = f" [{sender}]"

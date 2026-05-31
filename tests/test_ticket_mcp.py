@@ -426,6 +426,7 @@ async def test_commit_progress_cc_subject_gets_role_suffix(
     commits = [
         e for e in entries if e.kind == "system_event" and e.event_type == "commit"
     ]
+    assert len(commits) == 1
     assert commits[0].content == "feat(filtering): implement type routing [dev]"
 
 

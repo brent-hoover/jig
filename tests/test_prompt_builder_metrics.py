@@ -57,3 +57,60 @@ def test_no_functions_renders_without_location() -> None:
 
     assert "## Objective Code Metrics" in out
     assert "max cyclomatic complexity: 0" in out
+
+
+def test_section_renders_per_reviewer_taxonomy_block() -> None:
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    metrics = ChangeMetrics(
+        max_cc=3,
+        max_cc_location="m.py:f",
+        ruff_findings=0,
+        loc_delta=5,
+        taxonomy_hits=(
+            TaxonomyHit(
+                id="TAX-SEC-001",
+                category="security",
+                file="m.py",
+                line=12,
+                reviewer="reviewer-security",
+            ),
+            TaxonomyHit(
+                id="TAX-LANG-001",
+                category="language-pitfall",
+                file="m.py",
+                line=20,
+                reviewer="reviewer-pattern-conformance",
+            ),
+        ),
+    )
+    out_sec = _code_metrics_section(metrics, role="reviewer-security")
+    out_pc = _code_metrics_section(metrics, role="reviewer-pattern-conformance")
+
+    # Universal piece still rendered for both.
+    assert "## Objective Code Metrics" in out_sec
+    assert "## Objective Code Metrics" in out_pc
+
+    # Per-reviewer deterministic block: security sees its hit, not pc's.
+    assert "TAX-SEC-001" in out_sec
+    assert "TAX-LANG-001" not in out_sec
+    assert "TAX-LANG-001" in out_pc
+    assert "TAX-SEC-001" not in out_pc
+
+    # Per-reviewer judgment checklist: pc owns plenty of judgment items;
+    # security owns none (its three entries are all ``detection: ruff``).
+    assert "Judgment checklist" in out_pc
+    assert "TAX-CF-001" in out_pc  # off-by-one belongs to pc
+    assert "Judgment checklist" not in out_sec
+
+
+def test_section_for_non_reviewer_role_omits_per_reviewer_block() -> None:
+    metrics = ChangeMetrics(
+        max_cc=0, max_cc_location=None, ruff_findings=0, loc_delta=0, taxonomy_hits=()
+    )
+    out = _code_metrics_section(metrics, role="dev")  # not in known_llm_reviewer_ids()
+
+    # Universal piece renders; per-reviewer pieces don't.
+    assert "## Objective Code Metrics" in out
+    assert "Judgment checklist" not in out
+    assert "Deterministic taxonomy findings" not in out

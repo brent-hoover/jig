@@ -388,7 +388,7 @@ async def test_commit_progress_creates_commit_and_system_event(
     ]
     assert len(commits) == 1
     assert commits[0].commit_sha == result["sha"]
-    assert commits[0].content == "feat(dev): add a.txt"
+    assert commits[0].content == "add a.txt [dev]"
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-29
+updated: 2026-05-31
 ---
 
 # C4 Component Level: Jig Agent Orchestration Framework
@@ -732,9 +732,10 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
 - **Comment persistence**: All comments stored in `ReviewCommentsStore` at `.jig/store/review_comments.jsonl`
 - **Per-commit hook integration**: `hooks/per_commit_runner.py` runs the mechanical reviewer subset on every commit
 - **Code metrics injection**: At end-of-ticket dispatch, `dispatch_with_llm_spawn` computes deterministic code
-  metrics (max cyclomatic complexity, ruff finding count, net LoC delta) over changed Python files and injects them
-  as an "Objective Code Metrics" block into each LLM reviewer prompt. Mechanical reviewers receive no block. Metric
-  failures degrade gracefully and never block review dispatch.
+  metrics (max cyclomatic complexity, ruff finding count, net LoC delta, taxonomy hits) over changed Python files
+  and injects them as an "Objective Code Metrics" block into each LLM reviewer prompt. Taxonomy hits map ruff
+  findings to AI-shaped defect patterns defined in `jig/code_quality/taxonomy.yaml` via an `--isolated` ruff pass.
+  Mechanical reviewers receive no block. Metric failures degrade gracefully and never block review dispatch.
 
 ### Interfaces
 

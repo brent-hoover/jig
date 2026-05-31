@@ -295,7 +295,7 @@ The module enforces role-based tool access via `_STRICT_DENY_BUILTINS` (frozense
 | `extra_env` | `dict[str, str] \| None` | Extra environment variables to inject into SDK |
 | `analytics_emitter` | `object \| None` | Analytics emitter (narrowly typed to avoid import cycles) |
 | `on_thinking` | `Callable[[], None] \| None` | Callback on each thinking heartbeat (for stall detection) |
-| `code_metrics` | `ChangeMetrics \| None` | Deterministic code quality signal (max CC, ruff findings, LoC delta) injected as "Objective Code Metrics" block into LLM reviewer prompts; None for non-reviewer spawns |
+| `code_metrics` | `ChangeMetrics \| None` | Deterministic code quality signal (max CC, ruff findings, LoC delta, taxonomy hits) injected as "Objective Code Metrics" block into LLM reviewer prompts; None for non-reviewer spawns |
 
 **Dependencies**:
 - `jig.models` — `PhaseConfig`, `RoleConfig`

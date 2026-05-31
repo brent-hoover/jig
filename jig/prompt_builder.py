@@ -6,7 +6,7 @@ from jig.code_metrics import CC_FLAG_THRESHOLD, ChangeMetrics
 from jig.code_quality.taxonomy import (
     entries_for_reviewer,
     hits_for_reviewer,
-    load_taxonomy,
+    taxonomy_by_id,
 )
 from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
@@ -666,8 +666,8 @@ def _code_metrics_section(
     )
 
     if det_hits:
-        # Look up each hit's cue from the manifest.
-        by_id = {e.id: e for e in load_taxonomy()}
+        # Look up each hit's cue from the manifest (cached, O(1)).
+        by_id = taxonomy_by_id()
         out += "### Deterministic taxonomy findings\n\n"
         for h in det_hits:
             entry = by_id.get(h.id)

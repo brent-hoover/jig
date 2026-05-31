@@ -930,3 +930,58 @@ async def test_unmatched_hits_warn_even_with_empty_pending_set(
     ), (
         f"expected warning even with empty pendings; records: {[r.message for r in caplog.records]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_explicit_reviewer_list_warns_for_unrouted_hit(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """The ``reviewers=[non-empty]`` path also has to surface unrouted hits —
+    pendings is non-empty but won't contain the hit's owning reviewer."""
+    import logging
+
+    from jig.code_metrics import ChangeMetrics
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=0,
+            max_cc_location=None,
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(
+                TaxonomyHit(
+                    id="TAX-SEC-001",
+                    category="security",
+                    file="x.py",
+                    line=1,
+                    reviewer="reviewer-security",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    with caplog.at_level(logging.WARNING, logger="jig.reviewers.dispatch"):
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=["reviewer-test-adequacy"],  # explicit, NOT security
+        )
+
+    assert any(
+        "TAX-SEC-001" in rec.message and "reviewer-security" in rec.message
+        for rec in caplog.records
+    ), (
+        f"expected warning for the unrouted hit via explicit reviewers list; "
+        f"records: {[r.message for r in caplog.records]}"
+    )

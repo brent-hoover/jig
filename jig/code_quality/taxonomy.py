@@ -77,10 +77,20 @@ def entries_for_reviewer(reviewer_id: str) -> tuple[TaxonomyEntry, ...]:
     return tuple(e for e in load_taxonomy() if e.owning_reviewer == reviewer_id)
 
 
+@cache
+def taxonomy_by_id() -> dict[str, TaxonomyEntry]:
+    """Manifest entries keyed by ``id``. Cached: the manifest is static.
+
+    Lets callers do an O(1) hit-to-entry lookup without rebuilding the dict on
+    every reviewer prompt.
+    """
+    return {e.id: e for e in load_taxonomy()}
+
+
 def hits_for_reviewer(
-    hits: tuple["TaxonomyHit", ...] | list["TaxonomyHit"],
+    hits: tuple[TaxonomyHit, ...] | list[TaxonomyHit],
     reviewer_id: str,
-) -> tuple["TaxonomyHit", ...]:
+) -> tuple[TaxonomyHit, ...]:
     """Filter ``hits`` to those owned by ``reviewer_id``."""
     return tuple(h for h in hits if h.reviewer == reviewer_id)
 

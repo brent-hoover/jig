@@ -564,12 +564,21 @@ async def handle_commit_progress(
     # append [role] so git log shows attribution without clobbering the agent's
     # scope. Otherwise wrap with feat({sender}): as before.
     _CC_TYPES = (
-        "feat", "fix", "ref", "docs", "test", "chore", "perf",
-        "style", "ci", "build", "revert", "meta",
+        "feat",
+        "fix",
+        "ref",
+        "docs",
+        "test",
+        "chore",
+        "perf",
+        "style",
+        "ci",
+        "build",
+        "revert",
+        "meta",
     )
     _has_cc_prefix = any(
-        subject.startswith(f"{t}(") or subject.startswith(f"{t}:")
-        for t in _CC_TYPES
+        subject.startswith(f"{t}(") or subject.startswith(f"{t}:") for t in _CC_TYPES
     )
     if _has_cc_prefix:
         suffix = f" [{sender}]"

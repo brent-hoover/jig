@@ -736,6 +736,12 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
   and injects them as an "Objective Code Metrics" block into each LLM reviewer prompt. Taxonomy hits map ruff
   findings to AI-shaped defect patterns defined in `jig/code_quality/taxonomy.yaml` via an `--isolated` ruff pass.
   Mechanical reviewers receive no block. Metric failures degrade gracefully and never block review dispatch.
+  Each judgment reviewer's block is further extended with two per-reviewer sub-sections (each only when
+  non-empty): a **Deterministic taxonomy findings** list filtered to hits that reviewer owns, and a **Judgment
+  checklist** of `detection: judgment` manifest entries for that reviewer's category — AI-shaped patterns no
+  linter catches. Reviewer identity is matched via `owning_reviewer` in the taxonomy manifest. If a taxonomy hit's
+  `owning_reviewer` is not in the spawned reviewer set, `dispatch_with_llm_spawn` logs a warning rather than
+  silently dropping the hit (the "no silent drop" design contract).
 
 ### Interfaces
 
@@ -774,6 +780,9 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
 - **Wireframes subsystem**: Visual compliance reviewers read wireframe HTMLs for diff
 - **Code metrics** (`jig.code_metrics`): `compute_change_metrics()` and `ChangeMetrics` model; used by
   `dispatch_with_llm_spawn` to compute the per-dispatch code quality signal injected into LLM reviewer prompts
+- **Taxonomy helpers** (`jig.code_quality.taxonomy`): `entries_for_reviewer()`, `hits_for_reviewer()`, and
+  `taxonomy_by_id()` — filter taxonomy manifest entries and hits by owning reviewer; used by `prompt_builder.py`
+  to build per-reviewer sub-blocks in the code metrics prompt section
 
 ---
 

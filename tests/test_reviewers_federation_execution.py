@@ -816,3 +816,172 @@ class TestPerPhaseReviewerScoping:
 
         ids_spawned = [c[0] for c in orch.calls]
         assert ids_spawned.count(GENERALIST_REVIEWER_ID) == 1
+
+
+@pytest.mark.asyncio
+async def test_unmatched_taxonomy_hits_warn_no_silent_drop(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """Per the design's 'no silent drop' contract: if a hit's owning_reviewer
+    isn't in the spawned set, a warning fires (the hit still travels into the
+    reviewer prompts that ARE spawned — measurement-side capture is D)."""
+    import logging
+
+    from jig.code_metrics import ChangeMetrics
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=0,
+            max_cc_location=None,
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(
+                # reviewer-performance is a known LLM reviewer id but is only
+                # auto-selected when the ticket has a perf-budget signal — for
+                # this touches-auth/MVP ticket it's reliably absent from the
+                # spawned set, so the warning path is exercised.
+                TaxonomyHit(
+                    id="TAX-XYZ-001",
+                    category="perf",
+                    file="x.py",
+                    line=1,
+                    reviewer="reviewer-performance",
+                ),
+            ),
+        )
+
+    # dispatch uses a local ``from jig.code_metrics import compute_change_metrics``
+    # — patch the source module so the late import picks up the fake.
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    with caplog.at_level(logging.WARNING, logger="jig.reviewers.dispatch"):
+        await dispatch_with_llm_spawn(
+            _ticket(labels=["touches-auth"]),  # spawns security, NOT test-adequacy
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+        )
+
+    assert any(
+        "TAX-XYZ-001" in rec.message and "reviewer-performance" in rec.message
+        for rec in caplog.records
+    ), (
+        f"expected a warning naming the unrouted hit; records: {[r.message for r in caplog.records]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_unmatched_hits_warn_even_with_empty_pending_set(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """``reviewers=[]`` short-circuits LLM spawning, but unrouted taxonomy hits
+    must still surface a warning — silent drop violates the design contract."""
+    import logging
+
+    from jig.code_metrics import ChangeMetrics
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=0,
+            max_cc_location=None,
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(
+                TaxonomyHit(
+                    id="TAX-NOPE-001",
+                    category="x",
+                    file="x.py",
+                    line=1,
+                    reviewer="reviewer-performance",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    with caplog.at_level(logging.WARNING, logger="jig.reviewers.dispatch"):
+        await dispatch_with_llm_spawn(
+            _ticket(),  # any ticket; ``reviewers=[]`` overrides spawning
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=[],  # empty LLM-reviewer set: pendings will be empty
+        )
+
+    assert any(
+        "TAX-NOPE-001" in rec.message and "reviewer-performance" in rec.message
+        for rec in caplog.records
+    ), (
+        f"expected warning even with empty pendings; records: {[r.message for r in caplog.records]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_reviewer_list_warns_for_unrouted_hit(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """The ``reviewers=[non-empty]`` path also has to surface unrouted hits —
+    pendings is non-empty but won't contain the hit's owning reviewer."""
+    import logging
+
+    from jig.code_metrics import ChangeMetrics
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=0,
+            max_cc_location=None,
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(
+                TaxonomyHit(
+                    id="TAX-SEC-001",
+                    category="security",
+                    file="x.py",
+                    line=1,
+                    reviewer="reviewer-security",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    with caplog.at_level(logging.WARNING, logger="jig.reviewers.dispatch"):
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            reviewers=["reviewer-test-adequacy"],  # explicit, NOT security
+        )
+
+    assert any(
+        "TAX-SEC-001" in rec.message and "reviewer-security" in rec.message
+        for rec in caplog.records
+    ), (
+        f"expected warning for the unrouted hit via explicit reviewers list; "
+        f"records: {[r.message for r in caplog.records]}"
+    )

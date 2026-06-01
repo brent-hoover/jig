@@ -67,6 +67,34 @@ def taxonomy_ruff_select() -> tuple[str, ...]:
     )
 
 
+@cache
+def entries_for_reviewer(reviewer_id: str) -> tuple[TaxonomyEntry, ...]:
+    """Manifest entries whose ``owning_reviewer`` matches ``reviewer_id``.
+
+    Returns an empty tuple for unknown ids — callers route based on the result
+    and an unknown reviewer simply yields no block. Cached: the manifest is
+    static, and this is called per reviewer prompt build."""
+    return tuple(e for e in load_taxonomy() if e.owning_reviewer == reviewer_id)
+
+
+@cache
+def taxonomy_by_id() -> dict[str, TaxonomyEntry]:
+    """Manifest entries keyed by ``id``. Cached: the manifest is static.
+
+    Lets callers do an O(1) hit-to-entry lookup without rebuilding the dict on
+    every reviewer prompt.
+    """
+    return {e.id: e for e in load_taxonomy()}
+
+
+def hits_for_reviewer(
+    hits: tuple[TaxonomyHit, ...] | list[TaxonomyHit],
+    reviewer_id: str,
+) -> tuple[TaxonomyHit, ...]:
+    """Filter ``hits`` to those owned by ``reviewer_id``."""
+    return tuple(h for h in hits if h.reviewer == reviewer_id)
+
+
 class TaxonomyHit(BaseModel):
     """One concrete deterministic detection of a taxonomy pattern in changed code."""
 
@@ -87,7 +115,25 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
     failure (missing binary, malformed output) degrades to ``[]`` with a logged
     warning rather than raising, matching the contract of ``compute_change_metrics``.
     """
-    files = [str(p) for p in py_files if p.suffix == ".py" and p.is_file()]
+    # Resolve every input to an absolute path for the existence check, but
+    # pass *repo-relative* paths to ruff (with cwd=worktree_path) so the
+    # ``filename`` in ruff's JSON output is repo-relative. Otherwise the
+    # reviewer sees a host-absolute path that leaks host state and is unusable
+    # against its sandboxed worktree (mounted at ``/workspace``).
+    files: list[str] = []
+    worktree_resolved = worktree_path.resolve()
+    for p in py_files:
+        if p.suffix != ".py":
+            continue
+        abs_p = (p if p.is_absolute() else worktree_path / p).resolve()
+        if not abs_p.is_file():
+            continue
+        try:
+            files.append(str(abs_p.relative_to(worktree_resolved)))
+        except ValueError:
+            # Outside the worktree — pass absolute; the reviewer's path
+            # surface won't match anything but at least it's accurate.
+            files.append(str(abs_p))
     if not files:
         return []
     select = taxonomy_ruff_select()
@@ -113,6 +159,9 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
                 "--select",
                 ",".join(select),
                 "--output-format=json",
+                # ``--`` ends option parsing so a changed file whose name
+                # starts with ``-`` (legal on disk) isn't mistaken for a flag.
+                "--",
                 *files,
             ],
             cwd=worktree_path,
@@ -128,11 +177,26 @@ def scan_taxonomy(worktree_path: Path, py_files: list[Path]) -> list[TaxonomyHit
             if entry is None:
                 continue
             loc = fnd.get("location") or {}
+            # Normalize ruff's ``filename`` to a repo-relative path. Ruff
+            # resolves relative inputs to absolute in its output regardless,
+            # and the reviewer sees the worktree mounted elsewhere in
+            # sandbox — an absolute host path would leak host state and be
+            # unusable. Fall back to the raw value for paths outside the
+            # worktree (shouldn't happen but degrades safely).
+            raw_path = fnd.get("filename", "")
+            rel_path = raw_path
+            if raw_path:
+                p = Path(raw_path)
+                if p.is_absolute():
+                    try:
+                        rel_path = str(p.resolve().relative_to(worktree_resolved))
+                    except ValueError:
+                        rel_path = raw_path
             hits.append(
                 TaxonomyHit(
                     id=entry.id,
                     category=entry.category,
-                    file=fnd.get("filename", ""),
+                    file=rel_path,
                     line=int(loc.get("row", 0) or 0),
                     reviewer=entry.owning_reviewer,
                 )

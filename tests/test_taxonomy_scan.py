@@ -37,6 +37,32 @@ def test_scan_clean_file_no_hits(tmp_path: Path) -> None:
     assert scan_taxonomy(tmp_path, [f]) == []
 
 
+def test_scan_handles_filename_starting_with_dash(tmp_path: Path) -> None:
+    """``ruff`` would parse a file whose name starts with ``-`` as a flag
+    unless argv carries an explicit ``--`` separator first."""
+    f = tmp_path / "-weird.py"
+    f.write_text("def g(x=[]):\n    return x\n")  # B006 -> TAX-LANG-001
+    hits = scan_taxonomy(tmp_path, [f])
+    assert any(h.id == "TAX-LANG-001" for h in hits), (
+        f"leading-dash filename suppressed the hit: {hits}"
+    )
+
+
+def test_scan_hit_paths_are_repo_relative(tmp_path: Path) -> None:
+    """``TaxonomyHit.file`` must be repo-relative — the reviewer sees the
+    worktree mounted at ``/workspace`` in sandbox, so a host-absolute path
+    would leak host state AND be unusable for the reviewer."""
+    (tmp_path / "pkg").mkdir()
+    f = tmp_path / "pkg" / "bad.py"
+    f.write_text("def g(x=[]):\n    return x\n")  # B006 -> TAX-LANG-001
+    hits = scan_taxonomy(tmp_path, [f])
+    assert hits
+    for h in hits:
+        assert not Path(h.file).is_absolute(), f"absolute path leaked: {h.file}"
+        # And must be reconstructable to the original under the worktree.
+        assert (tmp_path / h.file).resolve() == f.resolve()
+
+
 def test_scan_degrades_on_malformed_ruff_output(
     tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"
 ) -> None:

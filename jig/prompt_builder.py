@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from jig.code_metrics import CC_FLAG_THRESHOLD, ChangeMetrics
+from jig.code_quality.taxonomy import (
+    entries_for_reviewer,
+    hits_for_reviewer,
+    taxonomy_by_id,
+)
 from jig.models import PhaseConfig, RoleConfig
 from jig.project import Project
 from jig.runtime import SpawnReason
@@ -612,12 +617,26 @@ def _verify_findings_section(bundle: dict | None) -> str:
     return "".join(lines)
 
 
-def _code_metrics_section(metrics: ChangeMetrics | None) -> str:
+def _code_metrics_section(
+    metrics: ChangeMetrics | None,
+    role: str | None = None,
+) -> str:
     """Render the objective code-metrics block for a reviewer prompt.
 
     Gives the LLM reviewer deterministic numbers — max cyclomatic complexity,
     ruff finding count, net LoC delta — to react to alongside its judgment.
     Signal only; ``None`` (no metrics computed) renders nothing.
+
+    When ``role`` matches a taxonomy ``owning_reviewer``, append two
+    per-reviewer sub-blocks (each only when its list is non-empty):
+
+    - **Deterministic taxonomy findings** — ``ChangeMetrics.taxonomy_hits``
+      filtered to entries this reviewer owns.
+    - **Judgment checklist** — the manifest's ``detection: judgment`` entries
+      this reviewer owns; always relevant for the reviewer's category.
+
+    Non-reviewer roles (e.g. ``dev``) get empty filter results and so see only
+    the universal block.
     """
     if metrics is None:
         return ""
@@ -628,7 +647,7 @@ def _code_metrics_section(metrics: ChangeMetrics | None) -> str:
     if metrics.flagged:
         cc_line += f" — HIGH (> {CC_FLAG_THRESHOLD})"
 
-    return (
+    out = (
         "## Objective Code Metrics (changed files)\n\n"
         "Deterministic measurements of the change under review. Use them to "
         "ground your judgment — high complexity or a large LoC delta with few "
@@ -637,6 +656,36 @@ def _code_metrics_section(metrics: ChangeMetrics | None) -> str:
         f"- ruff findings: {metrics.ruff_findings}\n"
         f"- LoC delta: {metrics.loc_delta:+d}\n\n"
     )
+
+    if not role:
+        return out
+
+    det_hits = hits_for_reviewer(metrics.taxonomy_hits, role)
+    judgment = tuple(
+        e for e in entries_for_reviewer(role) if e.detection.kind == "judgment"
+    )
+
+    if det_hits:
+        # Look up each hit's cue from the manifest (cached, O(1)).
+        by_id = taxonomy_by_id()
+        out += "### Deterministic taxonomy findings\n\n"
+        for h in det_hits:
+            entry = by_id.get(h.id)
+            cue = entry.cue if entry is not None else ""
+            out += f"- [{h.id}] {h.file}:{h.line} — {cue}\n"
+        out += "\n"
+
+    if judgment:
+        out += (
+            "### Judgment checklist\n\n"
+            "AI-shaped patterns in your category that no linter catches. "
+            "Look for these explicitly in the change under review:\n\n"
+        )
+        for e in judgment:
+            out += f"- [{e.id}] {e.cue}\n"
+        out += "\n"
+
+    return out
 
 
 def _worktree_section(worktree_path: str | None) -> str:
@@ -705,7 +754,7 @@ def build_initial_prompt(
         if spawn_reason == SpawnReason.FIX_LOOP_RETRY
         else "",
         _verify_findings_section(verify_bundle),
-        _code_metrics_section(code_metrics),
+        _code_metrics_section(code_metrics, role=role_cfg.role),
         _instructions_section(
             ticket,
             spawn_reason,

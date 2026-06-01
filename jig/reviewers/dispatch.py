@@ -46,6 +46,7 @@ accidentally suppress security/perf/arch coverage by omission.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
@@ -57,6 +58,8 @@ from jig.ticket import Ticket, WorkType
 
 if TYPE_CHECKING:  # pragma: no cover — typing-only
     from jig.orchestrator import Orchestrator
+
+_logger = logging.getLogger(__name__)
 
 # Reviewer ids. The constants live here (rather than in the per-reviewer
 # modules) so the dispatch table can reference them without a circular
@@ -936,43 +939,64 @@ async def dispatch_with_llm_spawn(
             for r in dict.fromkeys(reviewers)  # stable dedup
         ]
 
-    if not pendings:
-        return out
-
-    # Spawn each LLM reviewer through the orchestrator. The
-    # orchestrator's spawn helper handles role-config loading, worktree
-    # rooting, MCP setup, and analytics. We wait for each spawn to
-    # complete sequentially — judgment reviewers are end-of-ticket only
-    # and the federation is small (≤6 reviewers), so the parallelism
-    # win isn't worth the increased operator-cost surface.
-    store_path = project_root / ".jig" / "store" / "review_comments.jsonl"
-    store_path.parent.mkdir(parents=True, exist_ok=True)
-    store = ReviewCommentsStore(store_path)
-    await store.load()
-
-    # Snapshot the pre-spawn comments so we can attribute newly-posted
-    # comments to each reviewer run cleanly. Without the snapshot we'd
-    # double-count a reviewer that ran in an earlier cycle on this same
-    # ticket.
-    pre_existing_ids: set[str] = set()
-    pre_comments = await store.for_ticket(ticket.id)
-    for c in pre_comments:
-        # The store assigns ids on insert; ReviewerComment itself has no
-        # id field, so the only way to "remember" a row is by an
-        # in-memory tuple of distinguishing fields. We snapshot
-        # ``(reviewer, type, prose)`` as the unique key — judgment
-        # reviewers don't post identical comments twice within the same
-        # cycle by design.
-        pre_existing_ids.add(_comment_signature(c))
-
     # Objective code-quality signal for the change under review — computed
     # once and handed to every LLM reviewer's prompt. Signal only; a failure
     # degrades to None (no metrics section) without blocking the federation.
+    # Computed *before* the no-pendings early return so unrouted-hit warnings
+    # fire on every dispatch path (incl. ``reviewers=[]``), not only when at
+    # least one LLM reviewer happens to be queued.
     code_metrics = None
     if worktree_path is not None:
         from jig.code_metrics import compute_change_metrics
 
         code_metrics = await compute_change_metrics(worktree_path, base_ref=base_ref)
+
+    # "Never silent drop" (design §4): if a deterministic taxonomy hit's
+    # owning_reviewer isn't in the spawned set, log a warning rather than let
+    # the hit silently disappear from the review surface. Measurement-side
+    # capture of these hits lives in sub-issue D (the AuditStore snapshot).
+    spawned_reviewer_ids = {p.reviewer_id for p in pendings}
+    if code_metrics is not None and code_metrics.taxonomy_hits:
+        for hit in code_metrics.taxonomy_hits:
+            if hit.reviewer not in spawned_reviewer_ids:
+                _logger.warning(
+                    "taxonomy hit [%s] %s:%d owned by %r had no selected reviewer "
+                    "(spawned: %s) — no prompt-side surface this run",
+                    hit.id,
+                    hit.file,
+                    hit.line,
+                    hit.reviewer,
+                    sorted(spawned_reviewer_ids),
+                )
+
+    # No LLM reviewers to spawn — the warning above already surfaced any
+    # unrouted hits; nothing else to do.
+    if not pendings:
+        return out
+
+    # Spawn each LLM reviewer through the orchestrator. The orchestrator's
+    # spawn helper handles role-config loading, worktree rooting, MCP setup,
+    # and analytics. We wait for each spawn to complete sequentially —
+    # judgment reviewers are end-of-ticket only and the federation is small
+    # (≤6 reviewers), so the parallelism win isn't worth the increased
+    # operator-cost surface.
+    store_path = project_root / ".jig" / "store" / "review_comments.jsonl"
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store = ReviewCommentsStore(store_path)
+    await store.load()
+
+    # Snapshot the pre-spawn comments so we can attribute newly-posted comments
+    # to each reviewer run cleanly. Without the snapshot we'd double-count a
+    # reviewer that ran in an earlier cycle on this same ticket.
+    pre_existing_ids: set[str] = set()
+    pre_comments = await store.for_ticket(ticket.id)
+    for c in pre_comments:
+        # The store assigns ids on insert; ReviewerComment itself has no id
+        # field, so the only way to "remember" a row is by an in-memory tuple
+        # of distinguishing fields. We snapshot ``(reviewer, type, prose)``
+        # as the unique key — judgment reviewers don't post identical
+        # comments twice within the same cycle by design.
+        pre_existing_ids.add(_comment_signature(c))
 
     await asyncio.gather(
         *[

@@ -846,6 +846,155 @@ class TestCommitProgressHooks:
         assert cps[0].position == "tests red"
         assert cps[0].open_questions == ["E501 too long", "F401 unused"]
 
+    @pytest.mark.asyncio
+    async def test_commit_message_respects_conventional_72_char_limit(
+        self, tmp_path: Path
+    ) -> None:
+        """The conventional-commit subject line cap is 72 chars total. The prior
+        truncation capped only the subject portion BEFORE adding the
+        ``feat({sender}): `` prefix, so a long agent message produced an
+        83-char line for a 3-char sender like ``dev``."""
+        from jig.ticket_mcp import handle_commit_progress
+
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        captured: list[str] = []
+
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            captured.append(message)
+            return CommitResult(sha="aabb", metrics=None)
+
+        with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
+            await handle_commit_progress(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="dev",
+                worktree_path=tmp_path,
+                args={"ticket_id": ticket_id, "message": "x" * 100},
+                checkpoints=checkpoints,
+                phase_name="implement",
+            )
+
+        assert captured, "commit_worktree was not called"
+        msg = captured[0]
+        assert msg.startswith("feat(dev): "), msg
+        assert len(msg) <= 72, f"commit subject {len(msg)} chars: {msg!r}"
+
+    @pytest.mark.asyncio
+    async def test_commit_subject_capped_even_for_pathologically_long_sender(
+        self, tmp_path: Path
+    ) -> None:
+        """RoleConfig.role is unconstrained, so a sender long enough to push
+        the bare ``feat({sender}): `` past 72 chars must still be capped."""
+        from jig.ticket_mcp import handle_commit_progress
+
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        captured: list[str] = []
+
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            captured.append(message)
+            return CommitResult(sha="aabb", metrics=None)
+
+        long_sender = "a" * 80  # `feat({sender}): ` alone is 88 chars
+        with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
+            await handle_commit_progress(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender=long_sender,
+                worktree_path=tmp_path,
+                args={"ticket_id": ticket_id, "message": "x" * 100},
+                checkpoints=checkpoints,
+                phase_name="implement",
+            )
+
+        assert captured
+        msg = captured[0]
+        assert len(msg) <= 72, f"commit subject {len(msg)} chars: {msg!r}"
+        # Conventional-commit shape must survive scope truncation — the
+        # commit-msg hook rejects anything that doesn't match
+        # ``feat(<scope>): <subject>``.
+        import re
+
+        assert re.match(r"^feat\([^)]+\): .+$", msg), (
+            f"commit subject lost conventional-commit shape: {msg!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_commit_subject_sanitizes_unsafe_scope_chars(
+        self, tmp_path: Path
+    ) -> None:
+        """RoleConfig.role is unconstrained — a sender containing ')', '(',
+        a newline, or other separator-breaking chars must still produce a
+        valid single-line conventional-commit subject."""
+        from jig.ticket_mcp import handle_commit_progress
+
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        captured: list[str] = []
+
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            captured.append(message)
+            return CommitResult(sha="aabb", metrics=None)
+
+        # Both a stray paren and a newline would break the first-line
+        # ``feat(<scope>): `` shape if injected verbatim.
+        bad_sender = "foo)bar\nbaz"
+        with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
+            await handle_commit_progress(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender=bad_sender,
+                worktree_path=tmp_path,
+                args={"ticket_id": ticket_id, "message": "subj"},
+                checkpoints=checkpoints,
+                phase_name="implement",
+            )
+
+        assert captured
+        msg = captured[0]
+        # First line must be a valid conventional-commit header.
+        first = msg.splitlines()[0] if msg.splitlines() else msg
+        assert "\n" not in msg, f"newline leaked into subject: {msg!r}"
+        import re
+
+        assert re.match(r"^feat(?:\([\w./-]+\))?: .+$", first), (
+            f"sanitized message lost conventional-commit shape: {msg!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_commit_subject_falls_back_to_unscoped_when_sender_is_all_junk(
+        self, tmp_path: Path
+    ) -> None:
+        """When sanitization strips the sender to nothing, fall back to the
+        unscoped ``feat: <subject>`` form rather than emit ``feat(): ...``
+        (which the conventional-commit validator also rejects)."""
+        from jig.ticket_mcp import handle_commit_progress
+
+        tickets, threads, checkpoints, bus, ticket_id = await _make_stores(tmp_path)
+        captured: list[str] = []
+
+        async def fake_commit(worktree: Path, message: str) -> CommitResult:
+            captured.append(message)
+            return CommitResult(sha="aabb", metrics=None)
+
+        with patch("jig.ticket_mcp.commit_worktree", side_effect=fake_commit):
+            await handle_commit_progress(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                sender="!!!",  # nothing in the safe alphabet
+                worktree_path=tmp_path,
+                args={"ticket_id": ticket_id, "message": "subj"},
+                checkpoints=checkpoints,
+                phase_name="implement",
+            )
+
+        assert captured
+        msg = captured[0]
+        assert msg.startswith("feat: "), f"expected unscoped fallback; got {msg!r}"
+        assert "feat()" not in msg
+
 
 # ---- integration: thread_handoff ------------------------------------------
 

@@ -20,6 +20,7 @@ from jig.thread import (
     SystemEvent,
     ThreadEntry,
 )
+from jig.hooks import _CONVENTIONAL_RE as _CC_RE
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
 from jig.worktree import LintError, commit_worktree
 
@@ -555,30 +556,46 @@ async def handle_commit_progress(
     if ticket is None:
         raise KeyError(f"ticket {ticket_id} not found")
 
-    # Build a conventional commit: feat(role): agent's description
+    # Build a conventional commit message.
     # Fall back to ticket title if the agent just passed the ticket ID or empty text.
     subject = agent_message.strip()
     if not subject or subject == ticket_id:
         subject = ticket.title
-    # Conventional-commit subject must be a single line, capped at 72 chars,
-    # in the ``feat(<scope>): <subject>`` shape (or unscoped ``feat: ...``).
-    # ``RoleConfig.role`` is unconstrained, so sanitize the scope to a safe
-    # alphabet first (a stray ')' or newline would otherwise break the shape)
-    # and then cap its length so the prefix always fits.
-    import re
+    # If the agent already wrote a conventional commit subject, preserve it
+    # and append [role] so git log shows attribution without clobbering the
+    # agent's scope. Otherwise wrap with feat({sender}): and sanitize / cap.
+    _has_cc_prefix = bool(_CC_RE.match(subject))
+    if _has_cc_prefix:
+        suffix = f" [{sender}]"
+        max_subject = 72 - len(suffix)
+        if len(subject) > max_subject:
+            subject = subject[: max_subject - 3] + "..."
+        commit_message = f"{subject}{suffix}"
+    else:
+        # Plain subject — wrap with the ``feat(<scope>): `` prefix. The
+        # commit-msg hook rejects anything that doesn't match the shape AND
+        # caps the first line at 72 chars. ``RoleConfig.role`` is
+        # unconstrained, so sanitize the scope to a safe alphabet first (a
+        # stray ')' or newline would otherwise break the shape) and then cap
+        # its length so the prefix always fits. Fall back to the unscoped
+        # ``feat: <subject>`` form when sanitization yields empty (the
+        # validator also rejects ``feat(): ...``).
+        import re
 
-    _MAX_LINE = 72
-    _PREFIX_OVERHEAD = len("feat(): ")  # 8 chars of unavoidable structure
-    _MIN_SUBJECT = 10
-    safe_scope = re.sub(r"[^A-Za-z0-9_./-]", "", sender)
-    safe_scope = safe_scope[: _MAX_LINE - _PREFIX_OVERHEAD - _MIN_SUBJECT]
-    prefix = f"feat({safe_scope}): " if safe_scope else "feat: "
-    # Subject must also be single-line; replace any embedded newlines.
-    subject = subject.replace("\n", " ").replace("\r", " ")
-    budget = _MAX_LINE - len(prefix)
-    if len(subject) > budget:
-        subject = (subject[: budget - 3] + "...") if budget >= 3 else subject[:budget]
-    commit_message = f"{prefix}{subject}"
+        _MAX_LINE = 72
+        _PREFIX_OVERHEAD = len("feat(): ")  # 8 chars of unavoidable structure
+        _MIN_SUBJECT = 10
+        safe_scope = re.sub(r"[^A-Za-z0-9_./-]", "", sender)
+        safe_scope = safe_scope[: _MAX_LINE - _PREFIX_OVERHEAD - _MIN_SUBJECT]
+        prefix = f"feat({safe_scope}): " if safe_scope else "feat: "
+        # Subject must also be single-line; replace any embedded newlines.
+        subject = subject.replace("\n", " ").replace("\r", " ")
+        budget = _MAX_LINE - len(prefix)
+        if len(subject) > budget:
+            subject = (
+                (subject[: budget - 3] + "...") if budget >= 3 else subject[:budget]
+            )
+        commit_message = f"{prefix}{subject}"
 
     try:
         commit_result = await commit_worktree(worktree_path, commit_message)

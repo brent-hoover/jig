@@ -182,10 +182,15 @@ async def test_dispatch_records_snapshot_before_no_pendings_early_return(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_idempotent_per_run_id(tmp_path: Path, monkeypatch) -> None:
-    """Retrying a dispatch with the same cycle must not produce duplicate
-    rows. Otherwise a partial spawn failure that gets retried biases
-    ``jig audit quality`` aggregates with two rows for the same run."""
+async def test_dispatch_idempotent_per_run_id_and_reviewer_set(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Retrying a dispatch with the same cycle AND same spawned reviewer
+    set must not produce duplicate rows (operator-level retry). But two
+    different phases at ``cycle=0`` (e.g. ``review-tests`` then final
+    ``review``) spawn different reviewer sets — both must be recorded so
+    ``jig audit quality`` reflects the actual end-of-ticket metrics, not
+    the test-review pre-implementation snapshot."""
 
     async def fake_compute(*_a, **_k):
         return ChangeMetrics(
@@ -205,7 +210,8 @@ async def test_dispatch_idempotent_per_run_id(tmp_path: Path, monkeypatch) -> No
     _init_worktree(worktree)
 
     orch = _FakeOrchestrator()
-    # Two dispatches for the same ticket + cycle (operator-level retry).
+
+    # Retry path: same ticket + cycle + reviewer set → ONE row.
     for _ in range(2):
         await dispatch_with_llm_spawn(
             _ticket(),
@@ -219,5 +225,22 @@ async def test_dispatch_idempotent_per_run_id(tmp_path: Path, monkeypatch) -> No
         tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
     )
     await store.load()
-    snaps = await store.for_run("tb-fed.cycle0")
-    assert len(snaps) == 1, snaps  # second call must be a no-op
+    snaps_after_retry = await store.for_run("tb-fed.cycle0")
+    assert len(snaps_after_retry) == 1, snaps_after_retry
+
+    # Different phase path: same cycle, explicit reviewers arg narrows the
+    # spawned set to a different shape → must produce a SECOND row.
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+    )
+
+    await store.load()
+    snaps_two_phases = await store.for_run("tb-fed.cycle0")
+    assert len(snaps_two_phases) == 2, snaps_two_phases
+    reviewer_sets = {s.spawned_reviewers for s in snaps_two_phases}
+    assert ("reviewer-security",) in reviewer_sets

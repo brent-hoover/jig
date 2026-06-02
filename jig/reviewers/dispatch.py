@@ -1141,10 +1141,17 @@ async def _record_quality_snapshot(
         snap_path.parent.mkdir(parents=True, exist_ok=True)
         snap_store = QualitySnapshotStore(snap_path)
         await snap_store.load()
-        # Idempotency per ``run_id``: an operator-level retry on the same
-        # cycle (e.g. recovery after a partial spawn failure) must not
-        # bias ``jig audit quality`` aggregates with duplicate rows.
-        if await snap_store.for_run(snap.run_id):
+        # Idempotency: dedupe on ``(run_id, spawned_reviewers)``. ``run_id``
+        # alone (just ``ticket.id`` + ``cycle``) would silence legitimate
+        # snapshots from a *different* phase at the same cycle (the
+        # default workflow runs both ``review-tests`` and the final
+        # ``review`` at ``cycle=0``, and we need both rows — the second
+        # carries the actual end-of-ticket metrics). Spawned reviewers
+        # differ between phases, and a retry of the *same* phase spawns
+        # the *same* set, so this key dedupes retries without dropping
+        # phase metrics.
+        existing = await snap_store.for_run(snap.run_id)
+        if any(e.spawned_reviewers == snap.spawned_reviewers for e in existing):
             return
         await snap_store.append(snap)
     except Exception:  # noqa: BLE001 — signal-only contract

@@ -2779,7 +2779,9 @@ def audit_quality(
 
     snap_path = path / ".jig" / "store" / "quality_snapshots.jsonl"
     if not snap_path.is_file():
-        click.echo("no quality snapshots found (.jig/store/quality_snapshots.jsonl missing)")
+        click.echo(
+            "no quality snapshots found (.jig/store/quality_snapshots.jsonl missing)"
+        )
         return
 
     async def _load() -> list:
@@ -2819,7 +2821,9 @@ def audit_quality(
             for s in group:
                 for cat, n in s.taxonomy_hit_counts.items():
                     tax_total[cat] = tax_total.get(cat, 0) + n
-            tax_render = " ".join(f"{k}:{v}" for k, v in sorted(tax_total.items())) or "-"
+            tax_render = (
+                " ".join(f"{k}:{v}" for k, v in sorted(tax_total.items())) or "-"
+            )
             click.echo(
                 f"{key:<20}  {len(group):>3}  {cc:>6.1f}  "
                 f"{ruff:>8.1f}  {loc:>+7.1f}  {tax_render}"
@@ -2831,12 +2835,12 @@ def audit_quality(
         "taxonomy            recorded_at"
     )
     click.echo(
-        f"{'-' * 14}  {'-' * 3}  {'-' * 4}  {'-' * 5}  "
-        "------------------  -----------"
+        f"{'-' * 14}  {'-' * 3}  {'-' * 4}  {'-' * 5}  ------------------  -----------"
     )
     for s in sorted(snaps, key=lambda s: s.recorded_at):
         tax_render = (
-            " ".join(f"{k}:{v}" for k, v in sorted(s.taxonomy_hit_counts.items())) or "-"
+            " ".join(f"{k}:{v}" for k, v in sorted(s.taxonomy_hit_counts.items()))
+            or "-"
         )
         click.echo(
             f"{s.ticket_id:<14}  {s.max_cc:>3}  {s.ruff_findings:>4}  "

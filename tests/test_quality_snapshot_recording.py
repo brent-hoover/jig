@@ -64,7 +64,9 @@ async def test_dispatch_records_quality_snapshot(tmp_path: Path, monkeypatch) ->
         worktree_path=worktree,
     )
 
-    store = QualitySnapshotStore(tmp_path / ".jig" / "store" / "quality_snapshots.jsonl")
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
     await store.load()
     snaps = await store.for_ticket("tb-fed")
     assert len(snaps) == 1, snaps
@@ -73,7 +75,9 @@ async def test_dispatch_records_quality_snapshot(tmp_path: Path, monkeypatch) ->
     assert s.ruff_findings == 2
     assert s.loc_delta == 42
     assert s.taxonomy_hit_counts == {"security": 1, "error-handling": 1}
-    assert s.cell.get("workflow_name") is not None  # ticket may have empty workflow attr
+    assert (
+        s.cell.get("workflow_name") is not None
+    )  # ticket may have empty workflow attr
     assert s.cell.get("layer") == "mvp"
     assert s.cell.get("work_type") == "feature"
     assert "reviewer-security" in s.spawned_reviewers
@@ -115,7 +119,9 @@ async def test_dispatch_records_snapshot_with_no_taxonomy_hits(
         worktree_path=worktree,
     )
 
-    store = QualitySnapshotStore(tmp_path / ".jig" / "store" / "quality_snapshots.jsonl")
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
     await store.load()
     snaps = await store.for_ticket("tb-fed")
     assert len(snaps) == 1
@@ -164,7 +170,9 @@ async def test_dispatch_records_snapshot_before_no_pendings_early_return(
         worktree_path=worktree,
     )
 
-    store = QualitySnapshotStore(tmp_path / ".jig" / "store" / "quality_snapshots.jsonl")
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
     await store.load()
     snaps = await store.for_ticket("tb-fed")
     assert len(snaps) == 1

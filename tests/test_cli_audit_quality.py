@@ -71,7 +71,10 @@ def test_audit_quality_table(tmp_path: Path) -> None:
 
 
 def test_audit_quality_filter_by_ticket(tmp_path: Path) -> None:
-    _seed(tmp_path, [_snap(ticket_id="t1", run_id="r1"), _snap(ticket_id="t2", run_id="r2")])
+    _seed(
+        tmp_path,
+        [_snap(ticket_id="t1", run_id="r1"), _snap(ticket_id="t2", run_id="r2")],
+    )
     res = CliRunner().invoke(
         cli, ["audit", "quality", "--ticket-id", "t1", "--path", str(tmp_path)]
     )
@@ -81,7 +84,10 @@ def test_audit_quality_filter_by_ticket(tmp_path: Path) -> None:
 
 
 def test_audit_quality_filter_by_run(tmp_path: Path) -> None:
-    _seed(tmp_path, [_snap(ticket_id="t1", run_id="r1"), _snap(ticket_id="t2", run_id="r2")])
+    _seed(
+        tmp_path,
+        [_snap(ticket_id="t1", run_id="r1"), _snap(ticket_id="t2", run_id="r2")],
+    )
     res = CliRunner().invoke(
         cli, ["audit", "quality", "--run-id", "r2", "--path", str(tmp_path)]
     )

@@ -50,7 +50,10 @@ class QualitySnapshotStore:
         return QualitySnapshot.model_validate(raw)
 
     async def for_ticket(self, ticket_id: str) -> list[QualitySnapshot]:
-        return [self._load(r) for r in await self._collection.find_where(ticket_id=ticket_id)]
+        return [
+            self._load(r)
+            for r in await self._collection.find_where(ticket_id=ticket_id)
+        ]
 
     async def for_run(self, run_id: str) -> list[QualitySnapshot]:
         return [self._load(r) for r in await self._collection.find_where(run_id=run_id)]

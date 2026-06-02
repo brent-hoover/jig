@@ -969,6 +969,20 @@ async def dispatch_with_llm_spawn(
                     sorted(spawned_reviewer_ids),
                 )
 
+    # Sub-issue D — quality measurement + attribution: persist a per-cycle
+    # ``QualitySnapshot`` over the federation's objective metrics. Fires
+    # before the no-pendings early-return so a ``reviewers=[]`` dispatch
+    # still contributes a row. Signal only — a recording failure is logged
+    # and dropped, never escalated, so it can't block the federation.
+    if code_metrics is not None:
+        await _record_quality_snapshot(
+            ticket=ticket,
+            project_root=project_root,
+            cycle=cycle,
+            code_metrics=code_metrics,
+            pendings=pendings,
+        )
+
     # No LLM reviewers to spawn — the warning above already surfaced any
     # unrouted hits; nothing else to do.
     if not pendings:
@@ -1066,6 +1080,74 @@ def _tag_cadence(
         # Already the default; avoid the copy churn.
         return comments
     return [c.model_copy(update={"cadence": cadence}) for c in comments]
+
+
+async def _record_quality_snapshot(
+    *,
+    ticket: Ticket,
+    project_root: Path,
+    cycle: int,
+    code_metrics,
+    pendings: list,
+) -> None:
+    """Persist one ``QualitySnapshot`` row for this cycle. Signal-only:
+    any failure is logged and dropped (never raised) so a measurement
+    glitch can't block the federation."""
+
+    from collections import Counter
+    from hashlib import sha256
+
+    from jig.persistence import _role_path_project, _role_path_shipped
+    from jig.store.quality import QualitySnapshot, QualitySnapshotStore
+
+    try:
+        spawned_ids = tuple(sorted(p.reviewer_id for p in pendings))
+
+        # Hash each spawned reviewer's role yaml (project override wins
+        # over shipped default, matching ``load_role`` resolution). Missing
+        # files contribute an empty string — never raise.
+        role_versions: dict[str, str] = {}
+        for p in pendings:
+            role_name = p.role_config_path
+            role_path = _role_path_project(project_root, role_name)
+            if not role_path.is_file():
+                role_path = _role_path_shipped(role_name)
+            if role_path.is_file():
+                role_versions[p.reviewer_id] = sha256(
+                    role_path.read_bytes()
+                ).hexdigest()[:12]
+            else:
+                role_versions[p.reviewer_id] = ""
+
+        counts = Counter(h.category for h in code_metrics.taxonomy_hits)
+        work_type_val = getattr(ticket.work_type, "value", str(ticket.work_type))
+        snap = QualitySnapshot(
+            ticket_id=ticket.id,
+            run_id=f"{ticket.id}.cycle{cycle}",
+            max_cc=code_metrics.max_cc,
+            ruff_findings=code_metrics.ruff_findings,
+            loc_delta=code_metrics.loc_delta,
+            taxonomy_hit_counts=dict(counts),
+            cell={
+                "workflow_name": getattr(ticket, "workflow", "") or "",
+                "layer": getattr(ticket, "layer", "") or "",
+                "work_type": work_type_val,
+            },
+            spawned_reviewers=spawned_ids,
+            role_versions=role_versions,
+        )
+
+        snap_path = project_root / ".jig" / "store" / "quality_snapshots.jsonl"
+        snap_path.parent.mkdir(parents=True, exist_ok=True)
+        snap_store = QualitySnapshotStore(snap_path)
+        await snap_store.load()
+        await snap_store.append(snap)
+    except Exception:  # noqa: BLE001 — signal-only contract
+        _logger.warning(
+            "quality snapshot recording failed for ticket %s; continuing",
+            ticket.id,
+            exc_info=True,
+        )
 
 
 __all__ = [

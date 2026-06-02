@@ -2736,6 +2736,115 @@ def audit_coverage(path: Path, fail: bool) -> None:
         raise SystemExit(1)
 
 
+@audit_group.command("quality")
+@click.option(
+    "--ticket-id",
+    "ticket_id",
+    default=None,
+    help="Filter to a single ticket.",
+)
+@click.option(
+    "--run-id",
+    "run_id",
+    default=None,
+    help="Filter to a single dispatch cycle id.",
+)
+@click.option(
+    "--days",
+    default=None,
+    type=int,
+    help="Filter to snapshots recorded in the last N days.",
+)
+@click.option(
+    "--by",
+    "group_by",
+    default=None,
+    type=str,
+    help="Group by a cell key (e.g. layer, workflow_name, work_type).",
+)
+@click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
+def audit_quality(
+    ticket_id: str | None,
+    run_id: str | None,
+    days: int | None,
+    group_by: str | None,
+    path: Path,
+) -> None:
+    """Per-end-of-ticket quality snapshots (CC, ruff findings, LoC delta,
+    taxonomy hit counts) with optional ``--by <cell-key>`` aggregation."""
+    from datetime import datetime, timedelta, timezone
+    from statistics import mean
+
+    from jig.store.quality import QualitySnapshotStore
+
+    snap_path = path / ".jig" / "store" / "quality_snapshots.jsonl"
+    if not snap_path.is_file():
+        click.echo("no quality snapshots found (.jig/store/quality_snapshots.jsonl missing)")
+        return
+
+    async def _load() -> list:
+        store = QualitySnapshotStore(snap_path)
+        await store.load()
+        if ticket_id is not None:
+            return await store.for_ticket(ticket_id)
+        if run_id is not None:
+            return await store.for_run(run_id)
+        return await store.all()
+
+    snaps = asyncio.run(_load())
+    if days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        snaps = [s for s in snaps if s.recorded_at >= cutoff]
+    if not snaps:
+        click.echo("no quality snapshots match the given filters")
+        return
+
+    if group_by:
+        buckets: dict[str, list] = {}
+        for s in snaps:
+            key = s.cell.get(group_by, "(none)")
+            buckets.setdefault(key, []).append(s)
+        click.echo(
+            f"{group_by:<20}  {'n':>3}  {'cc_avg':>6}  "
+            f"{'ruff_avg':>8}  {'loc_avg':>7}  taxonomy_total"
+        )
+        click.echo(
+            f"{'-' * 20}  {'-' * 3}  {'-' * 6}  {'-' * 8}  {'-' * 7}  --------------"
+        )
+        for key, group in sorted(buckets.items()):
+            cc = mean(s.max_cc for s in group)
+            ruff = mean(s.ruff_findings for s in group)
+            loc = mean(s.loc_delta for s in group)
+            tax_total: dict[str, int] = {}
+            for s in group:
+                for cat, n in s.taxonomy_hit_counts.items():
+                    tax_total[cat] = tax_total.get(cat, 0) + n
+            tax_render = " ".join(f"{k}:{v}" for k, v in sorted(tax_total.items())) or "-"
+            click.echo(
+                f"{key:<20}  {len(group):>3}  {cc:>6.1f}  "
+                f"{ruff:>8.1f}  {loc:>+7.1f}  {tax_render}"
+            )
+        return
+
+    click.echo(
+        f"{'ticket':<14}  {'cc':>3}  {'ruff':>4}  {'loc':>5}  "
+        "taxonomy            recorded_at"
+    )
+    click.echo(
+        f"{'-' * 14}  {'-' * 3}  {'-' * 4}  {'-' * 5}  "
+        "------------------  -----------"
+    )
+    for s in sorted(snaps, key=lambda s: s.recorded_at):
+        tax_render = (
+            " ".join(f"{k}:{v}" for k, v in sorted(s.taxonomy_hit_counts.items())) or "-"
+        )
+        click.echo(
+            f"{s.ticket_id:<14}  {s.max_cc:>3}  {s.ruff_findings:>4}  "
+            f"{s.loc_delta:>+5}  {tax_render:<18}  "
+            f"{s.recorded_at.isoformat(timespec='seconds')}"
+        )
+
+
 @cli.group("validate", invoke_without_command=True)
 @click.option("--path", default=".", type=click.Path(exists=True, path_type=Path))
 @click.option(

@@ -1114,9 +1114,10 @@ async def _record_quality_snapshot(
         for p in pendings:
             role_path = resolve_role_path(project_root, p.role_config_path)
             if role_path is not None:
-                role_versions[p.reviewer_id] = sha256(
-                    role_path.read_bytes()
-                ).hexdigest()[:12]
+                # Disk I/O off the event loop — small files, but the
+                # codebase convention is "async by default for I/O".
+                role_bytes = await asyncio.to_thread(role_path.read_bytes)
+                role_versions[p.reviewer_id] = sha256(role_bytes).hexdigest()[:12]
             else:
                 role_versions[p.reviewer_id] = ""
 

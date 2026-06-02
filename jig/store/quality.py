@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from jig.store.collection import Collection
 from jig.store.models import StoreModel
@@ -32,7 +32,15 @@ class QualitySnapshot(StoreModel):
     ``phase`` carries the workflow phase name (e.g. ``"review-tests"``
     vs. ``"review"``) when the dispatch site knows it; empty string when
     called from the legacy end-of-ticket federation path.
+
+    Frozen — measurement records are read-only after construction;
+    mutating a loaded snapshot would produce misleading audit output.
+    ``populate_by_name=True`` is repeated explicitly because pydantic v2
+    doesn't merge ``model_config`` from parent classes, and ``StoreModel``
+    relies on it for the ``_id`` alias roundtrip.
     """
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     ticket_id: str
     run_id: str

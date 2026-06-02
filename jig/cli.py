@@ -2775,7 +2775,7 @@ def audit_quality(
     from datetime import datetime, timedelta, timezone
     from statistics import mean
 
-    from jig.store.quality import QualitySnapshotStore
+    from jig.store.quality import QualitySnapshot, QualitySnapshotStore
 
     if ticket_id and run_id:
         raise click.UsageError("--ticket-id and --run-id are mutually exclusive")
@@ -2787,7 +2787,7 @@ def audit_quality(
         )
         return
 
-    async def _load() -> list:
+    async def _load() -> list[QualitySnapshot]:
         store = QualitySnapshotStore(snap_path)
         await store.load()
         if ticket_id is not None:

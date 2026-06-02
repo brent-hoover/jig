@@ -867,6 +867,7 @@ class Orchestrator:
                 reviewers=reviewers_list,
                 cycle=cycle,
                 base_ref=base_ref,
+                phase_name=phase.name if phase is not None else None,
             )
         except ValueError:
             # ValueError from dispatch_with_llm_spawn means a workflow

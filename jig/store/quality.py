@@ -23,16 +23,20 @@ class QualitySnapshot(StoreModel):
 
     ``run_id`` is a label, NOT a unique key. The default format
     (``f"{ticket.id}.cycle{cycle}"``) can collide across review phases at
-    the same cycle (e.g. ``review-tests`` and the final ``review`` both at
-    ``cycle=0``). Dedupe on insert is done by the caller on
-    ``(run_id, spawned_reviewers)`` so per-phase snapshots survive while
-    operator-level retries don't duplicate. ``for_run`` therefore returns
-    ≥1 row; ``--run-id`` filters in the CLI scope to whichever
+    the same cycle. Dedupe on insert is done by the caller on
+    ``(run_id, phase, spawned_reviewers)`` so per-phase snapshots survive
+    while operator-level retries don't duplicate. ``for_run`` therefore
+    returns ≥1 row; ``--run-id`` filters in the CLI scope to whichever
     dispatch(es) shared that label.
+
+    ``phase`` carries the workflow phase name (e.g. ``"review-tests"``
+    vs. ``"review"``) when the dispatch site knows it; empty string when
+    called from the legacy end-of-ticket federation path.
     """
 
     ticket_id: str
     run_id: str
+    phase: str = ""
     max_cc: int = Field(ge=0)
     ruff_findings: int = Field(ge=0)
     loc_delta: int

@@ -248,3 +248,76 @@ async def test_dispatch_idempotent_per_run_id_and_reviewer_set(
     assert len(snaps_two_phases) == 2, snaps_two_phases
     reviewer_sets = {s.spawned_reviewers for s in snaps_two_phases}
     assert ("reviewer-security",) in reviewer_sets
+
+
+@pytest.mark.asyncio
+async def test_dispatch_dedupe_distinguishes_same_reviewer_phases(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Custom workflows can have two same-cycle phases with the SAME
+    ``reviewers:`` list (e.g. an early `review` and a late `review` of
+    the same code by the same federation members). Each must produce a
+    distinct snapshot row — the dedupe key must include phase identity,
+    not just ``(run_id, spawned_reviewers)``."""
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=5,
+            max_cc_location="x.py:g",
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+
+    # Same reviewers list, two distinct phases at the same cycle.
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+        phase_name="review-early",
+    )
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+        phase_name="review-final",
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_run("tb-fed.cycle0")
+    assert len(snaps) == 2, snaps
+    phases = {s.phase for s in snaps}
+    assert phases == {"review-early", "review-final"}
+
+    # Retrying ``review-final`` with same phase must still be a no-op.
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+        phase_name="review-final",
+    )
+    await store.load()
+    snaps = await store.for_run("tb-fed.cycle0")
+    assert len(snaps) == 2, snaps

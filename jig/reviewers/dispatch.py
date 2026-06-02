@@ -836,6 +836,7 @@ async def dispatch_with_llm_spawn(
     base_ref: str = "main",
     reviewers: list[str] | None = None,
     cycle: int = 0,
+    phase_name: str | None = None,
 ) -> dict[str, list[ReviewerComment]]:
     """Federation-execution entry point (Block 3, Important 1).
 
@@ -982,6 +983,7 @@ async def dispatch_with_llm_spawn(
             cycle=cycle,
             code_metrics=code_metrics,
             pendings=pendings,
+            phase_name=phase_name,
         )
 
     # No LLM reviewers to spawn — the warning above already surfaced any
@@ -1090,6 +1092,7 @@ async def _record_quality_snapshot(
     cycle: int,
     code_metrics: ChangeMetrics,
     pendings: list[LlmReviewerPending],
+    phase_name: str | None = None,
 ) -> None:
     """Persist one ``QualitySnapshot`` row for this cycle. Signal-only:
     any failure is logged and dropped (never raised) so a measurement
@@ -1122,6 +1125,7 @@ async def _record_quality_snapshot(
         snap = QualitySnapshot(
             ticket_id=ticket.id,
             run_id=f"{ticket.id}.cycle{cycle}",
+            phase=phase_name or "",
             max_cc=code_metrics.max_cc,
             ruff_findings=code_metrics.ruff_findings,
             loc_delta=code_metrics.loc_delta,
@@ -1130,6 +1134,7 @@ async def _record_quality_snapshot(
                 "workflow_name": getattr(ticket, "workflow", "") or "",
                 "layer": getattr(ticket, "layer", "") or "",
                 "work_type": work_type_val,
+                "phase": phase_name or "",
             },
             spawned_reviewers=spawned_ids,
             role_versions=role_versions,
@@ -1139,17 +1144,21 @@ async def _record_quality_snapshot(
         snap_path.parent.mkdir(parents=True, exist_ok=True)
         snap_store = QualitySnapshotStore(snap_path)
         await snap_store.load()
-        # Idempotency: dedupe on ``(run_id, spawned_reviewers)``. ``run_id``
-        # alone (just ``ticket.id`` + ``cycle``) would silence legitimate
-        # snapshots from a *different* phase at the same cycle (the
-        # default workflow runs both ``review-tests`` and the final
-        # ``review`` at ``cycle=0``, and we need both rows — the second
-        # carries the actual end-of-ticket metrics). Spawned reviewers
-        # differ between phases, and a retry of the *same* phase spawns
-        # the *same* set, so this key dedupes retries without dropping
-        # phase metrics.
+        # Idempotency: dedupe on ``(run_id, phase, spawned_reviewers)``.
+        # ``run_id`` alone (just ``ticket.id`` + ``cycle``) would silence
+        # legitimate snapshots from a *different* phase at the same cycle.
+        # Adding ``phase`` lets two same-cycle phases with the SAME
+        # reviewer set coexist (a workflow with two ``review`` phases at
+        # ``cycle=0``); adding ``spawned_reviewers`` keeps the dedupe
+        # working even when ``phase_name`` isn't threaded through (older
+        # call sites pass ``None``, defaulting to empty). A retry of the
+        # *same* phase spawns the *same* set, so this key dedupes retries
+        # without dropping per-phase metrics.
         existing = await snap_store.for_run(snap.run_id)
-        if any(e.spawned_reviewers == snap.spawned_reviewers for e in existing):
+        if any(
+            e.phase == snap.phase and e.spawned_reviewers == snap.spawned_reviewers
+            for e in existing
+        ):
             return
         await snap_store.append(snap)
     except Exception:  # noqa: BLE001 — signal-only contract

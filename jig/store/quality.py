@@ -12,10 +12,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import ConfigDict, Field
+from collections.abc import Mapping
+
+from pydantic import ConfigDict, Field, field_validator
 
 from jig.store.collection import Collection
 from jig.store.models import StoreModel
+
+
+def _to_sorted_pairs(value: object) -> object:
+    """Coerce a dict (or already-coerced tuple-of-pairs) to a stable
+    tuple-of-pairs representation. Stored that way so loaded snapshots
+    are deeply immutable — ``frozen=True`` alone only blocks attribute
+    reassignment, not in-place mutation of nested ``dict`` fields."""
+    if isinstance(value, Mapping):
+        return tuple(sorted(value.items()))
+    # JSON deserialisation feeds list-of-lists; let pydantic coerce.
+    return value
 
 
 class QualitySnapshot(StoreModel):
@@ -38,6 +51,14 @@ class QualitySnapshot(StoreModel):
     ``populate_by_name=True`` is repeated explicitly because pydantic v2
     doesn't merge ``model_config`` from parent classes, and ``StoreModel``
     relies on it for the ``_id`` alias roundtrip.
+
+    Nested-map fields (``taxonomy_hit_counts``, ``cell``, ``role_versions``)
+    are stored as sorted ``tuple[tuple[k, v], ...]`` rather than ``dict``
+    so the immutability is deep — pydantic's ``frozen=True`` only blocks
+    attribute reassignment, not ``snap.cell["k"] = v``. Construction
+    accepts ``dict`` input for ergonomics; a before-validator normalises
+    to the sorted-pairs form. Read-access uses ``dict(s.cell).get(...)``
+    or iterates pairs directly.
     """
 
     model_config = ConfigDict(frozen=True, populate_by_name=True)
@@ -48,11 +69,18 @@ class QualitySnapshot(StoreModel):
     max_cc: int = Field(ge=0)
     ruff_findings: int = Field(ge=0)
     loc_delta: int
-    taxonomy_hit_counts: dict[str, int] = Field(default_factory=dict)
-    cell: dict[str, str] = Field(default_factory=dict)
+    taxonomy_hit_counts: tuple[tuple[str, int], ...] = ()
+    cell: tuple[tuple[str, str], ...] = ()
     spawned_reviewers: tuple[str, ...] = ()
-    role_versions: dict[str, str] = Field(default_factory=dict)
+    role_versions: tuple[tuple[str, str], ...] = ()
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    _coerce_pairs = field_validator(
+        "taxonomy_hit_counts",
+        "cell",
+        "role_versions",
+        mode="before",
+    )(lambda v: _to_sorted_pairs(v))
 
 
 class QualitySnapshotStore:

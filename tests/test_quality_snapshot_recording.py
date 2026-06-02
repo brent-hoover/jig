@@ -74,16 +74,16 @@ async def test_dispatch_records_quality_snapshot(tmp_path: Path, monkeypatch) ->
     assert s.max_cc == 12
     assert s.ruff_findings == 2
     assert s.loc_delta == 42
-    assert s.taxonomy_hit_counts == {"security": 1, "error-handling": 1}
-    assert (
-        s.cell.get("workflow_name") is not None
-    )  # ticket may have empty workflow attr
-    assert s.cell.get("layer") == "mvp"
-    assert s.cell.get("work_type") == "feature"
+    assert dict(s.taxonomy_hit_counts) == {"security": 1, "error-handling": 1}
+    cell = dict(s.cell)
+    assert cell.get("workflow_name") is not None  # ticket may have empty workflow attr
+    assert cell.get("layer") == "mvp"
+    assert cell.get("work_type") == "feature"
     assert "reviewer-security" in s.spawned_reviewers
     # role_versions: shipped reviewer_security.yaml exists, so its hash is present.
-    assert s.role_versions.get("reviewer-security"), s.role_versions
-    assert len(s.role_versions["reviewer-security"]) == 12  # short sha (12 chars)
+    role_versions = dict(s.role_versions)
+    assert role_versions.get("reviewer-security"), s.role_versions
+    assert len(role_versions["reviewer-security"]) == 12  # short sha (12 chars)
 
 
 @pytest.mark.asyncio
@@ -138,10 +138,24 @@ async def test_dispatch_role_versions_picks_up_project_override(
     snaps = await store.for_ticket("tb-fed")
     assert len(snaps) == 1
     s = snaps[0]
-    assert s.role_versions.get("reviewer-security") == expected_sha, (
+    role_versions = dict(s.role_versions)
+    assert role_versions.get("reviewer-security") == expected_sha, (
         f"expected project override hash {expected_sha!r}, "
-        f"got {s.role_versions.get('reviewer-security')!r} — "
+        f"got {role_versions.get('reviewer-security')!r} — "
         "dispatch is silently using the shipped default."
+    )
+
+    # Execution and attribution must use the SAME canonical id — otherwise
+    # the recorded hash describes a different role yaml than the agent
+    # actually ran with. spawn_review_agent_for_id must be called with the
+    # hyphenated id (which load_role resolves to the project override),
+    # not the underscored shipped filename stem (which load_role hits in
+    # the shipped dir first, missing the project override entirely).
+    spawn_role_files = {role_file for (_rid, _tid, role_file) in orch.calls}
+    assert "reviewer-security" in spawn_role_files, (
+        "spawn_review_agent_for_id was not called with the hyphenated "
+        "reviewer id — execution and attribution will diverge when a "
+        f"project override exists. spawn calls: {orch.calls}"
     )
 
 
@@ -185,7 +199,7 @@ async def test_dispatch_records_snapshot_with_no_taxonomy_hits(
     snaps = await store.for_ticket("tb-fed")
     assert len(snaps) == 1
     s = snaps[0]
-    assert s.taxonomy_hit_counts == {}
+    assert s.taxonomy_hit_counts == ()
     assert s.max_cc == 3
     assert s.loc_delta == 5
 
@@ -241,7 +255,7 @@ async def test_dispatch_records_snapshot_before_no_pendings_early_return(
     assert len(snaps) == 1
     s = snaps[0]
     assert s.spawned_reviewers == ()
-    assert s.role_versions == {}
+    assert s.role_versions == ()
 
 
 @pytest.mark.asyncio

@@ -1020,7 +1020,13 @@ async def dispatch_with_llm_spawn(
             orchestrator.spawn_review_agent_for_id(
                 reviewer_id=p.reviewer_id,
                 ticket=ticket,
-                role_file=p.role_config_path,
+                # Use the canonical hyphenated id — matches the snapshot
+                # attribution side and lets ``load_role`` resolve project
+                # overrides at ``.jig/roles/<hyphenated>.yaml`` (the path
+                # ``save_role`` writes to). The underscored filename stem
+                # in ``role_config_path`` hits the shipped default first
+                # and silently bypasses project overrides.
+                role_file=p.reviewer_id,
                 project_root=project_root,
                 worktree_path=worktree_path,
                 cycle=cycle,

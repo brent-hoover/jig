@@ -32,10 +32,40 @@ async def test_snapshot_roundtrip(tmp_path: Path) -> None:
     assert r.max_cc == 12
     assert r.ruff_findings == 3
     assert r.loc_delta == 42
-    assert r.taxonomy_hit_counts["error-handling"] == 2
-    assert r.cell["workflow_name"] == "default"
+    assert dict(r.taxonomy_hit_counts)["error-handling"] == 2
+    assert dict(r.cell)["workflow_name"] == "default"
     assert r.spawned_reviewers == ("reviewer-security",)
-    assert r.role_versions == {"reviewer-security": "abc123def456"}
+    assert dict(r.role_versions) == {"reviewer-security": "abc123def456"}
+
+
+def test_snapshot_is_deeply_immutable() -> None:
+    """``frozen=True`` alone only blocks attribute reassignment; the
+    nested-map fields are stored as sorted tuples-of-pairs so in-place
+    mutation is rejected at runtime. Measurement records must not be
+    silently mutable post-load — that would produce misleading audit
+    output. Regression test for PR #127 roborev job #273."""
+    snap = QualitySnapshot(
+        ticket_id="t1",
+        run_id="r1",
+        max_cc=1,
+        ruff_findings=0,
+        loc_delta=0,
+        taxonomy_hit_counts={"security": 1},
+        cell={"layer": "mvp"},
+        role_versions={"reviewer-security": "abc123def456"},
+    )
+
+    # Attribute reassignment blocked by frozen=True.
+    with pytest.raises((TypeError, ValueError)):
+        snap.max_cc = 99  # type: ignore[misc]
+
+    # Tuple-of-pairs nested fields — no __setitem__ available.
+    with pytest.raises(TypeError):
+        snap.taxonomy_hit_counts[0] = ("evicted", 0)  # type: ignore[index]
+    with pytest.raises(TypeError):
+        snap.cell[0] = ("evicted", "evicted")  # type: ignore[index]
+    with pytest.raises(TypeError):
+        snap.role_versions[0] = ("evicted", "0")  # type: ignore[index]
 
 
 @pytest.mark.asyncio

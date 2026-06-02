@@ -2807,7 +2807,7 @@ def audit_quality(
     if group_by:
         buckets: dict[str, list] = {}
         for s in snaps:
-            key = s.cell.get(group_by, "(none)")
+            key = dict(s.cell).get(group_by, "(none)")
             buckets.setdefault(key, []).append(s)
         click.echo(
             f"{group_by:<20}  {'n':>3}  {'cc_avg':>6}  "
@@ -2822,7 +2822,7 @@ def audit_quality(
             loc = mean(s.loc_delta for s in group)
             tax_total: dict[str, int] = {}
             for s in group:
-                for cat, n in s.taxonomy_hit_counts.items():
+                for cat, n in s.taxonomy_hit_counts:
                     tax_total[cat] = tax_total.get(cat, 0) + n
             tax_render = (
                 " ".join(f"{k}:{v}" for k, v in sorted(tax_total.items())) or "-"
@@ -2841,10 +2841,8 @@ def audit_quality(
         f"{'-' * 14}  {'-' * 3}  {'-' * 4}  {'-' * 5}  ------------------  -----------"
     )
     for s in sorted(snaps, key=lambda s: s.recorded_at):
-        tax_render = (
-            " ".join(f"{k}:{v}" for k, v in sorted(s.taxonomy_hit_counts.items()))
-            or "-"
-        )
+        # Fields are sorted-pairs tuples; iterate directly.
+        tax_render = " ".join(f"{k}:{v}" for k, v in s.taxonomy_hit_counts) or "-"
         click.echo(
             f"{s.ticket_id:<14}  {s.max_cc:>3}  {s.ruff_findings:>4}  "
             f"{s.loc_delta:>+5}  {tax_render:<18}  "

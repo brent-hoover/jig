@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-31
+updated: 2026-06-02
 ---
 
 # C4 Component Level: Jig Agent Orchestration Framework
@@ -733,9 +733,14 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
 - **Per-commit hook integration**: `hooks/per_commit_runner.py` runs the mechanical reviewer subset on every commit
 - **Code metrics injection**: At end-of-ticket dispatch, `dispatch_with_llm_spawn` computes deterministic code
   metrics (max cyclomatic complexity, ruff finding count, net LoC delta, taxonomy hits) over changed Python files
-  and injects them as an "Objective Code Metrics" block into each LLM reviewer prompt. Taxonomy hits map ruff
-  findings to AI-shaped defect patterns defined in `jig/code_quality/taxonomy.yaml` via an `--isolated` ruff pass.
-  Mechanical reviewers receive no block. Metric failures degrade gracefully and never block review dispatch.
+  once — before any reviewer spawning — then injects them into each LLM reviewer's prompt. Every reviewer receives
+  a universal "Objective Code Metrics" header block; when the reviewer's role owns taxonomy entries, two
+  per-reviewer sub-sections are appended: a "Deterministic taxonomy findings" list (ruff hits filtered to entries
+  whose `owning_reviewer` matches the reviewer's role) and a "Judgment checklist" (manifest entries with
+  `detection: judgment` owned by that reviewer). Mechanical reviewers receive no block. Metric failures degrade
+  gracefully and never block review dispatch. Any taxonomy hit whose `owning_reviewer` is absent from the spawned
+  reviewer set is logged as a warning (never-silent-drop invariant) so coverage gaps surface without blocking the
+  run.
 
 ### Interfaces
 

@@ -57,6 +57,7 @@ from jig.reviewers.comment import ReviewerComment
 from jig.ticket import Ticket, WorkType
 
 if TYPE_CHECKING:  # pragma: no cover — typing-only
+    from jig.code_metrics import ChangeMetrics
     from jig.orchestrator import Orchestrator
 
 _logger = logging.getLogger(__name__)
@@ -835,6 +836,7 @@ async def dispatch_with_llm_spawn(
     base_ref: str = "main",
     reviewers: list[str] | None = None,
     cycle: int = 0,
+    phase_name: str | None = None,
 ) -> dict[str, list[ReviewerComment]]:
     """Federation-execution entry point (Block 3, Important 1).
 
@@ -969,6 +971,21 @@ async def dispatch_with_llm_spawn(
                     sorted(spawned_reviewer_ids),
                 )
 
+    # Sub-issue D — quality measurement + attribution: persist a per-cycle
+    # ``QualitySnapshot`` over the federation's objective metrics. Fires
+    # before the no-pendings early-return so a ``reviewers=[]`` dispatch
+    # still contributes a row. Signal only — a recording failure is logged
+    # and dropped, never escalated, so it can't block the federation.
+    if code_metrics is not None:
+        await _record_quality_snapshot(
+            ticket=ticket,
+            project_root=project_root,
+            cycle=cycle,
+            code_metrics=code_metrics,
+            pendings=pendings,
+            phase_name=phase_name,
+        )
+
     # No LLM reviewers to spawn — the warning above already surfaced any
     # unrouted hits; nothing else to do.
     if not pendings:
@@ -1003,7 +1020,13 @@ async def dispatch_with_llm_spawn(
             orchestrator.spawn_review_agent_for_id(
                 reviewer_id=p.reviewer_id,
                 ticket=ticket,
-                role_file=p.role_config_path,
+                # Use the canonical hyphenated id — matches the snapshot
+                # attribution side and lets ``load_role`` resolve project
+                # overrides at ``.jig/roles/<hyphenated>.yaml`` (the path
+                # ``save_role`` writes to). The underscored filename stem
+                # in ``role_config_path`` hits the shipped default first
+                # and silently bypasses project overrides.
+                role_file=p.reviewer_id,
                 project_root=project_root,
                 worktree_path=worktree_path,
                 cycle=cycle,
@@ -1066,6 +1089,99 @@ def _tag_cadence(
         # Already the default; avoid the copy churn.
         return comments
     return [c.model_copy(update={"cadence": cadence}) for c in comments]
+
+
+async def _record_quality_snapshot(
+    *,
+    ticket: Ticket,
+    project_root: Path,
+    cycle: int,
+    code_metrics: ChangeMetrics,
+    pendings: list[LlmReviewerPending],
+    phase_name: str | None = None,
+) -> None:
+    """Persist one ``QualitySnapshot`` row for this cycle. Signal-only:
+    any failure is logged and dropped (never raised) so a measurement
+    glitch can't block the federation."""
+
+    from collections import Counter
+    from hashlib import sha256
+
+    from jig.persistence import resolve_role_path
+    from jig.store.quality import QualitySnapshot, QualitySnapshotStore
+
+    try:
+        spawned_ids = tuple(sorted(p.reviewer_id for p in pendings))
+
+        # Hash each spawned reviewer's role yaml (project override wins
+        # over shipped default, matching ``load_role`` resolution). Missing
+        # files contribute an empty string — never raise.
+        role_versions: dict[str, str] = {}
+        for p in pendings:
+            # Use the hyphenated canonical id, not the underscored filename
+            # stem. ``save_role`` writes project overrides to
+            # ``.jig/roles/<hyphenated-id>.yaml`` (filename == ``config.role``),
+            # while shipped files use underscored stems. Passing the
+            # filename stem here misses every project override and silently
+            # records the shipped-default hash — defeating cell attribution.
+            # The hyphenated id hits project overrides directly and falls
+            # back to the role-field walk for shipped defaults.
+            role_path = resolve_role_path(project_root, p.reviewer_id)
+            if role_path is not None:
+                # Disk I/O off the event loop — small files, but the
+                # codebase convention is "async by default for I/O".
+                role_bytes = await asyncio.to_thread(role_path.read_bytes)
+                role_versions[p.reviewer_id] = sha256(role_bytes).hexdigest()[:12]
+            else:
+                role_versions[p.reviewer_id] = ""
+
+        counts = Counter(h.category for h in code_metrics.taxonomy_hits)
+        work_type_val = getattr(ticket.work_type, "value", str(ticket.work_type))
+        snap = QualitySnapshot(
+            ticket_id=ticket.id,
+            run_id=f"{ticket.id}.cycle{cycle}",
+            phase=phase_name or "",
+            max_cc=code_metrics.max_cc,
+            ruff_findings=code_metrics.ruff_findings,
+            loc_delta=code_metrics.loc_delta,
+            taxonomy_hit_counts=dict(counts),
+            cell={
+                "workflow_name": getattr(ticket, "workflow", "") or "",
+                "layer": getattr(ticket, "layer", "") or "",
+                "work_type": work_type_val,
+                "phase": phase_name or "",
+            },
+            spawned_reviewers=spawned_ids,
+            role_versions=role_versions,
+        )
+
+        snap_path = project_root / ".jig" / "store" / "quality_snapshots.jsonl"
+        snap_path.parent.mkdir(parents=True, exist_ok=True)
+        snap_store = QualitySnapshotStore(snap_path)
+        await snap_store.load()
+        # Idempotency: dedupe on ``(run_id, phase, spawned_reviewers)``.
+        # ``run_id`` alone (just ``ticket.id`` + ``cycle``) would silence
+        # legitimate snapshots from a *different* phase at the same cycle.
+        # Adding ``phase`` lets two same-cycle phases with the SAME
+        # reviewer set coexist (a workflow with two ``review`` phases at
+        # ``cycle=0``); adding ``spawned_reviewers`` keeps the dedupe
+        # working even when ``phase_name`` isn't threaded through (older
+        # call sites pass ``None``, defaulting to empty). A retry of the
+        # *same* phase spawns the *same* set, so this key dedupes retries
+        # without dropping per-phase metrics.
+        existing = await snap_store.for_run(snap.run_id)
+        if any(
+            e.phase == snap.phase and e.spawned_reviewers == snap.spawned_reviewers
+            for e in existing
+        ):
+            return
+        await snap_store.append(snap)
+    except Exception:  # noqa: BLE001 — signal-only contract
+        _logger.warning(
+            "quality snapshot recording failed for ticket %s; continuing",
+            ticket.id,
+            exc_info=True,
+        )
 
 
 __all__ = [

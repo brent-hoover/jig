@@ -392,9 +392,7 @@ async def test_commit_progress_creates_commit_and_system_event(
 
 
 @pytest.mark.asyncio
-async def test_commit_progress_cc_subject_gets_role_suffix(
-    stores, tmp_path
-) -> None:
+async def test_commit_progress_cc_subject_gets_role_suffix(stores, tmp_path) -> None:
     import subprocess
 
     tickets, threads, bus = stores
@@ -414,7 +412,7 @@ async def test_commit_progress_cc_subject_gets_role_suffix(
     )
     from jig.ticket_mcp import handle_commit_progress
 
-    result = await handle_commit_progress(
+    await handle_commit_progress(
         tickets=tickets,
         threads=threads,
         bus=bus,
@@ -496,12 +494,19 @@ async def test_record_learning_fans_out_to_multiple_roles(tmp_path: Path) -> Non
     await handle_record_learning(
         memory=memory,
         role="dev",
-        args={"content": "use disable_error_codes not ignore_errors", "roles": ["dev", "test"]},
+        args={
+            "content": "use disable_error_codes not ignore_errors",
+            "roles": ["dev", "test"],
+        },
     )
     dev = await memory.get_role_learnings("dev")
     test = await memory.get_role_learnings("test")
-    assert [learning.content for learning in dev] == ["use disable_error_codes not ignore_errors"]
-    assert [learning.content for learning in test] == ["use disable_error_codes not ignore_errors"]
+    assert [learning.content for learning in dev] == [
+        "use disable_error_codes not ignore_errors"
+    ]
+    assert [learning.content for learning in test] == [
+        "use disable_error_codes not ignore_errors"
+    ]
 
 
 @pytest.mark.asyncio

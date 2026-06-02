@@ -1,0 +1,396 @@
+"""Sub-issue D: dispatch_with_llm_spawn must record a QualitySnapshot once
+per end-of-ticket cycle, with cell + role_versions populated for spawned
+LLM reviewers. The recording is signal-only — failures degrade silently."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from jig.code_metrics import ChangeMetrics
+from jig.code_quality.taxonomy import TaxonomyHit
+from jig.reviewers.dispatch import dispatch_with_llm_spawn
+from jig.store.quality import QualitySnapshotStore
+from tests.test_reviewers_federation_execution import (  # noqa: F401 — fixtures
+    _FakeOrchestrator,
+    _init_worktree,
+    _ticket,
+    _write_arch,
+    _write_contracts,
+    _write_spec,
+)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_records_quality_snapshot(tmp_path: Path, monkeypatch) -> None:
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=12,
+            max_cc_location="m.py:f",
+            ruff_findings=2,
+            loc_delta=42,
+            taxonomy_hits=(
+                TaxonomyHit(
+                    id="TAX-SEC-001",
+                    category="security",
+                    file="m.py",
+                    line=1,
+                    reviewer="reviewer-security",
+                ),
+                TaxonomyHit(
+                    id="TAX-ERR-001",
+                    category="error-handling",
+                    file="m.py",
+                    line=2,
+                    reviewer="reviewer-error-handling",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    await dispatch_with_llm_spawn(
+        _ticket(labels=["touches-auth"]),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_ticket("tb-fed")
+    assert len(snaps) == 1, snaps
+    s = snaps[0]
+    assert s.max_cc == 12
+    assert s.ruff_findings == 2
+    assert s.loc_delta == 42
+    assert dict(s.taxonomy_hit_counts) == {"security": 1, "error-handling": 1}
+    cell = dict(s.cell)
+    assert cell.get("workflow_name") is not None  # ticket may have empty workflow attr
+    assert cell.get("layer") == "mvp"
+    assert cell.get("work_type") == "feature"
+    assert "reviewer-security" in s.spawned_reviewers
+    # role_versions: shipped reviewer_security.yaml exists, so its hash is present.
+    role_versions = dict(s.role_versions)
+    assert role_versions.get("reviewer-security"), s.role_versions
+    assert len(role_versions["reviewer-security"]) == 12  # short sha (12 chars)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_role_versions_picks_up_project_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A project override of ``reviewer-security`` (written via ``save_role``
+    at ``.jig/roles/reviewer-security.yaml``) MUST be reflected in the
+    snapshot's ``role_versions`` map — recording the shipped-default hash
+    when an override exists defeats the cell-attribution story."""
+    from hashlib import sha256
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=1,
+            max_cc_location="x.py:g",
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    # Seed a project override for reviewer-security at the hyphenated path
+    # save_role() writes to. The override content differs from shipped, so
+    # the resulting sha will differ.
+    project_roles = tmp_path / ".jig" / "roles"
+    project_roles.mkdir(parents=True, exist_ok=True)
+    override_path = project_roles / "reviewer-security.yaml"
+    override_content = b"role: reviewer-security\ndev_tier: customised-for-testing\n"
+    override_path.write_bytes(override_content)
+    expected_sha = sha256(override_content).hexdigest()[:12]
+
+    orch = _FakeOrchestrator()
+    await dispatch_with_llm_spawn(
+        _ticket(labels=["touches-auth"]),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_ticket("tb-fed")
+    assert len(snaps) == 1
+    s = snaps[0]
+    role_versions = dict(s.role_versions)
+    assert role_versions.get("reviewer-security") == expected_sha, (
+        f"expected project override hash {expected_sha!r}, "
+        f"got {role_versions.get('reviewer-security')!r} — "
+        "dispatch is silently using the shipped default."
+    )
+
+    # Execution and attribution must use the SAME canonical id — otherwise
+    # the recorded hash describes a different role yaml than the agent
+    # actually ran with. spawn_review_agent_for_id must be called with the
+    # hyphenated id (which load_role resolves to the project override),
+    # not the underscored shipped filename stem (which load_role hits in
+    # the shipped dir first, missing the project override entirely).
+    spawn_role_files = {role_file for (_rid, _tid, role_file) in orch.calls}
+    assert "reviewer-security" in spawn_role_files, (
+        "spawn_review_agent_for_id was not called with the hyphenated "
+        "reviewer id — execution and attribution will diverge when a "
+        f"project override exists. spawn calls: {orch.calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_records_snapshot_with_no_taxonomy_hits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Even when the change has no taxonomy findings, dispatch still records
+    a snapshot — measurement must cover every end-of-ticket cycle, not only
+    cycles where the federation found something."""
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=3,
+            max_cc_location="x.py:g",
+            ruff_findings=0,
+            loc_delta=5,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_ticket("tb-fed")
+    assert len(snaps) == 1
+    s = snaps[0]
+    assert s.taxonomy_hit_counts == ()
+    assert s.max_cc == 3
+    assert s.loc_delta == 5
+
+
+@pytest.mark.asyncio
+async def test_dispatch_records_snapshot_before_no_pendings_early_return(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When ``select_reviewers_for_ticket`` returns nothing, the early-return
+    must not skip snapshot recording. We force an empty selection by
+    monkeypatching the selector — a real ticket can't normally trip this
+    path (judgment defaults are always appended) but the code contract is
+    that the recording fires regardless.
+
+    Note: this still requires a worktree — ``code_metrics`` only computes
+    when ``worktree_path`` is provided, so a ``worktree_path=None`` call
+    never produces a snapshot (no diff = no metrics)."""
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=1,
+            max_cc_location="x.py:g",
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+    monkeypatch.setattr(
+        "jig.reviewers.dispatch.select_reviewers_for_ticket",
+        lambda *_a, **_k: [],
+    )
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_ticket("tb-fed")
+    assert len(snaps) == 1
+    s = snaps[0]
+    assert s.spawned_reviewers == ()
+    assert s.role_versions == ()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_idempotent_per_run_id_and_reviewer_set(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Retrying a dispatch with the same cycle AND same spawned reviewer
+    set must not produce duplicate rows (operator-level retry). But two
+    different phases at ``cycle=0`` (e.g. ``review-tests`` then final
+    ``review``) spawn different reviewer sets — both must be recorded so
+    ``jig audit quality`` reflects the actual end-of-ticket metrics, not
+    the test-review pre-implementation snapshot."""
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=5,
+            max_cc_location="x.py:g",
+            ruff_findings=1,
+            loc_delta=10,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+
+    # Retry path: same ticket + cycle + reviewer set → ONE row.
+    for _ in range(2):
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            cycle=0,
+        )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps_after_retry = await store.for_run("tb-fed.cycle0")
+    assert len(snaps_after_retry) == 1, snaps_after_retry
+
+    # Different phase path: same cycle, explicit reviewers arg narrows the
+    # spawned set to a different shape → must produce a SECOND row.
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+    )
+
+    await store.load()
+    snaps_two_phases = await store.for_run("tb-fed.cycle0")
+    assert len(snaps_two_phases) == 2, snaps_two_phases
+    reviewer_sets = {s.spawned_reviewers for s in snaps_two_phases}
+    assert ("reviewer-security",) in reviewer_sets
+
+
+@pytest.mark.asyncio
+async def test_dispatch_dedupe_distinguishes_same_reviewer_phases(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Custom workflows can have two same-cycle phases with the SAME
+    ``reviewers:`` list (e.g. an early `review` and a late `review` of
+    the same code by the same federation members). Each must produce a
+    distinct snapshot row — the dedupe key must include phase identity,
+    not just ``(run_id, spawned_reviewers)``."""
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=5,
+            max_cc_location="x.py:g",
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+
+    # Same reviewers list, two distinct phases at the same cycle.
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+        phase_name="review-early",
+    )
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+        phase_name="review-final",
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_run("tb-fed.cycle0")
+    assert len(snaps) == 2, snaps
+    phases = {s.phase for s in snaps}
+    assert phases == {"review-early", "review-final"}
+
+    # Retrying ``review-final`` with same phase must still be a no-op.
+    await dispatch_with_llm_spawn(
+        _ticket(),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+        cycle=0,
+        reviewers=["reviewer-security"],
+        phase_name="review-final",
+    )
+    await store.load()
+    snaps = await store.for_run("tb-fed.cycle0")
+    assert len(snaps) == 2, snaps

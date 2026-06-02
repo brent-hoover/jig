@@ -163,6 +163,44 @@ def _role_path_shipped(name: str) -> Path:
     return _defaults_dir() / "roles" / f"{name}.yaml"
 
 
+def resolve_role_path(project_path: Path, name: str) -> Path | None:
+    """Return the on-disk path to a role's YAML, project override beating
+    shipped default; ``None`` if neither exists. Cross-module helper for
+    callers that need to read the bytes (e.g. hashing for snapshot cell
+    tagging) without going through ``load_role`` parsing.
+
+    Mirrors ``load_role``'s lookup order: filename-stem in project, then
+    filename-stem in shipped defaults, then a fallback that walks every
+    role yaml and matches on the parsed ``role:`` field — so hyphenated
+    ids like ``reviewer-test-adequacy`` (whose file is
+    ``reviewer_test_adequacy.yaml``) and aliased ids like ``po-l0``
+    (file ``l0_po.yaml``) resolve correctly.
+    """
+    candidate = _role_path_project(project_path, name)
+    if candidate.is_file():
+        return candidate
+    shipped = _role_path_shipped(name)
+    if shipped.is_file():
+        return shipped
+
+    # Fallback: walk both dirs, parse each yaml's ``role:`` field. Project
+    # override wins when both layers define the same role name.
+    for roles_dir in (
+        _jig_dir(project_path) / "roles",
+        _defaults_dir() / "roles",
+    ):
+        if not roles_dir.is_dir():
+            continue
+        for entry in sorted(roles_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(entry.read_text())
+            except yaml.YAMLError:
+                continue
+            if isinstance(data, dict) and data.get("role") == name:
+                return entry
+    return None
+
+
 def load_role(project_path: Path, name: str) -> RoleConfig:
     """Load a role config, preferring the project override over the shipped default.
 
@@ -517,6 +555,7 @@ __all__ = [
     "load_conventions",
     "load_role",
     "load_workflow",
+    "resolve_role_path",
     "resolve_workflow_name",
     "save_role",
     "save_default_roles",

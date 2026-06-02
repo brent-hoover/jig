@@ -50,3 +50,22 @@ def test_resolve_role_path_via_role_field_fallback(tmp_path: Path) -> None:
 def test_resolve_role_path_unknown_returns_none(tmp_path: Path) -> None:
     """Unknown role id returns None — never raises."""
     assert resolve_role_path(tmp_path, "definitely-not-a-real-role") is None
+
+
+def test_resolve_role_path_project_override_wins(tmp_path: Path) -> None:
+    """A project override at ``.jig/roles/<hyphenated-id>.yaml`` MUST beat
+    the shipped default, even though the shipped file uses an underscored
+    filename. Without this, role_versions in QualitySnapshot would silently
+    record the shipped hash for projects that customised the reviewer.
+
+    ``save_role`` writes overrides using ``config.role`` (hyphenated) as
+    the filename, so the canonical id is the right lookup key.
+    """
+    project_roles = tmp_path / ".jig" / "roles"
+    project_roles.mkdir(parents=True)
+    override = project_roles / "reviewer-security.yaml"
+    override.write_text("role: reviewer-security\ndev_tier: customised\n")
+
+    path = resolve_role_path(tmp_path, "reviewer-security")
+    assert path is not None
+    assert path == override, f"expected project override, got {path}"

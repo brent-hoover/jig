@@ -1112,7 +1112,15 @@ async def _record_quality_snapshot(
         # files contribute an empty string — never raise.
         role_versions: dict[str, str] = {}
         for p in pendings:
-            role_path = resolve_role_path(project_root, p.role_config_path)
+            # Use the hyphenated canonical id, not the underscored filename
+            # stem. ``save_role`` writes project overrides to
+            # ``.jig/roles/<hyphenated-id>.yaml`` (filename == ``config.role``),
+            # while shipped files use underscored stems. Passing the
+            # filename stem here misses every project override and silently
+            # records the shipped-default hash — defeating cell attribution.
+            # The hyphenated id hits project overrides directly and falls
+            # back to the role-field walk for shipped defaults.
+            role_path = resolve_role_path(project_root, p.reviewer_id)
             if role_path is not None:
                 # Disk I/O off the event loop — small files, but the
                 # codebase convention is "async by default for I/O".

@@ -87,6 +87,65 @@ async def test_dispatch_records_quality_snapshot(tmp_path: Path, monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_dispatch_role_versions_picks_up_project_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A project override of ``reviewer-security`` (written via ``save_role``
+    at ``.jig/roles/reviewer-security.yaml``) MUST be reflected in the
+    snapshot's ``role_versions`` map — recording the shipped-default hash
+    when an override exists defeats the cell-attribution story."""
+    from hashlib import sha256
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=1,
+            max_cc_location="x.py:g",
+            ruff_findings=0,
+            loc_delta=0,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    # Seed a project override for reviewer-security at the hyphenated path
+    # save_role() writes to. The override content differs from shipped, so
+    # the resulting sha will differ.
+    project_roles = tmp_path / ".jig" / "roles"
+    project_roles.mkdir(parents=True, exist_ok=True)
+    override_path = project_roles / "reviewer-security.yaml"
+    override_content = b"role: reviewer-security\ndev_tier: customised-for-testing\n"
+    override_path.write_bytes(override_content)
+    expected_sha = sha256(override_content).hexdigest()[:12]
+
+    orch = _FakeOrchestrator()
+    await dispatch_with_llm_spawn(
+        _ticket(labels=["touches-auth"]),
+        tmp_path,
+        orch,  # type: ignore[arg-type]
+        worktree_path=worktree,
+    )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_ticket("tb-fed")
+    assert len(snaps) == 1
+    s = snaps[0]
+    assert s.role_versions.get("reviewer-security") == expected_sha, (
+        f"expected project override hash {expected_sha!r}, "
+        f"got {s.role_versions.get('reviewer-security')!r} — "
+        "dispatch is silently using the shipped default."
+    )
+
+
+@pytest.mark.asyncio
 async def test_dispatch_records_snapshot_with_no_taxonomy_hits(
     tmp_path: Path, monkeypatch
 ) -> None:

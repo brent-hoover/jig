@@ -122,3 +122,44 @@ def test_audit_quality_group_by_cell_key(tmp_path: Path) -> None:
     assert "cc_avg" in res.output or "cc avg" in res.output.lower()
     # Aggregated taxonomy total rendered.
     assert "security:2" in res.output
+
+
+def test_audit_quality_ticket_and_run_mutually_exclusive(tmp_path: Path) -> None:
+    """Passing both ``--ticket-id`` and ``--run-id`` is ambiguous — the CLI
+    must surface a UsageError rather than silently honour one and drop the
+    other."""
+    _seed(tmp_path, [_snap(ticket_id="t1", run_id="r1")])
+    res = CliRunner().invoke(
+        cli,
+        [
+            "audit",
+            "quality",
+            "--ticket-id",
+            "t1",
+            "--run-id",
+            "r1",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+    assert res.exit_code != 0
+    assert "mutually exclusive" in res.output.lower()
+
+
+def test_audit_quality_days_filter(tmp_path: Path) -> None:
+    """``--days N`` keeps snapshots recorded within the last N days and
+    drops older rows."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    fresh = _snap(ticket_id="fresh", run_id="r-fresh")
+    stale = _snap(ticket_id="stale", run_id="r-stale")
+    stale = stale.model_copy(update={"recorded_at": now - timedelta(days=30)})
+    _seed(tmp_path, [fresh, stale])
+
+    res = CliRunner().invoke(
+        cli, ["audit", "quality", "--days", "7", "--path", str(tmp_path)]
+    )
+    assert res.exit_code == 0, res.output
+    assert "fresh" in res.output
+    assert "stale" not in res.output

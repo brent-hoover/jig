@@ -139,7 +139,11 @@ async def test_dispatch_records_snapshot_before_no_pendings_early_return(
     must not skip snapshot recording. We force an empty selection by
     monkeypatching the selector — a real ticket can't normally trip this
     path (judgment defaults are always appended) but the code contract is
-    that the recording fires regardless."""
+    that the recording fires regardless.
+
+    Note: this still requires a worktree — ``code_metrics`` only computes
+    when ``worktree_path`` is provided, so a ``worktree_path=None`` call
+    never produces a snapshot (no diff = no metrics)."""
 
     async def fake_compute(*_a, **_k):
         return ChangeMetrics(

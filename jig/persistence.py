@@ -163,6 +163,21 @@ def _role_path_shipped(name: str) -> Path:
     return _defaults_dir() / "roles" / f"{name}.yaml"
 
 
+def resolve_role_path(project_path: Path, name: str) -> Path | None:
+    """Return the on-disk path to a role's YAML, project override beating
+    shipped default; ``None`` if neither exists. Cross-module helper for
+    callers that need to read the bytes (e.g. hashing for snapshot cell
+    tagging) without going through ``load_role`` parsing.
+    """
+    candidate = _role_path_project(project_path, name)
+    if candidate.is_file():
+        return candidate
+    shipped = _role_path_shipped(name)
+    if shipped.is_file():
+        return shipped
+    return None
+
+
 def load_role(project_path: Path, name: str) -> RoleConfig:
     """Load a role config, preferring the project override over the shipped default.
 
@@ -517,6 +532,7 @@ __all__ = [
     "load_conventions",
     "load_role",
     "load_workflow",
+    "resolve_role_path",
     "resolve_workflow_name",
     "save_role",
     "save_default_roles",

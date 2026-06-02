@@ -2777,6 +2777,9 @@ def audit_quality(
 
     from jig.store.quality import QualitySnapshotStore
 
+    if ticket_id and run_id:
+        raise click.UsageError("--ticket-id and --run-id are mutually exclusive")
+
     snap_path = path / ".jig" / "store" / "quality_snapshots.jsonl"
     if not snap_path.is_file():
         click.echo(

@@ -1,10 +1,10 @@
 ---
 title: Sub-issue D — Quality Measurement + Attribution — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-06-01
-updated: 2026-06-01
+updated: 2026-06-02
 design: ./design.md
 ---
 

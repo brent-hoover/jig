@@ -19,7 +19,17 @@ from jig.store.models import StoreModel
 
 
 class QualitySnapshot(StoreModel):
-    """One per-end-of-ticket quality summary."""
+    """One per-end-of-ticket quality summary.
+
+    ``run_id`` is a label, NOT a unique key. The default format
+    (``f"{ticket.id}.cycle{cycle}"``) can collide across review phases at
+    the same cycle (e.g. ``review-tests`` and the final ``review`` both at
+    ``cycle=0``). Dedupe on insert is done by the caller on
+    ``(run_id, spawned_reviewers)`` so per-phase snapshots survive while
+    operator-level retries don't duplicate. ``for_run`` therefore returns
+    ≥1 row; ``--run-id`` filters in the CLI scope to whichever
+    dispatch(es) shared that label.
+    """
 
     ticket_id: str
     run_id: str

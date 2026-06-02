@@ -57,6 +57,7 @@ from jig.reviewers.comment import ReviewerComment
 from jig.ticket import Ticket, WorkType
 
 if TYPE_CHECKING:  # pragma: no cover — typing-only
+    from jig.code_metrics import ChangeMetrics
     from jig.orchestrator import Orchestrator
 
 _logger = logging.getLogger(__name__)
@@ -1087,8 +1088,8 @@ async def _record_quality_snapshot(
     ticket: Ticket,
     project_root: Path,
     cycle: int,
-    code_metrics,
-    pendings: list,
+    code_metrics: ChangeMetrics,
+    pendings: list[LlmReviewerPending],
 ) -> None:
     """Persist one ``QualitySnapshot`` row for this cycle. Signal-only:
     any failure is logged and dropped (never raised) so a measurement
@@ -1097,7 +1098,7 @@ async def _record_quality_snapshot(
     from collections import Counter
     from hashlib import sha256
 
-    from jig.persistence import _role_path_project, _role_path_shipped
+    from jig.persistence import resolve_role_path
     from jig.store.quality import QualitySnapshot, QualitySnapshotStore
 
     try:
@@ -1108,11 +1109,8 @@ async def _record_quality_snapshot(
         # files contribute an empty string — never raise.
         role_versions: dict[str, str] = {}
         for p in pendings:
-            role_name = p.role_config_path
-            role_path = _role_path_project(project_root, role_name)
-            if not role_path.is_file():
-                role_path = _role_path_shipped(role_name)
-            if role_path.is_file():
+            role_path = resolve_role_path(project_root, p.role_config_path)
+            if role_path is not None:
                 role_versions[p.reviewer_id] = sha256(
                     role_path.read_bytes()
                 ).hexdigest()[:12]

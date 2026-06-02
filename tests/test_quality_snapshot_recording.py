@@ -179,3 +179,45 @@ async def test_dispatch_records_snapshot_before_no_pendings_early_return(
     s = snaps[0]
     assert s.spawned_reviewers == ()
     assert s.role_versions == {}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_idempotent_per_run_id(tmp_path: Path, monkeypatch) -> None:
+    """Retrying a dispatch with the same cycle must not produce duplicate
+    rows. Otherwise a partial spawn failure that gets retried biases
+    ``jig audit quality`` aggregates with two rows for the same run."""
+
+    async def fake_compute(*_a, **_k):
+        return ChangeMetrics(
+            max_cc=5,
+            max_cc_location="x.py:g",
+            ruff_findings=1,
+            loc_delta=10,
+            taxonomy_hits=(),
+        )
+
+    monkeypatch.setattr("jig.code_metrics.compute_change_metrics", fake_compute)
+
+    _write_arch(tmp_path)
+    _write_contracts(tmp_path)
+    _write_spec(tmp_path)
+    worktree = tmp_path / ".jig" / "worktrees" / "tb-fed"
+    _init_worktree(worktree)
+
+    orch = _FakeOrchestrator()
+    # Two dispatches for the same ticket + cycle (operator-level retry).
+    for _ in range(2):
+        await dispatch_with_llm_spawn(
+            _ticket(),
+            tmp_path,
+            orch,  # type: ignore[arg-type]
+            worktree_path=worktree,
+            cycle=0,
+        )
+
+    store = QualitySnapshotStore(
+        tmp_path / ".jig" / "store" / "quality_snapshots.jsonl"
+    )
+    await store.load()
+    snaps = await store.for_run("tb-fed.cycle0")
+    assert len(snaps) == 1, snaps  # second call must be a no-op

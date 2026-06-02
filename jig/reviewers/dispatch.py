@@ -1141,6 +1141,11 @@ async def _record_quality_snapshot(
         snap_path.parent.mkdir(parents=True, exist_ok=True)
         snap_store = QualitySnapshotStore(snap_path)
         await snap_store.load()
+        # Idempotency per ``run_id``: an operator-level retry on the same
+        # cycle (e.g. recovery after a partial spawn failure) must not
+        # bias ``jig audit quality`` aggregates with duplicate rows.
+        if await snap_store.for_run(snap.run_id):
+            return
         await snap_store.append(snap)
     except Exception:  # noqa: BLE001 — signal-only contract
         _logger.warning(

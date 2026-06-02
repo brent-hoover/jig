@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-31
+updated: 2026-06-02
 ---
 
 # C4 Component Level: Jig Agent Orchestration Framework

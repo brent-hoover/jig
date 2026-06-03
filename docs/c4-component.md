@@ -730,6 +730,12 @@ enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
 - **Auto-apply**: `auto_apply.py` applies suggested diffs automatically when `confidence >= threshold`
 - **Fix loop**: Orchestrator-driven cycle of fix-attempt → re-review; capped at 3 cycles
 - **Comment persistence**: All comments stored in `ReviewCommentsStore` at `.jig/store/review_comments.jsonl`
+- **Quality snapshot recording**: At end-of-ticket dispatch, `dispatch_with_llm_spawn` records a
+  `QualitySnapshot` to `QualitySnapshotStore` for each dispatch cycle. Snapshots carry the computed code
+  metrics, taxonomy hit counts, spawned reviewer IDs, role YAML hashes (for attribution), and a cell dict
+  (workflow_name, layer, work_type, phase) for filtering and aggregation. Recording fires before the
+  no-pendings early-return so even empty reviewer sets contribute a row. Signal-only: recording failures
+  are logged and dropped, never propagated to block federation dispatch.
 - **Per-commit hook integration**: `hooks/per_commit_runner.py` runs the mechanical reviewer subset on every commit
 - **Code metrics injection**: At end-of-ticket dispatch, `dispatch_with_llm_spawn` computes deterministic code
   metrics (max cyclomatic complexity, ruff finding count, net LoC delta, taxonomy hits) over changed Python files
@@ -877,7 +883,8 @@ run via `jig sim run-tier` outside of pytest.
 - **Primary files**: `jig/store/core.py`, `jig/store/tickets.py`, `jig/store/threads.py`,
   `jig/store/bus.py`, `jig/store/memory.py`, `jig/store/checkpoints.py`,
   `jig/store/review_comments.py`, `jig/store/check_results.py`, `jig/store/models.py`,
-  `jig/store/collection.py`, `jig/store/audit.py`, `jig/store/canon_issues.py`,
+  `jig/store/collection.py`, `jig/store/audit.py`, `jig/store/quality.py`,
+  `jig/store/canon_issues.py`,
   `jig/ticket.py`, `jig/thread.py`, `jig/checkpoints.py`, `jig/tradeoff_store.py`
 
 ### Responsibility
@@ -904,6 +911,10 @@ handlers, never through direct store references.
 - **ReviewCommentsStore**: Reviewer federation comment persistence; per-ticket query; backed by
   `review_comments.jsonl`
 - **CheckResultsStore**: Automated check results per ticket/phase; backed by `check_results.jsonl`
+- **QualitySnapshotStore**: Per-end-of-ticket quality measurement snapshots (max cyclomatic complexity, ruff
+  finding count, net LoC delta, taxonomy hit counts, attribution cell, spawned reviewer ids, role YAML
+  hashes); recorded by the reviewer federation at each dispatch cycle; backed by
+  `quality_snapshots.jsonl`
 - **EventEmitter**: In-process pub-sub for real-time state changes; subscribers receive async queues; consumed by
   WebSocket Server relay task
 - **Typed thread entries**: Full discriminated-union model — `Question`, `Answer`, `Objection`, `Resolution`,
@@ -1075,7 +1086,7 @@ C4Component
 
         Component(sim_framework, "Sim Framework", "Python / pytest / YAML", "Synthetic operator simulation. Scenario-based end-to-end testing, five operator personas, five assertion types, coverage tracking.")
 
-        ComponentDb(store_layer, "Store Layer", "Python / JSONL", "Append-only persistence. TicketStore, ThreadStore, MessageBus, MemoryStore, CheckpointStore, ReviewCommentsStore, EventEmitter.")
+        ComponentDb(store_layer, "Store Layer", "Python / JSONL", "Append-only persistence. TicketStore, ThreadStore, MessageBus, MemoryStore, CheckpointStore, ReviewCommentsStore, QualitySnapshotStore, EventEmitter.")
     }
 
     System_Ext(claude_api, "Claude API", "Anthropic LLM inference for all agent roles via claude-agent-sdk")

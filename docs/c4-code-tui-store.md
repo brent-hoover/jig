@@ -430,6 +430,30 @@
 - **Attributes**:
   - `_collection: Collection`: Indexed on ticket_id, run_id
 
+**QualitySnapshotStore** (`jig/store/quality.py`)
+- **Description**: Append-only JSONL store for per-end-of-ticket quality snapshots (max cyclomatic complexity,
+  ruff finding count, net LoC delta, taxonomy hit counts) tagged with attribution cells for aggregation and
+  cell-based analysis; written by the reviewer federation at each dispatch cycle
+- **Location**: `jig/store/quality.py`
+- **QualitySnapshot** model:
+  - Fields: ticket_id, run_id, phase (default ""), max_cc, ruff_findings, loc_delta,
+    taxonomy_hit_counts (sorted tuple-of-pairs), cell (sorted tuple-of-pairs — workflow_name, layer,
+    work_type, phase), spawned_reviewers (tuple of reviewer ids), role_versions (sorted tuple-of-pairs
+    of reviewer_id → sha256[:12] of role YAML), recorded_at
+  - Frozen (immutable after construction); nested dict fields normalised to sorted tuple-of-pairs for deep
+    immutability; construction accepts dict input via before-validator
+  - `run_id` is a label of the form `"{ticket_id}.cycle{cycle}"`, not a unique key — may be shared across
+    dispatch phases; deduplication is on `(run_id, phase, spawned_reviewers)`
+- **Methods**:
+  - `load() -> None`: Load collection
+  - `append(snap: QualitySnapshot) -> str`: Insert snapshot
+  - `for_ticket(ticket_id: str) -> list[QualitySnapshot]`: Fetch all snapshots for a ticket
+  - `for_run(run_id: str) -> list[QualitySnapshot]`: Fetch all snapshots for a run_id (may return multiple
+    rows when the same run_id spans multiple dispatch phases)
+  - `all() -> list[QualitySnapshot]`: All snapshots
+- **Attributes**:
+  - `_collection: Collection`: Indexed on ticket_id, run_id
+
 ## Dependencies
 
 ### Internal Dependencies
@@ -820,6 +844,16 @@ classDiagram
             +for_ticket(ticket_id) list[AuditEntry]
             +all() list[AuditEntry]
         }
+        
+        class QualitySnapshotStore {
+            <<async>>
+            -_collection: Collection
+            +load() None
+            +append(snap) str
+            +for_ticket(ticket_id) list[QualitySnapshot]
+            +for_run(run_id) list[QualitySnapshot]
+            +all() list[QualitySnapshot]
+        }
     }
     
     class Message {
@@ -866,6 +900,21 @@ classDiagram
         +ticket_id: str
     }
     
+    class QualitySnapshot {
+        <<pydantic>>
+        +ticket_id: str
+        +run_id: str
+        +phase: str
+        +max_cc: int
+        +ruff_findings: int
+        +loc_delta: int
+        +taxonomy_hit_counts: tuple
+        +cell: tuple
+        +spawned_reviewers: tuple
+        +role_versions: tuple
+        +recorded_at: datetime
+    }
+    
     Collection --> JsonlStore : wraps
     Database --> Collection : creates
     TypedCollection --> Collection : wraps
@@ -878,6 +927,8 @@ classDiagram
     MessageBus --> Message : manages
     AuditStore --> Collection : uses
     AuditStore --> AuditEntry : manages
+    QualitySnapshotStore --> Collection : uses
+    QualitySnapshotStore --> QualitySnapshot : manages
     MemoryStore --> Handoff : manages
     MemoryStore --> Learning : manages
     RecordTooLargeError --|> ValueError : extends

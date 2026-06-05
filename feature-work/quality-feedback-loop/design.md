@@ -182,9 +182,10 @@ Add a paragraph after the ruff-check instruction:
 | `_run_review_phase_federation` (`orchestrator.py`) | Unacked-notable check + rejection-escalation check before returning `"success"` |
 | `_code_metrics_section` (`prompt_builder.py`) | Fallback block added when `hits_for_reviewer` returns empty |
 | `dev.yaml` | New paragraph on finding acknowledgement requirement |
-| All LLM reviewer role YAMLs | Add instruction to handle `status="reject"` findings in the verify bundle explicitly (accept via `mark_finding_resolved` or re-flag) |
+| `prompt_builder.py` verify-bundle section | Inject a `status="reject"` handling instruction into every reviewer prompt when the verify bundle contains rejected findings — no role YAML edits needed |
 
-No new MCP tools. No new store files. No wire protocol changes.
+No new MCP tools. No new store files. The `mark_finding_addressed` MCP tool schema gains one
+optional `kind` parameter (default `"addressed"`); callers that omit it are unaffected.
 
 ## Data model
 
@@ -219,9 +220,10 @@ them.
 
 ### Optimal — Complete + `reject` ack kind *(chosen)*
 
-All of Complete plus `reject`. The gate accepts `addressed`, `resolved`, and `reject`. A rejected
-important routes through the reviewer for adjudication; a rejected notable is accepted without
-re-flag.
+All of Complete plus `reject`. `reject` is a dev dissent that requires reviewer sign-off
+(`mark_finding_resolved`) — reviewer silence does not close it. A rejected important routes
+through the pre-existing `blocking` branch; a rejected notable requires the reviewer to explicitly
+accept or re-flag each cycle.
 
 **Why above Simplest:** instruction-only is known-broken.
 
@@ -266,9 +268,9 @@ The per-ticket gate is sufficient to prevent escapes within a ticket.
 - SA escalation for `reject`→`reraised` loops: the live phase loop has no sa-consult dispatch
   path (the only existing sa-consult emitter is in `_run_review_federation`, which is dead code).
   Reject loops are bounded by `max_fix_cycles` for now; SA escalation is a separate feature.
-- All LLM reviewer role YAMLs require a narrow prompt addition: instruct the reviewer to handle
-  `status="reject"` findings explicitly (accept or re-flag). This is in scope — it is not a
-  structural change to reviewer logic, just a prompt instruction.
+- The `status="reject"` handling instruction for reviewers is injected by `prompt_builder.py`
+  (in the verify-bundle section) when rejected findings are present, not via role YAML edits.
+  This satisfies the problem constraint ("no edits to existing reviewer role YAML files").
 - Reviewer confirmation of notable rejections (residual risk, future improvement).
 
 ## Change log

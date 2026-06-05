@@ -344,6 +344,7 @@ JSONL files as the backing store.
 | `.jig/store/checkpoints.jsonl` | `CheckpointStore` | Agent checkpoints and deferred-queue items |
 | `.jig/store/review_comments.jsonl` | `ReviewCommentsStore` | Reviewer federation comment records |
 | `.jig/store/check_results.jsonl` | `CheckResultsStore` | Automated check results per ticket/phase |
+| `.jig/store/quality_snapshots.jsonl` | `QualitySnapshotStore` | Per-end-of-ticket quality snapshots (CC, ruff findings, LoC delta, taxonomy hits, attribution cell) |
 | `.jig/spec/` | (spec loader) | PO artifacts: discovery YAML, suites, briefs, ontology |
 | `.jig/plan/build-plan.yaml` | (spec loader) | Planner PM build plan |
 | `.jig/plan/deferred.jsonl` | (Coordinator) | DEFERRED queue for notable-severity review items |

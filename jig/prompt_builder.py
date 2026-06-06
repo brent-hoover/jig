@@ -593,6 +593,16 @@ def _verify_findings_section(bundle: dict | None) -> str:
         "this cycle) need no further action from you.\n"
     )
 
+    has_rejected = any(f.get("status") == "reject" for f in findings)
+    if has_rejected:
+        lines.append(
+            "\n⚠ **Disputed findings (status: reject)** — the dev has formally "
+            "disagreed with one or more findings below. Reviewer silence does NOT "
+            "close a disputed finding. For each `status: reject` finding you must "
+            "either call `mark_finding_resolved` to accept the rejection, or re-flag "
+            "it via `reviewer_post_comment` to dispute it.\n"
+        )
+
     for f in findings:
         loc = f.get("file") or "(diff-wide)"
         line_no = f.get("line")

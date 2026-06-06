@@ -109,11 +109,13 @@ async def build_fix_loop_bundle(
 
     # --- Notable path: all cycles, bypass routing, unsatisfied acks only ---
     notable_findings: list[dict] = []
-    for c in (in_scope_notable_comments or []):
+    for c in in_scope_notable_comments or []:
         finding_id = ids.get(signature_of(c))
         if finding_id is None:
             continue
-        if any(f["finding_id"] == finding_id for f in blocking_findings + notable_findings):
+        if any(
+            f["finding_id"] == finding_id for f in blocking_findings + notable_findings
+        ):
             continue
         acks = acks_by_finding.get(finding_id, [])
         if _notable_is_satisfied(acks):

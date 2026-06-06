@@ -1017,9 +1017,7 @@ class Orchestrator:
                 await _gate_acks_store.load()
                 all_history_acks = await _gate_acks_store.for_ticket(ticket_id)
 
-            candidate_notables = [
-                c for c in all_history if c.severity == "notable"
-            ]
+            candidate_notables = [c for c in all_history if c.severity == "notable"]
             in_scope_notables = (
                 await self._filter_out_of_scope_comments(candidate_notables)
                 if candidate_notables

@@ -28,7 +28,7 @@ adjudicator.
 `_code_metrics_section` currently calls `hits_for_reviewer(metrics.taxonomy_hits, role)` and
 renders only the matched subset. When the result is empty — either because no role was passed or
 because the spawned reviewer owns no taxonomy entries — fall back to the full `metrics.taxonomy_hits`
-list. Each hit in the fallback block is annotated with its `owning_reviewer` so the generalist
+list. Each hit in the fallback block is annotated with its `TaxonomyHit.reviewer` so the generalist
 knows which specialist would normally receive it.
 
 Specialist-federation runs are unaffected: a spawned `reviewer-error-handling` gets a non-empty

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from jig.models import PhaseConfig, WorkflowConfig
     from jig.prompt_registry import PromptRegistry
     from jig.reviewers.comment import ReviewerComment
+    from jig.store.finding_acks import FindingAck
     from jig.ticket import Ticket
 
 from jig.agent import run_agent

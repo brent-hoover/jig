@@ -237,7 +237,7 @@ def build_verify_bundle(
         # can see the dispute rationale on rejected findings.
         latest_dev_claim = latest_addressed
         if latest_reject is not None:
-            if latest_addressed is None or latest_reject.cycle >= latest_addressed.cycle:
+            if latest_addressed is None or latest_reject.cycle > latest_addressed.cycle:
                 latest_dev_claim = latest_reject
 
         first = first_comment[fid]

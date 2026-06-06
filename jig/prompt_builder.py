@@ -674,6 +674,19 @@ def _code_metrics_section(
             cue = entry.cue if entry is not None else ""
             out += f"- [{h.id}] {h.file}:{h.line} — {cue}\n"
         out += "\n"
+    elif metrics.taxonomy_hits:
+        # Fallback: reviewer owns no taxonomy entries (e.g. reviewer-generalist
+        # in a small-profile run). Surface all hits annotated with their owning
+        # reviewer so no signal is silently dropped.
+        out += "### Unrouted taxonomy findings\n\n"
+        out += (
+            "The following hits were flagged by the deterministic scanner but "
+            "have no specialist reviewer assigned this run. Review them as part "
+            "of your general assessment:\n\n"
+        )
+        for h in metrics.taxonomy_hits:
+            out += f"- [{h.id}] {h.file}:{h.line} (owned by: {h.reviewer})\n"
+        out += "\n"
 
     if judgment:
         out += (

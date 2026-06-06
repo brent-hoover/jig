@@ -114,3 +114,81 @@ def test_section_for_non_reviewer_role_omits_per_reviewer_block() -> None:
     assert "## Objective Code Metrics" in out
     assert "Judgment checklist" not in out
     assert "Deterministic taxonomy findings" not in out
+
+
+def test_fallback_shows_all_hits_when_reviewer_owns_none() -> None:
+    """When the spawned reviewer owns no taxonomy entries (e.g. reviewer-generalist),
+    it should receive ALL hits annotated with their owning reviewer."""
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    metrics = ChangeMetrics(
+        max_cc=3,
+        max_cc_location="m.py:f",
+        ruff_findings=0,
+        loc_delta=5,
+        taxonomy_hits=(
+            TaxonomyHit(
+                id="TAX-SEC-001",
+                category="security",
+                file="m.py",
+                line=12,
+                reviewer="reviewer-security",
+            ),
+            TaxonomyHit(
+                id="TAX-LANG-001",
+                category="language-pitfall",
+                file="m.py",
+                line=20,
+                reviewer="reviewer-pattern-conformance",
+            ),
+        ),
+    )
+    # reviewer-generalist owns no taxonomy entries → fallback fires
+    out = _code_metrics_section(metrics, role="reviewer-generalist")
+
+    assert "TAX-SEC-001" in out
+    assert "TAX-LANG-001" in out
+    # Each hit annotated with its owning reviewer
+    assert "reviewer-security" in out
+    assert "reviewer-pattern-conformance" in out
+
+
+def test_fallback_does_not_fire_when_reviewer_owns_entries() -> None:
+    """When the reviewer owns entries, only its own hits are shown — no fallback."""
+    from jig.code_quality.taxonomy import TaxonomyHit
+
+    metrics = ChangeMetrics(
+        max_cc=3,
+        max_cc_location="m.py:f",
+        ruff_findings=0,
+        loc_delta=5,
+        taxonomy_hits=(
+            TaxonomyHit(
+                id="TAX-SEC-001",
+                category="security",
+                file="m.py",
+                line=12,
+                reviewer="reviewer-security",
+            ),
+            TaxonomyHit(
+                id="TAX-LANG-001",
+                category="language-pitfall",
+                file="m.py",
+                line=20,
+                reviewer="reviewer-pattern-conformance",
+            ),
+        ),
+    )
+    out = _code_metrics_section(metrics, role="reviewer-security")
+
+    assert "TAX-SEC-001" in out
+    assert "TAX-LANG-001" not in out  # not in fallback — security owns its entry
+
+
+def test_no_fallback_when_no_taxonomy_hits() -> None:
+    """No fallback block when there are no hits at all."""
+    metrics = ChangeMetrics(
+        max_cc=0, max_cc_location=None, ruff_findings=0, loc_delta=0, taxonomy_hits=()
+    )
+    out = _code_metrics_section(metrics, role="reviewer-generalist")
+    assert "Unrouted taxonomy findings" not in out

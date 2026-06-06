@@ -223,9 +223,11 @@ def build_verify_bundle(
         else:
             status = "open"
 
-        # Surface the latest dev claim (addressed or reject) in append
-        # order — the same ordering used for status — so same-cycle acks
-        # are always consistent between status and dev_claim.
+        # Surface the latest dev claim (addressed or reject) in cycle then
+        # append order — finding_acks is cycle-sorted (line 213), so iterating
+        # and overwriting gives cycle-order primacy with append-order tie-breaking
+        # within the same cycle. Matches the status field's finding_acks[-1] for
+        # same-cycle acks since the sort is stable.
         latest_dev_claim = None
         for ack in finding_acks:
             if ack.kind in ("addressed", "reject"):

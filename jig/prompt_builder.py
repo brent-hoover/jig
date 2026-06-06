@@ -588,8 +588,8 @@ def _verify_findings_section(bundle: dict | None) -> str:
 
     - ``findings``: list of dicts, each with ``finding_id``, ``file``,
       ``line``, ``severity``, ``reviewer``, ``original_prose``,
-      ``dev_claim`` ({cycle, author, prose} or None), ``status``
-      (``open`` | ``addressed`` | ``resolved``).
+      ``dev_claim`` ({cycle, author, prose, kind} or None), ``status``
+      (``open`` | ``addressed`` | ``resolved`` | ``reject`` | ``reraised``).
 
     Empty bundle → empty string. Cycle 1 reviewers run unchanged.
     """

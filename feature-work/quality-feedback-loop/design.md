@@ -1,10 +1,10 @@
 ---
 title: Quality Feedback Loop — Design
 type: design
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-06-02
-updated: 2026-06-02
+updated: 2026-06-06
 problem: ./problem.md
 ---
 

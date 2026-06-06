@@ -154,8 +154,9 @@ ack is `reject` gets `status="reject"` in the verify dict. Reviewer behavior by 
   accept the rejection, or re-flag to dispute it. Reviewer silence leaves the finding unsatisfied
   and the gate re-blocks. There is no automatic closure on a rejection.
 
-**Unacked-notable check** (§3): accepts `"addressed"`, `"resolved"`, and `"reject"` as satisfying
-acks. A `reject` on a notable is as valid as an `addressed` for gate purposes.
+**Unacked-notable check** (§3): accepts `"addressed"` and `"resolved"` as satisfying acks.
+`"reject"` does NOT satisfy the gate — it requires affirmative reviewer sign-off
+(`mark_finding_resolved`) or re-flag before the finding is closed.
 
 ### 5. `dev.yaml` instruction update
 

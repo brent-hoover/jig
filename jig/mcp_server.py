@@ -3066,16 +3066,18 @@ def create_agent_mcp_server(
 
         @tool(
             "mark_finding_addressed",
-            "Record that you have addressed a specific reviewer finding "
-            "by its stable RC-N id. Call this once per finding before "
-            "calling commit_progress / update_ticket. The MCP factory "
-            "stamps ticket_id, author (your role), and cycle (current "
-            "fix-loop iteration) from your agent context — you only "
-            "pass finding_id and how_resolved. how_resolved is a short "
-            "(<=500 char) prose description of what you changed.",
+            "Record that you have addressed or disputed a specific reviewer "
+            "finding by its stable RC-N id. Call this once per finding before "
+            "calling commit_progress / update_ticket. The MCP factory stamps "
+            "ticket_id, author (your role), and cycle from your agent context "
+            "— you only pass finding_id, how_resolved, and optionally kind. "
+            "how_resolved is a short (<=500 char) prose description. "
+            "kind defaults to 'addressed' (you fixed it); pass kind='reject' "
+            "with a prose rationale to formally dispute the finding.",
             {
                 "finding_id": str,
                 "how_resolved": str,
+                "kind": str,
             },
         )
         async def mark_finding_addressed(args):
@@ -3086,6 +3088,7 @@ def create_agent_mcp_server(
                 author=agent_role,
                 cycle=cycle,
                 how_resolved=args.get("how_resolved", ""),
+                kind=args.get("kind", "addressed"),  # type: ignore[arg-type]
             )
             return {"content": [{"type": "text", "text": ack_id}]}
 

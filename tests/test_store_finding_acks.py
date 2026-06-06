@@ -61,6 +61,17 @@ class TestModelFields:
                 prose="x",
             )
 
+    def test_reject_kind_accepted(self) -> None:
+        ack = FindingAck(
+            ticket_id="t-1",
+            finding_id="RC-1",
+            kind="reject",  # type: ignore[arg-type]
+            author="dev",
+            cycle=0,
+            prose="disagree with this finding",
+        )
+        assert ack.kind == "reject"
+
 
 class TestRoundtrip:
     async def test_append_and_for_ticket(self, tmp_path: Path) -> None:

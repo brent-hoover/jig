@@ -207,6 +207,50 @@ class TestIdempotencyWithinCycle:
         assert kinds == ["addressed", "resolved"]
 
 
+class TestRejectKind:
+    async def test_reject_kind_writes_reject_ack(self, tmp_path: Path) -> None:
+        await _seed_comment(tmp_path)
+        await handle_mark_finding_addressed(
+            project_path=tmp_path,
+            ticket_id="t-1",
+            finding_id="RC-1",
+            author="dev",
+            cycle=1,
+            how_resolved="I disagree — this pattern is intentional",
+            kind="reject",
+        )
+        acks = await _read_acks(tmp_path)
+        assert len(acks) == 1
+        assert acks[0].kind == "reject"
+        assert acks[0].prose == "I disagree — this pattern is intentional"
+
+    async def test_omitting_kind_defaults_to_addressed(self, tmp_path: Path) -> None:
+        await _seed_comment(tmp_path)
+        await handle_mark_finding_addressed(
+            project_path=tmp_path,
+            ticket_id="t-1",
+            finding_id="RC-1",
+            author="dev",
+            cycle=1,
+            how_resolved="fixed it",
+        )
+        acks = await _read_acks(tmp_path)
+        assert acks[0].kind == "addressed"
+
+    async def test_kind_resolved_rejected(self, tmp_path: Path) -> None:
+        await _seed_comment(tmp_path)
+        with pytest.raises(ValueError):
+            await handle_mark_finding_addressed(
+                project_path=tmp_path,
+                ticket_id="t-1",
+                finding_id="RC-1",
+                author="dev",
+                cycle=1,
+                how_resolved="x",
+                kind="resolved",  # type: ignore[arg-type]
+            )
+
+
 class TestProseValidation:
     async def test_prose_over_max_length_rejected(self, tmp_path: Path) -> None:
         await _seed_comment(tmp_path)

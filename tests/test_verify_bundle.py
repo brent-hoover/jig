@@ -155,6 +155,16 @@ def test_original_prose_preserved_across_rephrasing() -> None:
     assert out["findings"][0]["original_prose"] == "ORIGINAL"
 
 
+def test_status_reject_when_dev_rejected_finding() -> None:
+    """A dev rejection surfaces as status=reject so the reviewer can
+    explicitly accept (mark_finding_resolved) or re-flag."""
+    comments = [_c(prose="raised")]
+    acks = [_ack(finding_id="RC-1", kind="reject", cycle=1, prose="disagree")]
+    out = build_verify_bundle(all_comments=comments, all_acks=acks)
+    assert out is not None
+    assert out["findings"][0]["status"] == "reject"
+
+
 def test_latest_addressed_claim_wins() -> None:
     """When dev marks addressed across multiple cycles, the latest
     claim's prose is shown (most actionable for the reviewer)."""

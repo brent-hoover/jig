@@ -212,23 +212,33 @@ def build_verify_bundle(
 
         finding_acks = sorted(acks_by_finding.get(fid, []), key=lambda a: a.cycle)
         latest_addressed = None
+        latest_reject = None
         for ack in finding_acks:
             if ack.kind == "addressed":
                 latest_addressed = ack
+            elif ack.kind == "reject":
+                latest_reject = ack
         is_resolved = any(a.kind == "resolved" for a in finding_acks)
 
         # Status uses "latest ack kind wins" (with resolved as terminal)
         # so a finding whose dev claim was reraised reads "reraised", not
         # "addressed". Matches ws_server._get_findings_for_ticket. The
         # dev_claim field below is computed separately from the latest
-        # addressed ack — the reviewer still needs to see what the dev
-        # claimed even when the claim has been superseded by a reraise.
+        # addressed/reject ack — the reviewer still needs to see what the
+        # dev claimed even when superseded by a reraise.
         if is_resolved:
             status = "resolved"
         elif finding_acks:
             status = finding_acks[-1].kind
         else:
             status = "open"
+
+        # Surface the latest dev claim (addressed or reject) so reviewers
+        # can see the dispute rationale on rejected findings.
+        latest_dev_claim = latest_addressed
+        if latest_reject is not None:
+            if latest_addressed is None or latest_reject.cycle >= latest_addressed.cycle:
+                latest_dev_claim = latest_reject
 
         first = first_comment[fid]
         findings.append(
@@ -241,11 +251,12 @@ def build_verify_bundle(
                 "original_prose": first.prose,
                 "dev_claim": (
                     {
-                        "cycle": latest_addressed.cycle,
-                        "author": latest_addressed.author,
-                        "prose": latest_addressed.prose,
+                        "cycle": latest_dev_claim.cycle,
+                        "author": latest_dev_claim.author,
+                        "prose": latest_dev_claim.prose,
+                        "kind": latest_dev_claim.kind,
                     }
-                    if latest_addressed
+                    if latest_dev_claim
                     else None
                 ),
                 "status": status,

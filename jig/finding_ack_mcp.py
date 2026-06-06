@@ -136,6 +136,10 @@ async def handle_mark_finding_addressed(
     prose rationale). ``kind="resolved"`` is reserved for reviewer agents
     and is rejected here.
     """
+    if kind == "reject" and not how_resolved.strip():
+        raise ValueError(
+            "kind='reject' requires a non-empty prose rationale in how_resolved"
+        )
     if kind not in ("addressed", "reject"):
         raise ValueError(
             f"invalid kind {kind!r} for mark_finding_addressed — "

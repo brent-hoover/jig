@@ -3037,6 +3037,32 @@ class Orchestrator:
         await acks_store.load()
         all_acks = await acks_store.for_ticket(ticket_id)
 
+        # Collect in-scope notables for the dev phase so the dev sees
+        # every finding it must acknowledge, not just blocking ones.
+        # Filter via _filter_out_of_scope_comments (hallucination guard)
+        # to stay consistent with the gate in _run_review_phase_federation.
+        from jig.reviewers.comment import Severity as _Sev
+
+        candidate_notables = [
+            c for c in all_comments if c.severity == _Sev.NOTABLE.value
+        ]
+        in_scope_notables = (
+            await self._filter_out_of_scope_comments(candidate_notables)
+            if candidate_notables
+            else []
+        )
+        # Only surface notables to dev-phase bundles (role contains "dev").
+        # For other phases (test, validate), leave notables for the gate's
+        # dev fallback path rather than polluting a non-dev agent's context.
+        target_role = (
+            workflow.phases[target_phase_idx].role
+            if target_phase_idx < len(workflow.phases)
+            else ""
+        )
+        notable_comments_for_bundle = (
+            in_scope_notables if "dev" in (target_role or "") else []
+        )
+
         bundle = await build_fix_loop_bundle(
             workflow=workflow,
             blocked_phase_idx=blocked_phase_idx,
@@ -3044,6 +3070,7 @@ class Orchestrator:
             all_comments=all_comments,
             all_acks=all_acks,
             worktree_path=worktree,
+            in_scope_notable_comments=notable_comments_for_bundle,
         )
         if not bundle["findings"]:
             return None

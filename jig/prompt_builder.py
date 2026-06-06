@@ -551,7 +551,7 @@ def _blocking_findings_section(bundle: dict | None) -> str:
             "These findings are non-blocking but require acknowledgement. For "
             "each one: fix it and call "
             '`mark_finding_addressed(finding_id="RC-N", how_resolved="...")`, '
-            "or call it with `kind=\"reject\"` and a prose explanation if you "
+            'or call it with `kind="reject"` and a prose explanation if you '
             "genuinely disagree. Skipping any finding will re-block the ticket.\n"
         )
         for f in notables:
@@ -623,8 +623,7 @@ def _verify_findings_section(bundle: dict | None) -> str:
     )
 
     has_rejected_notables = any(
-        f.get("status") == "reject" and f.get("severity") == "notable"
-        for f in findings
+        f.get("status") == "reject" and f.get("severity") == "notable" for f in findings
     )
     if has_rejected_notables:
         lines.append(

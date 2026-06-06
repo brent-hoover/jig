@@ -183,6 +183,22 @@ def test_addressed_after_reject_same_cycle_shows_addressed_claim() -> None:
     assert finding["dev_claim"]["kind"] == "addressed"
 
 
+def test_reject_after_addressed_same_cycle_shows_reject_claim() -> None:
+    """When addressed then reject happen in the same cycle, status and
+    dev_claim must both reflect the later reject (append order wins)."""
+    comments = [_c(prose="raised")]
+    acks = [
+        _ack(finding_id="RC-1", kind="addressed", cycle=1, prose="thought-i-fixed"),
+        _ack(finding_id="RC-1", kind="reject", cycle=1, prose="actually-disagree"),
+    ]
+    out = build_verify_bundle(all_comments=comments, all_acks=acks)
+    assert out is not None
+    finding = out["findings"][0]
+    assert finding["status"] == "reject"
+    assert finding["dev_claim"]["prose"] == "actually-disagree"
+    assert finding["dev_claim"]["kind"] == "reject"
+
+
 def test_latest_addressed_claim_wins() -> None:
     """When dev marks addressed across multiple cycles, the latest
     claim's prose is shown (most actionable for the reviewer)."""

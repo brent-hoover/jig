@@ -211,21 +211,11 @@ def build_verify_bundle(
         seen_fids.add(fid)
 
         finding_acks = sorted(acks_by_finding.get(fid, []), key=lambda a: a.cycle)
-        latest_addressed = None
-        latest_reject = None
-        for ack in finding_acks:
-            if ack.kind == "addressed":
-                latest_addressed = ack
-            elif ack.kind == "reject":
-                latest_reject = ack
         is_resolved = any(a.kind == "resolved" for a in finding_acks)
 
         # Status uses "latest ack kind wins" (with resolved as terminal)
         # so a finding whose dev claim was reraised reads "reraised", not
-        # "addressed". Matches ws_server._get_findings_for_ticket. The
-        # dev_claim field below is computed separately from the latest
-        # addressed/reject ack — the reviewer still needs to see what the
-        # dev claimed even when superseded by a reraise.
+        # "addressed". Matches ws_server._get_findings_for_ticket.
         if is_resolved:
             status = "resolved"
         elif finding_acks:
@@ -233,12 +223,13 @@ def build_verify_bundle(
         else:
             status = "open"
 
-        # Surface the latest dev claim (addressed or reject) so reviewers
-        # can see the dispute rationale on rejected findings.
-        latest_dev_claim = latest_addressed
-        if latest_reject is not None:
-            if latest_addressed is None or latest_reject.cycle > latest_addressed.cycle:
-                latest_dev_claim = latest_reject
+        # Surface the latest dev claim (addressed or reject) in append
+        # order — the same ordering used for status — so same-cycle acks
+        # are always consistent between status and dev_claim.
+        latest_dev_claim = None
+        for ack in finding_acks:
+            if ack.kind in ("addressed", "reject"):
+                latest_dev_claim = ack
 
         first = first_comment[fid]
         findings.append(

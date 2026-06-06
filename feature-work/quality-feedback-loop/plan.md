@@ -69,7 +69,10 @@ produced by the existing `finding_acks[-1].kind` logic but are undocumented.
      parameter to `build_fix_loop_bundle` (in addition to `all_acks`, which stays). Inside
      the function, select from `in_scope_notable_comments` those with no satisfying ack in
      `all_acks` (latest ack kind `addressed` or `resolved`; `reject` and `reraised` are NOT
-     satisfying). Bypass `_route_one` — notables always target dev.
+     satisfying). Bypass `_route_one` — notables always target dev. **Only pass
+     `in_scope_notable_comments` when `target_phase_idx` is a dev phase**; when the retry target
+     is a non-dev phase (e.g. test), pass an empty list so notables are withheld from that bundle
+     and left for the unacked-notable gate's dev fallback path.
      **Update `_build_fix_loop_bundle_for_phase` signature** to add the filter call and pass
      results into `build_fix_loop_bundle`.
   3. Early-return: return empty only when **both** lists are empty. The current early-return
@@ -101,7 +104,7 @@ Add tests:
 
 **What:** In `_code_metrics_section`, after calling `hits_for_reviewer(metrics.taxonomy_hits,
 role)`: if the result is empty (reviewer owns no entries), fall back to the full
-`metrics.taxonomy_hits` list. Annotate each hit in the fallback block with its `owning_reviewer`
+`metrics.taxonomy_hits` list. Annotate each hit in the fallback block with its `TaxonomyHit.reviewer`
 field so the reviewer knows which specialist would normally handle it.
 
 **Why:** Taxonomy hits are silently unrouted in single-reviewer dispatches. Independent of the
@@ -113,7 +116,7 @@ uv run pytest tests/ -k "code_metrics" -v
 ```
 Add tests:
 - Reviewer with no owned taxonomy entries gets the full fallback list, each hit annotated with
-  `owning_reviewer`.
+  `TaxonomyHit.reviewer`.
 - Reviewer with owned entries gets only its entries (no fallback).
 - `role=None` still returns the universal block only (no fallback).
 

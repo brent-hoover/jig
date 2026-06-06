@@ -236,8 +236,9 @@ The per-ticket gate is sufficient to prevent escapes within a ticket.
 
 - **`reject` requires reviewer to actively respond**: a `reject` ack does not satisfy the gate
   on its own — the reviewer must call `mark_finding_resolved` or re-flag. If the reviewer agent
-  fails to handle the rejection (neither accepts nor re-flags), the ticket loops. The reviewer
-  role YAML must instruct the reviewer to handle `status="reject"` findings explicitly.
+  fails to handle the rejection (neither accepts nor re-flags), the ticket loops. The reject-handling
+  instruction is injected by `prompt_builder.py` into the reviewer prompt when the verify bundle
+  contains `status="reject"` findings — no reviewer role YAML edits are needed.
 - **`reject` loops bounded only by `max_fix_cycles`**: without SA escalation, a persistent
   dev/reviewer disagreement on a `reject` will cycle until `max_fix_cycles` is hit and the
   ticket fails. This is visible to the operator; SA escalation is deferred to a separate feature.

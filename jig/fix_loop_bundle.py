@@ -51,61 +51,75 @@ async def build_fix_loop_bundle(
     all_comments: "list[ReviewerComment]",
     all_acks: "list[FindingAck]",
     worktree_path: Path,
+    in_scope_notable_comments: "list[ReviewerComment] | None" = None,
 ) -> dict:
     """Build the bundle for a phase about to be back-routed.
 
-    Includes only findings from the **latest cycle** (the one that just
-    blocked) AND whose individual routing target matches
-    ``target_phase_idx``. Earlier-cycle findings are not re-rendered
-    — they've already been addressed (or not), and the reviewer
-    re-flagging path will surface anything still broken in this cycle.
+    Critical/important findings come from the latest cycle only, routed to
+    ``target_phase_idx`` via ``_route_one``. Notable findings come from the
+    full ``in_scope_notable_comments`` list (all cycles, pre-filtered by the
+    caller via ``_filter_out_of_scope_comments``), restricted to those with
+    no satisfying ack. Notables bypass ``_route_one`` and always target dev.
 
-    Each finding carries its full ack history (across all cycles) so
-    the agent can see what was previously claimed and rejected.
+    Each finding carries its full ack history so the agent can see what was
+    previously claimed and rejected.
     """
-    if not all_comments:
-        return {"findings": [], "overflow_count": 0}
-
-    latest_cycle = max(c.cycle for c in all_comments)
-    blocking = [
-        c
-        for c in all_comments
-        if c.cycle == latest_cycle and c.severity in ("critical", "important")
-    ]
-    if not blocking:
-        return {"findings": [], "overflow_count": 0}
-
     # Compute stable IDs from the full insertion-ordered list so a
     # re-phrased finding still maps to its original RC-N.
-    ids = compute_finding_ids(all_comments)
+    ids = compute_finding_ids(all_comments) if all_comments else {}
 
     # Group acks by finding_id for fast lookup.
     acks_by_finding: dict[str, list[FindingAck]] = {}
     for ack in all_acks:
         acks_by_finding.setdefault(ack.finding_id, []).append(ack)
 
-    # Filter blocking comments to those routed to the target phase.
-    routed: list[ReviewerComment] = []
-    for c in blocking:
-        idx, _ = await _route_one(workflow, blocked_phase_idx, c, worktree_path)
-        if idx == target_phase_idx:
-            routed.append(c)
+    # --- Blocking path: latest-cycle critical/important, routed ---
+    blocking_findings: list[dict] = []
+    if all_comments:
+        latest_cycle = max(c.cycle for c in all_comments)
+        blocking = [
+            c
+            for c in all_comments
+            if c.cycle == latest_cycle and c.severity in ("critical", "important")
+        ]
+        routed: list[ReviewerComment] = []
+        for c in blocking:
+            idx, _ = await _route_one(workflow, blocked_phase_idx, c, worktree_path)
+            if idx == target_phase_idx:
+                routed.append(c)
 
-    findings: list[dict] = []
-    for c in routed:
+        seen_fids: set[str] = set()
+        for c in routed:
+            finding_id = ids.get(signature_of(c))
+            if finding_id is None or finding_id in seen_fids:
+                continue
+            seen_fids.add(finding_id)
+            ack_dicts = [_ack_to_dict(a) for a in acks_by_finding.get(finding_id, [])]
+            blocking_findings.append(
+                {
+                    "finding_id": finding_id,
+                    "file": c.file,
+                    "line": c.line,
+                    "severity": c.severity,
+                    "reviewer": c.reviewer,
+                    "prose": c.prose,
+                    "ack_history": ack_dicts,
+                }
+            )
+
+    # --- Notable path: all cycles, bypass routing, unsatisfied acks only ---
+    notable_findings: list[dict] = []
+    for c in (in_scope_notable_comments or []):
         finding_id = ids.get(signature_of(c))
         if finding_id is None:
-            # Defensive — every blocking comment should have a signature
-            # in `ids` because they came from `all_comments`. Skip
-            # silently rather than crash if something pathological
-            # happens (e.g. a manually edited JSONL row).
             continue
-        ack_dicts = [_ack_to_dict(a) for a in acks_by_finding.get(finding_id, [])]
-        # De-duplicate by signature within the bundle — a finding
-        # re-phrased twice in the same cycle should appear once.
-        if any(f["finding_id"] == finding_id for f in findings):
+        if any(f["finding_id"] == finding_id for f in blocking_findings + notable_findings):
             continue
-        findings.append(
+        acks = acks_by_finding.get(finding_id, [])
+        if _notable_is_satisfied(acks):
+            continue
+        ack_dicts = [_ack_to_dict(a) for a in acks]
+        notable_findings.append(
             {
                 "finding_id": finding_id,
                 "file": c.file,
@@ -117,9 +131,27 @@ async def build_fix_loop_bundle(
             }
         )
 
+    findings = blocking_findings + notable_findings
+    if not findings:
+        return {"findings": [], "overflow_count": 0}
+
     overflow = max(0, len(findings) - MAX_RENDERED_FINDINGS)
     findings = findings[:MAX_RENDERED_FINDINGS]
     return {"findings": findings, "overflow_count": overflow}
+
+
+def _notable_is_satisfied(acks: "list[FindingAck]") -> bool:
+    """A notable is satisfied when the latest ack (by cycle then append order)
+    is 'addressed' or 'resolved'. 'reject' requires reviewer sign-off first;
+    'reraised' or absent means still open."""
+    if not acks:
+        return False
+    latest = acks[-1]  # append-ordered; matches ws_server convention
+    if latest.kind == "resolved":
+        return True
+    if latest.kind == "addressed":
+        return True
+    return False
 
 
 def build_verify_bundle(

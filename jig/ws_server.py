@@ -604,7 +604,7 @@ class WebSocketServer:
                 # which corresponds to cycle order for non-pathological
                 # write paths. Take the last one as the "latest."
                 latest = ack_history[-1]
-                if latest["kind"] in ("addressed", "reraised"):
+                if latest["kind"] in ("addressed", "reraised", "reject"):
                     status = latest["kind"]
             result.append(
                 {

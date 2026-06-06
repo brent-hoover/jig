@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from jig.models import PhaseConfig, WorkflowConfig
     from jig.prompt_registry import PromptRegistry
     from jig.reviewers.comment import ReviewerComment
+    from jig.store.finding_acks import FindingAck
     from jig.ticket import Ticket
 
 from jig.agent import run_agent
@@ -138,6 +139,54 @@ def _summarize_critical_note(comments: list) -> str:
         f"Sources: {'; '.join(parts)}. Operator addresses the comments "
         f"(see ReviewCommentsStore) and re-runs the federation."
     )
+
+
+def _unacked_notable_finding_ids(
+    *,
+    all_comments: "list[ReviewerComment]",
+    all_acks: "list[FindingAck]",
+    in_scope_notables: "list[ReviewerComment]",
+) -> "list[str]":
+    """Return finding IDs of in-scope notables that have no satisfying ack.
+
+    A notable is satisfied when its latest ack (by append order, which
+    corresponds to insertion/cycle order for non-pathological writes) has
+    kind ``'addressed'`` or ``'resolved'``. ``'reject'`` requires reviewer
+    sign-off; ``'reraised'`` means the reviewer re-flagged; absent means
+    never acknowledged.
+
+    ``in_scope_notables`` must be pre-filtered by the caller via
+    ``_filter_out_of_scope_comments`` so hallucinated notables don't block.
+    """
+    from jig.finding_ids import compute_finding_ids, signature_of
+
+    if not in_scope_notables:
+        return []
+
+    ids = compute_finding_ids(all_comments) if all_comments else {}
+
+    # Build satisfied set: finding_id → latest ack kind (append-ordered).
+    acks_by_fid: dict[str, list] = {}
+    for ack in all_acks:
+        acks_by_fid.setdefault(ack.finding_id, []).append(ack)
+
+    def _is_satisfied(finding_id: str) -> bool:
+        acks = acks_by_fid.get(finding_id, [])
+        if not acks:
+            return False
+        latest_kind = acks[-1].kind
+        return latest_kind in ("addressed", "resolved")
+
+    unacked: list[str] = []
+    seen: set[str] = set()
+    for c in in_scope_notables:
+        finding_id = ids.get(signature_of(c))
+        if finding_id is None or finding_id in seen:
+            continue
+        seen.add(finding_id)
+        if not _is_satisfied(finding_id):
+            unacked.append(finding_id)
+    return unacked
 
 
 class DependencyMergeError(RuntimeError):
@@ -950,6 +999,62 @@ class Orchestrator:
                     f"Review found {n_crit} critical and {n_imp} important issue(s). "
                     "Routing back to dev phase."
                 ),
+            )
+
+        # Unacked-notable gate. Runs only when no blocking findings — if
+        # there ARE blocking findings, the dev re-run handles notables too.
+        # Fail-closed: an error in the gate blocks rather than silently passes.
+        try:
+            all_history = []
+            all_history_acks = []
+            if self.review_comments is not None:
+                await self.review_comments.load()
+                all_history = await self.review_comments.for_ticket_chronological(
+                    ticket_id
+                )
+            acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+            if acks_path.exists():
+                _gate_acks_store = FindingAcksStore(acks_path)
+                await _gate_acks_store.load()
+                all_history_acks = await _gate_acks_store.for_ticket(ticket_id)
+
+            candidate_notables = [
+                c for c in all_history if c.severity == Severity.NOTABLE.value
+            ]
+            in_scope_notables = (
+                await self._filter_out_of_scope_comments(candidate_notables)
+                if candidate_notables
+                else []
+            )
+            unacked = _unacked_notable_finding_ids(
+                all_comments=all_history,
+                all_acks=all_history_acks,
+                in_scope_notables=in_scope_notables,
+            )
+            if unacked:
+                _logger.info(
+                    "review federation: %d unacked notable(s) for ticket %s: %s",
+                    len(unacked),
+                    ticket_id,
+                    unacked,
+                )
+                return RunAgentResult(
+                    status="blocked",
+                    final_text=(
+                        f"Review found {len(unacked)} unacknowledged notable finding(s). "
+                        f"Call mark_finding_addressed for each before resolving: "
+                        f"{', '.join(unacked)}"
+                    ),
+                )
+        except Exception:
+            _logger.warning(
+                "unacked-notable gate failed for ticket %s; blocking (fail-closed)",
+                ticket_id,
+                exc_info=True,
+            )
+            return RunAgentResult(
+                status="blocked",
+                final_text="Unacked-notable gate error — blocking (see logs).",
             )
 
         _logger.info("review federation passed for ticket %s", ticket_id)
@@ -2935,6 +3040,30 @@ class Orchestrator:
         await acks_store.load()
         all_acks = await acks_store.for_ticket(ticket_id)
 
+        # Collect in-scope notables for the dev phase so the dev sees
+        # every finding it must acknowledge, not just blocking ones.
+        # Filter via _filter_out_of_scope_comments (hallucination guard)
+        # to stay consistent with the gate in _run_review_phase_federation.
+        from jig.reviewers.comment import Severity as _Sev
+
+        candidate_notables = [
+            c for c in all_comments if c.severity == _Sev.NOTABLE.value
+        ]
+        in_scope_notables = (
+            await self._filter_out_of_scope_comments(candidate_notables)
+            if candidate_notables
+            else []
+        )
+        # Only surface notables to dev-phase bundles (role contains "dev").
+        # For other phases (test, validate), leave notables for the gate's
+        # dev fallback path rather than polluting a non-dev agent's context.
+        target_role = (
+            workflow.phases[target_phase_idx].role
+            if target_phase_idx < len(workflow.phases)
+            else ""
+        )
+        notable_comments_for_bundle = in_scope_notables if target_role == "dev" else []
+
         bundle = await build_fix_loop_bundle(
             workflow=workflow,
             blocked_phase_idx=blocked_phase_idx,
@@ -2942,6 +3071,7 @@ class Orchestrator:
             all_comments=all_comments,
             all_acks=all_acks,
             worktree_path=worktree,
+            in_scope_notable_comments=notable_comments_for_bundle,
         )
         if not bundle["findings"]:
             return None

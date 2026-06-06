@@ -46,7 +46,7 @@ class FindingAck(BaseModel):
             "produced by ``jig.finding_ids.compute_finding_ids``."
         ),
     )
-    kind: Literal["addressed", "resolved", "reraised"]
+    kind: Literal["addressed", "resolved", "reraised", "reject"]
     author: str = Field(
         ...,
         min_length=1,

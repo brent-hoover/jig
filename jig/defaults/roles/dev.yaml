@@ -16,6 +16,14 @@ phase_prompt: >
   Before resolving, ensure `ruff check` passes — it runs as an automated
   gate on your phase and will bounce you back if it fails.
 
+  Every finding in the fix-loop bundle must be acknowledged before resolving
+  — call `mark_finding_addressed` for each one. For **blocking findings**
+  (must fix): fix the issue and call `mark_finding_addressed(finding_id=...,
+  how_resolved="...")`. For **non-blocking findings (fix or explain why
+  not)**: use `kind="addressed"` if you fix it, or `kind="reject"` with a
+  prose explanation if you genuinely disagree. Skipping any finding will
+  block the review phase from advancing.
+
   Commit working code via `commit_progress`, then call `update_ticket`
   with status="resolved".
 allowed_tools:

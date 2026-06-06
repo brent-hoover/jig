@@ -31,7 +31,7 @@ from jig.store.review_comments import ReviewCommentsStore
 
 _MAX_PROSE = 500
 
-AckKind = Literal["addressed", "resolved"]
+AckKind = Literal["addressed", "resolved", "reject"]
 
 
 class UnknownFindingError(ValueError):
@@ -125,20 +125,33 @@ async def handle_mark_finding_addressed(
     author: str,
     cycle: int,
     how_resolved: str,
+    kind: Literal["addressed", "reject"] = "addressed",
 ) -> str:
-    """Record the dev's claim that ``finding_id`` is fixed.
+    """Record the dev's claim that ``finding_id`` is fixed or disputed.
 
     ``ticket_id``, ``author``, and ``cycle`` come from the MCP factory's
-    per-agent context. ``finding_id`` and ``how_resolved`` come from
-    the agent's tool call.
+    per-agent context. ``finding_id``, ``how_resolved``, and ``kind`` come
+    from the agent's tool call. ``kind`` defaults to ``"addressed"``; pass
+    ``kind="reject"`` to record a disagreement with the finding (requires
+    prose rationale). ``kind="resolved"`` is reserved for reviewer agents
+    and is rejected here.
     """
+    if kind == "reject" and not how_resolved.strip():
+        raise ValueError(
+            "kind='reject' requires a non-empty prose rationale in how_resolved"
+        )
+    if kind not in ("addressed", "reject"):
+        raise ValueError(
+            f"invalid kind {kind!r} for mark_finding_addressed — "
+            "use 'addressed' to claim a fix or 'reject' to dispute the finding"
+        )
     _validate_prose(how_resolved)
     await _validate_finding_id(project_path, ticket_id, finding_id)
     return await _write_ack(
         project_path,
         ticket_id=ticket_id,
         finding_id=finding_id,
-        kind="addressed",
+        kind=kind,
         author=author,
         cycle=cycle,
         prose=how_resolved,

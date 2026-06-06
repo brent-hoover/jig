@@ -142,9 +142,9 @@ def _summarize_critical_note(comments: list) -> str:
 
 def _unacked_notable_finding_ids(
     *,
-    all_comments: "list",
-    all_acks: "list",
-    in_scope_notables: "list",
+    all_comments: "list[ReviewerComment]",
+    all_acks: "list[FindingAck]",
+    in_scope_notables: "list[ReviewerComment]",
 ) -> "list[str]":
     """Return finding IDs of in-scope notables that have no satisfying ack.
 
@@ -1017,7 +1017,9 @@ class Orchestrator:
                 await _gate_acks_store.load()
                 all_history_acks = await _gate_acks_store.for_ticket(ticket_id)
 
-            candidate_notables = [c for c in all_history if c.severity == "notable"]
+            candidate_notables = [
+                c for c in all_history if c.severity == Severity.NOTABLE.value
+            ]
             in_scope_notables = (
                 await self._filter_out_of_scope_comments(candidate_notables)
                 if candidate_notables
@@ -3059,9 +3061,7 @@ class Orchestrator:
             if target_phase_idx < len(workflow.phases)
             else ""
         )
-        notable_comments_for_bundle = (
-            in_scope_notables if "dev" in (target_role or "") else []
-        )
+        notable_comments_for_bundle = in_scope_notables if target_role == "dev" else []
 
         bundle = await build_fix_loop_bundle(
             workflow=workflow,

@@ -143,7 +143,7 @@ async def build_fix_loop_bundle(
 
 
 def _notable_is_satisfied(acks: "list[FindingAck]") -> bool:
-    """A notable is satisfied when the latest ack (by cycle then append order)
+    """A notable is satisfied when the latest ack (by append order)
     is 'addressed' or 'resolved'. 'reject' requires reviewer sign-off first;
     'reraised' or absent means still open."""
     if not acks:

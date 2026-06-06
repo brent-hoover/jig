@@ -237,6 +237,34 @@ class TestRejectKind:
         acks = await _read_acks(tmp_path)
         assert acks[0].kind == "addressed"
 
+    async def test_reject_requires_nonempty_rationale(self, tmp_path: Path) -> None:
+        await _seed_comment(tmp_path)
+        with pytest.raises(ValueError, match="non-empty"):
+            await handle_mark_finding_addressed(
+                project_path=tmp_path,
+                ticket_id="t-1",
+                finding_id="RC-1",
+                author="dev",
+                cycle=1,
+                how_resolved="",
+                kind="reject",
+            )
+
+    async def test_reject_requires_nonempty_rationale_whitespace(
+        self, tmp_path: Path
+    ) -> None:
+        await _seed_comment(tmp_path)
+        with pytest.raises(ValueError, match="non-empty"):
+            await handle_mark_finding_addressed(
+                project_path=tmp_path,
+                ticket_id="t-1",
+                finding_id="RC-1",
+                author="dev",
+                cycle=1,
+                how_resolved="   ",
+                kind="reject",
+            )
+
     async def test_kind_resolved_rejected(self, tmp_path: Path) -> None:
         await _seed_comment(tmp_path)
         with pytest.raises(ValueError):

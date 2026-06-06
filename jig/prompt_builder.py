@@ -647,8 +647,9 @@ def _verify_findings_section(bundle: dict | None) -> str:
         )
         claim = f.get("dev_claim")
         if claim:
+            label = "DEV REJECTED" if claim.get("kind") == "reject" else "DEV CLAIMED"
             lines.append(
-                f"DEV CLAIMED (cycle {claim['cycle']}, {claim['author']}): "
+                f"{label} (cycle {claim['cycle']}, {claim['author']}): "
                 f"{claim['prose']}\n"
             )
         else:

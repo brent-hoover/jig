@@ -359,6 +359,49 @@ async def test_resume_arch_finalize_handoff_routes_to_already_done(wired):
     )
 
 
+async def test_resume_rejected_arch_finalize_handoff_routes_to_sa_conversation(wired):
+    """A rejected arch_finalize Handoff must NOT be treated as SA-done.
+    classify_resume should fall through to SA_CONVERSATION so SA is respawned."""
+    await wired["tickets"].create(
+        Ticket(id="brief", work_type=WorkType.BRIEF, title="b", created_by="cli")
+    )
+    await wired["threads"].post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="",
+        )
+    )
+    await wired["tickets"].create(
+        Ticket(
+            id="architecture",
+            work_type=WorkType.ARCHITECTURE,
+            title="a",
+            created_by="cli",
+        )
+    )
+    await wired["threads"].post(
+        Handoff(
+            ticket_id="architecture",
+            author="sa_mvp",
+            phase="pm",
+            summary="done",
+            acceptance_state="rejected",
+            rejection_reason="incomplete contracts",
+        )
+    )
+    _seed_profile(wired["path"])
+    assert (
+        await classify_resume(
+            project_path=wired["path"],
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+        )
+        == ResumeState.SA_CONVERSATION
+    )
+
+
 async def test_resume_sa_propose_scaffold_takes_precedence_over_arch_finalize(wired):
     """When both sa_propose_scaffold Note AND Handoff(phase=pm) exist (bones SA
     path), route to SA_CONFIRM_PROMPT — the operator still needs to confirm."""

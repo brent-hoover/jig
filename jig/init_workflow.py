@@ -1979,9 +1979,11 @@ async def classify_resume(
     )
     # sa_mvp exits via arch_finalize, which posts Handoff(phase="pm") without
     # a sa_propose_scaffold Note. Treat this as SA-done so the dispatch loop
-    # stops respawning SA.
+    # stops respawning SA. Exclude rejected handoffs so an evaluator rejection
+    # falls through to SA_CONVERSATION and SA is respawned.
     has_arch_finalize_handoff = any(
-        isinstance(e, Handoff) and e.phase == "pm" for e in arch_entries
+        isinstance(e, Handoff) and e.phase == "pm" and e.acceptance_state != "rejected"
+        for e in arch_entries
     )
 
     if has_scaffold_applied:

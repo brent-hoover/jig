@@ -81,7 +81,8 @@ require another schema change.
 `sa.yaml` gains:
 - `context7` in `allowed_mcps`
 - `WebFetch` and `WebSearch` in `allowed_tools`
-- `strict_tools: false`
+- `strict_tools: true` (already set; the correct extension path is adding to `allowed_tools`, not
+  weakening the deny list — init roles use strict isolation to prevent reaching for operational tools)
 - Rewrite line 20 (the tool-enumeration gate: "these are the only ones you have") to reflect
   the expanded tool set; lines 57–58 prohibit Bash/Glob/Grep/Edit/Write and need no change
 
@@ -133,16 +134,18 @@ to extract and forward them. Without this, the SA agent cannot include the new p
 handler additions are unreachable. Also update the tool description string.
 
 **`jig/init_mcp.py` — `handle_sa_propose_scaffold` (~line 443)**: gains
-`tech_decisions: list[dict] = []` (validated against `TechDecision` on receipt) and
-`size: Literal["S", "M", "L"] = "S"` (logged in the thread payload, shown in confirmation).
+`tech_decisions: list[dict] | None = None` (normalized to `[]` at the top of the function body;
+validated against `TechDecision` on receipt) and `size: Literal["S", "M", "L"] = "S"` (logged in
+the thread payload, shown in confirmation).
 `constraints` and `open_questions` already exist. `decisions`/`config` deprecated but still
 written during Phase 1 (so `_scaffold_summary_for_pm`'s existing readers don't regress while
 the migration completes). `tech_decisions` is a new sibling key alongside `decisions`.
 
-**`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] = []`.
-Passed only from the SA-accept call site (line 567, `sa_path=True`). The direct-template-pick
-call site (line 586, `sa_path=False`) passes no `tech_decisions`; the param defaults to `[]`
-and the SA-path guard at ~line 1606 prevents any write. `apply_scaffold` writes `tech_decisions`
+**`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`;
+normalized to `[]` at the top of the function body. Passed only from the SA-accept call site
+(line 567, `sa_path=True`). The direct-template-pick call site (line 586, `sa_path=False`) passes
+no `tech_decisions`; the param defaults to `None` → `[]` and the SA-path guard at ~line 1606 prevents
+any write. `apply_scaffold` writes `tech_decisions`
 as a new key in the architecture.yaml dict, guarded by `if tech_decisions:` (matching the
 existing `decisions`/`constraints` guard pattern).
 
@@ -384,3 +387,5 @@ once its preconditions are met.
   merged architecture-skeleton scope; reproducibility mechanism; phased delivery; mark size override
   as Phase 2 (deferred from Phase 1)
 - 2026-06-07: Revised ×7 — clarify size-selection prefix: Phase 1 read-only, override is Phase 2 scope
+- 2026-06-07: Revised ×8 — strict_tools: true (add to allowed_tools, not weaken deny list);
+  mutable defaults: list[dict] | None = None + normalize in body for both handlers

@@ -485,8 +485,7 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
     → confirm → SA path. Mocks the agent runs but exercises the full
     init state machine + MCP handler + profile_loader.
 
-    Medium now uses ``sa_mvp``, which exits via ``arch_finalize``
-    (Handoff phase=pm) instead of ``sa_propose_scaffold``.
+    Medium stays on the basic ``sa`` role until the v2 init pipeline ships.
     """
     from jig.config import load_config
     from jig.init_workflow import _resolve_sa_role
@@ -541,29 +540,28 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
 
     sa_role_seen = {"value": None}
 
-    @agent.handle(role="sa_mvp", ticket_id="architecture")
-    async def _sa_mvp(ctx: AgentSpawnContext) -> None:
-        from jig.handoff_resolve import resolve_after_handoff
-
+    @agent.handle(role="sa", ticket_id="architecture")
+    async def _sa_default(ctx: AgentSpawnContext) -> None:
         sa_role_seen["value"] = ctx.role
-        await ctx.threads.post(
-            Handoff(
-                ticket_id="architecture",
-                author="sa_mvp",
-                phase="pm",
-                summary="arch complete",
-            )
+        await handle_arch_set_field(
+            threads=ctx.threads,
+            project_path=ctx.worktree_path,
+            path="rationale",
+            value="medium-scale arch",
+            author="sa",
         )
-        await resolve_after_handoff(
+        await handle_sa_propose_scaffold(
             tickets=ctx.tickets,
             threads=ctx.threads,
             bus=ctx.bus,
-            ticket_id="architecture",
-            author="sa_mvp",
+            template_name="python",
+            rationale="placeholder",
+            config={},
+            author="sa",
         )
 
-    # Auto-accept all prompts (profile confirm + brief approval).
-    answers = iter(["Y", "Y", "Y", ""])
+    # Auto-accept all prompts.
+    answers = iter(["Y", "Y", "Y", "Y", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with (
@@ -593,12 +591,13 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
     # 3. Profile applied to config.
     cfg = load_config(project)
     assert cfg.profile.name == "medium"
-    assert cfg.profile.sa_role == "sa_mvp"
+    # medium stays on basic sa until v2 init pipeline ships
+    assert cfg.profile.sa_role == "sa"
 
     # 4. _resolve_sa_role agrees, and the SA spawn used the medium
     # profile's sa role.
-    assert _resolve_sa_role(project) == "sa_mvp"
-    assert sa_role_seen["value"] == "sa_mvp"
+    assert _resolve_sa_role(project) == "sa"
+    assert sa_role_seen["value"] == "sa"
 
     # 5. Medium-profile workflow files copied into .jig/.
     assert (project / ".jig" / "profiles" / "medium.yaml").is_file()

@@ -41,7 +41,7 @@ class TestLoadProfile:
     def test_loads_shipped_medium(self) -> None:
         p = load_profile("medium")
         assert p.name == "medium"
-        assert p.sa_role == "sa_mvp"
+        assert p.sa_role == "sa"
         assert p.workflows.default_by_size["s"] == "feature-s-full"
 
     def test_project_local_wins_over_shipped(self, tmp_path: Path) -> None:
@@ -76,7 +76,7 @@ class TestApplyProfile:
         assert cfg.profile.name == ""  # default
         applied = apply_profile(cfg, load_profile("medium"))
         assert applied.profile.name == "medium"
-        assert applied.profile.sa_role == "sa_mvp"
+        assert applied.profile.sa_role == "sa"
 
     def test_merges_workflow_routing(self, tmp_path: Path) -> None:
         cfg = _bare_config(tmp_path)
@@ -169,4 +169,4 @@ class TestListProfiles:
         profiles_by_name = {p.name: p for p in list_profiles(tmp_path)}
         assert profiles_by_name["small"].sa_role == "custom-sa"
         # medium still comes from shipped.
-        assert profiles_by_name["medium"].sa_role == "sa_mvp"
+        assert profiles_by_name["medium"].sa_role == "sa"

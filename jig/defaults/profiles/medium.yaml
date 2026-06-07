@@ -7,16 +7,12 @@ description: >
   performance, security, pattern-conformance). xs tickets share the same
   ``feature-s`` workflow as ``small`` — no spawn of the five-reviewer
   federation on a one-file change, but still TDD.
-# Deferred: ``sa_role: sa_mvp`` is the long-term target — it produces
-# per-module ``contracts.yaml`` files for the contract-aware reviewers.
-# ``sa_mvp``'s exit is ``arch_finalize`` (Handoff phase=pm), which the
-# v1 init state machine doesn't yet recognise — it expects
-# ``sa_propose_scaffold``. Routing medium to ``sa_mvp`` today causes
-# the resume loop to spin respawning SA. For this PR, medium uses the
-# basic ``sa`` role; specialist reviewers gracefully skip the
-# contracts.yaml lookup (per the previously-merged graceful-skip fix).
-# Follow-up: extend ``classify_resume`` to recognise ``arch_finalize``
-# Handoffs as a valid architecture-done state, then flip this back.
+# sa_mvp is the long-term target — it produces per-module contracts.yaml
+# files for the specialist reviewer federation. classify_resume now
+# correctly recognises the arch_finalize Handoff (Handoff phase=pm) as
+# SA-done, unblocking the flip. Deferred until the v2 init pipeline
+# (discovery.md / suites.yaml) ships so sa_mvp has the upstream artifacts
+# it reads. See issue #137 and the sa_mvp role definition.
 sa_role: sa
 workflows:
   default_by_size:

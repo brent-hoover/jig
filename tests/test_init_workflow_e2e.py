@@ -485,10 +485,7 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
     → confirm → SA path. Mocks the agent runs but exercises the full
     init state machine + MCP handler + profile_loader.
 
-    Note: medium currently routes to the basic ``sa`` role (not the
-    long-term-target ``sa_mvp``). See the comment in
-    ``jig/defaults/profiles/medium.yaml`` for the deferred
-    ``arch_finalize`` integration.
+    Medium stays on the basic ``sa`` role until the v2 init pipeline ships.
     """
     from jig.config import load_config
     from jig.init_workflow import _resolve_sa_role
@@ -594,8 +591,7 @@ async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
     # 3. Profile applied to config.
     cfg = load_config(project)
     assert cfg.profile.name == "medium"
-    # Deferred: long-term target is ``sa_mvp``; medium uses basic
-    # ``sa`` until v1 init learns to handle the ``arch_finalize`` exit.
+    # medium stays on basic sa until v2 init pipeline ships
     assert cfg.profile.sa_role == "sa"
 
     # 4. _resolve_sa_role agrees, and the SA spawn used the medium

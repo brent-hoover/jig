@@ -1,11 +1,12 @@
 """Regression tests for brief auto-detection in analyze()."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from jig.evals.watcher.analyzer import analyze
+from jig.evals.watcher.llm import LLMResult
 
 
 @pytest.fixture()
@@ -19,16 +20,19 @@ def project_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _run_analyze(project_dir: Path, **kwargs) -> MagicMock:
+def _run_analyze(project_dir: Path, **kwargs) -> Path | None:
     captured: list[Path | None] = []
 
     def fake_llm(*, project_path, metrics, brief_path=None, **kw):
         captured.append(brief_path)
-        result = MagicMock()
-        result.metrics_update = {}
-        result.narrative = ""
-        result.analysis_md = ""
-        return result
+        return LLMResult(
+            analysis_md="# Analysis\n",
+            metrics_update={},
+            cost_usd=0.0,
+            tokens_in=0,
+            tokens_out=0,
+            num_turns=1,
+        )
 
     with patch("jig.evals.watcher.llm.run_llm_analysis", side_effect=fake_llm):
         analyze(

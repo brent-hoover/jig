@@ -700,11 +700,13 @@ scaling and severity isolation.
 Reviewers are selected per ticket based on ticket layer (bones/MVP/final), `reviewer_set` assignments from the
 build plan, and auto-selection rules (security reviewer for tickets touching auth/PII/payments; visual compliance for
 UI tickets; architectural reviewer for SA-tier tickets). Issues are classified as `critical` (must fix), `important`
-(should fix), or `notable` (deferred to DEFERRED queue).
+(should fix), or `notable` (must be acknowledged by dev via `mark_finding_addressed`; unacknowledged notables block
+the review gate fail-closed; can also route to the DEFERRED queue).
 
 Two dispatch cadences exist: per-commit (fast, mechanical-only reviewers run in single-digit seconds) and
-end-of-ticket (full federation, including judgment reviewers). After critical issues are found, the Orchestrator
-enters a fix-loop (capped at 3 cycles); exhaustion triggers auto-escalation.
+end-of-ticket (full federation, including judgment reviewers). After critical or important issues are found, or when
+notable findings remain unacknowledged, the Orchestrator enters a fix-loop (capped at 3 cycles); exhaustion triggers
+auto-escalation.
 
 ### Software Features
 

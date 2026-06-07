@@ -294,6 +294,11 @@ def analyze(
     use_llm: bool = True,
     brief_path: Path | None = None,
 ) -> RunMetrics:
+    if brief_path is None:
+        candidate = project_path / "docs" / "brief.md"
+        if candidate.is_file():
+            brief_path = candidate
+
     store = project_path / ".jig" / "store"
     tickets_rows = _read_jsonl(store / "tickets.jsonl")
     comments_rows = _read_jsonl(store / "comments.jsonl")

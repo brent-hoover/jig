@@ -12,7 +12,7 @@ problem: ./problem.md
 
 ## Summary
 
-Two-phase delivery. **Phase 1** (unblocked): add research tools (Context7, WebFetch, WebSearch),
+Two-phase delivery. **Phase 1** (pending egress verification — see Open questions): add research tools (Context7, WebFetch, WebSearch),
 decision rules, and a validated `TechDecision` model to the v1 `sa.yaml` that both profiles
 currently use. SA grounds each framework and package choice in a current source, and follows
 explicit prompt rules to make reproducible choices — ambiguous dimensions become `open_questions`

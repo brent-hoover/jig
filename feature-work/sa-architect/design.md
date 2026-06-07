@@ -1,7 +1,7 @@
 ---
 title: SA as Architect — Design
 type: design
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-06-07
 updated: 2026-06-07
@@ -86,7 +86,8 @@ require another schema change.
   the expanded tool set; lines 57–58 prohibit Bash/Glob/Grep/Edit/Write and need no change
 
 **Size-selection prefix** — SA reads the spec, selects S/M/L, and states the choice with
-reasoning in the first thread message. Operator can override during the confirmation prompt.
+reasoning in the first thread message. Operator can override during the confirmation prompt
+(size override capture/persistence deferred to Phase 2 — Phase 1 renders size as read-only).
 
 | Size | Trigger | Architecture output |
 |------|---------|---------------------|
@@ -376,5 +377,6 @@ once its preconditions are met.
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
-- 2026-06-07: Revised ×5 — correct SA selection mechanism; v1-only scope; factual corrections;
-  merged architecture-skeleton scope; reproducibility mechanism; phased delivery
+- 2026-06-07: Revised ×6 — correct SA selection mechanism; v1-only scope; factual corrections;
+  merged architecture-skeleton scope; reproducibility mechanism; phased delivery; mark size override
+  as Phase 2 (deferred from Phase 1)

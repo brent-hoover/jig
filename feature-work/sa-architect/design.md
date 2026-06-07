@@ -39,7 +39,7 @@ This design supersedes `feature-work/architecture-skeleton/design.md` (absorbed 
 
 ---
 
-## Phase 1 — Research tools + TechDecision (unblocked)
+## Phase 1 — Research tools + TechDecision (pending egress verification)
 
 ### 1. `TechDecision` schema addition (`jig/schemas/arch.py`)
 

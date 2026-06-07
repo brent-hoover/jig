@@ -12,9 +12,10 @@ design: ./design.md
 
 ## Overview
 
-Six ordered steps, each independently testable. Schema goes first — purely additive, zero caller impact. Step 2
-updates the SA role (prompt + tools) and doubles as the egress gate: the manual verify at the end of Step 2
-confirms whether the init sandbox allows Context7 and WebFetch; Steps 3–6 are held until that probe passes.
+Six implementation steps plus one full-verification step, each independently testable. Schema goes first —
+purely additive, zero caller impact. Step 2 updates the SA role (prompt + tools) and doubles as the egress
+gate: the manual verify at the end of Step 2 confirms whether the init sandbox allows Context7 and WebFetch;
+Steps 3–7 are held until that probe passes.
 Steps 3 and 4 extend the handoff pipeline: MCP tool registration and handler together (Step 3), then
 `apply_scaffold` plus its summary reader in the same commit (Step 4) — these two must land atomically because
 the reader (`_scaffold_summary_for_pm`) and the writer (`apply_scaffold`) must update together or PM gets an

@@ -203,15 +203,18 @@ spike/cascade workflow) is absorbed into the M/L section of `sa.yaml`. The exist
 
 ```python
 class OntologyTerm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     term: str
     definition: str
 
 class InternalBoundaries(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     allowed_modules: list[str] = Field(default_factory=list)
     forbidden_modules: list[str] = Field(default_factory=list)
     rationale: str | None = None
 
 class ExternalBoundaries(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     allowed: list[str] = Field(default_factory=list)
     forbidden: list[str] = Field(default_factory=list)
     rationale: str | None = None
@@ -252,7 +255,7 @@ Decision required before `BoundariesFile` schema finalises.
 
 **Phase 1:**
 - `sa_propose_scaffold` gains `tech_decisions: list[dict]`, `size: str`
-- `Architecture` gains `tech_decisions: list[TechDecision] = []`
+- `Architecture` gains `tech_decisions: list[TechDecision] = Field(default_factory=list)`
 - `apply_scaffold` gains `tech_decisions: list[dict]` parameter
 - `arch_get_field("tech_decisions")` available to dev and test
 

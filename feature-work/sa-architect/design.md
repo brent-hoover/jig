@@ -86,8 +86,8 @@ require another schema change.
   the expanded tool set; lines 57–58 prohibit Bash/Glob/Grep/Edit/Write and need no change
 
 **Size-selection prefix** — SA reads the spec, selects S/M/L, and states the choice with
-reasoning in the first thread message. Operator can override during the confirmation prompt
-(size override capture/persistence deferred to Phase 2 — Phase 1 renders size as read-only).
+reasoning in the first thread message. Phase 1 renders the SA-selected size read-only at the confirmation
+prompt. Operator size override is Phase 2 scope.
 
 | Size | Trigger | Architecture output |
 |------|---------|---------------------|
@@ -383,3 +383,4 @@ once its preconditions are met.
 - 2026-06-07: Revised ×6 — correct SA selection mechanism; v1-only scope; factual corrections;
   merged architecture-skeleton scope; reproducibility mechanism; phased delivery; mark size override
   as Phase 2 (deferred from Phase 1)
+- 2026-06-07: Revised ×7 — clarify size-selection prefix: Phase 1 read-only, override is Phase 2 scope

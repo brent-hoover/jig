@@ -95,7 +95,8 @@ parses without it. Existing conformant `architecture.yaml` files (v2 sa_mvp path
 - Add `context7` to `allowed_mcps`
 - Add `WebFetch` and `WebSearch` to `allowed_tools` — WebSearch locates library/API URLs that Context7 doesn't
   index before a WebFetch; it is not a separate research step but an optional precursor to `source_type: live_fetch`
-- Set `strict_tools: false`
+- Keep `strict_tools: true` (already set; SA uses strict isolation — adding tools to `allowed_tools` is the
+  correct extension mechanism, not weakening the deny list)
 - Rewrite the tool-enumeration gate (~line 20: "these are the only tools you have") to reflect expanded set
 - Update the `sa_propose_scaffold` signature documentation at lines 45–54 to include `tech_decisions` (list of
   `TechDecision` dicts) and `size` ("S"/"M"/"L") — so SA knows the full call shape before Step 3 lands
@@ -116,7 +117,7 @@ Documenting the updated `sa_propose_scaffold` signature now means SA will attemp
 **Verify:**
 - Add a test to `tests/test_load_role_by_role_id.py` (or equivalent role-loader test) that loads `sa.yaml`
   via `RoleConfig` and asserts `"context7" in role.allowed_mcps`, `"WebFetch" in role.allowed_tools`,
-  `"WebSearch" in role.allowed_tools`, and `role.strict_tools is False`.
+  `"WebSearch" in role.allowed_tools`, and `role.strict_tools is True`.
 - `uv run pytest tests/test_load_role_by_role_id.py -q` — new test passes.
 - **EGRESS GATE (blocks Steps 3–7)**: Run `jig init` (with Docker, sandboxed) against the hn-cli brief.
   When SA runs, observe: (a) `resolve-library-id` call succeeds (no timeout / auth error); (b) `WebFetch`
@@ -136,8 +137,9 @@ Two files, one commit:
   tool description string. Without this change the SA agent cannot pass the new params — the handler additions
   below are unreachable.
 
-- **`jig/init_mcp.py` (~line 443)** — `handle_sa_propose_scaffold`: add `tech_decisions: list[dict] = []`
-  and `size: str = "S"`. Validate `size` as `Literal["S", "M", "L"]` inside the handler body (the `@tool`
+- **`jig/init_mcp.py` (~line 443)** — `handle_sa_propose_scaffold`: add `tech_decisions: list[dict] | None = None`
+  and `size: str = "S"`; normalize `tech_decisions` to `[]` at the top of the function body (avoids mutable
+  default pitfall). Validate `size` as `Literal["S", "M", "L"]` inside the handler body (the `@tool`
   schema uses `str`; the `Literal` check must live in the handler). Validate each `tech_decisions` entry
   against `TechDecision` on receipt; raise `ValueError` on schema violation. The existing handler already
   merges `config` and `decisions` into `merged_decisions` and stores it as `decisions` in the payload — do not
@@ -162,7 +164,8 @@ change must land together — a mismatched schema would silently drop the new pa
 **What:**
 Two functions, one commit (reader and writer must stay in sync):
 
-- **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] = []`. Inside the existing
+- **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`; normalize to `[]` at the
+  top of the function body. Inside the existing
   `if sa_path:` block (~line 1606), add: `if tech_decisions: data["tech_decisions"] = tech_decisions`. The
   SA-accept call site (~line 567) passes `tech_decisions=proposal.get("tech_decisions", [])`. The
   direct-template-pick call site (~line 586, `sa_path=False`) does not pass `tech_decisions`; the `if sa_path:`
@@ -282,3 +285,6 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
   CliPromptHandler; add SA-accept seam test to Step 4 (proposal→apply_scaffold path); egress gate uses
   sandboxed jig init; Step 6 verify uses role loader; merge egress probe into Step 2; both-present test Step 4;
   prompt_sa_confirm seam test Step 5; design.md size override deferred
+- 2026-06-07: Revised ×8 — keep strict_tools: true in Step 2 (add to allowed_tools, not weaken deny list);
+  fix test assertion (strict_tools is True); mutable defaults: list[dict] | None = None + normalize in body
+  for handle_sa_propose_scaffold and apply_scaffold

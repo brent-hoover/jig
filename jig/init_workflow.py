@@ -1977,6 +1977,14 @@ async def classify_resume(
         isinstance(e, Note) and e.payload.get("kind") == "sa_propose_scaffold"
         for e in arch_entries
     )
+    # sa_mvp exits via arch_finalize, which posts Handoff(phase="pm") without
+    # a sa_propose_scaffold Note. Treat this as SA-done so the dispatch loop
+    # stops respawning SA. Exclude rejected handoffs so an evaluator rejection
+    # falls through to SA_CONVERSATION and SA is respawned.
+    has_arch_finalize_handoff = any(
+        isinstance(e, Handoff) and e.phase == "pm" and e.acceptance_state != "rejected"
+        for e in arch_entries
+    )
 
     if has_scaffold_applied:
         return ResumeState.ALREADY_DONE
@@ -1984,6 +1992,8 @@ async def classify_resume(
         return ResumeState.DIRECT_TEMPLATE_PICK
     if has_proposal:
         return ResumeState.SA_CONFIRM_PROMPT
+    if has_arch_finalize_handoff:
+        return ResumeState.ALREADY_DONE
     if await _ticket_awaits_answer(tickets, threads, "architecture"):
         return ResumeState.NEEDS_ANSWER_ARCH
     return ResumeState.SA_CONVERSATION

@@ -1,7 +1,8 @@
 ---
 title: Architecture Skeleton — Design
 type: design
-status: active
+status: superseded
+superseded_by: ../sa-architect/design.md
 owner: brent
 created: 2026-06-07
 updated: 2026-06-07

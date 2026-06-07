@@ -5,7 +5,7 @@ status: draft
 owner: Brent Hoover
 created: 2026-06-07
 updated: 2026-06-07
-design: ./problem.md
+problem: ./problem.md
 ---
 
 # Restore Brief for Project Analyzer — Implementation Plan

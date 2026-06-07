@@ -63,3 +63,15 @@ def test_brief_absent_preserves_behavior(project_dir: Path) -> None:
     captured = _run_analyze(project_dir)
 
     assert captured is None
+
+
+def test_explicit_brief_path_not_overridden_by_fallback(project_dir: Path) -> None:
+    # canonical brief exists, but caller supplies a different explicit path
+    (project_dir / "docs").mkdir(parents=True)
+    (project_dir / "docs" / "brief.md").write_text("# Canonical")
+    explicit = project_dir / "docs" / "other-brief.md"
+    explicit.write_text("# Explicit")
+
+    captured = _run_analyze(project_dir, brief_path=explicit)
+
+    assert captured == explicit

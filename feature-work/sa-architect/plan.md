@@ -53,6 +53,16 @@ Per design.md Out of scope, plus Phase 1 additions:
   during confirmation, but capturing and persisting that override requires additional state threading. Deferred
   to Phase 2 (or a separate ticket). Phase 1 renders size as read-only information.
 
+## Progress
+
+- [ ] Step 1: `TechDecision` schema addition
+- [ ] Step 2: SA role update (+ egress gate verification)
+- [ ] Step 3: `sa_propose_scaffold` MCP extension
+- [ ] Step 4: `apply_scaffold` + `_scaffold_summary_for_pm`
+- [ ] Step 5: Operator confirmation call chain
+- [ ] Step 6: Dev/test role access
+- [ ] Step 7: Full verification
+
 ## Steps
 
 ### 1. `TechDecision` schema addition (`jig/schemas/arch.py`)

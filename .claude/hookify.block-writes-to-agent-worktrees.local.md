@@ -5,7 +5,7 @@ event: file
 conditions:
   - field: file_path
     operator: contains
-    pattern: /.claude/worktrees/
+    pattern: .claude/worktrees/
 action: block
 ---
 

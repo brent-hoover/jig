@@ -167,19 +167,19 @@ change must land together — a mismatched schema would silently drop the new pa
 **What:**
 Two functions, one commit (reader and writer must stay in sync):
 
-- **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`; normalize to `[]` at the
-  top of the function body. Inside the existing
-  `if sa_path:` block (~line 1606), add:
+- **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None` and `size: str = "S"`;
+  normalize `tech_decisions` to `[]` at the top of the function body. Inside the existing `if sa_path:` block
+  (~line 1606), add:
   ```python
+  data["size"] = size          # always written when sa_path=True — Phase 2 reads this
   if tech_decisions:
       data["tech_decisions"] = tech_decisions
-      data["size"] = size
   ```
-  (`size` must be persisted to `architecture.yaml` here, not just in the Note payload — Phase 2 reads
-  `arch_get_field("size")` and the Note payload is consumed at confirm time.) The
-  SA-accept call site (~line 567) passes `tech_decisions=proposal.get("tech_decisions", [])`. The
-  direct-template-pick call site (~line 586, `sa_path=False`) does not pass `tech_decisions`; the `if sa_path:`
-  guard prevents any write. **Do not** convert the architecture.yaml write to `Architecture.model_dump()` — the
+  `size` is written unconditionally when `sa_path=True` (not inside `if tech_decisions:`) so Phase 2 can read
+  `arch_get_field("size")` even when SA produced no tech_decisions. The SA-accept call site (~line 567) passes
+  `tech_decisions=proposal.get("tech_decisions", [])` and `size=proposal.get("size", "S")`. The
+  direct-template-pick call site (~line 586, `sa_path=False`) does not pass either; the `if sa_path:` guard
+  prevents any write. **Do not** convert the architecture.yaml write to `Architecture.model_dump()` — the
   file remains a free-form dict in Phase 1.
 
 - **`_scaffold_summary_for_pm` (~line 635)** (currently `-> str`; signature unchanged): reads the new
@@ -194,13 +194,17 @@ The reader and writer must land in the same commit — if `apply_scaffold` write
 `_scaffold_summary_for_pm` hasn't been updated, PM gets an empty tech summary on the first run.
 
 **Verify:**
-- Integration test: `apply_scaffold` with `sa_path=True` and a `tech_decisions` list passed directly;
-  read `architecture.yaml`; assert `tech_decisions` key present and matches input.
-- Integration test: `apply_scaffold` with `sa_path=False`; assert `tech_decisions` key absent.
-- Seam test (SA-accept path): write a `Note` payload with `tech_decisions` using the Step 3 handler (or by
-  constructing it directly as Step 3 would), read it back via `latest_scaffold_proposal`, then call
+- Integration test: `apply_scaffold` with `sa_path=True`, a `tech_decisions` list, and `size="M"`;
+  read `architecture.yaml`; assert `tech_decisions` key present and matches input, and `size == "M"`.
+- Integration test: `apply_scaffold` with `sa_path=True` and `tech_decisions=[]`; assert `size` key still
+  present (written unconditionally) and `tech_decisions` key absent.
+- Integration test: `apply_scaffold` with `sa_path=False`; assert neither `tech_decisions` nor `size` key
+  is written.
+- Seam test (SA-accept path): write a `Note` payload with `tech_decisions` and `size` using the Step 3 handler
+  (or by constructing it directly as Step 3 would), read it back via `latest_scaffold_proposal`, then call
   `apply_scaffold` using the SA-accept call site (init_workflow.py:~567) with
-  `tech_decisions=proposal.get("tech_decisions", [])`. Assert `tech_decisions` appears in `architecture.yaml`.
+  `tech_decisions=proposal.get("tech_decisions", [])` and `size=proposal.get("size", "S")`. Assert both
+  `tech_decisions` and `size` appear in `architecture.yaml`.
   This step is inert (returns `[]`) until Step 3 has landed — run it only after Step 3 is committed.
 - Unit tests for `_scaffold_summary_for_pm`: with grounded decisions produces source summary without warning;
   with any `inferred` entry appends warning listing the inferred IDs; with no decisions produces no error;
@@ -304,3 +308,6 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
   Step 7 drops hardcoded baseline count
 - 2026-06-07: Revised ×11 — Step 5 heading/body: clarify "four" as Protocol + 3 concrete;
   Step 7: remove remaining baseline qualifier
+- 2026-06-07: Revised ×12 — Step 4: add size: str = "S" param to apply_scaffold; write size
+  unconditionally (not inside if tech_decisions); pass size from SA-accept call site; add
+  size assertion to verify

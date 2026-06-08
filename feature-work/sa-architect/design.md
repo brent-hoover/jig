@@ -193,13 +193,13 @@ Add `arch_get_field` to `allowed_tools` for `dev.yaml` and `test.yaml` (already 
 
 ---
 
-## Phase 2 — SA unification + boundaries (after #137 + PO topology decision)
+## Phase 2 — SA unification + boundaries (after PO topology decision)
 
 ### Overview
 
-Once `classify_resume` handles `arch_finalize` (#137) and the M-size PO topology is defined
-(does medium get L0–L3 spec artifacts, or does `sa_mvp` adapt to flat spec?), the two SA paths
-merge into a single `sa.yaml` with S and M/L sections.
+Once the M-size PO topology is defined (does medium get L0–L3 spec artifacts, or does `sa_mvp`
+adapt to flat spec?), the two SA paths merge into a single `sa.yaml` with S and M/L sections.
+(`classify_resume` already handles `arch_finalize` — #137 merged.)
 
 `sa_mvp.yaml` is **not deleted** — it is retained as a deprecated alias and its test coverage
 updated. The ~250-line `sa_mvp` prompt (discovery loop, SA checklist, behavioral contracts,
@@ -408,3 +408,5 @@ once its preconditions are met.
   persistence to architecture.yaml as Phase 2 precondition; standardize owner field
 - 2026-06-08: Revised ×12 — fix handle_sa_propose_scaffold signature: Literal["S","M"] (not "L")
 - 2026-06-07: Revised ×13 — add :113 line reference to ChangeLogEntry comment
+- 2026-06-07: Revised ×14 — fix Phase 2 heading/overview: remove stale #137 gating language;
+  #137 is merged, only PO topology blocks Phase 2

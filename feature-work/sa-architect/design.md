@@ -2,9 +2,9 @@
 title: SA as Architect — Design
 type: design
 status: active
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 problem: ./problem.md
 ---
 
@@ -103,6 +103,11 @@ prompt. Operator size override is Phase 2 scope.
 
 Precedence rule: any external API → M minimum, regardless of capability count.
 
+**Phase 1 L-size constraint**: SA must not classify a project as L in Phase 1. The size-selection prompt
+instructs SA to cap its choice at M even when the project would otherwise qualify as L. The
+`handle_sa_propose_scaffold` handler validates `size` as `Literal["S", "M"]` in Phase 1; an `"L"` value
+is rejected with a `ValueError`. L-size architecture output (modules/contracts/boundaries) ships with Phase 2.
+
 **Research protocol**:
 1. Resolve each library/service in Context7 (`resolve-library-id`); query current docs
 2. Record `source_type: context7`, `source_ref: <library-id>`, `version_pinned`
@@ -150,9 +155,10 @@ the migration completes). `tech_decisions` is a new sibling key alongside `decis
 normalized to `[]` at the top of the function body. Passed only from the SA-accept call site
 (line 567, `sa_path=True`). The direct-template-pick call site (line 586, `sa_path=False`) passes
 no `tech_decisions`; the param defaults to `None` → `[]` and the SA-path guard at ~line 1606 prevents
-any write. `apply_scaffold` writes `tech_decisions`
-as a new key in the architecture.yaml dict, guarded by `if tech_decisions:` (matching the
-existing `decisions`/`constraints` guard pattern).
+any write. `apply_scaffold` writes `tech_decisions` and `size` as new keys in the architecture.yaml dict, both
+guarded by `if tech_decisions:` (matching the existing `decisions`/`constraints` guard pattern). Writing
+`size` here — not just to the Note payload — is a Phase 2 precondition: Phase 2 reads `arch_get_field("size")`
+to drive S/M/L-adaptive behavior, and the Note payload is consumed during init and not accessible post-confirm.
 
 `_scaffold_summary_for_pm` (~line 635) is updated to also read the new `tech_decisions` key
 from architecture.yaml and append a grounding-source summary, while keeping the existing
@@ -233,7 +239,7 @@ class BoundariesFile(BaseModel):
     ontology: list[OntologyTerm] = Field(default_factory=list)
     internal: InternalBoundaries = Field(default_factory=InternalBoundaries)
     external: ExternalBoundaries = Field(default_factory=ExternalBoundaries)
-    change_log: list[ChangeLogEntry] = Field(default_factory=list)  # existing type from arch.py
+    change_log: list[ChangeLogEntry] = Field(default_factory=list)  # existing type — jig/schemas/arch.py
 ```
 
 `sa_write_boundaries` (parallel to `sa_write_contracts`) validates and writes
@@ -263,8 +269,9 @@ Decision required before `BoundariesFile` schema finalises.
 **Phase 1:**
 - `sa_propose_scaffold` gains `tech_decisions: list[dict]`, `size: str`
 - `Architecture` gains `tech_decisions: list[TechDecision] = Field(default_factory=list)`
-- `apply_scaffold` gains `tech_decisions: list[dict]` parameter
-- `arch_get_field("tech_decisions")` available to dev and test
+- `apply_scaffold` gains `tech_decisions: list[dict]` parameter; writes both `tech_decisions` and `size`
+  to `architecture.yaml` (under `if tech_decisions:`)
+- `arch_get_field("tech_decisions")` and `arch_get_field("size")` available to dev and test
 
 **Phase 2 (additional):**
 - `sa_write_boundaries` new MCP tool
@@ -397,3 +404,5 @@ once its preconditions are met.
   mark #137 as merged; remove #137 from Phase 2 blocker list throughout
 - 2026-06-07: Revised ×10 — fix 120-char line wrap in summary; annotate ChangeLogEntry as existing
   arch.py type; remove remaining stale #137 references from Phase 2 preconditions and summary
+- 2026-06-08: Revised ×11 — add Phase 1 L-size constraint (cap at M; handler rejects L); clarify size
+  persistence to architecture.yaml as Phase 2 precondition; standardize owner field

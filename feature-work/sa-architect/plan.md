@@ -2,9 +2,9 @@
 title: SA as Architect — Phase 1 Implementation Plan
 type: plan
 status: draft
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 design: ./design.md
 ---
 
@@ -141,8 +141,9 @@ Two files, one commit:
 
 - **`jig/init_mcp.py` (~line 443)** — `handle_sa_propose_scaffold`: add `tech_decisions: list[dict] | None = None`
   and `size: str = "S"`; normalize `tech_decisions` to `[]` at the top of the function body (avoids mutable
-  default pitfall). Validate `size` as `Literal["S", "M", "L"]` inside the handler body (the `@tool`
-  schema uses `str`; the `Literal` check must live in the handler). Validate each `tech_decisions` entry
+  default pitfall). Validate `size` as `Literal["S", "M"]` inside the handler body (the `@tool` schema
+  uses `str`; the `Literal` check must live in the handler — `"L"` is rejected with `ValueError` in Phase 1;
+  see design.md Phase 1 L-size constraint). Validate each `tech_decisions` entry
   against `TechDecision` on receipt; raise `ValueError` on schema violation. The existing handler already
   merges `config` and `decisions` into `merged_decisions` and stores it as `decisions` in the payload — do not
   change that logic. Add `tech_decisions` and `size` as new sibling keys in the `Note(payload={...})` dict at
@@ -168,7 +169,14 @@ Two functions, one commit (reader and writer must stay in sync):
 
 - **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`; normalize to `[]` at the
   top of the function body. Inside the existing
-  `if sa_path:` block (~line 1606), add: `if tech_decisions: data["tech_decisions"] = tech_decisions`. The
+  `if sa_path:` block (~line 1606), add:
+  ```python
+  if tech_decisions:
+      data["tech_decisions"] = tech_decisions
+      data["size"] = size
+  ```
+  (`size` must be persisted to `architecture.yaml` here, not just in the Note payload — Phase 2 reads
+  `arch_get_field("size")` and the Note payload is consumed at confirm time.) The
   SA-accept call site (~line 567) passes `tech_decisions=proposal.get("tech_decisions", [])`. The
   direct-template-pick call site (~line 586, `sa_path=False`) does not pass `tech_decisions`; the `if sa_path:`
   guard prevents any write. **Do not** convert the architecture.yaml write to `Architecture.model_dump()` — the
@@ -274,7 +282,7 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
 **Verify:**
 - `uv run ruff check jig/ tests/`
 - `uv run ruff format --check jig/ tests/`
-- `uv run pytest tests/ -q` — full suite green (baseline: 4321 passing)
+- `uv run pytest tests/ -q` — full suite green (count at or above pre-Phase-1 baseline)
 - End-to-end: `jig init` (sandboxed, Docker on) against the hn-cli brief produces `architecture.yaml` with
   grounded `tech_decisions` (at least `cli-framework`, `http-client`, `async-io`; each with
   `source_type: context7` or `live_fetch`), the operator confirmation table renders correctly, and the
@@ -291,3 +299,5 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
   fix test assertion (strict_tools is True); mutable defaults: list[dict] | None = None + normalize in body
   for handle_sa_propose_scaffold and apply_scaffold
 - 2026-06-07: Revised ×9 — TechDecision.id uses validate_kebab_id field_validator; add non-kebab rejection test
+- 2026-06-08: Revised ×10 — Step 3 Literal["S","M"] (not L); Step 4 persists size to architecture.yaml;
+  Step 7 drops hardcoded baseline count

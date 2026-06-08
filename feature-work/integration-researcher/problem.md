@@ -2,7 +2,7 @@
 title: Integration Grounding — Problem Statement
 type: problem
 status: draft
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
 updated: 2026-06-07
 ---

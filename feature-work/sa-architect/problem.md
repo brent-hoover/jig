@@ -2,7 +2,7 @@
 title: SA as Architect — Problem Statement
 type: problem
 status: active
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
 updated: 2026-06-07
 ---

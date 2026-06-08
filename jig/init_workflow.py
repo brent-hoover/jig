@@ -1243,19 +1243,17 @@ def render_sa_confirm_prompt(
         rationale,
     ]
     if tech_decisions:
-        lines.extend(
-            [
-                "",
-                "Grounded tech decisions:",
-                f"  {'ID':<18}{'CHOICE':<16}{'SOURCE':<20}REF",
-            ]
-        )
+        # Prose, not a fixed-width table — id/choice are free-form with no
+        # schema length bound, so a table would misalign on long values.
+        # Mirrors how _scaffold_summary_for_pm renders decisions.
+        lines.extend(["", "Grounded tech decisions:"])
         for td in tech_decisions:
             td_id = str(td.get("id", "?"))
             choice = str(td.get("choice", "?"))
             source_type = str(td.get("source_type", "?"))
-            source_ref = str(td.get("source_ref") or "—")
-            lines.append(f"  {td_id:<18}{choice:<16}{source_type:<20}{source_ref}")
+            source_ref = td.get("source_ref")
+            ref = f", {source_ref}" if source_ref else ""
+            lines.append(f"  - {td_id}: {choice} ({source_type}{ref})")
     return "\n".join(lines)
 
 

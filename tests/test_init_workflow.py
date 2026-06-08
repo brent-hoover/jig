@@ -368,6 +368,29 @@ def test_render_sa_confirm_prompt_shows_size_and_tech_decisions():
     assert "/typer/latest" in text
 
 
+def test_render_sa_confirm_prompt_long_values_render_in_full():
+    """Prose rendering shows long free-form id/choice values in full — no
+    truncation or column misalignment to worry about."""
+    long_choice = "a-really-long-package-name-that-would-overflow-a-table"
+    text = render_sa_confirm_prompt(
+        template_name="python",
+        rationale="cli tool",
+        size="M",
+        tech_decisions=[
+            {
+                "id": "http-client",
+                "choice": long_choice,
+                "source_type": "context7",
+                "source_ref": "/x",
+            }
+        ],
+    )
+    row = next(line for line in text.splitlines() if "http-client" in line)
+    assert long_choice in row  # full value, not truncated
+    assert "context7" in row
+    assert "/x" in row
+
+
 def test_render_sa_confirm_prompt_empty_tech_decisions_renders():
     """Empty tech_decisions must render without error and without a table."""
     text = render_sa_confirm_prompt(

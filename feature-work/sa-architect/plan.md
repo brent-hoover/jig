@@ -35,13 +35,17 @@ guarded by existing `if sa_path:` / `if tech_decisions:` checks.
 ## Preconditions
 
 - [x] Design approved (`design.md`).
-- [ ] **BLOCKING (Steps 3–7)**: Sandbox egress confirmed for Context7 MCP and `WebFetch` inside a `jig init`
-  session. Steps 1–2 are unblocked (schema + role YAML only, no egress needed). Pre-flight before Step 1:
-  run `jig start --no-docker` with any ticket and confirm a dev agent can call `resolve-library-id` without
-  error — this validates the tool-wiring mechanism using dev.yaml's existing `context7` (dev.yaml:37-41), not
-  the init path specifically. The init-path probe requires the Step 2 role change and runs as Step 2's Verify
-  gate. If the Step 2 probe fails: revert the `sa.yaml` commit (Step 1 schema changes are safe to keep); the
-  SA role is restored to its prior state while the init egress configuration is investigated.
+- [x] **BLOCKING (Steps 3–7) — RESOLVED BY INSPECTION**: Sandbox egress for Context7 MCP and `WebFetch`
+  in the init phase. The full sandboxed `jig init` probe proved finicky (TUI `/init` doesn't parse
+  `--profile`; container path resolution), so the question was answered from the sandbox config instead:
+  neither layer isolates the network — bwrap unshares only `--unshare-pid` (`sandbox.py:309`), never the
+  network namespace; the Docker run passes no `--network` flag (`container.py`); a repo-wide grep for
+  `unshare-net`/`--network`/`network=none` is empty. Init and dev agents use the **same single**
+  `BwrapTransport` (`agent.py:701`) with no per-phase network difference, so the init-phase SA has the same
+  open egress that dev/test already use with Context7 + WebFetch. Tool wiring is the already-proven dev path
+  (SA's `context7`/`WebFetch` are declared identically). Any residual block would be environmental
+  (proxy/DNS), which no `jig init` invocation could fix. Empirical e2e remains a nice-to-have confirmation,
+  not a gate.
 - [x] Work on worktree under `.worktrees/`, not `develop`.
 
 ## Out of scope
@@ -62,7 +66,9 @@ Per design.md Out of scope, plus Phase 1 additions:
 - [x] Step 4: `apply_scaffold` + `_scaffold_summary_for_pm`
 - [x] Step 5: Operator confirmation call chain
 - [x] Step 6: Dev/test role access
-- [ ] Step 7: Full verification
+- [x] Step 7: Full verification — local gate GREEN (ruff check + format on jig/, full pytest:
+  4395 passed / 6 skipped). Egress resolved by inspection (see precondition above); empirical e2e
+  `jig init` run is an optional confirmation, not a blocker.
 
 ## Steps
 

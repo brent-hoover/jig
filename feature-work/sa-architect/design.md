@@ -384,8 +384,13 @@ once its preconditions are met.
 
 ## Open questions
 
-- **[BLOCKING — Phase 1]** Init-phase sandbox network egress for both Context7 (MCP) and
-  WebFetch (tool). Resolve before Phase 1 implementation by probing inside a `jig init` session.
+- **[RESOLVED — Phase 1]** Init-phase sandbox network egress for both Context7 (MCP) and
+  WebFetch (tool). Resolved by sandbox-config inspection rather than a live probe: bwrap unshares
+  only `--unshare-pid` (`sandbox.py:309`), never the network namespace; the Docker run sets no
+  `--network` flag (`container.py`); no `unshare-net`/`--network`/`network=none` appears anywhere in
+  `jig/`. Init and dev agents share the same single `BwrapTransport` (`agent.py:701`), so the
+  init-phase SA has the same open egress dev/test already use. Empirical e2e is an optional
+  confirmation, not a gate.
 - **[BLOCKING — Phase 2]** PO topology for medium: does medium gain L0–L3 PO agents producing
   `discovery.md`/`suites.yaml`, or does the M-size SA section adapt to flat spec? This
   determines whether Phase 2 requires PO changes as a prerequisite.

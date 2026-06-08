@@ -323,16 +323,16 @@ change that could have been done now at zero risk (it's additive).
 Validated `TechDecision` with reproducibility rules in Phase 1; SA unification + boundaries
 in Phase 2 after blockers clear.
 
-*Drawbacks:* Phase 2 has blockers (#137, PO topology, sa_mvp blast radius). Phase 1 ships
+*Drawbacks:* Phase 2 has blockers (PO topology, sa_mvp blast radius). Phase 1 ships
 independently; Phase 2 follows when those are resolved.
 
 ### Optimal — immediate full unification in one PR
 
 All in one: unified SA, boundaries, semgrep, validated decisions.
 
-*Drawbacks:* Blocked on #137 (in progress), PO topology decision (unresolved), and sa_mvp
-blast-radius enumeration. The Phase 2 blockers make immediate unification impractical. Phasing
-delivers Phase 1 value without waiting.
+*Drawbacks:* Blocked on PO topology decision (unresolved) and sa_mvp blast-radius enumeration.
+The Phase 2 blockers make immediate unification impractical. Phasing delivers Phase 1 value without
+waiting.
 
 ### Decision
 
@@ -395,4 +395,4 @@ once its preconditions are met.
 - 2026-06-07: Revised ×8 — strict_tools: true (add to allowed_tools, not weaken deny list);
   mutable defaults: list[dict] | None = None + normalize in body for both handlers
 - 2026-06-07: Revised ×9 — add field_validator for TechDecision.id (kebab-case via validate_kebab_id);
-  mark #137 as merged, update Phase 2 blocker to PO topology only
+  mark #137 as merged; remove #137 from Phase 2 blocker list throughout

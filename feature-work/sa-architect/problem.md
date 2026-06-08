@@ -97,4 +97,4 @@ but SA was in the best position to catch it and didn't — it had no way to try.
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
-- 2026-06-08: Standardize owner to brent-hoover
+- 2026-06-08: Fix owner field format (brent-hoover)

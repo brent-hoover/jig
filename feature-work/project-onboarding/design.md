@@ -64,8 +64,10 @@ OnboardResumeState (enum):
                             write observations.md; write CLAUDE.md if absent
   PO_READ_PASS            → spawn PO on 'brief' ticket with onboard context + depth budget injected
   PO_REVIEW               → gate: show docs/brief.md to operator for confirmation before spec generation;
-                            operator edits brief.md in place and confirms via PromptHandler
-                            (parallel to BRIEF_APPROVAL in the greenfield flow)
+                            operator edits brief.md in place and confirms via PromptHandler;
+                            confirmation posts SystemEvent(event_type="brief_approved") on the 'brief'
+                            ticket — classify_onboard_resume advances to SPEC_PASS only after that event
+                            (same durable-event pattern as BRIEF_APPROVAL in the greenfield flow)
   SPEC_PASS               → run_spec_generator (reused unchanged — reads 'brief' ticket)
   PM_PROFILE_PASS         → run_pm_profile_pass with scanner recommendation injected into profile
                             ticket description (PM has no Read/Glob/Grep — signal must be pre-injected)
@@ -74,7 +76,7 @@ OnboardResumeState (enum):
                             BLOCKED until sa-architect Phase 2 interface is frozen
   NEEDS_ANSWER_ARCH       → operator answers SA open questions
   OPERATOR_REVIEW         → gate: ask_onboard_review via PromptHandler; operator confirms artifacts
-  PM_BACKLOG              → (if docs/desired-state.md exists) PM generates initial tickets from delta
+  PM_BACKLOG              → (if .jig/onboard/desired-state.md exists) PM generates initial tickets from delta
   ALREADY_DONE
   BROKEN
 ```
@@ -201,8 +203,9 @@ from the correct step.
 If `.jig/` already exists with a valid `project.yaml` from a prior `jig init` or `jig onboard` run, the
 command exits with an error unless `--force` is passed. With `--force`, `run_onboard()` reuses the
 snapshot/rmtree/restore sequence from `init_workflow.py:203-229`: snapshot operator-authored profile and
-workflow YAMLs, `rmtree(.jig/)`, recreate the stub, restore snapshots. Root-level files (`CLAUDE.md`,
-`docs/desired-state.md`) are outside `.jig/` and survive `--force` unchanged.
+workflow YAMLs, `rmtree(.jig/)`, recreate the stub, restore snapshots. Root-level files (`CLAUDE.md`) are
+outside `.jig/` and survive `--force` unchanged. `.jig/onboard/desired-state.md` is inside `.jig/` and is
+cleared by `--force` — a re-onboard without `--brief` therefore skips PM_BACKLOG, as intended.
 
 ## Interfaces
 
@@ -215,7 +218,7 @@ jig onboard [OPTIONS] <path>
 
 Options:
   --brief FILE    Path to a desired-state brief describing what to build next.
-                  Copied to docs/desired-state.md. If omitted, backlog
+                  Copied to .jig/onboard/desired-state.md. If omitted, backlog
                   generation is skipped (docs/brief.md is always written by
                   the PO pass and is the current-state brief).
   --force         Clear existing .jig/ and re-onboard from scratch.

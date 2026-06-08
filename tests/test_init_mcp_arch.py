@@ -211,6 +211,91 @@ async def test_sa_propose_scaffold_empty_rationale_raises(wired):
         )
 
 
+async def _proposal_payload(wired):
+    entries = await wired["threads"].for_ticket("architecture")
+    notes = [
+        e
+        for e in entries
+        if e.kind == "note" and (e.payload or {}).get("kind") == "sa_propose_scaffold"
+    ]
+    assert notes, "expected a sa_propose_scaffold note"
+    return notes[-1].payload
+
+
+@pytest.mark.asyncio
+async def test_sa_propose_scaffold_stores_tech_decisions_and_size(wired):
+    tech_decisions = [
+        {
+            "id": "cli-framework",
+            "choice": "typer",
+            "rationale": "declarative subcommands",
+            "source_type": "context7",
+            "source_ref": "/typer/latest",
+            "version_pinned": "0.12",
+        }
+    ]
+    await handle_sa_propose_scaffold(
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+        bus=wired["bus"],
+        template_name="python",
+        rationale="cli tool",
+        tech_decisions=tech_decisions,
+        size="M",
+        author="sa",
+    )
+    payload = await _proposal_payload(wired)
+    assert payload["tech_decisions"] == tech_decisions
+    assert payload["size"] == "M"
+
+
+@pytest.mark.asyncio
+async def test_sa_propose_scaffold_invalid_tech_decision_raises(wired):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        await handle_sa_propose_scaffold(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            template_name="python",
+            rationale="cli tool",
+            # missing required 'choice'
+            tech_decisions=[{"id": "cli-framework", "source_type": "inferred"}],
+            author="sa",
+        )
+
+
+@pytest.mark.asyncio
+async def test_sa_propose_scaffold_omitting_tech_decisions_stores_empty(wired):
+    await handle_sa_propose_scaffold(
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+        bus=wired["bus"],
+        template_name="python",
+        rationale="cli tool",
+        author="sa",
+    )
+    payload = await _proposal_payload(wired)
+    assert payload["tech_decisions"] == []
+    assert payload["size"] == "S"  # default
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_size", ["L", "X", "m"])
+async def test_sa_propose_scaffold_invalid_size_raises(wired, bad_size):
+    with pytest.raises(ValueError, match="size must be"):
+        await handle_sa_propose_scaffold(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            template_name="python",
+            rationale="cli tool",
+            size=bad_size,
+            author="sa",
+        )
+
+
 @pytest.mark.asyncio
 async def test_arch_set_field_three_segment_path_with_list_index(wired):
     await handle_arch_set_field(

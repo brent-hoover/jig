@@ -57,8 +57,8 @@ Per design.md Out of scope, plus Phase 1 additions:
 ## Progress
 
 - [x] Step 1: `TechDecision` schema addition
-- [ ] Step 2: SA role update (+ egress gate verification)
-- [ ] Step 3: `sa_propose_scaffold` MCP extension
+- [x] Step 2: SA role update (code done; **egress gate still pending**)
+- [x] Step 3: `sa_propose_scaffold` MCP extension (folded with Step 2 — prompt + tool must agree)
 - [ ] Step 4: `apply_scaffold` + `_scaffold_summary_for_pm`
 - [ ] Step 5: Operator confirmation call chain
 - [ ] Step 6: Dev/test role access

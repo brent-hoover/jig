@@ -20,6 +20,7 @@ from jig.brief_parser import BriefParseError, parse_brief
 from jig.handoff_resolve import resolve_after_handoff as _resolve_after_handoff
 from jig.markdown_sections import get_section, list_sections, set_section
 from jig.spec_regeneration import regenerate
+from jig.schemas.arch import TechDecision
 from jig.spec_schema import StructuredSpec
 from jig.uri import ProjectUriError, resolve_spec_uri
 from jig.store.bus import Message, MessageBus, MessageType
@@ -450,6 +451,8 @@ async def handle_sa_propose_scaffold(
     decisions: dict | None = None,
     constraints: list[str] | None = None,
     open_questions: list[dict] | None = None,
+    tech_decisions: list[dict] | None = None,
+    size: str = "S",
     config: dict | None = None,  # deprecated; use decisions
     author: str,
 ) -> None:
@@ -462,6 +465,19 @@ async def handle_sa_propose_scaffold(
             f"Available templates: {available}. "
             "Call `arch_list_templates` for full metadata."
         )
+    # Phase 1 accepts only S/M sizes — L-size architecture output
+    # (modules/contracts/boundaries) ships with Phase 2. Reject "L" (and
+    # anything else) loudly rather than silently coercing.
+    if size not in ("S", "M"):
+        raise ValueError(
+            f"size must be 'S' or 'M' in this phase, got {size!r} "
+            "('L' is Phase 2 scope)"
+        )
+    # Validate each grounded decision against the schema on receipt so a
+    # malformed entry fails here, not silently downstream.
+    tech_decisions = tech_decisions or []
+    for entry in tech_decisions:
+        TechDecision.model_validate(entry)
     # Merge legacy config into decisions for backwards compat
     merged_decisions = dict(config or {})
     merged_decisions.update(decisions or {})
@@ -477,6 +493,8 @@ async def handle_sa_propose_scaffold(
                 "decisions": merged_decisions,
                 "constraints": constraints or [],
                 "open_questions": open_questions or [],
+                "tech_decisions": tech_decisions,
+                "size": size,
             },
         )
     )

@@ -2755,6 +2755,11 @@ def create_agent_mcp_server(
             "`template_name` must match one of the names returned by `arch_list_templates`. "
             "`rationale` is prose explaining the architectural fit. "
             "`decisions` is a dict of structured tech choices (e.g. cli_framework, http_client, async_io). "
+            "`tech_decisions` is a list of grounded decision dicts, each "
+            "{id, choice, rationale, source_type, source_ref, version_pinned}; "
+            "source_type is one of context7|live_fetch|operator_specified|inferred, "
+            "and context7/live_fetch require a non-empty source_ref. "
+            "`size` is the project size, 'S' or 'M' ('L' is not accepted in this phase). "
             "`constraints` is a list of architectural invariants dev agents must follow. "
             "`open_questions` is a list of {id, question, blocking} dicts for unresolved decisions.",
             {
@@ -2763,6 +2768,8 @@ def create_agent_mcp_server(
                 "decisions": dict,
                 "constraints": list,
                 "open_questions": list,
+                "tech_decisions": list,
+                "size": str,
             },
         )
         async def sa_propose_scaffold(args):
@@ -2775,6 +2782,8 @@ def create_agent_mcp_server(
                 decisions=args.get("decisions", {}),
                 constraints=args.get("constraints", []),
                 open_questions=args.get("open_questions", []),
+                tech_decisions=args.get("tech_decisions", []),
+                size=args.get("size", "S"),
                 author=agent_role,
             )
             return {"content": [{"type": "text", "text": "ok"}]}

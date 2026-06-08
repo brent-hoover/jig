@@ -278,6 +278,11 @@ class Ticket(StoreModel):
     work_type: WorkType
     size: Size = Size.M
     status: TicketStatus = TicketStatus.OPEN
+    # Human-usable short handle (``jig-N``), assigned by TicketStore.create.
+    # The internal ``id`` (UUID4) stays the canonical reference; ``key`` is an
+    # additive alias for CLI/MCP ergonomics. Empty on pre-feature records until
+    # backfilled on first front-door access.
+    key: str = ""
     title: str
     description: str = ""
     assignee: str | None = None

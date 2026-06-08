@@ -1,7 +1,10 @@
 import asyncio
+import contextlib
+import fcntl
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+import os
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Union
@@ -33,6 +36,10 @@ class TicketStore:
             model=Ticket,
             index_fields=["work_type", "status", "assignee", "parent_id"],
         )
+        # jig-N key counter and its cross-process lock live alongside the
+        # JSONL so every process sharing the store dir serializes on them.
+        self._seq_path = path.parent / "issue_seq"
+        self._lock_path = path.parent / ".issue.lock"
         self._on_status_change: StatusChangeCallback | None = None
         self._on_create: CreateCallback | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -93,13 +100,62 @@ class TicketStore:
         # mutate-while-iterating.
         await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
 
+    @contextlib.asynccontextmanager
+    async def _key_lock(self) -> AsyncIterator[None]:
+        """Hold an exclusive cross-process ``flock`` for the duration of the
+        key-assignment + append critical section.
+
+        The in-process ``asyncio.Lock`` inside ``Collection.insert`` keeps a
+        single process's in-memory state consistent; this ``flock`` extends
+        the guarantee across separate OS processes (CLI / standalone MCP /
+        orchestrator) so the ``jig-N`` counter and the JSONL append never
+        interleave. Acquired off the event loop to avoid blocking it.
+        """
+        fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def _read_seq(self) -> int:
+        try:
+            return int(self._seq_path.read_text().strip() or "0")
+        except FileNotFoundError:
+            return 0
+
+    def _write_seq(self, value: int) -> None:
+        self._seq_path.write_text(str(value))
+
+    async def resolve_ref(self, ref: str) -> Ticket | None:
+        """Resolve a ticket by internal ``id`` (UUID) or ``jig-N`` key."""
+        direct = await self.get(ref)
+        if direct is not None:
+            return direct
+        matches = await self._collection.find(lambda t: t.key == ref)
+        return matches[0] if matches else None
+
     async def create(self, ticket: Ticket, *, fire_create_callback: bool = True) -> str:
         # Uniqueness is enforced inside Collection.insert under its
         # asyncio.Lock — no TOCTOU window between check and append.
         # We re-raise with a ticket-specific message so callers (CLI,
         # init flow) get a domain-friendly error.
+        #
+        # Key assignment + append run under a cross-process flock: read the
+        # counter from disk (other processes may have advanced it), assign the
+        # jig-N key, append, then persist the counter — all before releasing
+        # the lock so a concurrent process can never observe a half-updated
+        # counter or reissue a key.
         try:
-            ticket_id = await self._collection.insert(ticket)
+            async with self._key_lock():
+                if not ticket.key:
+                    next_seq = self._read_seq() + 1
+                    ticket.key = f"jig-{next_seq}"
+                    ticket_id = await self._collection.insert(ticket)
+                    self._write_seq(next_seq)
+                else:
+                    ticket_id = await self._collection.insert(ticket)
         except ValueError as e:
             if "already exists" in str(e):
                 raise ValueError(f"ticket with id {ticket.id!r} already exists") from e

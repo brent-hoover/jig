@@ -65,6 +65,22 @@ _logger = logging.getLogger(__name__)
 # sweeps by calling ``sweep_blocking_entries`` directly.
 DEADLOCK_SWEEP_INTERVAL_S = 60.0
 
+# Statuses that mean a ticket is still in flight, so the post-run analyzer
+# must NOT treat the project as complete. PROPOSED is non-terminal: a
+# front-door issue awaiting operator approval is unfinished work, not a done
+# project — omitting it would let a project of only-proposed tickets emit
+# project_complete prematurely.
+_NON_TERMINAL_ANALYZER_STATUSES = frozenset(
+    {
+        TicketStatus.PROPOSED,
+        TicketStatus.OPEN,
+        TicketStatus.IN_PROGRESS,
+        TicketStatus.BLOCKED,
+        TicketStatus.NEEDS_INFO,
+        TicketStatus.MERGE_CONFLICT,
+    }
+)
+
 
 def _kill_orphan_claude_processes(project_path: Path) -> int:
     """SIGTERM any ``claude`` CLI subprocess whose CWD is inside the
@@ -2342,14 +2358,7 @@ class Orchestrator:
         all_tickets = await self.tickets.list_all()
         if not all_tickets:
             return
-        non_terminal = {
-            TicketStatus.OPEN,
-            TicketStatus.IN_PROGRESS,
-            TicketStatus.BLOCKED,
-            TicketStatus.NEEDS_INFO,
-            TicketStatus.MERGE_CONFLICT,
-        }
-        if any(t.status in non_terminal for t in all_tickets):
+        if any(t.status in _NON_TERMINAL_ANALYZER_STATUSES for t in all_tickets):
             return
         terminal_ids = frozenset(t.id for t in all_tickets)
         if terminal_ids == self._analyzer_last_terminal_ids:

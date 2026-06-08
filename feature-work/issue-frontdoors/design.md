@@ -50,6 +50,11 @@ orchestrator uses). It exposes:
 `ref` accepts either a `jig-N` key or a raw UUID; the service resolves keys to the internal id. It takes no worktree,
 agent binding, or commit tooling — that is the whole point of the seam.
 
+The `PROPOSED → OPEN` transition is enforced as operator-only at the **store** layer, not just by omitting an MCP tool:
+`TicketStore.update` rejects `PROPOSED → OPEN`, and the only sanctioned path is `TicketStore.approve` (which
+`IssueService.approve` and the CLI call). This closes the bypass where `IssueService.update` / the agent MCP
+`update_ticket` could otherwise set `status=open` directly and skip approval.
+
 ### The `PROPOSED` gate
 
 Add `TicketStatus.PROPOSED = "proposed"`. `find_ready()` already filters on `status == OPEN`, so a `PROPOSED` ticket is
@@ -64,9 +69,11 @@ built at `load()` — there is no cross-process lock. Two facts follow, and the 
 
 1. **Key assignment must be cross-process safe.** Key assignment moves into the shared `TicketStore.create` path so
    every ticket (internal or front-door) gets a `jig-N`. The create critical section — read counter → assign key →
-   append record → persist counter — runs under an `flock` on a dedicated lockfile (`.jig/store/.issue.lock`) in
-   addition to the existing `asyncio.Lock`. The `flock` is process-level; the `asyncio.Lock` keeps in-memory state
-   consistent within a process. The counter persists as a single integer in `.jig/store/issue_seq`.
+   **persist counter → append record** — runs under an `flock` on a dedicated lockfile (`.jig/store/.issue.lock`) in
+   addition to the existing `asyncio.Lock`. The counter is persisted *before* the append: a crash in between leaves a
+   harmless gap (keys need not be contiguous), whereas the reverse order could reissue a key. The `flock` is
+   process-level; the `asyncio.Lock` keeps in-memory state consistent within a process. The counter persists as a
+   single integer in `.jig/store/issue_seq`.
 2. **A running orchestrator holds a stale in-memory map.** It never re-reads `tickets.jsonl`, so a ticket appended by a
    CLI/MCP process is invisible to `find_ready()`. The reconcile tick (below) reloads from disk before scanning. CLI and
    MCP processes are short-lived and `load()` fresh, so they always see current disk state.
@@ -110,7 +117,8 @@ reference is taken by the CLI/MCP.
 
 ## Data model
 
-- `Ticket` gains `key: str` (the `jig-N` value), populated at create. Internal `id` (UUID4) unchanged.
+- `Ticket` gains `key: str = ""` (the `jig-N` value), populated at create. Defaulted, not required, so pre-feature
+  keyless records still validate on load; lazy-backfilled on first front-door access. Internal `id` (UUID4) unchanged.
 - `TicketStatus` gains `PROPOSED = "proposed"`.
 - Counter: a single integer in `.jig/store/issue_seq`, read-modify-written under `flock` on `.jig/store/.issue.lock`.
 - No migration: existing `.jig/store/` data is regenerable; old tickets simply have no `key` until next touched, and the
@@ -185,3 +193,6 @@ risk to the create path and one background task.
 ## Change log
 
 - 2026-06-08: Initial draft (brent)
+- 2026-06-08: Tightened per review — persist counter before append (no key reissue); `PROPOSED → OPEN` enforced
+  operator-only at the store layer (not just MCP tool omission); `Ticket.key` defaulted so legacy records still load
+  (brent)

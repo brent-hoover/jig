@@ -152,10 +152,12 @@ class TicketStore:
                 if not ticket.key:
                     next_seq = self._read_seq() + 1
                     ticket.key = f"jig-{next_seq}"
-                    ticket_id = await self._collection.insert(ticket)
+                    # Persist the counter BEFORE the append. If the process
+                    # dies between here and the insert, the consumed number
+                    # becomes a harmless gap; the alternative ordering would
+                    # let the next creator reissue the same jig-N key.
                     self._write_seq(next_seq)
-                else:
-                    ticket_id = await self._collection.insert(ticket)
+                ticket_id = await self._collection.insert(ticket)
         except ValueError as e:
             if "already exists" in str(e):
                 raise ValueError(f"ticket with id {ticket.id!r} already exists") from e
@@ -197,7 +199,21 @@ class TicketStore:
     async def get(self, ticket_id: str) -> Ticket | None:
         return await self._collection.get(ticket_id)
 
-    async def update(self, ticket_id: str, **fields) -> Ticket:
+    async def approve(self, ticket_id: str) -> Ticket:
+        """Promote a PROPOSED ticket to OPEN (the dispatchable state).
+
+        This is the ONLY sanctioned path for the PROPOSED -> OPEN transition.
+        The generic ``update`` path rejects it, so neither the agent MCP nor a
+        standalone-MCP caller can self-approve front-door issues and bypass the
+        operator gate.
+        """
+        return await self.update(
+            ticket_id, status=TicketStatus.OPEN, _allow_approval=True
+        )
+
+    async def update(
+        self, ticket_id: str, *, _allow_approval: bool = False, **fields
+    ) -> Ticket:
         # Validate the would-be result BEFORE appending the update row
         # to JSONL. Without this, an invalid update (e.g. a description
         # change that drops the AC section, violating the
@@ -214,6 +230,25 @@ class TicketStore:
         if prev is None:
             raise KeyError(ticket_id)
         prev_status = prev.status.value
+        # Operator-only approval gate: PROPOSED -> OPEN is reachable only via
+        # ``approve()`` (which passes ``_allow_approval``). Any other update
+        # path attempting that transition is rejected so the gate cannot be
+        # bypassed by a generic status update.
+        new_status = fields.get("status")
+        if new_status is not None and not _allow_approval:
+            new_value = (
+                new_status.value
+                if isinstance(new_status, TicketStatus)
+                else str(new_status)
+            )
+            if (
+                prev.status is TicketStatus.PROPOSED
+                and new_value == TicketStatus.OPEN.value
+            ):
+                raise ValueError(
+                    f"ticket {ticket_id!r}: PROPOSED -> OPEN requires approval; "
+                    "use TicketStore.approve()"
+                )
         fields.setdefault("updated_at", datetime.now(timezone.utc))
         # model_copy with update= runs the field validators on each
         # changed field but does NOT re-run model_validators (per

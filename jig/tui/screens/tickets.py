@@ -56,6 +56,7 @@ _STATUS_COLOR = {
 }
 
 _BOARD_COLUMNS = [
+    ("proposed", "Proposed", "#00aaff"),
     ("open", "Open", "#888888"),
     ("in_progress", "In Progress", "#ffcc00"),
     ("needs_info", "Needs Info", "#ff00ff"),

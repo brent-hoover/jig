@@ -244,6 +244,11 @@ _LEGACY_TYPE_MIGRATION: dict[str, str] = {
 
 
 class TicketStatus(str, Enum):
+    # Created through a front door (CLI / standalone MCP) but not yet
+    # approved for work. Non-dispatchable: find_ready() is OPEN-only, so a
+    # PROPOSED ticket is never picked up until an operator approves it
+    # (PROPOSED -> OPEN). Distinct from OPEN (approved, dispatchable).
+    PROPOSED = "proposed"
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     BLOCKED = "blocked"

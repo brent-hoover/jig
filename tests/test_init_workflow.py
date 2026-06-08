@@ -12,6 +12,8 @@ from jig.init_workflow import (
     BranchChoice,
     ConfirmChoice,
     DirState,
+    _create_planning_ticket,
+    _scaffold_summary_for_pm,
     apply_scaffold,
     classify_directory,
     create_stub,
@@ -20,6 +22,7 @@ from jig.init_workflow import (
     latest_scaffold_proposal,
     render_branch_prompt,
     render_gap_prompt,
+    prompt_sa_confirm,
     render_sa_confirm_prompt,
     render_template_list,
     run_po_conversation,
@@ -344,6 +347,120 @@ def test_render_sa_confirm_prompt_shows_rationale():
     assert "[Y/n/swap]" not in text
 
 
+def test_render_sa_confirm_prompt_shows_size_and_tech_decisions():
+    text = render_sa_confirm_prompt(
+        template_name="python",
+        rationale="cli tool",
+        size="M",
+        tech_decisions=[
+            {
+                "id": "cli-framework",
+                "choice": "typer",
+                "source_type": "context7",
+                "source_ref": "/typer/latest",
+            }
+        ],
+    )
+    assert "project size: M" in text
+    assert "Grounded tech decisions" in text
+    assert "cli-framework" in text
+    assert "context7" in text
+    assert "/typer/latest" in text
+
+
+def test_render_sa_confirm_prompt_long_values_render_in_full():
+    """Prose rendering shows long free-form id/choice values in full — no
+    truncation or column misalignment to worry about."""
+    long_choice = "a-really-long-package-name-that-would-overflow-a-table"
+    text = render_sa_confirm_prompt(
+        template_name="python",
+        rationale="cli tool",
+        size="M",
+        tech_decisions=[
+            {
+                "id": "http-client",
+                "choice": long_choice,
+                "source_type": "context7",
+                "source_ref": "/x",
+            }
+        ],
+    )
+    row = next(line for line in text.splitlines() if "http-client" in line)
+    assert long_choice in row  # full value, not truncated
+    assert "context7" in row
+    assert "/x" in row
+
+
+def test_render_sa_confirm_prompt_empty_tech_decisions_renders():
+    """Empty tech_decisions must render without error and without a table."""
+    text = render_sa_confirm_prompt(
+        template_name="python",
+        rationale="cli tool",
+        size="S",
+        tech_decisions=[],
+    )
+    assert "project size: S" in text
+    assert "Grounded tech decisions" not in text
+
+
+async def test_auto_prompt_handler_ask_sa_confirm_accepts_new_params():
+    """AutoPromptHandler.ask_sa_confirm must accept tech_decisions + size
+    (catches a missed signature update before the manual path)."""
+    from jig.init_prompts import AutoPromptHandler
+
+    handler = AutoPromptHandler()
+    choice = await handler.ask_sa_confirm(
+        template_name="python",
+        rationale="cli tool",
+        tech_decisions=[
+            {"id": "x", "choice": "y", "rationale": "z", "source_type": "inferred"}
+        ],
+        size="M",
+        console=None,
+    )
+    assert choice == ConfirmChoice.YES
+
+
+async def test_prompt_sa_confirm_forwards_tech_decisions_and_size(tmp_path: Path):
+    """Seam (steps 3->5): a proposal carrying tech_decisions + size is
+    forwarded to ask_sa_confirm without TypeError. A renamed payload key in
+    the handler would break this while the AutoPromptHandler unit test
+    above would still pass."""
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
+    await threads.post(
+        Note(
+            ticket_id="architecture",
+            author="sa",
+            text="Proposed scaffold: python",
+            payload={
+                "kind": "sa_propose_scaffold",
+                "template_name": "python",
+                "rationale": "cli tool",
+                "tech_decisions": [
+                    {"id": "http-client", "choice": "httpx", "rationale": "async/sync",
+                     "source_type": "context7", "source_ref": "/encode/httpx"}
+                ],
+                "size": "M",
+            },
+        )
+    )
+
+    seen: dict = {}
+
+    class _Spy:
+        async def ask_sa_confirm(self, *, template_name, rationale, tech_decisions,
+                                 size, console):
+            seen["tech_decisions"] = tech_decisions
+            seen["size"] = size
+            return ConfirmChoice.YES
+
+    choice, proposal = await prompt_sa_confirm(threads, prompts=_Spy())
+    assert choice == ConfirmChoice.YES
+    assert seen["size"] == "M"
+    assert seen["tech_decisions"][0]["choice"] == "httpx"
+
+
 async def test_latest_scaffold_proposal_returns_most_recent(tmp_path: Path):
     threads = ThreadStore(tmp_path / "comments.jsonl")
     await threads.load()
@@ -512,6 +629,242 @@ async def test_apply_scaffold_sa_path_preserves_sa_fields(tmp_path: Path):
     assert data["framework"] == "fastapi"
     assert data["decisions"] == {"port": 8000}
     assert data["data_stores"][0]["type"] == "postgres"
+
+
+async def _apply_scaffold_min(project, *, sa_path, tech_decisions=None, size="S"):
+    """Run apply_scaffold against a stub project, returning architecture.yaml."""
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    await tickets.load()
+    await threads.load()
+    if sa_path:
+        await tickets.create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+    else:
+        await create_sa_skipped_marker(tickets=tickets, threads=threads)
+    with patch("jig.init_workflow._apply_template_files"):
+        await apply_scaffold(
+            project_path=project,
+            template_name="python",
+            sa_path=sa_path,
+            config=None,
+            tech_decisions=tech_decisions,
+            size=size,
+            tickets=tickets,
+            threads=threads,
+        )
+    return yaml.safe_load(
+        (project / ".jig" / "spec" / "architecture.yaml").read_text()
+    )
+
+
+async def test_apply_scaffold_writes_tech_decisions_and_size(tmp_path: Path):
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    tds = [
+        {
+            "id": "cli-framework",
+            "choice": "typer",
+            "rationale": "declarative",
+            "source_type": "context7",
+            "source_ref": "/typer/latest",
+            "version_pinned": "0.12",
+        }
+    ]
+    data = await _apply_scaffold_min(project, sa_path=True, tech_decisions=tds, size="M")
+    assert data["tech_decisions"] == tds
+    assert data["size"] == "M"
+
+
+async def test_apply_scaffold_writes_size_without_tech_decisions(tmp_path: Path):
+    """size is written unconditionally on the SA path so Phase 2 can read it;
+    tech_decisions key is omitted when empty."""
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    data = await _apply_scaffold_min(project, sa_path=True, tech_decisions=[], size="S")
+    assert data["size"] == "S"
+    assert "tech_decisions" not in data
+
+
+async def test_apply_scaffold_direct_path_writes_neither(tmp_path: Path):
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    data = await _apply_scaffold_min(project, sa_path=False, tech_decisions=[], size="M")
+    assert "size" not in data
+    assert "tech_decisions" not in data
+
+
+async def test_apply_scaffold_sa_accept_seam_from_proposal(tmp_path: Path):
+    """End-to-end seam (steps 3->4): a sa_propose_scaffold Note payload read
+    back via latest_scaffold_proposal and fed to apply_scaffold via the
+    SA-accept call site lands tech_decisions + size in architecture.yaml."""
+    from jig.init_mcp import handle_sa_propose_scaffold
+
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
+    bus = MessageBus(project / ".jig" / "store" / "messages.jsonl")
+    await tickets.load()
+    await threads.load()
+    await bus.load()
+    await tickets.create(
+        Ticket(
+            id="architecture",
+            work_type=WorkType.ARCHITECTURE,
+            title="Architecture",
+            created_by="cli",
+        )
+    )
+    tds = [
+        {
+            "id": "http-client",
+            "choice": "httpx",
+            "rationale": "async/sync",
+            "source_type": "context7",
+            "source_ref": "/encode/httpx",
+            "version_pinned": "0.27",
+        }
+    ]
+    await handle_sa_propose_scaffold(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        template_name="python",
+        rationale="cli tool",
+        tech_decisions=tds,
+        size="M",
+        author="sa",
+    )
+    proposal = await latest_scaffold_proposal(threads)
+    with patch("jig.init_workflow._apply_template_files"):
+        await apply_scaffold(
+            project_path=project,
+            template_name=proposal["template_name"],
+            sa_path=True,
+            config=proposal.get("decisions", {}),
+            tech_decisions=proposal.get("tech_decisions", []),
+            size=proposal.get("size", "S"),
+            tickets=tickets,
+            threads=threads,
+        )
+    data = yaml.safe_load(
+        (project / ".jig" / "spec" / "architecture.yaml").read_text()
+    )
+    assert data["tech_decisions"] == tds
+    assert data["size"] == "M"
+
+
+def _write_arch(project: Path, arch: dict) -> None:
+    arch_dir = project / ".jig" / "spec"
+    arch_dir.mkdir(parents=True, exist_ok=True)
+    (arch_dir / "architecture.yaml").write_text(yaml.safe_dump(arch))
+
+
+def test_scaffold_summary_grounded_decisions_no_warning(tmp_path: Path):
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    _write_arch(
+        project,
+        {
+            "template": "python",
+            "tech_decisions": [
+                {
+                    "id": "cli-framework",
+                    "choice": "typer",
+                    "rationale": "declarative subcommands",
+                    "source_type": "context7",
+                    "source_ref": "/typer/latest",
+                }
+            ],
+        },
+    )
+    summary = _scaffold_summary_for_pm(project)
+    assert "Grounded tech decisions" in summary
+    assert "cli-framework" in summary
+    assert "Ungrounded decisions" not in summary
+
+
+def test_scaffold_summary_inferred_decision_warns(tmp_path: Path):
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    _write_arch(
+        project,
+        {
+            "template": "python",
+            "tech_decisions": [
+                {"id": "auth-api", "choice": "oauth", "rationale": "no public docs",
+                 "source_type": "inferred"}
+            ],
+        },
+    )
+    summary = _scaffold_summary_for_pm(project)
+    assert "Ungrounded decisions" in summary
+    assert "auth-api" in summary
+
+
+def test_scaffold_summary_coexists_legacy_and_tech_decisions(tmp_path: Path):
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    _write_arch(
+        project,
+        {
+            "template": "python",
+            "decisions": {"async_io": True},
+            "tech_decisions": [
+                {
+                    "id": "http-client",
+                    "choice": "httpx",
+                    "rationale": "async/sync dual support",
+                    "source_type": "context7",
+                    "source_ref": "/encode/httpx",
+                }
+            ],
+        },
+    )
+    summary = _scaffold_summary_for_pm(project)
+    assert "Architecture decisions" in summary  # legacy section
+    assert "async_io" in summary
+    assert "Grounded tech decisions" in summary  # new section
+    assert "http-client" in summary
+
+
+def test_scaffold_summary_no_tech_decisions_no_error(tmp_path: Path):
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    _write_arch(project, {"template": "python"})
+    summary = _scaffold_summary_for_pm(project)
+    assert "Grounded tech decisions" not in summary
+    assert summary  # template section still rendered
+
+
+async def test_create_planning_ticket_not_blocked_by_inferred(tmp_path: Path):
+    """Soft gate: an inferred (ungrounded) tech decision warns in the ticket
+    description but does not block planning-ticket creation."""
+    project = tmp_path / "p"
+    create_stub(project, name="p")
+    _write_arch(
+        project,
+        {
+            "template": "python",
+            "tech_decisions": [
+                {"id": "auth-api", "choice": "oauth", "rationale": "no public docs",
+                 "source_type": "inferred"}
+            ],
+        },
+    )
+    tickets = TicketStore(project / ".jig" / "store" / "tickets.jsonl")
+    await tickets.load()
+    await _create_planning_ticket(tickets, project)
+    ticket = await tickets.get("planning")
+    assert ticket is not None
+    assert "Ungrounded decisions" in ticket.description
 
 
 async def test_apply_scaffold_installs_hooks_by_default(tmp_path: Path):

@@ -53,6 +53,7 @@ allowed_tools:
   - WebSearch
   - WebFetch
   - mark_finding_addressed
+  - arch_get_field
 allowed_mcps:
   - context7
 default_context:

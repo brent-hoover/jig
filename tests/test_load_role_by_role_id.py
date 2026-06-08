@@ -63,3 +63,21 @@ def test_direct_filename_match_still_works(tmp_path: Path) -> None:
 def test_unknown_role_still_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_role(tmp_path, "this-role-does-not-exist")
+
+
+def test_sa_role_has_research_tools(tmp_path: Path) -> None:
+    """SA (architect) must carry the research tool set so it can ground
+    tech decisions in current sources, while staying strict-tools."""
+    cfg = load_role(tmp_path, "sa")
+    assert "context7" in cfg.allowed_mcps
+    assert "WebFetch" in cfg.allowed_tools
+    assert "WebSearch" in cfg.allowed_tools
+    assert cfg.strict_tools is True
+
+
+@pytest.mark.parametrize("role_id", ["dev", "test"])
+def test_dev_and_test_roles_have_arch_get_field(tmp_path: Path, role_id: str) -> None:
+    """Dev and test agents need arch_get_field to look up grounded
+    architecture decisions mid-ticket."""
+    cfg = load_role(tmp_path, role_id)
+    assert "arch_get_field" in cfg.allowed_tools

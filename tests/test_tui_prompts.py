@@ -90,6 +90,8 @@ async def test_sa_confirm_swap_round_trips():
             handler.ask_sa_confirm(
                 template_name="python-cli",
                 rationale="reason",
+                tech_decisions=[],
+                size="S",
                 console=Console(),
             ),
             timeout=2.0,

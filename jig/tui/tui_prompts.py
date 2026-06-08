@@ -119,10 +119,19 @@ class TuiPromptHandler:
         return BranchChoice.parse(reply)
 
     async def ask_sa_confirm(
-        self, *, template_name: str, rationale: str, console: "Console"
+        self,
+        *,
+        template_name: str,
+        rationale: str,
+        tech_decisions: list[dict],
+        size: str,
+        console: "Console",
     ) -> ConfirmChoice:
         rendered = render_sa_confirm_prompt(
-            template_name=template_name, rationale=rationale
+            template_name=template_name,
+            rationale=rationale,
+            tech_decisions=tech_decisions,
+            size=size,
         )
         reply = await self._round_trip(
             {

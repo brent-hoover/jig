@@ -20,6 +20,7 @@ from jig.brief_parser import BriefParseError, parse_brief
 from jig.handoff_resolve import resolve_after_handoff as _resolve_after_handoff
 from jig.markdown_sections import get_section, list_sections, set_section
 from jig.spec_regeneration import regenerate
+from jig.schemas.arch import TechDecision
 from jig.spec_schema import StructuredSpec
 from jig.uri import ProjectUriError, resolve_spec_uri
 from jig.store.bus import Message, MessageBus, MessageType
@@ -450,6 +451,8 @@ async def handle_sa_propose_scaffold(
     decisions: dict | None = None,
     constraints: list[str] | None = None,
     open_questions: list[dict] | None = None,
+    tech_decisions: list[dict] | None = None,
+    size: str = "S",
     config: dict | None = None,  # deprecated; use decisions
     author: str,
 ) -> None:
@@ -462,6 +465,33 @@ async def handle_sa_propose_scaffold(
             f"Available templates: {available}. "
             "Call `arch_list_templates` for full metadata."
         )
+    # Phase 1 accepts only S/M sizes — L-size architecture output
+    # (modules/contracts/boundaries) ships with Phase 2. Reject "L" (and
+    # anything else) loudly rather than silently coercing.
+    if size not in ("S", "M"):
+        raise ValueError(
+            f"size must be 'S' or 'M' in this phase, got {size!r} "
+            "('L' is Phase 2 scope)"
+        )
+    # Validate each grounded decision against the schema on receipt so a
+    # malformed entry fails here, not silently downstream. Store the
+    # canonical model_dump (not the raw LLM dict) so normalisations are
+    # preserved, and reject duplicate ids here — Architecture.model_validate
+    # enforces tech_decisions id-uniqueness, so a dup would otherwise pass
+    # init and then break every downstream Architecture.model_validate
+    # (spec_loader, sa_mcp, sim/driver) in the dev/test phase.
+    seen_td_ids: set[str] = set()
+    validated_tech_decisions: list[dict] = []
+    for entry in tech_decisions or []:
+        td = TechDecision.model_validate(entry)
+        if td.id in seen_td_ids:
+            raise ValueError(
+                f"tech_decisions contains duplicate id {td.id!r}; "
+                "each decision must have a unique id."
+            )
+        seen_td_ids.add(td.id)
+        validated_tech_decisions.append(td.model_dump(mode="json"))
+    tech_decisions = validated_tech_decisions
     # Merge legacy config into decisions for backwards compat
     merged_decisions = dict(config or {})
     merged_decisions.update(decisions or {})
@@ -477,6 +507,8 @@ async def handle_sa_propose_scaffold(
                 "decisions": merged_decisions,
                 "constraints": constraints or [],
                 "open_questions": open_questions or [],
+                "tech_decisions": tech_decisions,
+                "size": size,
             },
         )
     )

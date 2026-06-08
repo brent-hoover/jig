@@ -91,6 +91,8 @@ async def test_sa_confirm_yes():
         choice = await handler.ask_sa_confirm(
             template_name="python-cli",
             rationale="reason",
+            tech_decisions=[],
+            size="S",
             console=console,
         )
     assert choice == ConfirmChoice.YES
@@ -104,6 +106,8 @@ async def test_sa_confirm_no():
         choice = await handler.ask_sa_confirm(
             template_name="python-cli",
             rationale="reason",
+            tech_decisions=[],
+            size="S",
             console=console,
         )
     assert choice == ConfirmChoice.NO
@@ -117,6 +121,8 @@ async def test_sa_confirm_swap():
         choice = await handler.ask_sa_confirm(
             template_name="python-cli",
             rationale="reason",
+            tech_decisions=[],
+            size="S",
             console=console,
         )
     assert choice == ConfirmChoice.SWAP

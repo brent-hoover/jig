@@ -101,7 +101,9 @@ parses without it. Existing conformant `architecture.yaml` files (v2 sa_mvp path
   correct extension mechanism, not weakening the deny list)
 - Rewrite the tool-enumeration gate (~line 20: "these are the only tools you have") to reflect expanded set
 - Update the `sa_propose_scaffold` signature documentation at lines 45–54 to include `tech_decisions` (list of
-  `TechDecision` dicts) and `size` ("S"/"M"/"L") — so SA knows the full call shape before Step 3 lands
+  `TechDecision` dicts) and `size` ("S"/"M" in Phase 1; "L" added in Phase 2) — so SA knows the full call
+  shape before Step 3 lands. Document only "S"/"M" here: Phase 1 handler rejects "L" with `ValueError`, so
+  advertising "L" in the tool description would cause SA to pass a value that always fails.
 - Extend `phase_prompt` with:
   - **Size-selection prefix**: SA reads the spec, selects S/M/L (rule: external API → M minimum), states choice
     with reasoning in the first thread message
@@ -306,8 +308,10 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
 - 2026-06-07: Revised ×9 — TechDecision.id uses validate_kebab_id field_validator; add non-kebab rejection test
 - 2026-06-08: Revised ×10 — Step 3 Literal["S","M"] (not L); Step 4 persists size to architecture.yaml;
   Step 7 drops hardcoded baseline count
-- 2026-06-07: Revised ×11 — Step 5 heading/body: clarify "four" as Protocol + 3 concrete;
+- 2026-06-08: Revised ×11 — Step 5 heading/body: clarify "four" as Protocol + 3 concrete;
   Step 7: remove remaining baseline qualifier
-- 2026-06-07: Revised ×12 — Step 4: add size: str = "S" param to apply_scaffold; write size
+- 2026-06-08: Revised ×12 — Step 4: add size: str = "S" param to apply_scaffold; write size
   unconditionally (not inside if tech_decisions); pass size from SA-accept call site; add
   size assertion to verify
+- 2026-06-08: Revised ×13 — Step 2: sa.yaml documents only "S"/"M" for Phase 1 (not "L"); handler
+  rejects "L" so advertising it causes guaranteed ValueError

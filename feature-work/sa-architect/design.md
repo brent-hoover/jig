@@ -145,20 +145,20 @@ handler additions are unreachable. Also update the tool description string.
 
 **`jig/init_mcp.py` — `handle_sa_propose_scaffold` (~line 443)**: gains
 `tech_decisions: list[dict] | None = None` (normalized to `[]` at the top of the function body;
-validated against `TechDecision` on receipt) and `size: Literal["S", "M"] = "S"` (validated at the
-handler boundary — `"L"` raises `ValueError`; logged in the thread payload, shown in confirmation).
+validated against `TechDecision` on receipt) and `size: str = "S"` (the `@tool` schema layer always
+uses `str`; validate as `Literal["S", "M"]` in the handler body — `"L"` raises `ValueError`; logged
+in the thread payload, shown in confirmation).
 `constraints` and `open_questions` already exist. `decisions`/`config` deprecated but still
 written during Phase 1 (so `_scaffold_summary_for_pm`'s existing readers don't regress while
 the migration completes). `tech_decisions` is a new sibling key alongside `decisions`.
 
-**`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`;
-normalized to `[]` at the top of the function body. Passed only from the SA-accept call site
-(line 567, `sa_path=True`). The direct-template-pick call site (line 586, `sa_path=False`) passes
-no `tech_decisions`; the param defaults to `None` → `[]` and the SA-path guard at ~line 1606 prevents
-any write. `apply_scaffold` writes `tech_decisions` and `size` as new keys in the architecture.yaml dict, both
-guarded by `if tech_decisions:` (matching the existing `decisions`/`constraints` guard pattern). Writing
-`size` here — not just to the Note payload — is a Phase 2 precondition: Phase 2 reads `arch_get_field("size")`
-to drive S/M/L-adaptive behavior, and the Note payload is consumed during init and not accessible post-confirm.
+**`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`
+and `size: str = "S"`; normalize `tech_decisions` to `[]` at the top of the function body. Passed only from
+the SA-accept call site (line 567, `sa_path=True`). The direct-template-pick call site (line 586, `sa_path=False`)
+passes neither; the `if sa_path:` guard at ~line 1606 prevents any write. Inside `if sa_path:`, `size` is
+written **unconditionally** so Phase 2 can always read `arch_get_field("size")`; `tech_decisions` is written
+only when non-empty (guarded by `if tech_decisions:`). Writing `size` here — not just to the Note payload —
+is a Phase 2 precondition: the Note payload is consumed at confirm time and not accessible post-init.
 
 `_scaffold_summary_for_pm` (~line 635) is updated to also read the new `tech_decisions` key
 from architecture.yaml and append a grounding-source summary, while keeping the existing
@@ -269,8 +269,8 @@ Decision required before `BoundariesFile` schema finalises.
 **Phase 1:**
 - `sa_propose_scaffold` gains `tech_decisions: list[dict]`, `size: str`
 - `Architecture` gains `tech_decisions: list[TechDecision] = Field(default_factory=list)`
-- `apply_scaffold` gains `tech_decisions: list[dict]` parameter; writes both `tech_decisions` and `size`
-  to `architecture.yaml` (under `if tech_decisions:`)
+- `apply_scaffold` gains `tech_decisions: list[dict] | None = None, size: str = "S"` parameters; writes `size`
+  unconditionally under `if sa_path:`, writes `tech_decisions` only when non-empty (`if tech_decisions:`)
 - `arch_get_field("tech_decisions")` and `arch_get_field("size")` available to dev and test
 
 **Phase 2 (additional):**
@@ -407,6 +407,9 @@ once its preconditions are met.
 - 2026-06-08: Revised ×11 — add Phase 1 L-size constraint (cap at M; handler rejects L); clarify size
   persistence to architecture.yaml as Phase 2 precondition; standardize owner field
 - 2026-06-08: Revised ×12 — fix handle_sa_propose_scaffold signature: Literal["S","M"] (not "L")
-- 2026-06-07: Revised ×13 — add :113 line reference to ChangeLogEntry comment
-- 2026-06-07: Revised ×14 — fix Phase 2 heading/overview: remove stale #137 gating language;
+- 2026-06-08: Revised ×13 — add :113 line reference to ChangeLogEntry comment
+- 2026-06-08: Revised ×14 — fix Phase 2 heading/overview: remove stale #137 gating language;
   #137 is merged, only PO topology blocks Phase 2
+- 2026-06-08: Revised ×15 — fix apply_scaffold description: add size: str = "S" param; size written
+  unconditionally (not inside if tech_decisions); fix Interfaces section to match; fix
+  handle_sa_propose_scaffold signature from Literal["S","M"] to str (body validates)

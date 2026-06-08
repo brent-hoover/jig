@@ -412,7 +412,9 @@ async def test_auto_prompt_handler_ask_sa_confirm_accepts_new_params():
     choice = await handler.ask_sa_confirm(
         template_name="python",
         rationale="cli tool",
-        tech_decisions=[{"id": "x", "choice": "y", "source_type": "inferred"}],
+        tech_decisions=[
+            {"id": "x", "choice": "y", "rationale": "z", "source_type": "inferred"}
+        ],
         size="M",
         console=None,
     )
@@ -436,8 +438,8 @@ async def test_prompt_sa_confirm_forwards_tech_decisions_and_size(tmp_path: Path
                 "template_name": "python",
                 "rationale": "cli tool",
                 "tech_decisions": [
-                    {"id": "http-client", "choice": "httpx", "source_type": "context7",
-                     "source_ref": "/encode/httpx"}
+                    {"id": "http-client", "choice": "httpx", "rationale": "async/sync",
+                     "source_type": "context7", "source_ref": "/encode/httpx"}
                 ],
                 "size": "M",
             },
@@ -776,6 +778,7 @@ def test_scaffold_summary_grounded_decisions_no_warning(tmp_path: Path):
                 {
                     "id": "cli-framework",
                     "choice": "typer",
+                    "rationale": "declarative subcommands",
                     "source_type": "context7",
                     "source_ref": "/typer/latest",
                 }
@@ -796,7 +799,8 @@ def test_scaffold_summary_inferred_decision_warns(tmp_path: Path):
         {
             "template": "python",
             "tech_decisions": [
-                {"id": "auth-api", "choice": "oauth", "source_type": "inferred"}
+                {"id": "auth-api", "choice": "oauth", "rationale": "no public docs",
+                 "source_type": "inferred"}
             ],
         },
     )
@@ -817,6 +821,7 @@ def test_scaffold_summary_coexists_legacy_and_tech_decisions(tmp_path: Path):
                 {
                     "id": "http-client",
                     "choice": "httpx",
+                    "rationale": "async/sync dual support",
                     "source_type": "context7",
                     "source_ref": "/encode/httpx",
                 }
@@ -849,7 +854,8 @@ async def test_create_planning_ticket_not_blocked_by_inferred(tmp_path: Path):
         {
             "template": "python",
             "tech_decisions": [
-                {"id": "auth-api", "choice": "oauth", "source_type": "inferred"}
+                {"id": "auth-api", "choice": "oauth", "rationale": "no public docs",
+                 "source_type": "inferred"}
             ],
         },
     )

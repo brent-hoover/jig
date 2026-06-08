@@ -4,7 +4,7 @@ type: design
 status: draft
 owner: Brent Hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 problem: ./problem.md
 ---
 
@@ -63,6 +63,9 @@ OnboardResumeState (enum):
   SCAN_PASS               → spawn scanner on 'onboard-scan' ticket (WorkType.ONBOARD_SCAN, new);
                             write observations.md; write CLAUDE.md if absent
   PO_READ_PASS            → spawn PO on 'brief' ticket with onboard context + depth budget injected
+  PO_REVIEW               → gate: show docs/brief.md to operator for confirmation before spec generation;
+                            operator edits brief.md in place and confirms via PromptHandler
+                            (parallel to BRIEF_APPROVAL in the greenfield flow)
   SPEC_PASS               → run_spec_generator (reused unchanged — reads 'brief' ticket)
   PM_PROFILE_PASS         → run_pm_profile_pass with scanner recommendation injected into profile
                             ticket description (PM has no Read/Glob/Grep — signal must be pre-injected)
@@ -170,12 +173,16 @@ The PO read pass writes `docs/brief.md` via `brief_set_section` on every onboard
 after the PO pass and cannot be used as the PM_BACKLOG gate.
 
 The gate is whether the operator supplied a **desired-state brief** via `--brief FILE`. When `--brief FILE`
-is passed, the file is copied to `docs/desired-state.md` at the start of `run_onboard()` (before any agents
-run). `classify_onboard_resume` gates `PM_BACKLOG` on `docs/desired-state.md` existing.
+is passed, the file is copied to `.jig/onboard/desired-state.md` at the start of `run_onboard()` (before any
+agents run). `classify_onboard_resume` gates `PM_BACKLOG` on `.jig/onboard/desired-state.md` existing.
+
+Storing the file inside `.jig/onboard/` (rather than `docs/`) means `--force` clears it automatically —
+a `--force` re-onboard without `--brief` cannot accidentally trigger PM_BACKLOG from a previous run's
+desired-state brief.
 
 When `PM_BACKLOG` fires, the PM is spawned with a ticket description containing:
 - `docs/brief.md` (PO's current-state extraction — what is already built)
-- `docs/desired-state.md` (operator's desired-state brief — what they want next)
+- `.jig/onboard/desired-state.md` (operator's desired-state brief — what they want next)
 - `.jig/onboard/observations.md` (scanner's structural view)
 
 The PM's task: identify capabilities present in `desired-state.md` that are absent or incomplete in
@@ -264,32 +271,38 @@ allowed_mcps: []
 Free-form markdown produced by the scanner. Not schema-validated — PO and SA read it as prose context.
 Written once; overwritten on `--force` re-onboard.
 
-### `docs/brief.md` and `docs/desired-state.md`
+### `docs/brief.md` and `.jig/onboard/desired-state.md`
 
 `docs/brief.md` is written by the PO read pass (via `brief_set_section`) and represents current behavior —
-the same path `run_spec_generator` reads. `docs/desired-state.md` is written at the start of `run_onboard()`
-when `--brief FILE` is passed — it is the operator's desired-state document and is the gate for `PM_BACKLOG`.
-These two files serve distinct roles and must not be conflated.
+the same path `run_spec_generator` reads. `.jig/onboard/desired-state.md` is written at the start of
+`run_onboard()` when `--brief FILE` is passed — it is the operator's desired-state document and is the gate
+for `PM_BACKLOG`. Placing it inside `.jig/onboard/` (alongside `observations.md`) means `--force` clears it
+with the rest of the onboard state. These two files serve distinct roles and must not be conflated.
 
-### `project.yaml` additions
+### `project.yaml`
+
+`run_onboard()` calls `create_stub(path, name=name)` first — the same function used by the greenfield init
+flow. `create_stub` writes `id`, `name`, `created_at`, and initialises `config.yaml`; without these fields,
+`classify_directory` returns BROKEN (`{id, name, created_at}` are required, `init_workflow.py` line 81).
+Immediately after `create_stub`, `run_onboard()` writes the onboard-specific fields into the same file:
 
 ```yaml
-# written at the very start of run_onboard() before any agents spawn
+# these fields are added by run_onboard() immediately after create_stub()
 onboard_started_at: "2026-06-07T21:00:00Z"
 # written when onboarding completes
 onboard_completed_at: "2026-06-07T22:00:00Z"
 ```
 
 `classify_onboard_resume` uses `onboard_completed_at` as the ALREADY_DONE signal.
-`project.yaml` existence (via `onboard_started_at`) ensures `classify_directory` returns IN_PROGRESS
-rather than BROKEN on crash-resume.
+`classify_directory` returns IN_PROGRESS (not BROKEN) on crash-resume because the standard stub fields are
+present; the onboard-specific fields are additive.
 
 ### Ticket IDs
 
 | Ticket ID      | Role    | SA/PO-complete signal             | Advance-past signal                            |
 |----------------|---------|-----------------------------------|------------------------------------------------|
 | `onboard-scan` | scanner | `Note(kind="onboard_scan_done")`  | same                                           |
-| `brief`        | po      | `Handoff(phase="spec-generator")` | same — spec generator runs, then PM profile    |
+| `brief`        | po      | `Handoff(phase="spec-generator")` | same → PO_REVIEW gate → spec generator, then PM profile |
 | `architecture` | sa      | `Handoff(phase="pm")`             | `SystemEvent(event_type="onboard_artifacts_approved")` |
 
 `onboard-scan` is the only new ticket ID. `brief` and `architecture` are standard IDs reused from the

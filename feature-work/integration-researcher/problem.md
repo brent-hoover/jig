@@ -4,7 +4,7 @@ type: problem
 status: draft
 owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 ---
 
 # Integration Grounding — Problem Statement
@@ -99,3 +99,4 @@ this — both roles can already do that, and they still built to wrong fixture s
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-08: Fix owner field format (brent-hoover)

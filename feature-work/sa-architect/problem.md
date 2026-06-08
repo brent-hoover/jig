@@ -4,7 +4,7 @@ type: problem
 status: active
 owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 ---
 
 # SA as Architect — Problem Statement
@@ -97,3 +97,4 @@ but SA was in the best position to catch it and didn't — it had no way to try.
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-08: Fix owner field format (brent-hoover)

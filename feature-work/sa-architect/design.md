@@ -25,10 +25,10 @@ This design supersedes `feature-work/architecture-skeleton/design.md` (absorbed 
 ## Current state
 
 - `small.yaml` and `medium.yaml` both have `sa_role: sa` — v1 `sa.yaml` runs for all projects
-- `sa_mvp.yaml` (`role: sa-mvp`) implements the v2 SA path but cannot activate: (a) `classify_resume`
-  only handles `sa_propose_scaffold`, not `arch_finalize` (#137, in progress); (b) medium PO
-  currently produces flat `project.structured.yaml`, but `sa_mvp` expects L0–L3 artifacts
-  (`discovery.md`, `suites.yaml`, per-suite `spec.structured.yaml`) that no profile produces yet
+- `sa_mvp.yaml` (`role: sa-mvp`) implements the v2 SA path but cannot activate: `classify_resume`
+  now handles `arch_finalize` (#137, merged); the remaining blocker is that medium PO currently
+  produces flat `project.structured.yaml`, but `sa_mvp` expects L0–L3 artifacts (`discovery.md`,
+  `suites.yaml`, per-suite `spec.structured.yaml`) that no profile produces yet
 - `sa_mvp.yaml` is referenced in: `test_sa_incremental_registration.py`,
   `test_renderers_pydantic_from_data_contract.py`, `test_load_role_by_role_id.py`,
   `schemas/profile.py:40`, `tui/screens/now.py:126,149,179` — not safe to delete
@@ -58,6 +58,11 @@ class TechDecision(BaseModel):
     source_type: SourceType
     source_ref: str | None = None   # Context7 library ID, URL, or None
     version_pinned: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "TechDecision.id")
 ```
 
 Add to `Architecture`:
@@ -389,3 +394,5 @@ once its preconditions are met.
 - 2026-06-07: Revised ×7 — clarify size-selection prefix: Phase 1 read-only, override is Phase 2 scope
 - 2026-06-07: Revised ×8 — strict_tools: true (add to allowed_tools, not weaken deny list);
   mutable defaults: list[dict] | None = None + normalize in body for both handlers
+- 2026-06-07: Revised ×9 — add field_validator for TechDecision.id (kebab-case via validate_kebab_id);
+  mark #137 as merged, update Phase 2 blocker to PO topology only

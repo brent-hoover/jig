@@ -70,8 +70,9 @@ Per design.md Out of scope, plus Phase 1 additions:
 
 **What:**
 - Add `SourceType` enum: `context7 | live_fetch | operator_specified | inferred`
-- Add `TechDecision` model: `id` (kebab-case), `choice`, `rationale`, `source_type: SourceType`,
-  `source_ref: str | None = None`, `version_pinned: str | None = None` — with `extra="forbid"`
+- Add `TechDecision` model: `id` (kebab-case, validated via `validate_kebab_id`), `choice`, `rationale`,
+  `source_type: SourceType`, `source_ref: str | None = None`, `version_pinned: str | None = None` —
+  with `extra="forbid"` and a `@field_validator("id")` matching the pattern in other `arch.py` models
 - Add `tech_decisions: list[TechDecision] = Field(default_factory=list)` to `Architecture`
 - Add `SourceType` and `TechDecision` to the `__all__` list (lines 45–71) so they're importable via
   `from jig.schemas.arch import *`
@@ -84,6 +85,7 @@ parses without it. Existing conformant `architecture.yaml` files (v2 sa_mvp path
 - Add new cases to `tests/test_schemas_arch.py` (existing file, do not create a new one):
   - `TechDecision` validates correctly for all four `SourceType` values.
   - `TechDecision` rejects an unknown field (`extra="forbid"`).
+  - `TechDecision` rejects a non-kebab `id` (e.g. `"CLI Framework"`) — enforces the `validate_kebab_id` validator.
   - `Architecture` parses with no `tech_decisions` key (default `[]`).
   - `Architecture` parses with a valid `tech_decisions` list.
 
@@ -288,3 +290,4 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
 - 2026-06-07: Revised ×8 — keep strict_tools: true in Step 2 (add to allowed_tools, not weaken deny list);
   fix test assertion (strict_tools is True); mutable defaults: list[dict] | None = None + normalize in body
   for handle_sa_propose_scaffold and apply_scaffold
+- 2026-06-07: Revised ×9 — TechDecision.id uses validate_kebab_id field_validator; add non-kebab rejection test

@@ -105,8 +105,8 @@ parses without it. Existing conformant `architecture.yaml` files (v2 sa_mvp path
   shape before Step 3 lands. Document only "S"/"M" here: Phase 1 handler rejects "L" with `ValueError`, so
   advertising "L" in the tool description would cause SA to pass a value that always fails.
 - Extend `phase_prompt` with:
-  - **Size-selection prefix**: SA reads the spec, selects S/M/L (rule: external API → M minimum), states choice
-    with reasoning in the first thread message
+  - **Size-selection prefix**: SA reads the spec, selects S/M in Phase 1 (rule: external API → M minimum;
+    "L" is Phase 2 scope), states choice with reasoning in the first thread message
   - **Research protocol**: (1) resolve in Context7 → `source_type: context7`; (2) WebFetch official docs (use
     WebSearch first if the URL is unknown) → `source_type: live_fetch`; (3) operator-stated →
     `source_type: operator_specified`; (4) training only → `source_type: inferred`
@@ -315,3 +315,4 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
   size assertion to verify
 - 2026-06-08: Revised ×13 — Step 2: sa.yaml documents only "S"/"M" for Phase 1 (not "L"); handler
   rejects "L" so advertising it causes guaranteed ValueError
+- 2026-06-08: Revised ×14 — Step 2 phase_prompt description: "selects S/M/L" → "selects S/M in Phase 1"

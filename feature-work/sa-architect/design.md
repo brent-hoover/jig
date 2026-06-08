@@ -91,8 +91,8 @@ require another schema change.
 - Rewrite line 20 (the tool-enumeration gate: "these are the only ones you have") to reflect
   the expanded tool set; lines 57–58 prohibit Bash/Glob/Grep/Edit/Write and need no change
 
-**Size-selection prefix** — SA reads the spec, selects S/M/L, and states the choice with
-reasoning in the first thread message. Phase 1 renders the SA-selected size read-only at the confirmation
+**Size-selection prefix** — SA reads the spec, selects S/M in Phase 1 (L is Phase 2 scope), and states the
+choice with reasoning in the first thread message. Phase 1 renders the SA-selected size read-only at the confirmation
 prompt. Operator size override is Phase 2 scope.
 
 | Size | Trigger | Architecture output |
@@ -416,3 +416,5 @@ once its preconditions are met.
   unconditionally under if sa_path (not inside if tech_decisions); pass size from SA-accept call site
 - 2026-06-08: Revised ×16 — fix Interfaces section: add size: str param to apply_scaffold; fix guard
   description; fix handle_sa_propose_scaffold signature from Literal["S","M"] to str (body validates)
+- 2026-06-08: Revised ×17 — size-selection prefix: "selects S/M/L" → "selects S/M in Phase 1" to match Phase 1
+  L-size constraint

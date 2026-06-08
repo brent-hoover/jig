@@ -305,7 +305,7 @@ present; the onboard-specific fields are additive.
 | Ticket ID      | Role    | SA/PO-complete signal             | Advance-past signal                            |
 |----------------|---------|-----------------------------------|------------------------------------------------|
 | `onboard-scan` | scanner | `Note(kind="onboard_scan_done")`  | same                                           |
-| `brief`        | po      | `Handoff(phase="spec-generator")` | same → PO_REVIEW gate → spec generator, then PM profile |
+| `brief`        | po      | `Handoff(phase="spec-generator")` | `SystemEvent(event_type="brief_approved")` (posted by PO_REVIEW gate on operator confirm) |
 | `architecture` | sa      | `Handoff(phase="pm")`             | `SystemEvent(event_type="onboard_artifacts_approved")` |
 
 `onboard-scan` is the only new ticket ID. `brief` and `architecture` are standard IDs reused from the

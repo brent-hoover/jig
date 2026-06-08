@@ -531,6 +531,11 @@ class Architecture(BaseModel):
     risks: list[Risk] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
     tech_decisions: list[TechDecision] = Field(default_factory=list)
+    # Written by apply_scaffold to the (free-form) init-phase architecture.yaml
+    # and read back via arch_get_field("size"). Declared here as forward
+    # positioning so a conformant Phase 2 Architecture (extra="forbid") accepts
+    # it without another schema change. Phase 1 caps SA at S/M; L is Phase 2.
+    size: Literal["S", "M", "L"] = "S"
     change_log: list[ChangeLogEntry] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -123,6 +123,14 @@ def test_architecture_defaults_tech_decisions_empty():
     assert a.tech_decisions == []
 
 
+def test_architecture_size_defaults_and_validates():
+    assert Architecture().size == "S"
+    assert Architecture(size="M").size == "M"
+    assert Architecture(size="L").size == "L"  # forward-positioned for Phase 2
+    with pytest.raises(ValidationError, match="size"):
+        Architecture(size="XL")
+
+
 def test_architecture_rejects_duplicate_tech_decision_ids():
     with pytest.raises(ValidationError, match="tech_decisions"):
         Architecture(

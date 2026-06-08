@@ -61,7 +61,7 @@ Per design.md Out of scope, plus Phase 1 additions:
 - [x] Step 3: `sa_propose_scaffold` MCP extension (folded with Step 2 — prompt + tool must agree)
 - [x] Step 4: `apply_scaffold` + `_scaffold_summary_for_pm`
 - [x] Step 5: Operator confirmation call chain
-- [ ] Step 6: Dev/test role access
+- [x] Step 6: Dev/test role access
 - [ ] Step 7: Full verification
 
 ## Steps

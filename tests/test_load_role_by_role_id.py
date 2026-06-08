@@ -73,3 +73,11 @@ def test_sa_role_has_research_tools(tmp_path: Path) -> None:
     assert "WebFetch" in cfg.allowed_tools
     assert "WebSearch" in cfg.allowed_tools
     assert cfg.strict_tools is True
+
+
+@pytest.mark.parametrize("role_id", ["dev", "test"])
+def test_dev_and_test_roles_have_arch_get_field(tmp_path: Path, role_id: str) -> None:
+    """Dev and test agents need arch_get_field to look up grounded
+    architecture decisions mid-ticket."""
+    cfg = load_role(tmp_path, role_id)
+    assert "arch_get_field" in cfg.allowed_tools

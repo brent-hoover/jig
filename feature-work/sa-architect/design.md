@@ -153,12 +153,14 @@ written during Phase 1 (so `_scaffold_summary_for_pm`'s existing readers don't r
 the migration completes). `tech_decisions` is a new sibling key alongside `decisions`.
 
 **`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`
-and `size: str = "S"`; normalize `tech_decisions` to `[]` at the top of the function body. Passed only from
-the SA-accept call site (line 567, `sa_path=True`). The direct-template-pick call site (line 586, `sa_path=False`)
-passes neither; the `if sa_path:` guard at ~line 1606 prevents any write. Inside `if sa_path:`, `size` is
-written **unconditionally** so Phase 2 can always read `arch_get_field("size")`; `tech_decisions` is written
-only when non-empty (guarded by `if tech_decisions:`). Writing `size` here — not just to the Note payload —
-is a Phase 2 precondition: the Note payload is consumed at confirm time and not accessible post-init.
+and `size: str = "S"`; `tech_decisions` normalized to `[]` at the top of the function body. The SA-accept call
+site (line 567, `sa_path=True`) passes both `tech_decisions=proposal.get("tech_decisions", [])` and
+`size=proposal.get("size", "S")`. The direct-template-pick call site (line 586, `sa_path=False`) passes
+neither; the `if sa_path:` guard at ~line 1606 prevents any write. Inside that guard, `data["size"] = size`
+is written unconditionally (outside any `if tech_decisions:` guard) so Phase 2 can read
+`arch_get_field("size")` even when no tech_decisions were produced. `data["tech_decisions"] = tech_decisions`
+is written only `if tech_decisions:`. Writing `size` unconditionally here — not just to the Note payload — is
+a Phase 2 precondition: the Note payload is consumed during init and not accessible post-confirm.
 
 `_scaffold_summary_for_pm` (~line 635) is updated to also read the new `tech_decisions` key
 from architecture.yaml and append a grounding-source summary, while keeping the existing
@@ -410,6 +412,7 @@ once its preconditions are met.
 - 2026-06-08: Revised ×13 — add :113 line reference to ChangeLogEntry comment
 - 2026-06-08: Revised ×14 — fix Phase 2 heading/overview: remove stale #137 gating language;
   #137 is merged, only PO topology blocks Phase 2
-- 2026-06-08: Revised ×15 — fix apply_scaffold description: add size: str = "S" param; size written
-  unconditionally (not inside if tech_decisions); fix Interfaces section to match; fix
-  handle_sa_propose_scaffold signature from Literal["S","M"] to str (body validates)
+- 2026-06-08: Revised ×15 — fix apply_scaffold design: add size: str = "S" param; write size
+  unconditionally under if sa_path (not inside if tech_decisions); pass size from SA-accept call site
+- 2026-06-08: Revised ×16 — fix Interfaces section: add size: str param to apply_scaffold; fix guard
+  description; fix handle_sa_propose_scaffold signature from Literal["S","M"] to str (body validates)

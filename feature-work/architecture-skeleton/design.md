@@ -5,7 +5,7 @@ status: superseded
 superseded_by: ../sa-architect/design.md
 owner: brent
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 problem: ./problem.md
 ---
 
@@ -179,3 +179,4 @@ between "what the module does" (contracts) and "what it may touch" (boundaries).
 ## Change log
 
 - 2026-06-07: Initial draft (brent)
+- 2026-06-08: Superseded by feature-work/sa-architect/design.md (Phase 2 absorbed)

@@ -2,9 +2,9 @@
 title: SA as Architect — Phase 1 Implementation Plan
 type: plan
 status: draft
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 design: ./design.md
 ---
 
@@ -166,13 +166,15 @@ change must land together — a mismatched schema would silently drop the new pa
 **What:**
 Two functions, one commit (reader and writer must stay in sync):
 
-- **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`; normalize to `[]` at the
-  top of the function body. Inside the existing
-  `if sa_path:` block (~line 1606), add: `if tech_decisions: data["tech_decisions"] = tech_decisions`. The
-  SA-accept call site (~line 567) passes `tech_decisions=proposal.get("tech_decisions", [])`. The
-  direct-template-pick call site (~line 586, `sa_path=False`) does not pass `tech_decisions`; the `if sa_path:`
-  guard prevents any write. **Do not** convert the architecture.yaml write to `Architecture.model_dump()` — the
-  file remains a free-form dict in Phase 1.
+- **`apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None` and
+  `size: str | None = None`; both normalized at the top of the function body (`tech_decisions` → `[]`,
+  `size` → `None`). Inside the existing `if sa_path:` block (~line 1606), add:
+  `if tech_decisions: data["tech_decisions"] = tech_decisions` and `if size: data["size"] = size`.
+  The SA-accept call site (~line 567) passes `tech_decisions=proposal.get("tech_decisions", [])` and
+  `size=proposal.get("size")`. The direct-template-pick call site (~line 586, `sa_path=False`) passes neither;
+  the `if sa_path:` guard prevents any write. Writing `size` to `architecture.yaml` makes it available
+  via `arch_get_field("size")` in Phase 2 without a migration. **Do not** convert the architecture.yaml
+  write to `Architecture.model_dump()` — the file remains a free-form dict in Phase 1.
 
 - **`_scaffold_summary_for_pm` (~line 635)** (currently `-> str`; signature unchanged): reads the new
   `tech_decisions` key from `architecture.yaml` via `arch.get("tech_decisions", [])`, appends a formatted
@@ -186,9 +188,10 @@ The reader and writer must land in the same commit — if `apply_scaffold` write
 `_scaffold_summary_for_pm` hasn't been updated, PM gets an empty tech summary on the first run.
 
 **Verify:**
-- Integration test: `apply_scaffold` with `sa_path=True` and a `tech_decisions` list passed directly;
-  read `architecture.yaml`; assert `tech_decisions` key present and matches input.
-- Integration test: `apply_scaffold` with `sa_path=False`; assert `tech_decisions` key absent.
+- Integration test: `apply_scaffold` with `sa_path=True`, `tech_decisions` list, and `size="M"` passed
+  directly; read `architecture.yaml`; assert both `tech_decisions` and `size` keys present and match input.
+- Integration test: `apply_scaffold` with `sa_path=False`; assert neither `tech_decisions` nor `size` key
+  is present.
 - Seam test (SA-accept path): write a `Note` payload with `tech_decisions` using the Step 3 handler (or by
   constructing it directly as Step 3 would), read it back via `latest_scaffold_proposal`, then call
   `apply_scaffold` using the SA-accept call site (init_workflow.py:~567) with
@@ -274,7 +277,7 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
 **Verify:**
 - `uv run ruff check jig/ tests/`
 - `uv run ruff format --check jig/ tests/`
-- `uv run pytest tests/ -q` — full suite green (baseline: 4321 passing)
+- `uv run pytest tests/ -q` — full suite green
 - End-to-end: `jig init` (sandboxed, Docker on) against the hn-cli brief produces `architecture.yaml` with
   grounded `tech_decisions` (at least `cli-framework`, `http-client`, `async-io`; each with
   `source_type: context7` or `live_fetch`), the operator confirmation table renders correctly, and the
@@ -291,3 +294,5 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
   fix test assertion (strict_tools is True); mutable defaults: list[dict] | None = None + normalize in body
   for handle_sa_propose_scaffold and apply_scaffold
 - 2026-06-07: Revised ×9 — TechDecision.id uses validate_kebab_id field_validator; add non-kebab rejection test
+- 2026-06-08: Revised ×10 — standardize owner to brent-hoover; add size to apply_scaffold signature and
+  integration test assertions; remove hardcoded test count from Step 7

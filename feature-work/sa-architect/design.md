@@ -2,9 +2,9 @@
 title: SA as Architect — Design
 type: design
 status: active
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-08
 problem: ./problem.md
 ---
 
@@ -103,6 +103,15 @@ prompt. Operator size override is Phase 2 scope.
 
 Precedence rule: any external API → M minimum, regardless of capability count.
 
+**L-size Phase 1 behavior**: During Phase 1, the `sa.yaml` prompt guides SA to classify as S or M for projects
+it can fully scaffold today. If SA nonetheless emits `size: "L"` (7+ capabilities or explicit module isolation
+required), the handler accepts and stores it in the Note payload; the confirmation prompt displays a
+"Phase 2 full L scaffold output is pending" note alongside the size. `apply_scaffold` has no L-specific path
+in Phase 1 — L projects receive M-equivalent output (free-form `arch.yaml` + `tech_decisions`). SA must
+document the L classification and its reasoning in the size-selection prefix so the operator can make an
+informed accept/reject decision. The L value is stored in `architecture.yaml` so Phase 2 can read it via
+`arch_get_field("size")` without a migration.
+
 **Research protocol**:
 1. Resolve each library/service in Context7 (`resolve-library-id`); query current docs
 2. Record `source_type: context7`, `source_ref: <library-id>`, `version_pinned`
@@ -146,13 +155,13 @@ the thread payload, shown in confirmation).
 written during Phase 1 (so `_scaffold_summary_for_pm`'s existing readers don't regress while
 the migration completes). `tech_decisions` is a new sibling key alongside `decisions`.
 
-**`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`;
-normalized to `[]` at the top of the function body. Passed only from the SA-accept call site
-(line 567, `sa_path=True`). The direct-template-pick call site (line 586, `sa_path=False`) passes
-no `tech_decisions`; the param defaults to `None` → `[]` and the SA-path guard at ~line 1606 prevents
-any write. `apply_scaffold` writes `tech_decisions`
-as a new key in the architecture.yaml dict, guarded by `if tech_decisions:` (matching the
-existing `decisions`/`constraints` guard pattern).
+**`jig/init_workflow.py` — `apply_scaffold` (~line 1566)**: gains `tech_decisions: list[dict] | None = None`
+and `size: str | None = None`; both normalized at the top of the function body (`tech_decisions` → `[]`,
+`size` → `None`). Passed only from the SA-accept call site (line 567, `sa_path=True`). The
+direct-template-pick call site (line 586, `sa_path=False`) passes neither; the `if sa_path:` guard at
+~line 1606 prevents any write. Inside the `if sa_path:` block, both are written to the architecture.yaml
+dict: `if tech_decisions: data["tech_decisions"] = tech_decisions` and `if size: data["size"] = size`.
+Writing `size` in Phase 1 makes it readable via `arch_get_field("size")` in Phase 2 without a migration.
 
 `_scaffold_summary_for_pm` (~line 635) is updated to also read the new `tech_decisions` key
 from architecture.yaml and append a grounding-source summary, while keeping the existing
@@ -263,20 +272,23 @@ Decision required before `BoundariesFile` schema finalises.
 **Phase 1:**
 - `sa_propose_scaffold` gains `tech_decisions: list[dict]`, `size: str`
 - `Architecture` gains `tech_decisions: list[TechDecision] = Field(default_factory=list)`
-- `apply_scaffold` gains `tech_decisions: list[dict]` parameter
-- `arch_get_field("tech_decisions")` available to dev and test
+- `apply_scaffold` gains `tech_decisions: list[dict]` and `size: str | None` parameters
+- `architecture.yaml` gains `tech_decisions` key and `size` key (written by `apply_scaffold`)
+- `arch_get_field("tech_decisions")` and `arch_get_field("size")` available to dev and test
 
 **Phase 2 (additional):**
 - `sa_write_boundaries` new MCP tool
 - `BoundariesFile` new schema
 - Unified `sa.yaml` absorbs `sa_mvp.yaml` M/L behavior
+- `size` already present in `architecture.yaml` from Phase 1 — no migration required
 
 ## Data model
 
 ```yaml
-# .jig/spec/architecture.yaml — after Phase 1 (free-form + new key)
+# .jig/spec/architecture.yaml — after Phase 1 (free-form + new keys)
 template: python-cli
 language: python
+size: M
 constraints:
   - HTTP client must be injectable for test fixture replay
 tech_decisions:
@@ -397,3 +409,6 @@ once its preconditions are met.
   mark #137 as merged; remove #137 from Phase 2 blocker list throughout
 - 2026-06-07: Revised ×10 — fix 120-char line wrap in summary; annotate ChangeLogEntry as existing
   arch.py type; remove remaining stale #137 references from Phase 2 preconditions and summary
+- 2026-06-08: Revised ×11 — standardize owner to brent-hoover; define L-size Phase 1 behavior
+  (M-equivalent output, confirmation note, size stored in architecture.yaml for Phase 2); add size
+  to apply_scaffold signature and architecture.yaml writes; update Interfaces section

@@ -34,7 +34,13 @@ class PromptHandler(Protocol):
     async def ask_branch_choice(self, *, console: "Console") -> "BranchChoice": ...
 
     async def ask_sa_confirm(
-        self, *, template_name: str, rationale: str, console: "Console"
+        self,
+        *,
+        template_name: str,
+        rationale: str,
+        tech_decisions: list[dict],
+        size: str,
+        console: "Console",
     ) -> "ConfirmChoice": ...
 
     async def ask_profile_confirm(
@@ -106,12 +112,23 @@ class CliPromptHandler:
         return BranchChoice.parse(reply)
 
     async def ask_sa_confirm(
-        self, *, template_name: str, rationale: str, console: "Console"
+        self,
+        *,
+        template_name: str,
+        rationale: str,
+        tech_decisions: list[dict],
+        size: str,
+        console: "Console",
     ) -> ConfirmChoice:
         from jig.init_workflow import render_sa_confirm_prompt
 
         console.print(
-            render_sa_confirm_prompt(template_name=template_name, rationale=rationale),
+            render_sa_confirm_prompt(
+                template_name=template_name,
+                rationale=rationale,
+                tech_decisions=tech_decisions,
+                size=size,
+            ),
             markup=False,
         )
         reply = click.prompt("Choice", default="Y", show_default=False)
@@ -222,8 +239,17 @@ class AutoPromptHandler:
         return BranchChoice.SA
 
     async def ask_sa_confirm(
-        self, *, template_name: str, rationale: str, console: "Console"
+        self,
+        *,
+        template_name: str,
+        rationale: str,
+        tech_decisions: list[dict],
+        size: str,
+        console: "Console",
     ) -> ConfirmChoice:
+        # Auto / eval path accepts the proposal unconditionally; the
+        # tech_decisions table and size are informational only and there's
+        # no operator to render them for.
         return ConfirmChoice.YES
 
     async def ask_profile_confirm(

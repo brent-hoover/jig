@@ -1222,13 +1222,41 @@ class ConfirmChoice(str, Enum):
         return cls.YES
 
 
-def render_sa_confirm_prompt(*, template_name: str, rationale: str) -> str:
+def render_sa_confirm_prompt(
+    *,
+    template_name: str,
+    rationale: str,
+    tech_decisions: list[dict] | None = None,
+    size: str = "S",
+) -> str:
     # Options (Y/n/swap) come from the prompt panel; emit only the
     # informational context here so it doesn't duplicate in scrollback.
     # Plain text — the CLI path uses ``console.print(..., markup=False)``
     # and the TUI path wraps via ``Markdown(...)``. Rich markup tags
-    # would show through literally in both.
-    return f"SA proposes: {template_name}\n\nRationale:\n{rationale}"
+    # would show through literally in both. Size is shown read-only —
+    # operator override is Phase 2 scope.
+    tech_decisions = tech_decisions or []
+    lines = [
+        f"SA proposes: {template_name}  (project size: {size})",
+        "",
+        "Rationale:",
+        rationale,
+    ]
+    if tech_decisions:
+        lines.extend(
+            [
+                "",
+                "Grounded tech decisions:",
+                f"  {'ID':<18}{'CHOICE':<16}{'SOURCE':<20}REF",
+            ]
+        )
+        for td in tech_decisions:
+            td_id = str(td.get("id", "?"))
+            choice = str(td.get("choice", "?"))
+            source_type = str(td.get("source_type", "?"))
+            source_ref = str(td.get("source_ref") or "—")
+            lines.append(f"  {td_id:<18}{choice:<16}{source_type:<20}{source_ref}")
+    return "\n".join(lines)
 
 
 async def latest_scaffold_proposal(threads: ThreadStore) -> dict | None:
@@ -1262,6 +1290,8 @@ async def prompt_sa_confirm(
     choice = await p.ask_sa_confirm(
         template_name=proposal["template_name"],
         rationale=proposal["rationale"],
+        tech_decisions=proposal.get("tech_decisions", []),
+        size=proposal.get("size", "S"),
         console=c,
     )
     return choice, proposal

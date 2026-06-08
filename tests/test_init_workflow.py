@@ -22,6 +22,7 @@ from jig.init_workflow import (
     latest_scaffold_proposal,
     render_branch_prompt,
     render_gap_prompt,
+    prompt_sa_confirm,
     render_sa_confirm_prompt,
     render_template_list,
     run_po_conversation,
@@ -344,6 +345,95 @@ def test_render_sa_confirm_prompt_shows_rationale():
     # Options (Y/n/swap) come from the prompt panel — the rendered
     # text no longer duplicates them.
     assert "[Y/n/swap]" not in text
+
+
+def test_render_sa_confirm_prompt_shows_size_and_tech_decisions():
+    text = render_sa_confirm_prompt(
+        template_name="python",
+        rationale="cli tool",
+        size="M",
+        tech_decisions=[
+            {
+                "id": "cli-framework",
+                "choice": "typer",
+                "source_type": "context7",
+                "source_ref": "/typer/latest",
+            }
+        ],
+    )
+    assert "project size: M" in text
+    assert "Grounded tech decisions" in text
+    assert "cli-framework" in text
+    assert "context7" in text
+    assert "/typer/latest" in text
+
+
+def test_render_sa_confirm_prompt_empty_tech_decisions_renders():
+    """Empty tech_decisions must render without error and without a table."""
+    text = render_sa_confirm_prompt(
+        template_name="python",
+        rationale="cli tool",
+        size="S",
+        tech_decisions=[],
+    )
+    assert "project size: S" in text
+    assert "Grounded tech decisions" not in text
+
+
+async def test_auto_prompt_handler_ask_sa_confirm_accepts_new_params():
+    """AutoPromptHandler.ask_sa_confirm must accept tech_decisions + size
+    (catches a missed signature update before the manual path)."""
+    from jig.init_prompts import AutoPromptHandler
+
+    handler = AutoPromptHandler()
+    choice = await handler.ask_sa_confirm(
+        template_name="python",
+        rationale="cli tool",
+        tech_decisions=[{"id": "x", "choice": "y", "source_type": "inferred"}],
+        size="M",
+        console=None,
+    )
+    assert choice == ConfirmChoice.YES
+
+
+async def test_prompt_sa_confirm_forwards_tech_decisions_and_size(tmp_path: Path):
+    """Seam (steps 3->5): a proposal carrying tech_decisions + size is
+    forwarded to ask_sa_confirm without TypeError. A renamed payload key in
+    the handler would break this while the AutoPromptHandler unit test
+    above would still pass."""
+    threads = ThreadStore(tmp_path / "comments.jsonl")
+    await threads.load()
+    await threads.post(
+        Note(
+            ticket_id="architecture",
+            author="sa",
+            text="Proposed scaffold: python",
+            payload={
+                "kind": "sa_propose_scaffold",
+                "template_name": "python",
+                "rationale": "cli tool",
+                "tech_decisions": [
+                    {"id": "http-client", "choice": "httpx", "source_type": "context7",
+                     "source_ref": "/encode/httpx"}
+                ],
+                "size": "M",
+            },
+        )
+    )
+
+    seen: dict = {}
+
+    class _Spy:
+        async def ask_sa_confirm(self, *, template_name, rationale, tech_decisions,
+                                 size, console):
+            seen["tech_decisions"] = tech_decisions
+            seen["size"] = size
+            return ConfirmChoice.YES
+
+    choice, proposal = await prompt_sa_confirm(threads, prompts=_Spy())
+    assert choice == ConfirmChoice.YES
+    assert seen["size"] == "M"
+    assert seen["tech_decisions"][0]["choice"] == "httpx"
 
 
 async def test_latest_scaffold_proposal_returns_most_recent(tmp_path: Path):

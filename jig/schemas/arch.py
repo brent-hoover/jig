@@ -67,6 +67,8 @@ __all__ = [
     "RiskLikelihood",
     "RiskStatus",
     "SharedContract",
+    "SourceType",
+    "TechDecision",
     "TierHint",
 ]
 
@@ -108,6 +110,53 @@ class RiskStatus(str, Enum):
     MITIGATED_WITH_CONSTRAINTS = "mitigated_with_constraints"
     ACCEPTED = "accepted"
     CONFIRMED_IMPOSSIBLE = "confirmed_impossible"
+
+
+class SourceType(str, Enum):
+    """Provenance of a ``TechDecision`` — where SA grounded the choice."""
+
+    context7 = "context7"
+    live_fetch = "live_fetch"
+    operator_specified = "operator_specified"
+    inferred = "inferred"  # training-data only; no external source consulted
+
+
+class TechDecision(BaseModel):
+    """One SA technology choice grounded in a verifiable source.
+
+    Records what was chosen, why, and where the justification came from so
+    downstream agents (PM, dev, test) can see grounded vs. inferred picks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str  # kebab-case, e.g. "cli-framework"
+    choice: str
+    rationale: str
+    source_type: SourceType
+    source_ref: str | None = None  # Context7 library ID, URL, or None
+    version_pinned: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _kebab_id(cls, v: str) -> str:
+        return validate_kebab_id(v, "TechDecision.id")
+
+    @model_validator(mode="after")
+    def _require_source_ref_when_grounded(self) -> TechDecision:
+        """A decision claiming an external source must name it. Without
+        a ``source_ref`` a ``context7``/``live_fetch`` entry asserts
+        provenance it can't point at, and downstream readers would treat
+        it as grounded. ``operator_specified``/``inferred`` legitimately
+        have no ref."""
+        if self.source_type in (SourceType.context7, SourceType.live_fetch) and not (
+            self.source_ref and self.source_ref.strip()
+        ):
+            raise ValueError(
+                "TechDecision.source_ref is required when "
+                f"source_type={self.source_type.value}"
+            )
+        return self
 
 
 class ChangeLogEntry(BaseModel):
@@ -481,6 +530,7 @@ class Architecture(BaseModel):
     cross_cutting_policies: list[CrossCuttingPolicy] = Field(default_factory=list)
     risks: list[Risk] = Field(default_factory=list)
     open_questions: list[OpenQuestion] = Field(default_factory=list)
+    tech_decisions: list[TechDecision] = Field(default_factory=list)
     change_log: list[ChangeLogEntry] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -531,6 +581,12 @@ class Architecture(BaseModel):
             attr="id",
             owner="Architecture",
             collection="open_questions",
+        )
+        _check_unique_ids(
+            self.tech_decisions,
+            attr="id",
+            owner="Architecture",
+            collection="tech_decisions",
         )
         return self
 

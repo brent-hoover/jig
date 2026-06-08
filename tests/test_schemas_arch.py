@@ -28,6 +28,8 @@ from jig.schemas.arch import (
     RiskLikelihood,
     RiskStatus,
     SharedContract,
+    SourceType,
+    TechDecision,
     TierHint,
 )
 
@@ -45,6 +47,107 @@ def test_empty_architecture_valid():
     a = Architecture()
     assert a.spec_version == 1
     assert a.modules == []
+
+
+# ---------------------------------------------------------------------------
+# TechDecision (SA grounded-decision record)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("source_type, source_ref", [
+    (SourceType.context7, "/typer/latest"),
+    (SourceType.live_fetch,
+     "https://hacker-news.firebaseio.com/v0/item/8863.json"),
+    (SourceType.operator_specified, None),
+    (SourceType.inferred, None),
+])
+def test_tech_decision_valid_for_each_source_type(source_type, source_ref):
+    td = TechDecision(
+        id="cli-framework",
+        choice="typer",
+        rationale="Declarative subcommand parsing.",
+        source_type=source_type,
+        source_ref=source_ref,
+        version_pinned="0.12" if source_type is SourceType.context7 else None,
+    )
+    assert td.source_type is source_type
+    assert td.source_ref == source_ref
+
+
+def test_tech_decision_rejects_extra_field():
+    with pytest.raises(ValidationError, match="extra"):
+        TechDecision(
+            id="cli-framework",
+            choice="typer",
+            rationale="x",
+            source_type=SourceType.inferred,
+            bogus="nope",
+        )
+
+
+def test_tech_decision_rejects_non_kebab_id():
+    with pytest.raises(ValidationError, match="TechDecision.id"):
+        TechDecision(
+            id="CLI Framework",
+            choice="typer",
+            rationale="x",
+            source_type=SourceType.inferred,
+        )
+
+
+@pytest.mark.parametrize("source_type", [SourceType.context7, SourceType.live_fetch])
+def test_tech_decision_requires_source_ref_when_grounded(source_type):
+    with pytest.raises(ValidationError, match="source_ref is required"):
+        TechDecision(
+            id="cli-framework",
+            choice="typer",
+            rationale="x",
+            source_type=source_type,
+            source_ref=None,
+        )
+
+
+def test_tech_decision_rejects_blank_source_ref_when_grounded():
+    with pytest.raises(ValidationError, match="source_ref is required"):
+        TechDecision(
+            id="cli-framework",
+            choice="typer",
+            rationale="x",
+            source_type=SourceType.context7,
+            source_ref="   ",
+        )
+
+
+def test_architecture_defaults_tech_decisions_empty():
+    a = Architecture()
+    assert a.tech_decisions == []
+
+
+def test_architecture_rejects_duplicate_tech_decision_ids():
+    with pytest.raises(ValidationError, match="tech_decisions"):
+        Architecture(
+            tech_decisions=[
+                TechDecision(id="cli-framework", choice="typer", rationale="x",
+                             source_type=SourceType.inferred),
+                TechDecision(id="cli-framework", choice="click", rationale="y",
+                             source_type=SourceType.inferred),
+            ],
+        )
+
+
+def test_architecture_parses_with_tech_decisions():
+    a = Architecture(
+        tech_decisions=[TechDecision(
+            id="http-client",
+            choice="httpx",
+            rationale="async/sync dual support.",
+            source_type=SourceType.context7,
+            source_ref="/encode/httpx",
+            version_pinned="0.27",
+        )],
+    )
+    assert len(a.tech_decisions) == 1
+    assert a.tech_decisions[0].choice == "httpx"
 
 
 def test_architecture_with_module_and_data_store():

@@ -56,7 +56,7 @@ Per design.md Out of scope, plus Phase 1 additions:
 
 ## Progress
 
-- [ ] Step 1: `TechDecision` schema addition
+- [x] Step 1: `TechDecision` schema addition
 - [ ] Step 2: SA role update (+ egress gate verification)
 - [ ] Step 3: `sa_propose_scaffold` MCP extension
 - [ ] Step 4: `apply_scaffold` + `_scaffold_summary_for_pm`

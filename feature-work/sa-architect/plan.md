@@ -20,7 +20,7 @@ Steps 3 and 4 extend the handoff pipeline: MCP tool registration and handler tog
 `apply_scaffold` plus its summary reader in the same commit (Step 4) — these two must land atomically because
 the reader (`_scaffold_summary_for_pm`) and the writer (`apply_scaffold`) must update together or PM gets an
 empty tech summary. Step 5 threads `tech_decisions` and `size` from the stored proposal through the
-confirm-prompt call chain (two render/threading functions + all four `ask_sa_confirm` implementations). Step 6
+confirm-prompt call chain (two render/threading functions + four `ask_sa_confirm` definitions). Step 6
 adds dev/test role access. Step 7 is full verification.
 
 Phase 1 does **not** make the init-phase `architecture.yaml` conformant with `Architecture.model_validate` —
@@ -213,11 +213,12 @@ The reader and writer must land in the same commit — if `apply_scaffold` write
 
 ---
 
-### 5. Operator confirmation (two render/threading functions + all four `ask_sa_confirm` implementations)
+### 5. Operator confirmation (two render/threading functions + four `ask_sa_confirm` definitions)
 
 **What:**
 Thread `tech_decisions` and `size` from the stored proposal through the full confirm-prompt call chain — all
-four `ask_sa_confirm` definitions must be updated or `prompt_sa_confirm` will raise `TypeError` on every call:
+four `ask_sa_confirm` definitions (one Protocol abstract + three concrete) must be updated or `prompt_sa_confirm`
+will raise `TypeError` on every call:
 
 1. **`render_sa_confirm_prompt` (`init_workflow.py` ~line 1193)**: gains `tech_decisions: list[dict]` and
    `size: str`. Renders before the accept/reject prompt: project size + SA reasoning paragraph, then
@@ -282,7 +283,7 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
 **Verify:**
 - `uv run ruff check jig/ tests/`
 - `uv run ruff format --check jig/ tests/`
-- `uv run pytest tests/ -q` — full suite green (count at or above pre-Phase-1 baseline)
+- `uv run pytest tests/ -q` — full suite green
 - End-to-end: `jig init` (sandboxed, Docker on) against the hn-cli brief produces `architecture.yaml` with
   grounded `tech_decisions` (at least `cli-framework`, `http-client`, `async-io`; each with
   `source_type: context7` or `live_fetch`), the operator confirmation table renders correctly, and the
@@ -301,3 +302,5 @@ All four implementations must be updated atomically — any missing `ask_sa_conf
 - 2026-06-07: Revised ×9 — TechDecision.id uses validate_kebab_id field_validator; add non-kebab rejection test
 - 2026-06-08: Revised ×10 — Step 3 Literal["S","M"] (not L); Step 4 persists size to architecture.yaml;
   Step 7 drops hardcoded baseline count
+- 2026-06-07: Revised ×11 — Step 5 heading/body: clarify "four" as Protocol + 3 concrete;
+  Step 7: remove remaining baseline qualifier

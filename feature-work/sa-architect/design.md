@@ -239,7 +239,7 @@ class BoundariesFile(BaseModel):
     ontology: list[OntologyTerm] = Field(default_factory=list)
     internal: InternalBoundaries = Field(default_factory=InternalBoundaries)
     external: ExternalBoundaries = Field(default_factory=ExternalBoundaries)
-    change_log: list[ChangeLogEntry] = Field(default_factory=list)  # existing type — jig/schemas/arch.py
+    change_log: list[ChangeLogEntry] = Field(default_factory=list)  # existing type — jig/schemas/arch.py:113
 ```
 
 `sa_write_boundaries` (parallel to `sa_write_contracts`) validates and writes
@@ -407,3 +407,4 @@ once its preconditions are met.
 - 2026-06-08: Revised ×11 — add Phase 1 L-size constraint (cap at M; handler rejects L); clarify size
   persistence to architecture.yaml as Phase 2 precondition; standardize owner field
 - 2026-06-08: Revised ×12 — fix handle_sa_propose_scaffold signature: Literal["S","M"] (not "L")
+- 2026-06-07: Revised ×13 — add :113 line reference to ChangeLogEntry comment

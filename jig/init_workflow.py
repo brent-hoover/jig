@@ -571,6 +571,8 @@ async def _run_init_resume_loop(
                 config=proposal.get("decisions", proposal.get("config", {})),
                 constraints=proposal.get("constraints", []),
                 open_questions=proposal.get("open_questions", []),
+                tech_decisions=proposal.get("tech_decisions", []),
+                size=proposal.get("size", "S"),
                 tickets=tickets,
                 threads=threads,
                 console=console,
@@ -674,6 +676,36 @@ def _scaffold_summary_for_pm(project_path: Path) -> str:
         lines.append("- **Architecture decisions** (already recorded):")
         for key, value in decisions.items():
             lines.append(f"  - `{key}`: {value}")
+    # Grounded tech decisions (Phase 1) — coexists with the legacy
+    # `decisions` dict above during the migration. Surface each choice with
+    # its provenance, and flag any `inferred` (ungrounded) decision so the
+    # PM sees what wasn't verified against a source. Soft signal — warns,
+    # does not block init.
+    tech_decisions = data.get("tech_decisions")
+    if isinstance(tech_decisions, list) and tech_decisions:
+        lines.append("- **Grounded tech decisions** (with sources):")
+        inferred_ids: list[str] = []
+        for td in tech_decisions:
+            if not isinstance(td, dict):
+                continue
+            td_id = td.get("id", "?")
+            choice = td.get("choice", "?")
+            source_type = td.get("source_type", "?")
+            source_ref = td.get("source_ref")
+            ref_suffix = f" ({source_ref})" if source_ref else ""
+            lines.append(f"  - `{td_id}`: {choice} — {source_type}{ref_suffix}")
+            if source_type == "inferred":
+                inferred_ids.append(td_id)
+        if inferred_ids:
+            inferred_list = ", ".join(f"`{i}`" for i in inferred_ids)
+            lines.extend(
+                [
+                    "",
+                    "- ⚠️ **Ungrounded decisions** (source_type: inferred — no "
+                    f"external source was verified): {inferred_list}. Treat these "
+                    "as assumptions to confirm, not settled facts.",
+                ]
+            )
     lines.extend(
         [
             "",
@@ -1571,6 +1603,8 @@ async def apply_scaffold(
     config: dict[str, Any] | None,
     constraints: list[str] | None = None,
     open_questions: list[dict] | None = None,
+    tech_decisions: list[dict] | None = None,
+    size: str = "S",
     tickets: TicketStore,
     threads: ThreadStore,
     console: "Console | None" = None,
@@ -1578,6 +1612,7 @@ async def apply_scaffold(
     """Copy the template, finalize architecture.yaml, update project.yaml,
     install git hooks (best-effort), and emit scaffold_applied.
     """
+    tech_decisions = tech_decisions or []
     md = load_template_metadata(template_name)
     applied_at = datetime.now(timezone.utc).isoformat()
 
@@ -1610,6 +1645,14 @@ async def apply_scaffold(
             data["constraints"] = constraints
         if open_questions:
             data["open_questions"] = open_questions
+        # `size` is written unconditionally on the SA path (even when SA
+        # produced no tech_decisions) so Phase 2 can read
+        # arch_get_field("size"); the Note payload is consumed during init
+        # and isn't accessible post-confirm. `tech_decisions` is written
+        # only when non-empty.
+        data["size"] = size
+        if tech_decisions:
+            data["tech_decisions"] = tech_decisions
     atomic_write_text(arch_file, yaml.safe_dump(data, sort_keys=False))
 
     # 3. Update project.yaml with template_name and template_applied_at.

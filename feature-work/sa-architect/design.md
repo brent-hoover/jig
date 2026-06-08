@@ -286,6 +286,7 @@ Decision required before `BoundariesFile` schema finalises.
 # .jig/spec/architecture.yaml — after Phase 1 (free-form + new key)
 template: python-cli
 language: python
+size: M
 constraints:
   - HTTP client must be injectable for test fixture replay
 tech_decisions:
@@ -418,3 +419,4 @@ once its preconditions are met.
   description; fix handle_sa_propose_scaffold signature from Literal["S","M"] to str (body validates)
 - 2026-06-08: Revised ×17 — size-selection prefix: "selects S/M/L" → "selects S/M in Phase 1" to match Phase 1
   L-size constraint
+- 2026-06-08: Revised ×18 — add `size: M` to Data Model architecture.yaml example (written unconditionally)

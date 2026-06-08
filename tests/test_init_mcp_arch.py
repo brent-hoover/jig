@@ -267,6 +267,70 @@ async def test_sa_propose_scaffold_invalid_tech_decision_raises(wired):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source_type", ["context7", "live_fetch"])
+async def test_sa_propose_scaffold_grounded_without_source_ref_raises(wired, source_type):
+    """The cross-field invariant (context7/live_fetch require source_ref) must
+    fire through the MCP handler, not only at the schema level."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        await handle_sa_propose_scaffold(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            template_name="python",
+            rationale="cli tool",
+            tech_decisions=[
+                {"id": "cli-framework", "choice": "typer", "rationale": "x",
+                 "source_type": source_type},  # no source_ref
+            ],
+            author="sa",
+        )
+
+
+@pytest.mark.asyncio
+async def test_sa_propose_scaffold_duplicate_tech_decision_ids_raise(wired):
+    """Duplicate ids must be rejected at the handler boundary — otherwise they
+    pass init and break every downstream Architecture.model_validate."""
+    with pytest.raises(ValueError, match="duplicate id"):
+        await handle_sa_propose_scaffold(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            template_name="python",
+            rationale="cli tool",
+            tech_decisions=[
+                {"id": "cli-framework", "choice": "typer", "rationale": "x",
+                 "source_type": "inferred"},
+                {"id": "cli-framework", "choice": "click", "rationale": "y",
+                 "source_type": "inferred"},
+            ],
+            author="sa",
+        )
+
+
+@pytest.mark.asyncio
+async def test_sa_propose_scaffold_stores_canonical_form(wired):
+    """Stored tech_decisions are the validated model_dump (normalised), not the
+    raw LLM dict — partial dicts gain the schema's default keys."""
+    await handle_sa_propose_scaffold(
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+        bus=wired["bus"],
+        template_name="python",
+        rationale="cli tool",
+        # no source_ref / version_pinned supplied
+        tech_decisions=[{"id": "x", "choice": "y", "rationale": "z",
+                         "source_type": "inferred"}],
+        author="sa",
+    )
+    payload = await _proposal_payload(wired)
+    stored = payload["tech_decisions"][0]
+    assert stored["source_ref"] is None  # canonical default present
+    assert stored["version_pinned"] is None
+
+
+@pytest.mark.asyncio
 async def test_sa_propose_scaffold_omitting_tech_decisions_stores_empty(wired):
     await handle_sa_propose_scaffold(
         tickets=wired["tickets"],

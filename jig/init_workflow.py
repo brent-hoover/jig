@@ -690,10 +690,12 @@ def _scaffold_summary_for_pm(project_path: Path) -> str:
                 continue
             td_id = td.get("id", "?")
             choice = td.get("choice", "?")
+            rationale = td.get("rationale")
             source_type = td.get("source_type", "?")
             source_ref = td.get("source_ref")
             ref_suffix = f" ({source_ref})" if source_ref else ""
-            lines.append(f"  - `{td_id}`: {choice} — {source_type}{ref_suffix}")
+            why = f" — {rationale}" if rationale else ""
+            lines.append(f"  - `{td_id}`: {choice}{why} [{source_type}{ref_suffix}]")
             if source_type == "inferred":
                 inferred_ids.append(td_id)
         if inferred_ids:
@@ -701,7 +703,7 @@ def _scaffold_summary_for_pm(project_path: Path) -> str:
             lines.extend(
                 [
                     "",
-                    "- ⚠️ **Ungrounded decisions** (source_type: inferred — no "
+                    "- **Ungrounded decisions** (source_type: inferred — no "
                     f"external source was verified): {inferred_list}. Treat these "
                     "as assumptions to confirm, not settled facts.",
                 ]
@@ -1250,10 +1252,12 @@ def render_sa_confirm_prompt(
         for td in tech_decisions:
             td_id = str(td.get("id", "?"))
             choice = str(td.get("choice", "?"))
+            rationale_td = td.get("rationale")
             source_type = str(td.get("source_type", "?"))
             source_ref = td.get("source_ref")
             ref = f", {source_ref}" if source_ref else ""
-            lines.append(f"  - {td_id}: {choice} ({source_type}{ref})")
+            why = f" — {rationale_td}" if rationale_td else ""
+            lines.append(f"  - {td_id}: {choice}{why} ({source_type}{ref})")
     return "\n".join(lines)
 
 

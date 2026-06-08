@@ -12,12 +12,12 @@ problem: ./problem.md
 
 ## Summary
 
-Two-phase delivery. **Phase 1** (pending egress verification — see Open questions): add research tools (Context7, WebFetch, WebSearch),
-decision rules, and a validated `TechDecision` model to the v1 `sa.yaml` that both profiles
-currently use. SA grounds each framework and package choice in a current source, and follows
-explicit prompt rules to make reproducible choices — ambiguous dimensions become `open_questions`
-rather than silent picks. **Phase 2** (after #137 and PO topology decision): merge `sa.yaml` and
-`sa_mvp.yaml` into one size-adaptive role that uses the appropriate tool set and spec topology
+Two-phase delivery. **Phase 1** (pending egress verification — see Open questions): add research tools
+(Context7, WebFetch, WebSearch), decision rules, and a validated `TechDecision` model to the v1
+`sa.yaml` that both profiles currently use. SA grounds each framework and package choice in a current
+source, and follows explicit prompt rules to make reproducible choices — ambiguous dimensions become
+`open_questions` rather than silent picks. **Phase 2** (after PO topology decision): merge `sa.yaml`
+and `sa_mvp.yaml` into one size-adaptive role that uses the appropriate tool set and spec topology
 for S/M/L projects, and adds `BoundariesFile` + semgrep enforcement for module isolation.
 
 This design supersedes `feature-work/architecture-skeleton/design.md` (absorbed into Phase 2).
@@ -201,7 +201,6 @@ spike/cascade workflow) is absorbed into the M/L section of `sa.yaml`. The exist
 `arch_regenerate_pydantic_models` tool is included in the M/L tool list.
 
 **Preconditions for Phase 2:**
-- #137 landed (classify_resume handles arch_finalize)
 - PO topology for medium decided: either (a) medium PO gains L0–L3 agents producing
   `discovery.md`/`suites.yaml`, or (b) `sa_mvp` prompt is refactored to accept flat spec
 - `sa_mvp` deletion blast radius enumerated and resolved (`profile.py:40`, `now.py:126,149,179`,
@@ -234,7 +233,7 @@ class BoundariesFile(BaseModel):
     ontology: list[OntologyTerm] = Field(default_factory=list)
     internal: InternalBoundaries = Field(default_factory=InternalBoundaries)
     external: ExternalBoundaries = Field(default_factory=ExternalBoundaries)
-    change_log: list[ChangeLogEntry] = Field(default_factory=list)
+    change_log: list[ChangeLogEntry] = Field(default_factory=list)  # existing type from arch.py
 ```
 
 `sa_write_boundaries` (parallel to `sa_write_contracts`) validates and writes
@@ -396,3 +395,5 @@ once its preconditions are met.
   mutable defaults: list[dict] | None = None + normalize in body for both handlers
 - 2026-06-07: Revised ×9 — add field_validator for TechDecision.id (kebab-case via validate_kebab_id);
   mark #137 as merged; remove #137 from Phase 2 blocker list throughout
+- 2026-06-07: Revised ×10 — fix 120-char line wrap in summary; annotate ChangeLogEntry as existing
+  arch.py type; remove remaining stale #137 references from Phase 2 preconditions and summary

@@ -13,8 +13,9 @@ updated: 2026-06-07
 
 When jig scaffolds a project that uses external integrations (HTTP APIs, SDKs, third-party services),
 dev and test agents already have access to grounding tools — Context7 is in their default
-`allowed_mcps`; WebSearch and WebFetch are in their default `allowed_tools`. What doesn't exist is an enforced step that uses those tools before PM
-planning, or a shared artifact that captures what was found. Each agent independently decides whether to
+`allowed_mcps`; WebSearch and WebFetch are in their default `allowed_tools`. What doesn't exist
+is an enforced step that uses those tools before PM planning, or a shared artifact that captures
+what was found. Each agent independently decides whether to
 look something up, and the results — if any — are not shared with other agents working on the same
 project.
 

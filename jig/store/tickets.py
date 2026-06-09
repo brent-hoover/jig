@@ -109,11 +109,35 @@ class TicketStore:
         single process's in-memory state consistent; this ``flock`` extends
         the guarantee across separate OS processes (CLI / standalone MCP /
         orchestrator) so the ``jig-N`` counter and the JSONL append never
-        interleave. Acquired off the event loop to avoid blocking it.
+        interleave.
+
+        Acquisition uses a non-blocking ``flock`` with async backoff rather
+        than a blocking call. Two failure modes are avoided:
+
+        - A *synchronous* blocking ``flock`` would block the event-loop thread
+          while the lock is held across the awaited critical section. Two
+          coroutines creating on the same store in one loop would then
+          deadlock: the second's blocking acquire wedges the loop, so the
+          first can never resume to release.
+        - ``asyncio.to_thread(flock, ...)`` frees the loop but opens a
+          cancellation race: a CancelledError at the ``await`` closes ``fd`` in
+          ``finally`` while the worker thread is still blocked in ``flock``,
+          which then acquires on a closed/recycled fd and never releases.
+
+        ``LOCK_NB`` + ``asyncio.sleep`` sidesteps both: each attempt returns
+        immediately, the loop stays free between attempts, and no thread holds
+        a reference to ``fd`` — so cancellation can only ever happen with the
+        lock cleanly held or not held. Contention is near-zero and brief, so
+        the poll interval is never meaningfully exercised.
         """
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o644)
         try:
-            await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_EX)
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(0.01)
             yield
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
@@ -271,7 +295,10 @@ class TicketStore:
         Ticket.model_validate(merged)  # raises ValidationError if invalid
         await self._collection.update(ticket_id, fields)
         loaded = await self._collection.get(ticket_id)
-        assert loaded is not None
+        if loaded is None:
+            raise RuntimeError(
+                f"ticket {ticket_id!r} vanished after its own update write"
+            )
         if self._on_status_change is not None and "status" in fields:
             new_status = loaded.status.value
             if new_status != prev_status:

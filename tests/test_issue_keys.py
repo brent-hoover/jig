@@ -5,6 +5,7 @@ Every ticket gets a monotonic ``jig-N`` key at create, assigned in the shared
 processes never collide on a key. References resolve by key or by UUID.
 """
 
+import asyncio
 import json
 import subprocess
 import sys
@@ -36,6 +37,32 @@ async def test_create_assigns_sequential_keys(tmp_path: Path) -> None:
         keys.append((await store.get(tid)).key)
 
     assert keys == ["jig-1", "jig-2", "jig-3"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_creates_same_loop_no_deadlock(tmp_path: Path) -> None:
+    """Two+ coroutines creating on the same store in one event loop must not
+    deadlock and must still get unique sequential keys.
+
+    A synchronous blocking flock in the key critical section deadlocks here
+    (the second acquire blocks the loop while the first holds the lock across
+    its awaited insert). The non-blocking + async-backoff acquire avoids it.
+    """
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+
+    def mk(i: int) -> Ticket:
+        return Ticket(
+            work_type=WorkType.FEATURE,
+            title=f"t{i}",
+            created_by="u",
+            description=TICKET_AC_PLACEHOLDER,
+        )
+
+    ids = await asyncio.gather(*[store.create(mk(i)) for i in range(8)])
+    keys = [(await store.get(t)).key for t in ids]
+    nums = sorted(int(k.split("-")[1]) for k in keys)
+    assert nums == list(range(1, 9))
 
 
 @pytest.mark.asyncio

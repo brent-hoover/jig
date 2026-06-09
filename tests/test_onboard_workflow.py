@@ -1203,6 +1203,52 @@ class TestRunOnboardInit:
         with pytest.raises(click.ClickException, match="--force"):
             await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
 
+    async def test_crash_window_does_not_refresh_owned_path_hashes(
+        self, tmp_path, noop_loop
+    ):
+        """_ensure_scan_guard_baseline must not refresh owned-path hashes
+        while in the crash window (scan_done posted, scan_guard_verified absent).
+        If it did, a scanner that tampered with .jig/config.yaml could have its
+        hash blessed on the next run_onboard, making _verify_scan_writes pass
+        vacuously for that owned path."""
+        import json as _json
+
+        # First run: init and capture the baseline with the original config hash.
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+        baseline_path = tmp_path / ".jig" / "onboard" / "scan-guard.json"
+        original_config_hash = _json.loads(baseline_path.read_text())["guard"].get(
+            ".jig/config.yaml"
+        )
+
+        # Simulate: scanner posts scan_done then crashes (no verified note).
+        threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+        await threads.load()
+        await threads.post(
+            Note(
+                ticket_id="onboard-scan",
+                author="scanner",
+                text="scan complete",
+                payload={"kind": "onboard_scan_done"},
+            )
+        )
+
+        # Simulate tampered .jig/config.yaml (scanner prompt-injection write).
+        config_path = tmp_path / ".jig" / "config.yaml"
+        config_path.write_text(config_path.read_text() + "\n# injected\n")
+
+        # run_onboard resumes (noop_loop skips verification).
+        # _ensure_scan_guard_baseline must NOT refresh owned-path hashes —
+        # if it did, the tampered config.yaml hash would be persisted and
+        # _verify_scan_writes would later pass vacuously.
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+
+        # Baseline must still hold the pre-tamper hash for .jig/config.yaml.
+        post_hash = _json.loads(baseline_path.read_text())["guard"].get(".jig/config.yaml")
+        assert post_hash == original_config_hash, (
+            "crash-window resume refreshed the owned-path hash — "
+            "tampered config.yaml would pass verification"
+        )
+
     async def test_brief_lands_as_desired_state(self, tmp_path, noop_loop):
         brief = tmp_path / "wish.md"
         brief.write_text("# Desired\n\nAdd exports.\n")

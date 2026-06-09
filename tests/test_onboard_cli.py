@@ -78,7 +78,6 @@ def test_onboard_passes_options_through(tmp_path, monkeypatch):
 
 
 def test_onboard_defaults_to_cwd(tmp_path, monkeypatch):
-    _git_init(tmp_path)
     captured = {}
 
     async def fake_run_onboard(**kwargs):

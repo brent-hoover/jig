@@ -120,7 +120,7 @@ def _read_project_yaml(project_path: Path) -> dict:
     if not project_yaml.is_file():
         return {}
     try:
-        data = yaml.safe_load(project_yaml.read_text()) or {}
+        data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         # This feeds guard decisions (claude_md_preexisting) and flow
         # routing (onboard markers) — a corrupt file must not silently
@@ -296,7 +296,7 @@ def _observations_text(project_path: Path) -> str:
             f"{obs} is missing but the scan was marked complete. "
             "Re-run `jig onboard --force` to re-scan."
         )
-    return obs.read_text()
+    return obs.read_text(encoding="utf-8")
 
 
 def _po_read_mode_description(project_path: Path) -> str:
@@ -382,7 +382,7 @@ def _scanner_profile_recommendation(project_path: Path) -> str:
     try:
         return get_section(obs, "Profile recommendation")
     except KeyError:
-        return obs.read_text()
+        return obs.read_text(encoding="utf-8")
 
 
 async def run_onboard_pm_profile_pass(
@@ -615,22 +615,39 @@ def _persist_scan_guard_baseline(project_path: Path) -> None:
 
 
 async def _ensure_scan_guard_baseline(project_path: Path, threads: ThreadStore) -> None:
-    """Create or refresh the guard baseline — unless the scan already
-    completed and the baseline is gone, which fails closed.
+    """Create or refresh the guard baseline — unless the scan is in the crash
+    window (scan_done posted but scan_guard_verified not yet posted).
 
-    A compromised scanner could post ``onboard_scan_done`` and delete
-    ``scan-guard.json``; recreating it here would baseline the tampered
-    tree and let verification pass vacuously through the normal
-    ``jig onboard`` entrypoint. Fresh creation is only legitimate before
-    any scan has completed.
+    In the crash window the scanner has already run and may have tampered with
+    owned paths (e.g. ``.jig/config.yaml``).  Refreshing those hashes from the
+    current tree would bless the tampered values and let ``_verify_scan_writes``
+    pass vacuously.  Outside the window, refreshing is safe — the scanner has
+    not yet run, or verification already confirmed the writes were clean.
+
+    If the baseline file is missing and we are in the crash window, we fail
+    closed: recreating it now would trust a possibly-tampered tree.
     """
+    entries = await threads.for_ticket("onboard-scan")
+    last_scan_done_idx = max(
+        (
+            i
+            for i, e in enumerate(entries)
+            if isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
+        ),
+        default=-1,
+    )
+    last_verified_idx = max(
+        (
+            i
+            for i, e in enumerate(entries)
+            if isinstance(e, Note) and e.payload.get("kind") == "scan_guard_verified"
+        ),
+        default=-1,
+    )
+    in_crash_window = last_scan_done_idx >= 0 and last_verified_idx < last_scan_done_idx
+
     if not _scan_guard_baseline_path(project_path).is_file():
-        entries = await threads.for_ticket("onboard-scan")
-        scan_done = any(
-            isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
-            for e in entries
-        )
-        if scan_done:
+        if in_crash_window:
             raise click.ClickException(
                 f"{_scan_guard_baseline_path(project_path)} is missing but "
                 "the scan already completed — the write guard cannot verify "
@@ -638,7 +655,14 @@ async def _ensure_scan_guard_baseline(project_path: Path, threads: ThreadStore) 
                 "a possibly tampered tree. Re-onboard with "
                 "`jig onboard --force`."
             )
-    _persist_scan_guard_baseline(project_path)
+        _persist_scan_guard_baseline(project_path)
+        return
+
+    # Baseline exists.  Only refresh run_onboard-owned paths when we are NOT
+    # in the crash window — after scan_done the scanner may have tampered with
+    # those paths; refreshing here would bless the tampered hashes.
+    if not in_crash_window:
+        _persist_scan_guard_baseline(project_path)
 
 
 def _load_scan_guard_baseline(project_path: Path) -> dict | None:
@@ -925,6 +949,10 @@ async def run_onboard(
     5. Copy ``--brief`` to ``.jig/onboard/desired-state.md`` (the
        PM_BACKLOG gate).
     6. Restore snapshotted profile/workflow YAMLs.
+    7. Capture scan write-guard baseline via ``_ensure_scan_guard_baseline``
+       — must run *after* all legitimate ``run_onboard`` writes (steps 3–6)
+       and *before* any scanner spawn so the baseline reflects only
+       operator-authored state, not scanner output.
     """
     from jig.init_prompts import CliPromptHandler
 
@@ -989,7 +1017,8 @@ async def run_onboard(
     # so --force clears it with the rest of the onboard state.
     if brief_file is not None:
         atomic_write_text(
-            _onboard_dir(target) / "desired-state.md", brief_file.read_text()
+            _onboard_dir(target) / "desired-state.md",
+            brief_file.read_text(encoding="utf-8"),
         )
 
     # 6. Restore the snapshot (no-op without --force or local YAMLs).

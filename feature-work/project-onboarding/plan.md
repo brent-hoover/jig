@@ -22,7 +22,7 @@ through the state machine: each step unblocks the next state transition.
 
 ## Preconditions
 
-- [ ] Design approved
+- [x] Design approved
 - [ ] (Steps 7–9) sa-architect Phase 2 merged — unified SA role `role` id and `allowed_tools` list
       confirmed and frozen
 - [ ] (Steps 7–9) Sandbox egress policy for onboard-phase agents confirmed (shared open question with

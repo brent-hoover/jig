@@ -1,7 +1,7 @@
 ---
 title: Project Onboarding — Design
 type: design
-status: draft
+status: active
 owner: brent-hoover
 created: 2026-06-07
 updated: 2026-06-09

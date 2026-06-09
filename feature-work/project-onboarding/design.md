@@ -2,9 +2,9 @@
 title: Project Onboarding — Design
 type: design
 status: draft
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-08
+updated: 2026-06-09
 problem: ./problem.md
 ---
 
@@ -71,10 +71,16 @@ OnboardResumeState (enum):
   SPEC_PASS               → run_spec_generator (reused unchanged — reads 'brief' ticket)
   PM_PROFILE_PASS         → run_pm_profile_pass with scanner recommendation injected into profile
                             ticket description (PM has no Read/Glob/Grep — signal must be pre-injected)
-  PM_PROFILE_CONFIRM_PROMPT → prompt_profile_confirm (reused from init_workflow)
+  PM_PROFILE_CONFIRM_PROMPT → prompt_profile_confirm (reused from init_workflow); operator confirms the
+                            PM's profile proposal; on confirm, profile is written to config via
+                            apply_profile/save_config; classify_onboard_resume advances when
+                            cfg.profile.name is non-empty (same signal as greenfield flow)
   SA_READ_PASS            → spawn per-module SA on 'architecture' ticket with onboard context + depth budget;
                             BLOCKED until sa-architect Phase 2 interface is frozen
-  NEEDS_ANSWER_ARCH       → operator answers SA open questions
+  NEEDS_ANSWER_ARCH       → SA posted one or more Question entries on the 'architecture' ticket that have no
+                            Answer; operator provides answers via the standard needs_info pause; classify_onboard_resume
+                            detects unanswered Questions on the architecture ticket and returns this state;
+                            advances when all Questions have corresponding Answers
   OPERATOR_REVIEW         → gate: ask_onboard_review via PromptHandler; operator confirms artifacts
   PM_BACKLOG              → (if .jig/onboard/desired-state.md exists) PM generates initial tickets from delta
   ALREADY_DONE
@@ -302,11 +308,12 @@ present; the onboard-specific fields are additive.
 
 ### Ticket IDs
 
-| Ticket ID      | Role    | SA/PO-complete signal             | Advance-past signal                            |
-|----------------|---------|-----------------------------------|------------------------------------------------|
-| `onboard-scan` | scanner | `Note(kind="onboard_scan_done")`  | same                                           |
-| `brief`        | po      | `Handoff(phase="spec-generator")` | `SystemEvent(event_type="brief_approved")` (posted by PO_REVIEW gate on operator confirm) |
-| `architecture` | sa      | `Handoff(phase="pm")`             | `SystemEvent(event_type="onboard_artifacts_approved")` |
+| Ticket ID      | Role    | Agent-complete signal                          | Advance-past signal                                                          |
+|----------------|---------|------------------------------------------------|------------------------------------------------------------------------------|
+| `onboard-scan` | scanner | `Note(payload={"kind":"onboard_scan_done"})`   | same                                                                         |
+| `brief`        | po      | `Handoff(phase="spec-generator")`              | `SystemEvent(event_type="brief_approved")` (posted by PO_REVIEW gate)        |
+| `profile`      | pm      | `Note(payload={"kind":"pm_propose_profile"})`  | `cfg.profile.name` non-empty (written by `apply_profile`/`save_config`)      |
+| `architecture` | sa      | `Handoff(phase="pm")`                          | `SystemEvent(event_type="onboard_artifacts_approved")`                       |
 
 `onboard-scan` is the only new ticket ID. `brief` and `architecture` are standard IDs reused from the
 greenfield flow; `classify_onboard_resume` treats their signals differently from `classify_resume`.
@@ -392,6 +399,6 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 - 2026-06-07: Four reviewer passes applied — PO uses 'brief' ticket; corrected done-signals; depth-bounding
   table added; two-phase SA-done detection; brief_set_section tool name fixed; sa-architect Phase 2 as
   precise prerequisite; module_set_* tool list corrected (sa_write_contracts does not exist); PM_BACKLOG
-  gated on docs/desired-state.md not docs/brief.md; arch_finalize n_a_categories instruction for
+  gated on .jig/onboard/desired-state.md not docs/brief.md; arch_finalize n_a_categories instruction for
   budget-truncated read pass; planning gate for SA read pass; WorkType.ONBOARD_SCAN; PromptHandler for
   operator review; scanner recommendation pre-injected into PM-1 profile ticket (Brent Hoover)

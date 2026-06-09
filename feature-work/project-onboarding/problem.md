@@ -2,9 +2,9 @@
 title: Project Onboarding — Problem Statement
 type: problem
 status: draft
-owner: Brent Hoover
+owner: brent-hoover
 created: 2026-05-20
-updated: 2026-06-07
+updated: 2026-06-09
 ---
 
 # Project Onboarding — Problem Statement
@@ -50,7 +50,18 @@ There is no supported path to use jig on an existing codebase. Specifically:
    that reads the existing code is also best positioned to recommend a profile, but there is no mechanism to
    wire codebase observations into the selection decision.
 
-## Complexity drivers
+## Simplest possible solution
+
+Add an `--onboard` flag to `jig init`. Seed a synthetic brief-approved state and inject a system note into
+the SA ticket telling it to read existing code rather than design new architecture. No new command, no scanner
+agent, no `observations.md`.
+
+This falls short: the generic `sa` role uses `sa_propose_scaffold` (template-pick flow) — there is no
+scaffold to pick against existing code. The PO interview is skipped entirely, producing no suite extraction.
+There is no operator review gate before the PM runs. The design ends up being more complex than this because
+those gaps have to be closed for onboarding to be useful.
+
+## Complications considered
 
 - **Scale**: The SA read pass must handle codebases of arbitrary size. A 50k-line monorepo requires far more
   turns than a 200-line CLI. Onboarding cost grows with codebase size and is unbounded without a cap mechanism

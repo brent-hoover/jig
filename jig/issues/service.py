@@ -10,6 +10,13 @@ dispatchable ``OPEN`` state is only via :meth:`approve`; the generic update
 path rejects it, keeping the operator gate intact.
 """
 
+# Deferred annotation evaluation. This class defines a method named ``list``,
+# which shadows the builtin ``list`` for any annotation evaluated later in the
+# class body (e.g. ``-> list[ThreadEntry]``). Without this, those annotations
+# raise ``TypeError: 'function' object is not subscriptable`` at import time on
+# Python 3.12 (eager annotations); 3.14 defers them by default and hid the bug.
+from __future__ import annotations
+
 from pathlib import Path
 
 from pydantic import ValidationError

@@ -967,6 +967,19 @@ class ExternalBoundaries(BaseModel):
     forbidden: list[str] = Field(default_factory=list)
     rationale: str | None = None
 
+    @model_validator(mode="after")
+    def _allow_forbid_disjoint(self) -> ExternalBoundaries:
+        """A package in both lists is contradictory — ``allowed`` is advisory
+        (no rule), so a ``forbidden`` deny rule would silently win while the
+        ``allowed`` entry misleads. Mirror the internal-boundaries guard."""
+        overlap = set(self.allowed) & set(self.forbidden)
+        if overlap:
+            raise ValueError(
+                f"ExternalBoundaries: package(s) {sorted(overlap)} appear in both "
+                "allowed and forbidden"
+            )
+        return self
+
 
 class BoundariesFile(BaseModel):
     """One module's isolation boundaries — modules/<m>/boundaries.yaml.

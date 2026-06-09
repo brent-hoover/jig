@@ -1118,6 +1118,13 @@ def test_internal_boundaries_rejects_allow_forbid_overlap():
         )
 
 
+def test_external_boundaries_rejects_allow_forbid_overlap():
+    from jig.schemas.arch import ExternalBoundaries
+
+    with pytest.raises(ValidationError, match="both"):
+        ExternalBoundaries(allowed=["httpx", "requests"], forbidden=["requests"])
+
+
 def test_boundaries_file_rejects_self_denial():
     with pytest.raises(ValidationError, match="lists itself"):
         BoundariesFile(

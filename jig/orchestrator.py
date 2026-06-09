@@ -2890,13 +2890,39 @@ class Orchestrator:
         means the phase output isn't captured, so progressing would
         leave subsequent phases reading from a stale tree.
         """
-        from jig.worktree import commit_worktree
+        from jig.worktree import BoundaryViolationError, commit_worktree
 
         try:
             result = await commit_worktree(
                 worktree, f"chore({phase_name}): auto-commit after phase"
             )
             sha = result.sha
+        except BoundaryViolationError as exc:
+            # Surface the specific violations (not just str(exc)'s count) so a
+            # dev agent reading the thread knows which imports to remove without
+            # a second commit attempt.
+            _logger.warning(
+                "auto-commit boundary violations after %s: %s",
+                phase_name,
+                "; ".join(exc.violations),
+            )
+            if self.threads is not None:
+                try:
+                    await self.threads.post(
+                        SystemEvent(
+                            ticket_id=ticket_id,
+                            author="orchestrator",
+                            event_type="auto_commit_failed",
+                            content=(
+                                f"auto-commit after {phase_name!r} failed: "
+                                f"{len(exc.violations)} module-boundary "
+                                f"violation(s): {'; '.join(exc.violations)}"
+                            ),
+                        )
+                    )
+                except Exception:
+                    _logger.exception("failed to post auto_commit_failed thread entry")
+            return False
         except Exception as exc:
             _logger.warning(
                 "auto-commit failed after %s: %s",

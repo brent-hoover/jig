@@ -410,6 +410,12 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 6 (roborev job 452): a missing `scan-guard.json` on
+  crash-resume fails closed (recomputing would baseline the post-scan tree and pass vacuously); corrupt
+  `.jig/config.yaml` fails with guidance everywhere the onboard flow reads it; the between-runs false-alarm
+  caveat extends to files created (not just edited) between runs on resume verification. Accepted: the
+  PM-confirm SWAP block duplicates ~15 lines from the greenfield loop — pure refactor, deferred to avoid
+  further churn on init_workflow in this branch. (brent-hoover)
 - 2026-06-09: Write-guard hardening round 5 (roborev job 450): the verified marker is posted only when a
   scan-done note exists (a clean verification of a non-finishing spawn must not vouch for a later scan),
   and classification compares thread indices — verified must postdate scan-done. Corrupt

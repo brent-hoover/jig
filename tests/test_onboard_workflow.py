@@ -363,6 +363,32 @@ class TestScanPass:
         with pytest.raises(click.ClickException, match="--force"):
             onboard_workflow._load_scan_guard_baseline(stores["project_path"])
 
+    async def test_missing_baseline_on_resume_fails_closed(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        (stores["project_path"] / ".jig" / "onboard").mkdir(parents=True)
+        await _seed_scan_done(stores, verified=False)
+
+        async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
+            raise AssertionError("must not respawn")
+
+        monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
+        # Recomputing the baseline here would vacuously pass against the
+        # post-scan tree — the guard must fail closed instead.
+        with pytest.raises(click.ClickException, match="--force"):
+            await onboard_workflow.run_onboard_scan_pass(
+                project_path=stores["project_path"],
+                tickets=stores["tickets"],
+                threads=stores["threads"],
+                memory=stores["memory"],
+                bus=stores["bus"],
+            )
+
+    async def test_corrupt_config_fails_with_guidance(self, stores):
+        create_stub(stores["project_path"], name="proj")
+        (stores["project_path"] / ".jig" / "config.yaml").write_text("{[broken")
+        with pytest.raises(click.ClickException, match="config.yaml"):
+            onboard_workflow.scanner_file_ceiling(stores["project_path"])
+
     async def test_resolved_ticket_reactivated_on_respawn(self, stores, no_agent_spawn):
         create_stub(stores["project_path"], name="proj")
         await stores["tickets"].create(

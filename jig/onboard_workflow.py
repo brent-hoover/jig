@@ -61,14 +61,27 @@ _SCANNER_FILE_CEILING: dict[str, int] = {"small": 150, "medium": 400}
 _SCANNER_FILE_CEILING_FALLBACK = 400
 
 
-def _active_profile_name(project_path: Path) -> str:
+def _load_config_or_none(project_path: Path):
+    """``load_config`` with onboard-consistent error handling: missing
+    file → ``None``; corrupt file → loud ``ClickException`` with
+    recovery guidance (``cfg.profile.name`` feeds flow routing and the
+    scanner depth budget — it must not surface as a raw traceback)."""
     from jig.config import load_config
 
     try:
-        cfg = load_config(project_path)
+        return load_config(project_path)
     except FileNotFoundError:
-        return ""
-    return cfg.profile.name.strip()
+        return None
+    except (yaml.YAMLError, ValueError) as exc:
+        raise click.ClickException(
+            f"{project_path}/.jig/config.yaml is unreadable ({exc}). "
+            "Fix or remove it, or re-onboard with --force."
+        ) from exc
+
+
+def _active_profile_name(project_path: Path) -> str:
+    cfg = _load_config_or_none(project_path)
+    return cfg.profile.name.strip() if cfg is not None else ""
 
 
 def scanner_file_ceiling(project_path: Path) -> int:
@@ -253,13 +266,7 @@ async def classify_onboard_resume(
     # ``--profile`` bypass and post-confirm both land here: the signal is
     # ``cfg.profile.name`` non-empty (written by apply_profile/save_config),
     # never a CLI flag — flags are absent on resume.
-    from jig.config import load_config
-
-    try:
-        cfg = load_config(project_path)
-    except FileNotFoundError:
-        cfg = None
-    profile_name = cfg.profile.name.strip() if cfg is not None else ""
+    profile_name = _active_profile_name(project_path)
     if not profile_name:
         profile_ticket = await tickets.get("profile")
         has_profile_proposal = False
@@ -643,6 +650,8 @@ async def _verify_scan_writes(
     dirty_before: set[str],
     dirty_hashes_before: dict[str, str],
     threads: ThreadStore,
+    *,
+    resumed: bool = False,
 ) -> None:
     """Fail the onboard if the scanner wrote outside its allowlist.
 
@@ -670,12 +679,12 @@ async def _verify_scan_writes(
             claude_md_preexisting=claude_md_preexisting,
         )
     )
-    new_dirty = _git_dirty_paths(project_path) - dirty_before
-    violations |= {
+    new_dirty_violations = {
         p
-        for p in new_dirty
+        for p in _git_dirty_paths(project_path) - dirty_before
         if p != "CLAUDE.md" and not (p == ".jig/" or p.startswith(".jig/"))
     }
+    violations |= new_dirty_violations
     # Files that were already dirty before the scan are invisible to the
     # path diff above — compare their content hashes. The CLAUDE.md
     # creation-allowance applies here too: a scanner that crashed after
@@ -707,16 +716,18 @@ async def _verify_scan_writes(
             "(do not run git hooks or jig agents), then re-onboard with "
             "`jig onboard --force`."
         )
-        if pre_dirty_violations:
-            # The dirty baseline is frozen at onboard start, so a file
-            # the operator edited between an interrupted scan and a
-            # re-run shows up here too — fail closed, but don't assert
-            # tampering for what may be their own edit.
+        # The dirty/working-tree baseline is frozen at onboard start, so
+        # files the operator edited (pre-dirty) or created (new on a
+        # resume verification) between runs land here too — fail closed,
+        # but don't assert tampering for what may be their own changes.
+        maybe_operator = set(pre_dirty_violations)
+        if resumed:
+            maybe_operator |= new_dirty_violations
+        if maybe_operator:
             message += (
-                f" Note: {sorted(pre_dirty_violations)} were already "
-                "dirty when onboarding started — if you edited them "
-                "yourself between runs, this is a false alarm and "
-                "--force is safe."
+                f" Note: {sorted(maybe_operator)} changed or appeared "
+                "between onboard runs — if those are your own edits, "
+                "this is a false alarm and --force is safe."
             )
         raise click.ClickException(message)
     # The verified marker is the caller's responsibility — it must only
@@ -757,13 +768,14 @@ async def run_onboard_scan_pass(
         loaded = _load_scan_guard_baseline(project_path)
         return loaded if loaded is not None else _compute_scan_guard_state(project_path)
 
-    async def _verify_and_mark(baseline: dict) -> None:
+    async def _verify_and_mark(baseline: dict, *, resumed: bool = False) -> None:
         await _verify_scan_writes(
             project_path,
             baseline["guard"],
             set(baseline["dirty"]),
             baseline["dirty_hashes"],
             threads,
+            resumed=resumed,
         )
         # Post the verified marker ONLY when the scan actually finished —
         # a clean verification of a non-finishing spawn must not leave a
@@ -780,7 +792,18 @@ async def run_onboard_scan_pass(
             )
 
     if await _scan_done():
-        await _verify_and_mark(_baseline())
+        # Crash-resume verification: the scanner already ran, so a
+        # missing baseline must fail closed — recomputing here would
+        # baseline the post-scan tree and pass vacuously. The
+        # fresh-compute fallback is only valid pre-spawn.
+        baseline = _load_scan_guard_baseline(project_path)
+        if baseline is None:
+            raise click.ClickException(
+                f"{_scan_guard_baseline_path(project_path)} is missing but "
+                "the scan already completed — the write guard cannot verify "
+                "what it wrote. Re-onboard with `jig onboard --force`."
+            )
+        await _verify_and_mark(baseline, resumed=True)
         return
 
     ceiling = scanner_file_ceiling(project_path)

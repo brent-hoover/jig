@@ -192,7 +192,7 @@ restores prior behaviour.
 - [x] Step 2a: Semgrep import-pattern spike (blocking open question)
 - [x] Step 2b: `generate_boundary_rules`
 - [x] Step 3: `sa_write_boundaries` MCP tool
-- [ ] Step 4: Hook generation into `arch_finalize`
+- [x] Step 4: Hook generation into `arch_finalize`
 - [ ] Step 5: Dev-gate enforcement
 - [ ] Step 6: End-to-end integration + full verification
 

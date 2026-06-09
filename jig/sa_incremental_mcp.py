@@ -53,6 +53,7 @@ from pydantic import ValidationError
 from jig.analytics.emitter import EventEmitter
 from jig.analytics.events import RiskStatusChanged
 from jig.atomic import atomic_write_text
+from jig.boundary_rules import generate_boundary_rules
 from jig.handoff_resolve import resolve_after_handoff
 from jig.intent import ComplicationsConsidered, Intent
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
@@ -1518,6 +1519,12 @@ async def handle_arch_finalize(
     # the named provider; likewise for consumes_events vs. EmittedEvent.
     # Fails loud at finalize so the SA sees the breakage before PM planning.
     _validate_consumption_refs(arch, contracts_by_module)
+
+    # Compile any per-module boundaries.yaml into semgrep deny rules under
+    # .jig/rules/semgrep/boundaries/, enforced at the dev gate. Runs after all
+    # validation so a bad boundary (unknown module id / module-dir mismatch)
+    # fails finalize loudly here, before the PM handoff.
+    generate_boundary_rules(project_path)
 
     handoff = Handoff(
         ticket_id=SA_TICKET_ID,

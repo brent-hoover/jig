@@ -635,3 +635,63 @@ async def test_sa_write_boundaries_rewrite_replaces(wired):
         )
     )
     assert bf.internal.forbidden_modules == ["auth"]  # last write wins
+
+
+# ---- arch_finalize generates boundary rules (step 4) ----------------------
+
+
+def _write_config(project_path: Path, name: str = "my-ats") -> None:
+    import yaml
+
+    (project_path / ".jig" / "config.yaml").write_text(
+        yaml.safe_dump({"project": {"name": name, "id": name, "path": str(project_path)}})
+    )
+
+
+@pytest.mark.asyncio
+async def test_arch_finalize_generates_boundary_rules(wired):
+    project_path = wired["project_path"]
+    await _author_minimal(project_path)
+    _write_config(project_path)
+    await handle_sa_write_boundaries(
+        project_path=project_path,
+        boundaries={
+            "module": "catalog-ingest",
+            "external": {"forbidden": ["requests"]},
+        },
+    )
+    await handle_arch_finalize(
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+        bus=wired["bus"],
+        project_path=project_path,
+        summary="finalize with boundaries",
+        author="sa-mvp",
+    )
+    rule_file = (
+        project_path / ".jig" / "rules" / "semgrep" / "boundaries" / "catalog-ingest.yml"
+    )
+    assert rule_file.is_file()
+
+
+@pytest.mark.asyncio
+async def test_arch_finalize_raises_on_bad_boundary(wired):
+    project_path = wired["project_path"]
+    await _author_minimal(project_path)
+    _write_config(project_path)
+    await handle_sa_write_boundaries(
+        project_path=project_path,
+        boundaries={
+            "module": "catalog-ingest",
+            "internal": {"forbidden_modules": ["ghost"]},  # unknown module
+        },
+    )
+    with pytest.raises(ValueError, match="unknown module"):
+        await handle_arch_finalize(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            project_path=project_path,
+            summary="finalize with bad boundary",
+            author="sa-mvp",
+        )

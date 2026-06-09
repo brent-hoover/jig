@@ -410,6 +410,10 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 7 (roborev job 453, codex per-commit review): the baseline
+  ensure-step in `run_onboard` moved after store load and fails closed when a scan-done note exists but
+  `scan-guard.json` is missing — the normal CLI entrypoint could previously recreate a deleted baseline
+  from the post-scan tree before the scan-pass fail-closed check could see it missing. (brent-hoover)
 - 2026-06-09: Write-guard hardening round 6 (roborev job 452): a missing `scan-guard.json` on
   crash-resume fails closed (recomputing would baseline the post-scan tree and pass vacuously); corrupt
   `.jig/config.yaml` fails with guidance everywhere the onboard flow reads it; the between-runs false-alarm

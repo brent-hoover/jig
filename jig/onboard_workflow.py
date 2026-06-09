@@ -614,6 +614,33 @@ def _persist_scan_guard_baseline(project_path: Path) -> None:
     atomic_write_text(baseline_path, json.dumps(baseline))
 
 
+async def _ensure_scan_guard_baseline(project_path: Path, threads: ThreadStore) -> None:
+    """Create or refresh the guard baseline — unless the scan already
+    completed and the baseline is gone, which fails closed.
+
+    A compromised scanner could post ``onboard_scan_done`` and delete
+    ``scan-guard.json``; recreating it here would baseline the tampered
+    tree and let verification pass vacuously through the normal
+    ``jig onboard`` entrypoint. Fresh creation is only legitimate before
+    any scan has completed.
+    """
+    if not _scan_guard_baseline_path(project_path).is_file():
+        entries = await threads.for_ticket("onboard-scan")
+        scan_done = any(
+            isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
+            for e in entries
+        )
+        if scan_done:
+            raise click.ClickException(
+                f"{_scan_guard_baseline_path(project_path)} is missing but "
+                "the scan already completed — the write guard cannot verify "
+                "what it wrote, and recreating the baseline now would trust "
+                "a possibly tampered tree. Re-onboard with "
+                "`jig onboard --force`."
+            )
+    _persist_scan_guard_baseline(project_path)
+
+
 def _load_scan_guard_baseline(project_path: Path) -> dict | None:
     """Load and shape-check the persisted guard baseline.
 
@@ -988,11 +1015,6 @@ async def run_onboard(
                 target, profile_name, console, rerun_hint="`jig onboard`"
             )
 
-    # 7. Scan write-guard baseline — after every legitimate init write
-    # above, before any scanner spawn. First run captures it; resume
-    # refreshes only the run_onboard-owned paths.
-    _persist_scan_guard_baseline(target)
-
     from jig.logging_setup import configure_logging
 
     log_file = configure_logging(target, verbose=False, console=False)
@@ -1017,6 +1039,14 @@ async def run_onboard(
     from jig.ticket_events import wire_create_publisher
 
     wire_create_publisher(tickets, bus, sender="onboard")
+
+    # 7. Scan write-guard baseline — after every legitimate init write
+    # above, before any scanner spawn. First run captures it; resume
+    # refreshes only the run_onboard-owned paths. Done AFTER the stores
+    # load so a missing baseline on a scan that already completed fails
+    # closed instead of being silently recreated from the (possibly
+    # tampered) post-scan tree.
+    await _ensure_scan_guard_baseline(target, threads)
 
     try:
         await _run_onboard_resume_loop(

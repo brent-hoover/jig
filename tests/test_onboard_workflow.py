@@ -1181,6 +1181,28 @@ class TestRunOnboardInit:
         # write run_onboard itself performed.
         assert ".jig/onboard/desired-state.md" in baseline["guard"]
 
+    async def test_resume_with_scan_done_and_missing_baseline_fails_closed(
+        self, tmp_path, noop_loop
+    ):
+        """run_onboard-level regression (roborev job 453): a resume must
+        not recreate a deleted baseline once a scan has completed — that
+        would re-baseline a possibly tampered tree and let the scan-pass
+        verification pass vacuously."""
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+        threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+        await threads.load()
+        await threads.post(
+            Note(
+                ticket_id="onboard-scan",
+                author="scanner",
+                text="scan complete",
+                payload={"kind": "onboard_scan_done"},
+            )
+        )
+        (tmp_path / ".jig" / "onboard" / "scan-guard.json").unlink()
+        with pytest.raises(click.ClickException, match="--force"):
+            await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+
     async def test_brief_lands_as_desired_state(self, tmp_path, noop_loop):
         brief = tmp_path / "wish.md"
         brief.write_text("# Desired\n\nAdd exports.\n")

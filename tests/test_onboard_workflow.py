@@ -342,6 +342,147 @@ class TestPoReadPass:
         assert no_agent_spawn == [("po", "brief")]
 
 
+class TestPmProfilePass:
+    async def test_injects_scanner_recommendation_section(
+        self, stores, no_agent_spawn, monkeypatch
+    ):
+        import jig.init_workflow as init_workflow
+
+        monkeypatch.setattr(
+            init_workflow,
+            "_run_agent_with_cli_output",
+            onboard_workflow._run_agent_with_cli_output,
+        )
+        create_stub(stores["project_path"], name="proj")
+        onboard = stores["project_path"] / ".jig" / "onboard"
+        onboard.mkdir(parents=True)
+        (onboard / "observations.md").write_text(
+            "## Project structure\n\nThree modules.\n\n"
+            "## Profile recommendation\n\nsmall — 3 modules, no queues.\n"
+        )
+        await onboard_workflow.run_onboard_pm_profile_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("profile")
+        assert "ONBOARDED existing" in ticket.description
+        assert "small — 3 modules, no queues." in ticket.description
+        assert "Three modules." not in ticket.description
+        assert no_agent_spawn == [("pm", "profile")]
+
+    async def test_missing_heading_falls_back_to_full_observations(
+        self, stores, no_agent_spawn, monkeypatch
+    ):
+        import jig.init_workflow as init_workflow
+
+        monkeypatch.setattr(
+            init_workflow,
+            "_run_agent_with_cli_output",
+            onboard_workflow._run_agent_with_cli_output,
+        )
+        create_stub(stores["project_path"], name="proj")
+        onboard = stores["project_path"] / ".jig" / "onboard"
+        onboard.mkdir(parents=True)
+        (onboard / "observations.md").write_text(
+            "Free-form prose recommending the small profile.\n"
+        )
+        await onboard_workflow.run_onboard_pm_profile_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("profile")
+        assert "Free-form prose recommending" in ticket.description
+
+
+class TestPhase1Loop:
+    """Full Phase-1 walk: scan → PO → review → spec → PM profile →
+    confirm → SA_READ_PASS (NotImplementedError boundary)."""
+
+    async def test_full_phase1_flow(self, tmp_path, monkeypatch):
+        import jig.init_workflow as init_workflow
+        import jig.spec_generator as spec_generator
+
+        spawned = []
+
+        async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
+            spawned.append(ctx.role)
+            if ctx.role == "scanner":
+                obs = ctx.worktree_path / ".jig" / "onboard" / "observations.md"
+                obs.write_text(
+                    "## Project structure\n\nTwo modules.\n\n"
+                    "## Profile recommendation\n\nsmall — tiny repo.\n"
+                )
+                await ctx.threads.post(
+                    Note(
+                        ticket_id="onboard-scan",
+                        author="scanner",
+                        text="scan complete",
+                        payload={"kind": "onboard_scan_done"},
+                    )
+                )
+                await ctx.tickets.update("onboard-scan", status=TicketStatus.RESOLVED)
+            elif ctx.role == "po":
+                await ctx.threads.post(
+                    Handoff(
+                        ticket_id="brief",
+                        author="po",
+                        phase="spec-generator",
+                        outputs=["docs/brief.md"],
+                        summary="Current-state brief extracted.",
+                    )
+                )
+                await ctx.tickets.update("brief", status=TicketStatus.RESOLVED)
+            elif ctx.role == "pm":
+                await ctx.threads.post(
+                    Note(
+                        ticket_id="profile",
+                        author="pm",
+                        text="Proposed profile: small",
+                        payload={
+                            "kind": "pm_propose_profile",
+                            "name": "small",
+                            "rationale": "tiny repo",
+                        },
+                    )
+                )
+                await ctx.tickets.update("profile", status=TicketStatus.RESOLVED)
+            else:  # pragma: no cover - guard against silent role drift
+                raise AssertionError(f"unexpected spawn: {ctx.role}")
+
+        async def fake_spec_generator(
+            *, project_path, tickets, threads, memory, bus, emitter=None
+        ):
+            await threads.post(
+                SystemEvent(
+                    ticket_id="brief",
+                    author="spec-generator",
+                    event_type="spec_generated",
+                    content="structured spec written",
+                )
+            )
+
+        monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
+        monkeypatch.setattr(init_workflow, "_run_agent_with_cli_output", fake_spawn)
+        monkeypatch.setattr(spec_generator, "run_spec_generator", fake_spec_generator)
+
+        with pytest.raises(NotImplementedError, match="sa-architect Phase 2"):
+            await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+
+        assert spawned == ["scanner", "po", "pm"]
+        cfg = load_config(tmp_path)
+        assert cfg.profile.name == "small"
+        tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+        await tickets.load()
+        profile_ticket = await tickets.get("profile")
+        assert "small — tiny repo." in profile_ticket.description
+
+
 @pytest.fixture
 def noop_loop(monkeypatch):
     """Stub the resume loop so initialization tests don't spawn agents."""

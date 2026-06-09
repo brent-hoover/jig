@@ -295,6 +295,70 @@ async def run_onboard_po_conversation(
     )
 
 
+def _scanner_profile_recommendation(project_path: Path) -> str:
+    """The scanner's ``## Profile recommendation`` section, falling back
+    to the whole observations document when the heading is missing (the
+    scanner prompt mandates it, but the document is free-form prose and
+    not schema-validated)."""
+    from jig.markdown_sections import get_section
+
+    obs = _onboard_dir(project_path) / "observations.md"
+    if not obs.is_file():
+        return ""
+    try:
+        return get_section(obs, "Profile recommendation")
+    except KeyError:
+        return obs.read_text()
+
+
+async def run_onboard_pm_profile_pass(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Create the ``profile`` ticket with the scanner's recommendation
+    pre-injected, then delegate the PM spawn to ``run_pm_profile_pass``.
+
+    The PM has no Read/Glob/Grep tools — the recommendation signal must
+    arrive in the ticket description.
+    """
+    from jig.init_workflow import run_pm_profile_pass
+
+    profile_ticket = await tickets.get("profile")
+    if profile_ticket is None:
+        recommendation = _scanner_profile_recommendation(project_path)
+        description = (
+            "Pick the project profile for this ONBOARDED existing "
+            "codebase. Base your choice on the codebase signals below, "
+            "not on the brief's ambitions."
+        )
+        if recommendation.strip():
+            description += (
+                f"\n\n## Scanner profile recommendation\n\n{recommendation.strip()}"
+            )
+        await tickets.create(
+            Ticket(
+                id="profile",
+                work_type=WorkType.PROFILE,
+                title="Pick project profile",
+                description=description,
+                created_by="cli",
+            )
+        )
+    await run_pm_profile_pass(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        console=console,
+    )
+
+
 async def run_onboard_scan_pass(
     *,
     project_path: Path,
@@ -615,5 +679,63 @@ async def _run_onboard_resume_loop(
                     bus=bus,
                     emitter=emitter,
                 )
+            continue
+        if rs == OnboardResumeState.PM_PROFILE_PASS:
+            await run_onboard_pm_profile_pass(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == OnboardResumeState.PM_PROFILE_CONFIRM_PROMPT:
+            from jig.init_workflow import ConfirmChoice, prompt_profile_confirm
+
+            decision, proposal = await prompt_profile_confirm(
+                threads, console=console, prompts=prompts
+            )
+            if decision == ConfirmChoice.NO:
+                console.print("Profile not approved. State saved.", markup=False)
+                return
+            # YES accepts the PM's choice; SWAP flips to the other
+            # shipped profile (same hard-wired toggle as the greenfield
+            # flow — handle_pm_propose_profile restricts PM-1 to
+            # small/medium).
+            chosen_name = proposal["name"]
+            if decision == ConfirmChoice.SWAP:
+                if chosen_name not in {"small", "medium"}:
+                    raise click.ClickException(
+                        f"SWAP requires a shipped profile name; got "
+                        f"{chosen_name!r}. handle_pm_propose_profile "
+                        "must restrict PM-1 to small/medium."
+                    )
+                chosen_name = "small" if chosen_name == "medium" else "medium"
+            from jig.config import load_config, save_config
+            from jig.profile_loader import (
+                apply_profile,
+                copy_profile_templates,
+                load_profile,
+            )
+
+            try:
+                profile = load_profile(chosen_name, project_path=target)
+            except FileNotFoundError as exc:
+                raise click.ClickException(str(exc)) from exc
+            try:
+                cfg = apply_profile(load_config(target), profile)
+            except FileNotFoundError as exc:
+                raise click.ClickException(
+                    f"{target}/.jig/config.yaml not found while applying "
+                    f"profile {chosen_name!r}. Onboard state is "
+                    "inconsistent — re-run `jig onboard`."
+                ) from exc
+            save_config(target, cfg)
+            copy_profile_templates(profile, target)
+            console.print(
+                f"Applied profile '{profile.name}' (sa_role={profile.sa_role}).",
+                markup=False,
+            )
             continue
         raise NotImplementedError(f"onboard dispatch not yet wired for: {rs}")

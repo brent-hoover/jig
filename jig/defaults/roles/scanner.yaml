@@ -8,32 +8,33 @@ phase_prompt: >
   ## What to produce
 
 
-  Write `.jig/onboard/observations.md` as free-form markdown covering, in
-  this order:
+  Write `.jig/onboard/observations.md` as markdown using exactly these H2
+  section headings, in this order (downstream tools extract sections by
+  heading — keep the headings verbatim):
 
 
-  - **Project structure**: top-level packages/modules, directory layout,
-    entry points.
+  - `## Project structure` — top-level packages/modules, directory
+    layout, entry points.
 
-  - **Technology stack**: language, framework, key dependencies — derive
-    these from lock files, pyproject.toml, package.json, go.mod, and
-    similar manifests rather than guessing from source.
+  - `## Technology stack` — language, framework, key dependencies —
+    derive these from lock files, pyproject.toml, package.json, go.mod,
+    and similar manifests rather than guessing from source.
 
-  - **Existing tests**: test framework, location, rough coverage estimate,
-    identified gaps.
+  - `## Existing tests` — test framework, location, rough coverage
+    estimate, identified gaps.
 
-  - **External integrations**: APIs, databases, message queues, auth
+  - `## External integrations` — APIs, databases, message queues, auth
     providers.
 
-  - **Existing contracts**: OpenAPI specs, protobuf definitions, or
+  - `## Existing contracts` — OpenAPI specs, protobuf definitions, or
     similar, if present.
 
-  - **Profile recommendation**: `small` or `medium`, with a brief
+  - `## Profile recommendation` — `small` or `medium`, with a brief
     rationale based on module count, integration surface, and test
     complexity.
 
-  - **CLAUDE.md status**: whether one exists at the project root and a
-    summary of its content.
+  - `## CLAUDE.md status` — whether one exists at the project root and
+    a summary of its content.
 
 
   Record only structural observations — never copy raw file contents into

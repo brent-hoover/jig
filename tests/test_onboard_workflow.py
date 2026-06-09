@@ -291,6 +291,57 @@ class TestScanPass:
         assert ticket.status == TicketStatus.IN_PROGRESS
 
 
+class TestPoReadPass:
+    async def test_creates_brief_with_read_mode_and_observations(
+        self, stores, no_agent_spawn
+    ):
+        create_stub(stores["project_path"], name="proj")
+        onboard = stores["project_path"] / ".jig" / "onboard"
+        onboard.mkdir(parents=True)
+        (onboard / "observations.md").write_text(
+            "## Project structure\n\nFlask app, 3 modules.\n"
+        )
+        await onboard_workflow.run_onboard_po_conversation(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("brief")
+        assert ticket.work_type == WorkType.BRIEF
+        assert "READ MODE" in ticket.description
+        assert "Do NOT invent capabilities" in ticket.description
+        assert "Flask app, 3 modules." in ticket.description
+        assert no_agent_spawn == [("po", "brief")]
+
+    async def test_existing_brief_ticket_reused_and_reactivated(
+        self, stores, no_agent_spawn
+    ):
+        create_stub(stores["project_path"], name="proj")
+        await stores["tickets"].create(
+            Ticket(
+                id="brief",
+                work_type=WorkType.BRIEF,
+                title="Project brief (onboard read pass)",
+                description="original description",
+                created_by="cli",
+            )
+        )
+        await stores["tickets"].update("brief", status=TicketStatus.RESOLVED)
+        await onboard_workflow.run_onboard_po_conversation(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("brief")
+        assert ticket.description == "original description"
+        assert ticket.status == TicketStatus.IN_PROGRESS
+        assert no_agent_spawn == [("po", "brief")]
+
+
 @pytest.fixture
 def noop_loop(monkeypatch):
     """Stub the resume loop so initialization tests don't spawn agents."""

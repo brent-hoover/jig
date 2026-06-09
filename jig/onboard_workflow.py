@@ -217,6 +217,84 @@ async def classify_onboard_resume(
     )
 
 
+def _observations_text(project_path: Path) -> str:
+    """Scanner output, or empty string when missing (defensive — the
+    state machine never reaches the PO/PM passes without a scan-done
+    note, and the scan tool refuses to finish without the file)."""
+    obs = _onboard_dir(project_path) / "observations.md"
+    return obs.read_text() if obs.is_file() else ""
+
+
+def _po_read_mode_description(project_path: Path) -> str:
+    """Brief-ticket description for the onboard PO read pass.
+
+    The PO's tool set is MCP-only (no Read/Glob/Grep), so the scanner's
+    observations are embedded here rather than referenced by path.
+    """
+    observations = _observations_text(project_path)
+    return (
+        "READ MODE — this project is being onboarded from an EXISTING "
+        "codebase.\n\n"
+        "Extract the capabilities that already exist from the scanner's "
+        "observations below and record them in the brief (existing, "
+        "working capabilities belong under '## Built'). Do NOT invent "
+        "capabilities that are not yet built. Ask the operator when the "
+        "observations leave a capability's behavior unclear.\n\n"
+        "## Scanner observations (.jig/onboard/observations.md)\n\n"
+        f"{observations}"
+    )
+
+
+async def run_onboard_po_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Create (if needed) the standard ``brief`` ticket with read-mode
+    context injected and spawn the PO agent on it.
+
+    The PO's MCP tools run unchanged (``brief_set_section`` /
+    ``po_finish_brief``) so ``run_spec_generator`` works unmodified in
+    the next state.
+    """
+    brief = await tickets.get("brief")
+    if brief is None:
+        brief = Ticket(
+            id="brief",
+            work_type=WorkType.BRIEF,
+            title="Project brief (onboard read pass)",
+            description=_po_read_mode_description(project_path),
+            created_by="cli",
+        )
+        await tickets.create(brief)
+    brief = await _reactivate_if_resolved(tickets, brief, author="cli")
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "po")
+    ctx = AgentSpawnContext(
+        role="po",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=brief,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="Product Owner (read pass)",
+        console=console,
+        subtitle="Extracting the current-state brief from the codebase",
+    )
+
+
 async def run_onboard_scan_pass(
     *,
     project_path: Path,
@@ -466,5 +544,76 @@ async def _run_onboard_resume_loop(
                 bus=bus,
                 console=console,
             )
+            continue
+        if rs == OnboardResumeState.PO_READ_PASS:
+            await run_onboard_po_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == OnboardResumeState.NEEDS_ANSWER_BRIEF:
+            from jig.init_workflow import prompt_and_post_answers
+
+            await prompt_and_post_answers(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                ticket_id="brief",
+                console=console,
+                prompts=prompts,
+            )
+            continue
+        if rs == OnboardResumeState.PO_REVIEW:
+            from jig.init_workflow import BriefApprovalChoice
+
+            decision = await prompts.ask_brief_approval(
+                project_path=target, console=console
+            )
+            if decision == BriefApprovalChoice.YES:
+                await threads.post(
+                    SystemEvent(
+                        ticket_id="brief",
+                        author="cli",
+                        event_type="brief_approved",
+                        content="operator approved onboard brief",
+                    )
+                )
+                continue
+            if decision == BriefApprovalChoice.RESUME:
+                # Respawn the PO directly — the stale Handoff still
+                # outranks any prior approval, so classification alone
+                # would bounce straight back to PO_REVIEW.
+                await run_onboard_po_conversation(
+                    project_path=target,
+                    tickets=tickets,
+                    threads=threads,
+                    memory=memory,
+                    bus=bus,
+                    console=console,
+                )
+                continue
+            console.print("Brief not approved. State saved.", markup=False)
+            return
+        if rs == OnboardResumeState.SPEC_PASS:
+            from jig.init_workflow import _cli_emitter
+            from jig.spec_generator import run_spec_generator
+
+            async with _cli_emitter(
+                "Spec Generator",
+                console=console,
+                subtitle="Generating structured spec from docs/brief.md",
+            ) as emitter:
+                await run_spec_generator(
+                    project_path=target,
+                    tickets=tickets,
+                    threads=threads,
+                    memory=memory,
+                    bus=bus,
+                    emitter=emitter,
+                )
             continue
         raise NotImplementedError(f"onboard dispatch not yet wired for: {rs}")

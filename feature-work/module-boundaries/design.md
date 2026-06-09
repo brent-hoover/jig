@@ -141,14 +141,15 @@ root at `project_path/.jig/worktrees/<id>` — so the generated rules at `projec
 are **not inside the worktree** and are **not committed to the dev branch**. The check therefore needs the
 project root explicitly.
 
-**No signature change**: `project_path` is derivable, not threaded. Worktrees always live at
-`project_path/.jig/worktrees/<id>` (`worktree.py:94`), so `_boundary_check` computes
-`project_path = worktree_path.parents[2]` and **asserts** the `.jig/worktrees/` layout (fail loud if the
-shape is unexpected, never silently skip). This avoids churning `commit_worktree`,
-`handle_commit_progress` (`ticket_mcp.py:542`, which has no `project_path`), and
-`_auto_commit_worktree`. Add `_boundary_check(worktree_path)` after `_auto_lint`:
+**No signature change**: the project root is *found*, not threaded. `_boundary_check` walks up
+`worktree_path.parents` to the nearest ancestor holding generated rules
+(`<ancestor>/.jig/rules/semgrep/boundaries/*.yml`) — for the real layout `<project>/.jig/worktrees/<id>`
+that's `<project>`. A worktree with no such ancestor (a non-jig worktree, or a project with no boundaries)
+is a no-op: there are no rules, nothing to enforce. This avoids churning `commit_worktree`,
+`handle_commit_progress`, and `_auto_commit_worktree`, and (unlike a hard layout assertion) doesn't break
+callers that pass an ad-hoc worktree path. Add `_boundary_check(worktree_path)` after `_auto_lint`:
 
-1. If `project_path/.jig/rules/semgrep/boundaries/` has no `*.yml` files → no-op (no boundaries declared).
+1. No ancestor with `.jig/rules/semgrep/boundaries/*.yml` → no-op (no boundaries apply).
 2. If the `semgrep` binary is unavailable (not on `PATH`) → emit a **visible** warning (run record +
    agent-facing note), return without failing. Loud-degradation: enforcement skipped, never a clean pass.
 3. Otherwise invoke (fixed arg list, no shell):
@@ -158,17 +159,25 @@ shape is unexpected, never silently skip). This avoids churning `commit_worktree
    ```
    `--metrics off` keeps it offline (jig's established semgrep convention; default semgrep phones home).
    The rule dir is passed as an absolute project-root path; the scan target is the worktree path.
-   **Exit-code contract** (semgrep): `0` = no findings → pass; `1` = findings → parse the JSON `results`
-   and raise `BoundaryViolationError` (sibling of `LintError`) with one message per finding
-   (`module '<M>' may not import '<target>'`, derived from the rule id + message); `>= 2` = semgrep
-   itself errored (bad rule, crash) → this is the **loud-degradation** path (visible warning), **not** a
-   `BoundaryViolationError`, so a tool failure never masquerades as a boundary violation and never as a
+   **Result handling**: semgrep exits `0` *even with findings* unless `--error` is passed, so the exit
+   code is **not** used to detect violations — the JSON `results` list is. Exit `< 2` (ran OK): parse
+   `results`; any result → raise `BoundaryViolationError` (sibling of `LintError`) with one message per
+   finding (`module '<M>' may not import '<target>'`, from the rule message + file:line); empty → pass.
+   Exit `>= 2` = semgrep itself errored (bad rule, crash) → **loud-degradation** (visible warning), **not**
+   a `BoundaryViolationError`, so a tool failure never masquerades as a boundary violation and never as a
    clean pass. A single whole-dir invocation is used; per-module attribution comes from the rule id
    (`boundary-<M>-...`), which is sufficient for the message contract.
 
-The existing gate-failure path surfaces `BoundaryViolationError` to the dev agent, which fixes and
-re-commits — same loop as a lint failure. Boundary rules apply only to the module package dirs they scope,
-so a worktree touching unrelated code is unaffected.
+`handle_commit_progress` (`ticket_mcp.py`) catches `BoundaryViolationError` alongside `LintError` and
+returns the structured `{success: false, error: "boundary_violations", errors: [...]}` response (and a
+failed auto-test checkpoint), so the dev agent fixes and re-commits — same loop as a lint failure.
+
+**Degradation must not read as a clean pass.** When semgrep is missing or errors, `_boundary_check`
+returns the degradation message(s) instead of raising; `commit_worktree` carries them on
+`CommitResult.boundary_warnings`, and `handle_commit_progress` surfaces them in the success response
+(`warnings`) and the checkpoint summary/open-questions. The commit still proceeds (a missing tool must not
+block all dev work), but the run never reports a clean boundary pass when enforcement was skipped. Boundary
+rules apply only to the module package dirs they scope, so a worktree touching unrelated code is unaffected.
 
 ## Interfaces
 

@@ -144,9 +144,10 @@ enforcement rules.
 - `_boundary_check` behavior:
   - no `project_path/.jig/rules/semgrep/boundaries/*.yml` → no-op;
   - `semgrep` not on `PATH` (`shutil.which`) → visible warning, return (loud-degrade, no pass-as-clean);
-  - else run `semgrep --metrics off --json --quiet --config <abs boundaries dir> <worktree>`; exit `0` →
-    pass, `1` → raise `BoundaryViolationError(violations=[...])` (messages from rule id + finding), `>=2` →
-    visible warning (degrade), not a violation.
+  - else run `semgrep --metrics off --json --quiet --config <abs boundaries dir> <worktree>`; exit `>=2`
+    → visible warning (degrade), not a violation; otherwise parse JSON `results` (semgrep exits 0 even
+    with findings) — any result → raise `BoundaryViolationError(violations=[...])` (messages from rule
+    message + file:line), empty → pass.
 - Add `BoundaryViolationError`; surface it on the same gate-failure path as `LintError`. Run the check
   before the code-metrics computation.
 
@@ -197,7 +198,7 @@ restores prior behaviour.
 - [x] Step 2b: `generate_boundary_rules`
 - [x] Step 3: `sa_write_boundaries` MCP tool
 - [x] Step 4: Hook generation into `arch_finalize`
-- [ ] Step 5: Dev-gate enforcement
+- [x] Step 5: Dev-gate enforcement
 - [ ] Step 6: End-to-end integration + full verification
 
 ## Change log

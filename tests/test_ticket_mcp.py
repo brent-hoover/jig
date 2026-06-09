@@ -1052,3 +1052,127 @@ async def test_create_ticket_with_no_project_spec_skips_silently(
     )
     assert await tickets.get(ticket_id) is not None
     assert load_ticket_spec(project, ticket_id) is None
+
+
+@pytest.mark.asyncio
+async def test_commit_progress_surfaces_boundary_violation(stores, tmp_path) -> None:
+    """A module-boundary violation must surface as the structured gate failure
+    (error=boundary_violations), not an unhandled exception."""
+    import shutil
+    import subprocess
+
+    import yaml
+
+    from jig.boundary_rules import build_deny_rule
+    from jig.ticket_mcp import handle_commit_progress
+
+    if shutil.which("semgrep") is None:
+        pytest.skip("semgrep not installed")
+
+    tickets, threads, bus = stores
+
+    # Worktree in the real layout so _boundary_check finds the project rules.
+    work = tmp_path / ".jig" / "worktrees" / "t1"
+    pkg = work / "src" / "my_ats" / "job_posting"
+    pkg.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
+    (pkg / "code.py").write_text("import requests\n")
+
+    rules_dir = tmp_path / ".jig" / "rules" / "semgrep" / "boundaries"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "job-posting.yml").write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    build_deny_rule(
+                        rule_id="boundary-job-posting-no-external-requests",
+                        message="module 'job-posting' may not import 'requests'",
+                        package="requests",
+                        package_dir="src/my_ats/job_posting/",
+                    )
+                ]
+            }
+        )
+    )
+
+    tid = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="u",
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
+    )
+    result = await handle_commit_progress(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender="dev",
+        worktree_path=work,
+        args={"ticket_id": tid, "message": "add code"},
+    )
+    assert result["success"] is False
+    assert result["error"] == "boundary_violations"
+    assert any("requests" in v for v in result["errors"])
+
+
+@pytest.mark.asyncio
+async def test_commit_progress_surfaces_boundary_degradation(
+    stores, tmp_path, monkeypatch
+) -> None:
+    """When semgrep is unavailable, enforcement is skipped — the commit may
+    proceed but must NOT report a clean boundary pass: the degradation warning
+    surfaces in the response (and checkpoint), never silently green."""
+    import subprocess
+
+    import yaml
+
+    from jig.boundary_rules import build_deny_rule
+    from jig.ticket_mcp import handle_commit_progress
+
+    tickets, threads, bus = stores
+    work = tmp_path / ".jig" / "worktrees" / "t1"
+    pkg = work / "src" / "my_ats" / "job_posting"
+    pkg.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "seed"], cwd=work, check=True
+    )
+    (pkg / "code.py").write_text("VALUE = 1\n")
+
+    rules_dir = tmp_path / ".jig" / "rules" / "semgrep" / "boundaries"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "job-posting.yml").write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    build_deny_rule(
+                        rule_id="boundary-job-posting-no-external-requests",
+                        message="m",
+                        package="requests",
+                        package_dir="src/my_ats/job_posting/",
+                    )
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr("jig.worktree.shutil.which", lambda _: None)  # semgrep "absent"
+
+    tid = await handle_create_ticket(
+        tickets=tickets,
+        bus=bus,
+        sender="u",
+        args={"type": "feature", "title": "f", "description": TICKET_AC_PLACEHOLDER},
+    )
+    result = await handle_commit_progress(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        sender="dev",
+        worktree_path=work,
+        args={"ticket_id": tid, "message": "add code"},
+    )
+    assert result["sha"]  # commit proceeded
+    assert "warnings" in result and any("semgrep" in w for w in result["warnings"])

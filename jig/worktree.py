@@ -2,10 +2,12 @@
 
 import asyncio
 import errno
+import json
 import logging
 import os
+import shutil
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from jig.atomic import atomic_write_text
@@ -24,10 +26,16 @@ class CommitResult:
     ``metrics`` is the deterministic code-quality signal for the committed
     change, or ``None`` when nothing was committed or the signal failed to
     compute (a signal failure must never block the commit).
+
+    ``boundary_warnings`` carries any module-boundary *degradation* notices
+    (semgrep missing / errored) — enforcement was skipped, so the caller must
+    surface these rather than report a clean pass. Empty when boundaries were
+    enforced (or none apply).
     """
 
     sha: str | None
     metrics: ChangeMetrics | None
+    boundary_warnings: list[str] = field(default_factory=list)
 
 
 class LintError(Exception):
@@ -36,6 +44,19 @@ class LintError(Exception):
     def __init__(self, errors: list[str]) -> None:
         self.errors = errors
         super().__init__(f"{len(errors)} unfixable lint errors")
+
+
+class BoundaryViolationError(Exception):
+    """Raised when a module's code crosses a declared import boundary.
+
+    Surfaced on the same gate-failure path as :class:`LintError` so the dev
+    agent sees actionable per-violation messages and fixes them in the same
+    loop.
+    """
+
+    def __init__(self, violations: list[str]) -> None:
+        self.violations = violations
+        super().__init__(f"{len(violations)} module-boundary violation(s)")
 
 
 class MergeConflictError(RuntimeError):
@@ -462,17 +483,104 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     return errors
 
 
+async def _boundary_check(worktree_path: Path) -> list[str]:
+    """Enforce module-import boundaries against the worktree's code.
+
+    Returns a list of *degradation* warnings (semgrep missing / errored) — when
+    non-empty, enforcement was skipped and the caller must surface them rather
+    than report a clean pass. Returns ``[]`` when boundaries were enforced
+    cleanly or none apply. Raises :class:`BoundaryViolationError` on a match.
+
+    Runs orchestrator-side (outside the agent sandbox). ``project_path`` is
+    derived from the worktree layout (``project_path/.jig/worktrees/<id>``) so
+    the project-root rule dir is reachable without threading it through
+    ``commit_worktree``'s signature.
+
+    The project root is found by walking up to the nearest ancestor that holds
+    generated boundary rules (the real layout is ``<project>/.jig/worktrees/
+    <id>``, so the project is a few levels up). A worktree with no such ancestor
+    — a non-jig worktree, or a project that declared no boundaries — is a no-op:
+    there are no rules, so nothing to enforce.
+
+    If ``semgrep`` is unavailable, emits a visible warning and returns
+    (loud-degradation — never a clean pass). A violation is decided by the
+    presence of semgrep ``results`` (semgrep exits 0 even with findings unless
+    ``--error`` is passed, so the exit code is not used to detect them); any
+    result raises :class:`BoundaryViolationError`. A semgrep tool error (exit
+    >= 2) is a loud-degradation warning, not a violation, so a crashing tool
+    never masquerades as either a violation or a clean pass.
+    """
+    rules_dir: Path | None = None
+    for ancestor in worktree_path.parents:
+        candidate = ancestor / ".jig" / "rules" / "semgrep" / "boundaries"
+        if candidate.is_dir() and any(candidate.glob("*.yml")):
+            rules_dir = candidate
+            break
+    if rules_dir is None:
+        return []  # no boundary rules apply to this worktree
+
+    if shutil.which("semgrep") is None:
+        warning = (
+            "module-import boundaries NOT enforced: semgrep is not installed/on PATH"
+        )
+        _logger.warning("%s (%s)", warning, worktree_path)
+        return [warning]
+
+    proc = await asyncio.create_subprocess_exec(
+        "semgrep",
+        "--metrics",
+        "off",
+        "--json",
+        "--quiet",
+        "--config",
+        str(rules_dir),
+        str(worktree_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    # semgrep exit codes: 0/1 = ran OK (it returns 0 even WITH findings unless
+    # --error is passed, so don't infer violations from the code — parse the
+    # results), >= 2 = the tool itself errored (loud-degrade, not a violation).
+    if proc.returncode >= 2:
+        warning = (
+            f"module-import boundaries NOT enforced: semgrep errored "
+            f"(exit {proc.returncode})"
+        )
+        _logger.warning(
+            "%s for %s. stderr: %s",
+            warning,
+            worktree_path,
+            stderr.decode(errors="replace").strip(),
+        )
+        return [warning]
+
+    results = json.loads(stdout).get("results", [])
+    violations = sorted(
+        {
+            f"{r.get('extra', {}).get('message', r.get('check_id', 'boundary'))} "
+            f"({Path(r['path']).name}:{r['start']['line']})"
+            for r in results
+        }
+    )
+    if violations:
+        raise BoundaryViolationError(violations)
+    return []
+
+
 async def commit_worktree(worktree_path: Path, message: str) -> CommitResult:
     """Commit all changes in a worktree.
 
     Returns a :class:`CommitResult` carrying the new commit SHA (``None`` if
     there were no changes) and the deterministic code-quality metrics for the
     committed change. Raises ``LintError`` if there are unfixable lint
-    violations.
+    violations, or ``BoundaryViolationError`` if the code crosses a declared
+    module-import boundary.
     """
     lint_errors = await _auto_lint(worktree_path)
     if lint_errors:
         raise LintError(lint_errors)
+    boundary_warnings = await _boundary_check(worktree_path)
     await _run_git(worktree_path, "add", "-A")
 
     # Check if there's anything staged
@@ -487,7 +595,8 @@ async def commit_worktree(worktree_path: Path, message: str) -> CommitResult:
     )
     await proc.communicate()
     if proc.returncode == 0:
-        return CommitResult(sha=None, metrics=None)  # Nothing staged
+        # Nothing staged
+        return CommitResult(sha=None, metrics=None, boundary_warnings=boundary_warnings)
 
     # Code-quality signal for exactly the staged change (compared to HEAD,
     # which is still the pre-commit tip here). Signal only — a failure must
@@ -516,7 +625,7 @@ async def commit_worktree(worktree_path: Path, message: str) -> CommitResult:
             metrics.loc_delta,
             "  [FLAGGED]" if metrics.flagged else "",
         )
-    return CommitResult(sha=sha, metrics=metrics)
+    return CommitResult(sha=sha, metrics=metrics, boundary_warnings=boundary_warnings)
 
 
 async def remove_worktree(

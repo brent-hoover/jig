@@ -1,7 +1,10 @@
 import asyncio
+import contextlib
+import fcntl
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+import os
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Union
@@ -33,6 +36,10 @@ class TicketStore:
             model=Ticket,
             index_fields=["work_type", "status", "assignee", "parent_id"],
         )
+        # jig-N key counter and its cross-process lock live alongside the
+        # JSONL so every process sharing the store dir serializes on them.
+        self._seq_path = path.parent / "issue_seq"
+        self._lock_path = path.parent / ".issue.lock"
         self._on_status_change: StatusChangeCallback | None = None
         self._on_create: CreateCallback | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -93,13 +100,92 @@ class TicketStore:
         # mutate-while-iterating.
         await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
 
+    @contextlib.asynccontextmanager
+    async def _key_lock(self) -> AsyncIterator[None]:
+        """Hold an exclusive cross-process ``flock`` for the duration of the
+        key-assignment + append critical section.
+
+        The in-process ``asyncio.Lock`` inside ``Collection.insert`` keeps a
+        single process's in-memory state consistent; this ``flock`` extends
+        the guarantee across separate OS processes (CLI / standalone MCP /
+        orchestrator) so the ``jig-N`` counter and the JSONL append never
+        interleave.
+
+        Acquisition uses a non-blocking ``flock`` with async backoff rather
+        than a blocking call. Two failure modes are avoided:
+
+        - A *synchronous* blocking ``flock`` would block the event-loop thread
+          while the lock is held across the awaited critical section. Two
+          coroutines creating on the same store in one loop would then
+          deadlock: the second's blocking acquire wedges the loop, so the
+          first can never resume to release.
+        - ``asyncio.to_thread(flock, ...)`` frees the loop but opens a
+          cancellation race: a CancelledError at the ``await`` closes ``fd`` in
+          ``finally`` while the worker thread is still blocked in ``flock``,
+          which then acquires on a closed/recycled fd and never releases.
+
+        ``LOCK_NB`` + ``asyncio.sleep`` sidesteps both: each attempt returns
+        immediately, the loop stays free between attempts, and no thread holds
+        a reference to ``fd`` — so cancellation can only ever happen with the
+        lock cleanly held or not held. Contention is near-zero and brief, so
+        the poll interval is never meaningfully exercised.
+        """
+        fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(0.01)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def _read_seq(self) -> int:
+        try:
+            return int(self._seq_path.read_text().strip() or "0")
+        except FileNotFoundError:
+            return 0
+
+    def _write_seq(self, value: int) -> None:
+        self._seq_path.write_text(str(value))
+
+    async def all(self) -> list[Ticket]:
+        """Return every ticket. Used by the issue front doors for listing."""
+        return await self._collection.find()
+
+    async def resolve_ref(self, ref: str) -> Ticket | None:
+        """Resolve a ticket by internal ``id`` (UUID) or ``jig-N`` key."""
+        direct = await self.get(ref)
+        if direct is not None:
+            return direct
+        matches = await self._collection.find(lambda t: t.key == ref)
+        return matches[0] if matches else None
+
     async def create(self, ticket: Ticket, *, fire_create_callback: bool = True) -> str:
         # Uniqueness is enforced inside Collection.insert under its
         # asyncio.Lock — no TOCTOU window between check and append.
         # We re-raise with a ticket-specific message so callers (CLI,
         # init flow) get a domain-friendly error.
+        #
+        # Key assignment + append run under a cross-process flock: read the
+        # counter from disk (other processes may have advanced it), assign the
+        # jig-N key, append, then persist the counter — all before releasing
+        # the lock so a concurrent process can never observe a half-updated
+        # counter or reissue a key.
         try:
-            ticket_id = await self._collection.insert(ticket)
+            async with self._key_lock():
+                if not ticket.key:
+                    next_seq = self._read_seq() + 1
+                    ticket.key = f"jig-{next_seq}"
+                    # Persist the counter BEFORE the append. If the process
+                    # dies between here and the insert, the consumed number
+                    # becomes a harmless gap; the alternative ordering would
+                    # let the next creator reissue the same jig-N key.
+                    self._write_seq(next_seq)
+                ticket_id = await self._collection.insert(ticket)
         except ValueError as e:
             if "already exists" in str(e):
                 raise ValueError(f"ticket with id {ticket.id!r} already exists") from e
@@ -141,35 +227,78 @@ class TicketStore:
     async def get(self, ticket_id: str) -> Ticket | None:
         return await self._collection.get(ticket_id)
 
+    async def approve(self, ticket_id: str) -> Ticket:
+        """Promote a PROPOSED ticket to OPEN (the dispatchable state).
+
+        This is the ONLY sanctioned path for the PROPOSED -> OPEN transition.
+        The generic ``update`` path rejects that transition unconditionally —
+        there is no bypass flag on the public API — so neither the agent MCP
+        nor a standalone-MCP caller can self-approve and skip the operator gate.
+
+        Raises ``ValueError`` if the ticket is not currently PROPOSED, so
+        approve cannot silently reopen a closed/resolved/failed ticket.
+        """
+        prev = await self._collection.get(ticket_id)
+        if prev is None:
+            raise KeyError(ticket_id)
+        if prev.status is not TicketStatus.PROPOSED:
+            raise ValueError(
+                f"ticket {ticket_id!r}: approve requires PROPOSED status "
+                f"(is {prev.status.value})"
+            )
+        return await self._write_update(ticket_id, {"status": TicketStatus.OPEN})
+
     async def update(self, ticket_id: str, **fields) -> Ticket:
-        # Validate the would-be result BEFORE appending the update row
-        # to JSONL. Without this, an invalid update (e.g. a description
-        # change that drops the AC section, violating the
-        # ``has_acceptance_criteria_section`` invariant) would land on
-        # disk before the model validator ran, leaving the JSONL with a
-        # row that any subsequent store load would fail to deserialize.
-        # The store would then be unreadable until an operator manually
-        # repaired the file.
-        #
-        # We construct the merged ``Ticket`` model in-memory first — if
-        # the merge violates any model invariant Pydantic raises here,
-        # and the JSONL stays untouched.
+        prev = await self._collection.get(ticket_id)
+        if prev is None:
+            raise KeyError(ticket_id)
+        # Operator-only approval gate: PROPOSED -> OPEN is reachable only via
+        # ``approve()``. There is deliberately no escape-hatch parameter on this
+        # public method — every generic update is gated, so the transition
+        # cannot be smuggled through (e.g. an MCP/agent update_ticket call).
+        new_status = fields.get("status")
+        if new_status is not None:
+            new_value = (
+                new_status.value
+                if isinstance(new_status, TicketStatus)
+                else str(new_status)
+            )
+            if (
+                prev.status is TicketStatus.PROPOSED
+                and new_value == TicketStatus.OPEN.value
+            ):
+                raise ValueError(
+                    f"ticket {ticket_id!r}: PROPOSED -> OPEN requires approval; "
+                    "use TicketStore.approve()"
+                )
+        return await self._write_update(ticket_id, fields)
+
+    async def _write_update(self, ticket_id: str, fields: dict) -> Ticket:
+        """Validated write of an update row. NOT gated — callers (``update``,
+        ``approve``) enforce their own transition rules first.
+
+        Validate the would-be result BEFORE appending the update row to JSONL.
+        Without this, an invalid update (e.g. a description change that drops
+        the AC section) would land on disk before the model validator ran,
+        leaving a row any subsequent store load would fail to deserialize. We
+        construct the merged ``Ticket`` in-memory first — if the merge violates
+        any model invariant Pydantic raises here, and the JSONL stays untouched.
+        """
         prev = await self._collection.get(ticket_id)
         if prev is None:
             raise KeyError(ticket_id)
         prev_status = prev.status.value
         fields.setdefault("updated_at", datetime.now(timezone.utc))
-        # model_copy with update= runs the field validators on each
-        # changed field but does NOT re-run model_validators (per
-        # Pydantic v2 docs). Use model_validate on the merged dict
-        # instead so the AC-required model_validator fires too.
         merged = prev.model_dump(by_alias=True)
         for key, value in fields.items():
             merged[key] = value
         Ticket.model_validate(merged)  # raises ValidationError if invalid
         await self._collection.update(ticket_id, fields)
         loaded = await self._collection.get(ticket_id)
-        assert loaded is not None
+        if loaded is None:
+            raise RuntimeError(
+                f"ticket {ticket_id!r} vanished after its own update write"
+            )
         if self._on_status_change is not None and "status" in fields:
             new_status = loaded.status.value
             if new_status != prev_status:

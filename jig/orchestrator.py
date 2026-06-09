@@ -65,6 +65,28 @@ _logger = logging.getLogger(__name__)
 # sweeps by calling ``sweep_blocking_entries`` directly.
 DEADLOCK_SWEEP_INTERVAL_S = 60.0
 
+# How often the orchestrator reloads tickets appended by other processes (the
+# jig issue CLI / standalone MCP) and re-runs the ready-scan. The store is
+# in-memory after load(), so without this a live orchestrator never sees an
+# externally-created (then approved) issue. Off the dispatch hot path.
+RECONCILE_INTERVAL_S = 30.0
+
+# Statuses that mean a ticket is still in flight, so the post-run analyzer
+# must NOT treat the project as complete. PROPOSED is non-terminal: a
+# front-door issue awaiting operator approval is unfinished work, not a done
+# project — omitting it would let a project of only-proposed tickets emit
+# project_complete prematurely.
+_NON_TERMINAL_ANALYZER_STATUSES = frozenset(
+    {
+        TicketStatus.PROPOSED,
+        TicketStatus.OPEN,
+        TicketStatus.IN_PROGRESS,
+        TicketStatus.BLOCKED,
+        TicketStatus.NEEDS_INFO,
+        TicketStatus.MERGE_CONFLICT,
+    }
+)
+
 
 def _kill_orphan_claude_processes(project_path: Path) -> int:
     """SIGTERM any ``claude`` CLI subprocess whose CWD is inside the
@@ -244,6 +266,12 @@ class Orchestrator:
         self._analytics_emitter: AnalyticsEmitter | None = None
 
         self._running_tickets: dict[str, asyncio.Task] = {}
+        # Serializes ready-scan scheduling. _handle_schedule checks membership
+        # in _running_tickets then awaits several times before registering the
+        # task; without this lock two concurrent schedulers (the dispatch loop
+        # and the reconcile tick) could both pass the check and double-dispatch
+        # the same ticket, leaking one task.
+        self._schedule_lock = asyncio.Lock()
         self._live_subscribers: dict[tuple[str, str], asyncio.Task] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._dispatch_task: asyncio.Task | None = None
@@ -251,6 +279,7 @@ class Orchestrator:
         self._deadlock_task: asyncio.Task | None = None
         self._stall_task: asyncio.Task | None = None
         self._analyzer_task: asyncio.Task | None = None
+        self._reconcile_task: asyncio.Task | None = None
         self._stall_detector: StallDetector = StallDetector()
         self._analyzer_last_terminal_ids: frozenset[str] = frozenset()
         # Phase 5 Task L thresholds — loaded from config at startup
@@ -375,6 +404,7 @@ class Orchestrator:
             self._service_task = asyncio.create_task(self._run_service_loop())
             self._deadlock_task = asyncio.create_task(self._run_deadlock_loop())
             self._stall_task = asyncio.create_task(self._run_stall_loop())
+            self._reconcile_task = asyncio.create_task(self._run_reconcile_loop())
         except Exception:
             await self._emergency_reset()
             raise
@@ -1209,6 +1239,7 @@ class Orchestrator:
             self._deadlock_task,
             self._stall_task,
             self._analyzer_task,
+            self._reconcile_task,
         ):
             if task is not None:
                 task.cancel()
@@ -1233,6 +1264,7 @@ class Orchestrator:
         self._deadlock_task = None
         self._stall_task = None
         self._analyzer_task = None
+        self._reconcile_task = None
         self._project = None
         self.tickets = None
         self.threads = None
@@ -1255,6 +1287,8 @@ class Orchestrator:
             tasks_to_cancel.append(self._stall_task)
         if self._analyzer_task is not None:
             tasks_to_cancel.append(self._analyzer_task)
+        if self._reconcile_task is not None:
+            tasks_to_cancel.append(self._reconcile_task)
         tasks_to_cancel.extend(self._running_tickets.values())
         tasks_to_cancel.extend(self._live_subscribers.values())
         for task in tasks_to_cancel:
@@ -1273,6 +1307,7 @@ class Orchestrator:
         self._deadlock_task = None
         self._stall_task = None
         self._analyzer_task = None
+        self._reconcile_task = None
         # Flush in-flight analytics writes so the tail of the event
         # stream isn't lost when the loop closes.
         if self._analytics_emitter is not None:
@@ -1363,6 +1398,47 @@ class Orchestrator:
             except Exception:
                 _logger.warning("deadlock sweep raised; continuing", exc_info=True)
 
+    async def _reconcile_external_tickets(self) -> None:
+        """Reload tickets appended by other processes, then run the ready-scan.
+
+        The store is in-memory after ``load()`` and the orchestrator never
+        re-reads ``tickets.jsonl`` on its own, so a ticket created out-of-band
+        by the ``jig issue`` CLI or the standalone MCP is invisible until this
+        reload. Reloading rebuilds the in-memory map from the append-only JSONL
+        (the orchestrator's own writes are already on disk, so the rebuild is
+        idempotent). Approved (OPEN) issues then dispatch through the normal
+        ``find_ready()`` path; PROPOSED ones stay put until an operator
+        approves them.
+        """
+        if self.tickets is None:
+            return
+        await self.tickets.load()
+        await self._start_ready_tickets()
+
+    async def _run_reconcile_loop(self) -> None:
+        """Periodically reconcile externally-appended tickets (see
+        :meth:`_reconcile_external_tickets`).
+
+        Runs every ``RECONCILE_INTERVAL_S`` seconds. A single failure is logged
+        and swallowed so one bad tick can't wedge the loop — the next tick
+        picks up where we left off.
+        """
+        if self.tickets is None:
+            raise RuntimeError("Orchestrator not started — call startup() first")
+        while self._running:
+            try:
+                await asyncio.sleep(RECONCILE_INTERVAL_S)
+            except asyncio.CancelledError:
+                raise
+            if not self._running:
+                return
+            try:
+                await self._reconcile_external_tickets()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _logger.warning("reconcile tick raised; continuing", exc_info=True)
+
     async def _run_stall_loop(self) -> None:
         """Background task: poll StallDetector and act on verdicts.
 
@@ -1417,45 +1493,52 @@ class Orchestrator:
         """
         if self.tickets is None:
             raise RuntimeError("Orchestrator not started — call startup() first")
-        if ticket_id in self._running_tickets:
-            _logger.debug("ticket %s already running, skipping", ticket_id)
-            return
-        ticket = await self.tickets.get(ticket_id)
-        if ticket is None:
-            _logger.warning("ticket %s not found, cannot schedule", ticket_id)
-            return
-        # Thread-style tickets (QA threads, ad-hoc requests) are dispatched
-        # from the message bus directly — they don't enter the workflow
-        # pipeline. Phase 4 replaces this transitional marker with proper
-        # typed thread entries on a parent ticket.
-        if ticket.workflow == "thread":
-            _logger.debug("skipping thread-style ticket %s", ticket_id)
-            return
-        # Check dependencies — all must be resolved before we start.
-        if ticket.blocked_by:
-            for dep_id in ticket.blocked_by:
-                dep = await self.tickets.get(dep_id)
-                if dep is None or dep.status != TicketStatus.RESOLVED:
-                    _logger.info(
-                        "ticket %s blocked by %s (status=%s), deferring",
-                        ticket_id,
-                        dep_id,
-                        dep.status.value if dep else "missing",
-                    )
-                    return
-        _logger.info("scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow)
-        await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
-        if self._emitter is not None:
-            from jig.events import JigEvent
-
-            await self._emitter.emit(
-                JigEvent(
-                    type="ticket_dispatched",
-                    data={"ticket_id": ticket_id, "title": ticket.title},
-                )
+        # Serialize the membership-check-through-registration so concurrent
+        # ready-scans (dispatch loop + reconcile tick) can't both schedule the
+        # same ticket. The whole body runs under the lock; the spawned
+        # _run_ticket task runs outside it (create_task does not await).
+        async with self._schedule_lock:
+            if ticket_id in self._running_tickets:
+                _logger.debug("ticket %s already running, skipping", ticket_id)
+                return
+            ticket = await self.tickets.get(ticket_id)
+            if ticket is None:
+                _logger.warning("ticket %s not found, cannot schedule", ticket_id)
+                return
+            # Thread-style tickets (QA threads, ad-hoc requests) are dispatched
+            # from the message bus directly — they don't enter the workflow
+            # pipeline. Phase 4 replaces this transitional marker with proper
+            # typed thread entries on a parent ticket.
+            if ticket.workflow == "thread":
+                _logger.debug("skipping thread-style ticket %s", ticket_id)
+                return
+            # Check dependencies — all must be resolved before we start.
+            if ticket.blocked_by:
+                for dep_id in ticket.blocked_by:
+                    dep = await self.tickets.get(dep_id)
+                    if dep is None or dep.status != TicketStatus.RESOLVED:
+                        _logger.info(
+                            "ticket %s blocked by %s (status=%s), deferring",
+                            ticket_id,
+                            dep_id,
+                            dep.status.value if dep else "missing",
+                        )
+                        return
+            _logger.info(
+                "scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow
             )
-        task = asyncio.create_task(self._run_ticket(ticket_id))
-        self._running_tickets[ticket_id] = task
+            await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+            if self._emitter is not None:
+                from jig.events import JigEvent
+
+                await self._emitter.emit(
+                    JigEvent(
+                        type="ticket_dispatched",
+                        data={"ticket_id": ticket_id, "title": ticket.title},
+                    )
+                )
+            task = asyncio.create_task(self._run_ticket(ticket_id))
+            self._running_tickets[ticket_id] = task
         task.add_done_callback(self._ticket_task_done)
 
     def _ticket_task_done(self, task: asyncio.Task) -> None:
@@ -2342,14 +2425,7 @@ class Orchestrator:
         all_tickets = await self.tickets.list_all()
         if not all_tickets:
             return
-        non_terminal = {
-            TicketStatus.OPEN,
-            TicketStatus.IN_PROGRESS,
-            TicketStatus.BLOCKED,
-            TicketStatus.NEEDS_INFO,
-            TicketStatus.MERGE_CONFLICT,
-        }
-        if any(t.status in non_terminal for t in all_tickets):
+        if any(t.status in _NON_TERMINAL_ANALYZER_STATUSES for t in all_tickets):
             return
         terminal_ids = frozenset(t.id for t in all_tickets)
         if terminal_ids == self._analyzer_last_terminal_ids:

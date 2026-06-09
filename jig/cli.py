@@ -2890,3 +2890,26 @@ def validate_conventions(path: Path, fail: bool) -> None:
         click.echo(f"error: {err}")
     if fail:
         raise SystemExit(1)
+
+
+# Issue tracker front door — `jig issue <verb>`. Defined in its own module to
+# keep this file focused; registered here so it joins the main command group.
+from jig.issues.cli import issue_group  # noqa: E402
+
+cli.add_command(issue_group)
+
+
+@cli.command("issue-mcp")
+def issue_mcp_cmd() -> None:
+    """Serve the issue tracker over stdio MCP for external (non-jig) agents.
+
+    Register in an agent's .mcp.json, e.g.
+    {"mcpServers": {"jig-issues": {"command": "jig", "args": ["issue-mcp"]}}}.
+    Discovers the project by walking up from the current directory.
+    """
+    from jig.issues.mcp import main
+
+    try:
+        main()
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc

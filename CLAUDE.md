@@ -57,7 +57,13 @@ jig story <ticket-id>          # Print merged thread+log story for a ticket
 jig                            # Launch the Textual TUI (auto-starts daemon)
 jig daemon start|stop|status   # Control the background daemon directly
 jig --print "/<command>"       # One-shot non-interactive slash command
+jig issue create|list|show|update|approve|close|comment|link   # Issue tracker front door (per-project; walks up to .jig/)
+jig issue-mcp                  # Serve the issue tracker over stdio MCP for non-jig agents (.mcp.json: command "jig", args ["issue-mcp"])
 ```
+
+Front-door issues (`jig issue` / `jig issue-mcp`) land in `proposed` and need
+`jig issue approve <ref>` before the orchestrator will dispatch them; approval
+is operator-only (not exposed over the MCP). Refs accept a `jig-N` key or a UUID.
 
 ## Conventions
 

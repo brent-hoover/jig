@@ -331,6 +331,42 @@ def test_generate_module_dir_mismatch_raises(tmp_path):
         generate_boundary_rules(tmp_path)
 
 
+def test_generate_recognizes_architecture_only_module(tmp_path):
+    """A module declared in architecture.yaml but with no per-module dir (the
+    normal state — arch_set_module doesn't create dirs) must count as a known
+    module: forbidding it must NOT raise 'unknown module'."""
+    _make_project(
+        tmp_path,
+        name="my-ats",
+        modules={
+            "job-posting": {
+                "module": "job-posting",
+                "internal": {"forbidden_modules": ["billing"]},
+            }
+        },
+    )
+    # 'billing' has NO modules/ dir — only an architecture.yaml entry
+    import yaml
+
+    (tmp_path / ".jig" / "spec" / "architecture.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "modules": [
+                    {
+                        "id": "billing",
+                        "title": "Billing",
+                        "summary": "x",
+                        "intent": {"problem": "p", "simplest_solution": "s"},
+                    }
+                ]
+            }
+        )
+    )
+    written = generate_boundary_rules(tmp_path)  # must not raise
+    ids = {r["id"] for r in _rules_for(written[0])}
+    assert "boundary-job-posting-no-internal-billing" in ids
+
+
 def test_generate_unknown_module_id_raises(tmp_path):
     _make_project(
         tmp_path,

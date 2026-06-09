@@ -71,17 +71,20 @@ result may force a regex-based template. Landing this first de-risks step 2b.
 **What:** Implement `generate_boundary_rules(project_path) -> list[Path]` on the step-2a patterns:
 - resolve `top_pkg` from `config.project.name` (kebab/space → `_`, lower) — same derivation as
   `init_workflow.py:1535`;
-- resolve **two sets**: the full module-id set (all subdirs of `.jig/spec/modules/`) for allow-list
-  compilation + reference validation, and the modules-with-boundaries set (glob `*/boundaries.yaml`). Do
-  **not** use `_collect_authored_module_ids` — it keys on `contracts.yaml`, so a boundaries-only module
-  would be silently skipped;
+- resolve **two sets**: the full module-id set (`architecture.yaml` modules ∪ `.jig/spec/modules/` subdirs)
+  for allow-list compilation + reference validation, and the modules-with-boundaries set (glob
+  `*/boundaries.yaml`). Do **not** use `_collect_authored_module_ids` — it keys on `contracts.yaml`, so a
+  boundaries-only/dir-less module would be silently skipped;
 - load + validate each boundaries file against `BoundariesFile`;
-- **hard-error** on (a) any `internal.allowed_modules`/`forbidden_modules` id not in the full module set,
-  (b) a missing `src/<top_pkg>/<m_snake>/` package dir;
+- **hard-error** on any `internal.allowed_modules`/`forbidden_modules` id not in the full module set, and
+  on a boundaries file whose `module` field ≠ its directory. A **missing** `src/<top_pkg>/<m_snake>/`
+  package dir is NOT an error: generation runs at `arch_finalize` before code is scaffolded, so the rule
+  just matches nothing until the code lands;
 - compile internal (allow-list → concrete deny targets using the full module set) + external (forbidden
-  only; `external.allowed` advisory) into per-module deny rules using the step-2a patterns;
-- clear and fully regenerate `.jig/rules/semgrep/boundaries/`, one `<m>.yml` per module; deterministic
-  rule ids `boundary-<m>-(no-internal|no-external)-<target>`.
+  only; `external.allowed` advisory) into per-module deny rules using the step-2a patterns; internal
+  targets also get a relative-import rule scoped to module-root files;
+- validate/compile all modules first, then clear and fully regenerate `.jig/rules/semgrep/boundaries/`,
+  one `<m>.yml` per module; deterministic rule ids `boundary-<m>-(no-internal|no-external)-<target>`.
 
 **Why:** The rule compiler is the core mechanism; isolating it (pure `project_path → files`) makes it
 unit-testable before any MCP/gate wiring exists.
@@ -89,8 +92,9 @@ unit-testable before any MCP/gate wiring exists.
 **Verify:**
 - Unit tests (`tests/test_boundary_rules.py`): allow-list compiles to the right deny targets; external
   forbidden emitted, external allowed ignored; a boundaries-only module (no `contracts.yaml`) **is**
-  picked up; unknown module id → raises; missing package dir → raises; idempotency (run twice → identical
-  bytes); rule-id determinism.
+  picked up; an architecture-only module (no dir) counts as known; unknown module id → raises; module/dir
+  mismatch → raises; missing package dir → still generates; a failed run preserves prior rules;
+  idempotency (run twice → identical bytes); rule-id determinism.
 - `uv run pytest tests/test_boundary_rules.py -q`; lint/format.
 
 ### 3. `sa_write_boundaries` MCP tool

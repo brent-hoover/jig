@@ -88,23 +88,29 @@ Runs at the end of `handle_arch_finalize` (`sa_incremental_mcp.py:1414`). Steps:
 1. Resolve the project's top-level package: `top_pkg = config.project.name` with `-`/space → `_`,
    lowercased — the same derivation the scaffolder uses (`init_workflow.py:1535`). Code lives under the
    shipped `src/<top_pkg>/` layout.
-2. Resolve **two distinct sets**: (a) the full module-id set — every subdir of `.jig/spec/modules/` —
-   used for allow-list compilation and reference validation; and (b) the modules that actually declare
-   boundaries — a direct glob of `.jig/spec/modules/*/boundaries.yaml`. Do **not** use
+2. Resolve **two distinct sets**: (a) the full module-id set — the modules declared in
+   `architecture.yaml` (set via `arch_set_module`, which does **not** create a per-module dir), unioned
+   with any subdir of `.jig/spec/modules/` (to catch a boundaries-only module not yet in
+   architecture.yaml) — used for allow-list compilation and reference validation; and (b) the modules that
+   actually declare boundaries — a direct glob of `.jig/spec/modules/*/boundaries.yaml`. Do **not** use
    `_collect_authored_module_ids` for either: it keys on `contracts.yaml` (`sa_incremental_mcp.py:1390`),
-   so a module with a `boundaries.yaml` but no `contracts.yaml` would be invisible to it — exactly the
-   silent-green miss this feature must avoid. Load + validate each boundaries file from set (b).
+   so a module with a `boundaries.yaml` but no `contracts.yaml` would be invisible to it. Load + validate
+   each boundaries file from set (b).
 3. **Validate references**: every id in a module's `internal.allowed_modules` / `forbidden_modules` must
-   be a known authored module id; an unknown id (typo) is a generation-time **hard error**, not a
-   silently-dropped target — a typo'd `allowed_modules` entry would otherwise over-deny.
-4. **Confirm the scoped dir exists**: for module M, the package dir `src/<top_pkg>/<M_snake>/` must be
-   present on disk at generation time. If it is absent, `paths.include` would match nothing and every rule
-   would pass green — the exact silent-green failure the problem forbids — so this is a hard error
-   surfaced to the SA, not a log line.
+   be a known module id (set (a)); an unknown id (typo) is a generation-time **hard error**, not a
+   silently-dropped target — a typo'd `allowed_modules` entry would otherwise over-deny. Likewise a
+   boundaries file whose `module` field doesn't match its directory is a hard error.
+4. **Missing package dir is fine.** The rule scopes to `src/<top_pkg>/<M_snake>/**`, but that dir need
+   not exist at generation time — generation runs at `arch_finalize` (init), before dev agents scaffold
+   per-module code. A rule scoped to a not-yet-existing dir matches nothing until the code lands (no code,
+   nothing to enforce); it is **not** treated as an error. The only true silent-green is code authored at
+   a path that doesn't match the convention — a documented layout limitation (Risks).
 5. For each module M, emit `.jig/rules/semgrep/boundaries/<M>.yml` (one file per module) containing the
    compiled deny rules (below).
-6. **Idempotent**: the `boundaries/` directory is cleared and fully regenerated each run; rule ids are
-   deterministic functions of (module, target), so identical inputs yield byte-identical files.
+6. **Idempotent + atomic on failure**: validate and compile *all* modules before mutating the output dir,
+   then clear + fully regenerate `boundaries/`. Rule ids are deterministic functions of (module, target),
+   so identical inputs yield byte-identical files; a validation failure never leaves the project with
+   deleted/partial rules.
 
 **Allow-list soundness.** `arch_finalize` can be re-run. Allow-list compilation ("deny every module not
 in `allowed_modules`") is only correct when *every* module that will exist is present at the finalize that
@@ -321,6 +327,9 @@ on the current module-producing SA path with no new runtime surface.
   unknown module ids generation-time hard errors (no silent-green); name `sa_mvp.yaml` + its prose catalog
   as the wiring surface; full `BoundariesFile` tool payload incl. `change_log`; soften the semgrep-pattern
   coverage claim to a plan-verified precondition.
+- 2026-06-09: Revised ×6 (roborev 397) — module set is now `architecture.yaml` modules ∪ module dirs
+  (arch_set_module declares modules without creating dirs, so dir-only enumeration missed them); synced
+  Approach §3 + plan to the implemented behavior (missing package dir is not an error).
 - 2026-06-09: Revised ×5 (roborev 395, High) — drop the generation-time missing-package-dir hard error.
   Generation runs at arch_finalize before module code is scaffolded, so a missing dir is normal (rule
   matches nothing until code lands); the only real silent-green is a layout/convention mismatch, documented.

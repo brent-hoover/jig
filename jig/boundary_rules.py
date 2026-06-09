@@ -24,6 +24,7 @@ import yaml
 from jig.atomic import atomic_write_text
 from jig.config import load_config
 from jig.schemas.arch import BoundariesFile
+from jig.spec_loader import load_architecture
 
 
 def _to_snake(name: str) -> str:
@@ -205,11 +206,17 @@ def generate_boundary_rules(project_path: Path) -> list[Path]:
     modules_dir = project_path / ".jig" / "spec" / "modules"
     out_dir = project_path / ".jig" / "rules" / "semgrep" / "boundaries"
 
-    # Two distinct sets: every module dir (for allow-list compilation +
-    # reference validation), and the modules that actually declare boundaries.
+    # The authoritative module set for allow-list compilation + reference
+    # validation is architecture.yaml's declared modules (set via
+    # arch_set_module, which does NOT create a per-module dir), unioned with any
+    # module dirs (to catch a boundaries-only module not yet in architecture.yaml).
     # NOT _collect_authored_module_ids — it keys on contracts.yaml, so a
-    # boundaries-only module would be invisible.
+    # boundaries-only or dir-less module would be invisible.
     all_module_ids: set[str] = set()
+    try:
+        all_module_ids |= {m.id for m in load_architecture(project_path).modules}
+    except FileNotFoundError:
+        pass  # no architecture.yaml yet (e.g. boundaries authored standalone)
     boundaries_files: list[Path] = []
     if modules_dir.is_dir():
         for child in sorted(modules_dir.iterdir()):

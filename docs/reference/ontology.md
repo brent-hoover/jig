@@ -38,7 +38,7 @@ artifact — downstream context hydration consumes it. Required keys on every
 init: `template`, `template_applied_at`, `sa_path`, `language`, `framework`.
 SA-path extras include `rationale`, `config`, `tech_decisions` (SA grounded technology choices with source
 provenance — each entry carries a `source_type` of `context7`, `live_fetch`, `operator_specified`, or `inferred`),
-`size` (project scale classification: `S` or `M`), and optional structured fields (data stores, external services,
+`size` (project scale classification: `S`, `M`, or `L` — `L` is Phase 2), and optional structured fields (data stores, external services,
 deferred decisions).
 
 ## Roles

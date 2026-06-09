@@ -32,6 +32,7 @@ low-frequency orchestrator reconcile tick reloads externally-appended tickets fr
 | `jig-N` key + counter | `jig/store/tickets.py`, `.jig/store/` | Key assignment in the shared create path; counter persisted + `flock`-guarded. |
 | `PROPOSED` status | `jig/ticket.py` (`TicketStatus`) | Non-dispatchable landing state for front-door issues. |
 | Reconcile tick | `jig/orchestrator.py` | Periodic disk-reload + ready-scan so approved external issues are dispatched. |
+| Project-root discovery | `jig/issues/` | Walk up from cwd to the nearest ancestor containing `.jig/`; shared by the CLI and the standalone MCP. |
 
 The orchestrator's dispatch hot path and the per-agent MCP (`mcp_server.py` / `ticket_mcp.py`) are **not** rewired. The
 per-agent MCP keeps its richer, context-bound handlers; `IssueService` is a parallel, narrower path.
@@ -87,6 +88,15 @@ hot path and additive to existing event-driven scan triggers. Append-only JSONL 
 the reload idempotent and consistent with the orchestrator's own in-flight (already-appended) writes.
 
 ## Interfaces
+
+### Project resolution
+
+Stores are per-project (`<project>/.jig/store/`), so the front doors must locate the project first. Both the CLI and
+the standalone MCP **walk up from the current working directory** to the nearest ancestor containing a `.jig/`
+directory (git-style), so they work from any subdirectory of a project — not only its root. A `--path` override (CLI)
+forces a specific project root and skips discovery. If no `.jig/` is found in any ancestor, the command fails loudly
+with a clear "not inside a jig project" message. This is a deliberate ergonomic departure from the existing
+`--path`-defaults-to-cwd-root commands (`start`/`plan`/`sync`), which require the root.
 
 ### CLI — `jig issue <verb>`
 
@@ -196,3 +206,5 @@ risk to the create path and one background task.
 - 2026-06-08: Tightened per review — persist counter before append (no key reissue); `PROPOSED → OPEN` enforced
   operator-only at the store layer (not just MCP tool omission); `Ticket.key` defaulted so legacy records still load
   (brent)
+- 2026-06-08: Added git-style project-root discovery (walk up to nearest `.jig/`) shared by the CLI and standalone MCP,
+  with a `--path` override; confirms per-project (not global) storage (brent)

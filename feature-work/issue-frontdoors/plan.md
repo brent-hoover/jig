@@ -13,10 +13,10 @@ design: ./design.md
 ## Overview
 
 Build bottom-up so the risky core lands first behind tests, then the adapters, then the orchestrator integration. Order:
-(1) the `PROPOSED` status, (2) the `jig-N` key + cross-process-safe create path, (3) the `IssueService` seam, (4) the
-CLI adapter, (5) the standalone stdio MCP adapter, (6) the orchestrator reconcile tick. Each step is test-first and
-self-contained; steps 1–3 are pure library code with no external surface, so they are the cheapest to verify. The whole
-feature is one PR; steps are commits within it.
+(1) the `PROPOSED` status, (2) the `jig-N` key + cross-process-safe create path, (3) the `IssueService` seam,
+(4) git-style project-root discovery, (5) the CLI adapter, (6) the standalone stdio MCP adapter, (7) the orchestrator
+reconcile tick. Each step is test-first and self-contained; steps 1–3 are pure library code with no external surface, so
+they are the cheapest to verify. The whole feature is one PR; steps are commits within it.
 
 ## Preconditions
 
@@ -72,26 +72,41 @@ and the reverse edges; `list` filters; keyless legacy ticket gets a key on acces
 
 **References:** design §"`IssueService`".
 
-### 4. CLI adapter — `jig issue`
+### 4. Project-root discovery
+
+**What:** Add a `find_project_root(start: Path) -> Path` helper in `jig/issues/` that walks up from `start` to the
+nearest ancestor containing a `.jig/` directory, raising a clear "not inside a jig project" error if none is found.
+Shared by the CLI and the standalone MCP.
+
+**Why:** Front doors are per-project; they must locate `<project>/.jig/store/` from any subdirectory (git-style) before
+opening the stores.
+
+**Verify:** Tests: discovery from the project root, from a nested subdirectory, and failure outside any project (raises
+with a clear message). Suite + `ruff` green.
+
+**References:** design §"Project resolution".
+
+### 5. CLI adapter — `jig issue`
 
 **What:** Add `@cli.group("issue")` in `jig/cli.py` with subcommands `create`, `list`, `show`, `update`, `approve`,
-`close`, `comment`, `link` per the design's CLI table. Body input via `--body` / `--body-file` / `-` (stdin) / `$EDITOR`.
+`close`, `comment`, `link` per the design's CLI table. Resolve the project via `find_project_root` (walk up from cwd),
+with a `--path` override that skips discovery. Body input via `--body` / `--body-file` / `-` (stdin) / `$EDITOR`.
 Failures exit non-zero with a clear message.
 
 **Why:** The human/shell front door.
 
-**Verify:** Tests via Click's `CliRunner`: create prints the assigned `jig-N`; `show` accepts key and UUID; missing-AC
-create exits non-zero and writes nothing; `approve` transitions status. Manual smoke in a jig-initialized checkout with
-no orchestrator running: `jig issue create … && jig issue list`.
+**Verify:** Tests via Click's `CliRunner`: create prints the assigned `jig-N`; runs from a nested subdirectory via
+discovery; `show` accepts key and UUID; missing-AC create exits non-zero and writes nothing; `approve` transitions
+status. Manual smoke in a jig-initialized checkout with no orchestrator running: `jig issue create … && jig issue list`.
 
-**References:** design §"Interfaces / CLI".
+**References:** design §"Interfaces / CLI", §"Project resolution".
 
-### 5. Standalone stdio MCP adapter
+### 6. Standalone stdio MCP adapter
 
 **What:** New `jig/issues/mcp.py` exposing `issue_create`, `issue_list`, `issue_show`, `issue_update`, `issue_close`,
-`issue_comment`, `issue_link` over `IssueService` — **no `issue_approve`**. Add a launchable stdio entrypoint (console
-script / `python -m jig.issues.mcp`) external agents register in their own `.mcp.json`. `created_by` carries the caller
-name. Distinct from `create_agent_mcp_server`.
+`issue_comment`, `issue_link` over `IssueService` — **no `issue_approve`**. Resolve the project via `find_project_root`
+from the server's launch cwd. Add a launchable stdio entrypoint (console script / `python -m jig.issues.mcp`) external
+agents register in their own `.mcp.json`. `created_by` carries the caller name. Distinct from `create_agent_mcp_server`.
 
 **Why:** The non-jig-agent front door.
 
@@ -101,7 +116,7 @@ Code session and create + read an issue.
 
 **References:** design §"Interfaces / Standalone MCP tools".
 
-### 6. Orchestrator reconcile tick
+### 7. Orchestrator reconcile tick
 
 **What:** Add a low-frequency (30s constant) background task in `jig/orchestrator.py` that, under the store lock,
 re-reads `tickets.jsonl` to merge externally-appended records into the in-memory map, then runs the existing

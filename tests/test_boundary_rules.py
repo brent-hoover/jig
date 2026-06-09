@@ -346,8 +346,6 @@ def test_generate_recognizes_architecture_only_module(tmp_path):
         },
     )
     # 'billing' has NO modules/ dir — only an architecture.yaml entry
-    import yaml
-
     (tmp_path / ".jig" / "spec" / "architecture.yaml").write_text(
         yaml.safe_dump(
             {
@@ -396,9 +394,7 @@ def test_generate_succeeds_without_package_dir_yet(tmp_path):
             }
         },
     )
-    import shutil as _sh
-
-    _sh.rmtree(tmp_path / "src" / "my_ats" / "job_posting")  # no code yet
+    shutil.rmtree(tmp_path / "src" / "my_ats" / "job_posting")  # no code yet
     written = generate_boundary_rules(tmp_path)
     assert [p.name for p in written] == ["job-posting.yml"]
     rule = _rules_for(written[0])[0]

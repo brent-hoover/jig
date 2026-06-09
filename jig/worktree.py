@@ -557,19 +557,6 @@ async def _boundary_check(worktree_path: Path) -> list[str]:
         )
         return [warning]
 
-    # Guard the parse: a signal-killed or misbehaving semgrep can exit 0/1 with
-    # empty/garbage stdout — degrade loudly rather than let a JSONDecodeError
-    # escape the commit gate.
-    try:
-        results = json.loads(stdout).get("results", [])
-    except (json.JSONDecodeError, AttributeError) as exc:
-        warning = (
-            f"module-import boundaries NOT enforced: semgrep produced "
-            f"unparseable output ({exc})"
-        )
-        _logger.warning("%s for %s", warning, worktree_path)
-        return [warning]
-
     def _loc(path: str) -> str:
         p = Path(path)
         try:
@@ -577,13 +564,27 @@ async def _boundary_check(worktree_path: Path) -> list[str]:
         except ValueError:
             return p.name
 
-    violations = sorted(
-        {
-            f"{r.get('extra', {}).get('message', r.get('check_id', 'boundary'))} "
-            f"({_loc(r['path'])}:{r['start']['line']})"
-            for r in results
-        }
-    )
+    # Guard parsing AND message-building: a signal-killed or future/misbehaving
+    # semgrep can exit 0/1 with empty, garbage, or unexpectedly-shaped output.
+    # Degrade loudly rather than let a JSONDecodeError / KeyError / TypeError
+    # escape the commit gate.
+    try:
+        results = json.loads(stdout).get("results", [])
+        violations = sorted(
+            {
+                f"{r.get('extra', {}).get('message', r.get('check_id', 'boundary'))} "
+                f"({_loc(r['path'])}:{r['start']['line']})"
+                for r in results
+            }
+        )
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError) as exc:
+        warning = (
+            f"module-import boundaries NOT enforced: semgrep produced "
+            f"unexpected output ({type(exc).__name__}: {exc})"
+        )
+        _logger.warning("%s for %s", warning, worktree_path)
+        return [warning]
+
     if violations:
         raise BoundaryViolationError(violations)
     return []

@@ -9,6 +9,7 @@ degradation/layout cases use a fake subprocess so they run anywhere.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -126,6 +127,30 @@ async def test_boundary_check_degrades_on_abnormal_exit_or_garbage(
     monkeypatch.setattr("jig.worktree.shutil.which", lambda _: "/usr/bin/semgrep")
     monkeypatch.setattr("jig.worktree.asyncio.create_subprocess_exec", _fake_exec)
     warnings = await _boundary_check(worktree)  # no exception escapes
+    assert warnings and "NOT enforced" in warnings[0]
+
+
+async def test_boundary_check_degrades_on_unexpected_result_shape(
+    tmp_path, monkeypatch
+):
+    """A finding record missing the expected keys (e.g. a future semgrep shape)
+    must loud-degrade, not let a KeyError escape the gate."""
+    worktree = _make_worktree(
+        tmp_path, code="import requests\n", rules=[_requests_rule()]
+    )
+
+    class _FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return json.dumps({"results": [{"extra": {}}]}).encode(), b""
+
+    async def _fake_exec(*_a, **_k):
+        return _FakeProc()
+
+    monkeypatch.setattr("jig.worktree.shutil.which", lambda _: "/usr/bin/semgrep")
+    monkeypatch.setattr("jig.worktree.asyncio.create_subprocess_exec", _fake_exec)
+    warnings = await _boundary_check(worktree)
     assert warnings and "NOT enforced" in warnings[0]
 
 

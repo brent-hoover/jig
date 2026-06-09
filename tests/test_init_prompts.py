@@ -271,3 +271,44 @@ async def test_force_confirm_wrong_word(tmp_path: Path):
     with patch("jig.init_prompts.click.prompt", return_value="yes"):
         ok = await handler.ask_force_confirm(target=tmp_path, console=console)
     assert ok is False
+
+
+# ---- ask_project_size (up-front size selection) ---------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply, expected",
+    [
+        ("small", "small"),
+        ("s", "small"),
+        ("medium", "medium"),
+        ("m", "medium"),
+        ("MEDIUM", "medium"),
+        ("", "small"),         # default
+        ("garbage", "small"),  # conservative fallback
+    ],
+)
+async def test_ask_project_size_parses(reply, expected):
+    handler = CliPromptHandler()
+    console, _buf = make_console()
+    with patch("jig.init_prompts.click.prompt", return_value=reply):
+        size = await handler.ask_project_size(console=console)
+    assert size == expected
+
+
+@pytest.mark.asyncio
+async def test_auto_handler_ask_project_size_defaults_small():
+    from jig.init_prompts import AutoPromptHandler
+
+    console, _buf = make_console()
+    assert await AutoPromptHandler().ask_project_size(console=console) == "small"
+
+
+def test_render_size_prompt_teaches_distinction():
+    from jig.init_workflow import render_size_prompt
+
+    text = render_size_prompt()
+    assert "small" in text and "medium" in text
+    assert "module" in text  # the load-bearing distinction
+    assert "Example" in text  # teaches with examples

@@ -344,3 +344,177 @@ async def test_run_init_rejects_already_done_before_writing_profile(
     # Config untouched — profile was never written.
     after = (target / ".jig" / "config.yaml").read_text()
     assert before == after
+
+
+async def test_run_init_interactive_applies_chosen_size_profile(tmp_path: Path) -> None:
+    """With no --profile, run_init asks the operator for size up front and
+    applies the chosen profile before the PO — so classify_resume branches on
+    it and the retired PM-1 profile pass is never reached."""
+    from unittest.mock import AsyncMock, patch
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import run_init
+
+    class _MediumPicker(AutoPromptHandler):
+        async def ask_project_size(self, *, console) -> str:
+            return "medium"
+
+    target = tmp_path / "proj"
+    with patch("jig.init_workflow._run_init_resume_loop", new_callable=AsyncMock):
+        await run_init(name=str(target), force=False, prompts=_MediumPicker())
+
+    cfg = load_config(target)
+    assert cfg.profile.name == "medium"
+    assert (
+        cfg.profile.sa_role == "sa_mvp" or cfg.profile.sa_role == "sa"
+    )  # pre/post step-3 flip
+
+
+async def test_run_init_brief_without_profile_raises(tmp_path: Path) -> None:
+    """Eval/unattended init (--brief) must pin --profile — PM-1 profile
+    selection is retired, so there is no later chance to choose."""
+    import click
+    import pytest
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import run_init
+
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Brief\n")
+    target = tmp_path / "proj"
+    with pytest.raises(click.ClickException, match="--brief requires --profile"):
+        await run_init(
+            name=str(target),
+            force=False,
+            prompts=AutoPromptHandler(),
+            brief_file=brief,
+            profile_name=None,
+        )
+
+
+async def test_run_init_resume_preserves_persisted_profile(tmp_path: Path) -> None:
+    """run_init is also the resume entrypoint: a project that already has a
+    persisted profile must NOT be re-prompted (which would overwrite it and
+    could switch the PO topology mid-run)."""
+    from unittest.mock import AsyncMock, patch
+
+    from jig.config import save_config
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import create_stub, run_init
+    from jig.profile_loader import apply_profile, load_profile
+
+    target = tmp_path / "proj"
+    create_stub(target, name="proj")
+    # First-run choice already persisted: medium.
+    save_config(
+        target,
+        apply_profile(load_config(target), load_profile("medium", project_path=target)),
+    )
+
+    class _Boom(AutoPromptHandler):
+        async def ask_project_size(self, *, console) -> str:
+            raise AssertionError("must not re-prompt for size on resume")
+
+    with patch("jig.init_workflow._run_init_resume_loop", new_callable=AsyncMock):
+        await run_init(name=str(target), force=False, prompts=_Boom())  # no --profile
+
+    assert load_config(target).profile.name == "medium"  # preserved
+
+
+async def test_run_init_brief_with_medium_profile_rejected(tmp_path: Path) -> None:
+    """--brief (a single baked brief) is a flat-topology shortcut; the medium
+    L0–L3 pipeline ignores the v1 brief ticket, so --brief --profile medium must
+    be rejected loudly rather than silently dropping into L0."""
+    import click
+    import pytest
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import run_init
+
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Brief\n")
+    target = tmp_path / "proj"
+    with pytest.raises(
+        click.ClickException, match="--brief is not supported with the medium"
+    ):
+        await run_init(
+            name=str(target),
+            force=False,
+            prompts=AutoPromptHandler(),
+            brief_file=brief,
+            profile_name="medium",
+        )
+
+
+@pytest.mark.parametrize(
+    "profile_name, match",
+    [
+        (None, "--brief requires --profile"),
+        ("medium", "--brief is not supported with the medium"),
+    ],
+)
+async def test_run_init_rejected_brief_under_force_preserves_jig(
+    tmp_path: Path, profile_name, match
+) -> None:
+    """A rejected --brief invocation must be caught BEFORE the destructive
+    --force cleanup, so an existing .jig is never wiped (and the force-confirm
+    prompt is never reached)."""
+    import click
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import create_stub, run_init
+
+    target = tmp_path / "proj"
+    create_stub(target, name="proj")
+    marker = target / ".jig" / "sentinel.txt"
+    marker.write_text("preexisting state")
+
+    class _NoForceConfirm(AutoPromptHandler):
+        async def ask_force_confirm(self, *, target, console) -> bool:
+            raise AssertionError(
+                "force cleanup must not be reached on a rejected --brief"
+            )
+
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Brief\n")
+
+    with pytest.raises(click.ClickException, match=match):
+        await run_init(
+            name=str(target),
+            force=True,
+            prompts=_NoForceConfirm(),
+            brief_file=brief,
+            profile_name=profile_name,
+        )
+
+    # .jig untouched: the sentinel survived (no rmtree ran).
+    assert marker.read_text() == "preexisting state"
+
+
+async def test_run_init_brief_in_daemon_touched_dir_applies_profile(
+    tmp_path: Path,
+) -> None:
+    """Regression: --brief --profile <name> must not raise FileNotFoundError when
+    .jig already exists with only daemon-owned dirs (run/logs/uploads) and no
+    config.yaml — classify_directory treats that as a fresh project, so the
+    pre-force --brief validation must not assume config.yaml is present."""
+    from unittest.mock import AsyncMock, patch
+
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import run_init
+
+    target = tmp_path / "proj"
+    (target / ".jig" / "run").mkdir(parents=True)  # daemon-only, no config.yaml
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Brief\n")
+
+    with patch("jig.init_workflow._run_init_resume_loop", new_callable=AsyncMock):
+        await run_init(
+            name=str(target),
+            force=False,
+            prompts=AutoPromptHandler(),
+            brief_file=brief,
+            profile_name="small",
+        )
+
+    assert load_config(target).profile.name == "small"

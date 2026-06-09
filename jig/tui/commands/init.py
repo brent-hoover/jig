@@ -42,6 +42,7 @@ async def cmd_init(
 
     brief_file: _Path | None = None
     auto = False
+    profile_name: str | None = None
     positional: list[str] = []
     i = 0
     while i < len(args):
@@ -52,6 +53,14 @@ async def cmd_init(
             continue
         if a.startswith("--brief="):
             brief_file = _Path(a.split("=", 1)[1])
+            i += 1
+            continue
+        if a == "--profile" and i + 1 < len(args):
+            profile_name = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--profile="):
+            profile_name = a.split("=", 1)[1]
             i += 1
             continue
         if a == "--auto":
@@ -132,6 +141,7 @@ async def cmd_init(
             console=console,
             prompts=prompts,
             brief_file=brief_file,
+            profile_name=profile_name,
         )
     except Exception as exc:  # noqa: BLE001
         # Log the full traceback to the daemon log so we can debug what

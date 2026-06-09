@@ -33,6 +33,8 @@ class PromptHandler(Protocol):
 
     async def ask_branch_choice(self, *, console: "Console") -> "BranchChoice": ...
 
+    async def ask_project_size(self, *, console: "Console") -> str: ...
+
     async def ask_sa_confirm(
         self,
         *,
@@ -110,6 +112,13 @@ class CliPromptHandler:
         console.print(render_branch_prompt(), markup=False)
         reply = click.prompt("Choice", default="Y", show_default=False)
         return BranchChoice.parse(reply)
+
+    async def ask_project_size(self, *, console: "Console") -> str:
+        from jig.init_workflow import parse_project_size, render_size_prompt
+
+        console.print(render_size_prompt(), markup=False)
+        reply = click.prompt("Size", default="small", show_default=True)
+        return parse_project_size(reply)
 
     async def ask_sa_confirm(
         self,
@@ -237,6 +246,12 @@ class AutoPromptHandler:
 
     async def ask_branch_choice(self, *, console: "Console") -> BranchChoice:
         return BranchChoice.SA
+
+    async def ask_project_size(self, *, console: "Console") -> str:
+        # Unattended / eval runs are expected to pin the profile via
+        # ``--profile``; this default exists only so the Protocol is satisfied.
+        # ``run_init`` guards that an eval (``--brief``) actually passed one.
+        return "small"
 
     async def ask_sa_confirm(
         self,

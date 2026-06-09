@@ -195,6 +195,48 @@ async def run_init(
         raise click.ClickException(
             f"{target}/.jig is in an inconsistent state. Use --force to reset."
         )
+    # Validate the --brief / --profile combination BEFORE the destructive
+    # --force cleanup below, so a rejected invocation never wipes an existing
+    # .jig. --brief is the eval/unattended path: it must pin --profile (PM-1
+    # selection is retired, so there's no later chance to choose) and it cannot
+    # use medium (a single baked brief can't supply the L0–L3 inputs sa_mvp
+    # needs; the medium branch ignores the v1 brief ticket --brief seeds).
+    if brief_file is not None:
+        from jig.config import load_config as _load_config
+        from jig.profile_loader import load_profile as _load_profile
+
+        if profile_name is not None:
+            # --profile pins the topology outright; no need to read any
+            # persisted profile (which may not exist yet in a daemon-touched
+            # but un-init'd directory).
+            try:
+                effective_brief_profile = _load_profile(
+                    profile_name, project_path=target
+                ).name
+            except FileNotFoundError as exc:
+                raise click.ClickException(str(exc)) from exc
+        else:
+            # No --profile: a --force reset wipes the persisted profile, so
+            # under --force the baked brief must carry --profile; without
+            # --force a resume may inherit a profile persisted by an earlier
+            # run. Read it only when ``config.yaml`` actually exists —
+            # ``classify_directory`` treats a daemon-only ``.jig`` (run/logs/
+            # uploads, no config) as a fresh project.
+            effective_brief_profile = ""
+            if not force and (target / ".jig" / "config.yaml").is_file():
+                effective_brief_profile = _load_config(target).profile.name.strip()
+            if not effective_brief_profile:
+                raise click.ClickException(
+                    "--brief requires --profile: eval/unattended init must pin "
+                    "the project profile (PM-1 profile selection has been "
+                    "retired)."
+                )
+        if effective_brief_profile == "medium":
+            raise click.ClickException(
+                "--brief is not supported with the medium profile: a single "
+                "baked brief can't supply the L0–L3 inputs sa_mvp needs. Use "
+                "the scenario harness for medium evals."
+            )
     # Snapshot operator-authored profile/workflow YAMLs across the
     # ``--force`` rmtree. ``--force --profile <custom>`` would otherwise
     # delete ``.jig/profiles/<custom>.yaml`` before ``load_profile``
@@ -227,23 +269,35 @@ async def run_init(
         dest_dir.mkdir(parents=True, exist_ok=True)
         for fname, body in preserved_workflows.items():
             (dest_dir / fname).write_text(body, encoding="utf-8")
-    # ``--profile`` bypass: write the profile to config AFTER the
-    # canonical ``create_stub`` (so ``.jig/config.yaml`` exists) and
-    # AFTER any ``--force`` cleanup (so the rmtree doesn't delete the
-    # write). ``classify_resume`` then sees ``cfg.profile.name``
-    # populated on the next tick and skips ``PM_PROFILE_PASS``.
+    # Resolve the profile UP FRONT, before any PO runs, so ``classify_resume``
+    # can branch the PO topology on it (medium → L0–L3 pipeline). ``--profile``
+    # pins/overrides it; an interactive *fresh* init asks the operator via the
+    # guided size selection. Eval / unattended runs (``--brief``) MUST pin
+    # ``--profile`` — the PM-1 profile-selection pass has been retired, so there
+    # is no later chance to choose.
     #
-    # Inlined here rather than calling ``cli._apply_profile_at_start``
-    # to keep the dependency direction CLI → workflow and route the
-    # status message through the caller-supplied console.
-    if profile_name is not None:
-        from jig.config import load_config, save_config
-        from jig.profile_loader import (
-            apply_profile,
-            copy_profile_templates,
-            load_profile,
-        )
+    # RESUME-SAFE: ``run_init`` is also the resume entrypoint, so prompt/apply
+    # ONLY when no profile is persisted yet. A resumed init (config already
+    # carries ``profile.name``) keeps its first-run choice — re-prompting would
+    # overwrite the saved profile and could switch the PO topology mid-run.
+    from jig.config import load_config, save_config
+    from jig.profile_loader import (
+        apply_profile,
+        copy_profile_templates,
+        load_profile,
+    )
 
+    persisted_profile = load_config(target).profile.name.strip()
+    if profile_name is None and not persisted_profile:
+        # Fresh interactive init: ask the operator for size. (The --brief path
+        # is non-interactive and was already validated before the --force
+        # cleanup above, so ``brief_file`` is None whenever we reach here.)
+        profile_name = await prompts.ask_project_size(console=console)
+
+    if profile_name is not None:
+        # --profile (override) or a fresh interactive choice. A resumed init with
+        # no --profile leaves ``profile_name`` None here and preserves the
+        # persisted profile untouched.
         try:
             profile = load_profile(profile_name, project_path=target)
         except FileNotFoundError as exc:
@@ -1193,6 +1247,38 @@ def render_branch_prompt() -> str:
     # button-style badges; emit only the context line here so we don't
     # duplicate them in scrollback.
     return "Brief accepted."
+
+
+def render_size_prompt() -> str:
+    """The guided project-size selection shown at the top of an interactive
+    ``jig init``. Teaches the small-vs-medium distinction (it drives the whole
+    PO topology) rather than just asking it. Plain text — the CLI prints with
+    ``markup=False`` and the TUI wraps via Markdown."""
+    return (
+        "How big is this project? This sets how jig plans the architecture.\n"
+        "\n"
+        "small  — a simple, single-purpose project: one or two modules, no external\n"
+        "         integrations, no compliance. Example: a CLI that reads one source and\n"
+        "         formats output (a Hacker News reader, a file converter, a focused\n"
+        "         utility). A single flat scaffold.\n"
+        "\n"
+        "medium — a multi-module project: distinct capability areas that warrant separate\n"
+        "         modules, external integrations (APIs / datastores), or compliance.\n"
+        "         Example: an applicant-tracking system (job-posting + candidate + billing\n"
+        "         modules), or a web service with auth + a database + third-party APIs.\n"
+        "         Per-module architecture with import-boundary enforcement."
+    )
+
+
+def parse_project_size(reply: str) -> str:
+    """Map an operator reply to a profile name. ``s``/``small`` → ``small``,
+    ``m``/``medium`` → ``medium``; anything else defaults to ``small`` (the
+    conservative choice — a flat scaffold is recoverable, an unwanted module
+    pipeline is more disruptive)."""
+    r = reply.strip().lower()
+    if r in ("m", "medium"):
+        return "medium"
+    return "small"
 
 
 async def prompt_branch_choice(

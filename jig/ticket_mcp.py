@@ -22,7 +22,7 @@ from jig.thread import (
 )
 from jig.hooks import _CONVENTIONAL_RE as _CC_RE
 from jig.ticket import Size, Ticket, TicketStatus, WorkType
-from jig.worktree import LintError, commit_worktree
+from jig.worktree import BoundaryViolationError, LintError, commit_worktree
 
 if TYPE_CHECKING:
     from jig.store.audit import AuditStore
@@ -623,6 +623,32 @@ async def handle_commit_progress(
             "message": "Fix these lint errors before committing:",
             "errors": exc.errors,
         }
+    except BoundaryViolationError as exc:
+        # Module-import boundary crossed. Surface the violations the same way
+        # as lint errors so the agent fixes them in the same commit loop.
+        if checkpoints is not None:
+            from jig.checkpoint_mcp import record_auto_test_checkpoint
+
+            await record_auto_test_checkpoint(
+                checkpoints=checkpoints,
+                ticket_id=ticket_id,
+                phase_name=phase_name,
+                author=sender,
+                passed=False,
+                summary=f"{len(exc.violations)} module-boundary violation(s)",
+                open_questions=exc.violations,
+            )
+        return {
+            "success": False,
+            "error": "boundary_violations",
+            "message": "Fix these module-boundary violations before committing:",
+            "errors": exc.violations,
+        }
+
+    # Boundary-check degradation (semgrep missing / errored): enforcement was
+    # skipped, so this is NOT a clean boundary pass — surface it to the agent
+    # and the checkpoint rather than reporting green.
+    boundary_warnings = commit_result.boundary_warnings
 
     if checkpoints is not None:
         # Lint passed (commit_worktree gets past the LintError check).
@@ -634,11 +660,19 @@ async def handle_commit_progress(
             phase_name=phase_name,
             author=sender,
             passed=True,
-            summary="ruff clean",
+            summary=(
+                "ruff clean; " + "; ".join(boundary_warnings)
+                if boundary_warnings
+                else "ruff clean"
+            ),
+            open_questions=boundary_warnings or None,
         )
 
     if sha is None:
-        return {"sha": None, "comment_id": None}
+        result: dict = {"sha": None, "comment_id": None}
+        if boundary_warnings:
+            result["warnings"] = boundary_warnings
+        return result
 
     cid = await threads.post(
         SystemEvent(
@@ -676,7 +710,10 @@ async def handle_commit_progress(
             topic=f"tickets.{ticket_id}",
         )
     )
-    return {"sha": sha, "comment_id": cid}
+    result = {"sha": sha, "comment_id": cid}
+    if boundary_warnings:
+        result["warnings"] = boundary_warnings
+    return result
 
 
 async def handle_record_learning(

@@ -53,6 +53,7 @@ from pydantic import ValidationError
 from jig.analytics.emitter import EventEmitter
 from jig.analytics.events import RiskStatusChanged
 from jig.atomic import atomic_write_text
+from jig.boundary_rules import generate_boundary_rules
 from jig.handoff_resolve import resolve_after_handoff
 from jig.intent import ComplicationsConsidered, Intent
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
@@ -63,6 +64,7 @@ from jig.sa_validation import (
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    BoundariesFile,
     CascadeAuditEntry,
     CascadeContractDisposition,
     CascadeProposal,
@@ -89,6 +91,7 @@ from jig.spec_loader import (
     load_architecture,
     load_module_contracts,
     save_architecture,
+    save_module_boundaries,
     save_module_contracts,
 )
 from jig.store.bus import Message, MessageBus, MessageType
@@ -119,6 +122,7 @@ __all__ = [
     "handle_module_set_integration_ac",
     "handle_module_set_open_question",
     "handle_module_set_owned_collection",
+    "handle_sa_write_boundaries",
 ]
 
 
@@ -1314,6 +1318,24 @@ async def handle_module_set_open_question(
     return q.id
 
 
+# ---- modules/<m>/boundaries.yaml -----------------------------------------
+
+
+async def handle_sa_write_boundaries(*, project_path: Path, boundaries: Any) -> str:
+    """Write one module's isolation boundaries to
+    ``modules/<m>/boundaries.yaml``.
+
+    Takes a full ``BoundariesFile`` payload (``spec_version``, ``module``,
+    ``ontology``, ``internal``, ``external``, ``change_log``) and writes it
+    whole — boundaries are authored as a unit, not field-by-field like the
+    contract upserts. Rule generation is deferred to ``arch_finalize`` so a
+    half-written boundary set never produces stale rules.
+    """
+    bf = _coerce(BoundariesFile, boundaries, kind="boundaries")
+    save_module_boundaries(project_path, bf.module, bf)
+    return bf.module
+
+
 # ---- arch_finalize --------------------------------------------------------
 
 
@@ -1497,6 +1519,12 @@ async def handle_arch_finalize(
     # the named provider; likewise for consumes_events vs. EmittedEvent.
     # Fails loud at finalize so the SA sees the breakage before PM planning.
     _validate_consumption_refs(arch, contracts_by_module)
+
+    # Compile any per-module boundaries.yaml into semgrep deny rules under
+    # .jig/rules/semgrep/boundaries/, enforced at the dev gate. Runs after all
+    # validation so a bad boundary (unknown module id / module-dir mismatch)
+    # fails finalize loudly here, before the PM handoff.
+    generate_boundary_rules(project_path)
 
     handoff = Handoff(
         ticket_id=SA_TICKET_ID,

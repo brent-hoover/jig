@@ -286,6 +286,16 @@ phase_prompt: >
     ``module_set_data_contract``, ``module_set_open_question`` —
     upsert entries on a module's contracts.yaml. Idempotent.
 
+  - ``sa_write_boundaries(boundaries)`` — write a module's isolation
+    boundaries to modules/<m>/boundaries.yaml. ``boundaries`` is a
+    full BoundariesFile dict: ``module`` (id), optional ``ontology``
+    (glossary terms), ``internal`` (``allowed_modules`` /
+    ``forbidden_modules`` — module ids), ``external`` (``allowed`` /
+    ``forbidden`` — package names). Written whole, not field-by-field.
+    These compile to import-isolation rules enforced at the dev gate
+    (generated at ``arch_finalize``). Declare boundaries for any module
+    that must not depend on a given sibling module or external package.
+
   - ``arch_regenerate_pydantic_models(module_id?)`` — re-render
     every renderable DataContract under .jig/generated/contracts/.
     The auto-render also fires on every ``module_set_data_contract``
@@ -324,6 +334,7 @@ allowed_tools:
   - module_set_behavioral_contract
   - module_set_data_contract
   - module_set_open_question
+  - sa_write_boundaries
   - arch_regenerate_pydantic_models
   - arch_finalize
   - graph_get_impact

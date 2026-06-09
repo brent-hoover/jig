@@ -45,6 +45,7 @@ _RISK_CASCADE_PREP_STATUSES: frozenset[str] = frozenset(
 __all__ = [
     "Architecture",
     "BehavioralContract",
+    "BoundariesFile",
     "CascadeAuditEntry",
     "CascadeContractDisposition",
     "CascadeProposal",
@@ -57,9 +58,12 @@ __all__ = [
     "DataContract",
     "DataStore",
     "DevProvisioning",
+    "ExternalBoundaries",
     "ExternalDependency",
+    "InternalBoundaries",
     "IntegrationAcceptance",
     "Module",
+    "OntologyTerm",
     "OpenQuestion",
     "OwnedCollection",
     "Risk",
@@ -912,6 +916,104 @@ class ContractsFile(BaseModel):
             owner="ContractsFile",
             collection="emits",
         )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Per-module isolation boundaries (modules/<m>/boundaries.yaml)
+# ---------------------------------------------------------------------------
+
+
+class OntologyTerm(BaseModel):
+    """One glossary entry — a domain term the module owns, for humans/agents."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    term: str
+    definition: str
+
+
+class InternalBoundaries(BaseModel):
+    """Which other modules this module may / may not depend on."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_modules: list[str] = Field(default_factory=list)
+    forbidden_modules: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+
+    @model_validator(mode="after")
+    def _allow_forbid_disjoint(self) -> InternalBoundaries:
+        """A module id in both lists is contradictory — surface it at write
+        time rather than leaving a silent footgun (the deny side would win in
+        rule generation, but the intent is ambiguous)."""
+        overlap = set(self.allowed_modules) & set(self.forbidden_modules)
+        if overlap:
+            raise ValueError(
+                f"InternalBoundaries: module id(s) {sorted(overlap)} are in both "
+                "allowed_modules and forbidden_modules"
+            )
+        return self
+
+
+class ExternalBoundaries(BaseModel):
+    """Which external packages this module may / may not import. Only
+    ``forbidden`` is enforceable as a semgrep deny rule; ``allowed`` is
+    advisory (you cannot deny every package not in a list)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: list[str] = Field(default_factory=list)
+    forbidden: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+
+    @model_validator(mode="after")
+    def _allow_forbid_disjoint(self) -> ExternalBoundaries:
+        """A package in both lists is contradictory — ``allowed`` is advisory
+        (no rule), so a ``forbidden`` deny rule would silently win while the
+        ``allowed`` entry misleads. Mirror the internal-boundaries guard."""
+        overlap = set(self.allowed) & set(self.forbidden)
+        if overlap:
+            raise ValueError(
+                f"ExternalBoundaries: package(s) {sorted(overlap)} appear in both "
+                "allowed and forbidden"
+            )
+        return self
+
+
+class BoundariesFile(BaseModel):
+    """One module's isolation boundaries — modules/<m>/boundaries.yaml.
+
+    Declares the module's allowed/forbidden internal (cross-module) and
+    external (package) dependencies; ``generate_boundary_rules`` compiles
+    these into semgrep deny rules enforced at the dev gate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_version: int = 1
+    module: str = Field(..., min_length=1)
+    ontology: list[OntologyTerm] = Field(default_factory=list)
+    internal: InternalBoundaries = Field(default_factory=InternalBoundaries)
+    external: ExternalBoundaries = Field(default_factory=ExternalBoundaries)
+    change_log: list[ChangeLogEntry] = Field(default_factory=list)
+
+    @field_validator("module")
+    @classmethod
+    def _kebab_module(cls, v: str) -> str:
+        return validate_kebab_id(v, "BoundariesFile.module")
+
+    @model_validator(mode="after")
+    def _no_self_denial(self) -> BoundariesFile:
+        """A module cannot forbid importing itself — a self entry in
+        ``internal.forbidden_modules`` would ban the module's own absolute
+        self-imports. Surface it at write time rather than emit a self-denying
+        rule."""
+        if self.module in self.internal.forbidden_modules:
+            raise ValueError(
+                f"BoundariesFile: module {self.module!r} lists itself in "
+                "internal.forbidden_modules"
+            )
         return self
 
 

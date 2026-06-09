@@ -10,6 +10,7 @@ from jig.intent import ComplicationsConsidered, Intent
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    BoundariesFile,
     CascadeContractDisposition,
     CascadeProposal,
     CascadeStage,
@@ -19,9 +20,12 @@ from jig.schemas.arch import (
     DataContract,
     DataStore,
     DevProvisioning,
+    ExternalBoundaries,
     ExternalDependency,
+    InternalBoundaries,
     IntegrationAcceptance,
     Module,
+    OntologyTerm,
     OwnedCollection,
     Risk,
     RiskImpact,
@@ -1064,3 +1068,98 @@ def test_contracts_file_rejects_duplicate_integration_ac_capabilities():
                 IntegrationAcceptance(capability="cap-x", must=["b"]),
             ],
         )
+
+
+# ---- BoundariesFile: module-isolation declaration -----------------------
+
+
+def test_boundaries_file_minimal_valid():
+    bf = BoundariesFile(module="job-posting")
+    assert bf.spec_version == 1
+    assert bf.module == "job-posting"
+    assert bf.ontology == []
+    assert bf.internal.allowed_modules == []
+    assert bf.internal.forbidden_modules == []
+    assert bf.external.allowed == []
+    assert bf.external.forbidden == []
+
+
+def test_boundaries_file_full_round_trip():
+    bf = BoundariesFile(
+        module="job-posting",
+        ontology=[OntologyTerm(term="Candidate", definition="An applicant.")],
+        internal=InternalBoundaries(
+            allowed_modules=["candidate", "shared-types"],
+            forbidden_modules=["billing", "auth"],
+            rationale="reads candidate refs only",
+        ),
+        external=ExternalBoundaries(
+            allowed=["httpx", "pydantic"],
+            forbidden=["requests"],
+            rationale="standardized on httpx",
+        ),
+        change_log=[ChangeLogEntry(revision=1, date=date(2026, 6, 8), summary="init")],
+    )
+    assert bf.internal.forbidden_modules == ["billing", "auth"]
+    assert bf.external.forbidden == ["requests"]
+    assert bf.ontology[0].term == "Candidate"
+
+
+def test_boundaries_file_rejects_non_kebab_module():
+    with pytest.raises(ValidationError, match="BoundariesFile.module"):
+        BoundariesFile(module="Job Posting")
+
+
+def test_internal_boundaries_rejects_allow_forbid_overlap():
+    with pytest.raises(ValidationError, match="both"):
+        InternalBoundaries(
+            allowed_modules=["candidate", "billing"],
+            forbidden_modules=["billing"],
+        )
+
+
+def test_external_boundaries_rejects_allow_forbid_overlap():
+    from jig.schemas.arch import ExternalBoundaries
+
+    with pytest.raises(ValidationError, match="both"):
+        ExternalBoundaries(allowed=["httpx", "requests"], forbidden=["requests"])
+
+
+def test_boundaries_file_rejects_self_denial():
+    with pytest.raises(ValidationError, match="lists itself"):
+        BoundariesFile(
+            module="billing",
+            internal=InternalBoundaries(forbidden_modules=["billing"]),
+        )
+
+
+def test_boundaries_file_forbids_extra_key():
+    with pytest.raises(ValidationError, match="extra"):
+        BoundariesFile(module="m", bogus="nope")
+
+
+def test_internal_boundaries_forbids_extra_key():
+    with pytest.raises(ValidationError, match="extra"):
+        InternalBoundaries(allowed_modules=["a"], bogus="x")
+
+
+def test_external_boundaries_forbids_extra_key():
+    with pytest.raises(ValidationError, match="extra"):
+        ExternalBoundaries(forbidden=["requests"], bogus="x")
+
+
+def test_ontology_term_forbids_extra_key():
+    with pytest.raises(ValidationError, match="extra"):
+        OntologyTerm(term="t", definition="d", bogus="x")
+
+
+def test_boundaries_file_model_dump_round_trips():
+    """Step 3 writes the canonical model_dump to disk; it must re-parse
+    identically (sort_keys=False is irrelevant to value identity)."""
+    bf = BoundariesFile(
+        module="job-posting",
+        internal=InternalBoundaries(forbidden_modules=["billing"]),
+        external=ExternalBoundaries(forbidden=["requests"]),
+    )
+    again = BoundariesFile.model_validate(bf.model_dump())
+    assert again == bf

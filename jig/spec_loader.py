@@ -32,7 +32,7 @@ import yaml
 
 from jig.atomic import atomic_write_text
 from jig.safe_path import validate_safe_path_segment
-from jig.schemas.arch import Architecture, ContractsFile
+from jig.schemas.arch import Architecture, BoundariesFile, ContractsFile
 from jig.schemas.dev_env import DevManifest
 from jig.schemas.tracer import TracerSpec
 from jig.schemas.design_system import (
@@ -213,6 +213,22 @@ def save_module_contracts(
     """
     payload = yaml.safe_dump(contracts.model_dump(mode="json"), sort_keys=False)
     atomic_write_text(module_contracts_path(project_root, module_id), payload)
+
+
+def module_boundaries_path(project_root: Path, module_id: str) -> Path:
+    """``.jig/spec/modules/<module_id>/boundaries.yaml``."""
+    return module_dir(project_root, module_id) / "boundaries.yaml"
+
+
+def save_module_boundaries(
+    project_root: Path, module_id: str, boundaries: BoundariesFile
+) -> None:
+    """Atomically write ``boundaries`` to ``modules/<module_id>/boundaries.yaml``.
+
+    Companion to ``save_module_contracts``; the module dir is created on demand.
+    """
+    payload = yaml.safe_dump(boundaries.model_dump(mode="json"), sort_keys=False)
+    atomic_write_text(module_boundaries_path(project_root, module_id), payload)
 
 
 # ---- v2 cascade-after-impossible-spike paths -----------------------------

@@ -2096,6 +2096,29 @@ def create_agent_mcp_server(
 
         all_tools.append(module_set_open_question)
 
+    if "sa_write_boundaries" in agent_cfg.allowed_tools:
+
+        @tool(
+            "sa_write_boundaries",
+            "Write one module's isolation boundaries to "
+            "modules/<m>/boundaries.yaml. ``boundaries`` is a full "
+            "BoundariesFile dict (spec_version?, module, ontology?, "
+            "internal{allowed_modules?, forbidden_modules?, rationale?}, "
+            "external{allowed?, forbidden?, rationale?}, change_log?). "
+            "internal forbidden_modules are module ids; external "
+            "forbidden are package names. Written whole (not field-by-"
+            "field); rules are generated at arch_finalize.",
+            {"boundaries": dict},
+        )
+        async def sa_write_boundaries(args):
+            mid = await sa_incremental_mcp.handle_sa_write_boundaries(
+                project_path=project_path,
+                boundaries=args["boundaries"],
+            )
+            return {"content": [{"type": "text", "text": mid}]}
+
+        all_tools.append(sa_write_boundaries)
+
     if "arch_regenerate_pydantic_models" in agent_cfg.allowed_tools:
 
         @tool(

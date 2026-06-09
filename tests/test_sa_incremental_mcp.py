@@ -30,6 +30,7 @@ from jig.sa_incremental_mcp import (
     handle_module_set_integration_ac,
     handle_module_set_open_question,
     handle_module_set_owned_collection,
+    handle_sa_write_boundaries,
 )
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
 from jig.spec_loader import (
@@ -572,5 +573,125 @@ async def test_arch_finalize_raises_on_orphan_contracts(wired):
             bus=wired["bus"],
             project_path=wired["project_path"],
             summary="orphan",
+            author="sa-mvp",
+        )
+
+
+# ---- sa_write_boundaries --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sa_write_boundaries_happy_path(wired):
+    from jig.spec_loader import module_boundaries_path
+
+    mid = await handle_sa_write_boundaries(
+        project_path=wired["project_path"],
+        boundaries={
+            "module": "catalog-ingest",
+            "internal": {"forbidden_modules": ["billing"]},
+            "external": {"allowed": ["httpx"], "forbidden": ["requests"]},
+        },
+    )
+    assert mid == "catalog-ingest"
+    path = module_boundaries_path(wired["project_path"], "catalog-ingest")
+    assert path.is_file()
+    import yaml
+
+    from jig.schemas.arch import BoundariesFile
+
+    bf = BoundariesFile.model_validate(yaml.safe_load(path.read_text()))
+    assert bf.internal.forbidden_modules == ["billing"]
+    assert bf.external.forbidden == ["requests"]
+
+
+@pytest.mark.asyncio
+async def test_sa_write_boundaries_invalid_raises(wired):
+    with pytest.raises(ValueError, match="boundaries does not validate"):
+        await handle_sa_write_boundaries(
+            project_path=wired["project_path"],
+            boundaries={"module": "Catalog Ingest"},  # non-kebab module
+        )
+
+
+@pytest.mark.asyncio
+async def test_sa_write_boundaries_rewrite_replaces(wired):
+    from jig.spec_loader import module_boundaries_path
+
+    for forbidden in (["billing"], ["auth"]):
+        await handle_sa_write_boundaries(
+            project_path=wired["project_path"],
+            boundaries={
+                "module": "catalog-ingest",
+                "internal": {"forbidden_modules": forbidden},
+            },
+        )
+    import yaml
+
+    from jig.schemas.arch import BoundariesFile
+
+    bf = BoundariesFile.model_validate(
+        yaml.safe_load(
+            module_boundaries_path(wired["project_path"], "catalog-ingest").read_text()
+        )
+    )
+    assert bf.internal.forbidden_modules == ["auth"]  # last write wins
+
+
+# ---- arch_finalize generates boundary rules (step 4) ----------------------
+
+
+def _write_config(project_path: Path, name: str = "my-ats") -> None:
+    import yaml
+
+    (project_path / ".jig" / "config.yaml").write_text(
+        yaml.safe_dump({"project": {"name": name, "id": name, "path": str(project_path)}})
+    )
+
+
+@pytest.mark.asyncio
+async def test_arch_finalize_generates_boundary_rules(wired):
+    project_path = wired["project_path"]
+    await _author_minimal(project_path)
+    _write_config(project_path)
+    await handle_sa_write_boundaries(
+        project_path=project_path,
+        boundaries={
+            "module": "catalog-ingest",
+            "external": {"forbidden": ["requests"]},
+        },
+    )
+    await handle_arch_finalize(
+        tickets=wired["tickets"],
+        threads=wired["threads"],
+        bus=wired["bus"],
+        project_path=project_path,
+        summary="finalize with boundaries",
+        author="sa-mvp",
+    )
+    rule_file = (
+        project_path / ".jig" / "rules" / "semgrep" / "boundaries" / "catalog-ingest.yml"
+    )
+    assert rule_file.is_file()
+
+
+@pytest.mark.asyncio
+async def test_arch_finalize_raises_on_bad_boundary(wired):
+    project_path = wired["project_path"]
+    await _author_minimal(project_path)
+    _write_config(project_path)
+    await handle_sa_write_boundaries(
+        project_path=project_path,
+        boundaries={
+            "module": "catalog-ingest",
+            "internal": {"forbidden_modules": ["ghost"]},  # unknown module
+        },
+    )
+    with pytest.raises(ValueError, match="unknown module"):
+        await handle_arch_finalize(
+            tickets=wired["tickets"],
+            threads=wired["threads"],
+            bus=wired["bus"],
+            project_path=project_path,
+            summary="finalize with bad boundary",
             author="sa-mvp",
         )

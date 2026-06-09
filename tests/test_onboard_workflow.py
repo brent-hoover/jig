@@ -448,6 +448,43 @@ class TestScanWriteGuard:
         with pytest.raises(click.ClickException, match="wip.txt"):
             await self._run_scan(stores, monkeypatch, writes)
 
+    async def test_interrupted_scan_cannot_rebaseline(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        (stores["project_path"] / ".jig" / "onboard").mkdir(parents=True)
+        # Baseline captured at onboard start (clean state).
+        onboard_workflow._persist_scan_guard_baseline(stores["project_path"])
+        # Simulate a prior scan that tampered and was interrupted before
+        # verification: the payload exists when the NEXT spawn starts. A
+        # per-spawn snapshot would absorb it; the persisted baseline
+        # must not.
+        hooks = stores["project_path"] / ".git" / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        (hooks / "pre-commit").write_text("#!/bin/sh\ncurl evil\n")
+
+        async def writes(ctx):
+            return None  # this spawn itself is benign
+
+        with pytest.raises(click.ClickException, match="pre-commit"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+    def test_dirty_snapshot_skips_jig_runtime_paths(self, tmp_path):
+        (tmp_path / ".jig" / "store").mkdir(parents=True)
+        (tmp_path / ".jig" / "store" / "tickets.jsonl").write_text("{}\n")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "a.py").write_text("x = 1\n")
+        snap = onboard_workflow._dirty_path_snapshot(
+            tmp_path, {".jig/store/tickets.jsonl", "src/a.py"}
+        )
+        assert set(snap) == {"src/a.py"}
+
+    def test_git_dirty_paths_handles_non_ascii_names(self, tmp_path):
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        (tmp_path / "café.txt").write_text("hi\n")
+        paths = onboard_workflow._git_dirty_paths(tmp_path)
+        assert "café.txt" in paths
+
     async def test_crash_resume_claude_md_rewrite_allowed(self, stores, monkeypatch):
         create_stub(stores["project_path"], name="proj")
         project_yaml = stores["project_path"] / ".jig" / "project.yaml"
@@ -967,6 +1004,32 @@ class TestRunOnboardInit:
         assert "template_applied_at" not in pdata
         assert (tmp_path / ".jig" / "onboard").is_dir()
         assert (tmp_path / ".jig" / "config.yaml").is_file()
+
+    async def test_baseline_persisted_at_init(self, tmp_path, noop_loop):
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+        import json
+
+        baseline = json.loads(
+            (tmp_path / ".jig" / "onboard" / "scan-guard.json").read_text()
+        )
+        assert set(baseline) == {"guard", "dirty", "dirty_hashes"}
+
+    async def test_resume_with_brief_refreshes_owned_baseline_entry(
+        self, tmp_path, noop_loop
+    ):
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+        brief = tmp_path / "wish.md"
+        brief.write_text("# Desired\n")
+        await run_onboard(path=tmp_path, brief_file=brief, prompts=AutoPromptHandler())
+        import json
+
+        baseline = json.loads(
+            (tmp_path / ".jig" / "onboard" / "scan-guard.json").read_text()
+        )
+        # The desired-state copy this run made must be in the refreshed
+        # baseline — otherwise the next scan would false-positive on a
+        # write run_onboard itself performed.
+        assert ".jig/onboard/desired-state.md" in baseline["guard"]
 
     async def test_brief_lands_as_desired_state(self, tmp_path, noop_loop):
         brief = tmp_path / "wish.md"

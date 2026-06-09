@@ -481,7 +481,7 @@ def _git_dirty_paths(project_path: Path) -> set[str]:
     import subprocess
 
     proc = subprocess.run(
-        ["git", "status", "--porcelain"],
+        ["git", "status", "--porcelain", "-z"],
         cwd=str(project_path),
         capture_output=True,
         text=True,
@@ -491,12 +491,23 @@ def _git_dirty_paths(project_path: Path) -> set[str]:
             "git status failed while verifying scanner writes: "
             f"{proc.stderr.strip() or proc.returncode}"
         )
+    # -z output: NUL-delimited "XY <path>" records, rename/copy records
+    # carry the original path as the NEXT NUL field (no status prefix).
+    # Plain --porcelain would C-quote non-ASCII paths (core.quotepath),
+    # leaving names that never match a file on disk.
     paths = set()
-    for line in proc.stdout.splitlines():
-        entry = line[3:].strip().strip('"')
-        if " -> " in entry:
-            entry = entry.split(" -> ")[-1]
-        paths.add(entry)
+    fields = proc.stdout.split("\0")
+    i = 0
+    while i < len(fields):
+        field = fields[i]
+        if not field:
+            i += 1
+            continue
+        status, path = field[:2], field[3:]
+        paths.add(path)
+        if "R" in status or "C" in status:
+            i += 1  # skip the rename/copy origin field
+        i += 1
     return paths
 
 
@@ -506,18 +517,83 @@ def _dirty_path_snapshot(project_path: Path, dirty_paths: set[str]) -> dict[str,
     could freely rewrite a file that was dirty when onboarding started
     (an in-flight working tree, not a fresh clone). Collapsed untracked
     directories (``dir/`` entries) can't be hashed file-by-file here —
-    that residual is documented in the design.
+    that residual is documented in the design. ``.jig/`` paths are
+    skipped: jig's own stores legitimately mutate during the scan
+    (``onboard_finish_scan`` writes through them), and the sensitive
+    ``.jig`` files are already on the hash-guarded surface.
     """
     import hashlib
 
     snap: dict[str, str] = {}
     for rel in dirty_paths:
-        if rel.endswith("/"):
+        if rel.endswith("/") or rel == ".jig" or rel.startswith(".jig/"):
             continue
         p = project_path / rel
         if p.is_file():
             snap[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
     return snap
+
+
+def _scan_guard_baseline_path(project_path: Path) -> Path:
+    return _onboard_dir(project_path) / "scan-guard.json"
+
+
+def _compute_scan_guard_state(project_path: Path) -> dict:
+    dirty = _git_dirty_paths(project_path)
+    return {
+        "guard": _scan_guard_snapshot(project_path),
+        "dirty": sorted(dirty),
+        "dirty_hashes": _dirty_path_snapshot(project_path, dirty),
+    }
+
+
+def _is_run_onboard_owned(path: str) -> bool:
+    """Paths ``run_onboard`` itself writes during initialization
+    (desired-state copy, profile apply, snapshot restore). On resume
+    these may legitimately differ from the persisted baseline;
+    everything else on the protected surface stays frozen."""
+    return (
+        path == ".jig/onboard/desired-state.md"
+        or path == ".jig/config.yaml"
+        or path.startswith(".jig/profiles/")
+        or path.startswith(".jig/workflows/")
+    )
+
+
+def _persist_scan_guard_baseline(project_path: Path) -> None:
+    """Write (or selectively refresh) the scan write-guard baseline.
+
+    The baseline is captured at onboard start and persisted so an
+    interrupted scan cannot re-baseline its own tampering into the
+    trusted state on the next run — a per-spawn snapshot would include
+    a payload written just before the interruption. On resume, only the
+    run_onboard-owned paths are refreshed; ``.git/**``, ``.gitignore``,
+    ``CLAUDE.md``, ``.jig/roles/**`` and the working-tree dirty state
+    stay frozen from the first run.
+    """
+    import json
+
+    baseline_path = _scan_guard_baseline_path(project_path)
+    if not baseline_path.is_file():
+        atomic_write_text(
+            baseline_path, json.dumps(_compute_scan_guard_state(project_path))
+        )
+        return
+    baseline = json.loads(baseline_path.read_text())
+    current = _scan_guard_snapshot(project_path)
+    guard = {k: v for k, v in baseline["guard"].items() if not _is_run_onboard_owned(k)}
+    guard.update({k: v for k, v in current.items() if _is_run_onboard_owned(k)})
+    baseline["guard"] = guard
+    atomic_write_text(baseline_path, json.dumps(baseline))
+
+
+def _load_scan_guard_baseline(project_path: Path) -> dict | None:
+    import json
+
+    baseline_path = _scan_guard_baseline_path(project_path)
+    if not baseline_path.is_file():
+        return None
+    return json.loads(baseline_path.read_text())
 
 
 async def _verify_scan_writes(
@@ -647,9 +723,13 @@ async def run_onboard_scan_pass(
         memory=memory,
         bus=bus,
     )
-    guard_before = _scan_guard_snapshot(project_path)
-    dirty_before = _git_dirty_paths(project_path)
-    dirty_hashes_before = _dirty_path_snapshot(project_path, dirty_before)
+    # Verify against the baseline persisted at onboard start — NOT a
+    # fresh per-spawn snapshot, which an interrupted scan could have
+    # re-baselined with its own tampering. The fresh-compute fallback
+    # covers direct callers (tests) that bypass run_onboard.
+    baseline = _load_scan_guard_baseline(project_path)
+    if baseline is None:
+        baseline = _compute_scan_guard_state(project_path)
     await _run_agent_with_cli_output(
         ctx,
         role_label="Scanner",
@@ -657,7 +737,11 @@ async def run_onboard_scan_pass(
         subtitle="Reading the existing codebase into observations.md",
     )
     await _verify_scan_writes(
-        project_path, guard_before, dirty_before, dirty_hashes_before, threads
+        project_path,
+        baseline["guard"],
+        set(baseline["dirty"]),
+        baseline["dirty_hashes"],
+        threads,
     )
 
 
@@ -787,6 +871,11 @@ async def run_onboard(
             _apply_named_profile(
                 target, profile_name, console, rerun_hint="`jig onboard`"
             )
+
+    # 7. Scan write-guard baseline — after every legitimate init write
+    # above, before any scanner spawn. First run captures it; resume
+    # refreshes only the run_onboard-owned paths.
+    _persist_scan_guard_baseline(target)
 
     from jig.logging_setup import configure_logging
 

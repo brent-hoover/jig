@@ -410,6 +410,17 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 3 (roborev job 446): the guard baseline is persisted at onboard
+  start (`.jig/onboard/scan-guard.json`) and every scan verifies against it — a per-spawn snapshot let an
+  interrupted scan re-baseline its own tampering; on resume only the paths `run_onboard` itself writes
+  (desired-state, config, profiles, workflows) are refreshed. The pre-dirty hash pass exempts `.jig/`
+  runtime paths (jig's own stores mutate during the scan; sensitive `.jig` files stay hash-guarded) —
+  without this a repo tracking `.jig/` files hit an unrecoverable false BROKEN. `git status -z` replaces
+  line parsing so quoted non-ASCII paths aren't invisible to the hash pass. Accepted residuals: the
+  baseline file itself is in-repo (an unconstrained Write could alter it — definitive fix is
+  transport-level enforcement, deferred with sa-architect Phase 2); `spec_generated` stickiness in
+  classification matches greenfield semantics and is revisited when Phase 2 re-enters the flow.
+  (brent-hoover)
 - 2026-06-09: Write-guard hardening round 2 (roborev job 444): `.git/info/**` and the root `.gitignore`
   join the hash surface (writing exclusion rules to blind the status sweep now trips the hash pass);
   files dirty before the scan are content-hashed so an in-flight working tree's files can't be silently

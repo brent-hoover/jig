@@ -14,6 +14,7 @@ import click
 
 from jig.issues.discovery import find_project_root
 from jig.issues.service import IssueService
+from jig.thread import entry_content
 
 T = TypeVar("T")
 
@@ -157,8 +158,7 @@ def show(path: Path | None, ref: str) -> None:
     click.echo("")
     click.echo(ticket.description)
     for c in comments:
-        text = getattr(c, "text", "")
-        click.echo(f"  - ({c.author}) {text}")
+        click.echo(f"  - ({c.author}) {entry_content(c)}")
 
 
 @issue_group.command("update")

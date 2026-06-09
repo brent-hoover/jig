@@ -176,17 +176,20 @@ class IssueService:
         ticket = await self._require(ref)
 
         # Pre-resolve every referenced issue before applying ANY edge, so a bad
-        # ref raises before the operation partially mutates state.
+        # ref raises before the operation partially mutates state. The parent
+        # ref is resolved even when removing, so a bad parent ref is rejected
+        # rather than silently clearing the field.
         dep_ids = [(await self._require(r)).id for r in (blocked_by or [])]
         block_ids = [(await self._require(r)).id for r in (blocks or [])]
-        parent_id = (
-            (await self._require(parent)).id
-            if (parent is not None and not remove)
-            else None
-        )
+        parent_id = (await self._require(parent)).id if parent is not None else None
 
         if parent is not None:
-            await self._tickets.update(ticket.id, parent_id=parent_id)
+            if remove:
+                # Only clear the parent if it actually matches the given ref.
+                if ticket.parent_id == parent_id:
+                    await self._tickets.update(ticket.id, parent_id=None)
+            else:
+                await self._tickets.update(ticket.id, parent_id=parent_id)
         for dep_id in dep_ids:
             await self._edge(ticket.id, "blocked_by", dep_id, remove)
             await self._edge(dep_id, "blocks", ticket.id, remove)
@@ -198,7 +201,10 @@ class IssueService:
 
     async def _edge(self, ticket_id: str, field: str, value: str, remove: bool) -> None:
         ticket = await self._tickets.get(ticket_id)
-        assert ticket is not None
+        if ticket is None:
+            raise RuntimeError(
+                f"ticket {ticket_id!r} vanished between pre-check and edge write"
+            )
         current: list[str] = list(getattr(ticket, field))
         if remove:
             updated = [x for x in current if x != value]

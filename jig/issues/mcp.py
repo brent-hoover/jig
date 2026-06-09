@@ -20,7 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from jig.issues.discovery import find_project_root
 from jig.issues.service import IssueService
-from jig.thread import ThreadEntry
+from jig.thread import ThreadEntry, entry_content
 from jig.ticket import Ticket
 
 
@@ -47,7 +47,7 @@ def _comment_dict(c: ThreadEntry) -> dict[str, Any]:
         "id": c.id,
         "author": c.author,
         "kind": c.kind,
-        "text": getattr(c, "text", ""),
+        "text": entry_content(c),
     }
 
 

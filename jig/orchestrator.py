@@ -1239,6 +1239,7 @@ class Orchestrator:
             self._deadlock_task,
             self._stall_task,
             self._analyzer_task,
+            self._reconcile_task,
         ):
             if task is not None:
                 task.cancel()

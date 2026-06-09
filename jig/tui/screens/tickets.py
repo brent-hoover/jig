@@ -34,6 +34,7 @@ from jig.tui import ligature_safe
 
 
 _STATUS_ICON = {
+    "proposed": "◌",
     "open": "○",
     "in_progress": "◉",
     "blocked": "⊘",
@@ -45,6 +46,7 @@ _STATUS_ICON = {
 }
 
 _STATUS_COLOR = {
+    "proposed": "#00aaff",
     "open": "#888888",
     "in_progress": "#ffcc00",
     "blocked": "#ff8800",

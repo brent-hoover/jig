@@ -1,7 +1,7 @@
 ---
 title: Issue Tracker Front Doors — Design
 type: design
-status: draft
+status: active
 owner: brent
 created: 2026-06-08
 updated: 2026-06-08
@@ -186,6 +186,10 @@ risk to the create path and one background task.
 - **Counter file corruption / crash mid-create.** A crash between counter bump and record append could consume a key
   with no ticket (a gap), which is harmless (keys need not be contiguous). A crash before counter persist could reissue
   a key — prevented by persisting the counter before releasing the `flock`.
+- **Reconcile reloads the full JSONL each tick.** `_reconcile_external_tickets` calls `tickets.load()`, which re-parses
+  the entire `tickets.jsonl` from scratch every 30s. Correct and idempotent, and fine for typical project sizes
+  (hundreds of tickets), but it is an O(file) operation — a known scaling boundary if ticket volume ever grows large.
+  Tailing new lines from a saved offset is the escalation if that becomes a problem.
 
 ## Out of scope
 

@@ -172,3 +172,41 @@ async def test_approve_rejects_non_proposed(tmp_path: Path) -> None:
     await svc.approve(t.key)
     with pytest.raises(ValueError, match="(?i)proposed"):
         await svc.approve(t.key)
+
+
+@pytest.mark.asyncio
+async def test_link_remove_parent_validates_ref(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    a = await svc.create(
+        title="a", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    b = await svc.create(
+        title="b", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    await svc.link(a.key, parent=b.key)
+
+    # A bad parent ref must raise even when removing — not silently clear.
+    with pytest.raises(KeyError):
+        await svc.link(a.key, parent="jig-999", remove=True)
+    assert (await svc.get(a.key)).parent_id == b.id
+
+
+@pytest.mark.asyncio
+async def test_link_remove_parent_only_clears_matching(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    a = await svc.create(
+        title="a", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    b = await svc.create(
+        title="b", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    c = await svc.create(
+        title="c", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    await svc.link(a.key, parent=b.key)
+
+    # Removing a non-matching parent is a no-op; removing the real one clears it.
+    await svc.link(a.key, parent=c.key, remove=True)
+    assert (await svc.get(a.key)).parent_id == b.id
+    await svc.link(a.key, parent=b.key, remove=True)
+    assert (await svc.get(a.key)).parent_id is None

@@ -1,7 +1,7 @@
 ---
 title: Issue Tracker Front Doors — Problem Statement
 type: problem
-status: draft
+status: active
 owner: brent
 created: 2026-06-08
 updated: 2026-06-08

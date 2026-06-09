@@ -16,7 +16,6 @@ greenfield flow.
 
 from __future__ import annotations
 
-import shutil
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -33,8 +32,11 @@ if TYPE_CHECKING:
 from jig.atomic import atomic_write_text
 from jig.init_workflow import (
     DirState,
+    OperatorYamlSnapshots,
     _apply_named_profile,
+    _force_reset_jig,
     _reactivate_if_resolved,
+    _restore_operator_yamls,
     _run_agent_with_cli_output,
     _spawn_console,
     _ticket_awaits_answer,
@@ -395,6 +397,110 @@ async def run_onboard_pm_profile_pass(
     )
 
 
+# The scanner's Write allowlist (observations.md + CLAUDE.md-when-absent)
+# is prompt-level only and the onboard spawn runs on the host (no bwrap,
+# so capability hooks don't materialize). These are the high-value
+# surfaces a prompt-injection payload in the scanned repo would target
+# for indirect code execution or privilege escalation of later agents;
+# they are hash-snapshotted around the scan and any change fails the
+# onboard. ``.git/`` content never appears in ``git status``, which is
+# why the hash pass exists alongside the status sweep.
+_SCAN_GUARD_GLOBS: tuple[str, ...] = (
+    ".git/config",
+    ".git/hooks/**/*",
+    ".jig/config.yaml",
+    ".jig/roles/**/*",
+    ".jig/profiles/**/*",
+    ".jig/workflows/**/*",
+    "CLAUDE.md",
+)
+
+
+def _scan_guard_snapshot(project_path: Path) -> dict[str, str]:
+    """sha256 of every file on the scanner's protected surface."""
+    import hashlib
+
+    snap: dict[str, str] = {}
+    for pattern in _SCAN_GUARD_GLOBS:
+        for p in sorted(project_path.glob(pattern)):
+            if p.is_file():
+                rel = str(p.relative_to(project_path))
+                snap[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return snap
+
+
+def _scan_guard_violations(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """Protected-surface paths that changed across the scan.
+
+    Creating ``CLAUDE.md`` when none existed is the one allowed write;
+    modifying a pre-existing one, or touching anything else on the
+    surface, is a violation.
+    """
+    violations = []
+    for path in sorted(set(before) | set(after)):
+        if before.get(path) == after.get(path):
+            continue
+        if path == "CLAUDE.md" and path not in before:
+            continue
+        violations.append(path)
+    return violations
+
+
+def _git_dirty_paths(project_path: Path) -> set[str]:
+    """Paths reported by ``git status --porcelain`` (modified, deleted,
+    or untracked). Empty set when git fails — the CLI already verified
+    the repo, so a failure here is environmental, not a guard signal."""
+    import subprocess
+
+    proc = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(project_path),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return set()
+    paths = set()
+    for line in proc.stdout.splitlines():
+        entry = line[3:].strip().strip('"')
+        if " -> " in entry:
+            entry = entry.split(" -> ")[-1]
+        paths.add(entry)
+    return paths
+
+
+def _verify_scan_writes(
+    project_path: Path,
+    guard_before: dict[str, str],
+    dirty_before: set[str],
+) -> None:
+    """Fail the onboard if the scanner wrote outside its allowlist.
+
+    Two passes: a hash compare over the protected surface (catches
+    ``.git/`` writes that git status can't see), and a status sweep for
+    any other unexpected tracked/untracked change. Allowed: ``CLAUDE.md``
+    (creation only — enforced by the hash pass) and ``.jig/`` (jig's own
+    runtime state; its sensitive files are covered by the hash pass).
+    """
+    violations = set(
+        _scan_guard_violations(guard_before, _scan_guard_snapshot(project_path))
+    )
+    new_dirty = _git_dirty_paths(project_path) - dirty_before
+    violations |= {
+        p
+        for p in new_dirty
+        if p != "CLAUDE.md" and not (p == ".jig/" or p.startswith(".jig/"))
+    }
+    if violations:
+        raise click.ClickException(
+            f"scanner wrote outside its allowlist: {sorted(violations)}. "
+            "The scanned repository may contain a prompt-injection payload. "
+            "Inspect those paths before doing anything else in this repo "
+            "(do not run git hooks or jig agents), then re-onboard with "
+            "`jig onboard --force`."
+        )
+
+
 async def run_onboard_scan_pass(
     *,
     project_path: Path,
@@ -445,12 +551,15 @@ async def run_onboard_scan_pass(
         memory=memory,
         bus=bus,
     )
+    guard_before = _scan_guard_snapshot(project_path)
+    dirty_before = _git_dirty_paths(project_path)
     await _run_agent_with_cli_output(
         ctx,
         role_label="Scanner",
         console=console,
         subtitle="Reading the existing codebase into observations.md",
     )
+    _verify_scan_writes(project_path, guard_before, dirty_before)
 
 
 async def _fresh_gap_note(threads: ThreadStore) -> Note | None:
@@ -527,17 +636,9 @@ async def run_onboard(
 
     # 2. --force: snapshot operator-authored YAMLs across the rmtree
     # (same blast-radius guard as init_workflow's --force path).
-    preserved_profiles: dict[str, str] = {}
-    preserved_workflows: dict[str, str] = {}
+    snapshots = OperatorYamlSnapshots()
     if force and (target / ".jig").is_dir():
-        confirmed = await prompts.ask_force_confirm(target=target, console=console)
-        if not confirmed:
-            raise click.ClickException("Aborted.")
-        for src in (target / ".jig" / "profiles").glob("*.yaml"):
-            preserved_profiles[src.name] = src.read_text(encoding="utf-8")
-        for src in (target / ".jig" / "workflows").glob("*.yaml"):
-            preserved_workflows[src.name] = src.read_text(encoding="utf-8")
-        shutil.rmtree(target / ".jig")
+        snapshots = await _force_reset_jig(target, prompts=prompts, console=console)
 
     # 3. Stub first — guarantees IN_PROGRESS (not BROKEN) on crash-resume.
     # Resolve before taking .name: the CLI default path is "." and
@@ -560,16 +661,7 @@ async def run_onboard(
         )
 
     # 6. Restore the snapshot (no-op without --force or local YAMLs).
-    if preserved_profiles:
-        dest_dir = target / ".jig" / "profiles"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for fname, body in preserved_profiles.items():
-            (dest_dir / fname).write_text(body, encoding="utf-8")
-    if preserved_workflows:
-        dest_dir = target / ".jig" / "workflows"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for fname, body in preserved_workflows.items():
-            (dest_dir / fname).write_text(body, encoding="utf-8")
+    _restore_operator_yamls(target, snapshots)
 
     # ``--profile`` bypass: apply the named profile directly so the PM
     # profile pass is skipped. Written AFTER the --force cleanup so the
@@ -642,10 +734,33 @@ async def _run_onboard_resume_loop(
 ) -> None:
     """Resume-state dispatch loop. Each tick classifies and advances
     one step. Dispatch arms land with their implementation steps."""
+    # Agent-spawn states that must advance the classification: an agent
+    # that keeps exiting without posting its terminal signal (scanner
+    # without onboard_finish_scan, PO without a Handoff/Question, PM
+    # without pm_propose_profile) would otherwise respawn forever.
+    # Operator-gate states are excluded — those wait on a human, not an
+    # agent.
+    spawn_states = {
+        OnboardResumeState.SCAN_PASS,
+        OnboardResumeState.PO_READ_PASS,
+        OnboardResumeState.PM_PROFILE_PASS,
+    }
+    max_same_state_spawns = 3
+    last_rs: OnboardResumeState | None = None
+    repeats = 0
     while True:
         rs = await classify_onboard_resume(
             project_path=target, tickets=tickets, threads=threads
         )
+        repeats = repeats + 1 if rs == last_rs else 1
+        last_rs = rs
+        if rs in spawn_states and repeats > max_same_state_spawns:
+            raise click.ClickException(
+                f"onboard did not advance past {rs.value} after "
+                f"{max_same_state_spawns} agent runs. State saved — re-run "
+                "`jig onboard` to retry, or `jig onboard --force` to start "
+                "over."
+            )
         if rs == OnboardResumeState.PHASE2_PENDING:
             console.print(
                 "Onboard Phase 1 complete: scan, current-state brief, "

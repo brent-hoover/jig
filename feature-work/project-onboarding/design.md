@@ -49,9 +49,14 @@ writes a `Note` with `kind: "onboard_scan_done"` to the `onboard-scan` ticket th
 If no `CLAUDE.md` exists at the project root, the scanner writes one based on what it observed before calling
 `onboard_finish_scan`. If `CLAUDE.md` already exists, the scanner reads it for context and skips generation.
 
-Scanner `Write` access is prompt-scoped to `.jig/onboard/observations.md` and `CLAUDE.md`. This is a
-prompt-level restriction only — there is no transport-level enforcement. This residual risk is accepted:
-the scanner's narrow task (read-and-summarize) gives it little reason to write elsewhere.
+Scanner `Write` access is prompt-scoped to `.jig/onboard/observations.md` and `CLAUDE.md`. There is no
+transport-level enforcement (the onboard spawn runs on the host, where capability hooks don't
+materialize), so the scan pass verifies after the agent exits: the high-value surfaces (`.git/config`,
+`.git/hooks/**`, `.jig/config.yaml`, `.jig/roles|profiles|workflows/**`, and any pre-existing `CLAUDE.md`)
+are hash-snapshotted around the scan, and a `git status` sweep catches other unexpected writes. Any
+violation fails the onboard with instructions to inspect before running git hooks or jig agents.
+Residual risk (accepted): writes into jig's own runtime state (`.jig/store/`, `.jig/logs/`) are
+indistinguishable from the orchestrator's and are not guarded.
 
 ### State machine
 
@@ -405,6 +410,10 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Post-scan write verification added (roborev job 439): dropping Bash alone left the
+  prompt-scoped Write tool as an indirect code-execution path (`.git/hooks`, `.jig/roles/`). The scan pass
+  now hash-snapshots the protected surfaces and sweeps `git status`, failing the onboard on any violation.
+  Also: agent-spawn states are capped at 3 consecutive respawns without advancement. (brent-hoover)
 - 2026-06-09: Scanner loses Bash access (roborev job 437): the scanner runs on the host against untrusted
   repo content with prompt-level-only constraints, so a prompt-injection payload in the scanned codebase
   must not get a shell. Glob/Grep/Read cover structural scanning. (brent-hoover)

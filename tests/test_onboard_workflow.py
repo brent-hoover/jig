@@ -290,6 +290,78 @@ class TestScanPass:
         assert ticket.status == TicketStatus.IN_PROGRESS
 
 
+class TestScanWriteGuard:
+    """Post-scan verification of the scanner's write allowlist."""
+
+    async def _run_scan(self, stores, monkeypatch, writes):
+        async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
+            await writes(ctx)
+
+        monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+
+    async def test_allowed_writes_pass(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+
+        async def writes(ctx):
+            onboard = ctx.worktree_path / ".jig" / "onboard"
+            onboard.mkdir(parents=True, exist_ok=True)
+            (onboard / "observations.md").write_text("## Project structure\n")
+            (ctx.worktree_path / "CLAUDE.md").write_text("# proj\n")
+
+        await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_git_hook_write_fails_onboard(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+
+        async def writes(ctx):
+            hooks = ctx.worktree_path / ".git" / "hooks"
+            hooks.mkdir(parents=True, exist_ok=True)
+            (hooks / "pre-commit").write_text("#!/bin/sh\ncurl evil\n")
+
+        with pytest.raises(click.ClickException, match="outside its allowlist"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_modifying_existing_claude_md_fails(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        (stores["project_path"] / "CLAUDE.md").write_text("# original\n")
+
+        async def writes(ctx):
+            (ctx.worktree_path / "CLAUDE.md").write_text("# tampered\n")
+
+        with pytest.raises(click.ClickException, match="CLAUDE.md"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_rogue_untracked_file_fails(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+
+        async def writes(ctx):
+            (ctx.worktree_path / "evil.py").write_text("import os\n")
+
+        with pytest.raises(click.ClickException, match="evil.py"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_jig_role_rewrite_fails(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        roles = stores["project_path"] / ".jig" / "roles"
+        roles.mkdir(parents=True, exist_ok=True)
+        (roles / "dev.yaml").write_text("role: dev\nallowed_tools: []\n")
+
+        async def writes(ctx):
+            (ctx.worktree_path / ".jig" / "roles" / "dev.yaml").write_text(
+                "role: dev\nallowed_tools: ['Bash']\n"
+            )
+
+        with pytest.raises(click.ClickException, match="dev.yaml"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+
 class TestPoReadPass:
     async def test_creates_brief_with_read_mode_and_observations(
         self, stores, no_agent_spawn
@@ -736,6 +808,27 @@ class TestPhase1Loop:
         cfg = load_config(tmp_path)
         assert cfg.profile.name == "medium"
 
+    async def test_stuck_agent_state_bails_after_three_respawns(
+        self, tmp_path, monkeypatch
+    ):
+        async def _po_noop(ctx):
+            return None
+
+        spawned, _ = _install_phase1_fakes(
+            monkeypatch,
+            po_steps=[_po_noop, _po_noop, _po_noop],
+            spec_steps=[_spec_ok],
+        )
+        console, _ = _capture_console()
+
+        with pytest.raises(click.ClickException, match="did not advance"):
+            await run_onboard(
+                path=tmp_path, prompts=AutoPromptHandler(), console=console
+            )
+
+        # scanner once, then three PO spawns that never post a signal.
+        assert spawned == ["scanner", "po", "po", "po"]
+
     async def test_profile_rejection_exits_without_applying(
         self, tmp_path, monkeypatch
     ):
@@ -847,9 +940,7 @@ class TestRunOnboardInit:
         cfg = load_config(tmp_path)
         assert cfg.profile.name == "small"
 
-    async def test_profile_rerun_with_other_name_is_rejected(
-        self, tmp_path, noop_loop
-    ):
+    async def test_profile_rerun_with_other_name_is_rejected(self, tmp_path, noop_loop):
         await run_onboard(
             path=tmp_path, profile_name="medium", prompts=AutoPromptHandler()
         )

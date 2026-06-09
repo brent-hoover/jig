@@ -226,6 +226,72 @@ class TestClassifyOnboardResume:
 
 
 @pytest.fixture
+def no_agent_spawn(monkeypatch):
+    """Stub the agent spawn; record each (role, ticket) spawned."""
+    spawned = []
+
+    async def _record(ctx, *, role_label, console=None, subtitle=None):
+        spawned.append((ctx.role, ctx.ticket.id))
+
+    monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", _record)
+    return spawned
+
+
+class TestScanPass:
+    async def test_creates_ticket_with_fallback_budget(self, stores, no_agent_spawn):
+        create_stub(stores["project_path"], name="proj")
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("onboard-scan")
+        assert ticket.work_type == WorkType.ONBOARD_SCAN
+        assert "at most 400 files" in ticket.description
+        assert "Depth limit reached" in ticket.description
+        assert no_agent_spawn == [("scanner", "onboard-scan")]
+
+    async def test_small_profile_gets_150_file_ceiling(self, stores, no_agent_spawn):
+        create_stub(stores["project_path"], name="proj")
+        from jig.profile_loader import apply_profile, load_profile
+
+        cfg = apply_profile(load_config(stores["project_path"]), load_profile("small"))
+        save_config(stores["project_path"], cfg)
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("onboard-scan")
+        assert "at most 150 files" in ticket.description
+
+    async def test_resolved_ticket_reactivated_on_respawn(self, stores, no_agent_spawn):
+        create_stub(stores["project_path"], name="proj")
+        await stores["tickets"].create(
+            Ticket(
+                id="onboard-scan",
+                work_type=WorkType.ONBOARD_SCAN,
+                title="Scan existing codebase",
+                created_by="cli",
+            )
+        )
+        await stores["tickets"].update("onboard-scan", status=TicketStatus.RESOLVED)
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("onboard-scan")
+        assert ticket.status == TicketStatus.IN_PROGRESS
+
+
+@pytest.fixture
 def noop_loop(monkeypatch):
     """Stub the resume loop so initialization tests don't spawn agents."""
 

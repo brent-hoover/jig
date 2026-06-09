@@ -35,18 +35,47 @@ if TYPE_CHECKING:
 from jig.atomic import atomic_write_text
 from jig.init_workflow import (
     DirState,
-    classify_directory,
-    create_stub,
+    _reactivate_if_resolved,
+    _run_agent_with_cli_output,
     _spawn_console,
     _ticket_awaits_answer,
+    classify_directory,
+    create_stub,
 )
+from jig.persistence import load_role
+from jig.project import load_project
+from jig.runtime import AgentSpawnContext, SpawnReason
 from jig.store.bus import MessageBus
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note, SystemEvent
+from jig.ticket import Ticket, WorkType
 
 logger = logging.getLogger(__name__)
+
+# Scanner file-ceiling depth budgets by active profile (design
+# §"Depth bounding"). SCAN_PASS normally runs before profile selection,
+# so the fallback row applies unless the operator passed --profile small
+# upfront. Prompt-level (advisory), not transport-enforced.
+_SCANNER_FILE_CEILING: dict[str, int] = {"small": 150, "medium": 400}
+_SCANNER_FILE_CEILING_FALLBACK = 400
+
+
+def _active_profile_name(project_path: Path) -> str:
+    from jig.config import load_config
+
+    try:
+        cfg = load_config(project_path)
+    except FileNotFoundError:
+        return ""
+    return cfg.profile.name.strip()
+
+
+def scanner_file_ceiling(project_path: Path) -> int:
+    """File-ceiling budget for the scanner, scaled by active profile."""
+    name = _active_profile_name(project_path)
+    return _SCANNER_FILE_CEILING.get(name, _SCANNER_FILE_CEILING_FALLBACK)
 
 
 class OnboardResumeState(str, Enum):
@@ -185,6 +214,64 @@ async def classify_onboard_resume(
         "onboard SA read pass (SA_READ_PASS and later states) is blocked "
         "on sa-architect Phase 2 — the unified SA role interface is not "
         "frozen yet. Phase 1 of jig onboard ends at profile selection."
+    )
+
+
+async def run_onboard_scan_pass(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Create (if needed) the ``onboard-scan`` ticket and spawn the scanner.
+
+    The depth-budget ceiling from the active profile is injected into
+    the ticket description — the scanner has no config access, so the
+    signal must arrive pre-injected.
+    """
+    scan = await tickets.get("onboard-scan")
+    if scan is None:
+        ceiling = scanner_file_ceiling(project_path)
+        scan = Ticket(
+            id="onboard-scan",
+            work_type=WorkType.ONBOARD_SCAN,
+            title="Scan existing codebase",
+            description=(
+                "Read the existing codebase at the project root and write a "
+                "structural observations document to "
+                ".jig/onboard/observations.md, then call onboard_finish_scan.\n\n"
+                f"Depth budget: read at most {ceiling} files. If you hit the "
+                "ceiling before covering the whole tree, stop and add a "
+                "'## Depth limit reached' section to observations.md listing "
+                "what was not scanned."
+            ),
+            created_by="cli",
+        )
+        await tickets.create(scan)
+    scan = await _reactivate_if_resolved(tickets, scan, author="cli")
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "scanner")
+    ctx = AgentSpawnContext(
+        role="scanner",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=scan,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="Scanner",
+        console=console,
+        subtitle="Reading the existing codebase into observations.md",
     )
 
 
@@ -370,4 +457,14 @@ async def _run_onboard_resume_loop(
             raise click.ClickException(
                 f"{target}/.jig is inconsistent. Use --force to reset."
             )
+        if rs == OnboardResumeState.SCAN_PASS:
+            await run_onboard_scan_pass(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
         raise NotImplementedError(f"onboard dispatch not yet wired for: {rs}")

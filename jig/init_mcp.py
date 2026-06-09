@@ -190,6 +190,56 @@ async def handle_po_finish_brief(
     return entry_id
 
 
+async def handle_onboard_finish_scan(
+    *,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    bus: MessageBus,
+    project_path: Path,
+    author: str,
+) -> str:
+    """Write the scan-done note and resolve the ``onboard-scan`` ticket.
+
+    Called by the scanner when ``.jig/onboard/observations.md`` is
+    complete. ``classify_onboard_resume`` keys on the Note payload's
+    ``kind == "onboard_scan_done"`` to advance past SCAN_PASS.
+    """
+    observations = project_path / ".jig" / "onboard" / "observations.md"
+    if not observations.is_file():
+        raise ValueError(
+            "cannot finish scan — .jig/onboard/observations.md does not exist. "
+            "Write the observations document before calling onboard_finish_scan."
+        )
+    entry_id = await threads.post(
+        Note(
+            ticket_id="onboard-scan",
+            author=author,
+            text="scan complete",
+            payload={"kind": "onboard_scan_done"},
+        )
+    )
+    await bus.publish(
+        Message(
+            sender=author,
+            to="orchestrator",
+            type=MessageType.CONTEXT_UPDATE,
+            payload={
+                "kind": "onboard_scan_done",
+                "ticket_id": "onboard-scan",
+            },
+            topic="orchestrator",
+        )
+    )
+    await _resolve_after_handoff(
+        tickets=tickets,
+        threads=threads,
+        bus=bus,
+        ticket_id="onboard-scan",
+        author=author,
+    )
+    return entry_id
+
+
 async def handle_spec_publish(
     *,
     tickets: TicketStore,

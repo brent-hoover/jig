@@ -253,6 +253,9 @@ class TestDefaultRoles:
             "conflict_resolver",
             # Canonicalizer — runs formatters / semgrep / deprecations after merge.
             "canonicalizer",
+            # Onboard scanner — reads an existing codebase and writes
+            # .jig/onboard/observations.md at the start of `jig onboard`.
+            "scanner",
         }
 
     def test_each_has_phase_prompt(self, tmp_new_jig_project: Path) -> None:

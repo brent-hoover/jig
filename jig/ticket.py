@@ -207,6 +207,7 @@ class WorkType(str, Enum):
     BRIEF = "brief"
     PROFILE = "profile"
     ARCHITECTURE = "architecture"
+    ONBOARD_SCAN = "onboard_scan"
     PLANNING = "planning"
     CANONICALIZE = "canonicalize"
 

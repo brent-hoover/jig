@@ -188,7 +188,7 @@ restores prior behaviour.
 
 ## Progress
 
-- [ ] Step 1: `BoundariesFile` schema
+- [x] Step 1: `BoundariesFile` schema
 - [ ] Step 2a: Semgrep import-pattern spike (blocking open question)
 - [ ] Step 2b: `generate_boundary_rules`
 - [ ] Step 3: `sa_write_boundaries` MCP tool

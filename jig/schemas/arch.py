@@ -45,6 +45,7 @@ _RISK_CASCADE_PREP_STATUSES: frozenset[str] = frozenset(
 __all__ = [
     "Architecture",
     "BehavioralContract",
+    "BoundariesFile",
     "CascadeAuditEntry",
     "CascadeContractDisposition",
     "CascadeProposal",
@@ -57,9 +58,12 @@ __all__ = [
     "DataContract",
     "DataStore",
     "DevProvisioning",
+    "ExternalBoundaries",
     "ExternalDependency",
+    "InternalBoundaries",
     "IntegrationAcceptance",
     "Module",
+    "OntologyTerm",
     "OpenQuestion",
     "OwnedCollection",
     "Risk",
@@ -913,6 +917,65 @@ class ContractsFile(BaseModel):
             collection="emits",
         )
         return self
+
+
+# ---------------------------------------------------------------------------
+# Per-module isolation boundaries (modules/<m>/boundaries.yaml)
+# ---------------------------------------------------------------------------
+
+
+class OntologyTerm(BaseModel):
+    """One glossary entry — a domain term the module owns, for humans/agents."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    term: str
+    definition: str
+
+
+class InternalBoundaries(BaseModel):
+    """Which other modules this module may / may not depend on."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_modules: list[str] = Field(default_factory=list)
+    forbidden_modules: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+
+
+class ExternalBoundaries(BaseModel):
+    """Which external packages this module may / may not import. Only
+    ``forbidden`` is enforceable as a semgrep deny rule; ``allowed`` is
+    advisory (you cannot deny every package not in a list)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: list[str] = Field(default_factory=list)
+    forbidden: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+
+
+class BoundariesFile(BaseModel):
+    """One module's isolation boundaries — modules/<m>/boundaries.yaml.
+
+    Declares the module's allowed/forbidden internal (cross-module) and
+    external (package) dependencies; ``generate_boundary_rules`` compiles
+    these into semgrep deny rules enforced at the dev gate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec_version: int = 1
+    module: str = Field(..., min_length=1)
+    ontology: list[OntologyTerm] = Field(default_factory=list)
+    internal: InternalBoundaries = Field(default_factory=InternalBoundaries)
+    external: ExternalBoundaries = Field(default_factory=ExternalBoundaries)
+    change_log: list[ChangeLogEntry] = Field(default_factory=list)
+
+    @field_validator("module")
+    @classmethod
+    def _kebab_module(cls, v: str) -> str:
+        return validate_kebab_id(v, "BoundariesFile.module")
 
 
 # ---------------------------------------------------------------------------

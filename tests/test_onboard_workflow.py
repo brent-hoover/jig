@@ -259,9 +259,7 @@ class TestRunOnboardInit:
         pdata = yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
         assert pdata["onboard_started_at"] == first
 
-    async def test_force_clears_and_restores_operator_yamls(
-        self, tmp_path, noop_loop
-    ):
+    async def test_force_clears_and_restores_operator_yamls(self, tmp_path, noop_loop):
         await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
         profiles = tmp_path / ".jig" / "profiles"
         workflows = tmp_path / ".jig" / "workflows"
@@ -298,9 +296,7 @@ class TestRunOnboardInit:
         with pytest.raises(click.ClickException, match="jig init"):
             await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
 
-    async def test_resumes_onboard_in_progress_without_force(
-        self, tmp_path, noop_loop
-    ):
+    async def test_resumes_onboard_in_progress_without_force(self, tmp_path, noop_loop):
         await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
         # Second run on an in-progress onboard project must not raise.
         await run_onboard(path=tmp_path, prompts=AutoPromptHandler())

@@ -265,11 +265,13 @@ on the current module-producing SA path with no new runtime surface.
 
 ## Risks
 
-- **Convention assumes the shipped `src/<pkg>/` layout.** A project with a flat or non-`src` layout would
-  get `paths.include` dirs that don't match its code, scoping rules to nothing. This is the problem's
-  forbidden silent-green, so it is a **generation-time hard error**: `generate_boundary_rules` fails
-  (surfaced to the SA) when `src/<top_pkg>/<M_snake>/` is absent, rather than emitting a rule that passes
-  vacuously. v1 targets the shipped `src/`-layout templates.
+- **Convention assumes the shipped `src/<pkg>/` layout.** Rules scope to `src/<top_pkg>/<M_snake>/**`.
+  Generation runs at `arch_finalize` (init), *before* dev agents scaffold per-module code, so a
+  not-yet-existing module dir is normal and must NOT block generation — the rule simply matches nothing
+  until the code lands (no code, nothing to enforce; not silent-green). The true silent-green is code
+  authored at a path that doesn't match the convention (flat / non-`src` layout, or a module dir named
+  differently than `<M_snake>`): the rule then never matches the real code. v1 targets the shipped
+  `src/`-layout templates; non-standard layouts are a documented limitation.
 - **semgrep absence = no enforcement.** Handled by the loud-degradation path (visible warning, never
   silent pass), but a project that *expects* enforcement and runs without semgrep gets none. Acceptable
   for v1; a future hard-fail mode could be config-gated.
@@ -278,9 +280,14 @@ on the current module-producing SA path with no new runtime surface.
   (referencing a non-existent module) would over-deny. Mitigation: generation **hard-errors** on any
   `allowed_modules`/`forbidden_modules` id not in the authored module set, so typos surface immediately
   rather than silently widening denial.
-- **Indirect imports evade static rules.** semgrep catches direct `import`/`from … import`; a module
-  reaching another via a re-export or `importlib` dodges the rule. Accepted — static analysis is a strong
-  default, not a sandbox.
+- **Indirect imports evade static rules.** The rules catch direct absolute imports, the dotted
+  parent-import form, and package-**relative** sibling imports (`from ..billing import x`,
+  `from .. import billing`) from a module's **root** files (a separate rule scoped to `<pkg_dir>*.py`,
+  depth 0) — verified in `tests/test_boundary_rules.py`. Relative rules are deliberately *not* applied to
+  nested files: there `..` resolves *inside* the module (e.g. `ats.job_posting.billing`), so a subtree-wide
+  relative rule would false-positive on intra-module subpackages. Residual gaps: a relative sibling import
+  from a nested (non-root) file, or reaching another module via a re-export / `importlib`. Accepted — static
+  analysis is a strong default, not a sandbox.
 - **String-pattern false negatives/positives** on unusual import forms (aliased package roots, relative
   imports across package boundaries). The `paths.include` scoping plus the four pattern variants cover the
   common forms; exotic cases are a known gap.
@@ -314,6 +321,16 @@ on the current module-producing SA path with no new runtime surface.
   unknown module ids generation-time hard errors (no silent-green); name `sa_mvp.yaml` + its prose catalog
   as the wiring surface; full `BoundariesFile` tool payload incl. `change_log`; soften the semgrep-pattern
   coverage claim to a plan-verified precondition.
+- 2026-06-09: Revised ×5 (roborev 395, High) — drop the generation-time missing-package-dir hard error.
+  Generation runs at arch_finalize before module code is scaffolded, so a missing dir is normal (rule
+  matches nothing until code lands); the only real silent-green is a layout/convention mismatch, documented.
+- 2026-06-09: Revised ×4 (roborev 392) — relative rule also catches submodule imports
+  (`from ..billing.invoices import x`) via metavariable-regex; `generate_boundary_rules` validates +
+  compiles all modules before mutating the output dir, so a bad input never leaves the project unenforced.
+- 2026-06-09: Revised ×3 (roborev 388 + 390) — internal targets get a separate relative-import deny rule
+  scoped to module-root files (`<pkg_dir>*.py`, depth 0); this closes the `from ..billing` bypass without
+  false-positiving nested intra-module subpackages (where `..` resolves inside the module). Generator
+  hard-errors when a boundaries file's `module` field doesn't match its directory.
 - 2026-06-08: Revised ×2 (plan-reviewer feedback) — derive `project_path` from `worktree_path.parents[2]`
   with a layout assertion instead of threading it through `commit_worktree` (keeps the signature + call
   sites unchanged); resolve modules-with-boundaries by globbing `*/boundaries.yaml` (not the

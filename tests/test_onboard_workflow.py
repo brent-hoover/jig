@@ -315,6 +315,18 @@ class TestPoReadPass:
         assert "Flask app, 3 modules." in ticket.description
         assert no_agent_spawn == [("po", "brief")]
 
+    async def test_missing_observations_fails_loudly(self, stores, no_agent_spawn):
+        create_stub(stores["project_path"], name="proj")
+        with pytest.raises(click.ClickException, match="observations.md"):
+            await onboard_workflow.run_onboard_po_conversation(
+                project_path=stores["project_path"],
+                tickets=stores["tickets"],
+                threads=stores["threads"],
+                memory=stores["memory"],
+                bus=stores["bus"],
+            )
+        assert await stores["tickets"].get("brief") is None
+
     async def test_existing_brief_ticket_reused_and_reactivated(
         self, stores, no_agent_spawn
     ):
@@ -340,6 +352,52 @@ class TestPoReadPass:
         assert ticket.description == "original description"
         assert ticket.status == TicketStatus.IN_PROGRESS
         assert no_agent_spawn == [("po", "brief")]
+
+
+class TestFreshGapNote:
+    async def _post_gap(self, stores):
+        await stores["threads"].post(
+            Note(
+                ticket_id="brief",
+                author="spec-generator",
+                text="Gaps:\n- missing AC",
+                payload={
+                    "gaps": [
+                        {
+                            "kind": "missing",
+                            "location": "Built/importer",
+                            "description": "no acceptance criteria",
+                            "severity": "blocking",
+                        }
+                    ]
+                },
+            )
+        )
+
+    async def test_gaps_after_approval_are_fresh(self, stores):
+        await _seed_brief(stores, handoff=True, approved=True)
+        await self._post_gap(stores)
+        note = await onboard_workflow._fresh_gap_note(stores["threads"])
+        assert note is not None
+        assert note.payload["gaps"][0]["location"] == "Built/importer"
+
+    async def test_gaps_before_rehandoff_are_stale(self, stores):
+        await _seed_brief(stores, handoff=True, approved=True)
+        await self._post_gap(stores)
+        await stores["threads"].post(
+            Handoff(
+                ticket_id="brief",
+                author="po",
+                phase="spec-generator",
+                outputs=["docs/brief.md"],
+                summary="Gaps addressed.",
+            )
+        )
+        assert await onboard_workflow._fresh_gap_note(stores["threads"]) is None
+
+    async def test_no_gaps_returns_none(self, stores):
+        await _seed_brief(stores, handoff=True)
+        assert await onboard_workflow._fresh_gap_note(stores["threads"]) is None
 
 
 class TestPmProfilePass:
@@ -471,8 +529,9 @@ class TestPhase1Loop:
         monkeypatch.setattr(init_workflow, "_run_agent_with_cli_output", fake_spawn)
         monkeypatch.setattr(spec_generator, "run_spec_generator", fake_spec_generator)
 
-        with pytest.raises(NotImplementedError, match="sa-architect Phase 2"):
-            await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+        # The Phase-1 boundary returns cleanly — the loop catches the
+        # classifier's NotImplementedError and prints completion.
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
 
         assert spawned == ["scanner", "po", "pm"]
         cfg = load_config(tmp_path)
@@ -565,3 +624,22 @@ class TestRunOnboardInit:
         )
         cfg = load_config(tmp_path)
         assert cfg.profile.name == "small"
+
+    async def test_invalid_profile_rejected_before_state_mutation(
+        self, tmp_path, noop_loop
+    ):
+        with pytest.raises(click.ClickException, match="not found"):
+            await run_onboard(
+                path=tmp_path, profile_name="smal", prompts=AutoPromptHandler()
+            )
+        assert not (tmp_path / ".jig").exists()
+
+    async def test_dot_path_resolves_project_name(
+        self, tmp_path, noop_loop, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        from pathlib import Path
+
+        await run_onboard(path=Path("."), prompts=AutoPromptHandler())
+        pdata = yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
+        assert pdata["name"] == tmp_path.name

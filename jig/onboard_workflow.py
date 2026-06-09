@@ -218,11 +218,18 @@ async def classify_onboard_resume(
 
 
 def _observations_text(project_path: Path) -> str:
-    """Scanner output, or empty string when missing (defensive — the
-    state machine never reaches the PO/PM passes without a scan-done
-    note, and the scan tool refuses to finish without the file)."""
+    """Scanner output. The state machine never reaches the PO pass
+    without a scan-done note, and ``onboard_finish_scan`` refuses to
+    finish without the file — a missing file here means someone deleted
+    it after the scan. Fail loudly rather than spawning a PO with an
+    empty observations section."""
     obs = _onboard_dir(project_path) / "observations.md"
-    return obs.read_text() if obs.is_file() else ""
+    if not obs.is_file():
+        raise click.ClickException(
+            f"{obs} is missing but the scan was marked complete. "
+            "Re-run `jig onboard --force` to re-scan."
+        )
+    return obs.read_text()
 
 
 def _po_read_mode_description(project_path: Path) -> str:
@@ -417,6 +424,59 @@ async def run_onboard_scan_pass(
     )
 
 
+async def _fresh_gap_note(threads: ThreadStore) -> Note | None:
+    """The latest spec-gap Note on the brief ticket, when it postdates
+    both the last PO handoff and the last operator approval — i.e. the
+    gaps are why the loop is back at PO_REVIEW. ``None`` otherwise."""
+    entries = await threads.for_ticket("brief")
+    last_handoff_idx = -1
+    last_approved_idx = -1
+    last_gap_note: Note | None = None
+    last_gap_idx = -1
+    for i, e in enumerate(entries):
+        if isinstance(e, Handoff):
+            last_handoff_idx = i
+        elif isinstance(e, SystemEvent) and e.event_type == "brief_approved":
+            last_approved_idx = i
+        elif isinstance(e, Note) and "gaps" in e.payload:
+            last_gap_note = e
+            last_gap_idx = i
+    if last_gap_idx > last_handoff_idx and last_gap_idx > last_approved_idx:
+        return last_gap_note
+    return None
+
+
+def _apply_named_profile(target: Path, name: str, console: "Console") -> None:
+    """Load + apply + persist a named profile, with friendly errors.
+
+    Shared by the ``--profile`` bypass and the PM-confirm arm.
+    """
+    from jig.config import load_config, save_config
+    from jig.profile_loader import (
+        apply_profile,
+        copy_profile_templates,
+        load_profile,
+    )
+
+    try:
+        profile = load_profile(name, project_path=target)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        cfg = apply_profile(load_config(target), profile)
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            f"{target}/.jig/config.yaml not found while applying profile "
+            f"{name!r}. Onboard state is inconsistent — re-run `jig onboard`."
+        ) from exc
+    save_config(target, cfg)
+    copy_profile_templates(profile, target)
+    console.print(
+        f"Applied profile '{profile.name}' (sa_role={profile.sa_role}).",
+        markup=False,
+    )
+
+
 async def run_onboard(
     *,
     path: Path,
@@ -449,6 +509,16 @@ async def run_onboard(
     target = path
 
     # 1. Preflight.
+    # Validate --profile before any state mutation — a typo'd name must
+    # not leave an initialized onboard stub behind (a bare re-run would
+    # then resume and silently drop the intended bypass).
+    if profile_name is not None:
+        from jig.profile_loader import load_profile
+
+        try:
+            load_profile(profile_name, project_path=target)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc)) from exc
     ds = classify_directory(target)
     if not force:
         if ds == DirState.ALREADY_DONE:
@@ -481,7 +551,9 @@ async def run_onboard(
         shutil.rmtree(target / ".jig")
 
     # 3. Stub first — guarantees IN_PROGRESS (not BROKEN) on crash-resume.
-    create_stub(target, name=target.name)
+    # Resolve before taking .name: the CLI default path is "." and
+    # ``Path(".").name`` is "" (the greenfield flow has the same guard).
+    create_stub(target, name=target.resolve().name)
     project_yaml = target / ".jig" / "project.yaml"
     pdata = yaml.safe_load(project_yaml.read_text()) or {}
     if not pdata.get("onboard_started_at"):
@@ -515,24 +587,7 @@ async def run_onboard(
     # rmtree doesn't delete the write; classify_onboard_resume reads
     # ``cfg.profile.name`` on every tick.
     if profile_name is not None:
-        from jig.config import load_config, save_config
-        from jig.profile_loader import (
-            apply_profile,
-            copy_profile_templates,
-            load_profile,
-        )
-
-        try:
-            profile = load_profile(profile_name, project_path=target)
-        except FileNotFoundError as exc:
-            raise click.ClickException(str(exc)) from exc
-        cfg = apply_profile(load_config(target), profile)
-        save_config(target, cfg)
-        copy_profile_templates(profile, target)
-        console.print(
-            f"Applied profile '{profile.name}' (sa_role={profile.sa_role})",
-            markup=False,
-        )
+        _apply_named_profile(target, profile_name, console)
 
     from jig.logging_setup import configure_logging
 
@@ -586,9 +641,24 @@ async def _run_onboard_resume_loop(
     """Resume-state dispatch loop. Each tick classifies and advances
     one step. Dispatch arms land with their implementation steps."""
     while True:
-        rs = await classify_onboard_resume(
-            project_path=target, tickets=tickets, threads=threads
-        )
+        try:
+            rs = await classify_onboard_resume(
+                project_path=target, tickets=tickets, threads=threads
+            )
+        except NotImplementedError:
+            # Phase-1 boundary: scan, brief, spec, and profile are done.
+            # The SA read pass, operator review, and backlog bootstrap
+            # ship with sa-architect Phase 2 — a deliberate stop, not a
+            # crash.
+            console.print(
+                "Onboard Phase 1 complete: scan, current-state brief, "
+                "structured spec, and profile are in place. The SA read "
+                "pass, operator review, and backlog bootstrap land with "
+                "sa-architect Phase 2 — re-run `jig onboard` once it "
+                "ships.",
+                markup=False,
+            )
+            return
         if rs == OnboardResumeState.ALREADY_DONE:
             console.print(
                 f"{target} is already onboarded. Next: run `jig start` here.",
@@ -634,6 +704,23 @@ async def _run_onboard_resume_loop(
         if rs == OnboardResumeState.PO_REVIEW:
             from jig.init_workflow import BriefApprovalChoice
 
+            # If the loop is back here because spec generation reported
+            # gaps after the last approval, show them — re-approving an
+            # unchanged brief would just re-run the generator into the
+            # same gaps.
+            gap_note = await _fresh_gap_note(threads)
+            if gap_note is not None:
+                from jig.spec_generator import Gap
+
+                gaps = [Gap.model_validate(g) for g in gap_note.payload["gaps"]]
+                lines = ["Spec generation reported gaps in the brief:"]
+                lines += [
+                    f"  - [{g.severity}] {g.location}: {g.description}" for g in gaps
+                ]
+                lines.append(
+                    "Edit docs/brief.md (or resume the PO) before re-approving."
+                )
+                console.print("\n".join(lines), markup=False)
             decision = await prompts.ask_brief_approval(
                 project_path=target, console=console
             )
@@ -712,30 +799,6 @@ async def _run_onboard_resume_loop(
                         "must restrict PM-1 to small/medium."
                     )
                 chosen_name = "small" if chosen_name == "medium" else "medium"
-            from jig.config import load_config, save_config
-            from jig.profile_loader import (
-                apply_profile,
-                copy_profile_templates,
-                load_profile,
-            )
-
-            try:
-                profile = load_profile(chosen_name, project_path=target)
-            except FileNotFoundError as exc:
-                raise click.ClickException(str(exc)) from exc
-            try:
-                cfg = apply_profile(load_config(target), profile)
-            except FileNotFoundError as exc:
-                raise click.ClickException(
-                    f"{target}/.jig/config.yaml not found while applying "
-                    f"profile {chosen_name!r}. Onboard state is "
-                    "inconsistent — re-run `jig onboard`."
-                ) from exc
-            save_config(target, cfg)
-            copy_profile_templates(profile, target)
-            console.print(
-                f"Applied profile '{profile.name}' (sa_role={profile.sa_role}).",
-                markup=False,
-            )
+            _apply_named_profile(target, chosen_name, console)
             continue
         raise NotImplementedError(f"onboard dispatch not yet wired for: {rs}")

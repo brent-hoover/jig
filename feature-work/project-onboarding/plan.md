@@ -1,7 +1,7 @@
 ---
 title: Project Onboarding — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: brent-hoover
 created: 2026-06-09
 updated: 2026-06-09
@@ -193,3 +193,12 @@ already the scanner never touches it. If the scanner wrote a new one, rollback i
 ## Change log
 
 - 2026-06-09: Initial draft (brent-hoover)
+- 2026-06-09: Steps 1–6 implemented on `feat/project-onboarding`. Two additions beyond the design's state
+  list, both within existing greenfield vocabulary: (1) a `NEEDS_ANSWER_BRIEF` state mirroring the
+  greenfield flow — the PO keeps `ask_question`, and without the state an open Question would respawn-loop
+  the PO (the agent loop treats NEEDS_INFO as terminal); (2) fresh `spec_gaps_reported` after approval
+  routes back to `PO_REVIEW` so the operator gate decides (edit brief / resume PO / re-approve) instead of
+  re-running the spec generator unattended in a loop. Also: the PO read pass embeds `observations.md`
+  content into the brief ticket description (the PO role has no Read/Glob/Grep — same pre-injection
+  constraint the design states for the PM), and `scanner.yaml` mandates verbatim H2 section headings so
+  the PM pass can extract `## Profile recommendation` by name. (brent-hoover)

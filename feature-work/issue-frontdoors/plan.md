@@ -22,8 +22,8 @@ they are the cheapest to verify. The whole feature is one PR; steps are commits 
 
 - [x] `design.md` approved.
 - [x] Worktree `feat/issue-frontdoors` created.
-- [x] Open questions resolved by design leans: lazy key backfill on first front-door access (step 3); reconcile interval
-      a 30s constant (step 6).
+- [x] Open questions resolved: no key backfill for legacy keyless tickets — addressable by UUID (step 3); reconcile
+      interval a 30s constant (step 7).
 
 ## Steps
 

@@ -207,39 +207,33 @@ class TicketStore:
         """Promote a PROPOSED ticket to OPEN (the dispatchable state).
 
         This is the ONLY sanctioned path for the PROPOSED -> OPEN transition.
-        The generic ``update`` path rejects it, so neither the agent MCP nor a
-        standalone-MCP caller can self-approve front-door issues and bypass the
-        operator gate.
-        """
-        return await self.update(
-            ticket_id, status=TicketStatus.OPEN, _allow_approval=True
-        )
+        The generic ``update`` path rejects that transition unconditionally —
+        there is no bypass flag on the public API — so neither the agent MCP
+        nor a standalone-MCP caller can self-approve and skip the operator gate.
 
-    async def update(
-        self, ticket_id: str, *, _allow_approval: bool = False, **fields
-    ) -> Ticket:
-        # Validate the would-be result BEFORE appending the update row
-        # to JSONL. Without this, an invalid update (e.g. a description
-        # change that drops the AC section, violating the
-        # ``has_acceptance_criteria_section`` invariant) would land on
-        # disk before the model validator ran, leaving the JSONL with a
-        # row that any subsequent store load would fail to deserialize.
-        # The store would then be unreadable until an operator manually
-        # repaired the file.
-        #
-        # We construct the merged ``Ticket`` model in-memory first — if
-        # the merge violates any model invariant Pydantic raises here,
-        # and the JSONL stays untouched.
+        Raises ``ValueError`` if the ticket is not currently PROPOSED, so
+        approve cannot silently reopen a closed/resolved/failed ticket.
+        """
         prev = await self._collection.get(ticket_id)
         if prev is None:
             raise KeyError(ticket_id)
-        prev_status = prev.status.value
+        if prev.status is not TicketStatus.PROPOSED:
+            raise ValueError(
+                f"ticket {ticket_id!r}: approve requires PROPOSED status "
+                f"(is {prev.status.value})"
+            )
+        return await self._write_update(ticket_id, {"status": TicketStatus.OPEN})
+
+    async def update(self, ticket_id: str, **fields) -> Ticket:
+        prev = await self._collection.get(ticket_id)
+        if prev is None:
+            raise KeyError(ticket_id)
         # Operator-only approval gate: PROPOSED -> OPEN is reachable only via
-        # ``approve()`` (which passes ``_allow_approval``). Any other update
-        # path attempting that transition is rejected so the gate cannot be
-        # bypassed by a generic status update.
+        # ``approve()``. There is deliberately no escape-hatch parameter on this
+        # public method — every generic update is gated, so the transition
+        # cannot be smuggled through (e.g. an MCP/agent update_ticket call).
         new_status = fields.get("status")
-        if new_status is not None and not _allow_approval:
+        if new_status is not None:
             new_value = (
                 new_status.value
                 if isinstance(new_status, TicketStatus)
@@ -253,11 +247,24 @@ class TicketStore:
                     f"ticket {ticket_id!r}: PROPOSED -> OPEN requires approval; "
                     "use TicketStore.approve()"
                 )
+        return await self._write_update(ticket_id, fields)
+
+    async def _write_update(self, ticket_id: str, fields: dict) -> Ticket:
+        """Validated write of an update row. NOT gated — callers (``update``,
+        ``approve``) enforce their own transition rules first.
+
+        Validate the would-be result BEFORE appending the update row to JSONL.
+        Without this, an invalid update (e.g. a description change that drops
+        the AC section) would land on disk before the model validator ran,
+        leaving a row any subsequent store load would fail to deserialize. We
+        construct the merged ``Ticket`` in-memory first — if the merge violates
+        any model invariant Pydantic raises here, and the JSONL stays untouched.
+        """
+        prev = await self._collection.get(ticket_id)
+        if prev is None:
+            raise KeyError(ticket_id)
+        prev_status = prev.status.value
         fields.setdefault("updated_at", datetime.now(timezone.utc))
-        # model_copy with update= runs the field validators on each
-        # changed field but does NOT re-run model_validators (per
-        # Pydantic v2 docs). Use model_validate on the merged dict
-        # instead so the AC-required model_validator fires too.
         merged = prev.model_dump(by_alias=True)
         for key, value in fields.items():
             merged[key] = value

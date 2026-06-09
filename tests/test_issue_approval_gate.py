@@ -84,5 +84,30 @@ async def test_failed_append_advances_counter(tmp_path: Path) -> None:
     assert (await store.get(third)).key == "jig-3"
 
 
+@pytest.mark.asyncio
+async def test_approve_rejects_non_proposed(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+    tid = await store.create(_proposed())
+    await store.approve(tid)  # PROPOSED -> OPEN
+
+    # Approving again (now OPEN) must not silently re-open / re-approve.
+    with pytest.raises(ValueError, match="(?i)proposed"):
+        await store.approve(tid)
+
+
+@pytest.mark.asyncio
+async def test_update_has_no_approval_bypass_kwarg(tmp_path: Path) -> None:
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+    tid = await store.create(_proposed())
+
+    # A reserved-looking kwarg must not unlock the gate — it is treated as an
+    # (unknown) field and the transition is still rejected.
+    with pytest.raises((ValueError, Exception)):
+        await store.update(tid, status=TicketStatus.OPEN, _allow_approval=True)
+    assert (await store.get(tid)).status is TicketStatus.PROPOSED
+
+
 def test_proposed_is_non_terminal_for_analyzer() -> None:
     assert TicketStatus.PROPOSED in _NON_TERMINAL_ANALYZER_STATUSES

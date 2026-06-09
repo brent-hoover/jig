@@ -69,7 +69,10 @@ class IssueService:
                 f"Unknown size {size!r}. Valid values: {[s.value for s in Size]}"
             ) from None
 
+        # Resolve every referenced ticket BEFORE writing anything, so a bad
+        # parent or dependency ref fails before a partial ticket lands on disk.
         parent_id = (await self._require(parent)).id if parent else None
+        dep_ids = [(await self._require(r)).id for r in (blocked_by or [])]
 
         try:
             ticket = Ticket(
@@ -88,8 +91,9 @@ class IssueService:
             raise ValueError(str(exc)) from exc
 
         await self._tickets.create(ticket)
-        if blocked_by:
-            await self.link(ticket.key, blocked_by=blocked_by)
+        for dep_id in dep_ids:
+            await self._edge(ticket.id, "blocked_by", dep_id, False)
+            await self._edge(dep_id, "blocks", ticket.id, False)
         return await self._require(ticket.key)
 
     # ---- read -----------------------------------------------------------
@@ -131,6 +135,9 @@ class IssueService:
 
     async def update(self, ref: str, **fields) -> Ticket:
         await self._ensure_loaded()
+        reserved = sorted(k for k in fields if k.startswith("_"))
+        if reserved:
+            raise ValueError(f"cannot set reserved field(s): {reserved}")
         ticket = await self._require(ref)
         return await self._tickets.update(ticket.id, **fields)
 
@@ -161,19 +168,24 @@ class IssueService:
         await self._ensure_loaded()
         ticket = await self._require(ref)
 
+        # Pre-resolve every referenced issue before applying ANY edge, so a bad
+        # ref raises before the operation partially mutates state.
+        dep_ids = [(await self._require(r)).id for r in (blocked_by or [])]
+        block_ids = [(await self._require(r)).id for r in (blocks or [])]
+        parent_id = (
+            (await self._require(parent)).id
+            if (parent is not None and not remove)
+            else None
+        )
+
         if parent is not None:
-            new_parent = None if remove else (await self._require(parent)).id
-            await self._tickets.update(ticket.id, parent_id=new_parent)
-
-        for dep_ref in blocked_by or []:
-            dep = await self._require(dep_ref)
-            await self._edge(ticket.id, "blocked_by", dep.id, remove)
-            await self._edge(dep.id, "blocks", ticket.id, remove)
-
-        for tgt_ref in blocks or []:
-            tgt = await self._require(tgt_ref)
-            await self._edge(ticket.id, "blocks", tgt.id, remove)
-            await self._edge(tgt.id, "blocked_by", ticket.id, remove)
+            await self._tickets.update(ticket.id, parent_id=parent_id)
+        for dep_id in dep_ids:
+            await self._edge(ticket.id, "blocked_by", dep_id, remove)
+            await self._edge(dep_id, "blocks", ticket.id, remove)
+        for tgt_id in block_ids:
+            await self._edge(ticket.id, "blocks", tgt_id, remove)
+            await self._edge(tgt_id, "blocked_by", ticket.id, remove)
 
         return await self._require(ref)
 

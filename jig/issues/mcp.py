@@ -144,9 +144,17 @@ def build_server(root: Path) -> FastMCP:
     """Build the stdio MCP server bound to a single project root.
 
     Note: no ``issue_approve`` tool — approval is operator-only.
+
+    Each tool builds a FRESH ``IssueService`` per call. The service loads the
+    JSONL stores into memory once per instance, so a single long-lived service
+    would serve stale reads after the first call as the CLI / orchestrator /
+    other processes mutate the store. A new instance per invocation reloads
+    current on-disk state.
     """
-    svc = IssueService(root)
     server = FastMCP("jig-issues")
+
+    def svc() -> IssueService:
+        return IssueService(root)
 
     @server.tool(name="issue_create")
     async def _create(
@@ -161,7 +169,7 @@ def build_server(root: Path) -> FastMCP:
     ) -> dict[str, Any]:
         """Create an issue (lands as PROPOSED). Description must contain an AC section."""
         return await create_issue(
-            svc,
+            svc(),
             title=title,
             work_type=work_type,
             description=description,
@@ -181,13 +189,13 @@ def build_server(root: Path) -> FastMCP:
     ) -> list[dict[str, Any]]:
         """List issues, optionally filtered."""
         return await list_issues(
-            svc, status=status, work_type=work_type, label=label, assignee=assignee
+            svc(), status=status, work_type=work_type, label=label, assignee=assignee
         )
 
     @server.tool(name="issue_show")
     async def _show(ref: str) -> dict[str, Any]:
         """Show one issue and its comments. ref is a jig-N key or UUID."""
-        return await show_issue(svc, ref=ref)
+        return await show_issue(svc(), ref=ref)
 
     @server.tool(name="issue_update")
     async def _update(
@@ -198,18 +206,18 @@ def build_server(root: Path) -> FastMCP:
     ) -> dict[str, Any]:
         """Update issue fields. Cannot promote PROPOSED -> OPEN (operator-only)."""
         return await update_issue(
-            svc, ref=ref, status=status, assignee=assignee, title=title
+            svc(), ref=ref, status=status, assignee=assignee, title=title
         )
 
     @server.tool(name="issue_close")
     async def _close(ref: str) -> dict[str, Any]:
         """Close an issue."""
-        return await close_issue(svc, ref=ref)
+        return await close_issue(svc(), ref=ref)
 
     @server.tool(name="issue_comment")
     async def _comment(ref: str, text: str, author: str = "mcp") -> dict[str, Any]:
         """Add a comment to an issue."""
-        return await comment_issue(svc, ref=ref, text=text, author=author)
+        return await comment_issue(svc(), ref=ref, text=text, author=author)
 
     @server.tool(name="issue_link")
     async def _link(
@@ -221,7 +229,7 @@ def build_server(root: Path) -> FastMCP:
     ) -> dict[str, Any]:
         """Add or remove dependency / parent edges on an issue."""
         return await link_issue(
-            svc,
+            svc(),
             ref=ref,
             blocks=blocks,
             blocked_by=blocked_by,

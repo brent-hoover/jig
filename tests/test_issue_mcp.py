@@ -68,3 +68,25 @@ async def test_tool_set_excludes_approve(tmp_path: Path) -> None:
         "issue_link",
     }
     assert "issue_approve" not in names
+
+
+@pytest.mark.asyncio
+async def test_tools_reflect_external_writes(tmp_path: Path) -> None:
+    (tmp_path / ".jig" / "store").mkdir(parents=True)
+    server = issue_mcp.build_server(tmp_path)
+
+    await server.call_tool(
+        "issue_create",
+        {"title": "a", "work_type": "feature", "description": TICKET_AC_PLACEHOLDER},
+    )
+    # A separate writer appends another issue AFTER the first tool call. A
+    # server that cached one IssueService would miss this; a fresh service per
+    # call reloads from disk and sees it.
+    external = IssueService(tmp_path)
+    await external.create(
+        title="b", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+
+    result = await server.call_tool("issue_list", {})
+    blob = str(result)
+    assert "jig-1" in blob and "jig-2" in blob

@@ -120,3 +120,55 @@ async def test_list_filters_by_status(tmp_path: Path) -> None:
 
     proposed = await svc.list(status="proposed")
     assert [t.id for t in proposed] == [keep.id]
+
+
+@pytest.mark.asyncio
+async def test_create_with_bad_dependency_writes_nothing(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    with pytest.raises(KeyError):
+        await svc.create(
+            title="x",
+            work_type="feature",
+            description=TICKET_AC_PLACEHOLDER,
+            blocked_by=["jig-999"],
+        )
+    assert await svc.list() == []
+
+
+@pytest.mark.asyncio
+async def test_link_is_atomic_on_bad_ref(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    a = await svc.create(
+        title="a", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    b = await svc.create(
+        title="b", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+
+    # A good ref followed by a bad one must apply NEITHER edge.
+    with pytest.raises(KeyError):
+        await svc.link(a.key, blocked_by=[b.key, "jig-999"])
+
+    assert (await svc.get(a.key)).blocked_by == []
+    assert (await svc.get(b.key)).blocks == []
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_reserved_field(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    t = await svc.create(
+        title="x", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    with pytest.raises(ValueError, match="reserved"):
+        await svc.update(t.key, _allow_approval=True, status="open")
+
+
+@pytest.mark.asyncio
+async def test_approve_rejects_non_proposed(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    t = await svc.create(
+        title="x", work_type="feature", description=TICKET_AC_PLACEHOLDER
+    )
+    await svc.approve(t.key)
+    with pytest.raises(ValueError, match="(?i)proposed"):
+        await svc.approve(t.key)

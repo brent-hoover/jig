@@ -358,7 +358,11 @@ Elaborates one suite's brief and structured spec (capabilities, behaviors, user 
 ### SA Schemas (`schemas/arch.py`)
 
 **Key Models**:
-- `Architecture` — (spec_version, data_stores, modules, shared_contracts, cross_cutting_policies, risks, change_log)
+- `Architecture` — (spec_version, data_stores, modules, shared_contracts, cross_cutting_policies, risks, open_questions,
+  tech_decisions, size, change_log)
+- `SourceType` — enum: `context7`, `live_fetch`, `operator_specified`, `inferred` — provenance of a `TechDecision`
+- `TechDecision` — (id, choice, rationale, source_type, source_ref, version_pinned) — one SA technology choice grounded
+  in a verifiable source; `context7`/`live_fetch` entries require a non-empty `source_ref`
 - `Module` — (id, intent, tier_hint, owned_collections, exposed_apis, external_dependencies, behavioral_contracts, data_contracts, integration_ac, open_questions)
 - `ContractsFile` — (spec_version, module, owns, integration_ac, behavioral_contracts, data_contracts, external_dependencies, change_log)
 - `DataStore` — (id, kind [sql/nosql/kv/cache/etc.], intent)

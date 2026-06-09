@@ -2934,6 +2934,28 @@ class Orchestrator:
                         commit_sha=sha,
                     )
                 )
+
+        # Module-boundary degradation (semgrep missing / errored): enforcement
+        # was skipped, so the auto-commit must not read as a clean boundary
+        # pass — surface it on the thread + log, same contract as
+        # handle_commit_progress.
+        if result.boundary_warnings:
+            warn_text = "; ".join(result.boundary_warnings)
+            _logger.warning("auto-commit after %s: %s", phase_name, warn_text)
+            if self.threads is not None:
+                try:
+                    await self.threads.post(
+                        SystemEvent(
+                            ticket_id=ticket_id,
+                            author="orchestrator",
+                            event_type="boundary_check_degraded",
+                            content=warn_text,
+                        )
+                    )
+                except Exception:
+                    _logger.exception(
+                        "failed to post boundary_check_degraded thread entry"
+                    )
         return True
 
     async def _emit_phase_event(

@@ -174,10 +174,12 @@ failed auto-test checkpoint), so the dev agent fixes and re-commits — same loo
 
 **Degradation must not read as a clean pass.** When semgrep is missing or errors, `_boundary_check`
 returns the degradation message(s) instead of raising; `commit_worktree` carries them on
-`CommitResult.boundary_warnings`, and `handle_commit_progress` surfaces them in the success response
-(`warnings`) and the checkpoint summary/open-questions. The commit still proceeds (a missing tool must not
-block all dev work), but the run never reports a clean boundary pass when enforcement was skipped. Boundary
-rules apply only to the module package dirs they scope, so a worktree touching unrelated code is unaffected.
+`CommitResult.boundary_warnings`. **Both** callers surface them: `handle_commit_progress` in the success
+response (`warnings`) + checkpoint summary/open-questions, and the orchestrator's `_auto_commit_worktree`
+as a `boundary_check_degraded` SystemEvent on the ticket thread (+ log). The commit still proceeds (a
+missing tool must not block all dev work), but the run never reports a clean boundary pass when enforcement
+was skipped. Boundary rules apply only to the module package dirs they scope, so a worktree touching
+unrelated code is unaffected.
 
 ## Interfaces
 

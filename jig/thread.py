@@ -469,6 +469,10 @@ class SystemEvent(_ThreadEntryBase):
         # SF-I4: per-commit runner crashed (still non-blocking) so the
         # operator can distinguish "review passed" from "runner crashed".
         "per_commit_runner_crashed",
+        # Module boundaries: enforcement was skipped (semgrep missing / errored)
+        # during an auto-commit — surfaced so a degraded run isn't mistaken for
+        # a clean boundary pass.
+        "boundary_check_degraded",
         # Review-routing (feature-work/review-routing/plan.md step 8):
         # per-finding routing chose a target phase for the fix loop.
         # Content names the source and target phase + the route reason

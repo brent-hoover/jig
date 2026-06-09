@@ -677,7 +677,7 @@ def _load_scan_guard_baseline(project_path: Path) -> dict | None:
     if not baseline_path.is_file():
         return None
     try:
-        baseline = json.loads(baseline_path.read_text())
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
         if not isinstance(baseline, dict):
             raise TypeError("baseline is not a mapping")
         if not (

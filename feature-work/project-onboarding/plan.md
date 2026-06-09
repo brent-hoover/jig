@@ -32,21 +32,24 @@ through the state machine: each step unblocks the next state transition.
 
 ### 1. Foundation: WorkType, MCP tool, scanner role
 
-**What:** Add `ONBOARD_SCAN = "onboard_scan"` to `WorkType` in `jig/ticket.py` (line 193, alongside
-existing values). Add `handle_onboard_finish_scan` to `jig/init_mcp.py` (parallel to
-`handle_po_finish_brief`): writes `Note(kind="onboard_scan_done")` to the `onboard-scan` ticket
-thread and resolves the ticket. Register it in `jig/mcp_server.py`'s tool dispatch, scoped to the
-`scanner` role. Add `jig/defaults/roles/scanner.yaml` with the role definition from the design
-(Read, Glob, Grep, Bash read-only, Write prompt-scoped to `observations.md` and `CLAUDE.md`,
-ToolSearch, no MCPs).
+**What:** Add `ONBOARD_SCAN = "onboard_scan"` to `WorkType` in `jig/ticket.py` (alongside existing
+values). Add `handle_onboard_finish_scan` to `jig/init_mcp.py` (parallel to
+`handle_po_finish_brief`): writes `Note(text="scan complete", payload={"kind": "onboard_scan_done"})`
+to the `onboard-scan` ticket thread and resolves the ticket. (`Note.kind` is a fixed discriminator
+`"note"` — the scan marker lives in `payload`, not `kind`.) Register it in `jig/mcp_server.py`'s
+tool dispatch, scoped to the `scanner` role. Add `jig/defaults/roles/scanner.yaml` with the role
+definition from the design (Read, Glob, Grep, Bash read-only, Write prompt-scoped to
+`observations.md` and `CLAUDE.md`, ToolSearch, no MCPs). Also add `"onboard_artifacts_approved"`
+to the `SystemEvent.event_type` Literal in `jig/thread.py` (needed by the operator review gate in
+step 8; adding it here keeps the model change alongside the other onboard additions).
 
 **Why:** All downstream scanner-pass code depends on `WorkType.ONBOARD_SCAN` and
 `onboard_finish_scan` existing. The role file must exist before any agent spawn attempt.
 
 **Verify:** `from jig.ticket import WorkType; WorkType.ONBOARD_SCAN` resolves without error;
 `handle_onboard_finish_scan` importable and registered; `scanner.yaml` loads via
-`load_role("scanner")` without error; unit test that `handle_onboard_finish_scan` writes the
-expected `Note` and resolves the ticket.
+`load_role("scanner")` without error; unit test that `handle_onboard_finish_scan` writes a `Note`
+with `payload={"kind": "onboard_scan_done"}` and resolves the ticket.
 
 ---
 
@@ -56,11 +59,14 @@ expected `Note` and resolves the ticket.
 Add `classify_onboard_resume(project_path, tickets, threads) -> OnboardResumeState` — full
 implementation of all state transitions up through `PM_PROFILE_CONFIRM_PROMPT`; states
 `SA_READ_PASS` through `PM_BACKLOG` raise `NotImplementedError` for now. Add `run_onboard(path,
-brief_file, force, profile)`: calls `create_stub(path, name=path.name)` first, then writes
-`onboard_started_at` into the existing `project.yaml`; creates `.jig/onboard/`; if `brief_file`
-provided, copies it to `.jig/onboard/desired-state.md`; implements the `--force`
-snapshot/rmtree/restore sequence (parallel to `init_workflow.py`): snapshot operator-authored
-`profiles/*.yaml` and `workflows/*.yaml`, `rmtree(.jig/)`, `create_stub`, restore snapshots.
+brief_file, force, profile)` with this initialization order: (1) run preflight classification via
+`classify_directory` — reject with an error if `.jig/` already contains a completed or
+non-onboard project, unless `--force` is set; (2) if `--force`, execute the snapshot/rmtree/restore
+sequence first: snapshot `.jig/profiles/*.yaml` and `.jig/workflows/*.yaml` (operator-authored,
+inside `.jig/`), `rmtree(.jig/)`, then proceed; (3) call `create_stub(path, name=path.name)` and
+write `onboard_started_at` into `project.yaml`; (4) create `.jig/onboard/`; (5) if `brief_file`
+provided, copy it to `.jig/onboard/desired-state.md`; (6) restore snapshotted profile/workflow
+YAMLs.
 
 **Why:** `classify_onboard_resume` drives the loop. Writing project.yaml via `create_stub` first
 ensures `classify_directory` returns `IN_PROGRESS` on crash-resume. The `--force` reset must be
@@ -69,8 +75,9 @@ idempotent before any agents run.
 **Verify:** Unit tests for `classify_onboard_resume` covering: fresh dir → `SCAN_PASS`; after
 scan-done note → `PO_READ_PASS`; after PO handoff but no `brief_approved` → `PO_REVIEW`; after
 `brief_approved` → `SPEC_PASS`; after profile confirmed → `SA_READ_PASS` (raises
-`NotImplementedError`). Test that `run_onboard` with `--force` clears `.jig/` and recreates the
-stub AND that operator-authored profile/workflow YAMLs outside `.jig/` survive the reset. Test
+`NotImplementedError`). Test that `run_onboard` with `--force` clears `.jig/` and recreates the stub AND that
+`.jig/profiles/*.yaml` and `.jig/workflows/*.yaml` are snapshotted before `rmtree` and restored
+after `create_stub`. Test
 that `desired-state.md` lands at `.jig/onboard/desired-state.md` when `--brief` is provided.
 
 ---
@@ -97,7 +104,7 @@ exits with a clear error. `jig onboard` (no args) uses current directory. Passes
 depth-budget ceiling from the active profile into the ticket description (150 files for `small`,
 400 for `medium`/unknown), spawns the scanner role. Add `SCAN_PASS` dispatch to the `run_onboard`
 while loop. `classify_onboard_resume` SCAN_PASS detection: no `onboard-scan` ticket → `SCAN_PASS`;
-`Note(kind="onboard_scan_done")` on `onboard-scan` → `PO_READ_PASS`.
+`Note` with `payload.get("kind") == "onboard_scan_done"` on `onboard-scan` → `PO_READ_PASS`.
 
 **Why:** The scanner produces `observations.md`, which PO and SA both read as shared context. All
 subsequent passes depend on it.

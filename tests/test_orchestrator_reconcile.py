@@ -6,6 +6,7 @@ standalone MCP) is invisible. The reconcile body reloads from disk, then runs
 the ready-scan, so an externally-created-then-approved issue reaches dispatch.
 """
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -65,3 +66,21 @@ async def test_reconcile_runs_ready_scan(tmp_path: Path) -> None:
     await orch._reconcile_external_tickets()
 
     orch._start_ready_tickets.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_schedule_dispatches_once(tmp_path: Path) -> None:
+    """The reconcile tick is a second concurrent scheduler. Two overlapping
+    schedules for the same ticket must dispatch it exactly once."""
+    orch, _ = await _orchestrator_with_store(tmp_path)
+    orch._update_ticket_status = AsyncMock()
+    orch._run_ticket = AsyncMock()
+    tid = await orch.tickets.create(_ticket("go", TicketStatus.OPEN))
+
+    await asyncio.gather(orch._handle_schedule(tid), orch._handle_schedule(tid))
+
+    assert orch._run_ticket.call_count == 1
+    assert list(orch._running_tickets.keys()) == [tid]
+
+    for task in orch._running_tickets.values():
+        task.cancel()

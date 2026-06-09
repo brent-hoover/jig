@@ -266,6 +266,12 @@ class Orchestrator:
         self._analytics_emitter: AnalyticsEmitter | None = None
 
         self._running_tickets: dict[str, asyncio.Task] = {}
+        # Serializes ready-scan scheduling. _handle_schedule checks membership
+        # in _running_tickets then awaits several times before registering the
+        # task; without this lock two concurrent schedulers (the dispatch loop
+        # and the reconcile tick) could both pass the check and double-dispatch
+        # the same ticket, leaking one task.
+        self._schedule_lock = asyncio.Lock()
         self._live_subscribers: dict[tuple[str, str], asyncio.Task] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._dispatch_task: asyncio.Task | None = None
@@ -1486,45 +1492,52 @@ class Orchestrator:
         """
         if self.tickets is None:
             raise RuntimeError("Orchestrator not started — call startup() first")
-        if ticket_id in self._running_tickets:
-            _logger.debug("ticket %s already running, skipping", ticket_id)
-            return
-        ticket = await self.tickets.get(ticket_id)
-        if ticket is None:
-            _logger.warning("ticket %s not found, cannot schedule", ticket_id)
-            return
-        # Thread-style tickets (QA threads, ad-hoc requests) are dispatched
-        # from the message bus directly — they don't enter the workflow
-        # pipeline. Phase 4 replaces this transitional marker with proper
-        # typed thread entries on a parent ticket.
-        if ticket.workflow == "thread":
-            _logger.debug("skipping thread-style ticket %s", ticket_id)
-            return
-        # Check dependencies — all must be resolved before we start.
-        if ticket.blocked_by:
-            for dep_id in ticket.blocked_by:
-                dep = await self.tickets.get(dep_id)
-                if dep is None or dep.status != TicketStatus.RESOLVED:
-                    _logger.info(
-                        "ticket %s blocked by %s (status=%s), deferring",
-                        ticket_id,
-                        dep_id,
-                        dep.status.value if dep else "missing",
-                    )
-                    return
-        _logger.info("scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow)
-        await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
-        if self._emitter is not None:
-            from jig.events import JigEvent
-
-            await self._emitter.emit(
-                JigEvent(
-                    type="ticket_dispatched",
-                    data={"ticket_id": ticket_id, "title": ticket.title},
-                )
+        # Serialize the membership-check-through-registration so concurrent
+        # ready-scans (dispatch loop + reconcile tick) can't both schedule the
+        # same ticket. The whole body runs under the lock; the spawned
+        # _run_ticket task runs outside it (create_task does not await).
+        async with self._schedule_lock:
+            if ticket_id in self._running_tickets:
+                _logger.debug("ticket %s already running, skipping", ticket_id)
+                return
+            ticket = await self.tickets.get(ticket_id)
+            if ticket is None:
+                _logger.warning("ticket %s not found, cannot schedule", ticket_id)
+                return
+            # Thread-style tickets (QA threads, ad-hoc requests) are dispatched
+            # from the message bus directly — they don't enter the workflow
+            # pipeline. Phase 4 replaces this transitional marker with proper
+            # typed thread entries on a parent ticket.
+            if ticket.workflow == "thread":
+                _logger.debug("skipping thread-style ticket %s", ticket_id)
+                return
+            # Check dependencies — all must be resolved before we start.
+            if ticket.blocked_by:
+                for dep_id in ticket.blocked_by:
+                    dep = await self.tickets.get(dep_id)
+                    if dep is None or dep.status != TicketStatus.RESOLVED:
+                        _logger.info(
+                            "ticket %s blocked by %s (status=%s), deferring",
+                            ticket_id,
+                            dep_id,
+                            dep.status.value if dep else "missing",
+                        )
+                        return
+            _logger.info(
+                "scheduling ticket %s (workflow=%s)", ticket_id, ticket.workflow
             )
-        task = asyncio.create_task(self._run_ticket(ticket_id))
-        self._running_tickets[ticket_id] = task
+            await self._update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS)
+            if self._emitter is not None:
+                from jig.events import JigEvent
+
+                await self._emitter.emit(
+                    JigEvent(
+                        type="ticket_dispatched",
+                        data={"ticket_id": ticket_id, "title": ticket.title},
+                    )
+                )
+            task = asyncio.create_task(self._run_ticket(ticket_id))
+            self._running_tickets[ticket_id] = task
         task.add_done_callback(self._ticket_task_done)
 
     def _ticket_task_done(self, task: asyncio.Task) -> None:

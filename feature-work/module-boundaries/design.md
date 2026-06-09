@@ -160,11 +160,13 @@ callers that pass an ad-hoc worktree path. Add `_boundary_check(worktree_path)` 
    `--metrics off` keeps it offline (jig's established semgrep convention; default semgrep phones home).
    The rule dir is passed as an absolute project-root path; the scan target is the worktree path.
    **Result handling**: semgrep exits `0` *even with findings* unless `--error` is passed, so the exit
-   code is **not** used to detect violations — the JSON `results` list is. Exit `< 2` (ran OK): parse
-   `results`; any result → raise `BoundaryViolationError` (sibling of `LintError`) with one message per
-   finding (`module '<M>' may not import '<target>'`, from the rule message + file:line); empty → pass.
-   Exit `>= 2` = semgrep itself errored (bad rule, crash) → **loud-degradation** (visible warning), **not**
-   a `BoundaryViolationError`, so a tool failure never masquerades as a boundary violation and never as a
+   code is **not** used to detect violations — the JSON `results` list is. Exit in `{0, 1}` (ran OK): parse
+   `results` (guarded — empty/garbage stdout from a misbehaving run → loud-degrade, never an unhandled
+   `JSONDecodeError`); any result → raise `BoundaryViolationError` (sibling of `LintError`) with one message
+   per finding (`module '<M>' may not import '<target>'`, from the rule message + worktree-relative
+   file:line); empty → pass. Any other exit code — a tool error (`>= 2`) **or** a negative code from a
+   signal kill (e.g. SIGKILL under memory pressure) → **loud-degradation** (visible warning), **not** a
+   `BoundaryViolationError`, so a tool failure never masquerades as a boundary violation and never as a
    clean pass. A single whole-dir invocation is used; per-module attribution comes from the rule id
    (`boundary-<M>-...`), which is sufficient for the message contract.
 

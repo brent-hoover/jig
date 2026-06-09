@@ -942,6 +942,19 @@ class InternalBoundaries(BaseModel):
     forbidden_modules: list[str] = Field(default_factory=list)
     rationale: str | None = None
 
+    @model_validator(mode="after")
+    def _allow_forbid_disjoint(self) -> InternalBoundaries:
+        """A module id in both lists is contradictory — surface it at write
+        time rather than leaving a silent footgun (the deny side would win in
+        rule generation, but the intent is ambiguous)."""
+        overlap = set(self.allowed_modules) & set(self.forbidden_modules)
+        if overlap:
+            raise ValueError(
+                f"InternalBoundaries: module id(s) {sorted(overlap)} are in both "
+                "allowed_modules and forbidden_modules"
+            )
+        return self
+
 
 class ExternalBoundaries(BaseModel):
     """Which external packages this module may / may not import. Only

@@ -101,7 +101,32 @@ async def test_boundary_check_degrades_on_semgrep_error(tmp_path, monkeypatch):
     # exit >= 2 is a tool error → loud-degrade (warning returned), NOT a
     # BoundaryViolationError
     warnings = await _boundary_check(worktree)
-    assert warnings and "errored" in warnings[0]
+    assert warnings and "abnormally" in warnings[0]
+
+
+@pytest.mark.parametrize("rc, out", [(-9, b""), (0, b"not json"), (1, b"")])
+async def test_boundary_check_degrades_on_abnormal_exit_or_garbage(
+    tmp_path, monkeypatch, rc, out
+):
+    """A signal-killed semgrep (negative exit) or empty/garbage stdout must
+    loud-degrade, never let a JSONDecodeError escape the gate."""
+    worktree = _make_worktree(
+        tmp_path, code="import requests\n", rules=[_requests_rule()]
+    )
+
+    class _FakeProc:
+        returncode = rc
+
+        async def communicate(self):
+            return out, b"killed"
+
+    async def _fake_exec(*_a, **_k):
+        return _FakeProc()
+
+    monkeypatch.setattr("jig.worktree.shutil.which", lambda _: "/usr/bin/semgrep")
+    monkeypatch.setattr("jig.worktree.asyncio.create_subprocess_exec", _fake_exec)
+    warnings = await _boundary_check(worktree)  # no exception escapes
+    assert warnings and "NOT enforced" in warnings[0]
 
 
 async def test_boundary_check_noop_on_non_jig_worktree(tmp_path):

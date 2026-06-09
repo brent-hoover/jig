@@ -539,13 +539,15 @@ async def _boundary_check(worktree_path: Path) -> list[str]:
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate()
-    # semgrep exit codes: 0/1 = ran OK (it returns 0 even WITH findings unless
+    # semgrep ran OK only on exit 0/1 (it returns 0 even WITH findings unless
     # --error is passed, so don't infer violations from the code — parse the
-    # results), >= 2 = the tool itself errored (loud-degrade, not a violation).
-    if proc.returncode >= 2:
+    # results). Anything else — a tool error (>= 2) OR a negative code from a
+    # signal kill (e.g. SIGKILL under memory pressure) — is a loud-degrade, not
+    # a violation.
+    if proc.returncode not in (0, 1):
         warning = (
-            f"module-import boundaries NOT enforced: semgrep errored "
-            f"(exit {proc.returncode})"
+            f"module-import boundaries NOT enforced: semgrep terminated "
+            f"abnormally (exit {proc.returncode})"
         )
         _logger.warning(
             "%s for %s. stderr: %s",
@@ -555,11 +557,30 @@ async def _boundary_check(worktree_path: Path) -> list[str]:
         )
         return [warning]
 
-    results = json.loads(stdout).get("results", [])
+    # Guard the parse: a signal-killed or misbehaving semgrep can exit 0/1 with
+    # empty/garbage stdout — degrade loudly rather than let a JSONDecodeError
+    # escape the commit gate.
+    try:
+        results = json.loads(stdout).get("results", [])
+    except (json.JSONDecodeError, AttributeError) as exc:
+        warning = (
+            f"module-import boundaries NOT enforced: semgrep produced "
+            f"unparseable output ({exc})"
+        )
+        _logger.warning("%s for %s", warning, worktree_path)
+        return [warning]
+
+    def _loc(path: str) -> str:
+        p = Path(path)
+        try:
+            return str(p.relative_to(worktree_path))
+        except ValueError:
+            return p.name
+
     violations = sorted(
         {
             f"{r.get('extra', {}).get('message', r.get('check_id', 'boundary'))} "
-            f"({Path(r['path']).name}:{r['start']['line']})"
+            f"({_loc(r['path'])}:{r['start']['line']})"
             for r in results
         }
     )

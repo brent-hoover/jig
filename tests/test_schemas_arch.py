@@ -1110,6 +1110,14 @@ def test_boundaries_file_rejects_non_kebab_module():
         BoundariesFile(module="Job Posting")
 
 
+def test_internal_boundaries_rejects_allow_forbid_overlap():
+    with pytest.raises(ValidationError, match="both"):
+        InternalBoundaries(
+            allowed_modules=["candidate", "billing"],
+            forbidden_modules=["billing"],
+        )
+
+
 def test_boundaries_file_forbids_extra_key():
     with pytest.raises(ValidationError, match="extra"):
         BoundariesFile(module="m", bogus="nope")

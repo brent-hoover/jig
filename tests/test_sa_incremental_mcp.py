@@ -30,6 +30,7 @@ from jig.sa_incremental_mcp import (
     handle_module_set_integration_ac,
     handle_module_set_open_question,
     handle_module_set_owned_collection,
+    handle_sa_write_boundaries,
 )
 from jig.sa_mcp import SA_NEXT_PHASE, SA_TICKET_ID
 from jig.spec_loader import (
@@ -574,3 +575,63 @@ async def test_arch_finalize_raises_on_orphan_contracts(wired):
             summary="orphan",
             author="sa-mvp",
         )
+
+
+# ---- sa_write_boundaries --------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sa_write_boundaries_happy_path(wired):
+    from jig.spec_loader import module_boundaries_path
+
+    mid = await handle_sa_write_boundaries(
+        project_path=wired["project_path"],
+        boundaries={
+            "module": "catalog-ingest",
+            "internal": {"forbidden_modules": ["billing"]},
+            "external": {"allowed": ["httpx"], "forbidden": ["requests"]},
+        },
+    )
+    assert mid == "catalog-ingest"
+    path = module_boundaries_path(wired["project_path"], "catalog-ingest")
+    assert path.is_file()
+    import yaml
+
+    from jig.schemas.arch import BoundariesFile
+
+    bf = BoundariesFile.model_validate(yaml.safe_load(path.read_text()))
+    assert bf.internal.forbidden_modules == ["billing"]
+    assert bf.external.forbidden == ["requests"]
+
+
+@pytest.mark.asyncio
+async def test_sa_write_boundaries_invalid_raises(wired):
+    with pytest.raises(ValueError, match="boundaries does not validate"):
+        await handle_sa_write_boundaries(
+            project_path=wired["project_path"],
+            boundaries={"module": "Catalog Ingest"},  # non-kebab module
+        )
+
+
+@pytest.mark.asyncio
+async def test_sa_write_boundaries_rewrite_replaces(wired):
+    from jig.spec_loader import module_boundaries_path
+
+    for forbidden in (["billing"], ["auth"]):
+        await handle_sa_write_boundaries(
+            project_path=wired["project_path"],
+            boundaries={
+                "module": "catalog-ingest",
+                "internal": {"forbidden_modules": forbidden},
+            },
+        )
+    import yaml
+
+    from jig.schemas.arch import BoundariesFile
+
+    bf = BoundariesFile.model_validate(
+        yaml.safe_load(
+            module_boundaries_path(wired["project_path"], "catalog-ingest").read_text()
+        )
+    )
+    assert bf.internal.forbidden_modules == ["auth"]  # last write wins

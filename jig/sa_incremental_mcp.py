@@ -63,6 +63,7 @@ from jig.sa_validation import (
 from jig.schemas.arch import (
     Architecture,
     BehavioralContract,
+    BoundariesFile,
     CascadeAuditEntry,
     CascadeContractDisposition,
     CascadeProposal,
@@ -89,6 +90,7 @@ from jig.spec_loader import (
     load_architecture,
     load_module_contracts,
     save_architecture,
+    save_module_boundaries,
     save_module_contracts,
 )
 from jig.store.bus import Message, MessageBus, MessageType
@@ -119,6 +121,7 @@ __all__ = [
     "handle_module_set_integration_ac",
     "handle_module_set_open_question",
     "handle_module_set_owned_collection",
+    "handle_sa_write_boundaries",
 ]
 
 
@@ -1312,6 +1315,24 @@ async def handle_module_set_open_question(
     cf.open_questions = _replace_or_append(cf.open_questions, q)
     save_module_contracts(project_path, module_id, cf)
     return q.id
+
+
+# ---- modules/<m>/boundaries.yaml -----------------------------------------
+
+
+async def handle_sa_write_boundaries(*, project_path: Path, boundaries: Any) -> str:
+    """Write one module's isolation boundaries to
+    ``modules/<m>/boundaries.yaml``.
+
+    Takes a full ``BoundariesFile`` payload (``spec_version``, ``module``,
+    ``ontology``, ``internal``, ``external``, ``change_log``) and writes it
+    whole — boundaries are authored as a unit, not field-by-field like the
+    contract upserts. Rule generation is deferred to ``arch_finalize`` so a
+    half-written boundary set never produces stale rules.
+    """
+    bf = _coerce(BoundariesFile, boundaries, kind="boundaries")
+    save_module_boundaries(project_path, bf.module, bf)
+    return bf.module
 
 
 # ---- arch_finalize --------------------------------------------------------

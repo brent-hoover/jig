@@ -39,6 +39,7 @@ _INCREMENTAL_TOOLS = {
     "module_set_behavioral_contract",
     "module_set_data_contract",
     "module_set_open_question",
+    "sa_write_boundaries",
     "arch_finalize",
 }
 

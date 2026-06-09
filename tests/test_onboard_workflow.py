@@ -268,6 +268,32 @@ class TestScanPass:
         ticket = await stores["tickets"].get("onboard-scan")
         assert "at most 150 files" in ticket.description
 
+    async def test_respawn_refreshes_depth_budget(self, stores, no_agent_spawn):
+        create_stub(stores["project_path"], name="proj")
+        # First spawn bakes the 400-file fallback into the description.
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        from jig.profile_loader import apply_profile, load_profile
+
+        cfg = apply_profile(load_config(stores["project_path"]), load_profile("small"))
+        save_config(stores["project_path"], cfg)
+        # Respawn after the profile changed must not dispatch the stale
+        # ceiling.
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        ticket = await stores["tickets"].get("onboard-scan")
+        assert "at most 150 files" in ticket.description
+
     async def test_resolved_ticket_reactivated_on_respawn(self, stores, no_agent_spawn):
         create_stub(stores["project_path"], name="proj")
         await stores["tickets"].create(
@@ -397,6 +423,30 @@ class TestScanWriteGuard:
             await self._run_scan(stores, monkeypatch, writes)
         # A bare re-run must NOT proceed to the PO pass.
         assert await _classify(stores) == OnboardResumeState.BROKEN
+
+    async def test_git_info_exclude_write_fails(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+
+        async def writes(ctx):
+            info = ctx.worktree_path / ".git" / "info"
+            info.mkdir(parents=True, exist_ok=True)
+            (info / "exclude").write_text("payload.py\n")
+            (ctx.worktree_path / "payload.py").write_text("import os\n")
+
+        with pytest.raises(click.ClickException, match="exclude"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_pre_dirty_file_rewrite_fails(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        # Untracked file present before the scan — invisible to the
+        # path-diff sweep, caught by the content-hash pass.
+        (stores["project_path"] / "wip.txt").write_text("operator notes\n")
+
+        async def writes(ctx):
+            (ctx.worktree_path / "wip.txt").write_text("tampered\n")
+
+        with pytest.raises(click.ClickException, match="wip.txt"):
+            await self._run_scan(stores, monkeypatch, writes)
 
     async def test_crash_resume_claude_md_rewrite_allowed(self, stores, monkeypatch):
         create_stub(stores["project_path"], name="proj")
@@ -937,10 +987,13 @@ class TestRunOnboardInit:
         await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
         profiles = tmp_path / ".jig" / "profiles"
         workflows = tmp_path / ".jig" / "workflows"
+        roles = tmp_path / ".jig" / "roles"
         profiles.mkdir(parents=True)
         workflows.mkdir(parents=True)
+        roles.mkdir(parents=True)
         (profiles / "custom.yaml").write_text("name: custom\n")
         (workflows / "special.yaml").write_text("name: special\n")
+        (roles / "scanner.yaml").write_text("role: scanner\nallowed_tools: [Read]\n")
         marker = tmp_path / ".jig" / "onboard" / "desired-state.md"
         marker.write_text("stale desired state\n")
 
@@ -949,6 +1002,9 @@ class TestRunOnboardInit:
         assert not marker.exists()
         assert (profiles / "custom.yaml").read_text() == "name: custom\n"
         assert (workflows / "special.yaml").read_text() == "name: special\n"
+        assert (
+            roles / "scanner.yaml"
+        ).read_text() == "role: scanner\nallowed_tools: [Read]\n"
         pdata = yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
         assert pdata["onboard_started_at"]
 

@@ -417,6 +417,12 @@ async def run_onboard_pm_profile_pass(
 _SCAN_GUARD_GLOBS: tuple[str, ...] = (
     ".git/config",
     ".git/hooks/**/*",
+    # Exclusion rules are guard-critical: a write to .git/info/exclude
+    # (or the root .gitignore) could hide a payload file from the
+    # status sweep. Guarding them means blinding the sweep trips the
+    # hash pass instead.
+    ".git/info/**/*",
+    ".gitignore",
     ".jig/config.yaml",
     ".jig/roles/**/*",
     ".jig/profiles/**/*",
@@ -494,10 +500,31 @@ def _git_dirty_paths(project_path: Path) -> set[str]:
     return paths
 
 
+def _dirty_path_snapshot(project_path: Path, dirty_paths: set[str]) -> dict[str, str]:
+    """sha256 of the files that were already dirty/untracked before the
+    scan. The status sweep diffs by path, so without this a scanner
+    could freely rewrite a file that was dirty when onboarding started
+    (an in-flight working tree, not a fresh clone). Collapsed untracked
+    directories (``dir/`` entries) can't be hashed file-by-file here —
+    that residual is documented in the design.
+    """
+    import hashlib
+
+    snap: dict[str, str] = {}
+    for rel in dirty_paths:
+        if rel.endswith("/"):
+            continue
+        p = project_path / rel
+        if p.is_file():
+            snap[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return snap
+
+
 async def _verify_scan_writes(
     project_path: Path,
     guard_before: dict[str, str],
     dirty_before: set[str],
+    dirty_hashes_before: dict[str, str],
     threads: ThreadStore,
 ) -> None:
     """Fail the onboard if the scanner wrote outside its allowlist.
@@ -531,6 +558,17 @@ async def _verify_scan_writes(
         p
         for p in new_dirty
         if p != "CLAUDE.md" and not (p == ".jig/" or p.startswith(".jig/"))
+    }
+    # Files that were already dirty before the scan are invisible to the
+    # path diff above — compare their content hashes. The CLAUDE.md
+    # creation-allowance applies here too: a scanner that crashed after
+    # creating the file leaves it dirty, and the next spawn may finish it.
+    dirty_hashes_after = _dirty_path_snapshot(project_path, dirty_before)
+    violations |= {
+        rel
+        for rel in set(dirty_hashes_before) | set(dirty_hashes_after)
+        if dirty_hashes_before.get(rel) != dirty_hashes_after.get(rel)
+        and not (rel == "CLAUDE.md" and not claude_md_preexisting)
     }
     if violations:
         await threads.post(
@@ -568,25 +606,31 @@ async def run_onboard_scan_pass(
     the ticket description — the scanner has no config access, so the
     signal must arrive pre-injected.
     """
+    ceiling = scanner_file_ceiling(project_path)
+    description = (
+        "Read the existing codebase at the project root and write a "
+        "structural observations document to "
+        ".jig/onboard/observations.md, then call onboard_finish_scan.\n\n"
+        f"Depth budget: read at most {ceiling} files. If you hit the "
+        "ceiling before covering the whole tree, stop and add a "
+        "'## Depth limit reached' section to observations.md listing "
+        "what was not scanned."
+    )
     scan = await tickets.get("onboard-scan")
     if scan is None:
-        ceiling = scanner_file_ceiling(project_path)
         scan = Ticket(
             id="onboard-scan",
             work_type=WorkType.ONBOARD_SCAN,
             title="Scan existing codebase",
-            description=(
-                "Read the existing codebase at the project root and write a "
-                "structural observations document to "
-                ".jig/onboard/observations.md, then call onboard_finish_scan.\n\n"
-                f"Depth budget: read at most {ceiling} files. If you hit the "
-                "ceiling before covering the whole tree, stop and add a "
-                "'## Depth limit reached' section to observations.md listing "
-                "what was not scanned."
-            ),
+            description=description,
             created_by="cli",
         )
         await tickets.create(scan)
+    elif scan.description != description:
+        # Respawn after a crashed scan: recompute the budget rather than
+        # dispatching a stale ceiling (e.g. a re-run with --profile small
+        # would otherwise keep the 400-file fallback).
+        scan = await tickets.update("onboard-scan", description=description)
     scan = await _reactivate_if_resolved(tickets, scan, author="cli")
     project = load_project(project_path)
     role_cfg = load_role(project_path, "scanner")
@@ -605,13 +649,16 @@ async def run_onboard_scan_pass(
     )
     guard_before = _scan_guard_snapshot(project_path)
     dirty_before = _git_dirty_paths(project_path)
+    dirty_hashes_before = _dirty_path_snapshot(project_path, dirty_before)
     await _run_agent_with_cli_output(
         ctx,
         role_label="Scanner",
         console=console,
         subtitle="Reading the existing codebase into observations.md",
     )
-    await _verify_scan_writes(project_path, guard_before, dirty_before, threads)
+    await _verify_scan_writes(
+        project_path, guard_before, dirty_before, dirty_hashes_before, threads
+    )
 
 
 async def _fresh_gap_note(threads: ThreadStore) -> Note | None:

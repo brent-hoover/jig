@@ -159,6 +159,7 @@ class OperatorYamlSnapshots:
     def __init__(self) -> None:
         self.profiles: dict[str, str] = {}
         self.workflows: dict[str, str] = {}
+        self.roles: dict[str, str] = {}
 
 
 async def _force_reset_jig(
@@ -185,6 +186,11 @@ async def _force_reset_jig(
         snapshots.profiles[src.name] = src.read_text(encoding="utf-8")
     for src in (target / ".jig" / "workflows").glob("*.yaml"):
         snapshots.workflows[src.name] = src.read_text(encoding="utf-8")
+    # Roles are part of the security posture (e.g. an operator-tightened
+    # scanner.yaml) — losing them to the rmtree would silently fall back
+    # to the shipped defaults.
+    for src in (target / ".jig" / "roles").glob("*.yaml"):
+        snapshots.roles[src.name] = src.read_text(encoding="utf-8")
     shutil.rmtree(target / ".jig")
     return snapshots
 
@@ -204,6 +210,11 @@ def _restore_operator_yamls(target: Path, snapshots: OperatorYamlSnapshots) -> N
         dest_dir = target / ".jig" / "workflows"
         dest_dir.mkdir(parents=True, exist_ok=True)
         for fname, body in snapshots.workflows.items():
+            (dest_dir / fname).write_text(body, encoding="utf-8")
+    if snapshots.roles:
+        dest_dir = target / ".jig" / "roles"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for fname, body in snapshots.roles.items():
             (dest_dir / fname).write_text(body, encoding="utf-8")
 
 

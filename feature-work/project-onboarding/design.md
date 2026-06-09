@@ -410,6 +410,12 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 2 (roborev job 444): `.git/info/**` and the root `.gitignore`
+  join the hash surface (writing exclusion rules to blind the status sweep now trips the hash pass);
+  files dirty before the scan are content-hashed so an in-flight working tree's files can't be silently
+  rewritten (collapsed untracked directories remain a documented residual); the scan ticket's depth
+  budget is recomputed on respawn; `--force` snapshots now include `.jig/roles/*.yaml` (operator-tightened
+  roles are security posture). (brent-hoover)
 - 2026-06-09: Write-guard hardening (roborev job 442): violations persist as a `scan_guard_violation`
   note that classifies as BROKEN (a bare re-run can't continue past a failed guard; only `--force`
   clears it); `.jig/onboard/desired-state.md` (operator input) joins the protected surface; `git status`

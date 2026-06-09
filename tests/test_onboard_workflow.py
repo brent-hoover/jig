@@ -197,15 +197,14 @@ class TestClassifyOnboardResume:
         )
         assert await _classify(stores) == OnboardResumeState.PM_PROFILE_CONFIRM_PROMPT
 
-    async def test_profile_confirmed_raises_not_implemented(self, stores):
+    async def test_profile_confirmed_is_phase2_pending(self, stores):
         await _seed_scan_done(stores)
         await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
         create_stub(stores["project_path"], name="proj")
         cfg = load_config(stores["project_path"])
         cfg.profile.name = "small"
         save_config(stores["project_path"], cfg)
-        with pytest.raises(NotImplementedError, match="sa-architect Phase 2"):
-            await _classify(stores)
+        assert await _classify(stores) == OnboardResumeState.PHASE2_PENDING
 
     async def test_onboard_completed_is_already_done(self, stores):
         create_stub(stores["project_path"], name="proj")
@@ -458,88 +457,301 @@ class TestPmProfilePass:
         assert "Free-form prose recommending" in ticket.description
 
 
+# --- Phase-1 loop harness ----------------------------------------------------
+#
+# Fake agent behaviors, consumed one per spawn for the PO (so a respawn
+# can act differently), plus a scripted PromptHandler for the operator
+# gates. Used by TestPhase1Loop to exercise the dispatch arms.
+
+
+async def _scanner_done(ctx):
+    obs = ctx.worktree_path / ".jig" / "onboard" / "observations.md"
+    obs.write_text(
+        "## Project structure\n\nTwo modules.\n\n"
+        "## Profile recommendation\n\nsmall — tiny repo.\n"
+    )
+    await ctx.threads.post(
+        Note(
+            ticket_id="onboard-scan",
+            author="scanner",
+            text="scan complete",
+            payload={"kind": "onboard_scan_done"},
+        )
+    )
+    await ctx.tickets.update("onboard-scan", status=TicketStatus.RESOLVED)
+
+
+async def _po_handoff(ctx):
+    await ctx.threads.post(
+        Handoff(
+            ticket_id="brief",
+            author="po",
+            phase="spec-generator",
+            outputs=["docs/brief.md"],
+            summary="Current-state brief extracted.",
+        )
+    )
+    await ctx.tickets.update("brief", status=TicketStatus.RESOLVED)
+
+
+async def _po_ask_question(ctx):
+    await ctx.threads.post(
+        Question(
+            ticket_id="brief",
+            author="po",
+            question="How are imports batched?",
+            target="any_human",
+        )
+    )
+    await ctx.tickets.update("brief", status=TicketStatus.NEEDS_INFO)
+
+
+async def _pm_propose_small(ctx):
+    await ctx.threads.post(
+        Note(
+            ticket_id="profile",
+            author="pm",
+            text="Proposed profile: small",
+            payload={
+                "kind": "pm_propose_profile",
+                "name": "small",
+                "rationale": "tiny repo",
+            },
+        )
+    )
+    await ctx.tickets.update("profile", status=TicketStatus.RESOLVED)
+
+
+async def _spec_ok(threads):
+    await threads.post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_generated",
+            content="structured spec written",
+        )
+    )
+
+
+async def _spec_gaps(threads):
+    await threads.post(
+        Note(
+            ticket_id="brief",
+            author="spec-generator",
+            text="Gaps:\n- missing AC",
+            payload={
+                "gaps": [
+                    {
+                        "kind": "missing",
+                        "location": "Built/importer",
+                        "description": "no acceptance criteria",
+                        "severity": "blocking",
+                    }
+                ]
+            },
+        )
+    )
+    await threads.post(
+        SystemEvent(
+            ticket_id="brief",
+            author="spec-generator",
+            event_type="spec_gaps_reported",
+            content="1 gap(s) reported",
+        )
+    )
+
+
+class ScriptedPromptHandler(AutoPromptHandler):
+    """AutoPromptHandler with scripted overrides for the operator gates.
+
+    ``brief`` / ``profile`` are consumed one per prompt; once exhausted
+    the handler falls back to YES (the auto default).
+    """
+
+    def __init__(self, *, brief=None, profile=None, answer="Batched nightly."):
+        self._brief = list(brief or [])
+        self._profile = list(profile or [])
+        self._answer = answer
+
+    async def ask_brief_approval(self, *, project_path, console):
+        from jig.init_workflow import BriefApprovalChoice
+
+        return self._brief.pop(0) if self._brief else BriefApprovalChoice.YES
+
+    async def ask_profile_confirm(self, *, name, rationale, console):
+        from jig.init_workflow import ConfirmChoice
+
+        return self._profile.pop(0) if self._profile else ConfirmChoice.YES
+
+    async def ask_question_answer(self, *, question, index, total, console):
+        return self._answer
+
+
+def _install_phase1_fakes(monkeypatch, *, po_steps, spec_steps):
+    """Install fake agent spawns + spec generator. Returns the spawn log
+    and a spec-run counter (mutated in place)."""
+    import jig.init_workflow as init_workflow
+    import jig.spec_generator as spec_generator
+
+    spawned = []
+    po_iter = iter(po_steps)
+    spec_iter = iter(spec_steps)
+    spec_runs = []
+
+    async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
+        spawned.append(ctx.role)
+        if ctx.role == "scanner":
+            await _scanner_done(ctx)
+        elif ctx.role == "po":
+            await next(po_iter)(ctx)
+        elif ctx.role == "pm":
+            await _pm_propose_small(ctx)
+        else:  # pragma: no cover - guard against silent role drift
+            raise AssertionError(f"unexpected spawn: {ctx.role}")
+
+    async def fake_spec_generator(
+        *, project_path, tickets, threads, memory, bus, emitter=None
+    ):
+        spec_runs.append(1)
+        await next(spec_iter)(threads)
+
+    monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
+    monkeypatch.setattr(init_workflow, "_run_agent_with_cli_output", fake_spawn)
+    monkeypatch.setattr(spec_generator, "run_spec_generator", fake_spec_generator)
+    return spawned, spec_runs
+
+
+def _capture_console():
+    from io import StringIO
+
+    from rich.console import Console
+
+    buf = StringIO()
+    return Console(file=buf, force_terminal=False, width=120), buf
+
+
 class TestPhase1Loop:
-    """Full Phase-1 walk: scan → PO → review → spec → PM profile →
-    confirm → SA_READ_PASS (NotImplementedError boundary)."""
+    """Loop-level walks through the dispatch arms with scripted prompts."""
 
     async def test_full_phase1_flow(self, tmp_path, monkeypatch):
-        import jig.init_workflow as init_workflow
-        import jig.spec_generator as spec_generator
+        spawned, spec_runs = _install_phase1_fakes(
+            monkeypatch, po_steps=[_po_handoff], spec_steps=[_spec_ok]
+        )
+        console, buf = _capture_console()
 
-        spawned = []
-
-        async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
-            spawned.append(ctx.role)
-            if ctx.role == "scanner":
-                obs = ctx.worktree_path / ".jig" / "onboard" / "observations.md"
-                obs.write_text(
-                    "## Project structure\n\nTwo modules.\n\n"
-                    "## Profile recommendation\n\nsmall — tiny repo.\n"
-                )
-                await ctx.threads.post(
-                    Note(
-                        ticket_id="onboard-scan",
-                        author="scanner",
-                        text="scan complete",
-                        payload={"kind": "onboard_scan_done"},
-                    )
-                )
-                await ctx.tickets.update("onboard-scan", status=TicketStatus.RESOLVED)
-            elif ctx.role == "po":
-                await ctx.threads.post(
-                    Handoff(
-                        ticket_id="brief",
-                        author="po",
-                        phase="spec-generator",
-                        outputs=["docs/brief.md"],
-                        summary="Current-state brief extracted.",
-                    )
-                )
-                await ctx.tickets.update("brief", status=TicketStatus.RESOLVED)
-            elif ctx.role == "pm":
-                await ctx.threads.post(
-                    Note(
-                        ticket_id="profile",
-                        author="pm",
-                        text="Proposed profile: small",
-                        payload={
-                            "kind": "pm_propose_profile",
-                            "name": "small",
-                            "rationale": "tiny repo",
-                        },
-                    )
-                )
-                await ctx.tickets.update("profile", status=TicketStatus.RESOLVED)
-            else:  # pragma: no cover - guard against silent role drift
-                raise AssertionError(f"unexpected spawn: {ctx.role}")
-
-        async def fake_spec_generator(
-            *, project_path, tickets, threads, memory, bus, emitter=None
-        ):
-            await threads.post(
-                SystemEvent(
-                    ticket_id="brief",
-                    author="spec-generator",
-                    event_type="spec_generated",
-                    content="structured spec written",
-                )
-            )
-
-        monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
-        monkeypatch.setattr(init_workflow, "_run_agent_with_cli_output", fake_spawn)
-        monkeypatch.setattr(spec_generator, "run_spec_generator", fake_spec_generator)
-
-        # The Phase-1 boundary returns cleanly — the loop catches the
-        # classifier's NotImplementedError and prints completion.
-        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+        # The Phase-1 boundary (PHASE2_PENDING) returns cleanly.
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler(), console=console)
 
         assert spawned == ["scanner", "po", "pm"]
+        assert len(spec_runs) == 1
+        assert "Phase 1 complete" in buf.getvalue()
         cfg = load_config(tmp_path)
         assert cfg.profile.name == "small"
         tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
         await tickets.load()
         profile_ticket = await tickets.get("profile")
         assert "small — tiny repo." in profile_ticket.description
+
+    async def test_brief_resume_respawns_po(self, tmp_path, monkeypatch):
+        from jig.init_workflow import BriefApprovalChoice
+
+        spawned, spec_runs = _install_phase1_fakes(
+            monkeypatch,
+            po_steps=[_po_handoff, _po_handoff],
+            spec_steps=[_spec_ok],
+        )
+        console, _ = _capture_console()
+        prompts = ScriptedPromptHandler(brief=[BriefApprovalChoice.RESUME])
+
+        await run_onboard(path=tmp_path, prompts=prompts, console=console)
+
+        assert spawned == ["scanner", "po", "po", "pm"]
+        assert len(spec_runs) == 1
+
+    async def test_brief_rejection_exits_with_state_saved(self, tmp_path, monkeypatch):
+        from jig.init_workflow import BriefApprovalChoice
+
+        spawned, spec_runs = _install_phase1_fakes(
+            monkeypatch, po_steps=[_po_handoff], spec_steps=[_spec_ok]
+        )
+        console, buf = _capture_console()
+        prompts = ScriptedPromptHandler(brief=[BriefApprovalChoice.NO])
+
+        await run_onboard(path=tmp_path, prompts=prompts, console=console)
+
+        assert spawned == ["scanner", "po"]
+        assert len(spec_runs) == 0
+        assert "Brief not approved" in buf.getvalue()
+
+    async def test_spec_gaps_rendered_at_review_gate(self, tmp_path, monkeypatch):
+        spawned, spec_runs = _install_phase1_fakes(
+            monkeypatch,
+            po_steps=[_po_handoff],
+            spec_steps=[_spec_gaps, _spec_ok],
+        )
+        console, buf = _capture_console()
+
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler(), console=console)
+
+        # gaps → back to the review gate (gap text shown) → re-approve →
+        # second spec run succeeds.
+        assert len(spec_runs) == 2
+        out = buf.getvalue()
+        assert "Spec generation reported gaps" in out
+        assert "Built/importer: no acceptance criteria" in out
+
+    async def test_open_question_routed_through_answers(self, tmp_path, monkeypatch):
+        from jig.thread import Answer
+
+        spawned, spec_runs = _install_phase1_fakes(
+            monkeypatch,
+            po_steps=[_po_ask_question, _po_handoff],
+            spec_steps=[_spec_ok],
+        )
+        console, _ = _capture_console()
+        prompts = ScriptedPromptHandler(answer="Imports are batched nightly.")
+
+        await run_onboard(path=tmp_path, prompts=prompts, console=console)
+
+        assert spawned == ["scanner", "po", "po", "pm"]
+        threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
+        await threads.load()
+        entries = await threads.for_ticket("brief")
+        answers = [e for e in entries if isinstance(e, Answer)]
+        assert len(answers) == 1
+        assert answers[0].text == "Imports are batched nightly."
+
+    async def test_profile_swap_applies_other_profile(self, tmp_path, monkeypatch):
+        from jig.init_workflow import ConfirmChoice
+
+        spawned, _ = _install_phase1_fakes(
+            monkeypatch, po_steps=[_po_handoff], spec_steps=[_spec_ok]
+        )
+        console, _ = _capture_console()
+        prompts = ScriptedPromptHandler(profile=[ConfirmChoice.SWAP])
+
+        await run_onboard(path=tmp_path, prompts=prompts, console=console)
+
+        # PM proposed small; SWAP flips to medium.
+        cfg = load_config(tmp_path)
+        assert cfg.profile.name == "medium"
+
+    async def test_profile_rejection_exits_without_applying(
+        self, tmp_path, monkeypatch
+    ):
+        from jig.init_workflow import ConfirmChoice
+
+        spawned, _ = _install_phase1_fakes(
+            monkeypatch, po_steps=[_po_handoff], spec_steps=[_spec_ok]
+        )
+        console, buf = _capture_console()
+        prompts = ScriptedPromptHandler(profile=[ConfirmChoice.NO])
+
+        await run_onboard(path=tmp_path, prompts=prompts, console=console)
+
+        assert "Profile not approved" in buf.getvalue()
+        cfg = load_config(tmp_path)
+        assert cfg.profile.name == ""
 
 
 @pytest.fixture

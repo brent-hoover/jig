@@ -163,11 +163,16 @@ def onboard(
 
     # Onboarding non-git repositories is unsupported — the workflow
     # depends on worktrees and hooks.
-    probe = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        cwd=str(path),
-        capture_output=True,
-    )
+    try:
+        probe = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(path),
+            capture_output=True,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            "git is not installed (or not on PATH). `jig onboard` requires git."
+        ) from exc
     if probe.returncode != 0:
         raise click.ClickException(
             f"{path} is not a git repository. `jig onboard` only supports "

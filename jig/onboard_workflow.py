@@ -4,8 +4,8 @@ Imports an existing codebase into the jig workflow: a scanner pass
 produces ``.jig/onboard/observations.md``, the PO extracts the
 current-state brief from existing behavior, the spec generator runs
 unchanged, and the PM picks a profile. Phase 2 (SA read pass, operator
-review, PM backlog) is blocked on sa-architect Phase 2 — those states
-raise ``NotImplementedError``.
+review, PM backlog) is blocked on sa-architect Phase 2 — the classifier
+returns ``PHASE2_PENDING`` at that boundary and the loop exits cleanly.
 
 The pattern mirrors ``init_workflow.py``: a while loop calls
 ``classify_onboard_resume()`` each tick and dispatches the next step.
@@ -20,7 +20,7 @@ import shutil
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import logging
 
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 from jig.atomic import atomic_write_text
 from jig.init_workflow import (
     DirState,
+    _apply_named_profile,
     _reactivate_if_resolved,
     _run_agent_with_cli_output,
     _spawn_console,
@@ -90,6 +91,11 @@ class OnboardResumeState(str, Enum):
     NEEDS_ANSWER_ARCH = "needs_answer_arch"
     OPERATOR_REVIEW = "operator_review"
     PM_BACKLOG = "pm_backlog"
+    # Phase-1 boundary: scan/brief/spec/profile are done; the SA read
+    # pass and later states ship with sa-architect Phase 2. A dedicated
+    # state (not an exception) so a real bug raising NotImplementedError
+    # is never misreported as successful completion.
+    PHASE2_PENDING = "phase2_pending"
     ALREADY_DONE = "already_done"
     BROKEN = "broken"
 
@@ -114,6 +120,49 @@ def is_onboard_project(project_path: Path) -> bool:
     return bool(_read_project_yaml(project_path).get("onboard_started_at"))
 
 
+class _BriefThreadScan(NamedTuple):
+    """One pass over the brief ticket's thread — the ordering signals
+    both ``classify_onboard_resume`` and ``_fresh_gap_note`` key on."""
+
+    last_handoff_idx: int
+    last_approved_idx: int
+    last_gaps_event_idx: int
+    has_spec_gen_event: bool
+    last_gap_note: "Note | None"
+    last_gap_note_idx: int
+
+
+async def _scan_brief_thread(threads: ThreadStore) -> _BriefThreadScan:
+    entries = await threads.for_ticket("brief")
+    last_handoff_idx = -1
+    last_approved_idx = -1
+    last_gaps_event_idx = -1
+    has_spec_gen_event = False
+    last_gap_note: Note | None = None
+    last_gap_note_idx = -1
+    for i, e in enumerate(entries):
+        if isinstance(e, Handoff):
+            last_handoff_idx = i
+        elif isinstance(e, SystemEvent):
+            if e.event_type == "spec_generated":
+                has_spec_gen_event = True
+            elif e.event_type == "spec_gaps_reported":
+                last_gaps_event_idx = i
+            elif e.event_type == "brief_approved":
+                last_approved_idx = i
+        elif isinstance(e, Note) and "gaps" in e.payload:
+            last_gap_note = e
+            last_gap_note_idx = i
+    return _BriefThreadScan(
+        last_handoff_idx=last_handoff_idx,
+        last_approved_idx=last_approved_idx,
+        last_gaps_event_idx=last_gaps_event_idx,
+        has_spec_gen_event=has_spec_gen_event,
+        last_gap_note=last_gap_note,
+        last_gap_note_idx=last_gap_note_idx,
+    )
+
+
 async def classify_onboard_resume(
     *,
     project_path: Path,
@@ -123,9 +172,9 @@ async def classify_onboard_resume(
     """Pure inspection. Maps persisted onboard state to the next action.
 
     Implements all transitions up through PM_PROFILE_CONFIRM_PROMPT.
-    The Phase-2 states (SA_READ_PASS → PM_BACKLOG) raise
-    ``NotImplementedError`` until sa-architect Phase 2 freezes the
-    unified SA role interface.
+    Past that, ``PHASE2_PENDING`` marks the Phase-1 boundary — the
+    SA_READ_PASS → PM_BACKLOG states are unreachable until sa-architect
+    Phase 2 freezes the unified SA role interface.
     """
     ds = classify_directory(project_path)
     if ds == DirState.BROKEN:
@@ -157,31 +206,19 @@ async def classify_onboard_resume(
     if await _ticket_awaits_answer(tickets, threads, "brief"):
         return OnboardResumeState.NEEDS_ANSWER_BRIEF
 
-    brief_entries = await threads.for_ticket("brief")
-    last_handoff_idx = -1
-    last_approved_idx = -1
-    last_gaps_idx = -1
-    has_spec_gen_event = False
-    for i, e in enumerate(brief_entries):
-        if isinstance(e, Handoff):
-            last_handoff_idx = i
-        elif isinstance(e, SystemEvent):
-            if e.event_type == "spec_generated":
-                has_spec_gen_event = True
-            elif e.event_type == "spec_gaps_reported":
-                last_gaps_idx = i
-            elif e.event_type == "brief_approved":
-                last_approved_idx = i
-
-    if last_handoff_idx < 0 and not has_spec_gen_event:
+    scan = await _scan_brief_thread(threads)
+    if scan.last_handoff_idx < 0 and not scan.has_spec_gen_event:
         return OnboardResumeState.PO_READ_PASS
-    if not has_spec_gen_event:
+    if not scan.has_spec_gen_event:
         # Approval is fresh only when it came after both the latest PO
         # handoff and the latest gap report. A gap report after the
         # approval routes back to the operator gate (edit brief.md /
         # resume PO / re-approve) rather than re-running the spec
         # generator unattended in a loop.
-        if last_approved_idx > last_handoff_idx and last_approved_idx > last_gaps_idx:
+        if (
+            scan.last_approved_idx > scan.last_handoff_idx
+            and scan.last_approved_idx > scan.last_gaps_event_idx
+        ):
             return OnboardResumeState.SPEC_PASS
         return OnboardResumeState.PO_REVIEW
 
@@ -210,11 +247,7 @@ async def classify_onboard_resume(
         return OnboardResumeState.PM_PROFILE_CONFIRM_PROMPT
 
     # --- Phase 2 (blocked on sa-architect Phase 2) --------------------------
-    raise NotImplementedError(
-        "onboard SA read pass (SA_READ_PASS and later states) is blocked "
-        "on sa-architect Phase 2 — the unified SA role interface is not "
-        "frozen yet. Phase 1 of jig onboard ends at profile selection."
-    )
+    return OnboardResumeState.PHASE2_PENDING
 
 
 def _observations_text(project_path: Path) -> str:
@@ -428,53 +461,13 @@ async def _fresh_gap_note(threads: ThreadStore) -> Note | None:
     """The latest spec-gap Note on the brief ticket, when it postdates
     both the last PO handoff and the last operator approval — i.e. the
     gaps are why the loop is back at PO_REVIEW. ``None`` otherwise."""
-    entries = await threads.for_ticket("brief")
-    last_handoff_idx = -1
-    last_approved_idx = -1
-    last_gap_note: Note | None = None
-    last_gap_idx = -1
-    for i, e in enumerate(entries):
-        if isinstance(e, Handoff):
-            last_handoff_idx = i
-        elif isinstance(e, SystemEvent) and e.event_type == "brief_approved":
-            last_approved_idx = i
-        elif isinstance(e, Note) and "gaps" in e.payload:
-            last_gap_note = e
-            last_gap_idx = i
-    if last_gap_idx > last_handoff_idx and last_gap_idx > last_approved_idx:
-        return last_gap_note
+    scan = await _scan_brief_thread(threads)
+    if (
+        scan.last_gap_note_idx > scan.last_handoff_idx
+        and scan.last_gap_note_idx > scan.last_approved_idx
+    ):
+        return scan.last_gap_note
     return None
-
-
-def _apply_named_profile(target: Path, name: str, console: "Console") -> None:
-    """Load + apply + persist a named profile, with friendly errors.
-
-    Shared by the ``--profile`` bypass and the PM-confirm arm.
-    """
-    from jig.config import load_config, save_config
-    from jig.profile_loader import (
-        apply_profile,
-        copy_profile_templates,
-        load_profile,
-    )
-
-    try:
-        profile = load_profile(name, project_path=target)
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
-    try:
-        cfg = apply_profile(load_config(target), profile)
-    except FileNotFoundError as exc:
-        raise click.ClickException(
-            f"{target}/.jig/config.yaml not found while applying profile "
-            f"{name!r}. Onboard state is inconsistent — re-run `jig onboard`."
-        ) from exc
-    save_config(target, cfg)
-    copy_profile_templates(profile, target)
-    console.print(
-        f"Applied profile '{profile.name}' (sa_role={profile.sa_role}).",
-        markup=False,
-    )
 
 
 async def run_onboard(
@@ -587,7 +580,7 @@ async def run_onboard(
     # rmtree doesn't delete the write; classify_onboard_resume reads
     # ``cfg.profile.name`` on every tick.
     if profile_name is not None:
-        _apply_named_profile(target, profile_name, console)
+        _apply_named_profile(target, profile_name, console, rerun_hint="`jig onboard`")
 
     from jig.logging_setup import configure_logging
 
@@ -641,15 +634,10 @@ async def _run_onboard_resume_loop(
     """Resume-state dispatch loop. Each tick classifies and advances
     one step. Dispatch arms land with their implementation steps."""
     while True:
-        try:
-            rs = await classify_onboard_resume(
-                project_path=target, tickets=tickets, threads=threads
-            )
-        except NotImplementedError:
-            # Phase-1 boundary: scan, brief, spec, and profile are done.
-            # The SA read pass, operator review, and backlog bootstrap
-            # ship with sa-architect Phase 2 — a deliberate stop, not a
-            # crash.
+        rs = await classify_onboard_resume(
+            project_path=target, tickets=tickets, threads=threads
+        )
+        if rs == OnboardResumeState.PHASE2_PENDING:
             console.print(
                 "Onboard Phase 1 complete: scan, current-state brief, "
                 "structured spec, and profile are in place. The SA read "
@@ -799,6 +787,8 @@ async def _run_onboard_resume_loop(
                         "must restrict PM-1 to small/medium."
                     )
                 chosen_name = "small" if chosen_name == "medium" else "medium"
-            _apply_named_profile(target, chosen_name, console)
+            _apply_named_profile(
+                target, chosen_name, console, rerun_hint="`jig onboard`"
+            )
             continue
         raise NotImplementedError(f"onboard dispatch not yet wired for: {rs}")

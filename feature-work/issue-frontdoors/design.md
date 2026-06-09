@@ -128,7 +128,9 @@ reference is taken by the CLI/MCP.
 ## Data model
 
 - `Ticket` gains `key: str = ""` (the `jig-N` value), populated at create. Defaulted, not required, so pre-feature
-  keyless records still validate on load; lazy-backfilled on first front-door access. Internal `id` (UUID4) unchanged.
+  keyless records still validate on load and remain addressable by UUID. No backfill: jig has no production data (it is
+  regenerable), and every newly created ticket already gets a key, so a soft migration would buy nothing. Internal `id`
+  (UUID4) unchanged.
 - `TicketStatus` gains `PROPOSED = "proposed"`.
 - Counter: a single integer in `.jig/store/issue_seq`, read-modify-written under `flock` on `.jig/store/.issue.lock`.
 - No migration: existing `.jig/store/` data is regenerable; old tickets simply have no `key` until next touched, and the
@@ -196,8 +198,8 @@ risk to the create path and one background task.
 
 ## Open questions
 
-- [ ] Backfill behaviour for pre-existing keyless tickets — assign a `jig-N` lazily on first front-door access, or leave
-      them keyless and addressable only by UUID? (Lean: lazy backfill on access; settle in plan.)
+- [x] Backfill behaviour for pre-existing keyless tickets — RESOLVED: no backfill. Data is regenerable and new tickets
+      always get a key; keyless legacy records stay addressable by UUID.
 - [ ] Reconcile interval default and whether it is surfaced as config vs constant. (Lean: 30s constant initially.)
 
 ## Change log

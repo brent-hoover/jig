@@ -61,14 +61,15 @@ key. Suite + `ruff` green.
 
 **What:** New `jig/issues/service.py` — context-free async class over `TicketStore`/`ThreadStore`. Methods: `create`
 (enforces AC presence + valid `work_type`/`size`, sets `PROPOSED`, assigns key, records `created_by`), `get`, `list`,
-`update`, `close`, `comment`, `link`, `approve` (`PROPOSED → OPEN`). `ref` args accept `jig-N` or UUID. Lazy-backfill a
-key on first access for any pre-existing keyless ticket.
+`update`, `close`, `comment`, `link`, `approve` (`PROPOSED → OPEN`). `ref` args accept `jig-N` or UUID. No key backfill
+for legacy keyless tickets — they stay addressable by UUID (data is regenerable).
 
 **Why:** The single validated path all front doors share; isolates CRUD from agent context.
 
 **Verify:** Tests: create with missing AC fails loudly and writes nothing; create with bad `work_type` fails loudly;
-happy-path create yields `PROPOSED` + a key; `approve` flips to `OPEN`; `link` sets `blocks`/`blocked_by`/`parent_id`
-and the reverse edges; `list` filters; keyless legacy ticket gets a key on access. Suite + `ruff` green.
+happy-path create yields `PROPOSED` + a key; `get` resolves by key or UUID; `approve` flips to `OPEN` while generic
+`update` cannot; `link` sets `blocks`/`blocked_by` and the reverse edges; `comment` posts a note; `list` filters. Suite
++ `ruff` green.
 
 **References:** design §"`IssueService`".
 

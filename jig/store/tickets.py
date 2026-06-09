@@ -128,6 +128,10 @@ class TicketStore:
     def _write_seq(self, value: int) -> None:
         self._seq_path.write_text(str(value))
 
+    async def all(self) -> list[Ticket]:
+        """Return every ticket. Used by the issue front doors for listing."""
+        return await self._collection.find()
+
     async def resolve_ref(self, ref: str) -> Ticket | None:
         """Resolve a ticket by internal ``id`` (UUID) or ``jig-N`` key."""
         direct = await self.get(ref)

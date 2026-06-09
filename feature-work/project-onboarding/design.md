@@ -410,6 +410,13 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 4 (roborev job 448): a `scan_guard_verified` note is posted
+  after clean verification and classification requires it alongside the scan-done note — a process that
+  dies between scan completion and verification now re-enters SCAN_PASS, whose dispatch verifies against
+  the persisted baseline without respawning. Corrupt `project.yaml` fails loudly instead of silently
+  defaulting guard inputs. Violation messages distinguish pre-dirty paths (possible operator edits between
+  runs) from scan-time writes. The review's High (tests in non-git dirs) was a false positive —
+  `create_stub` git-inits and the suite is green. (brent-hoover)
 - 2026-06-09: Write-guard hardening round 3 (roborev job 446): the guard baseline is persisted at onboard
   start (`.jig/onboard/scan-guard.json`) and every scan verifies against it — a per-spawn snapshot let an
   interrupted scan re-baseline its own tampering; on resume only the paths `run_onboard` itself writes

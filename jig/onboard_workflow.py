@@ -108,8 +108,14 @@ def _read_project_yaml(project_path: Path) -> dict:
         return {}
     try:
         data = yaml.safe_load(project_yaml.read_text()) or {}
-    except yaml.YAMLError:
-        return {}
+    except yaml.YAMLError as exc:
+        # This feeds guard decisions (claude_md_preexisting) and flow
+        # routing (onboard markers) — a corrupt file must not silently
+        # degrade to defaults.
+        raise click.ClickException(
+            f"{project_yaml} is not valid YAML ({exc}). "
+            "Fix or remove it, or re-onboard with --force."
+        ) from exc
     return data if isinstance(data, dict) else {}
 
 
@@ -204,6 +210,17 @@ async def classify_onboard_resume(
         for e in scan_entries
     )
     if not scan_done:
+        return OnboardResumeState.SCAN_PASS
+    # Crash window: the scanner posts scan-done DURING its run, but the
+    # write guard only verifies after the spawn returns. If the process
+    # died in between, the guard never ran — stay in SCAN_PASS, whose
+    # dispatch verifies against the persisted baseline without
+    # respawning before the flow may advance.
+    scan_verified = any(
+        isinstance(e, Note) and e.payload.get("kind") == "scan_guard_verified"
+        for e in scan_entries
+    )
+    if not scan_verified:
         return OnboardResumeState.SCAN_PASS
 
     # --- PO read pass + PO review gate ------------------------------------
@@ -640,12 +657,13 @@ async def _verify_scan_writes(
     # creation-allowance applies here too: a scanner that crashed after
     # creating the file leaves it dirty, and the next spawn may finish it.
     dirty_hashes_after = _dirty_path_snapshot(project_path, dirty_before)
-    violations |= {
+    pre_dirty_violations = {
         rel
         for rel in set(dirty_hashes_before) | set(dirty_hashes_after)
         if dirty_hashes_before.get(rel) != dirty_hashes_after.get(rel)
         and not (rel == "CLAUDE.md" and not claude_md_preexisting)
     }
+    violations |= pre_dirty_violations
     if violations:
         await threads.post(
             Note(
@@ -658,13 +676,33 @@ async def _verify_scan_writes(
                 },
             )
         )
-        raise click.ClickException(
+        message = (
             f"scanner wrote outside its allowlist: {sorted(violations)}. "
             "The scanned repository may contain a prompt-injection payload. "
             "Inspect those paths before doing anything else in this repo "
             "(do not run git hooks or jig agents), then re-onboard with "
             "`jig onboard --force`."
         )
+        if pre_dirty_violations:
+            # The dirty baseline is frozen at onboard start, so a file
+            # the operator edited between an interrupted scan and a
+            # re-run shows up here too — fail closed, but don't assert
+            # tampering for what may be their own edit.
+            message += (
+                f" Note: {sorted(pre_dirty_violations)} were already "
+                "dirty when onboarding started — if you edited them "
+                "yourself between runs, this is a false alarm and "
+                "--force is safe."
+            )
+        raise click.ClickException(message)
+    await threads.post(
+        Note(
+            ticket_id="onboard-scan",
+            author="cli",
+            text="scan write-guard verification passed",
+            payload={"kind": "scan_guard_verified"},
+        )
+    )
 
 
 async def run_onboard_scan_pass(
@@ -681,7 +719,30 @@ async def run_onboard_scan_pass(
     The depth-budget ceiling from the active profile is injected into
     the ticket description — the scanner has no config access, so the
     signal must arrive pre-injected.
+
+    When the scan already completed but the write guard never ran (the
+    process died between the scan-done note and verification), this
+    verifies against the persisted baseline WITHOUT respawning — the
+    verified note it posts lets classification advance on the next tick.
     """
+    scan_entries = await threads.for_ticket("onboard-scan")
+    scan_done = any(
+        isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
+        for e in scan_entries
+    )
+    if scan_done:
+        baseline = _load_scan_guard_baseline(project_path)
+        if baseline is None:
+            baseline = _compute_scan_guard_state(project_path)
+        await _verify_scan_writes(
+            project_path,
+            baseline["guard"],
+            set(baseline["dirty"]),
+            baseline["dirty_hashes"],
+            threads,
+        )
+        return
+
     ceiling = scanner_file_ceiling(project_path)
     description = (
         "Read the existing codebase at the project root and write a "

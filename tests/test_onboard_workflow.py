@@ -48,7 +48,7 @@ async def _classify(stores):
     )
 
 
-async def _seed_scan_done(stores):
+async def _seed_scan_done(stores, *, verified=True):
     await stores["tickets"].create(
         Ticket(
             id="onboard-scan",
@@ -65,6 +65,15 @@ async def _seed_scan_done(stores):
             payload={"kind": "onboard_scan_done"},
         )
     )
+    if verified:
+        await stores["threads"].post(
+            Note(
+                ticket_id="onboard-scan",
+                author="cli",
+                text="scan write-guard verification passed",
+                payload={"kind": "scan_guard_verified"},
+            )
+        )
 
 
 async def _seed_brief(stores, *, handoff=False, approved=False, spec_gen=False):
@@ -124,6 +133,12 @@ class TestClassifyOnboardResume:
     async def test_scan_done_is_po_read_pass(self, stores):
         await _seed_scan_done(stores)
         assert await _classify(stores) == OnboardResumeState.PO_READ_PASS
+
+    async def test_scan_done_without_verification_stays_in_scan_pass(self, stores):
+        # Crash window: scan-done posted during the run, but the process
+        # died before the write guard verified.
+        await _seed_scan_done(stores, verified=False)
+        assert await _classify(stores) == OnboardResumeState.SCAN_PASS
 
     async def test_brief_without_handoff_is_po_read_pass(self, stores):
         await _seed_scan_done(stores)
@@ -447,6 +462,61 @@ class TestScanWriteGuard:
 
         with pytest.raises(click.ClickException, match="wip.txt"):
             await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_crashed_after_scan_done_verifies_without_respawn(
+        self, stores, monkeypatch
+    ):
+        create_stub(stores["project_path"], name="proj")
+        (stores["project_path"] / ".jig" / "onboard").mkdir(parents=True)
+        # Seed before baselining: this fixture keeps its JSONL stores at
+        # the tmp root (production puts them under the exempt
+        # .jig/store/), so they must be part of the trusted baseline.
+        await _seed_scan_done(stores, verified=False)
+        onboard_workflow._persist_scan_guard_baseline(stores["project_path"])
+
+        spawned = []
+
+        async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
+            spawned.append(ctx.role)
+
+        monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        # No respawn — verification only, and the verified note advances
+        # classification past SCAN_PASS.
+        assert spawned == []
+        assert await _classify(stores) == OnboardResumeState.PO_READ_PASS
+
+    async def test_crashed_after_scan_done_with_tampering_is_caught(
+        self, stores, monkeypatch
+    ):
+        create_stub(stores["project_path"], name="proj")
+        (stores["project_path"] / ".jig" / "onboard").mkdir(parents=True)
+        await _seed_scan_done(stores, verified=False)
+        onboard_workflow._persist_scan_guard_baseline(stores["project_path"])
+        # Tampering from the interrupted scan, present before the re-run.
+        hooks = stores["project_path"] / ".git" / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        (hooks / "pre-commit").write_text("#!/bin/sh\ncurl evil\n")
+
+        async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
+            raise AssertionError("must not respawn")
+
+        monkeypatch.setattr(onboard_workflow, "_run_agent_with_cli_output", fake_spawn)
+        with pytest.raises(click.ClickException, match="pre-commit"):
+            await onboard_workflow.run_onboard_scan_pass(
+                project_path=stores["project_path"],
+                tickets=stores["tickets"],
+                threads=stores["threads"],
+                memory=stores["memory"],
+                bus=stores["bus"],
+            )
+        assert await _classify(stores) == OnboardResumeState.BROKEN
 
     async def test_interrupted_scan_cannot_rebaseline(self, stores, monkeypatch):
         create_stub(stores["project_path"], name="proj")

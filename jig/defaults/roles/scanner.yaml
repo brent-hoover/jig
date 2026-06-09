@@ -79,8 +79,8 @@ phase_prompt: >
   - Use `Write` ONLY for `.jig/onboard/observations.md` and (when absent)
     the root `CLAUDE.md`. Do not write any other file.
 
-  - Use `Bash` ONLY for read-only commands (`find`, `wc`, `head`,
-    `ls`, `git log`). Never modify files or state via Bash.
+  - You have no Bash access. Use Glob to enumerate files, Grep to search
+    content, and Read for individual files.
 
 
   ## When done
@@ -93,7 +93,6 @@ allowed_tools:
   - Read
   - Glob
   - Grep
-  - Bash
   - Write
   - ToolSearch
   - onboard_finish_scan

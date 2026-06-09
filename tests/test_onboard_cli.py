@@ -35,6 +35,16 @@ def test_onboard_non_git_path_errors(tmp_path):
     assert "not a git repository" in result.output
 
 
+def test_onboard_repo_subdirectory_errors(tmp_path):
+    _git_init(tmp_path)
+    subdir = tmp_path / "pkg"
+    subdir.mkdir()
+    runner = CliRunner()
+    result = runner.invoke(cli, ["onboard", str(subdir)])
+    assert result.exit_code != 0
+    assert "not its root" in result.output
+
+
 def test_onboard_passes_options_through(tmp_path, monkeypatch):
     _git_init(tmp_path)
     brief = tmp_path / "wish.md"

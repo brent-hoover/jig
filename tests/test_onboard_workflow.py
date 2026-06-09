@@ -837,6 +837,29 @@ class TestRunOnboardInit:
         cfg = load_config(tmp_path)
         assert cfg.profile.name == "small"
 
+    async def test_profile_rerun_with_same_name_is_noop(self, tmp_path, noop_loop):
+        await run_onboard(
+            path=tmp_path, profile_name="small", prompts=AutoPromptHandler()
+        )
+        await run_onboard(
+            path=tmp_path, profile_name="small", prompts=AutoPromptHandler()
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.profile.name == "small"
+
+    async def test_profile_rerun_with_other_name_is_rejected(
+        self, tmp_path, noop_loop
+    ):
+        await run_onboard(
+            path=tmp_path, profile_name="medium", prompts=AutoPromptHandler()
+        )
+        with pytest.raises(click.ClickException, match="already applied"):
+            await run_onboard(
+                path=tmp_path, profile_name="small", prompts=AutoPromptHandler()
+            )
+        cfg = load_config(tmp_path)
+        assert cfg.profile.name == "medium"
+
     async def test_invalid_profile_rejected_before_state_mutation(
         self, tmp_path, noop_loop
     ):

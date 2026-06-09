@@ -47,6 +47,10 @@ def test_scanner_role_loads(tmp_path):
     assert cfg.role == "scanner"
     assert "onboard_finish_scan" in cfg.allowed_tools
     assert "Write" in cfg.allowed_tools
+    # No shell: the scanner runs on the host against untrusted repo
+    # content with prompt-level-only constraints (design change log,
+    # 2026-06-09).
+    assert "Bash" not in cfg.allowed_tools
     assert cfg.allowed_mcps == []
     assert cfg.strict_tools is True
 

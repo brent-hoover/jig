@@ -162,12 +162,15 @@ def onboard(
     from jig.onboard_workflow import run_onboard
 
     # Onboarding non-git repositories is unsupported — the workflow
-    # depends on worktrees and hooks.
+    # depends on worktrees and hooks. PATH must also be the repository
+    # ROOT: `rev-parse` succeeds anywhere inside a repo, but the
+    # workflow treats the project root as the repo root.
     try:
         probe = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
+            ["git", "rev-parse", "--show-toplevel"],
             cwd=str(path),
             capture_output=True,
+            text=True,
         )
     except FileNotFoundError as exc:
         raise click.ClickException(
@@ -177,6 +180,12 @@ def onboard(
         raise click.ClickException(
             f"{path} is not a git repository. `jig onboard` only supports "
             "git repositories — run `git init` first."
+        )
+    toplevel = Path(probe.stdout.strip()).resolve()
+    if toplevel != path.resolve():
+        raise click.ClickException(
+            f"{path} is inside the git repository at {toplevel}, but is not "
+            "its root. `jig onboard` must run against the repository root."
         )
     asyncio.run(
         run_onboard(

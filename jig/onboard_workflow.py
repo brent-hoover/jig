@@ -22,8 +22,6 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-import logging
-
 import click
 import yaml
 
@@ -52,8 +50,6 @@ from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
 from jig.thread import Handoff, Note, SystemEvent
 from jig.ticket import Ticket, WorkType
-
-logger = logging.getLogger(__name__)
 
 # Scanner file-ceiling depth budgets by active profile (design
 # §"Depth bounding"). SCAN_PASS normally runs before profile selection,
@@ -580,7 +576,20 @@ async def run_onboard(
     # rmtree doesn't delete the write; classify_onboard_resume reads
     # ``cfg.profile.name`` on every tick.
     if profile_name is not None:
-        _apply_named_profile(target, profile_name, console, rerun_hint="`jig onboard`")
+        # Don't silently overwrite a profile that an earlier run (PM
+        # confirm or a previous --profile) already committed to config —
+        # destructive resets go through --force.
+        current = _active_profile_name(target)
+        if current and current != profile_name:
+            raise click.ClickException(
+                f"profile {current!r} is already applied to this project; "
+                f"refusing to overwrite it with {profile_name!r}. "
+                "Re-run with --force to reset and re-onboard."
+            )
+        if not current:
+            _apply_named_profile(
+                target, profile_name, console, rerun_hint="`jig onboard`"
+            )
 
     from jig.logging_setup import configure_logging
 

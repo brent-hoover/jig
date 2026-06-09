@@ -28,8 +28,10 @@ reusing `classify_directory`, store setup, `run_spec_generator`, and profile-con
 
 ### Scanner agent
 
-A new `scanner.yaml` role runs at the start of the onboard flow. The scanner has Read, Glob, Grep, and
-limited Bash access. It reads the existing codebase and writes `.jig/onboard/observations.md` — a free-form
+A new `scanner.yaml` role runs at the start of the onboard flow. The scanner has Read, Glob, and Grep
+access (no Bash — the scanner runs on the host against untrusted third-party repo content, and all tool
+constraints are prompt-level only; Glob/Grep/Read cover structural scanning without giving a
+prompt-injection payload a shell). It reads the existing codebase and writes `.jig/onboard/observations.md` — a free-form
 markdown document covering:
 
 - **Project structure**: top-level packages/modules, directory layout, entry points
@@ -273,7 +275,6 @@ allowed_tools:
   - Read
   - Glob
   - Grep
-  - Bash              # read-only: find, wc, head only — no writes via Bash
   - Write             # observations.md and CLAUDE.md only (prompt-scoped)
   - ToolSearch
   - onboard_finish_scan  # jig-internal MCP tool; follows the same pattern as
@@ -404,6 +405,9 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Scanner loses Bash access (roborev job 437): the scanner runs on the host against untrusted
+  repo content with prompt-level-only constraints, so a prompt-injection payload in the scanned codebase
+  must not get a shell. Glob/Grep/Read cover structural scanning. (brent-hoover)
 - 2026-06-07: Four reviewer passes applied — PO uses 'brief' ticket; corrected done-signals; depth-bounding
   table added; two-phase SA-done detection; brief_set_section tool name fixed; sa-architect Phase 2 as
   precise prerequisite; module_set_* tool list corrected (sa_write_contracts does not exist); PM_BACKLOG

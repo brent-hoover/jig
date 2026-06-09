@@ -121,12 +121,9 @@ without re-scanning.
 **What:** Implement `run_onboard_po_conversation(project_path, tickets, threads, agents)`: creates
 the standard `brief` ticket with an injected description stating the agent is in read mode (extract
 existing capabilities from the codebase and `observations.md`; do not invent capabilities not yet
-built). PO tools (`brief_set_section`, `po_finish_brief`) run unchanged. Add `PO_REVIEW` gate:
-implement `ask_po_review` on `PromptHandler` (show `docs/brief.md` path to operator, pause for
-confirmation); on confirm post `SystemEvent(event_type="brief_approved")` to the `brief` ticket
-thread. Note: `PromptHandler` already has `ask_brief_approval` (`init_prompts.py`) which posts the
-same event and supports a Resume-PO option — evaluate whether it can be reused for the onboard path
-before adding a new method. Wire `run_spec_generator` for `SPEC_PASS` (reused unchanged).
+built). PO tools (`brief_set_section`, `po_finish_brief`) run unchanged. Add `PO_REVIEW` gate: reuse `ask_brief_approval` from `init_prompts.py` — it already posts
+`SystemEvent(event_type="brief_approved")` and supports a Resume-PO option; no new `PromptHandler`
+method is needed. Wire `run_spec_generator` for `SPEC_PASS` (reused unchanged).
 
 **Why:** `run_spec_generator` hard-requires `tickets.get("brief")` and reads `docs/brief.md`.
 The PO_REVIEW gate provides the operator confirmation required by the problem statement before

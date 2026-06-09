@@ -146,6 +146,12 @@ transport layer) and scales by active profile:
 profile names fall back to `medium` budget. If the `--profile` flag bypasses PM-1 selection, the budget is
 derived from the named profile's row.
 
+**Scanner budget note**: `SCAN_PASS` runs before profile selection, so `load_config().profile.name` is
+always empty at scan time in a normal invocation. The scanner therefore always uses the 400-file fallback
+ceiling unless the operator passes `--profile small` upfront. The 150-file ceiling in the table only applies
+in the `--profile small` case. This is intentional: the scanner's job is to gather the signals that drive
+profile selection; it cannot yet know which profile will be chosen.
+
 If the scanner hits its file ceiling, it writes a `## Depth limit reached` section in `observations.md`
 listing what was not scanned. If the SA hits its turn budget, it calls `arch_finalize` with whatever modules
 it has discovered and records incomplete coverage in `architecture.yaml`'s `open_questions` list.
@@ -267,9 +273,11 @@ allowed_tools:
   - Read
   - Glob
   - Grep
-  - Bash      # read-only: find, wc, head only — no writes via Bash
-  - Write     # observations.md and CLAUDE.md only (prompt-scoped)
+  - Bash              # read-only: find, wc, head only — no writes via Bash
+  - Write             # observations.md and CLAUDE.md only (prompt-scoped)
   - ToolSearch
+  - onboard_finish_scan  # jig-internal MCP tool; follows the same pattern as
+                         # po_finish_brief for PO and sa_propose_scaffold for SA
 allowed_mcps: []
 ```
 

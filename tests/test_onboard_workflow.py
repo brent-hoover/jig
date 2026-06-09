@@ -140,6 +140,35 @@ class TestClassifyOnboardResume:
         await _seed_scan_done(stores, verified=False)
         assert await _classify(stores) == OnboardResumeState.SCAN_PASS
 
+    async def test_stale_verified_note_does_not_vouch_for_later_scan(self, stores):
+        # A verified note left by an earlier non-finishing spawn precedes
+        # the scan-done note — it must not let classification advance.
+        await stores["tickets"].create(
+            Ticket(
+                id="onboard-scan",
+                work_type=WorkType.ONBOARD_SCAN,
+                title="Scan codebase",
+                created_by="cli",
+            )
+        )
+        await stores["threads"].post(
+            Note(
+                ticket_id="onboard-scan",
+                author="cli",
+                text="scan write-guard verification passed",
+                payload={"kind": "scan_guard_verified"},
+            )
+        )
+        await stores["threads"].post(
+            Note(
+                ticket_id="onboard-scan",
+                author="scanner",
+                text="scan complete",
+                payload={"kind": "onboard_scan_done"},
+            )
+        )
+        assert await _classify(stores) == OnboardResumeState.SCAN_PASS
+
     async def test_brief_without_handoff_is_po_read_pass(self, stores):
         await _seed_scan_done(stores)
         await _seed_brief(stores)
@@ -308,6 +337,31 @@ class TestScanPass:
         )
         ticket = await stores["tickets"].get("onboard-scan")
         assert "at most 150 files" in ticket.description
+
+    async def test_non_finishing_spawn_posts_no_verified_marker(
+        self, stores, no_agent_spawn
+    ):
+        create_stub(stores["project_path"], name="proj")
+        await onboard_workflow.run_onboard_scan_pass(
+            project_path=stores["project_path"],
+            tickets=stores["tickets"],
+            threads=stores["threads"],
+            memory=stores["memory"],
+            bus=stores["bus"],
+        )
+        entries = await stores["threads"].for_ticket("onboard-scan")
+        assert not any(
+            isinstance(e, Note) and e.payload.get("kind") == "scan_guard_verified"
+            for e in entries
+        )
+
+    async def test_corrupt_baseline_fails_with_force_guidance(self, stores):
+        create_stub(stores["project_path"], name="proj")
+        onboard = stores["project_path"] / ".jig" / "onboard"
+        onboard.mkdir(parents=True)
+        (onboard / "scan-guard.json").write_text("{truncated")
+        with pytest.raises(click.ClickException, match="--force"):
+            onboard_workflow._load_scan_guard_baseline(stores["project_path"])
 
     async def test_resolved_ticket_reactivated_on_respawn(self, stores, no_agent_spawn):
         create_stub(stores["project_path"], name="proj")

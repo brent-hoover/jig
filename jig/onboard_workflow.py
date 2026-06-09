@@ -205,22 +205,25 @@ async def classify_onboard_resume(
         for e in scan_entries
     ):
         return OnboardResumeState.BROKEN
-    scan_done = any(
-        isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
-        for e in scan_entries
-    )
-    if not scan_done:
+    last_scan_done_idx = -1
+    last_verified_idx = -1
+    for i, e in enumerate(scan_entries):
+        if isinstance(e, Note):
+            kind = e.payload.get("kind")
+            if kind == "onboard_scan_done":
+                last_scan_done_idx = i
+            elif kind == "scan_guard_verified":
+                last_verified_idx = i
+    if last_scan_done_idx < 0:
         return OnboardResumeState.SCAN_PASS
     # Crash window: the scanner posts scan-done DURING its run, but the
     # write guard only verifies after the spawn returns. If the process
     # died in between, the guard never ran — stay in SCAN_PASS, whose
     # dispatch verifies against the persisted baseline without
-    # respawning before the flow may advance.
-    scan_verified = any(
-        isinstance(e, Note) and e.payload.get("kind") == "scan_guard_verified"
-        for e in scan_entries
-    )
-    if not scan_verified:
+    # respawning before the flow may advance. Ordered comparison, not
+    # any(): a verified note left by an earlier non-finishing spawn must
+    # not vouch for a later scan it never saw.
+    if last_verified_idx < last_scan_done_idx:
         return OnboardResumeState.SCAN_PASS
 
     # --- PO read pass + PO review gate ------------------------------------
@@ -596,7 +599,7 @@ def _persist_scan_guard_baseline(project_path: Path) -> None:
             baseline_path, json.dumps(_compute_scan_guard_state(project_path))
         )
         return
-    baseline = json.loads(baseline_path.read_text())
+    baseline = _load_scan_guard_baseline(project_path)
     current = _scan_guard_snapshot(project_path)
     guard = {k: v for k, v in baseline["guard"].items() if not _is_run_onboard_owned(k)}
     guard.update({k: v for k, v in current.items() if _is_run_onboard_owned(k)})
@@ -605,12 +608,33 @@ def _persist_scan_guard_baseline(project_path: Path) -> None:
 
 
 def _load_scan_guard_baseline(project_path: Path) -> dict | None:
+    """Load and shape-check the persisted guard baseline.
+
+    The baseline is a security input — a truncated or hand-edited file
+    must fail with recovery guidance, not a raw traceback.
+    """
     import json
 
     baseline_path = _scan_guard_baseline_path(project_path)
     if not baseline_path.is_file():
         return None
-    return json.loads(baseline_path.read_text())
+    try:
+        baseline = json.loads(baseline_path.read_text())
+        if not isinstance(baseline, dict):
+            raise TypeError("baseline is not a mapping")
+        if not (
+            isinstance(baseline.get("guard"), dict)
+            and isinstance(baseline.get("dirty"), list)
+            and isinstance(baseline.get("dirty_hashes"), dict)
+        ):
+            raise KeyError("guard/dirty/dirty_hashes")
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise click.ClickException(
+            f"{baseline_path} is unreadable or malformed ({exc}). The scan "
+            "write-guard cannot verify without it — re-onboard with "
+            "`jig onboard --force`."
+        ) from exc
+    return baseline
 
 
 async def _verify_scan_writes(
@@ -695,14 +719,10 @@ async def _verify_scan_writes(
                 "--force is safe."
             )
         raise click.ClickException(message)
-    await threads.post(
-        Note(
-            ticket_id="onboard-scan",
-            author="cli",
-            text="scan write-guard verification passed",
-            payload={"kind": "scan_guard_verified"},
-        )
-    )
+    # The verified marker is the caller's responsibility — it must only
+    # be posted when a scan-done note exists, or a clean verification of
+    # a NON-finishing spawn would leave a stale marker that vouches for
+    # a later scan it never saw.
 
 
 async def run_onboard_scan_pass(
@@ -725,15 +745,19 @@ async def run_onboard_scan_pass(
     verifies against the persisted baseline WITHOUT respawning — the
     verified note it posts lets classification advance on the next tick.
     """
-    scan_entries = await threads.for_ticket("onboard-scan")
-    scan_done = any(
-        isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
-        for e in scan_entries
-    )
-    if scan_done:
-        baseline = _load_scan_guard_baseline(project_path)
-        if baseline is None:
-            baseline = _compute_scan_guard_state(project_path)
+
+    async def _scan_done() -> bool:
+        entries = await threads.for_ticket("onboard-scan")
+        return any(
+            isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
+            for e in entries
+        )
+
+    def _baseline() -> dict:
+        loaded = _load_scan_guard_baseline(project_path)
+        return loaded if loaded is not None else _compute_scan_guard_state(project_path)
+
+    async def _verify_and_mark(baseline: dict) -> None:
         await _verify_scan_writes(
             project_path,
             baseline["guard"],
@@ -741,6 +765,22 @@ async def run_onboard_scan_pass(
             baseline["dirty_hashes"],
             threads,
         )
+        # Post the verified marker ONLY when the scan actually finished —
+        # a clean verification of a non-finishing spawn must not leave a
+        # marker that vouches for a later scan it never saw. Posted after
+        # the scan-done note so classification's ordered comparison holds.
+        if await _scan_done():
+            await threads.post(
+                Note(
+                    ticket_id="onboard-scan",
+                    author="cli",
+                    text="scan write-guard verification passed",
+                    payload={"kind": "scan_guard_verified"},
+                )
+            )
+
+    if await _scan_done():
+        await _verify_and_mark(_baseline())
         return
 
     ceiling = scanner_file_ceiling(project_path)
@@ -784,26 +824,18 @@ async def run_onboard_scan_pass(
         memory=memory,
         bus=bus,
     )
-    # Verify against the baseline persisted at onboard start — NOT a
-    # fresh per-spawn snapshot, which an interrupted scan could have
-    # re-baselined with its own tampering. The fresh-compute fallback
-    # covers direct callers (tests) that bypass run_onboard.
-    baseline = _load_scan_guard_baseline(project_path)
-    if baseline is None:
-        baseline = _compute_scan_guard_state(project_path)
+    # Capture the baseline BEFORE the spawn: the persisted onboard-start
+    # state when run_onboard wrote one; the fresh-compute fallback (for
+    # direct callers that bypass run_onboard) must also predate the
+    # agent's writes.
+    baseline = _baseline()
     await _run_agent_with_cli_output(
         ctx,
         role_label="Scanner",
         console=console,
         subtitle="Reading the existing codebase into observations.md",
     )
-    await _verify_scan_writes(
-        project_path,
-        baseline["guard"],
-        set(baseline["dirty"]),
-        baseline["dirty_hashes"],
-        threads,
-    )
+    await _verify_and_mark(baseline)
 
 
 async def _fresh_gap_note(threads: ThreadStore) -> Note | None:
@@ -889,7 +921,7 @@ async def run_onboard(
     # ``Path(".").name`` is "" (the greenfield flow has the same guard).
     create_stub(target, name=target.resolve().name)
     project_yaml = target / ".jig" / "project.yaml"
-    pdata = yaml.safe_load(project_yaml.read_text()) or {}
+    pdata = _read_project_yaml(target)
     if not pdata.get("onboard_started_at"):
         pdata["onboard_started_at"] = datetime.now(timezone.utc).isoformat()
         # Recorded at onboard start so the scan write-guard can key the

@@ -410,6 +410,11 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 5 (roborev job 450): the verified marker is posted only when a
+  scan-done note exists (a clean verification of a non-finishing spawn must not vouch for a later scan),
+  and classification compares thread indices — verified must postdate scan-done. Corrupt
+  `scan-guard.json` and `project.yaml` reads in `run_onboard` fail with `--force` guidance instead of raw
+  tracebacks. (brent-hoover)
 - 2026-06-09: Write-guard hardening round 4 (roborev job 448): a `scan_guard_verified` note is posted
   after clean verification and classification requires it alongside the scan-done note — a process that
   dies between scan completion and verification now re-enters SCAN_PASS, whose dispatch verifies against

@@ -410,6 +410,11 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening (roborev job 442): violations persist as a `scan_guard_violation`
+  note that classifies as BROKEN (a bare re-run can't continue past a failed guard; only `--force`
+  clears it); `.jig/onboard/desired-state.md` (operator input) joins the protected surface; `git status`
+  failure during verification fails loudly; CLAUDE.md creation-allowance keys off onboard-start state in
+  project.yaml so a crashed scanner's partial artifact doesn't false-positive the next spawn. (brent-hoover)
 - 2026-06-09: Post-scan write verification added (roborev job 439): dropping Bash alone left the
   prompt-scoped Write tool as an indirect code-execution path (`.git/hooks`, `.jig/roles/`). The scan pass
   now hash-snapshots the protected surfaces and sweeps `git status`, failing the onboard on any violation.

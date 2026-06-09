@@ -190,6 +190,15 @@ async def classify_onboard_resume(
     if scan_ticket is None:
         return OnboardResumeState.SCAN_PASS
     scan_entries = await threads.for_ticket("onboard-scan")
+    # A persisted write-guard violation poisons the onboard: the
+    # scan-done note has already landed by the time verification runs,
+    # so without this check a bare re-run would proceed to the PO pass
+    # with attacker-shaped state. Only --force clears it.
+    if any(
+        isinstance(e, Note) and e.payload.get("kind") == "scan_guard_violation"
+        for e in scan_entries
+    ):
+        return OnboardResumeState.BROKEN
     scan_done = any(
         isinstance(e, Note) and e.payload.get("kind") == "onboard_scan_done"
         for e in scan_entries
@@ -412,6 +421,11 @@ _SCAN_GUARD_GLOBS: tuple[str, ...] = (
     ".jig/roles/**/*",
     ".jig/profiles/**/*",
     ".jig/workflows/**/*",
+    # Operator-authored input (copied from --brief before the scanner
+    # runs) that later gates/feeds the PM backlog pass. The scanner has
+    # no reason to touch it — any change, including creation, is a
+    # violation.
+    ".jig/onboard/desired-state.md",
     "CLAUDE.md",
 )
 
@@ -429,18 +443,26 @@ def _scan_guard_snapshot(project_path: Path) -> dict[str, str]:
     return snap
 
 
-def _scan_guard_violations(before: dict[str, str], after: dict[str, str]) -> list[str]:
+def _scan_guard_violations(
+    before: dict[str, str],
+    after: dict[str, str],
+    *,
+    claude_md_preexisting: bool,
+) -> list[str]:
     """Protected-surface paths that changed across the scan.
 
-    Creating ``CLAUDE.md`` when none existed is the one allowed write;
-    modifying a pre-existing one, or touching anything else on the
-    surface, is a violation.
+    ``CLAUDE.md`` is the one allowed write — but only when no operator
+    CLAUDE.md existed at onboard start (``claude_md_preexisting``, read
+    from project.yaml rather than the per-spawn snapshot so a scanner
+    that crashed after creating the file doesn't trip the guard on its
+    own partial artifact at the next spawn). Touching a pre-existing
+    one, or anything else on the surface, is a violation.
     """
     violations = []
     for path in sorted(set(before) | set(after)):
         if before.get(path) == after.get(path):
             continue
-        if path == "CLAUDE.md" and path not in before:
+        if path == "CLAUDE.md" and not claude_md_preexisting:
             continue
         violations.append(path)
     return violations
@@ -448,8 +470,8 @@ def _scan_guard_violations(before: dict[str, str], after: dict[str, str]) -> lis
 
 def _git_dirty_paths(project_path: Path) -> set[str]:
     """Paths reported by ``git status --porcelain`` (modified, deleted,
-    or untracked). Empty set when git fails — the CLI already verified
-    the repo, so a failure here is environmental, not a guard signal."""
+    or untracked). Raises on git failure — this feeds a security check,
+    and a silent empty set would pass the sweep vacuously."""
     import subprocess
 
     proc = subprocess.run(
@@ -459,7 +481,10 @@ def _git_dirty_paths(project_path: Path) -> set[str]:
         text=True,
     )
     if proc.returncode != 0:
-        return set()
+        raise click.ClickException(
+            "git status failed while verifying scanner writes: "
+            f"{proc.stderr.strip() or proc.returncode}"
+        )
     paths = set()
     for line in proc.stdout.splitlines():
         entry = line[3:].strip().strip('"')
@@ -469,10 +494,11 @@ def _git_dirty_paths(project_path: Path) -> set[str]:
     return paths
 
 
-def _verify_scan_writes(
+async def _verify_scan_writes(
     project_path: Path,
     guard_before: dict[str, str],
     dirty_before: set[str],
+    threads: ThreadStore,
 ) -> None:
     """Fail the onboard if the scanner wrote outside its allowlist.
 
@@ -481,9 +507,24 @@ def _verify_scan_writes(
     any other unexpected tracked/untracked change. Allowed: ``CLAUDE.md``
     (creation only — enforced by the hash pass) and ``.jig/`` (jig's own
     runtime state; its sensitive files are covered by the hash pass).
+
+    A violation is persisted as a ``scan_guard_violation`` Note on the
+    ``onboard-scan`` ticket BEFORE raising — ``classify_onboard_resume``
+    maps it to BROKEN, so a bare re-run cannot silently continue past a
+    failed guard (the scan-done note has already landed by the time
+    verification runs). Only ``--force`` clears it.
     """
+    claude_md_preexisting = bool(
+        _read_project_yaml(project_path).get(
+            "claude_md_preexisting", "CLAUDE.md" in guard_before
+        )
+    )
     violations = set(
-        _scan_guard_violations(guard_before, _scan_guard_snapshot(project_path))
+        _scan_guard_violations(
+            guard_before,
+            _scan_guard_snapshot(project_path),
+            claude_md_preexisting=claude_md_preexisting,
+        )
     )
     new_dirty = _git_dirty_paths(project_path) - dirty_before
     violations |= {
@@ -492,6 +533,17 @@ def _verify_scan_writes(
         if p != "CLAUDE.md" and not (p == ".jig/" or p.startswith(".jig/"))
     }
     if violations:
+        await threads.post(
+            Note(
+                ticket_id="onboard-scan",
+                author="cli",
+                text=f"scan guard violation: {sorted(violations)}",
+                payload={
+                    "kind": "scan_guard_violation",
+                    "paths": sorted(violations),
+                },
+            )
+        )
         raise click.ClickException(
             f"scanner wrote outside its allowlist: {sorted(violations)}. "
             "The scanned repository may contain a prompt-injection payload. "
@@ -559,7 +611,7 @@ async def run_onboard_scan_pass(
         console=console,
         subtitle="Reading the existing codebase into observations.md",
     )
-    _verify_scan_writes(project_path, guard_before, dirty_before)
+    await _verify_scan_writes(project_path, guard_before, dirty_before, threads)
 
 
 async def _fresh_gap_note(threads: ThreadStore) -> Note | None:
@@ -648,6 +700,12 @@ async def run_onboard(
     pdata = yaml.safe_load(project_yaml.read_text()) or {}
     if not pdata.get("onboard_started_at"):
         pdata["onboard_started_at"] = datetime.now(timezone.utc).isoformat()
+        # Recorded at onboard start so the scan write-guard can key the
+        # CLAUDE.md creation-allowance off the operator's original state
+        # rather than the per-spawn snapshot (a scanner that crashed
+        # after creating the file must not trip the guard on its own
+        # partial artifact at the next spawn).
+        pdata["claude_md_preexisting"] = (target / "CLAUDE.md").is_file()
         atomic_write_text(project_yaml, yaml.safe_dump(pdata, sort_keys=False))
 
     # 4. Onboard state directory.

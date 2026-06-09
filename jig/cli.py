@@ -2890,3 +2890,10 @@ def validate_conventions(path: Path, fail: bool) -> None:
         click.echo(f"error: {err}")
     if fail:
         raise SystemExit(1)
+
+
+# Issue tracker front door — `jig issue <verb>`. Defined in its own module to
+# keep this file focused; registered here so it joins the main command group.
+from jig.issues.cli import issue_group  # noqa: E402
+
+cli.add_command(issue_group)

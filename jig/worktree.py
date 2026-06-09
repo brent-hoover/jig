@@ -506,9 +506,10 @@ async def _boundary_check(worktree_path: Path) -> list[str]:
     (loud-degradation — never a clean pass). A violation is decided by the
     presence of semgrep ``results`` (semgrep exits 0 even with findings unless
     ``--error`` is passed, so the exit code is not used to detect them); any
-    result raises :class:`BoundaryViolationError`. A semgrep tool error (exit
-    >= 2) is a loud-degradation warning, not a violation, so a crashing tool
-    never masquerades as either a violation or a clean pass.
+    result raises :class:`BoundaryViolationError`. Any non-OK exit (anything not
+    in ``{0, 1}`` — a tool error, or a negative code from a signal kill) or
+    unparseable output is a loud-degradation warning, not a violation, so a
+    crashing tool never masquerades as either a violation or a clean pass.
     """
     rules_dir: Path | None = None
     for ancestor in worktree_path.parents:

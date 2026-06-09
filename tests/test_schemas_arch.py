@@ -1118,6 +1118,14 @@ def test_internal_boundaries_rejects_allow_forbid_overlap():
         )
 
 
+def test_boundaries_file_rejects_self_denial():
+    with pytest.raises(ValidationError, match="lists itself"):
+        BoundariesFile(
+            module="billing",
+            internal=InternalBoundaries(forbidden_modules=["billing"]),
+        )
+
+
 def test_boundaries_file_forbids_extra_key():
     with pytest.raises(ValidationError, match="extra"):
         BoundariesFile(module="m", bogus="nope")

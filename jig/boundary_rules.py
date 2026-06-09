@@ -149,7 +149,11 @@ def _compile_module_rules(
             f"id(s) {sorted(unknown)} (authored modules: {sorted(all_module_ids)})"
         )
 
-    forbidden_modules = set(bf.internal.forbidden_modules)
+    # Never deny a module importing itself — a self entry in forbidden_modules
+    # (copy-paste / a sibling sharing the name) would otherwise ban the module's
+    # own absolute self-imports. (BoundariesFile also rejects this at write
+    # time; this is the defensive generator-side guard.)
+    forbidden_modules = set(bf.internal.forbidden_modules) - {bf.module}
     if bf.internal.allowed_modules:
         forbidden_modules |= (
             all_module_ids - set(bf.internal.allowed_modules) - {bf.module}

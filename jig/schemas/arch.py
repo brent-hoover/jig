@@ -990,6 +990,19 @@ class BoundariesFile(BaseModel):
     def _kebab_module(cls, v: str) -> str:
         return validate_kebab_id(v, "BoundariesFile.module")
 
+    @model_validator(mode="after")
+    def _no_self_denial(self) -> BoundariesFile:
+        """A module cannot forbid importing itself — a self entry in
+        ``internal.forbidden_modules`` would ban the module's own absolute
+        self-imports. Surface it at write time rather than emit a self-denying
+        rule."""
+        if self.module in self.internal.forbidden_modules:
+            raise ValueError(
+                f"BoundariesFile: module {self.module!r} lists itself in "
+                "internal.forbidden_modules"
+            )
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Cascade-after-confirmed-impossible artifact (Track C MVP follow-on)

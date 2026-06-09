@@ -2,195 +2,148 @@
 title: Project Onboarding — Problem Statement
 type: problem
 status: draft
-owner: brent
+owner: brent-hoover
 created: 2026-05-20
-updated: 2026-05-20
+updated: 2026-06-09
 ---
 
 # Project Onboarding — Problem Statement
 
 ## Context
 
-Jig currently assumes greenfield projects: an operator provides a brief, the PM breaks it into tickets,
-the SA runs architectural setup, and development proceeds against a blank codebase. All orchestration
-artifacts (`.jig/`, `architecture.yaml`, `contracts.yaml`) are created from scratch at initialization
-time.
+Jig currently assumes greenfield projects: the operator provides a brief, the PM breaks it into tickets, the SA
+runs architectural setup, and development proceeds against an empty codebase. All orchestration artifacts
+(`.jig/`, `architecture.yaml`, `contracts.yaml`, `boundaries.yaml`) are created from scratch at initialization
+time via `jig init`.
 
-Most real-world codebases are not greenfield. An operator may want to bring jig to an existing service,
-a legacy application, or a codebase mid-development. Today, that operator has no path in — jig has no
-way to ingest an existing project, and attempting to run it against one would produce a greenfield brief
-that ignores everything already built.
+Most real-world codebases are not greenfield. Operators may want to bring jig to an existing service, a legacy
+application, or a codebase mid-development. Today there is no path in — attempting to run jig against an
+existing project would produce a greenfield brief that ignores everything already built.
 
-This feature is being designed alongside [[project-profiles]], which defines how SA depth, ticket
-workflows, and reviewer selection are bundled into a named profile. The synergy is significant: for a
-greenfield project, profile selection is informed by the brief alone (the code doesn't exist yet). For
-an onboarding project, the codebase itself is the ground truth — the SA can observe actual complexity,
-module count, existing test coverage, and integration surface to select a profile with far higher
-confidence than brief analysis allows.
+This feature is being designed alongside the [[sa-architect]] work (unified SA role, `TechDecision` model,
+Context7/WebFetch/WebSearch research tools, `BoundariesFile` per-module boundaries) which is in progress. The
+onboarding SA read pass will be able to leverage those research capabilities, but sa-architect must land first
+— that is an explicit prerequisite. Project profiles have shipped: `jig/defaults/profiles/small.yaml` and
+`medium.yaml` define the two active profiles that drive SA depth and reviewer selection. Onboarding is the
+natural place where codebase signals (file count, module count, test coverage) can drive profile auto-selection
+with higher confidence than brief-only analysis allows.
 
 ## Problem
 
 There is no supported path to use jig on an existing codebase. Specifically:
 
-1. **No ingestion mechanism**: `jig start` requires a brief and assumes nothing exists. There is no
-   command or flow for pointing jig at a directory that already contains code.
+1. **No ingestion command**: `jig start` requires a brief and assumes nothing exists. There is no command or
+   flow for pointing jig at a directory that already contains code and producing a usable `.jig/` structure.
 
-2. **No read-mode for PO or SA**: The PO produces suites during a brief interview with the operator;
-   the SA makes architectural decisions before code is written. Neither has a mode for reading an
-   existing codebase and extracting what is already there. Onboarding requires both roles to run in
-   "read mode" — PO extracts suites from existing behavior, SA extracts modules and contracts from
+2. **No read-mode for PO or SA**: The PO produces suites from a brief interview; the SA makes architectural
+   decisions before code is written. Neither role has a prompt mode for reading an existing codebase and
+   extracting what is already there. Onboarding requires both roles to run in "read mode" — the PO extracts
+   suites and user behaviors from existing behavior, the SA extracts modules, contracts, and boundaries from
    existing structure.
 
-3. **No backlog bootstrapping from existing state**: For greenfield, the PM creates tickets from the
-   brief. For an existing project, the useful backlog is the delta between current state and desired
-   state — bugs, missing features, tech debt, test gaps. There is no mechanism to derive that delta.
+3. **No backlog bootstrapping from existing state**: For greenfield, the PM creates tickets from the brief. For
+   an existing project, the useful backlog is the delta between current state and desired state — bugs, missing
+   features, tech debt, test gaps. There is no mechanism to derive that delta.
 
-4. **Profile selection is harder without a brief**: Greenfield profile selection (see [[project-profiles]])
-   uses brief content as signal. For onboarding, the brief may be thin or absent entirely, but the
-   codebase provides richer signal. Profile selection and onboarding are naturally coupled — the SA
-   that reads the existing code is also best positioned to recommend a profile.
-
-## Onboarding sequence
-
-Onboarding retrofits the artifacts that the normal greenfield flow produces, but starting from code
-rather than requirements. The agents are the same roles used in greenfield — PO, Spec, SA, and the
-test adequacy reviewer — but invoked with prompts customized for reading existing code rather than
-making forward decisions. The sequence:
-
-1. **(Optional) Brief interview** — a conversation with the operator to capture the big-picture view:
-   what the system is, what it does, where it is heading. Produces or refines `brief.md`. Skippable
-   if the operator already has a brief or wants to defer.
-
-2. **PO read pass** — the PO reads the existing codebase and produces suites: capability groups and
-   user-facing behaviors. This is the same artifact the PO produces during a greenfield brief interview,
-   but derived from what is already built.
-
-3. **Spec pass** — the Spec agent turns the PO's suites into specs: EARS-style acceptance criteria
-   grounded in existing behavior rather than desired behavior.
-
-4. **SA read pass** — the SA reads the existing codebase and produces modules: architectural boundaries,
-   ownership, integration surfaces, and (if the profile calls for it) per-module `contracts.yaml`
-   derived from existing behavior.
-
-5. **Test adequacy review** — the test adequacy reviewer assesses current test coverage against the
-   specs produced in step 3, producing a gap report rather than blocking findings.
-
-6. **Profile selection** — based on what PO and SA observed (suite count, module count, integration
-   surface, test gap severity), the appropriate project profile is selected. The operator can override.
-
-7. **Operator review** — the operator reviews all produced artifacts before any backlog is created.
-
-8. **PM backlog bootstrap** — if a brief exists, the PM derives an initial ticket backlog from the
-   delta between current state (suites + modules + test gaps) and desired state (brief). If no brief,
-   deferred.
-
-## Upscaling as onboarding
-
-The same sequence is used when a project upscales to a larger profile mid-run. When an upscale is
-triggered, the project halts, and the onboarding sequence runs over the existing artifacts — updating
-suites, specs, modules, and contracts to match the new profile's depth. This unifies two otherwise
-separate problems (initial onboarding, mid-project profile change) into a single mechanism.
+4. **Profile selection is harder without a brief**: Greenfield profile selection uses brief content as signal.
+   For onboarding, the brief may be thin or absent entirely, but the codebase provides richer signal. The SA
+   that reads the existing code is also best positioned to recommend a profile, but there is no mechanism to
+   wire codebase observations into the selection decision.
 
 ## Simplest possible solution
 
-A `jig onboard <path>` command that runs steps 2–6 sequentially (PO → Spec → SA → test adequacy →
-profile selection), pauses for operator review, then optionally runs the PM backlog bootstrap. Brief
-interview deferred to v2.
+Add an `--onboard` flag to `jig init`. Seed a synthetic brief-approved state and inject a system note into
+the SA ticket telling it to read existing code rather than design new architecture. No new command, no scanner
+agent, no `observations.md`.
+
+This falls short: the generic `sa` role uses `sa_propose_scaffold` (template-pick flow) — there is no
+scaffold to pick against existing code. The PO interview is skipped entirely, producing no suite extraction.
+There is no operator review gate before the PM runs. The design ends up being more complex than this because
+those gaps have to be closed for onboarding to be useful.
 
 ## Complications considered
 
-- **Scale**: The SA read-mode pass must handle codebases of arbitrary size. A 50k-line monorepo takes
-  many more turns than a 200-line CLI. Profile selection should cap the depth of this pass — a `small`
-  profile triggers a shallow read; a `medium` or `large` profile triggers a deeper module-by-module
-  walk. Without this cap, onboarding cost is unbounded.
-
-- **Concurrency**: N/A — onboarding is a one-time sequential operation; no concurrent writers during
-  the SA read pass.
-
-- **Failure modes**: The SA may misread an existing codebase — it might miss modules, misidentify
-  boundaries, or produce an `architecture.yaml` that doesn't match reality. This is tolerable if the
-  operator can correct it before tickets are created. The onboarding flow should include an operator
-  review step before the PM generates the backlog. If the SA crashes mid-onboard, the `.jig/` directory
-  may be partially initialized; the onboard command must be safely re-runnable.
-
-- **Cross-cutting policies**: The existing codebase may contain secrets, credentials, or PII in source
-  files. The SA read pass must not log or persist file contents beyond what is needed for architectural
-  analysis. This is the same constraint as any agent with `Read` access, but worth naming explicitly
-  given the SA will be reading arbitrary existing code.
-
-- **Existing tests and contracts**: An existing codebase may have its own integration tests, API
-  contracts (OpenAPI specs, protobuf definitions), or architecture docs. The SA should use these as
-  inputs to `architecture.yaml` rather than ignoring them. Mapping existing artifacts to jig's schema
-  is non-trivial; the design must decide how much of this mapping is automated vs operator-provided.
-
-- **Backlog bootstrapping**: Deriving a meaningful backlog from "existing state vs desired state" is
-  inherently judgment-heavy. The PM can do this, but it needs both the SA's read of current state and
-  a brief describing desired state. If the operator has no brief, the PM has no delta to work from.
-  The design should allow onboarding without a brief (producing only the `.jig/` structure and
-  architecture, deferring backlog creation) as well as with one.
-
-- **Synergy with project-profiles**: Profile selection during onboarding can use actual codebase
-  signals (file count, module count, test coverage, presence of external integrations) rather than
-  brief language alone. This makes auto-selection more reliable than the greenfield case and reduces
-  the need for operator input. The SA read pass and profile selection should be designed as a single
-  operation, not two sequential steps.
+- **Scale**: The SA read pass must handle codebases of arbitrary size. A 50k-line monorepo requires far more
+  turns than a 200-line CLI. Onboarding cost grows with codebase size and is unbounded without a cap mechanism
+  — the design must specify one.
+- **Concurrency**: N/A — onboarding is a one-time sequential operation; no concurrent writers during the read
+  passes.
+- **Failure modes**: The SA may misread an existing codebase — it may miss modules, misidentify boundaries, or
+  produce an `architecture.yaml` that does not match reality. This is tolerable only if the operator can
+  correct it before tickets are created. If the SA crashes mid-onboard, the `.jig/` directory may be
+  partially initialized; the command must be safely re-runnable. If the operator skips review and tickets are
+  created from a bad architectural read, the errors propagate silently into every subsequent dev ticket.
+- **Cross-cutting policies**: The existing codebase may contain secrets, credentials, or PII in source files.
+  The SA read pass must not log or persist file contents beyond what is needed for architectural analysis.
 
 ## Constraints
 
-- The `jig onboard` command must be safely re-runnable without corrupting partial state.
-- The SA read pass must be depth-bounded by the selected profile to prevent unbounded cost.
-- Onboarding must not require a brief — it should produce a usable `.jig/` structure even when the
-  operator has no desired-state document yet.
+- The `jig onboard` command must be safely re-runnable without corrupting partial state from a previous
+  failed run.
+- The SA read pass must be depth-bounded to prevent unbounded token cost.
+- Onboarding must not require a brief — it should produce a usable `.jig/` structure even when the operator
+  has no desired-state document yet.
 - No external services beyond what jig already uses.
+- Non-git repositories are not supported.
 
 ## Requirements
 
-- `jig onboard <path>` initializes jig against an existing codebase at `<path>`.
-- The SA runs in read mode, analyzing existing code to produce `architecture.yaml` and, if the profile
-  calls for it, per-module `contracts.yaml` derived from existing behavior.
-- Profile selection during onboarding uses codebase signals in addition to (or instead of) brief
-  content; the operator can override.
-- The operator can optionally provide a brief describing desired future state; if provided, the PM
-  generates an initial backlog from the current-state/desired-state delta.
-- If no brief is provided, onboarding completes with `.jig/` structure and architectural artifacts
-  only; the operator can add a brief later to generate a backlog.
-- The onboard flow includes an operator review of the SA's architectural output before the PM runs.
-- The command is safely re-runnable; partial state from a previous failed run is detected and handled.
+- `jig onboard` initializes jig against an existing codebase.
+- The PO runs in read mode, deriving suites from existing behavior rather than from a brief interview, and
+  produces a syntactically valid suite artifact that the operator reviews and confirms before continuing.
+- The SA runs in read mode and produces a syntactically valid `architecture.yaml`, per-module `contracts.yaml`,
+  and `boundaries.yaml` derived from observed import structure; the operator reviews and confirms before any
+  backlog is created.
+- Profile selection during onboarding uses codebase signals (suite count, module count, integration surface,
+  test gap severity) in addition to or instead of brief content; the operator can override.
+- Onboarding includes an operator review of produced artifacts before any backlog is created.
+- If the operator provides a desired-state brief, the PM generates an initial backlog from the current-state/
+  desired-state delta. If no desired-state brief is provided, onboarding completes with `.jig/` structure and
+  architectural artifacts only.
+- Re-running `jig onboard` on a partially initialized project does not corrupt existing state.
 
 ## Non-goals
 
 - Automatic migration of existing issue trackers or project management tools into jig tickets.
-- Automatic discovery of existing test failures or bugs (the SA reads structure, not runtime behavior).
-- Retroactive ticket creation for work that has already been completed.
+- Automatic discovery of existing test failures or runtime bugs (the SA reads structure, not runtime
+  behavior).
+- Retroactive ticket creation for work already completed.
 - Support for non-git repositories.
 
 ## Success criteria
 
-- An operator can run `jig onboard` against the hn-cli project directory and get a populated `.jig/`
-  with `architecture.yaml` and the correct profile selected, ready for new tickets to be created.
-- An operator can run `jig onboard` against a larger multi-module project and get a `medium` profile
-  auto-selected with per-module `contracts.yaml` produced.
-- An operator who provides a brief during onboarding gets an initial backlog of tickets representing
-  the gap between current state and desired state.
-- Re-running `jig onboard` on a partially initialized project does not corrupt existing state.
+- An operator can run `jig onboard` against an existing Python project and get a populated `.jig/` with
+  `architecture.yaml` and the correct profile selected, ready for new tickets.
+- An operator can run `jig onboard` against a multi-module project and get a `medium` profile auto-selected
+  with per-module `contracts.yaml` produced.
+- An operator who provides a desired-state brief during onboarding gets an initial backlog of tickets
+  representing the gap between current state and desired state.
+- Re-running `jig onboard` on a partially initialized project does not corrupt existing artifacts or tickets.
+- The operator review step occurs before the PM generates any tickets.
 
 ## Open questions
 
-- [ ] Are the PO and SA onboarding passes new roles (`po-onboard`, `sa-onboard`) or variants of the
-      existing roles invoked with a different prompt/context? New roles are simpler to prompt correctly
-      but duplicate maintenance surface; variants are harder to prompt without contaminating the
-      greenfield prompts.
-- [ ] The brief interview (step 1) is optional in v1 — but what triggers the operator to provide a
-      brief later if they skipped it? Does jig prompt them the next time they try to create a ticket?
-- [ ] For profile auto-selection: the PO and SA read passes produce signals (suite count, module count,
-      integration surface). Which agent makes the profile recommendation — the SA at the end of its
-      pass, or a separate step after both passes complete?
-- [ ] How does onboarding interact with an existing `.jig/` directory? Re-onboard (update artifacts
-      in place, preserving existing tickets) vs reject with a clear error?
-- [ ] What is the operator review UX — a `needs_info` pause where the operator edits files directly,
-      or a structured review conversation with the PO/SA?
+- [ ] Are the PO and SA onboarding passes new roles (`po-onboard`, `sa-onboard`) or variants of the existing
+      roles invoked with a different prompt/context? New roles are simpler to prompt correctly but duplicate
+      maintenance surface; variants are harder to prompt without contaminating greenfield prompts.
+- [ ] How does onboarding interact with an existing `.jig/` directory? Re-onboard (update artifacts in place,
+      preserving existing tickets) vs. reject with a clear error?
+- [ ] What is the operator review UX — a `needs_info` pause where the operator edits files directly, or a
+      structured review conversation with the PO/SA?
+- [ ] For profile auto-selection: which agent makes the profile recommendation — the SA at the end of its
+      read pass, or a separate step after both PO and SA passes complete?
+- [ ] What defines the "current-state/desired-state delta" that the PM converts into a backlog? Multiple
+      requirements and success criteria depend on this reconciliation existing (PO/SA read artifacts as
+      current-state, desired-state brief as desired-state), but the mechanism by which the PM identifies
+      ticket-able gaps is unspecified.
 
 ## Change log
 
 - 2026-05-20: Initial draft (brent)
 - 2026-05-20: Added PO→SA read sequence and brief interview step; resolved SA-only framing (brent)
+- 2026-06-07: Restructured to canonical template; removed design content (sequence, upscaling, simplest
+  solution); updated context to reference sa-architect and boundaries work; applied reviewer feedback —
+  clarified project-profiles shipped, sa-architect is in-progress prerequisite; made SA requirements
+  falsifiable via operator review gate; dropped solution-leaking Scale clause; added delta-reconciliation
+  open question; boundaries derivable from code exploration — removed non-goal, made boundaries.yaml a
+  first-class SA read-mode output (Brent Hoover)

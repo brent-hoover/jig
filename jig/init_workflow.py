@@ -12,6 +12,7 @@ import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -965,6 +966,258 @@ async def run_po_conversation(
         role_label="Product Owner",
         console=console,
         subtitle="Refining the project brief with the operator",
+    )
+
+
+# --- medium L0–L3 PO pipeline -------------------------------------------------
+#
+# These are the spawn helpers + level resolver for the medium init topology.
+# They are pure/unwired here (step 2); ``classify_resume`` + the run loop reach
+# them in step 3. Each level's PO works on a dedicated ticket and posts a
+# Handoff on it when it finalizes, which is how ``next_incomplete_level``
+# detects completion (thread markers, not artifact-on-disk).
+
+
+@dataclass(frozen=True)
+class NextLevel:
+    """The next incomplete PO level for a medium init.
+
+    ``level`` is 0–3. ``ticket_id`` is the ticket that level's PO works on
+    (``project`` / ``discovery`` / ``suites`` / ``suite-<id>``). ``suite_id``
+    is the BARE suite id for L3 (``ticket_id`` minus the ``suite-`` prefix) and
+    ``None`` for L0–L2 — so an L3 caller can pass it straight to
+    ``run_po_l3_conversation`` and the per-suite MCP handlers.
+    """
+
+    level: int
+    ticket_id: str
+    suite_id: str | None = None
+
+
+async def _ticket_has_handoff_phase(
+    threads: ThreadStore, ticket_id: str, phase: str
+) -> bool:
+    """True if ``ticket_id``'s thread carries a non-rejected ``Handoff`` to
+    ``phase`` — the marker a PO level posts when it finalizes.
+
+    A rejected handoff means the level needs rework, so it must NOT count as
+    complete (else the resolver would skip the phase that needs correcting).
+    Mirrors the ``arch_finalize`` resume check (``acceptance_state != 'rejected'``).
+    """
+    entries = await threads.for_ticket(ticket_id)
+    return any(
+        isinstance(e, Handoff) and e.phase == phase and e.acceptance_state != "rejected"
+        for e in entries
+    )
+
+
+async def next_incomplete_level(
+    *, project_path: Path, threads: ThreadStore
+) -> NextLevel | None:
+    """Resolve the next incomplete L0–L3 level for a medium init.
+
+    Detection is by thread markers: each level posts a ``Handoff`` on its
+    ticket when it finalizes — ``project``→``po-l1``, ``discovery``→``po-l2``,
+    ``suites``→``po-l3``, and each ``suite-<id>``→``sa``. L3 fans out over the
+    suites in ``suites.yaml`` (written by L2 before its ``po-l3`` handoff), in
+    declaration order. Returns ``None`` when every level — including every
+    suite's L3 — is done, so the caller proceeds to the SA.
+    """
+    from jig.po_l0_mcp import L0_TICKET_ID
+    from jig.po_l1_mcp import L1_TICKET_ID
+    from jig.po_l2_mcp import L2_TICKET_ID
+    from jig.spec_loader import load_suites_index
+
+    if not await _ticket_has_handoff_phase(threads, L0_TICKET_ID, "po-l1"):
+        return NextLevel(level=0, ticket_id=L0_TICKET_ID)
+    if not await _ticket_has_handoff_phase(threads, L1_TICKET_ID, "po-l2"):
+        return NextLevel(level=1, ticket_id=L1_TICKET_ID)
+    if not await _ticket_has_handoff_phase(threads, L2_TICKET_ID, "po-l3"):
+        return NextLevel(level=2, ticket_id=L2_TICKET_ID)
+    # L2 is done, so ``suites.yaml`` exists (L2 finalize writes it before the
+    # ``po-l3`` handoff). Fan out over its suites; ``suite-<id>`` mirrors
+    # ``po_l3_mcp._l3_ticket_id`` (kept a literal — that helper is private).
+    index = load_suites_index(project_path)
+    for suite in index.suites:
+        if not await _ticket_has_handoff_phase(threads, f"suite-{suite.id}", "sa"):
+            return NextLevel(level=3, ticket_id=f"suite-{suite.id}", suite_id=suite.id)
+    return None
+
+
+async def _spawn_po_level(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    ticket_id: str,
+    role: str,
+    title: str,
+    role_label: str,
+    subtitle: str,
+    description: str = "",
+    console: "Console | None" = None,
+) -> None:
+    """Shared body for the L0–L3 spawn helpers: ensure ``ticket_id`` exists and
+    is active, then spawn ``role`` on it with CLI streaming.
+
+    Mirrors ``run_po_conversation`` — the per-level wrappers below only vary the
+    ticket id, role, and operator-facing labels.
+    """
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        ticket = Ticket(
+            id=ticket_id,
+            work_type=WorkType.BRIEF,
+            title=title,
+            description=description,
+            created_by="cli",
+        )
+        await tickets.create(ticket)
+    # A resumed level may have finalized (RESOLVED) on a prior run; reactivate
+    # so the new spawn's first poll doesn't exit immediately.
+    ticket = await _reactivate_if_resolved(tickets, ticket, author="cli")
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, role)
+    ctx = AgentSpawnContext(
+        role=role,
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=ticket,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx, role_label=role_label, console=console, subtitle=subtitle
+    )
+
+
+async def run_po_l0_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L0 PO on the ``project`` ticket (captures the project pitch)."""
+    from jig.po_l0_mcp import L0_TICKET_ID
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=L0_TICKET_ID,
+        role="po-l0",
+        title="L0 project pitch",
+        role_label="Product Owner — L0",
+        subtitle="Capturing the project pitch",
+        console=console,
+    )
+
+
+async def run_po_l1_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L1 PO on the ``discovery`` ticket (personas + journeys)."""
+    from jig.po_l1_mcp import L1_TICKET_ID
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=L1_TICKET_ID,
+        role="po-l1",
+        title="L1 discovery — personas + journeys",
+        role_label="Product Owner — L1",
+        subtitle="Walking discovery: personas, journeys, capability roster",
+        console=console,
+    )
+
+
+async def run_po_l2_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L2 PO on the ``suites`` ticket (suite organization)."""
+    from jig.po_l2_mcp import L2_TICKET_ID
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=L2_TICKET_ID,
+        role="po-l2",
+        title="L2 suite organization",
+        role_label="Product Owner — L2",
+        subtitle="Grouping capabilities into suites",
+        console=console,
+    )
+
+
+async def run_po_l3_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    suite_id: str,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L3 PO on the ``suite-<suite_id>`` ticket (one suite's brief).
+
+    ``suite_id`` is the BARE suite id (as carried by ``NextLevel.suite_id``).
+    The suite's L2 summary, when present in ``suites.yaml``, seeds the ticket
+    description so the operator/agent sees the suite's scope.
+    """
+    from jig.spec_loader import load_suites_index
+
+    summary = ""
+    try:
+        suite = load_suites_index(project_path).suite_by_id(suite_id)
+    except FileNotFoundError:
+        suite = None
+    if suite is not None:
+        summary = suite.summary
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=f"suite-{suite_id}",
+        role="po-l3",
+        title=f"L3 brief — {suite_id}",
+        description=summary,
+        role_label="Product Owner — L3",
+        subtitle=f"Elaborating suite '{suite_id}'",
+        console=console,
     )
 
 

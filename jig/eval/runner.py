@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 ALL_TOPICS = ("tickets", "spec", "agents", "events", "prompts")
 _ANALYSIS_WAIT_SECONDS = 60.0
-_ADDR_FILE_TIMEOUT = 15.0
+_WS_READY_TIMEOUT = 15.0
 _SIGKILL_GRACE = 10.0
 
 
@@ -221,7 +221,7 @@ async def run_eval(
     # daemon.addr, so poll the WS port directly instead of waiting for that file.
     addr = f"ws://127.0.0.1:{port}"
     ready = False
-    deadline = time.monotonic() + _ADDR_FILE_TIMEOUT
+    deadline = time.monotonic() + _WS_READY_TIMEOUT
     while time.monotonic() < deadline:
         try:
             async with _ws_connect(addr, open_timeout=1.0):
@@ -230,7 +230,7 @@ async def run_eval(
         except Exception:
             await asyncio.sleep(0.5)
     if not ready:
-        log.error("WS server not ready after %ss: %s", _ADDR_FILE_TIMEOUT, addr)
+        log.error("WS server not ready after %ss: %s", _WS_READY_TIMEOUT, addr)
         _teardown_proc(proc, temp_path)
         return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 

@@ -163,9 +163,10 @@ Elaborates one suite's brief and structured spec (capabilities, behaviors, user 
 
 ## Subsystem: Software Architect (SA)
 
-**Files**: `sa_mcp.py`
+**Files**: `sa_mcp.py`, `sa_incremental_mcp.py`, `boundary_rules.py`
 
-**Purpose**: Writes project-level architecture and per-module contracts (data stores, modules, cross-cutting policies, risks).
+**Purpose**: Writes project-level architecture and per-module contracts (data stores, modules, cross-cutting
+policies, risks) and compiles per-module import-boundary declarations into semgrep deny rules.
 
 ### SA Main Handler (`sa_mcp.py`)
 
@@ -182,12 +183,33 @@ Elaborates one suite's brief and structured spec (capabilities, behaviors, user 
   - Ensures contracts' module id is in architecture
   - Location: lines 117-130
 
+### SA Incremental MCP / Boundary Tools (`sa_incremental_mcp.py`)
+
+**Key Functions**:
+- `handle_sa_write_boundaries(*, project_path, boundaries) -> str`
+  - Validates a `BoundariesFile` payload and writes `.jig/spec/modules/<m>/boundaries.yaml`
+  - Rule generation is deferred to `arch_finalize` so boundaries can be authored incrementally
+- `handle_arch_finalize(...)` *(also in `sa_incremental_mcp.py`)*
+  - Runs `generate_boundary_rules()` after finalizing — compiles all `boundaries.yaml` files into
+    semgrep deny rules at `.jig/rules/semgrep/boundaries/` enforced at the dev commit gate
+
+### Module Boundary Rule Generator (`boundary_rules.py`)
+
+**Key Functions**:
+- `generate_boundary_rules(project_path: Path) -> list[Path]`
+  - Reads all `modules/<m>/boundaries.yaml` files under `.jig/spec/modules/`
+  - Compiles each `BoundariesFile.deny` list into scoped semgrep pattern rules
+  - Writes rule YAML files to `.jig/rules/semgrep/boundaries/`; returns written paths
+- `build_deny_rule(*, rule_id, message, package, package_dir) -> dict`
+  - Constructs one semgrep rule banning a package from a specific module subtree
+
 **Dependencies**:
-- `jig.schemas.arch` (Architecture, ContractsFile, Module, etc.)
-- `jig.spec_loader` (architecture_path, module_contracts_path)
+- `jig.schemas.arch` (Architecture, ContractsFile, Module, BoundariesFile, etc.)
+- `jig.spec_loader` (architecture_path, module_contracts_path, module_boundaries_path)
 - `jig.store` (threads, tickets, bus)
 
-**State**: Writes to `.jig/spec/architecture.yaml` + module-specific contracts YAML
+**State**: Writes to `.jig/spec/architecture.yaml`, module-specific contracts YAML,
+`modules/<m>/boundaries.yaml`, and `.jig/rules/semgrep/boundaries/`
 
 ---
 
@@ -371,6 +393,8 @@ Elaborates one suite's brief and structured spec (capabilities, behaviors, user 
 - `BehavioralContract` — (id, polarity, intent, description, acceptance_criteria, changes)
 - `IntegrationAcceptance` — (capability_id, description, musts, shoulds, wont_haves)
 - `Risk` — (id, intent, impact, likelihood, status, open_questions, dependent_contracts, spike)
+- `BoundariesFile` — (spec_version, module, deny: list[str]) — per-module import-boundary declaration;
+  `deny` lists packages this module must not import; validated to reject self-denial
 
 **Validators**:
 - `validate_kebab_id`, `validate_project_uri_shape` — enforce naming conventions

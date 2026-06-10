@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-18
+updated: 2026-06-10
 ---
 
 # C4 Context Level: Jig System Context
@@ -297,10 +297,11 @@ contract language that agents treat as binding rather than advisory.
 
 ### Project Initialization and Scaffolding
 
-- **Description**: `jig init` initializes a new project by running the L0 PO agent to capture the pitch and
-  scaffold the `.jig/` directory structure. The operator answers a short discovery conversation; jig writes the
-  initial artifacts and configures the orchestrator. Scaffold templates ship with the package for common project
-  types.
+- **Description**: `jig init` initializes a greenfield project by running the L0 PO agent to capture the pitch
+  and scaffold the `.jig/` directory structure. `jig onboard <path>` imports an existing codebase: a scanner
+  agent reads the repository and writes `.jig/onboard/observations.md`, then the standard PO read pass, spec
+  generator, and PM profile selection run to produce the initial brief and project profile. Scaffold templates
+  ship with the package for common project types.
 - **Users**: Operator
 
 ---

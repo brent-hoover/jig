@@ -413,13 +413,13 @@ The module enforces role-based tool access via `_STRICT_DENY_BUILTINS` (frozense
 
 The factory imports and registers handlers from:
 - `jig.checkpoint_mcp` — Checkpoint operations
-- `jig.init_mcp` — Initialization
+- `jig.init_mcp` — Initialization; `onboard_finish_scan` (scanner agent completes its pass)
 - `jig.planner_pm_mcp` — Planner operations
 - `jig.po_l0_mcp`, `jig.po_l1_mcp`, `jig.po_l2_mcp`, `jig.po_l3_mcp` — PO tools (layered)
 - `jig.po_ontology_mcp` — Ontology edits
 - `jig.quartermaster` — Quartermaster tools
 - `jig.reviewer_mcp` — Reviewer `post_comment` operation; `reviewer_get_diff` and `reviewer_read_file` (scoped diff/read for roles with `reads_glob`) registered inline in `mcp_server.py`
-- `jig.sa_incremental_mcp`, `jig.sa_mcp` — SA tools
+- `jig.sa_incremental_mcp`, `jig.sa_mcp` — SA tools including `sa_write_boundaries`
 - `jig.thread_mcp` — Thread operations (questions, answers, objections, handoffs, escalations)
 - `jig.ticket_mcp` — Ticket CRUD operations
 - `jig.vd_mcp` — Value-driven operations
@@ -450,7 +450,8 @@ The factory imports and registers handlers from:
 
 **Key CLI Subcommands**:
 
-- `jig init <name>` — Bootstrap new project
+- `jig init <name>` — Bootstrap new greenfield project
+- `jig onboard <path>` — Import existing codebase (scanner → PO read pass → spec → PM profile)
 - `jig daemon start` — Start background daemon
 - `jig daemon stop` — Stop background daemon
 - `jig daemon status` — Query daemon status
@@ -665,7 +666,7 @@ SelfApprovalPolicy = Literal["warn", "blocked"]
 |-------|---------|
 | `Ticket` | Main ticket record: id, title, description, status, work_type, size, assignee, created/updated timestamps, phase index, module/epic/suite metadata, plan fields (layer, dev_tier, etc.) |
 | `TicketStatus` | Enum: NEW, READY, IN_PROGRESS, BLOCKED, RESOLVED, FAILED, COMPLETED, DEFERRED |
-| `WorkType` | Enum: FEATURE, BUGFIX, REFACTOR, SPIKE, PERF, MIGRATION, DOCS, BRIEF, ARCHITECTURE, PLANNING, CANONICALIZE, PROFILE |
+| `WorkType` | Enum: FEATURE, BUGFIX, REFACTOR, SPIKE, PERF, MIGRATION, DOCS, BRIEF, ARCHITECTURE, PLANNING, CANONICALIZE, PROFILE, ONBOARD_SCAN |
 | `Size` | Enum: XS, S, M, L, XL |
 | `TicketPlanMetadata` | Typed view over v2 planning fields (suite_id, module_id, epic_id, layer, dev_tier, etc.) |
 | `TicketTouches` | Explicit cross-boundary declarations (modules, capabilities, APIs, events, data stores, migrations, etc.) |

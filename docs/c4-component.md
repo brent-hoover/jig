@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-06-02
+updated: 2026-06-10
 ---
 
 # C4 Component Level: Jig Agent Orchestration Framework
@@ -62,6 +62,8 @@ polls briefly for immediate-death cases. `daemon_stop` sends SIGTERM then SIGKIL
 ### Software Features
 
 - **Project initialization**: `jig init` runs the L0 PO conversation and scaffolds `.jig/` directory structure
+- **Codebase onboarding**: `jig onboard <path>` imports an existing repository — scanner pass writes
+  `.jig/onboard/observations.md`, then PO read pass, spec generator, and PM profile selection complete
 - **Daemon start/stop/status**: Manages the long-running background process, including Docker container mode
 - **Daemon serve**: Hosts Orchestrator and WebSocket Server in-process (called by the daemonized subprocess)
 - **Project validation**: `jig validate` checks stores, config, workflows, and specs for consistency
@@ -76,7 +78,8 @@ polls briefly for immediate-death cases. `daemon_stop` sends SIGTERM then SIGKIL
 | Interface | Type | Description |
 |-----------|------|-------------|
 | `jig` CLI binary | Shell command | Root entry point; all subcommands branch from here |
-| `jig init` | Shell command | Bootstrap a new project |
+| `jig init` | Shell command | Bootstrap a new greenfield project |
+| `jig onboard <path>` | Shell command | Import existing codebase (scanner → PO read → spec → PM profile) |
 | `jig daemon start/stop/status/serve` | Shell commands | Daemon lifecycle control |
 | `jig validate` | Shell command | Project structure validation |
 | `jig sim run` | Shell command | Simulation tier execution |
@@ -374,7 +377,7 @@ sandboxing of the Claude Code subprocess itself.
 | PO L1 | `jig.po_l1_mcp` | `discovery_*` (set_phase, add_journey, add_capability, finalize, resume) |
 | PO L2 | `jig.po_l2_mcp` | `l2_finalize` |
 | PO L3 | `jig.po_l3_mcp` | `l3_finalize` |
-| SA | `jig.sa_mcp`, `jig.sa_incremental_mcp` | `sa_finalize`, incremental architecture edits |
+| SA | `jig.sa_mcp`, `jig.sa_incremental_mcp` | `sa_finalize`, `sa_write_boundaries`, incremental architecture edits |
 | Planner PM | `jig.planner_pm_mcp` | `plan_finalize` |
 | Reviewer | `jig.reviewer_mcp`, `jig.mcp_server` | `post_comment`; `reviewer_get_diff`, `reviewer_read_file` (opt-in scoped tools for roles with `reads_glob`) |
 | Checkpoints | `jig.checkpoint_mcp` | checkpoint save/restore |
@@ -493,11 +496,12 @@ Markdown artifacts, then posts a `Handoff` thread entry which the Orchestrator d
 
 - **Name**: SA/VD (System Architect / Visual Designer)
 - **Type**: Agent Role Suite / Spec Generator
-- **Technology**: Python, Pydantic, YAML, HTML
+- **Technology**: Python, Pydantic, YAML, HTML, semgrep
 - **Primary files**: `jig/sa_mcp.py`, `jig/sa_incremental_mcp.py`, `jig/vd_mcp.py`,
-  `jig/schemas/arch.py`, `jig/schemas/frontend.py`, `jig/schemas/design_system.py`,
-  `jig/wireframes/__init__.py`, `jig/wireframes/format.py`, `jig/wireframes/linter.py`,
-  `jig/wireframes/wireframe_css.py`, `jig/wireframes/index_generator.py`
+  `jig/boundary_rules.py`, `jig/schemas/arch.py`, `jig/schemas/frontend.py`,
+  `jig/schemas/design_system.py`, `jig/wireframes/__init__.py`, `jig/wireframes/format.py`,
+  `jig/wireframes/linter.py`, `jig/wireframes/wireframe_css.py`,
+  `jig/wireframes/index_generator.py`
 
 ### Responsibility
 
@@ -524,6 +528,9 @@ Both agents post `Handoff` entries when complete, which the Orchestrator detects
 - **Bones minimum validation**: Rejects architectures missing required structural minimums
 - **Module link validation**: Rejects module contracts whose `module_id` does not appear in the architecture
 - **Incremental SA edits**: `sa_incremental_mcp` supports multi-call architecture elaboration without full rewrites
+- **Module boundary declarations**: SA authors per-module import boundaries via `sa_write_boundaries`, writing
+  `modules/<m>/boundaries.yaml`; `arch_finalize` compiles these into semgrep deny rules under
+  `.jig/rules/semgrep/boundaries/` that are enforced at the dev commit gate
 - **Risk register**: SA proposes bounded spike tickets for flagged architectural unknowns
 - **Frontend architecture**: VD writes `frontend.yaml` (stack, build tool, component pattern, a11y target)
 - **Design system**: VD writes tokens, component specs, and brand guidance to `.jig/design/system/`; defaults
@@ -542,6 +549,7 @@ Both agents post `Handoff` entries when complete, which the Orchestrator detects
 |------|-------|-------------|
 | `sa_finalize(architecture, module_contracts)` | SA | Validate + write architecture artifacts + post Handoff |
 | `sa_edit_module(module_id, changes)` | SA (incremental) | Partial module contract edit without full rewrite |
+| `sa_write_boundaries(boundaries)` | SA | Write per-module `BoundariesFile` to `modules/<m>/boundaries.yaml` |
 | `vd_finalize(frontend, design_system, wireframes)` | VD | Write VD artifacts + post Handoff |
 | `vd_add_wireframe(screen_id, html)` | VD | Write one wireframe with lint validation |
 
@@ -551,6 +559,8 @@ Both agents post `Handoff` entries when complete, which the Orchestrator detects
 |----------|-------|------|
 | Architecture YAML | SA | `.jig/spec/architecture.yaml` |
 | Module contracts | SA | `.jig/spec/modules/<m>/contracts.yaml` |
+| Module boundaries | SA | `.jig/spec/modules/<m>/boundaries.yaml` |
+| Semgrep boundary rules | SA (`arch_finalize`) | `.jig/rules/semgrep/boundaries/` |
 | Frontend YAML | VD | `.jig/design/frontend.yaml` |
 | Design system | VD | `.jig/design/system/` |
 | Wireframes | VD | `.jig/design/wireframes/<screen-id>.html` |
@@ -568,7 +578,10 @@ Both agents post `Handoff` entries when complete, which the Orchestrator detects
 
 ### Key Dependencies
 
-- **Architecture schemas** (`jig.schemas.arch`): `Architecture`, `ContractsFile`, `Module`, `DataStore`, etc.
+- **Architecture schemas** (`jig.schemas.arch`): `Architecture`, `ContractsFile`, `Module`, `BoundariesFile`,
+  `DataStore`, etc.
+- **Boundary rules** (`jig.boundary_rules`): `generate_boundary_rules()` compiles `BoundariesFile` declarations
+  into scoped semgrep deny rules
 - **Frontend/design schemas** (`jig.schemas.frontend`, `jig.schemas.design_system`): VD artifact shapes
 - **Wireframe subsystem** (`jig.wireframes`): Linter, formatter, CSS generator, index generator
 - **Spec loader** (`jig.spec_loader`): Path helpers and atomic YAML write

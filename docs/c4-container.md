@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-05-29
+updated: 2026-06-10
 ---
 
 # C4 Container Level: Jig Agent Orchestration Framework
@@ -67,7 +67,8 @@ affect in-flight agents.
 | `jig` | Shell command | Launch TUI; auto-starts Daemon if not running |
 | `jig --print "/<cmd>"` | Shell command | One-shot non-interactive command; prints result to stdout |
 | `jig daemon start/stop/status` | Shell commands | Daemon lifecycle (does not open TUI) |
-| `jig init` | Shell command | Project initialization (runs L0 PO discovery) |
+| `jig init` | Shell command | Greenfield project initialization (runs L0 PO discovery) |
+| `jig onboard <path>` | Shell command | Import existing codebase: scanner pass → PO read pass → spec → PM profile |
 | `jig validate` | Shell command | Project structure validation |
 | `jig sim run <scenario>` | Shell command | Run a synthetic operator scenario |
 | `jig sim run-tier <tier>` | Shell command | Run a scenario tier (smoke/full/nightly) |
@@ -350,6 +351,9 @@ JSONL files as the backing store.
 | `.jig/plan/deferred.jsonl` | (Coordinator) | DEFERRED queue for notable-severity review items |
 | `.jig/plan/calibration.jsonl` | (Coordinator) | Per-ticket estimation calibration samples |
 | `.jig/arch/` | (spec loader) | SA architecture contracts and module specs |
+| `.jig/spec/modules/<m>/boundaries.yaml` | (`sa_write_boundaries` MCP) | Per-module import-boundary declarations (authored by SA) |
+| `.jig/rules/semgrep/boundaries/` | (`boundary_rules.py`) | Generated semgrep deny rules enforced at the dev commit gate |
+| `.jig/onboard/` | (onboard workflow) | Scanner observations and desired-state draft for `jig onboard` |
 | `.jig/design/` | (VD MCP) | Wireframes, design system, frontend config |
 | `.jig/run/` | (daemon module) | PID, address, container ID, error log — runtime state |
 | `.jig/config.yaml` | (config loader) | Project configuration (workflows, roles, escalation, etc.) |

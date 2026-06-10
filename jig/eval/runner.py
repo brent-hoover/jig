@@ -293,69 +293,84 @@ async def run_eval(
             temp_dir=temp_path,
         )
 
-    # Success path
-    run_id = str(uuid.uuid4())[:8]
-    tracer_sh = jig_repo / "evals" / "projects" / project_id / "tracer.sh"
-    if not tracer_sh.is_file():
-        log.error("tracer.sh not found: %s", tracer_sh)
-        _teardown_proc(proc, temp_path)
-        return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
+    # Success path — guard ensures _teardown_proc is called even if collect/write/copy raises.
+    try:
+        run_id = str(uuid.uuid4())[:8]
+        tracer_sh = jig_repo / "evals" / "projects" / project_id / "tracer.sh"
+        if not tracer_sh.is_file():
+            log.error("tracer.sh not found: %s", tracer_sh)
+            _teardown_proc(proc, temp_path)
+            return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
-    manifest = await collect(
-        temp_path,
-        run_id=run_id,
-        project_id=project_id,
-        label=label,
-        tracer_cmd=["bash", str(tracer_sh)],
-    )
-
-    runs_root = jig_repo / "evals" / "runs"
-    out_dir = runs_root / project_id / run_id
-    out_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = out_dir / "manifest.yaml"
-    manifest_path.write_text(
-        yaml.dump(manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
-    )
-
-    if manifest.tracer is None:
-        log.error(
-            "manifest.tracer is None — treating as TRACER_FAIL to avoid false positive"
+        manifest = await collect(
+            temp_path,
+            run_id=run_id,
+            project_id=project_id,
+            label=label,
+            tracer_cmd=["bash", str(tracer_sh)],
         )
-        _teardown_proc(proc, temp_path)
-        return RunResult(outcome=EvalOutcome.TRACER_FAIL, manifest_path=manifest_path)
-    tracer_outcome = _check_tracer_outcome(
-        manifest.tracer.exit_code, manifest.tracer.stdout
-    )
-    if tracer_outcome is not None:
-        label_str = "SKIP" if manifest.tracer.exit_code == 0 else "FAIL"
-        log.error(
-            "tracer %s: exit_code=%d stdout=%r",
-            label_str,
-            manifest.tracer.exit_code,
-            manifest.tracer.stdout[:100],
-        )
-        _teardown_proc(proc, temp_path)
-        return RunResult(outcome=EvalOutcome.TRACER_FAIL, manifest_path=manifest_path)
 
-    analysis_dir: Path | None = None
-    if analysis_out_dir is not None:
-        src = Path(analysis_out_dir)
-        if src.is_dir():
-            dst = out_dir / "analysis"
-            shutil.copytree(src, dst)
-            analysis_dir = dst
+        runs_root = jig_repo / "evals" / "runs"
+        out_dir = runs_root / project_id / run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = out_dir / "manifest.yaml"
+        manifest_path.write_text(
+            yaml.dump(
+                manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True
+            )
+        )
+
+        if manifest.tracer is None:
+            log.error(
+                "manifest.tracer is None — treating as TRACER_FAIL to avoid false positive"
+            )
+            _teardown_proc(proc, temp_path)
+            return RunResult(
+                outcome=EvalOutcome.TRACER_FAIL,
+                manifest_path=manifest_path,
+                temp_dir=temp_path,
+            )
+        tracer_outcome = _check_tracer_outcome(
+            manifest.tracer.exit_code, manifest.tracer.stdout
+        )
+        if tracer_outcome is not None:
+            label_str = "SKIP" if manifest.tracer.exit_code == 0 else "FAIL"
+            log.error(
+                "tracer %s: exit_code=%d stdout=%r",
+                label_str,
+                manifest.tracer.exit_code,
+                manifest.tracer.stdout[:100],
+            )
+            _teardown_proc(proc, temp_path)
+            return RunResult(
+                outcome=EvalOutcome.TRACER_FAIL,
+                manifest_path=manifest_path,
+                temp_dir=temp_path,
+            )
+
+        analysis_dir: Path | None = None
+        if analysis_out_dir is not None:
+            src = Path(analysis_out_dir)
+            if src.is_dir():
+                dst = out_dir / "analysis"
+                shutil.copytree(src, dst)
+                analysis_dir = dst
+            else:
+                log.warning("analysis_out_dir not a directory: %s", src)
         else:
-            log.warning("analysis_out_dir not a directory: %s", src)
-    else:
-        log.warning("analysis_complete not received; skipping analysis copy")
+            log.warning("analysis_complete not received; skipping analysis copy")
 
-    _teardown_proc(proc, temp_path)
-    if not keep:
-        shutil.rmtree(temp_path, ignore_errors=True)
+        _teardown_proc(proc, temp_path)
+        if not keep:
+            shutil.rmtree(temp_path, ignore_errors=True)
 
-    return RunResult(
-        outcome=EvalOutcome.SUCCESS,
-        manifest_path=manifest_path,
-        analysis_dir=analysis_dir,
-        temp_dir=temp_path if keep else None,
-    )
+        return RunResult(
+            outcome=EvalOutcome.SUCCESS,
+            manifest_path=manifest_path,
+            analysis_dir=analysis_dir,
+            temp_dir=temp_path if keep else None,
+        )
+    except Exception:
+        log.exception("unexpected error in success path")
+        _teardown_proc(proc, temp_path)
+        raise

@@ -48,8 +48,8 @@ wiring (Step 2) together as one shippable unit, then tests (Step 3), then lint (
   from queue, and a poll loop that calls `detector.check(now=time.monotonic())` every
   `detector.thresholds.poll_interval_seconds` and returns the verdict when one fires.
 - `async def run_eval(project_id, *, label, keep, timeout_minutes, jig_repo) -> RunResult`:
-  1. Validates `jig_repo / "evals/projects" / project_id / "brief.md"` and `tracer.sh` exist;
-     returns `INIT_ERROR` immediately if not.
+  1. Validates `jig_repo / "evals/projects" / project_id / "brief.md"` exists; returns
+     `INIT_ERROR` immediately if not. (`tracer.sh` is checked later in the success path.)
   2. Creates temp dir, picks free port, logs both.
   3. Calls `await run_init(name=temp_dir, force=False, brief_file=..., prompts=AutoPromptHandler())`
      — wrapped in try/except; returns `INIT_ERROR` on exception.

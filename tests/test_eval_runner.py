@@ -84,6 +84,7 @@ def test_stall_teardown_sigterms_subprocess(tmp_path: Path) -> None:
 
     mock_proc.terminate.assert_called_once()
     mock_proc.kill.assert_called_once()
+    assert mock_proc.wait.call_count == 2, "wait() must be called after kill() to reap zombie"
 
 
 def test_tracer_skip_is_tracer_fail() -> None:

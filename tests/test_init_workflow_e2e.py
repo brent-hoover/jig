@@ -435,20 +435,10 @@ async def test_e2e_resume_after_gap_prompt_picks_R(tmp_path: Path, monkeypatch) 
             author="spec-generator",
         )
 
-    @agent.handle(role="pm", ticket_id="profile")
-    async def _pm_profile(ctx: AgentSpawnContext) -> None:
-        await handle_pm_propose_profile(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            bus=ctx.bus,
-            name="small",
-            rationale="Gap-resume test fixture.",
-            author="pm",
-        )
-
-    # Sequence: brief_approval→Y, gap-prompt→R, brief_approval→Y,
-    # profile_confirm→Y, branch→p (direct), template→1, init_complete→"".
-    answers = iter(["Y", "R", "Y", "Y", "p", "1", ""])
+    # Sequence: project_size→"small", brief_approval→Y, gap-prompt→R,
+    # brief_approval→Y, branch→p (direct), template→1, init_complete→"".
+    # (PM-1 profile-selection is retired; size is chosen up front.)
+    answers = iter(["small", "Y", "R", "Y", "p", "1", ""])
     monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
 
     with (
@@ -474,134 +464,6 @@ async def test_e2e_resume_after_gap_prompt_picks_R(tmp_path: Path, monkeypatch) 
     assert len(handoffs) == 2
     assert po_calls["n"] == 2
     assert sg_calls["n"] == 2
-
-
-async def test_e2e_pm_profile_pass_applies_medium(tmp_path: Path, monkeypatch):
-    """End-to-end: PM-1 proposes ``medium``, operator confirms, SA
-    runs as the medium profile's SA role, and the medium profile's
-    workflow set lands in ``.jig/workflows/``.
-
-    This is the integration confidence test for the new PO → PM-1
-    → confirm → SA path. Mocks the agent runs but exercises the full
-    init state machine + MCP handler + profile_loader.
-
-    Medium stays on the basic ``sa`` role until the v2 init pipeline ships.
-    """
-    from jig.config import load_config
-    from jig.init_workflow import _resolve_sa_role
-    from jig.thread import Note
-
-    monkeypatch.chdir(tmp_path)
-    agent = FakeAgent()
-
-    @agent.handle(role="po", ticket_id="brief")
-    async def _po(ctx: AgentSpawnContext) -> None:
-        proj = ctx.worktree_path
-        (proj / "docs" / "brief.md").write_text(
-            "# medproj\n\n## Planned (committed)\n\n### X\nprose\n"
-        )
-        await handle_po_finish_brief(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            bus=ctx.bus,
-            project_path=proj,
-            summary="done",
-            author="po",
-        )
-
-    @agent.handle(role="spec-generator", ticket_id="brief")
-    async def _sg(ctx: AgentSpawnContext) -> None:
-        await handle_spec_publish(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            bus=ctx.bus,
-            project_path=ctx.worktree_path,
-            yaml_content=_valid_spec_yaml(name="medproj"),
-            advisory_notes=[],
-            author="spec-generator",
-        )
-
-    pm_profile_calls = {"n": 0}
-
-    @agent.handle(role="pm", ticket_id="profile")
-    async def _pm_profile(ctx: AgentSpawnContext) -> None:
-        pm_profile_calls["n"] += 1
-        await handle_pm_propose_profile(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            bus=ctx.bus,
-            name="medium",
-            rationale=(
-                "Multiple datastores + external integrations + auth "
-                "all named in the brief."
-            ),
-            author="pm",
-        )
-
-    sa_role_seen = {"value": None}
-
-    @agent.handle(role="sa", ticket_id="architecture")
-    async def _sa_default(ctx: AgentSpawnContext) -> None:
-        sa_role_seen["value"] = ctx.role
-        await handle_arch_set_field(
-            threads=ctx.threads,
-            project_path=ctx.worktree_path,
-            path="rationale",
-            value="medium-scale arch",
-            author="sa",
-        )
-        await handle_sa_propose_scaffold(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            bus=ctx.bus,
-            template_name="python",
-            rationale="placeholder",
-            config={},
-            author="sa",
-        )
-
-    # Auto-accept all prompts.
-    answers = iter(["Y", "Y", "Y", "Y", ""])
-    monkeypatch.setattr("click.prompt", lambda *a, **kw: next(answers))
-
-    with (
-        patch("jig.init_workflow.run_agent", new=agent.run),
-        patch("jig.spec_generator.run_agent", new=agent.run),
-    ):
-        await run_init(name="medproj", force=False)
-
-    project = tmp_path / "medproj"
-
-    # 1. PM-1 ran once against the profile ticket.
-    assert pm_profile_calls["n"] == 1
-
-    # 2. pm_propose_profile Note exists on the profile ticket with
-    # the chosen name + rationale.
-    threads = ThreadStore(project / ".jig" / "store" / "comments.jsonl")
-    await threads.load()
-    profile_entries = await threads.for_ticket("profile")
-    proposals = [
-        e
-        for e in profile_entries
-        if isinstance(e, Note) and e.payload.get("kind") == "pm_propose_profile"
-    ]
-    assert len(proposals) == 1
-    assert proposals[0].payload["name"] == "medium"
-
-    # 3. Profile applied to config.
-    cfg = load_config(project)
-    assert cfg.profile.name == "medium"
-    # medium stays on basic sa until v2 init pipeline ships
-    assert cfg.profile.sa_role == "sa"
-
-    # 4. _resolve_sa_role agrees, and the SA spawn used the medium
-    # profile's sa role.
-    assert _resolve_sa_role(project) == "sa"
-    assert sa_role_seen["value"] == "sa"
-
-    # 5. Medium-profile workflow files copied into .jig/.
-    assert (project / ".jig" / "profiles" / "medium.yaml").is_file()
-    assert (project / ".jig" / "workflows" / "feature-s-full.yaml").is_file()
 
 
 async def test_pm_profile_pass_skipped_when_profile_preset(tmp_path: Path, monkeypatch):

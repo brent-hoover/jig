@@ -42,6 +42,7 @@ async def cmd_init(
 
     brief_file: _Path | None = None
     auto = False
+    profile_name: str | None = None
     positional: list[str] = []
     i = 0
     while i < len(args):
@@ -52,6 +53,14 @@ async def cmd_init(
             continue
         if a.startswith("--brief="):
             brief_file = _Path(a.split("=", 1)[1])
+            i += 1
+            continue
+        if a == "--profile" and i + 1 < len(args):
+            profile_name = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--profile="):
+            profile_name = a.split("=", 1)[1]
             i += 1
             continue
         if a == "--auto":
@@ -132,6 +141,7 @@ async def cmd_init(
             console=console,
             prompts=prompts,
             brief_file=brief_file,
+            profile_name=profile_name,
         )
     except Exception as exc:  # noqa: BLE001
         # Log the full traceback to the daemon log so we can debug what
@@ -160,19 +170,19 @@ async def cmd_init(
 async def _proceed(*, orch, project_path) -> dict[str, Any]:
     """Advance the multi-level PO state machine by one step.
 
-    Inspects what's on disk + what's open in the ticket store and
-    picks the next level to spawn. Bones-Final scope:
+    Delegates the "which level is next" decision to
+    ``jig.init_workflow.next_incomplete_level`` — the SAME thread-marker
+    resolver the auto init path (``classify_resume``) uses — so the manual
+    stepping command can't drift from the auto path (e.g. a suite whose
+    ``brief.md`` is on disk but whose ``suite-<id>`` ticket has no
+    ``Handoff(phase="sa")`` is still treated as incomplete by both). This
+    command then creates/reopens the level ticket the resolver names so the
+    orchestrator dispatches that level's PO on the next tick.
 
-    - L0 not committed → return error (operator must `/init <name>`).
-    - L0 committed, L1 not committed → ensure ``discovery`` ticket is
-      open so the orchestrator dispatches the L1 PO.
-    - L1 committed, L2 not committed → open the L2 ``suites`` ticket.
-    - L2 committed → check the L3 suite tickets; reopen the next
-      pending one.
-
-    The result includes ``level`` (which level we just advanced to)
-    and ``ticket_id`` (the ticket the orchestrator will dispatch on
-    next tick).
+    L0 is bootstrapped by ``/init <name>``, not advanced here; if the resolver
+    says L0 is still pending this returns an error pointing the operator there.
+    The result includes ``level`` (which level we just advanced to) and
+    ``ticket_id`` (the ticket the orchestrator will dispatch on next tick).
     """
     if project_path is None:
         return {
@@ -182,108 +192,103 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
     if orch is None:
         return {"ok": False, "error": "/init --proceed requires a running orchestrator"}
 
-    from jig.po_l1_mcp import L1_TICKET_ID
-    from jig.po_l2_mcp import L2_TICKET_ID
-    from jig.spec_loader import (
-        discovery_path,
-        load_suites_index,
-        spec_path,
-    )
+    from jig.init_workflow import _ticket_awaits_answer, next_incomplete_level
+    from jig.spec_loader import load_suites_index
     from jig.ticket import Ticket, TicketStatus, WorkType
 
-    # L0 gate.
-    if (
-        not (project_path / "docs" / "brief.md").is_file()
-        and not spec_path(project_path).is_file()
-    ):
+    # An orchestrator started against an uninitialized project runs in
+    # unconfigured mode with its stores set to None. The resolver needs a live
+    # ThreadStore, so guard here and point the operator at the bootstrap command
+    # (mirrors the L0 case below) rather than raising an AttributeError.
+    if orch.threads is None or orch.tickets is None:
         return {
             "ok": False,
             "error": (
-                "no L0 project pitch on disk; run `/init <name>` to bootstrap "
+                "no project initialized yet; run `/init <name>` to bootstrap "
                 "before invoking /init --proceed"
             ),
         }
 
-    # L1 gate.
-    if not discovery_path(project_path).is_file():
-        # Ensure discovery ticket exists in OPEN state so orchestrator
-        # picks up the L1 PO.
-        existing = await orch.tickets.get(L1_TICKET_ID)
-        if existing is None:
-            await orch.tickets.create(
-                Ticket(
-                    id=L1_TICKET_ID,
-                    work_type=WorkType.BRIEF,
-                    title="L1 discovery — personas + journeys",
-                    created_by="user",
-                )
-            )
-        elif existing.status != TicketStatus.OPEN:
-            await orch.tickets.update(
-                L1_TICKET_ID, status=TicketStatus.OPEN, assignee=None
-            )
-        return {
-            "ok": True,
-            "data": {"level": "po-l1", "ticket_id": L1_TICKET_ID},
-        }
+    nxt = await next_incomplete_level(project_path=project_path, threads=orch.threads)
 
-    # L2 gate.
-    try:
-        suites_index = load_suites_index(project_path)
-    except FileNotFoundError:
-        existing = await orch.tickets.get(L2_TICKET_ID)
-        if existing is None:
-            await orch.tickets.create(
-                Ticket(
-                    id=L2_TICKET_ID,
-                    work_type=WorkType.BRIEF,
-                    title="L2 suite organization",
-                    created_by="user",
-                )
-            )
-        elif existing.status != TicketStatus.OPEN:
-            await orch.tickets.update(
-                L2_TICKET_ID, status=TicketStatus.OPEN, assignee=None
-            )
-        return {
-            "ok": True,
-            "data": {"level": "po-l2", "ticket_id": L2_TICKET_ID},
-        }
-
-    # L3 gate — pick the first suite without a brief on disk.
-    for suite in suites_index.suites:
-        brief = project_path / ".jig" / "spec" / "suites" / suite.id / "brief.md"
-        if brief.is_file():
-            continue
-        ticket_id = f"suite-{suite.id}"
-        existing = await orch.tickets.get(ticket_id)
-        if existing is None:
-            await orch.tickets.create(
-                Ticket(
-                    id=ticket_id,
-                    work_type=WorkType.BRIEF,
-                    title=f"L3 brief — {suite.id}",
-                    description=suite.summary,
-                    created_by="user",
-                )
-            )
-        elif existing.status != TicketStatus.OPEN:
-            await orch.tickets.update(
-                ticket_id, status=TicketStatus.OPEN, assignee=None
-            )
+    if nxt is None:
         return {
             "ok": True,
             "data": {
-                "level": "po-l3",
-                "ticket_id": ticket_id,
-                "suite_id": suite.id,
+                "level": "po-complete",
+                "message": "all PO levels committed; nothing to advance",
             },
         }
 
-    return {
-        "ok": True,
-        "data": {
-            "level": "po-complete",
-            "message": "all PO levels committed; nothing to advance",
-        },
-    }
+    if nxt.level == 0:
+        # L0 is bootstrapped by `/init <name>`, not advanced by --proceed.
+        return {
+            "ok": False,
+            "error": (
+                "no L0 project pitch committed; run `/init <name>` to bootstrap "
+                "before invoking /init --proceed"
+            ),
+        }
+
+    # If the pending level's ticket has open operator questions (needs_info),
+    # surface that instead of reopening it — reopening would respawn the PO
+    # against unanswered input. Mirrors classify_resume's PO_LEVEL_NEEDS_ANSWER
+    # guard so the manual path can't bypass questions the auto path honors.
+    if await _ticket_awaits_answer(orch.tickets, orch.threads, nxt.ticket_id):
+        return {
+            "ok": True,
+            "data": {
+                "level": "needs-answer",
+                "ticket_id": nxt.ticket_id,
+                "message": (
+                    f"{nxt.ticket_id} has open operator questions; answer them "
+                    "before proceeding"
+                ),
+            },
+        }
+
+    # Resolve the level's ticket metadata.
+    if nxt.level == 1:
+        level_label, title, description = (
+            "po-l1",
+            "L1 discovery — personas + journeys",
+            "",
+        )
+    elif nxt.level == 2:
+        level_label, title, description = "po-l2", "L2 suite organization", ""
+    elif nxt.level == 3:
+        level_label = "po-l3"
+        title = f"L3 brief — {nxt.suite_id}"
+        description = ""
+        try:
+            suite = load_suites_index(project_path).suite_by_id(nxt.suite_id)
+        except FileNotFoundError:
+            suite = None
+        if suite is not None:
+            description = suite.summary
+    else:
+        # next_incomplete_level only returns levels 0–3 (0 handled above), so
+        # this is unreachable — fail loud rather than build a "L3 brief — None"
+        # ticket if NextLevel ever grows an unexpected level.
+        raise AssertionError(f"unexpected PO level {nxt.level!r} from resolver")
+
+    existing = await orch.tickets.get(nxt.ticket_id)
+    if existing is None:
+        await orch.tickets.create(
+            Ticket(
+                id=nxt.ticket_id,
+                work_type=WorkType.BRIEF,
+                title=title,
+                description=description,
+                created_by="user",
+            )
+        )
+    elif existing.status != TicketStatus.OPEN:
+        await orch.tickets.update(
+            nxt.ticket_id, status=TicketStatus.OPEN, assignee=None
+        )
+
+    data: dict[str, Any] = {"level": level_label, "ticket_id": nxt.ticket_id}
+    if nxt.level == 3:
+        data["suite_id"] = nxt.suite_id
+    return {"ok": True, "data": data}

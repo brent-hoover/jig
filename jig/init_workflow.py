@@ -12,6 +12,7 @@ import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -235,11 +236,13 @@ async def run_init(
     falls straight into ``SPEC_GENERATION``. Used by ``jig init --brief``
     for eval harnesses.
 
-    When ``profile_name`` is set (from ``jig init --profile``), the
-    named profile is applied AFTER the ``--force`` cleanup and
-    canonical ``create_stub`` — applying it earlier would race
-    ``shutil.rmtree(target / ".jig")`` and lose the write. The profile
-    is the eval / auto-mode bypass for the PM-1 selection pass.
+    The profile is resolved UP FRONT (before the resume loop), so
+    ``classify_resume`` can branch the PO topology on it (medium → L0–L3
+    pipeline). It is applied AFTER the ``--force`` cleanup and canonical
+    ``create_stub`` — applying it earlier would race
+    ``shutil.rmtree(target / ".jig")`` and lose the write. ``--profile`` pins
+    it; a fresh interactive init asks the operator via the guided size prompt.
+    The interactive PM-1 profile-selection pass has been retired.
     """
     from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
 
@@ -260,29 +263,87 @@ async def run_init(
         raise click.ClickException(
             f"{target}/.jig is in an inconsistent state. Use --force to reset."
         )
+    # Validate the --brief / --profile combination BEFORE the destructive
+    # --force cleanup below, so a rejected invocation never wipes an existing
+    # .jig. --brief is the eval/unattended path: it must pin --profile (PM-1
+    # selection is retired, so there's no later chance to choose) and it cannot
+    # use a module-producing-SA profile (a single baked brief can't supply the
+    # L0–L3 inputs sa_mvp needs; the L0–L3 topology ignores the v1 brief ticket
+    # --brief seeds). Gate on the effective SA *role* (not the profile name) so a
+    # custom profile with sa_role: sa_mvp is caught too.
+    if brief_file is not None:
+        from jig.config import load_config as _load_config
+        from jig.profile_loader import load_profile as _load_profile
+
+        if profile_name is not None:
+            # --profile pins the topology outright; no need to read any
+            # persisted profile (which may not exist yet in a daemon-touched
+            # but un-init'd directory).
+            try:
+                effective_sa_role = _load_profile(
+                    profile_name, project_path=target
+                ).sa_role
+            except FileNotFoundError as exc:
+                raise click.ClickException(str(exc)) from exc
+        else:
+            # No --profile: a --force reset wipes the persisted profile, so
+            # under --force the baked brief must carry --profile; without
+            # --force a resume may inherit a profile persisted by an earlier
+            # run. Read it only when ``config.yaml`` actually exists —
+            # ``classify_directory`` treats a daemon-only ``.jig`` (run/logs/
+            # uploads, no config) as a fresh project.
+            persisted = None
+            if not force and (target / ".jig" / "config.yaml").is_file():
+                persisted = _load_config(target).profile
+            if persisted is None or not persisted.name.strip():
+                raise click.ClickException(
+                    "--brief requires --profile: eval/unattended init must pin "
+                    "the project profile (PM-1 profile selection has been "
+                    "retired)."
+                )
+            effective_sa_role = persisted.sa_role
+        if _is_module_sa_role(target, effective_sa_role):
+            raise click.ClickException(
+                "--brief is not supported with the medium profile (or any "
+                "profile whose sa_role resolves to sa_mvp): a single baked "
+                "brief can't supply the L0–L3 inputs sa_mvp needs. Use the "
+                "scenario harness for those evals."
+            )
     snapshots = OperatorYamlSnapshots()
     if force and (target / ".jig").is_dir():
         snapshots = await _force_reset_jig(target, prompts=prompts, console=console)
 
     create_stub(target, name=project_name)
     _restore_operator_yamls(target, snapshots)
-    # ``--profile`` bypass: write the profile to config AFTER the
-    # canonical ``create_stub`` (so ``.jig/config.yaml`` exists) and
-    # AFTER any ``--force`` cleanup (so the rmtree doesn't delete the
-    # write). ``classify_resume`` then sees ``cfg.profile.name``
-    # populated on the next tick and skips ``PM_PROFILE_PASS``.
+    # Resolve the profile UP FRONT, before any PO runs, so ``classify_resume``
+    # can branch the PO topology on it (medium → L0–L3 pipeline). ``--profile``
+    # pins/overrides it; an interactive *fresh* init asks the operator via the
+    # guided size selection. Eval / unattended runs (``--brief``) MUST pin
+    # ``--profile`` — the PM-1 profile-selection pass has been retired, so there
+    # is no later chance to choose.
     #
-    # Inlined here rather than calling ``cli._apply_profile_at_start``
-    # to keep the dependency direction CLI → workflow and route the
-    # status message through the caller-supplied console.
-    if profile_name is not None:
-        from jig.config import load_config, save_config
-        from jig.profile_loader import (
-            apply_profile,
-            copy_profile_templates,
-            load_profile,
-        )
+    # RESUME-SAFE: ``run_init`` is also the resume entrypoint, so prompt/apply
+    # ONLY when no profile is persisted yet. A resumed init (config already
+    # carries ``profile.name``) keeps its first-run choice — re-prompting would
+    # overwrite the saved profile and could switch the PO topology mid-run.
+    from jig.config import load_config, save_config
+    from jig.profile_loader import (
+        apply_profile,
+        copy_profile_templates,
+        load_profile,
+    )
 
+    persisted_profile = load_config(target).profile.name.strip()
+    if profile_name is None and not persisted_profile:
+        # Fresh interactive init: ask the operator for size. (The --brief path
+        # is non-interactive and was already validated before the --force
+        # cleanup above, so ``brief_file`` is None whenever we reach here.)
+        profile_name = await prompts.ask_project_size(console=console)
+
+    if profile_name is not None:
+        # --profile (override) or a fresh interactive choice. A resumed init with
+        # no --profile leaves ``profile_name`` None here and preserves the
+        # persisted profile untouched.
         try:
             profile = load_profile(profile_name, project_path=target)
         except FileNotFoundError as exc:
@@ -398,6 +459,71 @@ async def _run_init_resume_loop(
                 memory=memory,
                 bus=bus,
                 console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L0_CONVERSATION:
+            await run_po_l0_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L1_CONVERSATION:
+            await run_po_l1_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L2_CONVERSATION:
+            await run_po_l2_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L3_CONVERSATION:
+            # L3 fans out per suite. Re-run the resolver to get the pending
+            # suite id (classify_resume returned PO_L3 but not which suite);
+            # assert the level is still L3 to guard against a race where the
+            # state changed between classify and dispatch.
+            nxt = await next_incomplete_level(project_path=target, threads=threads)
+            if nxt is None or nxt.level != 3 or nxt.suite_id is None:
+                # The pending level moved on (or completed) between classify and
+                # here — re-classify rather than spawn L3 on a stale suite.
+                continue
+            await run_po_l3_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                suite_id=nxt.suite_id,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_LEVEL_NEEDS_ANSWER:
+            # A medium L0–L3 level is awaiting operator answers. Re-resolve the
+            # pending level to find its ticket, then surface its questions.
+            nxt = await next_incomplete_level(project_path=target, threads=threads)
+            if nxt is None:
+                continue  # state advanced between classify and dispatch
+            await prompt_and_post_answers(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                ticket_id=nxt.ticket_id,
+                console=console,
+                prompts=prompts,
             )
             continue
         if rs == ResumeState.NEEDS_ANSWER_BRIEF:
@@ -924,6 +1050,267 @@ async def run_po_conversation(
     )
 
 
+# --- medium L0–L3 PO pipeline -------------------------------------------------
+#
+# These are the spawn helpers + level resolver for the medium init topology.
+# They are pure/unwired here (step 2); ``classify_resume`` + the run loop reach
+# them in step 3. Each level's PO works on a dedicated ticket and posts a
+# Handoff on it when it finalizes, which is how ``next_incomplete_level``
+# detects completion (thread markers, not artifact-on-disk).
+
+
+@dataclass(frozen=True)
+class NextLevel:
+    """The next incomplete PO level for a medium init.
+
+    ``level`` is 0–3. ``ticket_id`` is the ticket that level's PO works on
+    (``project`` / ``discovery`` / ``suites`` / ``suite-<id>``). ``suite_id``
+    is the BARE suite id for L3 (``ticket_id`` minus the ``suite-`` prefix) and
+    ``None`` for L0–L2 — so an L3 caller can pass it straight to
+    ``run_po_l3_conversation`` and the per-suite MCP handlers.
+    """
+
+    level: int
+    ticket_id: str
+    suite_id: str | None = None
+
+
+async def _ticket_has_handoff_phase(
+    threads: ThreadStore, ticket_id: str, phase: str
+) -> bool:
+    """True if ``ticket_id``'s thread carries a non-rejected ``Handoff`` to
+    ``phase`` — the marker a PO level posts when it finalizes.
+
+    A rejected handoff means the level needs rework, so it must NOT count as
+    complete (else the resolver would skip the phase that needs correcting).
+    Mirrors the ``arch_finalize`` resume check (``acceptance_state != 'rejected'``).
+    """
+    entries = await threads.for_ticket(ticket_id)
+    return any(
+        isinstance(e, Handoff) and e.phase == phase and e.acceptance_state != "rejected"
+        for e in entries
+    )
+
+
+async def next_incomplete_level(
+    *, project_path: Path, threads: ThreadStore
+) -> NextLevel | None:
+    """Resolve the next incomplete L0–L3 level for a medium init.
+
+    Detection is by thread markers: each level posts a ``Handoff`` on its
+    ticket when it finalizes — ``project``→``po-l1``, ``discovery``→``po-l2``,
+    ``suites``→``po-l3``, and each ``suite-<id>``→``sa``. L3 fans out over the
+    suites in ``suites.yaml`` (written by L2 before its ``po-l3`` handoff), in
+    declaration order. Returns ``None`` when every level — including every
+    suite's L3 — is done, so the caller proceeds to the SA.
+    """
+    from jig.po_l0_mcp import L0_TICKET_ID
+    from jig.po_l1_mcp import L1_TICKET_ID
+    from jig.po_l2_mcp import L2_TICKET_ID
+    from jig.spec_loader import load_suites_index
+
+    if not await _ticket_has_handoff_phase(threads, L0_TICKET_ID, "po-l1"):
+        return NextLevel(level=0, ticket_id=L0_TICKET_ID)
+    if not await _ticket_has_handoff_phase(threads, L1_TICKET_ID, "po-l2"):
+        return NextLevel(level=1, ticket_id=L1_TICKET_ID)
+    if not await _ticket_has_handoff_phase(threads, L2_TICKET_ID, "po-l3"):
+        return NextLevel(level=2, ticket_id=L2_TICKET_ID)
+    # L2 is done, so ``suites.yaml`` should exist (L2 finalize writes it before
+    # the ``po-l3`` handoff). Fan out over its suites; ``suite-<id>`` mirrors
+    # ``po_l3_mcp._l3_ticket_id`` (kept a literal — that helper is private). If
+    # the artifact vanished after the handoff (corrupted resume), surface a
+    # readable error rather than letting a raw FileNotFoundError escape through
+    # classify_resume / the run loop (mirrors ``_assert_sa_mvp_inputs``).
+    try:
+        index = load_suites_index(project_path)
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            f"suites.yaml is missing but L2 handed off to L3 — the L2 artifact "
+            f"was lost (corrupted resume). Re-run the L2 PO. ({exc})"
+        ) from exc
+    for suite in index.suites:
+        if not await _ticket_has_handoff_phase(threads, f"suite-{suite.id}", "sa"):
+            return NextLevel(level=3, ticket_id=f"suite-{suite.id}", suite_id=suite.id)
+    return None
+
+
+async def _spawn_po_level(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    ticket_id: str,
+    role: str,
+    title: str,
+    role_label: str,
+    subtitle: str,
+    description: str = "",
+    console: "Console | None" = None,
+) -> None:
+    """Shared body for the L0–L3 spawn helpers: ensure ``ticket_id`` exists and
+    is active, then spawn ``role`` on it with CLI streaming.
+
+    Mirrors ``run_po_conversation`` — the per-level wrappers below only vary the
+    ticket id, role, and operator-facing labels.
+    """
+    ticket = await tickets.get(ticket_id)
+    if ticket is None:
+        ticket = Ticket(
+            id=ticket_id,
+            work_type=WorkType.BRIEF,
+            title=title,
+            description=description,
+            created_by="cli",
+        )
+        await tickets.create(ticket)
+    # A resumed level may have finalized (RESOLVED) on a prior run; reactivate
+    # so the new spawn's first poll doesn't exit immediately.
+    ticket = await _reactivate_if_resolved(tickets, ticket, author="cli")
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, role)
+    ctx = AgentSpawnContext(
+        role=role,
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=ticket,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx, role_label=role_label, console=console, subtitle=subtitle
+    )
+
+
+async def run_po_l0_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L0 PO on the ``project`` ticket (captures the project pitch)."""
+    from jig.po_l0_mcp import L0_TICKET_ID
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=L0_TICKET_ID,
+        role="po-l0",
+        title="L0 project pitch",
+        role_label="Product Owner — L0",
+        subtitle="Capturing the project pitch",
+        console=console,
+    )
+
+
+async def run_po_l1_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L1 PO on the ``discovery`` ticket (personas + journeys)."""
+    from jig.po_l1_mcp import L1_TICKET_ID
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=L1_TICKET_ID,
+        role="po-l1",
+        title="L1 discovery — personas + journeys",
+        role_label="Product Owner — L1",
+        subtitle="Walking discovery: personas, journeys, capability roster",
+        console=console,
+    )
+
+
+async def run_po_l2_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L2 PO on the ``suites`` ticket (suite organization)."""
+    from jig.po_l2_mcp import L2_TICKET_ID
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=L2_TICKET_ID,
+        role="po-l2",
+        title="L2 suite organization",
+        role_label="Product Owner — L2",
+        subtitle="Grouping capabilities into suites",
+        console=console,
+    )
+
+
+async def run_po_l3_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    suite_id: str,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the L3 PO on the ``suite-<suite_id>`` ticket (one suite's brief).
+
+    ``suite_id`` is the BARE suite id (as carried by ``NextLevel.suite_id``).
+    The suite's L2 summary, when present in ``suites.yaml``, seeds the ticket
+    description so the operator/agent sees the suite's scope.
+    """
+    from jig.spec_loader import load_suites_index
+
+    summary = ""
+    try:
+        suite = load_suites_index(project_path).suite_by_id(suite_id)
+    except FileNotFoundError:
+        suite = None
+    if suite is not None:
+        summary = suite.summary
+
+    await _spawn_po_level(
+        project_path=project_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        ticket_id=f"suite-{suite_id}",
+        role="po-l3",
+        title=f"L3 brief — {suite_id}",
+        description=summary,
+        role_label="Product Owner — L3",
+        subtitle=f"Elaborating suite '{suite_id}'",
+        console=console,
+    )
+
+
 async def _run_agent_with_cli_output(
     ctx: AgentSpawnContext,
     *,
@@ -1205,6 +1592,38 @@ def render_branch_prompt() -> str:
     return "Brief accepted."
 
 
+def render_size_prompt() -> str:
+    """The guided project-size selection shown at the top of an interactive
+    ``jig init``. Teaches the small-vs-medium distinction (it drives the whole
+    PO topology) rather than just asking it. Plain text — the CLI prints with
+    ``markup=False`` and the TUI wraps via Markdown."""
+    return (
+        "How big is this project? This sets how jig plans the architecture.\n"
+        "\n"
+        "small  — a simple, single-purpose project: one or two modules, no external\n"
+        "         integrations, no compliance. Example: a CLI that reads one source and\n"
+        "         formats output (a Hacker News reader, a file converter, a focused\n"
+        "         utility). A single flat scaffold.\n"
+        "\n"
+        "medium — a multi-module project: distinct capability areas that warrant separate\n"
+        "         modules, external integrations (APIs / datastores), or compliance.\n"
+        "         Example: an applicant-tracking system (job-posting + candidate + billing\n"
+        "         modules), or a web service with auth + a database + third-party APIs.\n"
+        "         Per-module architecture with import-boundary enforcement."
+    )
+
+
+def parse_project_size(reply: str) -> str:
+    """Map an operator reply to a profile name. ``s``/``small`` → ``small``,
+    ``m``/``medium`` → ``medium``; anything else defaults to ``small`` (the
+    conservative choice — a flat scaffold is recoverable, an unwanted module
+    pipeline is more disruptive)."""
+    r = reply.strip().lower()
+    if r in ("m", "medium"):
+        return "medium"
+    return "small"
+
+
 async def prompt_branch_choice(
     *,
     console: "Console | None" = None,
@@ -1477,6 +1896,67 @@ def _resolve_sa_role(project_path: Path) -> str:
     return role_id if role_id else "sa"
 
 
+def _is_module_sa_role(project_path: Path, sa_role: str) -> bool:
+    """True when ``sa_role`` (a profile's ``sa_role`` spelling) resolves to the
+    module-producing SA — canonical role id ``sa-mvp``.
+
+    ``load_role`` accepts both the filename alias (``sa_mvp``, used by
+    ``medium.yaml``) and the canonical id (``sa-mvp``), so this is the single
+    source of truth for "does this profile use the module SA". The L0–L3
+    topology decision (``classify_resume``), the ``--brief`` rejection, and the
+    SA artifact preflight all key off the *role* rather than the profile *name*,
+    so a custom profile that sets ``sa_role: sa_mvp`` under any name gets the
+    L0–L3 pipeline + preflight instead of silently routing to the flat path and
+    failing later.
+    """
+    if not sa_role.strip():
+        return False
+    try:
+        return load_role(project_path, sa_role).role == "sa-mvp"
+    except FileNotFoundError:
+        return False
+
+
+def _uses_module_sa(project_path: Path) -> bool:
+    """True when this project's resolved profile uses the module-producing SA."""
+    return _is_module_sa_role(project_path, _resolve_sa_role(project_path))
+
+
+def _assert_sa_mvp_inputs(project_path: Path) -> None:
+    """Fail loud if any L0–L3 artifact the module-producing SA needs is absent.
+
+    ``sa_mvp`` reads ``discovery.md`` (L1), ``suites.yaml`` (L2), and each
+    suite's ``spec.structured.yaml`` (L3). A missing/malformed one means an
+    upstream level didn't finish — surface that here with the exact path rather
+    than letting the SA crash opaquely mid-run.
+    """
+    from jig.spec_loader import (
+        discovery_path,
+        load_suites_index,
+        suite_structured_path,
+        suites_index_path,
+    )
+
+    missing: list[str] = []
+    if not discovery_path(project_path).is_file():
+        missing.append(str(discovery_path(project_path)))
+    try:
+        index = load_suites_index(project_path)
+    except FileNotFoundError:
+        missing.append(str(suites_index_path(project_path)))
+        index = None
+    if index is not None:
+        for suite in index.suites:
+            spec = suite_structured_path(project_path, suite.id)
+            if not spec.is_file():
+                missing.append(str(spec))
+    if missing:
+        raise click.ClickException(
+            "sa_mvp cannot run — missing L0–L3 artifacts (an upstream PO level "
+            "did not finish):\n  " + "\n  ".join(missing)
+        )
+
+
 async def run_sa_conversation(
     *,
     project_path: Path,
@@ -1503,6 +1983,16 @@ async def run_sa_conversation(
     project = load_project(project_path)
     sa_role_id = _resolve_sa_role(project_path)
     role_cfg = load_role(project_path, sa_role_id)
+    # Gate on the RESOLVED canonical role id, not the profile's ``sa_role``
+    # spelling: ``load_role`` accepts both the filename alias (``sa_mvp``, which
+    # medium.yaml uses) and the canonical role id (``sa-mvp``), so a custom
+    # profile using either must still get the L0–L3 preflight. The
+    # module-producing SA consumes the L0–L3 PO artifacts; if any are
+    # missing/malformed it would fail opaquely deep in its run, so fail loud
+    # here with a precise pointer (design §7 — hard-fail, not a silent degrade).
+    # v1 ``sa`` reads only the flat spec and is unaffected.
+    if role_cfg.role == "sa-mvp":
+        _assert_sa_mvp_inputs(project_path)
     ctx = AgentSpawnContext(
         role=sa_role_id,
         role_cfg=role_cfg,
@@ -1928,6 +2418,16 @@ def _format_event(event: JigEvent) -> str | None:
 
 class ResumeState(str, Enum):
     PO_CONVERSATION = "po_conversation"
+    # Medium L0–L3 PO pipeline (one state per level; L3 re-runs
+    # next_incomplete_level for the pending suite id).
+    PO_L0_CONVERSATION = "po_l0_conversation"
+    PO_L1_CONVERSATION = "po_l1_conversation"
+    PO_L2_CONVERSATION = "po_l2_conversation"
+    PO_L3_CONVERSATION = "po_l3_conversation"
+    # A medium L0–L3 level posted operator questions (ask_question → needs_info).
+    # Generic across levels: the dispatch arm re-runs next_incomplete_level to
+    # find which level's ticket to prompt on.
+    PO_LEVEL_NEEDS_ANSWER = "po_level_needs_answer"
     NEEDS_ANSWER_BRIEF = "needs_answer_brief"
     BRIEF_APPROVAL = "brief_approval"
     SPEC_GENERATION = "spec_generation"
@@ -1941,6 +2441,17 @@ class ResumeState(str, Enum):
     DIRECT_TEMPLATE_PICK = "direct_template_pick"
     ALREADY_DONE = "already_done"
     BROKEN = "broken"
+
+
+# Maps a NextLevel.level (0–3) to its ResumeState. Module-level constant (defined
+# after ResumeState so the members resolve) — no need to allocate a fresh dict on
+# every classify_resume call.
+_PO_LEVEL_STATES: dict[int, ResumeState] = {
+    0: ResumeState.PO_L0_CONVERSATION,
+    1: ResumeState.PO_L1_CONVERSATION,
+    2: ResumeState.PO_L2_CONVERSATION,
+    3: ResumeState.PO_L3_CONVERSATION,
+}
 
 
 async def _reactivate_if_resolved(
@@ -2015,6 +2526,30 @@ async def classify_resume(
     if ds == DirState.BROKEN:
         return ResumeState.BROKEN
 
+    # Module-SA profiles (medium, and any custom profile whose sa_role resolves
+    # to ``sa-mvp``): drive the L0–L3 PO pipeline instead of the v1 flat brief
+    # path. The profile is selected up front (``run_init``), so it is set before
+    # any PO runs and the topology can branch here. Gating on the resolved SA
+    # *role* (not the profile *name*) keeps this consistent with the SA spawn's
+    # artifact preflight — a profile that uses ``sa_mvp`` always gets the L0–L3
+    # inputs that SA reads. ``next_incomplete_level`` resolves the next level via
+    # thread markers; once every level is done we fall through to the shared SA
+    # inspection, defaulting a missing arch ticket to SA_CONVERSATION
+    # (auto-cascade into ``sa_mvp`` — no operator branch prompt). Flat-SA
+    # profiles skip this block entirely.
+    if _uses_module_sa(project_path):
+        nxt = await next_incomplete_level(project_path=project_path, threads=threads)
+        if nxt is not None:
+            # If the pending level's PO posted operator questions (ask_question
+            # flips the ticket to needs_info), answer them before respawning the
+            # PO — otherwise the level would loop on the unanswered question.
+            if await _ticket_awaits_answer(tickets, threads, nxt.ticket_id):
+                return ResumeState.PO_LEVEL_NEEDS_ANSWER
+            return _PO_LEVEL_STATES[nxt.level]
+        return await _classify_arch_state(
+            tickets, threads, no_arch_default=ResumeState.SA_CONVERSATION
+        )
+
     brief = await tickets.get("brief")
     if brief is None:
         return ResumeState.PO_CONVERSATION
@@ -2086,9 +2621,28 @@ async def classify_resume(
         return ResumeState.PM_PROFILE_CONFIRM_PROMPT
 
     # Spec generated + profile set. Now look at architecture ticket.
+    return await _classify_arch_state(
+        tickets, threads, no_arch_default=ResumeState.BRANCH_PROMPT
+    )
+
+
+async def _classify_arch_state(
+    tickets: TicketStore,
+    threads: ThreadStore,
+    *,
+    no_arch_default: ResumeState,
+) -> ResumeState:
+    """Map the architecture ticket's state to the next SA-side resume action.
+
+    Shared by the v1 flat tail (``no_arch_default=BRANCH_PROMPT`` — the operator
+    chooses SA vs. a direct template) and the medium L0–L3 path
+    (``no_arch_default=SA_CONVERSATION`` — auto-cascade straight into ``sa_mvp``
+    with no branch prompt). Once the architecture ticket exists, both paths
+    share the same completion logic (scaffold applied / arch_finalize → done).
+    """
     arch = await tickets.get("architecture")
     if arch is None:
-        return ResumeState.BRANCH_PROMPT
+        return no_arch_default
 
     arch_entries = await threads.for_ticket("architecture")
     has_sa_skipped = any(

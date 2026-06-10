@@ -7,13 +7,13 @@ description: >
   performance, security, pattern-conformance). xs tickets share the same
   ``feature-s`` workflow as ``small`` — no spawn of the five-reviewer
   federation on a one-file change, but still TDD.
-# sa_mvp is the long-term target — it produces per-module contracts.yaml
-# files for the specialist reviewer federation. classify_resume now
-# correctly recognises the arch_finalize Handoff (Handoff phase=pm) as
-# SA-done, unblocking the flip. Deferred until the v2 init pipeline
-# (discovery.md / suites.yaml) ships so sa_mvp has the upstream artifacts
-# it reads. See issue #137 and the sa_mvp role definition.
-sa_role: sa
+# sa_mvp produces per-module contracts.yaml files for the specialist
+# reviewer federation. The v2 init pipeline is active: a medium `jig init`
+# drives the L0–L3 PO chain (docs/brief.md → discovery.md → suites.yaml →
+# per-suite spec.structured.yaml), so sa_mvp has the upstream artifacts it
+# reads. classify_resume branches on profile.name == "medium" to run that
+# chain, then spawns sa_mvp. See feature-work/medium-l0-l3-pipeline and #137.
+sa_role: sa_mvp
 workflows:
   default_by_size:
     xs: feature-s

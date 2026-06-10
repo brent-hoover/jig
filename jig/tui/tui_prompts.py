@@ -118,6 +118,26 @@ class TuiPromptHandler:
         )
         return BranchChoice.parse(reply)
 
+    async def ask_project_size(self, *, console: "Console") -> str:
+        from jig.init_workflow import parse_project_size, render_size_prompt
+
+        reply = await self._round_trip(
+            {
+                "prompt_type": "project_size",
+                "rendered": render_size_prompt(),
+                "question": "How big is this project?",
+                "options": [
+                    {
+                        "key": "small",
+                        "label": "Small — single-purpose",
+                        "default": True,
+                    },
+                    {"key": "medium", "label": "Medium — multi-module"},
+                ],
+            }
+        )
+        return parse_project_size(reply)
+
     async def ask_sa_confirm(
         self,
         *,

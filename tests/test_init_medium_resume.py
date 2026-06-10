@@ -198,6 +198,52 @@ async def test_medium_classify_routes_to_needs_answer(
     )
 
 
+# --- topology keys off the SA role, not the profile name ----------------------
+
+
+async def test_custom_named_sa_mvp_profile_routes_to_l0_l3(tmp_path: Path) -> None:
+    """The L0–L3 topology decision keys off the resolved SA *role* (sa-mvp), not
+    the profile *name* — so a CUSTOM profile (name != 'medium') that sets
+    sa_role: sa_mvp still drives the L0–L3 pipeline (and gets the artifact
+    preflight), instead of routing to the flat path and failing later."""
+    target = tmp_path / "proj"
+    create_stub(target, name="proj")
+    cfg = load_config(target)
+    cfg.profile.name = "big"  # NOT 'medium'
+    cfg.profile.sa_role = "sa_mvp"  # but uses the module-producing SA
+    save_config(target, cfg)
+    tickets, threads, _, _ = await _stores(target)
+    assert (
+        await classify_resume(project_path=target, tickets=tickets, threads=threads)
+        == ResumeState.PO_L0_CONVERSATION
+    )
+
+
+async def test_brief_rejected_for_custom_named_sa_mvp_profile(tmp_path: Path) -> None:
+    """--brief is rejected for ANY module-producing-SA profile, not just one
+    literally named 'medium' — a persisted custom sa_mvp profile is caught."""
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import run_init
+
+    target = tmp_path / "proj"
+    create_stub(target, name="proj")
+    cfg = load_config(target)
+    cfg.profile.name = "big"
+    cfg.profile.sa_role = "sa_mvp"
+    save_config(target, cfg)
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Brief\n")
+
+    with pytest.raises(click.ClickException, match="not supported with the medium"):
+        await run_init(
+            name=str(target),
+            force=False,
+            prompts=AutoPromptHandler(),
+            brief_file=brief,
+            profile_name=None,  # persisted custom profile supplies the topology
+        )
+
+
 # --- non-medium regression ----------------------------------------------------
 
 

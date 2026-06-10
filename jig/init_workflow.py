@@ -267,8 +267,10 @@ async def run_init(
     # --force cleanup below, so a rejected invocation never wipes an existing
     # .jig. --brief is the eval/unattended path: it must pin --profile (PM-1
     # selection is retired, so there's no later chance to choose) and it cannot
-    # use medium (a single baked brief can't supply the L0–L3 inputs sa_mvp
-    # needs; the medium branch ignores the v1 brief ticket --brief seeds).
+    # use a module-producing-SA profile (a single baked brief can't supply the
+    # L0–L3 inputs sa_mvp needs; the L0–L3 topology ignores the v1 brief ticket
+    # --brief seeds). Gate on the effective SA *role* (not the profile name) so a
+    # custom profile with sa_role: sa_mvp is caught too.
     if brief_file is not None:
         from jig.config import load_config as _load_config
         from jig.profile_loader import load_profile as _load_profile
@@ -278,9 +280,9 @@ async def run_init(
             # persisted profile (which may not exist yet in a daemon-touched
             # but un-init'd directory).
             try:
-                effective_brief_profile = _load_profile(
+                effective_sa_role = _load_profile(
                     profile_name, project_path=target
-                ).name
+                ).sa_role
             except FileNotFoundError as exc:
                 raise click.ClickException(str(exc)) from exc
         else:
@@ -290,20 +292,22 @@ async def run_init(
             # run. Read it only when ``config.yaml`` actually exists —
             # ``classify_directory`` treats a daemon-only ``.jig`` (run/logs/
             # uploads, no config) as a fresh project.
-            effective_brief_profile = ""
+            persisted = None
             if not force and (target / ".jig" / "config.yaml").is_file():
-                effective_brief_profile = _load_config(target).profile.name.strip()
-            if not effective_brief_profile:
+                persisted = _load_config(target).profile
+            if persisted is None or not persisted.name.strip():
                 raise click.ClickException(
                     "--brief requires --profile: eval/unattended init must pin "
                     "the project profile (PM-1 profile selection has been "
                     "retired)."
                 )
-        if effective_brief_profile == "medium":
+            effective_sa_role = persisted.sa_role
+        if _is_module_sa_role(target, effective_sa_role):
             raise click.ClickException(
-                "--brief is not supported with the medium profile: a single "
-                "baked brief can't supply the L0–L3 inputs sa_mvp needs. Use "
-                "the scenario harness for medium evals."
+                "--brief is not supported with the medium profile (or any "
+                "profile whose sa_role resolves to sa_mvp): a single baked "
+                "brief can't supply the L0–L3 inputs sa_mvp needs. Use the "
+                "scenario harness for those evals."
             )
     snapshots = OperatorYamlSnapshots()
     if force and (target / ".jig").is_dir():
@@ -1883,6 +1887,32 @@ def _resolve_sa_role(project_path: Path) -> str:
     return role_id if role_id else "sa"
 
 
+def _is_module_sa_role(project_path: Path, sa_role: str) -> bool:
+    """True when ``sa_role`` (a profile's ``sa_role`` spelling) resolves to the
+    module-producing SA — canonical role id ``sa-mvp``.
+
+    ``load_role`` accepts both the filename alias (``sa_mvp``, used by
+    ``medium.yaml``) and the canonical id (``sa-mvp``), so this is the single
+    source of truth for "does this profile use the module SA". The L0–L3
+    topology decision (``classify_resume``), the ``--brief`` rejection, and the
+    SA artifact preflight all key off the *role* rather than the profile *name*,
+    so a custom profile that sets ``sa_role: sa_mvp`` under any name gets the
+    L0–L3 pipeline + preflight instead of silently routing to the flat path and
+    failing later.
+    """
+    if not sa_role.strip():
+        return False
+    try:
+        return load_role(project_path, sa_role).role == "sa-mvp"
+    except FileNotFoundError:
+        return False
+
+
+def _uses_module_sa(project_path: Path) -> bool:
+    """True when this project's resolved profile uses the module-producing SA."""
+    return _is_module_sa_role(project_path, _resolve_sa_role(project_path))
+
+
 def _assert_sa_mvp_inputs(project_path: Path) -> None:
     """Fail loud if any L0–L3 artifact the module-producing SA needs is absent.
 
@@ -2487,20 +2517,18 @@ async def classify_resume(
     if ds == DirState.BROKEN:
         return ResumeState.BROKEN
 
-    # Medium profile: drive the L0–L3 PO pipeline instead of the v1 flat brief
+    # Module-SA profiles (medium, and any custom profile whose sa_role resolves
+    # to ``sa-mvp``): drive the L0–L3 PO pipeline instead of the v1 flat brief
     # path. The profile is selected up front (``run_init``), so it is set before
-    # any PO runs and the topology can branch here. ``next_incomplete_level``
-    # resolves the next level via thread markers; once every level is done we
-    # fall through to the shared SA inspection, defaulting a missing arch ticket
-    # to SA_CONVERSATION (auto-cascade into ``sa_mvp`` — no operator branch
-    # prompt for medium). Non-medium profiles skip this block entirely.
-    from jig.config import load_config as _load_config
-
-    try:
-        _cfg = _load_config(project_path)
-    except FileNotFoundError:
-        _cfg = None
-    if _cfg is not None and _cfg.profile.name == "medium":
+    # any PO runs and the topology can branch here. Gating on the resolved SA
+    # *role* (not the profile *name*) keeps this consistent with the SA spawn's
+    # artifact preflight — a profile that uses ``sa_mvp`` always gets the L0–L3
+    # inputs that SA reads. ``next_incomplete_level`` resolves the next level via
+    # thread markers; once every level is done we fall through to the shared SA
+    # inspection, defaulting a missing arch ticket to SA_CONVERSATION
+    # (auto-cascade into ``sa_mvp`` — no operator branch prompt). Flat-SA
+    # profiles skip this block entirely.
+    if _uses_module_sa(project_path):
         nxt = await next_incomplete_level(project_path=project_path, threads=threads)
         if nxt is not None:
             # If the pending level's PO posted operator questions (ask_question

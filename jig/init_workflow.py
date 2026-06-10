@@ -416,6 +416,56 @@ async def _run_init_resume_loop(
                 console=console,
             )
             continue
+        if rs == ResumeState.PO_L0_CONVERSATION:
+            await run_po_l0_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L1_CONVERSATION:
+            await run_po_l1_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L2_CONVERSATION:
+            await run_po_l2_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == ResumeState.PO_L3_CONVERSATION:
+            # L3 fans out per suite. Re-run the resolver to get the pending
+            # suite id (classify_resume returned PO_L3 but not which suite);
+            # assert the level is still L3 to guard against a race where the
+            # state changed between classify and dispatch.
+            nxt = await next_incomplete_level(project_path=target, threads=threads)
+            if nxt is None or nxt.level != 3 or nxt.suite_id is None:
+                # The pending level moved on (or completed) between classify and
+                # here — re-classify rather than spawn L3 on a stale suite.
+                continue
+            await run_po_l3_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                suite_id=nxt.suite_id,
+                console=console,
+            )
+            continue
         if rs == ResumeState.NEEDS_ANSWER_BRIEF:
             await prompt_and_post_answers(
                 tickets=tickets,
@@ -992,6 +1042,18 @@ class NextLevel:
     level: int
     ticket_id: str
     suite_id: str | None = None
+
+
+# Maps a NextLevel.level (0–3) to its ResumeState. Defined here (after
+# ResumeState) so classify_resume's medium branch can translate the resolver's
+# answer into a dispatch state.
+def _po_level_states() -> dict[int, "ResumeState"]:
+    return {
+        0: ResumeState.PO_L0_CONVERSATION,
+        1: ResumeState.PO_L1_CONVERSATION,
+        2: ResumeState.PO_L2_CONVERSATION,
+        3: ResumeState.PO_L3_CONVERSATION,
+    }
 
 
 async def _ticket_has_handoff_phase(
@@ -1765,6 +1827,41 @@ def _resolve_sa_role(project_path: Path) -> str:
     return role_id if role_id else "sa"
 
 
+def _assert_sa_mvp_inputs(project_path: Path) -> None:
+    """Fail loud if any L0–L3 artifact the module-producing SA needs is absent.
+
+    ``sa_mvp`` reads ``discovery.md`` (L1), ``suites.yaml`` (L2), and each
+    suite's ``spec.structured.yaml`` (L3). A missing/malformed one means an
+    upstream level didn't finish — surface that here with the exact path rather
+    than letting the SA crash opaquely mid-run.
+    """
+    from jig.spec_loader import (
+        discovery_path,
+        load_suites_index,
+        suite_structured_path,
+        suites_index_path,
+    )
+
+    missing: list[str] = []
+    if not discovery_path(project_path).is_file():
+        missing.append(str(discovery_path(project_path)))
+    try:
+        index = load_suites_index(project_path)
+    except FileNotFoundError:
+        missing.append(str(suites_index_path(project_path)))
+        index = None
+    if index is not None:
+        for suite in index.suites:
+            spec = suite_structured_path(project_path, suite.id)
+            if not spec.is_file():
+                missing.append(str(spec))
+    if missing:
+        raise click.ClickException(
+            "sa_mvp cannot run — missing L0–L3 artifacts (an upstream PO level "
+            "did not finish):\n  " + "\n  ".join(missing)
+        )
+
+
 async def run_sa_conversation(
     *,
     project_path: Path,
@@ -1790,6 +1887,12 @@ async def run_sa_conversation(
     arch = await _reactivate_if_resolved(tickets, arch, author="cli")
     project = load_project(project_path)
     sa_role_id = _resolve_sa_role(project_path)
+    if sa_role_id == "sa_mvp":
+        # The module-producing SA consumes the L0–L3 PO artifacts. If any are
+        # missing/malformed the SA would fail opaquely deep in its run, so
+        # fail loud here with a precise pointer (design §7 — hard-fail, not a
+        # silent degrade). v1 ``sa`` reads only the flat spec and is unaffected.
+        _assert_sa_mvp_inputs(project_path)
     role_cfg = load_role(project_path, sa_role_id)
     ctx = AgentSpawnContext(
         role=sa_role_id,
@@ -2216,6 +2319,12 @@ def _format_event(event: JigEvent) -> str | None:
 
 class ResumeState(str, Enum):
     PO_CONVERSATION = "po_conversation"
+    # Medium L0–L3 PO pipeline (one state per level; L3 re-runs
+    # next_incomplete_level for the pending suite id).
+    PO_L0_CONVERSATION = "po_l0_conversation"
+    PO_L1_CONVERSATION = "po_l1_conversation"
+    PO_L2_CONVERSATION = "po_l2_conversation"
+    PO_L3_CONVERSATION = "po_l3_conversation"
     NEEDS_ANSWER_BRIEF = "needs_answer_brief"
     BRIEF_APPROVAL = "brief_approval"
     SPEC_GENERATION = "spec_generation"
@@ -2303,6 +2412,27 @@ async def classify_resume(
     if ds == DirState.BROKEN:
         return ResumeState.BROKEN
 
+    # Medium profile: drive the L0–L3 PO pipeline instead of the v1 flat brief
+    # path. The profile is selected up front (``run_init``), so it is set before
+    # any PO runs and the topology can branch here. ``next_incomplete_level``
+    # resolves the next level via thread markers; once every level is done we
+    # fall through to the shared SA inspection, defaulting a missing arch ticket
+    # to SA_CONVERSATION (auto-cascade into ``sa_mvp`` — no operator branch
+    # prompt for medium). Non-medium profiles skip this block entirely.
+    from jig.config import load_config as _load_config
+
+    try:
+        _cfg = _load_config(project_path)
+    except FileNotFoundError:
+        _cfg = None
+    if _cfg is not None and _cfg.profile.name == "medium":
+        nxt = await next_incomplete_level(project_path=project_path, threads=threads)
+        if nxt is not None:
+            return _po_level_states()[nxt.level]
+        return await _classify_arch_state(
+            tickets, threads, no_arch_default=ResumeState.SA_CONVERSATION
+        )
+
     brief = await tickets.get("brief")
     if brief is None:
         return ResumeState.PO_CONVERSATION
@@ -2374,9 +2504,28 @@ async def classify_resume(
         return ResumeState.PM_PROFILE_CONFIRM_PROMPT
 
     # Spec generated + profile set. Now look at architecture ticket.
+    return await _classify_arch_state(
+        tickets, threads, no_arch_default=ResumeState.BRANCH_PROMPT
+    )
+
+
+async def _classify_arch_state(
+    tickets: TicketStore,
+    threads: ThreadStore,
+    *,
+    no_arch_default: ResumeState,
+) -> ResumeState:
+    """Map the architecture ticket's state to the next SA-side resume action.
+
+    Shared by the v1 flat tail (``no_arch_default=BRANCH_PROMPT`` — the operator
+    chooses SA vs. a direct template) and the medium L0–L3 path
+    (``no_arch_default=SA_CONVERSATION`` — auto-cascade straight into ``sa_mvp``
+    with no branch prompt). Once the architecture ticket exists, both paths
+    share the same completion logic (scaffold applied / arch_finalize → done).
+    """
     arch = await tickets.get("architecture")
     if arch is None:
-        return ResumeState.BRANCH_PROMPT
+        return no_arch_default
 
     arch_entries = await threads.for_ticket("architecture")
     has_sa_skipped = any(

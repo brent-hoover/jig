@@ -138,6 +138,9 @@ async def _watch_stall(
             await task
         except asyncio.CancelledError:
             pass
+    # poll_task should always win; _consume loops forever unless it raises.
+    if poll_task not in done:
+        raise RuntimeError("_watch_stall: consumer exited before stall verdict")
     return poll_task.result()
 
 
@@ -151,7 +154,11 @@ def _check_tracer_outcome(exit_code: int, stdout: str) -> EvalOutcome | None:
 
 
 def _teardown_proc(proc: subprocess.Popen, temp_path: Path) -> None:
-    """SIGTERM proc, SIGKILL after grace period, clean up orphan subprocesses."""
+    """SIGTERM proc, SIGKILL after grace period, clean up orphan subprocesses.
+
+    Intentionally synchronous: called only after all async tasks are cancelled,
+    so blocking the event loop here has no practical impact.
+    """
     from jig.evals.watcher.run import _kill_orphan_subprocesses
 
     proc.terminate()
@@ -215,8 +222,8 @@ async def run_eval(
             "--ws-port",
             str(port),
         ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     addr_file = temp_path / ".jig" / "run" / "daemon.addr"
@@ -288,6 +295,12 @@ async def run_eval(
     # Success path
     run_id = str(uuid.uuid4())[:8]
     tracer_sh = jig_repo / "evals" / "projects" / project_id / "tracer.sh"
+    if not tracer_sh.is_file():
+        log.error("tracer.sh not found: %s", tracer_sh)
+        _teardown_proc(proc, temp_path)
+        shutil.rmtree(temp_path, ignore_errors=True)
+        return RunResult(outcome=EvalOutcome.INIT_ERROR)
+
     manifest = await collect(
         temp_path,
         run_id=run_id,
@@ -316,7 +329,7 @@ async def run_eval(
                 manifest.tracer.exit_code,
                 manifest.tracer.stdout[:100],
             )
-            proc.terminate()
+            _teardown_proc(proc, temp_path)
             shutil.rmtree(temp_path, ignore_errors=True)
             return RunResult(
                 outcome=EvalOutcome.TRACER_FAIL, manifest_path=manifest_path
@@ -334,7 +347,7 @@ async def run_eval(
     else:
         log.warning("analysis_complete not received; skipping analysis copy")
 
-    proc.terminate()
+    _teardown_proc(proc, temp_path)
     if not keep:
         shutil.rmtree(temp_path, ignore_errors=True)
 

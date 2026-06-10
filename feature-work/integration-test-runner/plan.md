@@ -1,10 +1,10 @@
 ---
 title: Automated Integration Testing — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-10
 design: ./design.md
 ---
 

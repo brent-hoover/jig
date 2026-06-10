@@ -2362,6 +2362,7 @@ def eval_run(
     if label is None:
         label = f"integration-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
 
+    # Requires a dev install (uv sync from repo root); evals/projects/ must exist here.
     jig_repo = Path(__file__).resolve().parent.parent
 
     result = asyncio.run(

@@ -23,10 +23,13 @@ async def test_init_command_rejects_no_args():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("args", [
-    ["demo", "--auto", "--profile", "medium"],
-    ["demo", "--auto", "--profile=medium"],
-])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["demo", "--auto", "--profile", "medium"],
+        ["demo", "--auto", "--profile=medium"],
+    ],
+)
 async def test_init_command_parses_and_forwards_profile(monkeypatch, tmp_path, args):
     """The TUI /init must parse --profile NAME / --profile=NAME and forward it
     to run_init (so e.g. /init --brief --profile small works under the new

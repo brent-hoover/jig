@@ -188,7 +188,7 @@ L0–L3; the branch alone would route L0–L3 then a flat SA).
 - [x] Step 2: L0–L3 spawn helpers + shared level resolver
 - [x] Step 3: Activate the medium branch (classify + states + run loop + `sa_role` flip)
 - [x] Step 4: Rebase `/init --proceed` onto the shared resolver
-- [ ] Step 5: End-to-end medium auto-init scenario + full verification
+- [x] Step 5: End-to-end medium auto-init scenario + full verification
 
 ## Change log
 
@@ -198,3 +198,10 @@ L0–L3; the branch alone would route L0–L3 then a flat SA).
   up-front path (not just `--profile`) skips PM-1; step 3: add a dispatch-loop cascade seam test + the
   `None`→`SA_CONVERSATION` contract assertion, and note the `_proceed` disk/marker drift is a known bounded
   gap closed in step 4.
+- 2026-06-09: Step 5 realization note — the sim `.scenario.yaml` harness hand-drives each finalize step and
+  has no step kind that drives `run_init`'s auto-cascade, so the medium auto-init e2e is implemented as a
+  Python test (`tests/test_init_medium_e2e.py`) that drives the real `run_init` dispatch loop with fake
+  agents invoking the real L0–L3 + `sa_mvp` finalize handlers. This exercises the orchestration this feature
+  added (classify_resume branch → dispatch arms → spawn helpers → finalize → artifacts) end-to-end, which a
+  scenario file (explicit `invoke_*` steps) would bypass. Asserts the full artifact chain lands with no
+  manual `/init --proceed`.

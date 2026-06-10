@@ -4,6 +4,7 @@ CliPromptHandler is exercised through monkeypatched click.prompt;
 the fancy rich rendering is verified by checking what was printed
 to a captured Console.
 """
+
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -159,8 +160,10 @@ async def test_gap_decision_invalid_defaults_to_r():
 async def test_direct_template_picks_first():
     handler = CliPromptHandler()
     console, _buf = make_console()
-    with patch("jig.init_prompts.click.prompt", return_value="1"), \
-         patch("jig.init_workflow.load_template_metadata") as mock_meta:
+    with (
+        patch("jig.init_prompts.click.prompt", return_value="1"),
+        patch("jig.init_workflow.load_template_metadata") as mock_meta,
+    ):
         mock_meta.return_value = type("M", (), {"description": None})()
         name = await handler.ask_direct_template(
             template_names=["alpha", "beta", "gamma"],
@@ -173,8 +176,10 @@ async def test_direct_template_picks_first():
 async def test_direct_template_picks_third():
     handler = CliPromptHandler()
     console, _buf = make_console()
-    with patch("jig.init_prompts.click.prompt", return_value="3"), \
-         patch("jig.init_workflow.load_template_metadata") as mock_meta:
+    with (
+        patch("jig.init_prompts.click.prompt", return_value="3"),
+        patch("jig.init_workflow.load_template_metadata") as mock_meta,
+    ):
         mock_meta.return_value = type("M", (), {"description": None})()
         name = await handler.ask_direct_template(
             template_names=["alpha", "beta", "gamma"],
@@ -189,8 +194,12 @@ async def test_direct_template_loops_on_bad_input():
     console, buf = make_console()
     # First reply: not a number; second: out of range; third: valid
     replies = iter(["abc", "99", "2"])
-    with patch("jig.init_prompts.click.prompt", side_effect=lambda *a, **k: next(replies)), \
-         patch("jig.init_workflow.load_template_metadata") as mock_meta:
+    with (
+        patch(
+            "jig.init_prompts.click.prompt", side_effect=lambda *a, **k: next(replies)
+        ),
+        patch("jig.init_workflow.load_template_metadata") as mock_meta,
+    ):
         mock_meta.return_value = type("M", (), {"description": None})()
         name = await handler.ask_direct_template(
             template_names=["alpha", "beta"],
@@ -239,9 +248,7 @@ async def test_question_answer_shows_index_when_multiple():
         blocking=True,
     )
     with patch("jig.init_prompts.click.prompt", return_value="yes"):
-        await handler.ask_question_answer(
-            question=q, index=2, total=3, console=console
-        )
+        await handler.ask_question_answer(question=q, index=2, total=3, console=console)
     output = buf.getvalue()
     assert "(2/3)" in output
 
@@ -285,7 +292,7 @@ async def test_force_confirm_wrong_word(tmp_path: Path):
         ("medium", "medium"),
         ("m", "medium"),
         ("MEDIUM", "medium"),
-        ("", "small"),         # default
+        ("", "small"),  # default
         ("garbage", "small"),  # conservative fallback
     ],
 )

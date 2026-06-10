@@ -166,6 +166,7 @@ def _teardown_proc(proc: subprocess.Popen, temp_path: Path) -> None:
         proc.wait(timeout=_SIGKILL_GRACE)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait()
     _kill_orphan_subprocesses(temp_path, log.info)
 
 

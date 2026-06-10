@@ -76,7 +76,8 @@ def test_watch_stall_poll_fires_on_silence() -> None:
 
 def test_stall_teardown_sigterms_subprocess(tmp_path: Path) -> None:
     mock_proc = MagicMock(spec=subprocess.Popen)
-    mock_proc.wait.side_effect = subprocess.TimeoutExpired(cmd="jig", timeout=10)
+    # First wait() (with timeout) times out; second wait() (bare, after SIGKILL) succeeds.
+    mock_proc.wait.side_effect = [subprocess.TimeoutExpired(cmd="jig", timeout=10), None]
 
     with patch("jig.evals.watcher.run._kill_orphan_subprocesses"):
         _teardown_proc(mock_proc, tmp_path)

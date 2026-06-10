@@ -501,6 +501,51 @@ async def test_init_proceed_advances_to_l2_when_l1_present(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_init_proceed_needs_answer_does_not_reopen(tmp_path: Path):
+    """A pending level ticket in needs_info with open operator questions must
+    surface as needs-answer — _proceed must NOT flip it back to OPEN (which
+    would respawn the PO against unanswered input), mirroring the auto path's
+    PO_LEVEL_NEEDS_ANSWER guard."""
+    from jig.thread import Question
+    from jig.ticket import TicketStatus
+
+    orch, tickets, threads = await _proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")  # L0 done → L1 pending
+    # discovery ticket exists in needs_info with an open human question.
+    await tickets.create(
+        Ticket(
+            id="discovery",
+            work_type=WorkType.BRIEF,
+            title="L1 discovery",
+            created_by="cli",
+            status=TicketStatus.NEEDS_INFO,
+        )
+    )
+    await threads.post(
+        Question(
+            ticket_id="discovery",
+            author="po",
+            target="any_human",
+            question="Which persona?",
+        )
+    )
+
+    handler = get_handler("init")
+    out = await handler(
+        args=["--proceed"],
+        orch=orch,
+        project_path=tmp_path,
+        prompt_registry=None,
+        emitter=None,
+    )
+    assert out["ok"] is True
+    assert out["data"]["level"] == "needs-answer"
+    assert out["data"]["ticket_id"] == "discovery"
+    # The ticket was NOT reopened.
+    assert (await tickets.get("discovery")).status == TicketStatus.NEEDS_INFO
+
+
+@pytest.mark.asyncio
 async def test_init_proceed_advances_to_l3_with_suite_id(tmp_path: Path):
     orch, tickets, threads = await _proceed_orch(tmp_path)
     await _post_handoff(threads, "project", "po-l1")

@@ -192,7 +192,7 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
     if orch is None:
         return {"ok": False, "error": "/init --proceed requires a running orchestrator"}
 
-    from jig.init_workflow import next_incomplete_level
+    from jig.init_workflow import _ticket_awaits_answer, next_incomplete_level
     from jig.spec_loader import load_suites_index
     from jig.ticket import Ticket, TicketStatus, WorkType
 
@@ -228,6 +228,23 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
                 "no L0 project pitch committed; run `/init <name>` to bootstrap "
                 "before invoking /init --proceed"
             ),
+        }
+
+    # If the pending level's ticket has open operator questions (needs_info),
+    # surface that instead of reopening it — reopening would respawn the PO
+    # against unanswered input. Mirrors classify_resume's PO_LEVEL_NEEDS_ANSWER
+    # guard so the manual path can't bypass questions the auto path honors.
+    if await _ticket_awaits_answer(orch.tickets, orch.threads, nxt.ticket_id):
+        return {
+            "ok": True,
+            "data": {
+                "level": "needs-answer",
+                "ticket_id": nxt.ticket_id,
+                "message": (
+                    f"{nxt.ticket_id} has open operator questions; answer them "
+                    "before proceeding"
+                ),
+            },
         }
 
     # Resolve the level's ticket metadata.

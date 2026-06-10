@@ -244,6 +244,38 @@ async def test_brief_rejected_for_custom_named_sa_mvp_profile(tmp_path: Path) ->
         )
 
 
+async def test_brief_profile_custom_sa_mvp_explicit_rejected(tmp_path: Path) -> None:
+    """The explicit eval/unattended path — ``--brief --profile <custom>`` where
+    the custom profile (loaded via load_profile) uses sa_role: sa_mvp — must also
+    be rejected, not just the persisted-profile path."""
+    from jig.init_prompts import AutoPromptHandler
+    from jig.init_workflow import run_init
+
+    target = tmp_path / "proj"
+    create_stub(target, name="proj")
+    profiles_dir = target / ".jig" / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    (profiles_dir / "big.yaml").write_text(
+        "name: big\n"
+        "description: custom profile that uses the module-producing SA\n"
+        "sa_role: sa_mvp\n"
+        "workflows:\n"
+        "  default_by_size: {}\n"
+        "  available: []\n"
+    )
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Brief\n")
+
+    with pytest.raises(click.ClickException, match="not supported with the medium"):
+        await run_init(
+            name=str(target),
+            force=False,
+            prompts=AutoPromptHandler(),
+            brief_file=brief,
+            profile_name="big",
+        )
+
+
 # --- non-medium regression ----------------------------------------------------
 
 

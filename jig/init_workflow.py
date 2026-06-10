@@ -1071,18 +1071,6 @@ class NextLevel:
     suite_id: str | None = None
 
 
-# Maps a NextLevel.level (0–3) to its ResumeState. Defined here (after
-# ResumeState) so classify_resume's medium branch can translate the resolver's
-# answer into a dispatch state.
-def _po_level_states() -> dict[int, "ResumeState"]:
-    return {
-        0: ResumeState.PO_L0_CONVERSATION,
-        1: ResumeState.PO_L1_CONVERSATION,
-        2: ResumeState.PO_L2_CONVERSATION,
-        3: ResumeState.PO_L3_CONVERSATION,
-    }
-
-
 async def _ticket_has_handoff_phase(
     threads: ThreadStore, ticket_id: str, phase: str
 ) -> bool:
@@ -2416,6 +2404,17 @@ class ResumeState(str, Enum):
     BROKEN = "broken"
 
 
+# Maps a NextLevel.level (0–3) to its ResumeState. Module-level constant (defined
+# after ResumeState so the members resolve) — no need to allocate a fresh dict on
+# every classify_resume call.
+_PO_LEVEL_STATES: dict[int, ResumeState] = {
+    0: ResumeState.PO_L0_CONVERSATION,
+    1: ResumeState.PO_L1_CONVERSATION,
+    2: ResumeState.PO_L2_CONVERSATION,
+    3: ResumeState.PO_L3_CONVERSATION,
+}
+
+
 async def _reactivate_if_resolved(
     tickets: TicketStore, ticket: Ticket, *, author: str
 ) -> Ticket:
@@ -2509,7 +2508,7 @@ async def classify_resume(
             # PO — otherwise the level would loop on the unanswered question.
             if await _ticket_awaits_answer(tickets, threads, nxt.ticket_id):
                 return ResumeState.PO_LEVEL_NEEDS_ANSWER
-            return _po_level_states()[nxt.level]
+            return _PO_LEVEL_STATES[nxt.level]
         return await _classify_arch_state(
             tickets, threads, no_arch_default=ResumeState.SA_CONVERSATION
         )

@@ -256,7 +256,7 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
         )
     elif nxt.level == 2:
         level_label, title, description = "po-l2", "L2 suite organization", ""
-    else:  # nxt.level == 3
+    elif nxt.level == 3:
         level_label = "po-l3"
         title = f"L3 brief — {nxt.suite_id}"
         description = ""
@@ -266,6 +266,11 @@ async def _proceed(*, orch, project_path) -> dict[str, Any]:
             suite = None
         if suite is not None:
             description = suite.summary
+    else:
+        # next_incomplete_level only returns levels 0–3 (0 handled above), so
+        # this is unreachable — fail loud rather than build a "L3 brief — None"
+        # ticket if NextLevel ever grows an unexpected level.
+        raise AssertionError(f"unexpected PO level {nxt.level!r} from resolver")
 
     existing = await orch.tickets.get(nxt.ticket_id)
     if existing is None:

@@ -192,7 +192,6 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
     with (
         patch("jig.init_workflow.run_init", new=AsyncMock()),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
-        patch("jig.eval.runner._wait_for_addr_file", new=AsyncMock(return_value=True)),
         patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
         patch("jig.eval.runner._teardown_proc"),
         patch("websockets.asyncio.client.connect", new=_fake_connect),
@@ -208,3 +207,4 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
         )
 
     assert result.outcome == EvalOutcome.TRACER_FAIL
+    assert result.temp_dir is not None

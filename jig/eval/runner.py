@@ -38,16 +38,6 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-async def _wait_for_addr_file(path: Path, timeout: float = _ADDR_FILE_TIMEOUT) -> bool:
-    """Poll path until it exists; return False on timeout."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.is_file():
-            return True
-        await asyncio.sleep(0.5)
-    return False
-
-
 class EvalOutcome(str, Enum):
     SUCCESS = "success"
     STALL = "stall"
@@ -227,9 +217,20 @@ async def run_eval(
         stderr=subprocess.DEVNULL,
     )
 
-    addr_file = temp_path / ".jig" / "run" / "daemon.addr"
-    if not await _wait_for_addr_file(addr_file):
-        log.error("daemon addr file not found after %ss", _ADDR_FILE_TIMEOUT)
+    # jig start --no-docker calls _run_orchestrator_loop directly and never writes
+    # daemon.addr, so poll the WS port directly instead of waiting for that file.
+    addr = f"ws://127.0.0.1:{port}"
+    ready = False
+    deadline = time.monotonic() + _ADDR_FILE_TIMEOUT
+    while time.monotonic() < deadline:
+        try:
+            async with _ws_connect(addr, open_timeout=1.0):
+                ready = True
+                break
+        except Exception:
+            await asyncio.sleep(0.5)
+    if not ready:
+        log.error("WS server not ready after %ss: %s", _ADDR_FILE_TIMEOUT, addr)
         _teardown_proc(proc, temp_path)
         return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
@@ -250,7 +251,6 @@ async def run_eval(
     stall_verdict = None
     analysis_out_dir: str | None = None
 
-    addr = f"ws://127.0.0.1:{port}"
     try:
         async with _ws_connect(addr, ping_interval=20) as ws:
             for topic in ALL_TOPICS:

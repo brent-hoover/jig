@@ -1902,13 +1902,17 @@ async def run_sa_conversation(
     arch = await _reactivate_if_resolved(tickets, arch, author="cli")
     project = load_project(project_path)
     sa_role_id = _resolve_sa_role(project_path)
-    if sa_role_id == "sa_mvp":
-        # The module-producing SA consumes the L0–L3 PO artifacts. If any are
-        # missing/malformed the SA would fail opaquely deep in its run, so
-        # fail loud here with a precise pointer (design §7 — hard-fail, not a
-        # silent degrade). v1 ``sa`` reads only the flat spec and is unaffected.
-        _assert_sa_mvp_inputs(project_path)
     role_cfg = load_role(project_path, sa_role_id)
+    # Gate on the RESOLVED canonical role id, not the profile's ``sa_role``
+    # spelling: ``load_role`` accepts both the filename alias (``sa_mvp``, which
+    # medium.yaml uses) and the canonical role id (``sa-mvp``), so a custom
+    # profile using either must still get the L0–L3 preflight. The
+    # module-producing SA consumes the L0–L3 PO artifacts; if any are
+    # missing/malformed it would fail opaquely deep in its run, so fail loud
+    # here with a precise pointer (design §7 — hard-fail, not a silent degrade).
+    # v1 ``sa`` reads only the flat spec and is unaffected.
+    if role_cfg.role == "sa-mvp":
+        _assert_sa_mvp_inputs(project_path)
     ctx = AgentSpawnContext(
         role=sa_role_id,
         role_cfg=role_cfg,

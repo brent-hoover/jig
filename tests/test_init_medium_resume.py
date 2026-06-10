@@ -383,6 +383,29 @@ async def test_sa_mvp_missing_artifacts_fails_loud(tmp_path: Path) -> None:
         )
 
 
+async def test_sa_mvp_guard_matches_kebab_role_id(tmp_path: Path) -> None:
+    """The fail-loud guard keys off the RESOLVED role id, not the profile's
+    sa_role spelling: a profile using the canonical ``sa-mvp`` (which load_role
+    resolves to the same role as the ``sa_mvp`` filename alias) must still get
+    the L0–L3 preflight — otherwise the module-producing SA fails opaquely."""
+    target = tmp_path / "proj"
+    create_stub(target, name="proj")
+    cfg = load_config(target)
+    cfg.profile.sa_role = "sa-mvp"  # canonical role id, not the filename alias
+    save_config(target, cfg)
+    tickets, threads, memory, bus = await _stores(target)
+
+    with pytest.raises(click.ClickException, match="missing L0–L3 artifacts"):
+        await run_sa_conversation(
+            project_path=target,
+            tickets=tickets,
+            threads=threads,
+            memory=memory,
+            bus=bus,
+            console=MagicMock(),
+        )
+
+
 async def test_sa_mvp_missing_one_suite_spec_fails_loud(tmp_path: Path) -> None:
     """Even with discovery.md + suites.yaml present, a single suite missing its
     spec.structured.yaml is a fail-loud condition."""

@@ -1,10 +1,10 @@
 ---
 title: Medium L0–L3 PO Pipeline — Design
 type: design
-status: draft
+status: active
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-10
 problem: ./problem.md
 ---
 

@@ -1115,10 +1115,19 @@ async def next_incomplete_level(
         return NextLevel(level=1, ticket_id=L1_TICKET_ID)
     if not await _ticket_has_handoff_phase(threads, L2_TICKET_ID, "po-l3"):
         return NextLevel(level=2, ticket_id=L2_TICKET_ID)
-    # L2 is done, so ``suites.yaml`` exists (L2 finalize writes it before the
-    # ``po-l3`` handoff). Fan out over its suites; ``suite-<id>`` mirrors
-    # ``po_l3_mcp._l3_ticket_id`` (kept a literal — that helper is private).
-    index = load_suites_index(project_path)
+    # L2 is done, so ``suites.yaml`` should exist (L2 finalize writes it before
+    # the ``po-l3`` handoff). Fan out over its suites; ``suite-<id>`` mirrors
+    # ``po_l3_mcp._l3_ticket_id`` (kept a literal — that helper is private). If
+    # the artifact vanished after the handoff (corrupted resume), surface a
+    # readable error rather than letting a raw FileNotFoundError escape through
+    # classify_resume / the run loop (mirrors ``_assert_sa_mvp_inputs``).
+    try:
+        index = load_suites_index(project_path)
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            f"suites.yaml is missing but L2 handed off to L3 — the L2 artifact "
+            f"was lost (corrupted resume). Re-run the L2 PO. ({exc})"
+        ) from exc
     for suite in index.suites:
         if not await _ticket_has_handoff_phase(threads, f"suite-{suite.id}", "sa"):
             return NextLevel(level=3, ticket_id=f"suite-{suite.id}", suite_id=suite.id)

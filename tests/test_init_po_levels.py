@@ -34,7 +34,7 @@ async def _stores(tmp_path: Path):
     threads = ThreadStore(tmp_path / "comments.jsonl")
     memory = MemoryStore(tmp_path)
     bus = MessageBus(tmp_path / "messages.jsonl")
-    for s in (tickets, threads, bus):
+    for s in (tickets, threads, memory, bus):
         await s.load()
     return tickets, threads, memory, bus
 

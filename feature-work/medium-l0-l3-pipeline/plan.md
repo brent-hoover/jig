@@ -1,10 +1,10 @@
 ---
 title: Medium L0–L3 PO Pipeline — Implementation Plan
 type: plan
-status: draft
+status: active
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-10
 design: ./design.md
 ---
 

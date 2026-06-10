@@ -53,7 +53,7 @@ async def _stores(target: Path):
     threads = ThreadStore(target / ".jig" / "store" / "comments.jsonl")
     memory = MemoryStore(target / ".jig" / "store")
     bus = MessageBus(target / ".jig" / "store" / "messages.jsonl")
-    for s in (tickets, threads, bus):
+    for s in (tickets, threads, memory, bus):
         await s.load()
     return tickets, threads, memory, bus
 
@@ -102,6 +102,22 @@ async def test_medium_classify_progresses_through_levels(tmp_path: Path) -> None
     await _handoff(threads, "suite-billing", "sa")
     # All levels done, no architecture ticket → SA (auto-cascade, no branch).
     assert await rs() == ResumeState.SA_CONVERSATION
+
+
+async def test_medium_classify_missing_suites_after_l2_fails_loud(
+    tmp_path: Path,
+) -> None:
+    """If suites.yaml vanishes after L2 handed off to L3 (corrupted resume),
+    next_incomplete_level surfaces a readable ClickException through
+    classify_resume rather than letting a raw FileNotFoundError escape the loop."""
+    target = _medium_project(tmp_path)
+    tickets, threads, _, _ = await _stores(target)
+    await _handoff(threads, "project", "po-l1")
+    await _handoff(threads, "discovery", "po-l2")
+    await _handoff(threads, "suites", "po-l3")
+    # No suites.yaml on disk — the L2 artifact was lost.
+    with pytest.raises(click.ClickException, match="suites.yaml is missing"):
+        await classify_resume(project_path=target, tickets=tickets, threads=threads)
 
 
 async def test_medium_classify_none_to_sa_then_done(tmp_path: Path) -> None:

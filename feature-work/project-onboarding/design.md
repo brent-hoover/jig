@@ -1,7 +1,7 @@
 ---
 title: Project Onboarding — Design
 type: design
-status: draft
+status: active
 owner: brent-hoover
 created: 2026-06-07
 updated: 2026-06-09
@@ -28,8 +28,10 @@ reusing `classify_directory`, store setup, `run_spec_generator`, and profile-con
 
 ### Scanner agent
 
-A new `scanner.yaml` role runs at the start of the onboard flow. The scanner has Read, Glob, Grep, and
-limited Bash access. It reads the existing codebase and writes `.jig/onboard/observations.md` — a free-form
+A new `scanner.yaml` role runs at the start of the onboard flow. The scanner has Read, Glob, and Grep
+access (no Bash — the scanner runs on the host against untrusted third-party repo content, and all tool
+constraints are prompt-level only; Glob/Grep/Read cover structural scanning without giving a
+prompt-injection payload a shell). It reads the existing codebase and writes `.jig/onboard/observations.md` — a free-form
 markdown document covering:
 
 - **Project structure**: top-level packages/modules, directory layout, entry points
@@ -47,9 +49,14 @@ writes a `Note` with `kind: "onboard_scan_done"` to the `onboard-scan` ticket th
 If no `CLAUDE.md` exists at the project root, the scanner writes one based on what it observed before calling
 `onboard_finish_scan`. If `CLAUDE.md` already exists, the scanner reads it for context and skips generation.
 
-Scanner `Write` access is prompt-scoped to `.jig/onboard/observations.md` and `CLAUDE.md`. This is a
-prompt-level restriction only — there is no transport-level enforcement. This residual risk is accepted:
-the scanner's narrow task (read-and-summarize) gives it little reason to write elsewhere.
+Scanner `Write` access is prompt-scoped to `.jig/onboard/observations.md` and `CLAUDE.md`. There is no
+transport-level enforcement (the onboard spawn runs on the host, where capability hooks don't
+materialize), so the scan pass verifies after the agent exits: the high-value surfaces (`.git/config`,
+`.git/hooks/**`, `.jig/config.yaml`, `.jig/roles|profiles|workflows/**`, and any pre-existing `CLAUDE.md`)
+are hash-snapshotted around the scan, and a `git status` sweep catches other unexpected writes. Any
+violation fails the onboard with instructions to inspect before running git hooks or jig agents.
+Residual risk (accepted): writes into jig's own runtime state (`.jig/store/`, `.jig/logs/`) are
+indistinguishable from the orchestrator's and are not guarded.
 
 ### State machine
 
@@ -273,7 +280,6 @@ allowed_tools:
   - Read
   - Glob
   - Grep
-  - Bash              # read-only: find, wc, head only — no writes via Bash
   - Write             # observations.md and CLAUDE.md only (prompt-scoped)
   - ToolSearch
   - onboard_finish_scan  # jig-internal MCP tool; follows the same pattern as
@@ -404,6 +410,57 @@ incremental re-onboard, test-adequacy review) are deferred until the basic flow 
 ## Change log
 
 - 2026-06-07: Initial draft (Brent Hoover)
+- 2026-06-09: Write-guard hardening round 7 (roborev job 453, codex per-commit review): the baseline
+  ensure-step in `run_onboard` moved after store load and fails closed when a scan-done note exists but
+  `scan-guard.json` is missing — the normal CLI entrypoint could previously recreate a deleted baseline
+  from the post-scan tree before the scan-pass fail-closed check could see it missing. (brent-hoover)
+- 2026-06-09: Write-guard hardening round 6 (roborev job 452): a missing `scan-guard.json` on
+  crash-resume fails closed (recomputing would baseline the post-scan tree and pass vacuously); corrupt
+  `.jig/config.yaml` fails with guidance everywhere the onboard flow reads it; the between-runs false-alarm
+  caveat extends to files created (not just edited) between runs on resume verification. Accepted: the
+  PM-confirm SWAP block duplicates ~15 lines from the greenfield loop — pure refactor, deferred to avoid
+  further churn on init_workflow in this branch. (brent-hoover)
+- 2026-06-09: Write-guard hardening round 5 (roborev job 450): the verified marker is posted only when a
+  scan-done note exists (a clean verification of a non-finishing spawn must not vouch for a later scan),
+  and classification compares thread indices — verified must postdate scan-done. Corrupt
+  `scan-guard.json` and `project.yaml` reads in `run_onboard` fail with `--force` guidance instead of raw
+  tracebacks. (brent-hoover)
+- 2026-06-09: Write-guard hardening round 4 (roborev job 448): a `scan_guard_verified` note is posted
+  after clean verification and classification requires it alongside the scan-done note — a process that
+  dies between scan completion and verification now re-enters SCAN_PASS, whose dispatch verifies against
+  the persisted baseline without respawning. Corrupt `project.yaml` fails loudly instead of silently
+  defaulting guard inputs. Violation messages distinguish pre-dirty paths (possible operator edits between
+  runs) from scan-time writes. The review's High (tests in non-git dirs) was a false positive —
+  `create_stub` git-inits and the suite is green. (brent-hoover)
+- 2026-06-09: Write-guard hardening round 3 (roborev job 446): the guard baseline is persisted at onboard
+  start (`.jig/onboard/scan-guard.json`) and every scan verifies against it — a per-spawn snapshot let an
+  interrupted scan re-baseline its own tampering; on resume only the paths `run_onboard` itself writes
+  (desired-state, config, profiles, workflows) are refreshed. The pre-dirty hash pass exempts `.jig/`
+  runtime paths (jig's own stores mutate during the scan; sensitive `.jig` files stay hash-guarded) —
+  without this a repo tracking `.jig/` files hit an unrecoverable false BROKEN. `git status -z` replaces
+  line parsing so quoted non-ASCII paths aren't invisible to the hash pass. Accepted residuals: the
+  baseline file itself is in-repo (an unconstrained Write could alter it — definitive fix is
+  transport-level enforcement, deferred with sa-architect Phase 2); `spec_generated` stickiness in
+  classification matches greenfield semantics and is revisited when Phase 2 re-enters the flow.
+  (brent-hoover)
+- 2026-06-09: Write-guard hardening round 2 (roborev job 444): `.git/info/**` and the root `.gitignore`
+  join the hash surface (writing exclusion rules to blind the status sweep now trips the hash pass);
+  files dirty before the scan are content-hashed so an in-flight working tree's files can't be silently
+  rewritten (collapsed untracked directories remain a documented residual); the scan ticket's depth
+  budget is recomputed on respawn; `--force` snapshots now include `.jig/roles/*.yaml` (operator-tightened
+  roles are security posture). (brent-hoover)
+- 2026-06-09: Write-guard hardening (roborev job 442): violations persist as a `scan_guard_violation`
+  note that classifies as BROKEN (a bare re-run can't continue past a failed guard; only `--force`
+  clears it); `.jig/onboard/desired-state.md` (operator input) joins the protected surface; `git status`
+  failure during verification fails loudly; CLAUDE.md creation-allowance keys off onboard-start state in
+  project.yaml so a crashed scanner's partial artifact doesn't false-positive the next spawn. (brent-hoover)
+- 2026-06-09: Post-scan write verification added (roborev job 439): dropping Bash alone left the
+  prompt-scoped Write tool as an indirect code-execution path (`.git/hooks`, `.jig/roles/`). The scan pass
+  now hash-snapshots the protected surfaces and sweeps `git status`, failing the onboard on any violation.
+  Also: agent-spawn states are capped at 3 consecutive respawns without advancement. (brent-hoover)
+- 2026-06-09: Scanner loses Bash access (roborev job 437): the scanner runs on the host against untrusted
+  repo content with prompt-level-only constraints, so a prompt-injection payload in the scanned codebase
+  must not get a shell. Glob/Grep/Read cover structural scanning. (brent-hoover)
 - 2026-06-07: Four reviewer passes applied — PO uses 'brief' ticket; corrected done-signals; depth-bounding
   table added; two-phase SA-done detection; brief_set_section tool name fixed; sa-architect Phase 2 as
   precise prerequisite; module_set_* tool list corrected (sa_write_contracts does not exist); PM_BACKLOG

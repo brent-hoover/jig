@@ -937,6 +937,26 @@ def create_agent_mcp_server(
 
         all_tools.append(po_finish_brief)
 
+    if "onboard_finish_scan" in agent_cfg.allowed_tools:
+
+        @tool(
+            "onboard_finish_scan",
+            "Signal that .jig/onboard/observations.md is complete and "
+            "resolve the onboard-scan ticket.",
+            {},
+        )
+        async def onboard_finish_scan(args):
+            entry_id = await init_mcp.handle_onboard_finish_scan(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                project_path=project_path,
+                author=agent_role,
+            )
+            return {"content": [{"type": "text", "text": entry_id}]}
+
+        all_tools.append(onboard_finish_scan)
+
     if "l0_finalize" in agent_cfg.allowed_tools:
 
         @tool(

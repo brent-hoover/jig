@@ -154,6 +154,71 @@ def create_stub(path: Path, *, name: str) -> None:
         atomic_write_text(brief, f"# {name}\n")
 
 
+class OperatorYamlSnapshots:
+    """Operator-authored YAMLs preserved across a ``--force`` rmtree."""
+
+    def __init__(self) -> None:
+        self.profiles: dict[str, str] = {}
+        self.workflows: dict[str, str] = {}
+        self.roles: dict[str, str] = {}
+
+
+async def _force_reset_jig(
+    target: Path,
+    *,
+    prompts: "PromptHandler",
+    console: "Console",
+) -> OperatorYamlSnapshots:
+    """Confirm, snapshot operator-authored profile/workflow YAMLs, and
+    ``rmtree(.jig/)``.
+
+    The snapshot matters because ``--force --profile <custom>`` would
+    otherwise delete ``.jig/profiles/<custom>.yaml`` before
+    ``load_profile`` could resolve it; the same blast radius silently
+    erases an operator's local override of a shipped profile name.
+    Shared by the greenfield and onboard flows — pair with
+    ``_restore_operator_yamls`` after ``create_stub``.
+    """
+    confirmed = await prompts.ask_force_confirm(target=target, console=console)
+    if not confirmed:
+        raise click.ClickException("Aborted.")
+    snapshots = OperatorYamlSnapshots()
+    for src in (target / ".jig" / "profiles").glob("*.yaml"):
+        snapshots.profiles[src.name] = src.read_text(encoding="utf-8")
+    for src in (target / ".jig" / "workflows").glob("*.yaml"):
+        snapshots.workflows[src.name] = src.read_text(encoding="utf-8")
+    # Roles are part of the security posture (e.g. an operator-tightened
+    # scanner.yaml) — losing them to the rmtree would silently fall back
+    # to the shipped defaults.
+    for src in (target / ".jig" / "roles").glob("*.yaml"):
+        snapshots.roles[src.name] = src.read_text(encoding="utf-8")
+    shutil.rmtree(target / ".jig")
+    return snapshots
+
+
+def _restore_operator_yamls(target: Path, snapshots: OperatorYamlSnapshots) -> None:
+    """Write back the ``--force`` snapshot (no-op for empty snapshots).
+
+    Operator edits to shipped names survive the force, and
+    operator-only profile / workflow YAMLs are not silently lost.
+    """
+    if snapshots.profiles:
+        dest_dir = target / ".jig" / "profiles"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for fname, body in snapshots.profiles.items():
+            (dest_dir / fname).write_text(body, encoding="utf-8")
+    if snapshots.workflows:
+        dest_dir = target / ".jig" / "workflows"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for fname, body in snapshots.workflows.items():
+            (dest_dir / fname).write_text(body, encoding="utf-8")
+    if snapshots.roles:
+        dest_dir = target / ".jig" / "roles"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for fname, body in snapshots.roles.items():
+            (dest_dir / fname).write_text(body, encoding="utf-8")
+
+
 async def run_init(
     *,
     name: str,
@@ -171,11 +236,13 @@ async def run_init(
     falls straight into ``SPEC_GENERATION``. Used by ``jig init --brief``
     for eval harnesses.
 
-    When ``profile_name`` is set (from ``jig init --profile``), the
-    named profile is applied AFTER the ``--force`` cleanup and
-    canonical ``create_stub`` — applying it earlier would race
-    ``shutil.rmtree(target / ".jig")`` and lose the write. The profile
-    is the eval / auto-mode bypass for the PM-1 selection pass.
+    The profile is resolved UP FRONT (before the resume loop), so
+    ``classify_resume`` can branch the PO topology on it (medium → L0–L3
+    pipeline). It is applied AFTER the ``--force`` cleanup and canonical
+    ``create_stub`` — applying it earlier would race
+    ``shutil.rmtree(target / ".jig")`` and lose the write. ``--profile`` pins
+    it; a fresh interactive init asks the operator via the guided size prompt.
+    The interactive PM-1 profile-selection pass has been retired.
     """
     from jig.init_prompts import CliPromptHandler, PromptHandler  # noqa: F401
 
@@ -238,38 +305,12 @@ async def run_init(
                 "baked brief can't supply the L0–L3 inputs sa_mvp needs. Use "
                 "the scenario harness for medium evals."
             )
-    # Snapshot operator-authored profile/workflow YAMLs across the
-    # ``--force`` rmtree. ``--force --profile <custom>`` would otherwise
-    # delete ``.jig/profiles/<custom>.yaml`` before ``load_profile``
-    # could resolve it; the same blast radius silently erases an
-    # operator's local override of a shipped profile name.
-    preserved_profiles: dict[str, str] = {}
-    preserved_workflows: dict[str, str] = {}
+    snapshots = OperatorYamlSnapshots()
     if force and (target / ".jig").is_dir():
-        confirmed = await prompts.ask_force_confirm(target=target, console=console)
-        if not confirmed:
-            raise click.ClickException("Aborted.")
-        for src in (target / ".jig" / "profiles").glob("*.yaml"):
-            preserved_profiles[src.name] = src.read_text(encoding="utf-8")
-        for src in (target / ".jig" / "workflows").glob("*.yaml"):
-            preserved_workflows[src.name] = src.read_text(encoding="utf-8")
-        shutil.rmtree(target / ".jig")
+        snapshots = await _force_reset_jig(target, prompts=prompts, console=console)
 
     create_stub(target, name=project_name)
-    # Restore the snapshot (no-op if no force happened or no project-
-    # local YAMLs existed). Operator edits to shipped names survive
-    # the force, and operator-only profile / workflow YAMLs are not
-    # silently lost.
-    if preserved_profiles:
-        dest_dir = target / ".jig" / "profiles"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for fname, body in preserved_profiles.items():
-            (dest_dir / fname).write_text(body, encoding="utf-8")
-    if preserved_workflows:
-        dest_dir = target / ".jig" / "workflows"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for fname, body in preserved_workflows.items():
-            (dest_dir / fname).write_text(body, encoding="utf-8")
+    _restore_operator_yamls(target, snapshots)
     # Resolve the profile UP FRONT, before any PO runs, so ``classify_resume``
     # can branch the PO topology on it (medium → L0–L3 pipeline). ``--profile``
     # pins/overrides it; an interactive *fresh* init asks the operator via the
@@ -608,36 +649,7 @@ async def _run_init_resume_loop(
                         "must restrict PM-1 to small/medium."
                     )
                 chosen_name = "small" if chosen_name == "medium" else "medium"
-            from jig.config import load_config, save_config
-            from jig.profile_loader import (
-                apply_profile,
-                copy_profile_templates,
-                load_profile,
-            )
-
-            try:
-                profile = load_profile(chosen_name, project_path=target)
-            except FileNotFoundError as exc:
-                # Shipped profiles don't disappear in practice, but a
-                # malformed install or partial-removal would land here.
-                # Surface as a friendly ClickException for consistency
-                # with ``_apply_profile_at_start``.
-                raise click.ClickException(str(exc)) from exc
-            try:
-                cfg = apply_profile(load_config(target), profile)
-            except FileNotFoundError as exc:
-                raise click.ClickException(
-                    f"{target}/.jig/config.yaml not found while applying "
-                    f"profile {chosen_name!r}. Init state is inconsistent — "
-                    "re-run `jig init`."
-                ) from exc
-            save_config(target, cfg)
-            copy_profile_templates(profile, target)
-            console.print(
-                f"Applied profile '{profile.name}' "
-                f"(sa_role={profile.sa_role}). Next: SA.",
-                markup=False,
-            )
+            _apply_named_profile(target, chosen_name, console, next_hint=" Next: SA.")
             continue
         if rs == ResumeState.SA_CONVERSATION:
             await run_sa_conversation(
@@ -1771,6 +1783,47 @@ async def prompt_profile_confirm(
         console=c,
     )
     return choice, proposal
+
+
+def _apply_named_profile(
+    target: Path,
+    name: str,
+    console: "Console",
+    *,
+    rerun_hint: str = "`jig init`",
+    next_hint: str = "",
+) -> None:
+    """Load + apply + persist a named profile, with friendly errors.
+
+    Shared by the greenfield PM-confirm arm and the onboard flow's
+    ``--profile`` bypass / PM-confirm arm. ``rerun_hint`` names the
+    command to re-run when config is missing; ``next_hint`` is an
+    optional suffix for the confirmation line (e.g. " Next: SA.").
+    """
+    from jig.config import load_config, save_config
+    from jig.profile_loader import (
+        apply_profile,
+        copy_profile_templates,
+        load_profile,
+    )
+
+    try:
+        profile = load_profile(name, project_path=target)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        cfg = apply_profile(load_config(target), profile)
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            f"{target}/.jig/config.yaml not found while applying profile "
+            f"{name!r}. State is inconsistent — re-run {rerun_hint}."
+        ) from exc
+    save_config(target, cfg)
+    copy_profile_templates(profile, target)
+    console.print(
+        f"Applied profile '{profile.name}' (sa_role={profile.sa_role}).{next_hint}",
+        markup=False,
+    )
 
 
 async def run_pm_profile_pass(

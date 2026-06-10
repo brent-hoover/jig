@@ -120,6 +120,83 @@ def init(
     )
 
 
+@cli.command()
+@click.argument(
+    "path",
+    default=".",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option(
+    "--brief",
+    "brief_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to a desired-state brief describing what to build next. "
+        "Copied to .jig/onboard/desired-state.md. If omitted, backlog "
+        "generation is skipped (docs/brief.md is always written by the "
+        "PO pass and is the current-state brief)."
+    ),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Clear existing .jig/ and re-onboard from scratch.",
+)
+@click.option(
+    "--profile",
+    "profile_name",
+    default=None,
+    help="Skip PM-1 profile selection; apply named profile directly.",
+)
+def onboard(
+    path: Path,
+    brief_file: Path | None,
+    force: bool,
+    profile_name: str | None,
+) -> None:
+    """Import an existing codebase at PATH into the jig workflow."""
+    import asyncio
+    import subprocess
+
+    from jig.onboard_workflow import run_onboard
+
+    # Onboarding non-git repositories is unsupported — the workflow
+    # depends on worktrees and hooks. PATH must also be the repository
+    # ROOT: `rev-parse` succeeds anywhere inside a repo, but the
+    # workflow treats the project root as the repo root.
+    try:
+        probe = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(path),
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(
+            "git is not installed (or not on PATH). `jig onboard` requires git."
+        ) from exc
+    if probe.returncode != 0:
+        raise click.ClickException(
+            f"{path} is not a git repository. `jig onboard` only supports "
+            "git repositories — run `git init` first."
+        )
+    toplevel = Path(probe.stdout.strip()).resolve()
+    if toplevel != path.resolve():
+        raise click.ClickException(
+            f"{path} is inside the git repository at {toplevel}, but is not "
+            "its root. `jig onboard` must run against the repository root."
+        )
+    asyncio.run(
+        run_onboard(
+            path=path,
+            brief_file=brief_file,
+            force=force,
+            profile_name=profile_name,
+        )
+    )
+
+
 def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> None:
     """Run the orchestrator + WebSocket server in the foreground until interrupted.
 

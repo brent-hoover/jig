@@ -456,6 +456,9 @@ class SystemEvent(_ThreadEntryBase):
         "sa_skipped",
         "scaffold_applied",
         "brief_approved",
+        # Onboard flow (feature-work/project-onboarding): posted by the
+        # operator review gate when onboard artifacts are approved.
+        "onboard_artifacts_approved",
         # SF-1: dev-env provisioning failure surfaced as a spawn failure
         # rather than swallowed.
         "provisioning_failed",

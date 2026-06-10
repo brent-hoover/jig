@@ -139,6 +139,65 @@ async def test_medium_classify_none_to_sa_then_done(tmp_path: Path) -> None:
     )
 
 
+# --- medium operator-question handling ----------------------------------------
+
+
+async def _needs_info_ticket(tickets, threads, ticket_id: str) -> None:
+    """Put ``ticket_id`` into needs_info with one open human question."""
+    from jig.thread import Question
+    from jig.ticket import Ticket, TicketStatus, WorkType
+
+    await tickets.create(
+        Ticket(
+            id=ticket_id,
+            work_type=WorkType.BRIEF,
+            title=ticket_id,
+            created_by="cli",
+            status=TicketStatus.NEEDS_INFO,
+        )
+    )
+    await threads.post(
+        Question(
+            ticket_id=ticket_id,
+            author="po",
+            target="any_human",
+            question="Which datastore?",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "prereqs, suites, ticket_id",
+    [
+        ([], [], "project"),  # L0
+        ([("project", "po-l1")], [], "discovery"),  # L1
+        ([("project", "po-l1"), ("discovery", "po-l2")], [], "suites"),  # L2
+        (
+            [("project", "po-l1"), ("discovery", "po-l2"), ("suites", "po-l3")],
+            ["catalog"],
+            "suite-catalog",
+        ),  # L3
+    ],
+)
+async def test_medium_classify_routes_to_needs_answer(
+    tmp_path: Path, prereqs, suites, ticket_id
+) -> None:
+    """A medium L0–L3 level with open operator questions routes to
+    PO_LEVEL_NEEDS_ANSWER (not back to the PO), at every level."""
+    target = _medium_project(tmp_path)
+    tickets, threads, _, _ = await _stores(target)
+    for tid, phase in prereqs:
+        await _handoff(threads, tid, phase)
+    if suites:
+        _write_suites(target, suites)
+    await _needs_info_ticket(tickets, threads, ticket_id)
+
+    assert (
+        await classify_resume(project_path=target, tickets=tickets, threads=threads)
+        == ResumeState.PO_LEVEL_NEEDS_ANSWER
+    )
+
+
 # --- non-medium regression ----------------------------------------------------
 
 
@@ -217,6 +276,91 @@ async def test_medium_loop_cascades_l0_to_sa(tmp_path: Path, monkeypatch) -> Non
     )
 
     assert order == ["l0", "l1", "l2", "l3:catalog", "l3:billing", "sa"]
+
+
+async def test_medium_loop_answers_questions_before_respawn(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When the pending level awaits operator answers, the loop surfaces them
+    (prompt_and_post_answers on that level's ticket) before respawning the PO,
+    then proceeds — it does not loop on the unanswered question."""
+    from jig.init_workflow import _open_questions
+    from jig.ticket import TicketStatus
+    from jig.thread import Answer
+
+    target = _medium_project(tmp_path)
+    tickets, threads, memory, bus = await _stores(target)
+    _write_suites(target, ["catalog"])
+    await _needs_info_ticket(tickets, threads, "project")  # L0 awaits an answer
+
+    answered: list[str] = []
+
+    async def _answer(*, tickets, threads, bus, ticket_id, console=None, prompts=None):
+        answered.append(ticket_id)
+        for q in await _open_questions(threads, ticket_id):
+            await threads.post(
+                Answer(
+                    ticket_id=ticket_id,
+                    author="user",
+                    question_id=q.id,
+                    text="postgres",
+                )
+            )
+        await tickets.update(ticket_id, status=TicketStatus.IN_PROGRESS)
+
+    order: list[str] = []
+
+    async def _l0(**kw):
+        order.append("l0")
+        await _handoff(threads, "project", "po-l1")
+
+    async def _l1(**kw):
+        order.append("l1")
+        await _handoff(threads, "discovery", "po-l2")
+
+    async def _l2(**kw):
+        order.append("l2")
+        await _handoff(threads, "suites", "po-l3")
+
+    async def _l3(**kw):
+        order.append(f"l3:{kw['suite_id']}")
+        await _handoff(threads, f"suite-{kw['suite_id']}", "sa")
+
+    async def _sa(**kw):
+        order.append("sa")
+        from jig.ticket import Ticket, WorkType
+
+        await tickets.create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="A",
+                created_by="cli",
+            )
+        )
+        await _handoff(threads, "architecture", "pm")
+
+    monkeypatch.setattr("jig.init_workflow.prompt_and_post_answers", _answer)
+    monkeypatch.setattr("jig.init_workflow.run_po_l0_conversation", _l0)
+    monkeypatch.setattr("jig.init_workflow.run_po_l1_conversation", _l1)
+    monkeypatch.setattr("jig.init_workflow.run_po_l2_conversation", _l2)
+    monkeypatch.setattr("jig.init_workflow.run_po_l3_conversation", _l3)
+    monkeypatch.setattr("jig.init_workflow.run_sa_conversation", _sa)
+
+    await _run_init_resume_loop(
+        target=target,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        prompts=MagicMock(),
+        console=MagicMock(),
+        brief_file=None,
+    )
+
+    # Answered the L0 ticket's question once, then cascaded through every level.
+    assert answered == ["project"]
+    assert order == ["l0", "l1", "l2", "l3:catalog", "sa"]
 
 
 # --- sa_mvp fail-loud ---------------------------------------------------------

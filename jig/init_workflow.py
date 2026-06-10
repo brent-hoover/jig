@@ -466,6 +466,21 @@ async def _run_init_resume_loop(
                 console=console,
             )
             continue
+        if rs == ResumeState.PO_LEVEL_NEEDS_ANSWER:
+            # A medium L0–L3 level is awaiting operator answers. Re-resolve the
+            # pending level to find its ticket, then surface its questions.
+            nxt = await next_incomplete_level(project_path=target, threads=threads)
+            if nxt is None:
+                continue  # state advanced between classify and dispatch
+            await prompt_and_post_answers(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                ticket_id=nxt.ticket_id,
+                console=console,
+                prompts=prompts,
+            )
+            continue
         if rs == ResumeState.NEEDS_ANSWER_BRIEF:
             await prompt_and_post_answers(
                 tickets=tickets,
@@ -2325,6 +2340,10 @@ class ResumeState(str, Enum):
     PO_L1_CONVERSATION = "po_l1_conversation"
     PO_L2_CONVERSATION = "po_l2_conversation"
     PO_L3_CONVERSATION = "po_l3_conversation"
+    # A medium L0–L3 level posted operator questions (ask_question → needs_info).
+    # Generic across levels: the dispatch arm re-runs next_incomplete_level to
+    # find which level's ticket to prompt on.
+    PO_LEVEL_NEEDS_ANSWER = "po_level_needs_answer"
     NEEDS_ANSWER_BRIEF = "needs_answer_brief"
     BRIEF_APPROVAL = "brief_approval"
     SPEC_GENERATION = "spec_generation"
@@ -2428,6 +2447,11 @@ async def classify_resume(
     if _cfg is not None and _cfg.profile.name == "medium":
         nxt = await next_incomplete_level(project_path=project_path, threads=threads)
         if nxt is not None:
+            # If the pending level's PO posted operator questions (ask_question
+            # flips the ticket to needs_info), answer them before respawning the
+            # PO — otherwise the level would loop on the unanswered question.
+            if await _ticket_awaits_answer(tickets, threads, nxt.ticket_id):
+                return ResumeState.PO_LEVEL_NEEDS_ANSWER
             return _po_level_states()[nxt.level]
         return await _classify_arch_state(
             tickets, threads, no_arch_default=ResumeState.SA_CONVERSATION

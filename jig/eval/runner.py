@@ -34,7 +34,7 @@ _SIGKILL_GRACE = 10.0
 def _free_port() -> int:
     """Bind to port 0, read the assigned port, and close."""
     with socket.socket() as s:
-        s.bind(("", 0))
+        s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
@@ -299,8 +299,7 @@ async def run_eval(
     if not tracer_sh.is_file():
         log.error("tracer.sh not found: %s", tracer_sh)
         _teardown_proc(proc, temp_path)
-        shutil.rmtree(temp_path, ignore_errors=True)
-        return RunResult(outcome=EvalOutcome.INIT_ERROR)
+        return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
     manifest = await collect(
         temp_path,
@@ -318,23 +317,25 @@ async def run_eval(
         yaml.dump(manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
     )
 
-    if manifest.tracer is not None:
-        tracer_outcome = _check_tracer_outcome(
-            manifest.tracer.exit_code, manifest.tracer.stdout
+    if manifest.tracer is None:
+        log.error(
+            "manifest.tracer is None — treating as TRACER_FAIL to avoid false positive"
         )
-        if tracer_outcome is not None:
-            label_str = "SKIP" if manifest.tracer.exit_code == 0 else "FAIL"
-            log.error(
-                "tracer %s: exit_code=%d stdout=%r",
-                label_str,
-                manifest.tracer.exit_code,
-                manifest.tracer.stdout[:100],
-            )
-            _teardown_proc(proc, temp_path)
-            shutil.rmtree(temp_path, ignore_errors=True)
-            return RunResult(
-                outcome=EvalOutcome.TRACER_FAIL, manifest_path=manifest_path
-            )
+        _teardown_proc(proc, temp_path)
+        return RunResult(outcome=EvalOutcome.TRACER_FAIL, manifest_path=manifest_path)
+    tracer_outcome = _check_tracer_outcome(
+        manifest.tracer.exit_code, manifest.tracer.stdout
+    )
+    if tracer_outcome is not None:
+        label_str = "SKIP" if manifest.tracer.exit_code == 0 else "FAIL"
+        log.error(
+            "tracer %s: exit_code=%d stdout=%r",
+            label_str,
+            manifest.tracer.exit_code,
+            manifest.tracer.stdout[:100],
+        )
+        _teardown_proc(proc, temp_path)
+        return RunResult(outcome=EvalOutcome.TRACER_FAIL, manifest_path=manifest_path)
 
     analysis_dir: Path | None = None
     if analysis_out_dir is not None:

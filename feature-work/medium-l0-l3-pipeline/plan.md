@@ -186,8 +186,8 @@ L0–L3; the branch alone would route L0–L3 then a flat SA).
 
 - [x] Step 1: Up-front size selection + PM-1 retirement
 - [x] Step 2: L0–L3 spawn helpers + shared level resolver
-- [ ] Step 3: Activate the medium branch (classify + states + run loop + `sa_role` flip)
-- [ ] Step 4: Rebase `/init --proceed` onto the shared resolver
+- [x] Step 3: Activate the medium branch (classify + states + run loop + `sa_role` flip)
+- [x] Step 4: Rebase `/init --proceed` onto the shared resolver
 - [ ] Step 5: End-to-end medium auto-init scenario + full verification
 
 ## Change log

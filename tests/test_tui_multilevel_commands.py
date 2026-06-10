@@ -5,6 +5,7 @@ operator can drive the L1 / L2 / L3 PO from the TUI via slash
 commands. Tests cover dispatch parsing + the daemon-side handler
 behavior with mocked stores.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -220,9 +221,7 @@ def _seed_suites_yaml(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_suite_list_returns_no_index_when_absent(tmp_path: Path):
     handler = get_handler("suite")
-    out = await handler(
-        args=["list"], orch=None, project_path=tmp_path
-    )
+    out = await handler(args=["list"], orch=None, project_path=tmp_path)
     assert out["ok"] is True
     assert out["data"]["status"] == "no-suite-index"
 
@@ -231,9 +230,7 @@ async def test_suite_list_returns_no_index_when_absent(tmp_path: Path):
 async def test_suite_list_pending_when_no_brief(tmp_path: Path):
     _seed_suites_yaml(tmp_path)
     handler = get_handler("suite")
-    out = await handler(
-        args=["list"], orch=None, project_path=tmp_path
-    )
+    out = await handler(args=["list"], orch=None, project_path=tmp_path)
     assert out["ok"] is True
     assert len(out["data"]["suites"]) == 1
     assert out["data"]["suites"][0]["status"] == "pending"
@@ -246,9 +243,7 @@ async def test_suite_list_brief_ready_when_brief_on_disk(tmp_path: Path):
     brief.parent.mkdir(parents=True, exist_ok=True)
     brief.write_text("# brief\n")
     handler = get_handler("suite")
-    out = await handler(
-        args=["list"], orch=None, project_path=tmp_path
-    )
+    out = await handler(args=["list"], orch=None, project_path=tmp_path)
     assert out["data"]["suites"][0]["status"] == "brief_ready"
 
 
@@ -342,9 +337,7 @@ async def test_spec_capabilities_no_brief(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_spec_capabilities_lists_from_brief(tmp_path: Path):
     _seed_suites_yaml(tmp_path)
-    cache = (
-        tmp_path / ".jig" / "spec" / "suites" / "catalog" / "spec.structured.yaml"
-    )
+    cache = tmp_path / ".jig" / "spec" / "suites" / "catalog" / "spec.structured.yaml"
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(
         yaml.safe_dump(
@@ -394,14 +387,53 @@ async def test_spec_capabilities_requires_suite_flag(tmp_path: Path):
 
 
 # ---- /init --proceed ------------------------------------------------------
+#
+# /init --proceed is rebased onto jig.init_workflow.next_incomplete_level — the
+# SAME thread-marker resolver the auto init path uses — so level detection is by
+# Handoff markers, not artifact-on-disk. These tests seed markers on a real
+# ThreadStore and assert the command advances to the right level.
+
+
+async def _proceed_orch(tmp_path: Path):
+    """A mock orchestrator backed by real ticket + thread stores."""
+    store = tmp_path / ".jig" / "store"
+    store.mkdir(parents=True, exist_ok=True)
+    tickets = TicketStore(store / "tickets.jsonl")
+    threads = ThreadStore(store / "comments.jsonl")
+    for s in (tickets, threads):
+        await s.load()
+    orch = MagicMock()
+    orch.tickets = tickets
+    orch.threads = threads
+    return orch, tickets, threads
+
+
+async def _post_handoff(threads: ThreadStore, ticket_id: str, phase: str) -> None:
+    from jig.thread import Handoff
+
+    await threads.post(Handoff(ticket_id=ticket_id, author="po", phase=phase))
+
+
+def _write_suites_yaml(tmp_path: Path, suite_ids: list[str]) -> None:
+    spec = tmp_path / ".jig" / "spec"
+    spec.mkdir(parents=True, exist_ok=True)
+    data = {
+        "spec_version": 2,
+        "suites": [
+            {"id": s, "title": s.title(), "summary": f"s {s}", "capabilities": []}
+            for s in suite_ids
+        ],
+    }
+    (spec / "suites.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
 
 
 @pytest.mark.asyncio
 async def test_init_proceed_requires_l0(tmp_path: Path):
+    orch, _, _ = await _proceed_orch(tmp_path)
     handler = get_handler("init")
     out = await handler(
         args=["--proceed"],
-        orch=MagicMock(),
+        orch=orch,
         project_path=tmp_path,
         prompt_registry=None,
         emitter=None,
@@ -411,16 +443,29 @@ async def test_init_proceed_requires_l0(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_init_proceed_advances_to_l1_when_l0_present(tmp_path: Path):
-    # Seed an L0 brief.md so the L0 gate passes.
-    p = tmp_path / "docs" / "brief.md"
-    p.parent.mkdir(parents=True)
-    p.write_text("# project\n")
+async def test_init_proceed_unconfigured_orchestrator_bootstrap_error(tmp_path: Path):
+    """An orchestrator started against an uninitialized project has stores set
+    to None; --proceed must return the bootstrap error, not raise on the
+    resolver's None.for_ticket access."""
     orch = MagicMock()
-    orch.tickets = MagicMock()
-    orch.tickets.get = AsyncMock(return_value=None)
-    orch.tickets.create = AsyncMock()
-    orch.tickets.update = AsyncMock()
+    orch.threads = None
+    orch.tickets = None
+    handler = get_handler("init")
+    out = await handler(
+        args=["--proceed"],
+        orch=orch,
+        project_path=tmp_path,
+        prompt_registry=None,
+        emitter=None,
+    )
+    assert out["ok"] is False
+    assert "/init" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_init_proceed_advances_to_l1_when_l0_present(tmp_path: Path):
+    orch, tickets, threads = await _proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")  # L0 finalized
 
     handler = get_handler("init")
     out = await handler(
@@ -433,21 +478,14 @@ async def test_init_proceed_advances_to_l1_when_l0_present(tmp_path: Path):
     assert out["ok"] is True
     assert out["data"]["level"] == "po-l1"
     assert out["data"]["ticket_id"] == "discovery"
-    orch.tickets.create.assert_awaited_once()
+    assert await tickets.get("discovery") is not None
 
 
 @pytest.mark.asyncio
 async def test_init_proceed_advances_to_l2_when_l1_present(tmp_path: Path):
-    p = tmp_path / ".jig" / "spec"
-    p.mkdir(parents=True)
-    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "docs" / "brief.md").write_text("# project\n")
-    (p / "discovery.md").write_text("# discovery\n")
-    orch = MagicMock()
-    orch.tickets = MagicMock()
-    orch.tickets.get = AsyncMock(return_value=None)
-    orch.tickets.create = AsyncMock()
-    orch.tickets.update = AsyncMock()
+    orch, tickets, threads = await _proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")
+    await _post_handoff(threads, "discovery", "po-l2")  # L1 finalized
 
     handler = get_handler("init")
     out = await handler(
@@ -459,3 +497,141 @@ async def test_init_proceed_advances_to_l2_when_l1_present(tmp_path: Path):
     )
     assert out["ok"] is True
     assert out["data"]["level"] == "po-l2"
+    assert out["data"]["ticket_id"] == "suites"
+
+
+@pytest.mark.asyncio
+async def test_init_proceed_advances_to_l3_with_suite_id(tmp_path: Path):
+    orch, tickets, threads = await _proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")
+    await _post_handoff(threads, "discovery", "po-l2")
+    await _post_handoff(threads, "suites", "po-l3")  # L2 finalized
+    _write_suites_yaml(tmp_path, ["catalog", "billing"])
+
+    handler = get_handler("init")
+    out = await handler(
+        args=["--proceed"],
+        orch=orch,
+        project_path=tmp_path,
+        prompt_registry=None,
+        emitter=None,
+    )
+    assert out["ok"] is True
+    assert out["data"]["level"] == "po-l3"
+    assert out["data"]["ticket_id"] == "suite-catalog"
+    assert out["data"]["suite_id"] == "catalog"
+    ticket = await tickets.get("suite-catalog")
+    assert ticket is not None
+    assert ticket.description == "s catalog"  # seeded from the suite summary
+
+
+@pytest.mark.asyncio
+async def test_init_proceed_reports_complete_when_all_levels_done(tmp_path: Path):
+    orch, _, threads = await _proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")
+    await _post_handoff(threads, "discovery", "po-l2")
+    await _post_handoff(threads, "suites", "po-l3")
+    _write_suites_yaml(tmp_path, ["catalog"])
+    await _post_handoff(threads, "suite-catalog", "sa")
+
+    handler = get_handler("init")
+    out = await handler(
+        args=["--proceed"],
+        orch=orch,
+        project_path=tmp_path,
+        prompt_registry=None,
+        emitter=None,
+    )
+    assert out["ok"] is True
+    assert out["data"]["level"] == "po-complete"
+
+
+async def _medium_proceed_orch(tmp_path: Path):
+    """Like _proceed_orch but on a real medium project (config on disk) so the
+    auto path's classify_resume hits its medium branch — lets a test assert
+    _proceed and classify_resume agree on the next level."""
+    from jig.config import load_config, save_config
+    from jig.init_workflow import create_stub
+    from jig.profile_loader import apply_profile, load_profile
+
+    create_stub(tmp_path, name="proj")
+    save_config(
+        tmp_path,
+        apply_profile(
+            load_config(tmp_path), load_profile("medium", project_path=tmp_path)
+        ),
+    )
+    store = tmp_path / ".jig" / "store"
+    tickets = TicketStore(store / "tickets.jsonl")
+    threads = ThreadStore(store / "comments.jsonl")
+    for s in (tickets, threads):
+        await s.load()
+    orch = MagicMock()
+    orch.tickets = tickets
+    orch.threads = threads
+    return orch, tickets, threads
+
+
+@pytest.mark.asyncio
+async def test_init_proceed_brief_on_disk_without_handoff_still_incomplete(
+    tmp_path: Path,
+):
+    """The load-bearing divergent case: a suite whose brief.md is on disk but
+    whose suite-<id> ticket has NO Handoff(phase="sa") (a partial write) must
+    still be treated as incomplete — exactly as the auto path's classify_resume
+    sees it. The old disk-based _proceed would skip it; the marker basis does
+    not. Assert _proceed and the medium classify_resume resolve the SAME suite."""
+    from jig.init_workflow import ResumeState, classify_resume
+
+    orch, tickets, threads = await _medium_proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")
+    await _post_handoff(threads, "discovery", "po-l2")
+    await _post_handoff(threads, "suites", "po-l3")
+    _write_suites_yaml(tmp_path, ["catalog"])
+    # brief.md on disk, but NO suite-catalog/sa handoff (partial write).
+    brief = tmp_path / ".jig" / "spec" / "suites" / "catalog" / "brief.md"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text("# catalog brief\n")
+
+    # _proceed treats catalog as still pending (marker basis).
+    handler = get_handler("init")
+    out = await handler(
+        args=["--proceed"],
+        orch=orch,
+        project_path=tmp_path,
+        prompt_registry=None,
+        emitter=None,
+    )
+    assert out["ok"] is True
+    assert out["data"]["suite_id"] == "catalog"
+
+    # The auto path agrees: classify_resume returns PO_L3 (catalog still pending)
+    # rather than skipping it on disk presence.
+    assert (
+        await classify_resume(project_path=tmp_path, tickets=tickets, threads=threads)
+        == ResumeState.PO_L3_CONVERSATION
+    )
+
+
+@pytest.mark.asyncio
+async def test_init_proceed_handoff_without_brief_advances(tmp_path: Path):
+    """The inverse divergent case: a suite-<id> ticket WITH a Handoff(phase=sa)
+    but no brief.md on disk (a partial write the other way) counts as complete —
+    the marker basis advances past it to the next suite."""
+    orch, tickets, threads = await _proceed_orch(tmp_path)
+    await _post_handoff(threads, "project", "po-l1")
+    await _post_handoff(threads, "discovery", "po-l2")
+    await _post_handoff(threads, "suites", "po-l3")
+    _write_suites_yaml(tmp_path, ["catalog", "billing"])
+    await _post_handoff(threads, "suite-catalog", "sa")  # done by marker, no brief.md
+
+    handler = get_handler("init")
+    out = await handler(
+        args=["--proceed"],
+        orch=orch,
+        project_path=tmp_path,
+        prompt_registry=None,
+        emitter=None,
+    )
+    assert out["ok"] is True
+    assert out["data"]["suite_id"] == "billing"  # catalog skipped (marker = done)

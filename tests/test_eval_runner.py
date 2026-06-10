@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from jig.eval.runner import (
     EvalOutcome,
@@ -208,3 +210,81 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
 
     assert result.outcome == EvalOutcome.TRACER_FAIL
     assert result.temp_dir is not None
+
+
+def test_run_eval_collect_exception_tears_down_proc(tmp_path: Path) -> None:
+    """collect() raising must not orphan the orchestrator subprocess."""
+    import json as _json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    proj_dir = tmp_path / "evals" / "projects" / "test-proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "brief.md").write_text("# Brief\n")
+    (proj_dir / "tracer.sh").write_text("#!/bin/bash\necho ok\n")
+
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.wait.return_value = None
+    mock_teardown = MagicMock()
+
+    class _FakeWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": "/tmp"},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FakeWS()
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.collector.collect",
+            new=AsyncMock(side_effect=RuntimeError("collect failed")),
+        ),
+        patch("jig.eval.runner._teardown_proc", mock_teardown),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        with pytest.raises(RuntimeError, match="collect failed"):
+            asyncio.run(
+                run_eval(
+                    "test-proj",
+                    label=None,
+                    keep=False,
+                    timeout_minutes=1,
+                    jig_repo=tmp_path,
+                )
+            )
+
+    mock_teardown.assert_called_once()

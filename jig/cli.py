@@ -2420,8 +2420,19 @@ def eval_list(project_id: str, runs_root: Path | None) -> None:
     show_default=True,
     help="Wall-clock timeout in minutes.",
 )
+@click.option(
+    "--profile",
+    "profile_name",
+    default="small",
+    show_default=True,
+    help="Project profile to apply during init (medium is not supported for brief-based evals).",
+)
 def eval_run(
-    project_id: str, label: str | None, keep: bool, timeout_minutes: int
+    project_id: str,
+    label: str | None,
+    keep: bool,
+    timeout_minutes: int,
+    profile_name: str,
 ) -> None:
     """Run a zero-touch integration test for PROJECT_ID.
 
@@ -2449,6 +2460,7 @@ def eval_run(
             keep=keep,
             timeout_minutes=timeout_minutes,
             jig_repo=jig_repo,
+            profile_name=profile_name,
         )
     )
 

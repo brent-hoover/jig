@@ -167,6 +167,7 @@ async def run_eval(
     keep: bool,
     timeout_minutes: int,
     jig_repo: Path,
+    profile_name: str = "small",
 ) -> RunResult:
     """Run a zero-touch integration eval for project_id.
 
@@ -198,6 +199,7 @@ async def run_eval(
             force=False,
             brief_file=brief_path,
             prompts=AutoPromptHandler(),
+            profile_name=profile_name,
         )
     except Exception as exc:
         log.error("run_init failed: %s", exc)

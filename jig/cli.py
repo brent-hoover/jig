@@ -2408,6 +2408,71 @@ def eval_list(project_id: str, runs_root: Path | None) -> None:
         click.echo(f"{run_id:<10} {label:<20} {date:<12} {tickets:<40} {tracer}")
 
 
+@eval_group.command("run")
+@click.argument("project_id")
+@click.option("--label", default=None, help="Human-readable label for this run.")
+@click.option("--keep", is_flag=True, default=False, help="Keep temp dir on success.")
+@click.option(
+    "--timeout-minutes",
+    "timeout_minutes",
+    default=90,
+    type=int,
+    show_default=True,
+    help="Wall-clock timeout in minutes.",
+)
+def eval_run(
+    project_id: str, label: str | None, keep: bool, timeout_minutes: int
+) -> None:
+    """Run a zero-touch integration test for PROJECT_ID.
+
+    Exit codes:
+      0  Tracer PASS
+      1  Stall detected
+      2  Wall-clock timeout
+      3  Init error
+      4  Tracer FAIL or SKIP
+    """
+    from datetime import datetime, timezone
+
+    from jig.eval.runner import EvalOutcome, run_eval
+
+    if label is None:
+        label = f"integration-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+
+    # Requires a dev install (uv sync from repo root); evals/projects/ must exist here.
+    jig_repo = Path(__file__).resolve().parent.parent
+
+    result = asyncio.run(
+        run_eval(
+            project_id,
+            label=label,
+            keep=keep,
+            timeout_minutes=timeout_minutes,
+            jig_repo=jig_repo,
+        )
+    )
+
+    click.echo(f"outcome:  {result.outcome.value}")
+    if result.manifest_path:
+        click.echo(f"manifest: {result.manifest_path}")
+    if result.analysis_dir:
+        click.echo(f"analysis: {result.analysis_dir}")
+    if result.stall_verdict is not None:
+        v = result.stall_verdict
+        click.echo(f"stall:    {v.signal} — {v.detail}")  # type: ignore[attr-defined]
+    if result.temp_dir:
+        click.echo(f"temp_dir: {result.temp_dir}")
+
+    _EXIT_CODES = {
+        EvalOutcome.SUCCESS: 0,
+        EvalOutcome.STALL: 1,
+        EvalOutcome.TIMEOUT: 2,
+        EvalOutcome.INIT_ERROR: 3,
+        EvalOutcome.TRACER_FAIL: 4,
+    }
+    sys.exit(_EXIT_CODES.get(result.outcome, 99))
+
+
 # ---------------------------------------------------------------------------
 # jig graph — dependency graph queries (Phase 3.8)
 # ---------------------------------------------------------------------------

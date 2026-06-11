@@ -3,9 +3,9 @@
 Imports an existing codebase into the jig workflow: a scanner pass
 produces ``.jig/onboard/observations.md``, the PO extracts the
 current-state brief from existing behavior, the spec generator runs
-unchanged, and the PM picks a profile. Phase 2 (SA read pass, operator
-review, PM backlog) is blocked on sa-architect Phase 2 — the classifier
-returns ``PHASE2_PENDING`` at that boundary and the loop exits cleanly.
+unchanged, the PM picks a profile, the SA extracts the existing
+architecture, the operator reviews the artifacts, and the PM bootstraps
+the backlog from the current→desired delta.
 
 The pattern mirrors ``init_workflow.py``: a while loop calls
 ``classify_onboard_resume()`` each tick and dispatches the next step.
@@ -60,6 +60,9 @@ from jig.ticket import Ticket, WorkType
 _SCANNER_FILE_CEILING: dict[str, int] = {"small": 150, "medium": 400}
 _SCANNER_FILE_CEILING_FALLBACK = 400
 
+_SA_TURN_BUDGET: dict[str, int] = {"small": 25, "medium": 60}
+_SA_TURN_BUDGET_FALLBACK = 60
+
 
 def _load_config_or_none(project_path: Path):
     """``load_config`` with onboard-consistent error handling: missing
@@ -101,12 +104,8 @@ class OnboardResumeState(str, Enum):
     SA_READ_PASS = "sa_read_pass"
     NEEDS_ANSWER_ARCH = "needs_answer_arch"
     OPERATOR_REVIEW = "operator_review"
+    NEEDS_ANSWER_BACKLOG = "needs_answer_backlog"
     PM_BACKLOG = "pm_backlog"
-    # Phase-1 boundary: scan/brief/spec/profile are done; the SA read
-    # pass and later states ship with sa-architect Phase 2. A dedicated
-    # state (not an exception) so a real bug raising NotImplementedError
-    # is never misreported as successful completion.
-    PHASE2_PENDING = "phase2_pending"
     ALREADY_DONE = "already_done"
     BROKEN = "broken"
 
@@ -188,10 +187,7 @@ async def classify_onboard_resume(
 ) -> OnboardResumeState:
     """Pure inspection. Maps persisted onboard state to the next action.
 
-    Implements all transitions up through PM_PROFILE_CONFIRM_PROMPT.
-    Past that, ``PHASE2_PENDING`` marks the Phase-1 boundary — the
-    SA_READ_PASS → PM_BACKLOG states are unreachable until sa-architect
-    Phase 2 freezes the unified SA role interface.
+    Implements all transitions through PM_BACKLOG / ALREADY_DONE.
     """
     ds = classify_directory(project_path)
     if ds == DirState.BROKEN:
@@ -280,8 +276,46 @@ async def classify_onboard_resume(
             return OnboardResumeState.PM_PROFILE_PASS
         return OnboardResumeState.PM_PROFILE_CONFIRM_PROMPT
 
-    # --- Phase 2 (blocked on sa-architect Phase 2) --------------------------
-    return OnboardResumeState.PHASE2_PENDING
+    # --- SA read pass -------------------------------------------------------
+    arch_ticket = await tickets.get("architecture")
+    if arch_ticket is None:
+        return OnboardResumeState.SA_READ_PASS
+    if await _ticket_awaits_answer(tickets, threads, "architecture"):
+        return OnboardResumeState.NEEDS_ANSWER_ARCH
+    arch_entries = await threads.for_ticket("architecture")
+
+    # Find the last SA handoff, then check whether a rerun was requested
+    # after it. Using the last-handoff index makes classification order-aware
+    # so the operator's "re-run SA" choice isn't swallowed by a prior handoff.
+    last_handoff_idx = -1
+    for i, e in enumerate(arch_entries):
+        if isinstance(e, Handoff) and e.phase == "pm":
+            last_handoff_idx = i
+
+    if last_handoff_idx == -1:
+        return OnboardResumeState.SA_READ_PASS
+
+    # If a rerun marker appears after the last handoff, SA needs to run again.
+    has_rerun_after_handoff = any(
+        isinstance(e, SystemEvent) and e.event_type == "onboard_sa_rerun_requested"
+        for e in arch_entries[last_handoff_idx + 1 :]
+    )
+    if has_rerun_after_handoff:
+        return OnboardResumeState.SA_READ_PASS
+
+    # --- Operator review gate -----------------------------------------------
+    # Check for approval after the last handoff (not from a prior SA run).
+    has_artifacts_approved = any(
+        isinstance(e, SystemEvent) and e.event_type == "onboard_artifacts_approved"
+        for e in arch_entries[last_handoff_idx:]
+    )
+    if not has_artifacts_approved:
+        return OnboardResumeState.OPERATOR_REVIEW
+
+    # --- PM backlog ---------------------------------------------------------
+    if await _ticket_awaits_answer(tickets, threads, "backlog"):
+        return OnboardResumeState.NEEDS_ANSWER_BACKLOG
+    return OnboardResumeState.PM_BACKLOG
 
 
 def _observations_text(project_path: Path) -> str:
@@ -431,6 +465,286 @@ async def run_onboard_pm_profile_pass(
         bus=bus,
         console=console,
     )
+
+
+def sa_turn_budget(project_path: Path) -> int:
+    """Turn budget for the SA read pass, scaled by active profile."""
+    name = _active_profile_name(project_path)
+    return _SA_TURN_BUDGET.get(name, _SA_TURN_BUDGET_FALLBACK)
+
+
+def _sa_read_mode_description(project_path: Path) -> str:
+    """Architecture-ticket description for the onboard SA read pass.
+
+    Instructs the SA to extract existing modules, contracts, and boundaries
+    from the codebase and observations.md — not to design new architecture.
+    The turn budget is injected here because the SA has no turn-counting
+    capability; the prompt is advisory, not transport-enforced.
+    """
+    budget = sa_turn_budget(project_path)
+    observations = _observations_text(project_path)
+    return (
+        "READ MODE — this project is being onboarded from an EXISTING codebase.\n\n"
+        "Your job is to EXTRACT the architecture that already exists, not design "
+        "a new one. Read the codebase and the scanner observations below. For each "
+        "module you find, use arch_set_module, module_set_owned_collection, "
+        "module_set_external_dependency, module_set_behavioral_contract, and "
+        "module_set_data_contract to record what exists. Use arch_set_data_store "
+        "for each backing store and arch_set_cross_cutting_policy for any "
+        "cross-cutting rules. Use sa_write_boundaries to declare each module's "
+        "isolation boundaries.\n\n"
+        f"Turn budget: {budget} turns. If you cannot fully discover every "
+        "module's contracts within the budget, call arch_finalize anyway — set "
+        "n_a_categories on any module whose contracts could not be fully "
+        "discovered so that validation does not raise on incomplete coverage.\n\n"
+        "## Scanner observations (.jig/onboard/observations.md)\n\n"
+        f"{observations}"
+    )
+
+
+async def run_onboard_sa_conversation(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Create (if needed) the architecture ticket with read-mode context
+    and spawn the SA (always sa_mvp regardless of profile).
+
+    Bypasses ``_resolve_sa_role`` — the read pass always needs the
+    module-producing SA that has sa_write_boundaries and the full
+    arch_set_* tool set.
+    """
+    arch = await tickets.get("architecture")
+    if arch is None:
+        arch = Ticket(
+            id="architecture",
+            work_type=WorkType.ARCHITECTURE,
+            title="Architecture (onboard read pass)",
+            description=_sa_read_mode_description(project_path),
+            created_by="cli",
+        )
+        await tickets.create(arch)
+    arch = await _reactivate_if_resolved(tickets, arch, author="cli")
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "sa_mvp")
+    ctx = AgentSpawnContext(
+        role="sa_mvp",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=arch,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="SA (read pass)",
+        console=console,
+        subtitle="Extracting existing architecture from the codebase",
+    )
+
+
+def render_onboard_review_prompt(project_path: Path) -> str:
+    """Plain-text summary of onboard artifacts for the operator review gate."""
+    import yaml as _yaml
+
+    lines = ["Onboard artifacts ready for review:", ""]
+
+    # Brief headline
+    brief_path = project_path / "docs" / "brief.md"
+    if brief_path.is_file():
+        for line in brief_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("# "):
+                lines.append(f"Brief: {line[2:].strip()}")
+                break
+        else:
+            lines.append("Brief: docs/brief.md")
+    else:
+        lines.append("Brief: (not found)")
+
+    # Spec count
+    spec_dir = project_path / ".jig" / "spec"
+    spec_files = list(spec_dir.rglob("*.yaml")) if spec_dir.is_dir() else []
+    lines.append(f"Specs: {len(spec_files)} file(s) under .jig/spec/")
+
+    # Module list from architecture.yaml
+    arch_path = project_path / ".jig" / "spec" / "architecture.yaml"
+    if arch_path.is_file():
+        try:
+            arch_data = _yaml.safe_load(arch_path.read_text(encoding="utf-8")) or {}
+            modules = arch_data.get("modules", {})
+            if isinstance(modules, dict) and modules:
+                lines.append(f"Modules ({len(modules)}): {', '.join(sorted(modules))}")
+            else:
+                lines.append("Modules: (none recorded)")
+        except _yaml.YAMLError:
+            lines.append("Modules: (architecture.yaml unreadable)")
+    else:
+        lines.append("Modules: (architecture.yaml not found)")
+
+    # Desired state
+    desired = project_path / ".jig" / "onboard" / "desired-state.md"
+    if desired.is_file():
+        lines.append(
+            "Desired-state brief: present (PM backlog will generate delta tickets)"
+        )
+    else:
+        lines.append("Desired-state brief: absent (backlog bootstrap will be skipped)")
+
+    return "\n".join(lines)
+
+
+async def prompt_onboard_review(
+    project_path: Path,
+    threads: ThreadStore,
+    *,
+    prompts: "PromptHandler",
+    console: "Console | None" = None,
+) -> bool:
+    """Render the artifact summary, ask the operator to confirm or re-run SA.
+
+    Returns True if approved (advances to PM_BACKLOG), False if operator
+    chose to re-run SA (caller should reactivate the architecture ticket).
+    """
+    c = console or _spawn_console()
+    summary = render_onboard_review_prompt(project_path)
+    c.print(summary, markup=False)
+    decision = await prompts.ask_onboard_review(artifacts=summary, console=c)
+    if decision == "yes":
+        await threads.post(
+            SystemEvent(
+                ticket_id="architecture",
+                author="cli",
+                event_type="onboard_artifacts_approved",
+                content="operator approved onboard artifacts",
+            )
+        )
+        return True
+    return False
+
+
+def _onboard_pm_description(project_path: Path) -> str:
+    """Ticket description for the PM backlog bootstrap pass.
+
+    Inlines the current-state brief and the desired-state target so
+    the PM can generate tickets from the delta without Read access.
+    """
+    brief_path = project_path / "docs" / "brief.md"
+    desired_path = project_path / ".jig" / "onboard" / "desired-state.md"
+
+    brief_text = (
+        brief_path.read_text(encoding="utf-8")
+        if brief_path.is_file()
+        else "(docs/brief.md not found)"
+    )
+    desired_text = (
+        desired_path.read_text(encoding="utf-8") if desired_path.is_file() else ""
+    )
+
+    import yaml as _yaml
+
+    arch_path = project_path / ".jig" / "spec" / "architecture.yaml"
+    module_list = ""
+    if arch_path.is_file():
+        try:
+            arch_data = _yaml.safe_load(arch_path.read_text(encoding="utf-8")) or {}
+            modules = arch_data.get("modules", {})
+            if isinstance(modules, dict) and modules:
+                module_list = "\n".join(f"  - {m}" for m in sorted(modules))
+        except _yaml.YAMLError:
+            module_list = "(architecture.yaml unreadable)"
+
+    parts = [
+        "BACKLOG BOOTSTRAP — onboarded existing codebase.\n",
+        "Generate the initial ticket set from the delta between the current "
+        "state (what exists) and the desired state (what the operator wants "
+        "to build next). Focus on gaps — do not generate tickets for "
+        "capabilities that already exist.\n",
+        "## Current state (docs/brief.md)\n",
+        brief_text,
+    ]
+    if desired_text.strip():
+        parts += ["\n## Desired state (.jig/onboard/desired-state.md)\n", desired_text]
+    if module_list:
+        parts += ["\n## Existing modules\n", module_list]
+    parts.append("\nSpecs are under .jig/spec/ for additional context.")
+    return "\n".join(parts)
+
+
+async def run_onboard_pm_backlog(
+    *,
+    project_path: Path,
+    tickets: TicketStore,
+    threads: ThreadStore,
+    memory: MemoryStore,
+    bus: MessageBus,
+    console: "Console | None" = None,
+) -> None:
+    """Spawn the PM to generate the initial backlog from the current→desired
+    delta, then mark the onboard complete.
+
+    If no desired-state.md is present, skip the PM spawn — there is no
+    delta to work from — and write the completion marker directly.
+    """
+    desired = project_path / ".jig" / "onboard" / "desired-state.md"
+    if not desired.is_file():
+        _write_onboard_completed_at(project_path)
+        return
+
+    backlog = await tickets.get("backlog")
+    if backlog is None:
+        backlog = Ticket(
+            id="backlog",
+            work_type=WorkType.PLANNING,
+            title="Backlog bootstrap (onboard delta)",
+            description=_onboard_pm_description(project_path),
+            created_by="cli",
+        )
+        await tickets.create(backlog)
+    backlog = await _reactivate_if_resolved(tickets, backlog, author="cli")
+    project = load_project(project_path)
+    role_cfg = load_role(project_path, "pm")
+    ctx = AgentSpawnContext(
+        role="pm",
+        role_cfg=role_cfg,
+        spawn_reason=SpawnReason.PHASE_PRIMARY,
+        ticket=backlog,
+        parent=None,
+        worktree_path=project_path,
+        project=project,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+    )
+    await _run_agent_with_cli_output(
+        ctx,
+        role_label="PM (backlog bootstrap)",
+        console=console,
+        subtitle="Generating initial tickets from current→desired delta",
+    )
+    # Only stamp completion when PM actually posted Handoff(phase="done").
+    # If PM paused (NEEDS_INFO / ask_question / crash), leave onboard_completed_at
+    # unset so the loop re-enters PM_BACKLOG and re-runs the PM.
+    backlog_entries = await threads.for_ticket("backlog")
+    if any(isinstance(e, Handoff) and e.phase == "done" for e in backlog_entries):
+        _write_onboard_completed_at(project_path)
+
+
+def _write_onboard_completed_at(project_path: Path) -> None:
+    """Stamp onboard_completed_at into project.yaml (completion signal)."""
+    project_yaml = project_path / ".jig" / "project.yaml"
+    data = _read_project_yaml(project_path)
+    data["onboard_completed_at"] = datetime.now(tz=timezone.utc).isoformat()
+    atomic_write_text(project_yaml, yaml.safe_dump(data, sort_keys=False))
 
 
 # The scanner's Write allowlist (observations.md + CLAUDE.md-when-absent)
@@ -1113,6 +1427,8 @@ async def _run_onboard_resume_loop(
         OnboardResumeState.SCAN_PASS,
         OnboardResumeState.PO_READ_PASS,
         OnboardResumeState.PM_PROFILE_PASS,
+        OnboardResumeState.SA_READ_PASS,
+        OnboardResumeState.PM_BACKLOG,
     }
     max_same_state_spawns = 3
     last_rs: OnboardResumeState | None = None
@@ -1130,16 +1446,6 @@ async def _run_onboard_resume_loop(
                 "`jig onboard` to retry, or `jig onboard --force` to start "
                 "over."
             )
-        if rs == OnboardResumeState.PHASE2_PENDING:
-            console.print(
-                "Onboard Phase 1 complete: scan, current-state brief, "
-                "structured spec, and profile are in place. The SA read "
-                "pass, operator review, and backlog bootstrap land with "
-                "sa-architect Phase 2 — re-run `jig onboard` once it "
-                "ships.",
-                markup=False,
-            )
-            return
         if rs == OnboardResumeState.ALREADY_DONE:
             console.print(
                 f"{target} is already onboarded. Next: run `jig start` here.",
@@ -1282,6 +1588,71 @@ async def _run_onboard_resume_loop(
                 chosen_name = "small" if chosen_name == "medium" else "medium"
             _apply_named_profile(
                 target, chosen_name, console, rerun_hint="`jig onboard`"
+            )
+            continue
+        if rs == OnboardResumeState.SA_READ_PASS:
+            await run_onboard_sa_conversation(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
+            )
+            continue
+        if rs == OnboardResumeState.NEEDS_ANSWER_ARCH:
+            from jig.init_workflow import prompt_and_post_answers
+
+            await prompt_and_post_answers(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                ticket_id="architecture",
+                console=console,
+                prompts=prompts,
+            )
+            continue
+        if rs == OnboardResumeState.OPERATOR_REVIEW:
+            approved = await prompt_onboard_review(
+                target, threads, prompts=prompts, console=console
+            )
+            if not approved:
+                # Re-run SA: post a rerun marker then reactivate the ticket.
+                # The marker makes classify_onboard_resume order-aware —
+                # a prior Handoff no longer shadows the rerun request.
+                arch = await tickets.get("architecture")
+                if arch is not None:
+                    from jig.init_workflow import _reactivate_if_resolved
+
+                    await threads.post(
+                        SystemEvent(
+                            ticket_id="architecture",
+                            author="cli",
+                            event_type="onboard_sa_rerun_requested",
+                        )
+                    )
+                    await _reactivate_if_resolved(tickets, arch, author="cli")
+            continue
+        if rs == OnboardResumeState.NEEDS_ANSWER_BACKLOG:
+            from jig.init_workflow import prompt_and_post_answers
+
+            await prompt_and_post_answers(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                ticket_id="backlog",
+                console=console,
+                prompts=prompts,
+            )
+            continue
+        if rs == OnboardResumeState.PM_BACKLOG:
+            await run_onboard_pm_backlog(
+                project_path=target,
+                tickets=tickets,
+                threads=threads,
+                memory=memory,
+                bus=bus,
+                console=console,
             )
             continue
         raise NotImplementedError(f"onboard dispatch not yet wired for: {rs}")

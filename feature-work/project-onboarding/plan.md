@@ -4,7 +4,7 @@ type: plan
 status: active
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-11
 design: ./design.md
 ---
 
@@ -23,10 +23,10 @@ through the state machine: each step unblocks the next state transition.
 ## Preconditions
 
 - [x] Design approved
-- [ ] (Steps 7–9) sa-architect Phase 2 merged — unified SA role `role` id and `allowed_tools` list
-      confirmed and frozen
-- [ ] (Steps 7–9) Sandbox egress policy for onboard-phase agents confirmed (shared open question with
-      sa-architect)
+- [x] (Steps 7–9) sa-architect Phase 2 merged — unified SA role `role` id and `allowed_tools` list
+      confirmed and frozen (PR #154, merged 2026-06-10)
+- [x] (Steps 7–9) Sandbox egress policy for onboard-phase agents confirmed (shared open question with
+      sa-architect — resolved: same open egress policy as init flow)
 
 ## Steps
 
@@ -160,20 +160,78 @@ complete: `classify_onboard_resume` returns `SA_READ_PASS` (raises `NotImplement
 
 ---
 
-### 7–9. SA read pass, operator review, PM backlog (BLOCKED)
+### 7. SA read pass
 
-**BLOCKED**: These steps require sa-architect Phase 2 (unified SA role id and `allowed_tools`) and
-sandbox egress policy confirmation. Do not implement until those dependencies resolve.
+**What:** Implement `run_onboard_sa_conversation(project_path, tickets, threads, memory, bus,
+console)` in `onboard_workflow.py`. Creates the standard `architecture` ticket if absent (id
+`"architecture"`, `WorkType.ARCHITECTURE`), with a description stating read mode: extract existing
+modules, contracts, and boundaries from the codebase and `observations.md`; do not design new
+architecture; call `arch_finalize` with `n_a_categories` on any module whose contracts could not
+be fully discovered within the turn budget. Injects the turn budget (25 turns for `small`, 60 for
+`medium`/unknown) from `load_config(project_path).profile.name`. Always spawns `sa_mvp` via
+`load_role(project_path, "sa_mvp")` — bypasses `_resolve_sa_role()`, because the read pass always
+needs the module-producing SA regardless of profile. Reactivates the architecture ticket if already
+resolved (mirrors `run_sa_conversation`). Adds `SA_READ_PASS` and `NEEDS_ANSWER_ARCH` dispatch to
+`_run_onboard_resume_loop`. `classify_onboard_resume` SA_READ_PASS detection: profile set but no
+`architecture` ticket → `SA_READ_PASS`; `Question` entries on `architecture` with no `Answer` →
+`NEEDS_ANSWER_ARCH`; `Handoff(phase="pm")` on `architecture` (SA done) → `OPERATOR_REVIEW`.
 
-Once sa-architect Phase 2 ships:
-- **Step 7**: SA read pass — `run_onboard_sa_conversation()` with per-module M-path tools,
-  `sa_write_boundaries`, depth-budget injection, `n_a_categories` instruction in prompt.
-- **Step 8**: Operator review gate — `ask_onboard_review` PromptHandler method, artifact summary
-  render, `onboard_artifacts_approved` event.
-- **Step 9**: PM backlog bootstrap — PM spawned with `brief.md` + `desired-state.md` +
-  `observations.md` context; `onboard_completed_at` written on completion; ALREADY_DONE detection.
+**Why:** SA produces `architecture.yaml` and per-module `contracts.yaml` — the primary artifacts
+the operator reviews. `sa_mvp` always runs here because it has `sa_write_boundaries` and the full
+`arch_set_*` tool set; the v1 `sa` role lacks these and cannot do a read pass. Depth budget is
+injected into the description because the SA has no turn-counting capability.
 
-This plan will be updated with step detail when the blocking prerequisites resolve.
+**Verify:** After profile selection: `jig onboard .` creates `architecture` ticket with read-mode
+description including turn budget; SA runs; `.jig/spec/architecture.yaml` and at least one
+`contracts.yaml` written; `Handoff(phase="pm")` posted. Re-running resumes at `OPERATOR_REVIEW`
+without re-spawning SA. With unanswered questions: loop pauses at `NEEDS_ANSWER_ARCH`.
+
+---
+
+### 8. Operator review gate
+
+**What:** Add `ask_onboard_review(*, artifacts, console) -> str` to `PromptHandler` protocol and
+`CliPromptHandler` / `AutoPromptHandler` (auto-confirms). `artifacts` is a rendered plain-text
+summary string. Implement `render_onboard_review_prompt(project_path) -> str` in
+`onboard_workflow.py`: reads `docs/brief.md` headline (first H1), counts spec files under
+`.jig/spec/`, lists module ids from `architecture.yaml`, notes whether `desired-state.md` exists.
+Implement `prompt_onboard_review(project_path, threads, prompts, console)`: renders the summary,
+calls `ask_onboard_review`, on confirm posts
+`SystemEvent(event_type="onboard_artifacts_approved")` on the `architecture` thread. Operator
+choices: confirm (advance to PM_BACKLOG), re-run SA (force-reactivate architecture ticket, returns
+to SA_READ_PASS). `classify_onboard_resume` OPERATOR_REVIEW detection: `Handoff(phase="pm")` on
+`architecture` AND no subsequent `onboard_artifacts_approved` event → `OPERATOR_REVIEW`.
+
+**Why:** Operator sign-off is required before the PM generates tickets from the delta — the
+artifacts represent what jig will treat as the authoritative current-state baseline for all future
+work. Last chance to catch scanner hallucinations or SA misclassifications before they drive tickets.
+
+**Verify:** After SA completes: loop pauses, renders artifact summary; operator confirms;
+`onboard_artifacts_approved` posted; loop advances to PM_BACKLOG. On re-run: architecture ticket
+reactivated, SA re-spawned. `AutoPromptHandler` auto-confirms.
+
+---
+
+### 9. PM backlog bootstrap and completion
+
+**What:** Implement `run_onboard_pm_backlog(project_path, tickets, threads, memory, bus, console)`
+in `onboard_workflow.py`. Creates a `backlog` ticket (`WorkType.PLAN`, id `"backlog"`) with a
+description that includes: (a) the delta framing between `docs/brief.md` (current state) and
+`.jig/onboard/desired-state.md` (target, if present), (b) the module list from `architecture.yaml`,
+(c) a pointer to the specs. Spawns the `pm` role. On `Handoff` from PM, writes
+`onboard_completed_at` (ISO timestamp) into `project.yaml` and prints a completion message. If no
+`desired-state.md` exists, skip the PM spawn and write `onboard_completed_at` directly — backlog
+generation requires a delta to work from. `classify_onboard_resume` PM_BACKLOG detection:
+`onboard_artifacts_approved` event posted AND no `onboard_completed_at` in `project.yaml` →
+`PM_BACKLOG`. ALREADY_DONE detection: `onboard_completed_at` present → `ALREADY_DONE`.
+
+**Why:** The backlog bootstrap converts the delta between current state and desired state into an
+actionable ticket set. `onboard_completed_at` is the canonical completion signal (mirrors
+`template_applied_at` in greenfield).
+
+**Verify:** After operator review: PM spawned with current-state brief + desired-state delta +
+module context; Handoff from PM; `project.yaml` gains `onboard_completed_at`; re-run exits with
+"already onboarded" message. Without `desired-state.md`: PM skipped, completion written directly.
 
 ## Rollback
 

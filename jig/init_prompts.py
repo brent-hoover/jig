@@ -67,6 +67,10 @@ class PromptHandler(Protocol):
 
     async def ask_init_complete(self, *, console: "Console") -> None: ...
 
+    async def ask_onboard_review(
+        self, *, artifacts: str, console: "Console"
+    ) -> str: ...  # "yes" = approve, "rerun" = re-run SA
+
 
 # Import enums here so init_prompts.py can be imported without circular issues.
 # They live in init_workflow; we re-export them for convenience but the
@@ -228,6 +232,17 @@ class CliPromptHandler:
             prompt_suffix="",
         )
 
+    async def ask_onboard_review(self, *, artifacts: str, console: "Console") -> str:
+        choice = (
+            click.prompt(
+                "Approve artifacts and continue? [Y=yes / r=re-run SA]",
+                default="y",
+            )
+            .strip()
+            .lower()
+        )
+        return "rerun" if choice.startswith("r") else "yes"
+
 
 class AutoPromptHandler:
     """Non-interactive PromptHandler — picks each default for unattended runs.
@@ -297,3 +312,6 @@ class AutoPromptHandler:
 
     async def ask_init_complete(self, *, console: "Console") -> None:
         return
+
+    async def ask_onboard_review(self, *, artifacts: str, console: "Console") -> str:
+        return "yes"

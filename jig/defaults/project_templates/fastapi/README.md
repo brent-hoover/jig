@@ -1,4 +1,4 @@
-# myproject
+# my-project
 
 ## Development
 

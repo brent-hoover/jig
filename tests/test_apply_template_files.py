@@ -98,3 +98,43 @@ def test_apply_template_files_substitutes_project_name_in_pyproject(
     assert 'name = "example_project"' in pyproject_text
     assert 'packages = ["src/example_project"]' in pyproject_text
     assert "myproject" not in pyproject_text
+
+
+def test_hyphenated_project_name_two_token_substitution(tmp_path: Path) -> None:
+    """A hyphenated project name yields a hyphenated dist/script name and
+    an underscored package name.
+
+    `myproject` (package contexts) → `hn_cli`; `my-project` (distribution
+    contexts: [project] name, scripts key, README invocations) → `hn-cli`.
+    Guards the eval tracer contract: the brief advertises `hn-cli`, so the
+    scaffolded command must be `hn-cli`, not `hn_cli`.
+    """
+    dest = tmp_path / "scaffolded"
+    dest.mkdir()
+
+    _apply_template_files(
+        template_name="python-cli",
+        dest=dest,
+        project_name="hn-cli",
+    )
+
+    pyproject = (dest / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'name = "hn-cli"' in pyproject
+    assert 'hn-cli = "hn_cli.cli:app"' in pyproject
+    assert 'packages = ["src/hn_cli"]' in pyproject
+    assert (dest / "src" / "hn_cli" / "cli.py").is_file()
+
+    readme = (dest / "README.md").read_text(encoding="utf-8")
+    assert "uv run hn-cli --help" in readme
+    assert "python -m hn_cli" in readme
+
+    # No placeholder token survives substitution in any rendered text file.
+    for f in dest.rglob("*"):
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        assert "myproject" not in text, f"unsubstituted package token in {f}"
+        assert "my-project" not in text, f"unsubstituted dist token in {f}"

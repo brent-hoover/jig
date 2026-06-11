@@ -80,6 +80,8 @@ async def test_duplicate_prompt_id_replied_once() -> None:
 
 async def test_cap_per_ticket(caplog: pytest.LogCaptureFixture) -> None:
     frames = [_prompt_frame(f"p{i}") for i in range(4)]
+    # Re-deliver the capped prompt: must dedupe, not log a second ERROR.
+    frames.append(_prompt_frame("p3"))
     with caplog.at_level(logging.ERROR, logger="jig.eval.responder"):
         ws = await _run_responder(frames)
     assert len(ws.sent) == 3

@@ -2451,7 +2451,9 @@ def eval_run(
 
     # Auto-responder activity (question asked / answer given) logs at INFO and
     # must be visible for post-mortems; the root logger defaults to WARNING.
-    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True
+    )
     logging.getLogger("jig.eval").setLevel(logging.INFO)
 
     if label is None:

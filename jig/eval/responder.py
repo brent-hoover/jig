@@ -64,7 +64,7 @@ async def auto_responder(
     A reply failure leaves the prompt's future parked server-side; the
     runner's stall backstop bounds the run, so there is no retry here.
     """
-    answered: set[str] = set()
+    handled: set[str] = set()
     replies_per_ticket: dict[str, int] = {}
 
     while True:
@@ -92,7 +92,7 @@ async def auto_responder(
             )
             continue
 
-        if prompt_id in answered:
+        if prompt_id in handled:
             continue
 
         ticket_id = data.get("ticket_id") or ""
@@ -103,6 +103,9 @@ async def auto_responder(
                 max_replies_per_ticket,
                 ticket_id,
             )
+            # Mark handled so a re-delivered duplicate of this frame doesn't
+            # log the ERROR again; a NEW prompt for the ticket still does.
+            handled.add(prompt_id)
             continue
 
         question = data.get("question_text") or data.get("question") or ""
@@ -132,5 +135,5 @@ async def auto_responder(
                 "auto-responder: send failed for prompt_id=%s: %s", prompt_id, exc
             )
             return
-        answered.add(prompt_id)
+        handled.add(prompt_id)
         replies_per_ticket[ticket_id] = rounds + 1

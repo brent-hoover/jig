@@ -104,6 +104,7 @@ class OnboardResumeState(str, Enum):
     SA_READ_PASS = "sa_read_pass"
     NEEDS_ANSWER_ARCH = "needs_answer_arch"
     OPERATOR_REVIEW = "operator_review"
+    NEEDS_ANSWER_BACKLOG = "needs_answer_backlog"
     PM_BACKLOG = "pm_backlog"
     # Phase-1 boundary: scan/brief/spec/profile are done; the SA read
     # pass and later states ship with sa-architect Phase 2. A dedicated
@@ -317,6 +318,8 @@ async def classify_onboard_resume(
         return OnboardResumeState.OPERATOR_REVIEW
 
     # --- PM backlog ---------------------------------------------------------
+    if await _ticket_awaits_answer(tickets, threads, "backlog"):
+        return OnboardResumeState.NEEDS_ANSWER_BACKLOG
     return OnboardResumeState.PM_BACKLOG
 
 
@@ -1646,6 +1649,18 @@ async def _run_onboard_resume_loop(
                         )
                     )
                     await _reactivate_if_resolved(tickets, arch, author="cli")
+            continue
+        if rs == OnboardResumeState.NEEDS_ANSWER_BACKLOG:
+            from jig.init_workflow import prompt_and_post_answers
+
+            await prompt_and_post_answers(
+                tickets=tickets,
+                threads=threads,
+                bus=bus,
+                ticket_id="backlog",
+                console=console,
+                prompts=prompts,
+            )
             continue
         if rs == OnboardResumeState.PM_BACKLOG:
             await run_onboard_pm_backlog(

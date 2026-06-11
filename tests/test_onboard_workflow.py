@@ -345,6 +345,60 @@ class TestClassifyOnboardResume:
         )
         assert await _classify(stores) == OnboardResumeState.PM_BACKLOG
 
+    async def test_backlog_awaits_answer_is_needs_answer_backlog(self, stores):
+        """Backlog ticket in NEEDS_INFO with open Question → NEEDS_ANSWER_BACKLOG."""
+        await _seed_scan_done(stores)
+        await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
+        create_stub(stores["project_path"], name="proj")
+        cfg = load_config(stores["project_path"])
+        cfg.profile.name = "small"
+        save_config(stores["project_path"], cfg)
+        # SA completed + operator approved
+        await stores["tickets"].create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+        await stores["threads"].post(
+            Handoff(
+                ticket_id="architecture",
+                author="sa",
+                phase="pm",
+                outputs=[],
+                summary="done",
+            )
+        )
+        await stores["threads"].post(
+            SystemEvent(
+                ticket_id="architecture",
+                author="cli",
+                event_type="onboard_artifacts_approved",
+                content="approved",
+            )
+        )
+        # PM asked a question before posting Handoff
+        await stores["tickets"].create(
+            Ticket(
+                id="backlog",
+                work_type=WorkType.PLANNING,
+                title="Backlog",
+                created_by="cli",
+            )
+        )
+        await stores["tickets"].update("backlog", status=TicketStatus.NEEDS_INFO)
+        await stores["threads"].post(
+            Question(
+                ticket_id="backlog",
+                author="pm",
+                question="Confirm scope?",
+                target="any_human",
+            )
+        )
+        assert await _classify(stores) == OnboardResumeState.NEEDS_ANSWER_BACKLOG
+
     async def test_sa_rerun_after_handoff_is_sa_read_pass(self, stores):
         """Rerun marker posted after Handoff must return SA_READ_PASS (MEDIUM fix)."""
         await _seed_scan_done(stores)

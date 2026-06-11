@@ -106,11 +106,6 @@ class OnboardResumeState(str, Enum):
     OPERATOR_REVIEW = "operator_review"
     NEEDS_ANSWER_BACKLOG = "needs_answer_backlog"
     PM_BACKLOG = "pm_backlog"
-    # Phase-1 boundary: scan/brief/spec/profile are done; the SA read
-    # pass and later states ship with sa-architect Phase 2. A dedicated
-    # state (not an exception) so a real bug raising NotImplementedError
-    # is never misreported as successful completion.
-    PHASE2_PENDING = "phase2_pending"
     ALREADY_DONE = "already_done"
     BROKEN = "broken"
 
@@ -523,11 +518,6 @@ async def run_onboard_sa_conversation(
     module-producing SA that has sa_write_boundaries and the full
     arch_set_* tool set.
     """
-    from jig.init_workflow import _reactivate_if_resolved, _run_agent_with_cli_output
-    from jig.persistence import load_role
-    from jig.project import load_project
-    from jig.runtime import AgentSpawnContext, SpawnReason
-
     arch = await tickets.get("architecture")
     if arch is None:
         arch = Ticket(
@@ -624,8 +614,6 @@ async def prompt_onboard_review(
     Returns True if approved (advances to PM_BACKLOG), False if operator
     chose to re-run SA (caller should reactivate the architecture ticket).
     """
-    from jig.init_workflow import _spawn_console
-
     c = console or _spawn_console()
     summary = render_onboard_review_prompt(project_path)
     c.print(summary, markup=False)
@@ -672,7 +660,7 @@ def _onboard_pm_description(project_path: Path) -> str:
             if isinstance(modules, dict) and modules:
                 module_list = "\n".join(f"  - {m}" for m in sorted(modules))
         except _yaml.YAMLError:
-            pass
+            module_list = "(architecture.yaml unreadable)"
 
     parts = [
         "BACKLOG BOOTSTRAP — onboarded existing codebase.\n",
@@ -706,11 +694,6 @@ async def run_onboard_pm_backlog(
     If no desired-state.md is present, skip the PM spawn — there is no
     delta to work from — and write the completion marker directly.
     """
-    from jig.init_workflow import _reactivate_if_resolved, _run_agent_with_cli_output
-    from jig.persistence import load_role
-    from jig.project import load_project
-    from jig.runtime import AgentSpawnContext, SpawnReason
-
     desired = project_path / ".jig" / "onboard" / "desired-state.md"
     if not desired.is_file():
         _write_onboard_completed_at(project_path)

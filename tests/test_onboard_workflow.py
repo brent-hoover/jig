@@ -1151,13 +1151,16 @@ async def _spec_gaps(threads):
 class ScriptedPromptHandler(AutoPromptHandler):
     """AutoPromptHandler with scripted overrides for the operator gates.
 
-    ``brief`` / ``profile`` are consumed one per prompt; once exhausted
-    the handler falls back to YES (the auto default).
+    ``brief`` / ``profile`` / ``onboard_review`` are consumed one per
+    prompt; once exhausted the handler falls back to the auto default.
     """
 
-    def __init__(self, *, brief=None, profile=None, answer="Batched nightly."):
+    def __init__(
+        self, *, brief=None, profile=None, onboard_review=None, answer="Batched nightly."
+    ):
         self._brief = list(brief or [])
         self._profile = list(profile or [])
+        self._onboard_review = list(onboard_review or [])
         self._answer = answer
 
     async def ask_brief_approval(self, *, project_path, console):
@@ -1172,6 +1175,9 @@ class ScriptedPromptHandler(AutoPromptHandler):
 
     async def ask_question_answer(self, *, question, index, total, console):
         return self._answer
+
+    async def ask_onboard_review(self, *, artifacts, console):
+        return self._onboard_review.pop(0) if self._onboard_review else "yes"
 
 
 def _install_fakes(
@@ -1291,6 +1297,26 @@ class TestPhase1Loop:
         assert "pm" in spawned  # profile PM
         assert spawned.count("pm") == 1  # not twice (no backlog PM)
         assert "sa_mvp" in spawned
+        import yaml as _yaml
+
+        pdata = _yaml.safe_load(
+            (tmp_path / ".jig" / "project.yaml").read_text()
+        )
+        assert "onboard_completed_at" in pdata
+
+    async def test_operator_review_rerun_respawns_sa(self, tmp_path, monkeypatch):
+        """Operator choosing 'rerun' at OPERATOR_REVIEW must spawn sa_mvp twice."""
+        spawned, spec_runs = _install_fakes(
+            monkeypatch,
+            po_steps=[_po_handoff],
+            spec_steps=[_spec_ok],
+            sa_steps=[_sa_handoff, _sa_handoff],  # SA runs twice
+        )
+        prompts = ScriptedPromptHandler(onboard_review=["rerun"])
+        # First review: rerun; second review: yes (auto-default)
+        await run_onboard(path=tmp_path, prompts=prompts)
+
+        assert spawned.count("sa_mvp") == 2
         import yaml as _yaml
 
         pdata = _yaml.safe_load(

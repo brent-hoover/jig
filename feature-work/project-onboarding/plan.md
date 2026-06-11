@@ -4,7 +4,7 @@ type: plan
 status: active
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-09
+updated: 2026-06-11
 design: ./design.md
 ---
 

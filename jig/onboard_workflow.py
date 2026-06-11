@@ -755,12 +755,10 @@ async def run_onboard_pm_backlog(
 
 def _write_onboard_completed_at(project_path: Path) -> None:
     """Stamp onboard_completed_at into project.yaml (completion signal)."""
-    import json as _json
-
     project_yaml = project_path / ".jig" / "project.yaml"
     data = _read_project_yaml(project_path)
     data["onboard_completed_at"] = datetime.now(tz=timezone.utc).isoformat()
-    atomic_write_text(project_yaml, _json.dumps(data))
+    atomic_write_text(project_yaml, yaml.safe_dump(data, sort_keys=False))
 
 
 # The scanner's Write allowlist (observations.md + CLAUDE.md-when-absent)
@@ -1640,9 +1638,12 @@ async def _run_onboard_resume_loop(
                 if arch is not None:
                     from jig.init_workflow import _reactivate_if_resolved
 
-                    await threads.append(
-                        "architecture",
-                        SystemEvent(event_type="onboard_sa_rerun_requested"),
+                    await threads.post(
+                        SystemEvent(
+                            ticket_id="architecture",
+                            author="cli",
+                            event_type="onboard_sa_rerun_requested",
+                        )
                     )
                     await _reactivate_if_resolved(tickets, arch, author="cli")
             continue

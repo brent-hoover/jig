@@ -369,6 +369,12 @@ def test_run_eval_auto_responds_to_question_prompt(tmp_path: Path) -> None:
             return self
 
         async def __anext__(self) -> str:
+            if self._idx == 1:
+                # Gate project_complete until the prompt_reply send is
+                # observed — otherwise the completion race can settle and
+                # cancel the responder before it processes the prompt frame.
+                while not self.sent:
+                    await asyncio.sleep(0.01)
             if self._idx < len(self._frames):
                 frame = self._frames[self._idx]
                 self._idx += 1

@@ -106,7 +106,13 @@ changes to agent roles or the orchestrator.
 
 ## Non-goals
 
-- LLM-generated answers. Canned/deterministic responses only — the eval must be reproducible and cheap.
+- LLM-generated answers. Canned/deterministic responses only — the eval must be reproducible and cheap. With LLM
+  answers, a red run has three possible causes (pipeline regression, agent regression, answer variance) and loses
+  attribution. This mirrors the synthetic-operator simulator's decision (`jig/sim/policy.py`): deterministic
+  templates, "reproducibility is load-bearing," LLM generation deferred. If a fixture needs a real decision the brief
+  didn't make, the design may offer per-fixture scripted answers (e.g. `evals/projects/<id>/answers.yaml`) — still
+  deterministic, controlled by the fixture author. The answer policy should be a small interface so an LLM responder
+  could drop in later without rework.
 - Answering non-blocking questions or participating in design discussions.
 - Auto-answering outside eval runs. The TUI and operator surfaces remain the only answer paths in normal operation.
 - Changing the PM approval gate or any role prompt.
@@ -136,3 +142,5 @@ changes to agent roles or the orchestrator.
 ## Change log
 
 - 2026-06-10: Initial draft (Brent Hoover)
+- 2026-06-10: Expanded LLM-answers non-goal with rationale and the per-fixture scripted-answers design option (Brent
+  Hoover)

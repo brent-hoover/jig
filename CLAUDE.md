@@ -59,7 +59,7 @@ jig daemon start|stop|status   # Control the background daemon directly
 jig --print "/<command>"       # One-shot non-interactive slash command
 jig issue create|list|show|update|approve|close|comment|link   # Issue tracker front door (per-project; walks up to .jig/)
 jig issue-mcp                  # Serve the issue tracker over stdio MCP for non-jig agents (.mcp.json: command "jig", args ["issue-mcp"])
-jig eval run <project-id>      # Zero-touch integration test: init → start → race project_complete → collect + tracer check
+jig eval collect <project-path> --project-id <id>  # Collect metrics from a completed jig run and save a manifest
 jig eval list <project-id>     # List eval runs for a project
 ```
 

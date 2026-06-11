@@ -2443,9 +2443,16 @@ def eval_run(
       3  Init error
       4  Tracer FAIL or SKIP
     """
+    import logging
+
     from datetime import datetime, timezone
 
     from jig.eval.runner import EvalOutcome, run_eval
+
+    # Auto-responder activity (question asked / answer given) logs at INFO and
+    # must be visible for post-mortems; the root logger defaults to WARNING.
+    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("jig.eval").setLevel(logging.INFO)
 
     if label is None:
         label = f"integration-{datetime.now(timezone.utc).strftime('%Y%m%d')}"

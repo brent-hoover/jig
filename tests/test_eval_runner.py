@@ -195,6 +195,10 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
     with (
         patch("jig.init_workflow.run_init", mock_run_init),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run",
+            return_value=MagicMock(returncode=0),
+        ),
         patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
         patch("jig.eval.runner._teardown_proc"),
         patch("websockets.asyncio.client.connect", new=_fake_connect),
@@ -278,6 +282,10 @@ def test_run_eval_collect_exception_tears_down_proc(tmp_path: Path) -> None:
     with (
         patch("jig.init_workflow.run_init", mock_run_init),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run",
+            return_value=MagicMock(returncode=0),
+        ),
         patch(
             "jig.eval.collector.collect",
             new=AsyncMock(side_effect=RuntimeError("collect failed")),
@@ -393,6 +401,10 @@ def test_run_eval_auto_responds_to_question_prompt(tmp_path: Path) -> None:
     with (
         patch("jig.init_workflow.run_init", new=AsyncMock()),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run",
+            return_value=MagicMock(returncode=0),
+        ),
         patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
         patch("jig.eval.runner._teardown_proc"),
         patch("websockets.asyncio.client.connect", new=_fake_connect),
@@ -415,3 +427,202 @@ def test_run_eval_auto_responds_to_question_prompt(tmp_path: Path) -> None:
     ]
     assert len(replies) == 1
     assert replies[0]["args"]["args"][0] == "prompt-1"
+
+
+def _success_path_fakes(tmp_path: Path):
+    """Shared fixtures for success-path tests: project files, proc, FakeWS."""
+    import json as _json
+
+    proj_dir = tmp_path / "evals" / "projects" / "test-proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "brief.md").write_text("# Brief\n")
+    (proj_dir / "tracer.sh").write_text("#!/bin/bash\necho ok\n")
+
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.wait.return_value = None
+
+    class _FakeWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": str(tmp_path)},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    return mock_proc, _FakeWS
+
+
+def test_run_eval_build_failure_is_tracer_fail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """uv sync failing must yield TRACER_FAIL with stderr logged, no collect()."""
+    import logging
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    mock_proc, _FakeWS = _success_path_fakes(tmp_path)
+    mock_teardown = MagicMock()
+    mock_collect = AsyncMock()
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FakeWS()
+
+    build_result = MagicMock(returncode=1, stderr="error: no solution found")
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run", return_value=build_result
+        ) as mock_build,
+        patch("jig.eval.collector.collect", mock_collect),
+        patch("jig.eval.runner._teardown_proc", mock_teardown),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+        caplog.at_level(logging.ERROR, logger="jig.eval.runner"),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=False,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    assert result.outcome == EvalOutcome.TRACER_FAIL
+    assert result.temp_dir is not None
+    assert result.manifest_path is None
+    mock_collect.assert_not_awaited()
+    mock_teardown.assert_called_once()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("no solution found" in m for m in errors), (
+        "build stderr must be logged on the TRACER_FAIL path"
+    )
+    build_call = mock_build.call_args
+    assert build_call.args[0] == ["uv", "sync"]
+    assert build_call.kwargs["cwd"].name == "test-proj"
+
+
+def test_run_eval_passes_tracer_env_with_venv_path(tmp_path: Path) -> None:
+    """collect() must receive tracer_env whose PATH starts with the project venv bin."""
+    import os as _os
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    mock_proc, _FakeWS = _success_path_fakes(tmp_path)
+
+    mock_manifest = MagicMock()
+    mock_manifest.tracer = None  # short-circuits via TRACER_FAIL after collect
+    mock_manifest.model_dump.return_value = {}
+    mock_collect = AsyncMock(return_value=mock_manifest)
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FakeWS()
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run",
+            return_value=MagicMock(returncode=0),
+        ),
+        patch("jig.eval.collector.collect", mock_collect),
+        patch("jig.eval.runner._teardown_proc"),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=False,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    mock_collect.assert_awaited_once()
+    call = mock_collect.await_args
+    project_dir = call.args[0]
+    assert project_dir.name == "test-proj", "collect must target the project subdir"
+    tracer_env = call.kwargs["tracer_env"]
+    expected_prefix = str(project_dir / ".venv" / "bin") + _os.pathsep
+    assert tracer_env["PATH"].startswith(expected_prefix)
+
+
+def test_run_eval_build_timeout_is_tracer_fail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A hung uv sync must map to TRACER_FAIL, not crash the runner."""
+    import logging
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    mock_proc, _FakeWS = _success_path_fakes(tmp_path)
+    mock_teardown = MagicMock()
+    mock_collect = AsyncMock()
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FakeWS()
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="uv sync", timeout=300),
+        ) as mock_build,
+        patch("jig.eval.collector.collect", mock_collect),
+        patch("jig.eval.runner._teardown_proc", mock_teardown),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+        caplog.at_level(logging.ERROR, logger="jig.eval.runner"),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=False,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    assert result.outcome == EvalOutcome.TRACER_FAIL
+    assert result.temp_dir is not None
+    mock_collect.assert_not_awaited()
+    mock_teardown.assert_called_once()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("timed out" in m for m in errors)
+    build_call = mock_build.call_args
+    assert build_call.args[0] == ["uv", "sync"]
+    assert build_call.kwargs["cwd"].name == "test-proj"

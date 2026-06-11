@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -29,6 +30,7 @@ ALL_TOPICS = ("tickets", "spec", "agents", "events", "prompts")
 _ANALYSIS_WAIT_SECONDS = 60.0
 _WS_READY_TIMEOUT = 15.0
 _SIGKILL_GRACE = 10.0
+_BUILD_TIMEOUT = 300.0
 
 
 def _free_port() -> int:
@@ -143,7 +145,7 @@ def _check_tracer_outcome(exit_code: int, stdout: str) -> EvalOutcome | None:
     return None
 
 
-def _teardown_proc(proc: subprocess.Popen, temp_path: Path) -> None:
+def _teardown_proc(proc: subprocess.Popen, project_path: Path) -> None:
     """SIGTERM proc, SIGKILL after grace period, clean up orphan subprocesses.
 
     Intentionally synchronous: called only after all async tasks are cancelled,
@@ -157,7 +159,7 @@ def _teardown_proc(proc: subprocess.Popen, temp_path: Path) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-    _kill_orphan_subprocesses(temp_path, log.info)
+    _kill_orphan_subprocesses(project_path, log.info)
 
 
 async def run_eval(
@@ -191,12 +193,22 @@ async def run_eval(
 
     timeout_seconds = timeout_minutes * 60
     temp_path = Path(tempfile.mkdtemp(prefix="jig-integration-"))
+    # Scaffold into a subdir named after the eval project id so the template
+    # derives the brief's tool name (hn-cli -> script hn-cli, package hn_cli).
+    # temp_path stays the cleanup root and RunResult.temp_dir.
+    project_dir = temp_path / project_id
     port = _free_port()
-    log.info("eval: project=%s temp=%s port=%d", project_id, temp_path, port)
+    log.info(
+        "eval: project=%s temp=%s project_dir=%s port=%d",
+        project_id,
+        temp_path,
+        project_dir,
+        port,
+    )
 
     try:
         await run_init(
-            name=str(temp_path),
+            name=str(project_dir),
             force=False,
             brief_file=brief_path,
             prompts=AutoPromptHandler(),
@@ -212,7 +224,7 @@ async def run_eval(
             "start",
             "--no-docker",
             "--path",
-            str(temp_path),
+            str(project_dir),
             "--ws-port",
             str(port),
         ],
@@ -234,7 +246,7 @@ async def run_eval(
             await asyncio.sleep(0.5)
     if not ready:
         log.error("WS server not ready after %ss: %s", _WS_READY_TIMEOUT, addr)
-        _teardown_proc(proc, temp_path)
+        _teardown_proc(proc, project_dir)
         return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
     detector = StallDetector(thresholds=StallThresholds())
@@ -295,7 +307,7 @@ async def run_eval(
 
     if outcome != EvalOutcome.SUCCESS:
         log.info("eval: outcome=%s verdict=%s", outcome, stall_verdict)
-        _teardown_proc(proc, temp_path)
+        _teardown_proc(proc, project_dir)
         return RunResult(
             outcome=outcome,
             stall_verdict=stall_verdict,
@@ -308,15 +320,47 @@ async def run_eval(
         tracer_sh = jig_repo / "evals" / "projects" / project_id / "tracer.sh"
         if not tracer_sh.is_file():
             log.error("tracer.sh not found: %s", tracer_sh)
-            _teardown_proc(proc, temp_path)
+            _teardown_proc(proc, project_dir)
             return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
+        try:
+            # Synchronous and blocking: all WS tasks are cancelled before the
+            # success path is reached, so the event loop is idle for the
+            # duration of the build.
+            build = subprocess.run(
+                ["uv", "sync"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                timeout=_BUILD_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # A hung build is an eval signal (non-installable project), not a
+            # runner crash — map it to TRACER_FAIL like any other build failure.
+            log.error("uv sync timed out after %ss: %s", _BUILD_TIMEOUT, exc)
+            _teardown_proc(proc, project_dir)
+            return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)
+        if build.returncode != 0:
+            log.error(
+                "uv sync failed (exit %d):\n%s",
+                build.returncode,
+                build.stderr[-2000:],
+            )
+            _teardown_proc(proc, project_dir)
+            return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)
+
+        tracer_env = {
+            **os.environ,
+            "PATH": f"{project_dir / '.venv' / 'bin'}{os.pathsep}"
+            f"{os.environ.get('PATH', '')}",
+        }
         manifest = await collect(
-            temp_path,
+            project_dir,
             run_id=run_id,
             project_id=project_id,
             label=label,
             tracer_cmd=["bash", str(tracer_sh)],
+            tracer_env=tracer_env,
         )
 
         runs_root = jig_repo / "evals" / "runs"
@@ -333,7 +377,7 @@ async def run_eval(
             log.error(
                 "manifest.tracer is None — treating as TRACER_FAIL to avoid false positive"
             )
-            _teardown_proc(proc, temp_path)
+            _teardown_proc(proc, project_dir)
             return RunResult(
                 outcome=EvalOutcome.TRACER_FAIL,
                 manifest_path=manifest_path,
@@ -350,7 +394,7 @@ async def run_eval(
                 manifest.tracer.exit_code,
                 manifest.tracer.stdout[:100],
             )
-            _teardown_proc(proc, temp_path)
+            _teardown_proc(proc, project_dir)
             return RunResult(
                 outcome=EvalOutcome.TRACER_FAIL,
                 manifest_path=manifest_path,
@@ -369,7 +413,7 @@ async def run_eval(
         else:
             log.warning("analysis_complete not received; skipping analysis copy")
 
-        _teardown_proc(proc, temp_path)
+        _teardown_proc(proc, project_dir)
         if not keep:
             shutil.rmtree(temp_path, ignore_errors=True)
 
@@ -381,5 +425,5 @@ async def run_eval(
         )
     except Exception:
         log.exception("unexpected error in success path")
-        _teardown_proc(proc, temp_path)
+        _teardown_proc(proc, project_dir)
         raise

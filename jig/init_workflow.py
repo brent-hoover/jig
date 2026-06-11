@@ -2066,14 +2066,27 @@ def _apply_template_files(
     dest: Path,
     project_name: str,
 ) -> None:
-    """Copy a project template into dest, substituting 'myproject'
-    with a sanitized project_name. Skips template.yaml metadata.
+    """Copy a project template into dest, substituting placeholders.
+
+    Placeholder vocabulary:
+      - ``myproject``  — package contexts (package dirs, imports,
+        ``python -m``, hatch paths, scripts targets) → underscored
+        ``pkg_name``.
+      - ``my-project`` — distribution contexts (``[project] name``, the
+        ``[project.scripts]`` key, README command invocations) →
+        hyphenated ``dist_name``.
+
+    Neither token is a substring of the other, so substitution order is
+    irrelevant. For hyphen-less, space-less project names the two names
+    coincide and output is identical to the single-token scheme.
+    Skips template.yaml metadata.
     """
     tpl_root = Path(__file__).resolve().parent / "defaults" / "project_templates"
     tpl_dir = tpl_root / template_name
     if not tpl_dir.is_dir():
         raise KeyError(f"unknown template: {template_name!r}")
     pkg_name = project_name.replace("-", "_").replace(" ", "_").lower()
+    dist_name = project_name.replace(" ", "-").lower()
     skip_dirs = {
         "__pycache__",
         ".ruff_cache",
@@ -2096,7 +2109,9 @@ def _apply_template_files(
         raw = src.read_bytes()
         try:
             text = raw.decode()
-            dest_file.write_text(text.replace("myproject", pkg_name))
+            dest_file.write_text(
+                text.replace("my-project", dist_name).replace("myproject", pkg_name)
+            )
         except UnicodeDecodeError:
             dest_file.write_bytes(raw)
 

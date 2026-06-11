@@ -4,7 +4,7 @@ type: reference
 status: active
 owner: brent
 created: 2026-05-18
-updated: 2026-06-02
+updated: 2026-06-11
 ---
 
 # C4 Component Level: Jig Agent Orchestration Framework
@@ -591,13 +591,14 @@ Both agents post `Handoff` entries when complete, which the Orchestrator detects
 The PM System is the planning and dispatch layer between spec authoring and code implementation. It splits into two
 roles: the Planner PM (strategic, runs in passes) and the Coordinator PM (tactical, continuous).
 
-The PM role runs in two distinct passes separated by the SA phase. **PM-1 (profile selection)** fires immediately
-after PO L0 completes, before the SA. The PM reads `docs/brief.md`, proposes a project profile (`small` or
-`medium`), and gates on operator confirmation. The chosen profile binds the SA role depth (`sa` vs `sa_mvp`) and
-per-size workflow routing (e.g., `feature-s` vs `feature-s-full` with the full reviewer federation). The profile is
-written to `.jig/config.yaml` and the `--profile` CLI flag on `jig start` bypasses PM-1 for eval/auto mode.
+The project profile (`small` or `medium`) is resolved up front during `jig init`, before any PO agent runs. On a
+fresh interactive init, the operator is prompted via `ask_project_size`; `--profile` pins the profile directly;
+a resumed init inherits the persisted value. The chosen profile binds the SA role depth (`sa` vs `sa_mvp`) and
+per-size workflow routing (e.g., `feature-s` vs `feature-s-full` with the full reviewer federation). The profile
+is written to `.jig/config.yaml`. `--brief` requires `--profile` so eval/unattended runs always pin a profile
+explicitly. A dedicated PM-1 profile-selection agent pass no longer runs.
 
-**PM-2 (planning)** runs after both PO and SA complete. It reads PO and SA artifacts and decomposes capabilities
+**Planner PM (planning)** runs after both PO and SA complete. It reads PO and SA artifacts and decomposes capabilities
 into a three-layer build plan (bones / MVP / final) organized by epics. Each ticket is typed (tracer-bullet, spike,
 or standard), assigned a dev tier (standard, senior, or SA), and tagged with a reviewer set. The plan is written to
 `build-plan.yaml` via the `plan_finalize` MCP tool, which validates schema and hands off to the Coordinator.
@@ -609,9 +610,11 @@ Planner PM passes use for sizing.
 
 ### Software Features
 
-- **Profile selection (PM-1)**: Proposes a project profile (`small`/`medium`) from the brief; gates on operator
-  confirmation; writes the chosen profile to config, binding SA role depth and per-size workflow routing
-- **Build plan authoring (PM-2)**: Planner PM writes `BuildPlan` YAML with epics, layers, ordering rule, and
+- **Profile selection (up-front)**: Resolves the project profile (`small`/`medium`) during `jig init` before any
+  PO runs — interactive CLI prompt on fresh init, `--profile` to pin directly, persisted value on resume; writes
+  the chosen profile to `.jig/config.yaml`, binding SA role depth and per-size workflow routing; `--brief`
+  requires `--profile`
+- **Build plan authoring**: Planner PM writes `BuildPlan` YAML with epics, layers, ordering rule, and
   per-ticket type/tier/reviewer assignments
 - **Plan validation**: Schema validation, unique ticket ID enforcement, at least one bones ticket required
 - **Bones-first dispatch**: Coordinator enforces that all epics' bones complete before any MVP begins (per
@@ -632,8 +635,8 @@ Planner PM passes use for sizing.
 
 | Tool | Agent | Description |
 |------|-------|-------------|
-| `pm_propose_profile(profile_name)` | Planner PM (PM-1) | Post profile proposal Note + resolve profile ticket |
-| `plan_finalize(plan)` | Planner PM (PM-2) | Validate + write `BuildPlan`; hand off to Coordinator |
+| `pm_propose_profile(profile_name)` | Init workflow | Write selected profile to `.jig/config.yaml`; called during `jig init` profile resolution |
+| `plan_finalize(plan)` | Planner PM | Validate + write `BuildPlan`; hand off to Coordinator |
 
 #### Exposed (Python)
 

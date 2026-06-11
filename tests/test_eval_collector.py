@@ -13,7 +13,12 @@ def _stub_project(tmp_path: Path) -> Path:
     """Minimal .jig/store layout so collect() can read its stores."""
     store = tmp_path / ".jig" / "store"
     store.mkdir(parents=True)
-    for name in ("tickets.jsonl", "comments.jsonl", "review_comments.jsonl"):
+    for name in (
+        "tickets.jsonl",
+        "threads.jsonl",
+        "review_comments.jsonl",
+        "analytics.jsonl",
+    ):
         (store / name).write_text("")
     return tmp_path
 

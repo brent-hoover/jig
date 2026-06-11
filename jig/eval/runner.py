@@ -324,6 +324,9 @@ async def run_eval(
             return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
         try:
+            # Synchronous and blocking: all WS tasks are cancelled before the
+            # success path is reached, so the event loop is idle for the
+            # duration of the build.
             build = subprocess.run(
                 ["uv", "sync"],
                 cwd=project_dir,

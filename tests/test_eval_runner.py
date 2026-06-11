@@ -500,7 +500,9 @@ def test_run_eval_build_failure_is_tracer_fail(
     with (
         patch("jig.init_workflow.run_init", new=AsyncMock()),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
-        patch("jig.eval.runner.subprocess.run", return_value=build_result),
+        patch(
+            "jig.eval.runner.subprocess.run", return_value=build_result
+        ) as mock_build,
         patch("jig.eval.collector.collect", mock_collect),
         patch("jig.eval.runner._teardown_proc", mock_teardown),
         patch("websockets.asyncio.client.connect", new=_fake_connect),
@@ -525,6 +527,9 @@ def test_run_eval_build_failure_is_tracer_fail(
     assert any("no solution found" in m for m in errors), (
         "build stderr must be logged on the TRACER_FAIL path"
     )
+    build_call = mock_build.call_args
+    assert build_call.args[0] == ["uv", "sync"]
+    assert build_call.kwargs["cwd"].name == "test-proj"
 
 
 def test_run_eval_passes_tracer_env_with_venv_path(tmp_path: Path) -> None:
@@ -596,7 +601,7 @@ def test_run_eval_build_timeout_is_tracer_fail(
         patch(
             "jig.eval.runner.subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="uv sync", timeout=300),
-        ),
+        ) as mock_build,
         patch("jig.eval.collector.collect", mock_collect),
         patch("jig.eval.runner._teardown_proc", mock_teardown),
         patch("websockets.asyncio.client.connect", new=_fake_connect),
@@ -618,3 +623,6 @@ def test_run_eval_build_timeout_is_tracer_fail(
     mock_teardown.assert_called_once()
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert any("timed out" in m for m in errors)
+    build_call = mock_build.call_args
+    assert build_call.args[0] == ["uv", "sync"]
+    assert build_call.kwargs["cwd"].name == "test-proj"

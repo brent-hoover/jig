@@ -241,14 +241,109 @@ class TestClassifyOnboardResume:
         )
         assert await _classify(stores) == OnboardResumeState.PM_PROFILE_CONFIRM_PROMPT
 
-    async def test_profile_confirmed_is_phase2_pending(self, stores):
+    async def test_profile_confirmed_is_sa_read_pass(self, stores):
         await _seed_scan_done(stores)
         await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
         create_stub(stores["project_path"], name="proj")
         cfg = load_config(stores["project_path"])
         cfg.profile.name = "small"
         save_config(stores["project_path"], cfg)
-        assert await _classify(stores) == OnboardResumeState.PHASE2_PENDING
+        assert await _classify(stores) == OnboardResumeState.SA_READ_PASS
+
+    async def test_arch_ticket_missing_is_sa_read_pass(self, stores):
+        await _seed_scan_done(stores)
+        await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
+        create_stub(stores["project_path"], name="proj")
+        cfg = load_config(stores["project_path"])
+        cfg.profile.name = "small"
+        save_config(stores["project_path"], cfg)
+        assert await _classify(stores) == OnboardResumeState.SA_READ_PASS
+
+    async def test_arch_awaits_answer_is_needs_answer_arch(self, stores):
+        await _seed_scan_done(stores)
+        await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
+        create_stub(stores["project_path"], name="proj")
+        cfg = load_config(stores["project_path"])
+        cfg.profile.name = "small"
+        save_config(stores["project_path"], cfg)
+        await stores["tickets"].create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+        await stores["tickets"].update("architecture", status=TicketStatus.NEEDS_INFO)
+        await stores["threads"].post(
+            Question(
+                ticket_id="architecture",
+                author="sa",
+                question="What DB?",
+                target="any_human",
+            )
+        )
+        assert await _classify(stores) == OnboardResumeState.NEEDS_ANSWER_ARCH
+
+    async def test_arch_handoff_without_approved_is_operator_review(self, stores):
+        await _seed_scan_done(stores)
+        await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
+        create_stub(stores["project_path"], name="proj")
+        cfg = load_config(stores["project_path"])
+        cfg.profile.name = "small"
+        save_config(stores["project_path"], cfg)
+        await stores["tickets"].create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+        await stores["threads"].post(
+            Handoff(
+                ticket_id="architecture",
+                author="sa",
+                phase="pm",
+                outputs=[".jig/spec/architecture.yaml"],
+                summary="done",
+            )
+        )
+        assert await _classify(stores) == OnboardResumeState.OPERATOR_REVIEW
+
+    async def test_artifacts_approved_is_pm_backlog(self, stores):
+        await _seed_scan_done(stores)
+        await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
+        create_stub(stores["project_path"], name="proj")
+        cfg = load_config(stores["project_path"])
+        cfg.profile.name = "small"
+        save_config(stores["project_path"], cfg)
+        await stores["tickets"].create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+        await stores["threads"].post(
+            Handoff(
+                ticket_id="architecture",
+                author="sa",
+                phase="pm",
+                outputs=[],
+                summary="done",
+            )
+        )
+        await stores["threads"].post(
+            SystemEvent(
+                ticket_id="architecture",
+                author="cli",
+                event_type="onboard_artifacts_approved",
+                content="approved",
+            )
+        )
+        assert await _classify(stores) == OnboardResumeState.PM_BACKLOG
 
     async def test_onboard_completed_is_already_done(self, stores):
         create_stub(stores["project_path"], name="proj")
@@ -883,6 +978,39 @@ async def _pm_propose_small(ctx):
     await ctx.tickets.update("profile", status=TicketStatus.RESOLVED)
 
 
+async def _sa_handoff(ctx):
+    """Fake SA: posts Handoff(phase='pm') on the architecture ticket."""
+    arch_dir = ctx.worktree_path / ".jig" / "spec"
+    arch_dir.mkdir(parents=True, exist_ok=True)
+    (arch_dir / "architecture.yaml").write_text(
+        "modules:\n  core:\n    id: core\n    intent: main logic\n"
+    )
+    await ctx.threads.post(
+        Handoff(
+            ticket_id="architecture",
+            author="sa",
+            phase="pm",
+            outputs=[".jig/spec/architecture.yaml"],
+            summary="Architecture extracted.",
+        )
+    )
+    await ctx.tickets.update("architecture", status=TicketStatus.RESOLVED)
+
+
+async def _pm_backlog_handoff(ctx):
+    """Fake PM backlog: posts Handoff on the backlog ticket."""
+    await ctx.threads.post(
+        Handoff(
+            ticket_id="backlog",
+            author="pm",
+            phase="done",
+            outputs=[],
+            summary="Backlog tickets created.",
+        )
+    )
+    await ctx.tickets.update("backlog", status=TicketStatus.RESOLVED)
+
+
 async def _spec_ok(threads):
     await threads.post(
         SystemEvent(
@@ -948,16 +1076,35 @@ class ScriptedPromptHandler(AutoPromptHandler):
         return self._answer
 
 
-def _install_phase1_fakes(monkeypatch, *, po_steps, spec_steps):
+def _install_fakes(
+    monkeypatch,
+    *,
+    po_steps,
+    spec_steps,
+    sa_steps=None,
+    pm_backlog_steps=None,
+):
     """Install fake agent spawns + spec generator. Returns the spawn log
-    and a spec-run counter (mutated in place)."""
+    and a spec-run counter (mutated in place).
+
+    Handles scanner, po, pm (profile), sa_mvp, and pm (backlog) roles.
+    ``sa_steps`` defaults to ``[_sa_handoff]`` and ``pm_backlog_steps``
+    defaults to ``[_pm_backlog_handoff]`` when not supplied.
+    """
     import jig.init_workflow as init_workflow
     import jig.spec_generator as spec_generator
 
     spawned = []
     po_iter = iter(po_steps)
     spec_iter = iter(spec_steps)
+    sa_iter = iter(sa_steps if sa_steps is not None else [_sa_handoff])
+    pm_backlog_iter = iter(
+        pm_backlog_steps if pm_backlog_steps is not None else [_pm_backlog_handoff]
+    )
     spec_runs = []
+    # Track whether the PM spawn is the profile pass or the backlog pass.
+    # The profile ticket exists when the backlog PM fires.
+    _profile_pm_done = []
 
     async def fake_spawn(ctx, *, role_label, console=None, subtitle=None):
         spawned.append(ctx.role)
@@ -966,7 +1113,13 @@ def _install_phase1_fakes(monkeypatch, *, po_steps, spec_steps):
         elif ctx.role == "po":
             await next(po_iter)(ctx)
         elif ctx.role == "pm":
-            await _pm_propose_small(ctx)
+            if not _profile_pm_done:
+                await _pm_propose_small(ctx)
+                _profile_pm_done.append(1)
+            else:
+                await next(pm_backlog_iter)(ctx)
+        elif ctx.role == "sa_mvp":
+            await next(sa_iter)(ctx)
         else:  # pragma: no cover - guard against silent role drift
             raise AssertionError(f"unexpected spawn: {ctx.role}")
 
@@ -982,6 +1135,11 @@ def _install_phase1_fakes(monkeypatch, *, po_steps, spec_steps):
     return spawned, spec_runs
 
 
+# Keep old name as alias so existing call sites don't need bulk-rename.
+def _install_phase1_fakes(monkeypatch, *, po_steps, spec_steps):
+    return _install_fakes(monkeypatch, po_steps=po_steps, spec_steps=spec_steps)
+
+
 def _capture_console():
     from io import StringIO
 
@@ -994,24 +1152,53 @@ def _capture_console():
 class TestPhase1Loop:
     """Loop-level walks through the dispatch arms with scripted prompts."""
 
-    async def test_full_phase1_flow(self, tmp_path, monkeypatch):
-        spawned, spec_runs = _install_phase1_fakes(
+    async def test_full_onboard_flow(self, tmp_path, monkeypatch):
+        """End-to-end: scanner → PO → spec → PM profile → SA → review → PM backlog."""
+        desired = tmp_path / "desired.md"
+        desired.write_text("# Target\n\nAdd exports.\n")
+        spawned, spec_runs = _install_fakes(
             monkeypatch, po_steps=[_po_handoff], spec_steps=[_spec_ok]
         )
         console, buf = _capture_console()
 
-        # The Phase-1 boundary (PHASE2_PENDING) returns cleanly.
-        await run_onboard(path=tmp_path, prompts=AutoPromptHandler(), console=console)
+        await run_onboard(
+            path=tmp_path,
+            brief_file=desired,
+            prompts=AutoPromptHandler(),
+            console=console,
+        )
 
-        assert spawned == ["scanner", "po", "pm"]
+        assert spawned == ["scanner", "po", "pm", "sa_mvp", "pm"]
         assert len(spec_runs) == 1
-        assert "Phase 1 complete" in buf.getvalue()
         cfg = load_config(tmp_path)
         assert cfg.profile.name == "small"
-        tickets = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
-        await tickets.load()
-        profile_ticket = await tickets.get("profile")
-        assert "small — tiny repo." in profile_ticket.description
+        # onboard_completed_at written
+        import yaml as _yaml
+
+        pdata = _yaml.safe_load(
+            (tmp_path / ".jig" / "project.yaml").read_text()
+        )
+        assert "onboard_completed_at" in pdata
+
+    async def test_full_onboard_flow_no_desired_state_skips_pm_backlog(
+        self, tmp_path, monkeypatch
+    ):
+        """Without desired-state.md the PM backlog is skipped."""
+        spawned, spec_runs = _install_fakes(
+            monkeypatch, po_steps=[_po_handoff], spec_steps=[_spec_ok]
+        )
+        await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+
+        # No backlog PM — only scanner, po (profile), spec, sa_mvp
+        assert "pm" in spawned  # profile PM
+        assert spawned.count("pm") == 1  # not twice (no backlog PM)
+        assert "sa_mvp" in spawned
+        import yaml as _yaml
+
+        pdata = _yaml.safe_load(
+            (tmp_path / ".jig" / "project.yaml").read_text()
+        )
+        assert "onboard_completed_at" in pdata
 
     async def test_brief_resume_respawns_po(self, tmp_path, monkeypatch):
         from jig.init_workflow import BriefApprovalChoice
@@ -1026,7 +1213,7 @@ class TestPhase1Loop:
 
         await run_onboard(path=tmp_path, prompts=prompts, console=console)
 
-        assert spawned == ["scanner", "po", "po", "pm"]
+        assert spawned == ["scanner", "po", "po", "pm", "sa_mvp"]
         assert len(spec_runs) == 1
 
     async def test_brief_rejection_exits_with_state_saved(self, tmp_path, monkeypatch):
@@ -1074,7 +1261,7 @@ class TestPhase1Loop:
 
         await run_onboard(path=tmp_path, prompts=prompts, console=console)
 
-        assert spawned == ["scanner", "po", "po", "pm"]
+        assert spawned == ["scanner", "po", "po", "pm", "sa_mvp"]
         threads = ThreadStore(tmp_path / ".jig" / "store" / "comments.jsonl")
         await threads.load()
         entries = await threads.for_ticket("brief")

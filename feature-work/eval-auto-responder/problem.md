@@ -1,7 +1,7 @@
 ---
 title: Eval Auto-Responder — Problem Statement
 type: problem
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-06-10
 updated: 2026-06-10

@@ -178,6 +178,7 @@ async def run_eval(
     import yaml
 
     from jig.eval.collector import collect
+    from jig.eval.responder import CannedAnswerPolicy, auto_responder
     from jig.evals.watcher.heuristics import StallThresholds
     from jig.evals.watcher.stall_detector import StallDetector
     from jig.init_prompts import AutoPromptHandler
@@ -239,6 +240,7 @@ async def run_eval(
     detector = StallDetector(thresholds=StallThresholds())
     completion_q: asyncio.Queue[dict] = asyncio.Queue()
     stall_q: asyncio.Queue[dict] = asyncio.Queue()
+    responder_q: asyncio.Queue[dict] = asyncio.Queue()
 
     async def _dispatch(ws) -> None:
         async for raw in ws:
@@ -248,6 +250,7 @@ async def run_eval(
                 continue
             await completion_q.put(msg)
             await stall_q.put(msg)
+            await responder_q.put(msg)
 
     outcome = EvalOutcome.TIMEOUT
     stall_verdict = None
@@ -259,6 +262,9 @@ async def run_eval(
                 await ws.send(json.dumps({"type": "subscribe", "topics": [topic]}))
 
             dispatch_task = asyncio.create_task(_dispatch(ws))
+            responder_task = asyncio.create_task(
+                auto_responder(responder_q, ws, policy=CannedAnswerPolicy())
+            )
             completion_task = asyncio.create_task(_watch_completion(completion_q))
             stall_task = asyncio.create_task(_watch_stall(stall_q, detector))
             timeout_task = asyncio.create_task(asyncio.sleep(timeout_seconds))
@@ -268,9 +274,10 @@ async def run_eval(
                 return_when=asyncio.FIRST_COMPLETED,
             )
             dispatch_task.cancel()
+            responder_task.cancel()
             for task in pending:
                 task.cancel()
-            for task in [dispatch_task, *pending]:
+            for task in [dispatch_task, responder_task, *pending]:
                 try:
                     await task
                 except (asyncio.CancelledError, Exception):

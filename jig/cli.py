@@ -2428,7 +2428,11 @@ def eval_list(project_id: str, runs_root: Path | None) -> None:
     help="Project profile to apply during init (medium is not supported for brief-based evals).",
 )
 def eval_run(
-    project_id: str, label: str | None, keep: bool, timeout_minutes: int, profile_name: str
+    project_id: str,
+    label: str | None,
+    keep: bool,
+    timeout_minutes: int,
+    profile_name: str,
 ) -> None:
     """Run a zero-touch integration test for PROJECT_ID.
 

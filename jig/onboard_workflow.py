@@ -287,16 +287,31 @@ async def classify_onboard_resume(
     if await _ticket_awaits_answer(tickets, threads, "architecture"):
         return OnboardResumeState.NEEDS_ANSWER_ARCH
     arch_entries = await threads.for_ticket("architecture")
-    has_sa_handoff = any(
-        isinstance(e, Handoff) and e.phase == "pm" for e in arch_entries
+
+    # Find the last SA handoff, then check whether a rerun was requested
+    # after it. Using the last-handoff index makes classification order-aware
+    # so the operator's "re-run SA" choice isn't swallowed by a prior handoff.
+    last_handoff_idx = -1
+    for i, e in enumerate(arch_entries):
+        if isinstance(e, Handoff) and e.phase == "pm":
+            last_handoff_idx = i
+
+    if last_handoff_idx == -1:
+        return OnboardResumeState.SA_READ_PASS
+
+    # If a rerun marker appears after the last handoff, SA needs to run again.
+    has_rerun_after_handoff = any(
+        isinstance(e, SystemEvent) and e.event_type == "onboard_sa_rerun_requested"
+        for e in arch_entries[last_handoff_idx + 1 :]
     )
-    if not has_sa_handoff:
+    if has_rerun_after_handoff:
         return OnboardResumeState.SA_READ_PASS
 
     # --- Operator review gate -----------------------------------------------
+    # Check for approval after the last handoff (not from a prior SA run).
     has_artifacts_approved = any(
         isinstance(e, SystemEvent) and e.event_type == "onboard_artifacts_approved"
-        for e in arch_entries
+        for e in arch_entries[last_handoff_idx:]
     )
     if not has_artifacts_approved:
         return OnboardResumeState.OPERATOR_REVIEW
@@ -730,7 +745,12 @@ async def run_onboard_pm_backlog(
         console=console,
         subtitle="Generating initial tickets from current→desired delta",
     )
-    _write_onboard_completed_at(project_path)
+    # Only stamp completion when PM actually posted Handoff(phase="done").
+    # If PM paused (NEEDS_INFO / ask_question / crash), leave onboard_completed_at
+    # unset so the loop re-enters PM_BACKLOG and re-runs the PM.
+    backlog_entries = await threads.for_ticket("backlog")
+    if any(isinstance(e, Handoff) and e.phase == "done" for e in backlog_entries):
+        _write_onboard_completed_at(project_path)
 
 
 def _write_onboard_completed_at(project_path: Path) -> None:
@@ -1613,12 +1633,17 @@ async def _run_onboard_resume_loop(
                 target, threads, prompts=prompts, console=console
             )
             if not approved:
-                # Re-run SA: reactivate the architecture ticket so
-                # classify_onboard_resume returns SA_READ_PASS next tick.
+                # Re-run SA: post a rerun marker then reactivate the ticket.
+                # The marker makes classify_onboard_resume order-aware —
+                # a prior Handoff no longer shadows the rerun request.
                 arch = await tickets.get("architecture")
                 if arch is not None:
                     from jig.init_workflow import _reactivate_if_resolved
 
+                    await threads.append(
+                        "architecture",
+                        SystemEvent(event_type="onboard_sa_rerun_requested"),
+                    )
                     await _reactivate_if_resolved(tickets, arch, author="cli")
             continue
         if rs == OnboardResumeState.PM_BACKLOG:

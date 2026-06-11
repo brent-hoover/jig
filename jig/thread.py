@@ -457,8 +457,10 @@ class SystemEvent(_ThreadEntryBase):
         "scaffold_applied",
         "brief_approved",
         # Onboard flow (feature-work/project-onboarding): posted by the
-        # operator review gate when onboard artifacts are approved.
+        # operator review gate when onboard artifacts are approved; rerun
+        # marker posted when operator requests SA to run again.
         "onboard_artifacts_approved",
+        "onboard_sa_rerun_requested",
         # SF-1: dev-env provisioning failure surfaced as a spawn failure
         # rather than swallowed.
         "provisioning_failed",

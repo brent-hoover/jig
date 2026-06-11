@@ -345,6 +345,50 @@ class TestClassifyOnboardResume:
         )
         assert await _classify(stores) == OnboardResumeState.PM_BACKLOG
 
+    async def test_sa_rerun_after_handoff_is_sa_read_pass(self, stores):
+        """Rerun marker posted after Handoff must return SA_READ_PASS (MEDIUM fix)."""
+        await _seed_scan_done(stores)
+        await _seed_brief(stores, handoff=True, approved=True, spec_gen=True)
+        create_stub(stores["project_path"], name="proj")
+        cfg = load_config(stores["project_path"])
+        cfg.profile.name = "small"
+        save_config(stores["project_path"], cfg)
+        await stores["tickets"].create(
+            Ticket(
+                id="architecture",
+                work_type=WorkType.ARCHITECTURE,
+                title="Architecture",
+                created_by="cli",
+            )
+        )
+        # SA completed once and operator approved once.
+        await stores["threads"].post(
+            Handoff(
+                ticket_id="architecture",
+                author="sa",
+                phase="pm",
+                outputs=[],
+                summary="done",
+            )
+        )
+        await stores["threads"].post(
+            SystemEvent(
+                ticket_id="architecture",
+                author="cli",
+                event_type="onboard_artifacts_approved",
+                content="approved",
+            )
+        )
+        # Operator then chose re-run — marker posted after the Handoff.
+        await stores["threads"].post(
+            SystemEvent(
+                ticket_id="architecture",
+                author="cli",
+                event_type="onboard_sa_rerun_requested",
+            )
+        )
+        assert await _classify(stores) == OnboardResumeState.SA_READ_PASS
+
     async def test_onboard_completed_is_already_done(self, stores):
         create_stub(stores["project_path"], name="proj")
         project_yaml = stores["project_path"] / ".jig" / "project.yaml"
@@ -1199,6 +1243,42 @@ class TestPhase1Loop:
             (tmp_path / ".jig" / "project.yaml").read_text()
         )
         assert "onboard_completed_at" in pdata
+
+    async def test_pm_backlog_without_handoff_does_not_stamp_completion(
+        self, tmp_path, monkeypatch
+    ):
+        """PM that crashes/pauses without Handoff must not stamp onboard_completed_at (HIGH fix)."""
+
+        async def _sa_handoff_with_desired_state(ctx):
+            # Write desired-state.md so PM backlog is triggered, then do
+            # the normal SA handoff.
+            desired = ctx.worktree_path / ".jig" / "onboard" / "desired-state.md"
+            desired.parent.mkdir(parents=True, exist_ok=True)
+            desired.write_text("# desired\n", encoding="utf-8")
+            await _sa_handoff(ctx)
+
+        async def _pm_no_handoff(ctx):
+            # PM exits without posting Handoff — simulates crash / NEEDS_INFO
+            pass
+
+        spawned, spec_runs = _install_fakes(
+            monkeypatch,
+            po_steps=[_po_handoff],
+            spec_steps=[_spec_ok],
+            sa_steps=[_sa_handoff_with_desired_state],
+            pm_backlog_steps=[_pm_no_handoff],
+        )
+        import yaml as _yaml
+
+        with pytest.raises(Exception):
+            # Loop re-enters PM_BACKLOG; after pm_backlog_steps is exhausted
+            # the fake infra raises, letting us check the stamp was NOT written.
+            await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
+
+        pdata = _yaml.safe_load(
+            (tmp_path / ".jig" / "project.yaml").read_text()
+        )
+        assert "onboard_completed_at" not in pdata
 
     async def test_brief_resume_respawns_po(self, tmp_path, monkeypatch):
         from jig.init_workflow import BriefApprovalChoice

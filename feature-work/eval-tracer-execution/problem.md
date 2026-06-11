@@ -118,15 +118,28 @@ With both in place the tracer script stays unchanged — `command -v hn-cli` fin
 
 ## Open questions
 
-- [ ] Who owns building/installing the project before the tracer runs — the runner (owns run lifecycle) or the
-      collector (owns the tracer invocation)? Design decision; affects whether `collect()` stays side-effect-free.
+All resolved 2026-06-11 (operator decisions):
+
+- [x] **Name source**: `run_eval` scaffolds into a subdirectory named after the eval project id
+      (`<mkdtemp>/hn-cli`). No new parameters through the shared init path; runner bookkeeping splits "temp root"
+      (cleanup/reaping) from "project dir" (init/start/collect target).
+- [x] **Script name**: two-token substitution in `_apply_template_files` — hyphenated dist name for
+      `[project] name`, the `[project.scripts]` key, and README command invocations; underscored package name for
+      package dirs, imports, `python -m`, hatch paths, and the scripts target. Fixes the same wart for every init
+      run in a hyphenated directory, not just evals.
+- [x] **Build owner**: the runner, after the race settles and before `collect()` — `collect()` stays
+      side-effect-free on the project; a build failure short-circuits to TRACER_FAIL with captured output.
 - [x] ~~Does scaffold slugification produce `hn-cli` as the script name?~~ Verified: no. `_apply_template_files`
-      uses one underscored token everywhere, so a dir named `hn-cli` yields script `hn_cli`. The naming fix must
-      either split the substitution into dist-name vs package-name tokens or change the tracer's expected name
-      (see Simplest possible solution).
-- [ ] If the two-token substitution is chosen: does anything else (templates, docs, tests, existing projects'
-      expectations) depend on the script name equaling the underscored package name? Audit before design.
+      uses one underscored token everywhere, so a dir named `hn-cli` yields script `hn_cli` — which is why the
+      two-token substitution above is needed.
+- [x] **Audit for script == package assumptions**: done 2026-06-11. Nothing in jig's tests depends on it
+      (`tests/test_apply_template_files.py` uses hyphen-less `example_project`, where the names coincide). The
+      hyphenated-name sites are exactly `[project] name`, the scripts key, and README invocations
+      (`uv run myproject --help`); everything else stays underscored. Token mechanics (second placeholder vs
+      per-file substitution rules) is a design detail.
 
 ## Change log
 
 - 2026-06-11: Initial draft (Brent Hoover)
+- 2026-06-11: Resolved all open questions — subdir name source, two-token substitution, runner-owned build step;
+  audit found no script==package dependencies (Brent Hoover)

@@ -16,10 +16,13 @@ async def collect(
     project_id: str,
     label: str | None = None,
     tracer_cmd: list[str] | None = None,
+    tracer_env: dict[str, str] | None = None,
 ) -> RunManifest:
     """Read .jig/ stores from project_path and return a RunManifest.
 
     All store I/O is async; callers should run this inside asyncio.run().
+    tracer_env, when given, replaces the tracer subprocess's environment
+    (callers prepend the project venv's bin to PATH); None inherits.
     """
     from jig.analytics.store import AnalyticsStore
     from jig.store.review_comments import ReviewCommentsStore
@@ -117,6 +120,7 @@ async def collect(
                 capture_output=True,
                 text=True,
                 timeout=120,
+                env=tracer_env,
             )
             tracer = TracerResult(
                 passed=tr.returncode == 0,

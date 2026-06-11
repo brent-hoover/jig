@@ -130,17 +130,23 @@ changes to agent roles or the orchestrator.
 
 ## Open questions
 
-- [ ] How does the responder classify "approval-style" vs "clarifying" questions — keyword heuristic on the question
-      text, or does it not need to distinguish at all (a single canned answer like "Approved — use your best judgment
-      on any open details" may satisfy both)?
-- [ ] Should there be a cap on auto-answers per ticket (re-ask loop guard), and if hit, should the run get a distinct
-      outcome vs falling through to the generic stall?
-- [ ] Which trigger should the responder key on: the `needs_info` ticket-status frame (already received today on the
-      `tickets` topic) or question frames via a new `"threads"` subscription? (Frame shapes are documented in
-      Context; this is a design choice, not an unknown.)
+All resolved 2026-06-10 (operator decisions):
+
+- [x] **Answer policy**: no classification — a single canned answer (e.g. "Approved — proceed; use your best judgment
+      on any open details.") covers both approval-style and clarifying questions. The agent asking is capable of
+      deciding once given license.
+- [x] **Per-fixture scripted answers** (`evals/projects/<id>/answers.yaml`): deferred. No current fixture needs it.
+      The answer policy stays behind a small interface so scripted answers (or an LLM responder) can drop in later.
+- [x] **Loop guard**: cap auto-answer rounds per ticket (small, e.g. 3). On hit, stop answering, log loudly, and let
+      the existing `bus_silence` stall fire. No new outcome enum or exit code; store + logs carry the post-mortem.
+- [x] **Trigger**: the `ticket_updated` → `needs_info` frame on the already-subscribed `tickets` topic. It is the
+      exact "agent is blocked" signal, and `answer_questions` binds to all open questions without needing question
+      details, so no `"threads"` subscription is required.
 
 ## Change log
 
 - 2026-06-10: Initial draft (Brent Hoover)
 - 2026-06-10: Expanded LLM-answers non-goal with rationale and the per-fixture scripted-answers design option (Brent
   Hoover)
+- 2026-06-10: Resolved all open questions — single canned answer, answers.yaml deferred, loop cap falls through to
+  stall, needs_info trigger (Brent Hoover)

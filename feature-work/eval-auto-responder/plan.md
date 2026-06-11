@@ -1,10 +1,10 @@
 ---
 title: Eval Auto-Responder — Implementation Plan
 type: plan
-status: draft
+status: archived
 owner: Brent Hoover
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-11
 design: ./design.md
 ---
 
@@ -124,3 +124,4 @@ pre-feature behavior exactly. No data migrations, no config changes, nothing dep
 - 2026-06-10: Initial draft (Brent Hoover)
 - 2026-06-10: Review fixes — log seam waved off explicitly, caplog assertions named, frame-injection ordering and
   teardown insertion point pinned (Brent Hoover)
+- 2026-06-11: Archived — implementation complete, shipped in PR #158 (Brent Hoover)

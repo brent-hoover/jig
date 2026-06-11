@@ -129,3 +129,25 @@ async def test_unrelated_frames_ignored() -> None:
     ]
     ws = await _run_responder(frames)
     assert ws.sent == []
+
+
+async def test_send_failure_logged_and_task_ends(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A broken socket must log a WARNING and end the task, not crash or spin."""
+
+    class _BrokenWS:
+        async def send(self, raw: str) -> None:
+            raise ConnectionError("socket closed")
+
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    queue.put_nowait(_prompt_frame("p1"))
+    task = asyncio.create_task(
+        auto_responder(queue, _BrokenWS(), policy=CannedAnswerPolicy())
+    )
+    with caplog.at_level(logging.WARNING, logger="jig.eval.responder"):
+        await asyncio.wait_for(task, timeout=2)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "p1" in warnings[0].getMessage()
+    assert "socket closed" in warnings[0].getMessage()

@@ -19,6 +19,7 @@ is the seam for scripted (answers.yaml) or LLM policies later.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Protocol
@@ -37,6 +38,12 @@ class AnswerPolicy(Protocol):
     def answer(self, ticket_id: str, question: str) -> str: ...
 
 
+class WSSender(Protocol):
+    """The slice of a websocket connection the responder uses."""
+
+    async def send(self, data: str) -> None: ...
+
+
 class CannedAnswerPolicy:
     """Constant license-to-proceed answer, regardless of the question."""
 
@@ -45,8 +52,8 @@ class CannedAnswerPolicy:
 
 
 async def auto_responder(
-    queue,
-    ws,
+    queue: asyncio.Queue[dict],
+    ws: WSSender,
     *,
     policy: AnswerPolicy,
     max_replies_per_ticket: int = DEFAULT_MAX_REPLIES_PER_TICKET,
@@ -107,14 +114,23 @@ async def auto_responder(
             question,
             answer,
         )
-        await ws.send(
-            json.dumps(
-                {
-                    "type": "command",
-                    "name": "prompt_reply",
-                    "args": {"args": [prompt_id, answer]},
-                }
+        try:
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "command",
+                        "name": "prompt_reply",
+                        "args": {"args": [prompt_id, answer]},
+                    }
+                )
             )
-        )
+        except Exception as exc:
+            # Socket closed or broken mid-run. No retry: the parked prompt
+            # leaves the run to the stall backstop. Return (not continue) so
+            # the task ends cleanly instead of spinning on a dead socket.
+            log.warning(
+                "auto-responder: send failed for prompt_id=%s: %s", prompt_id, exc
+            )
+            return
         answered.add(prompt_id)
         replies_per_ticket[ticket_id] = rounds + 1

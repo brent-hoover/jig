@@ -1,7 +1,7 @@
 ---
 title: Eval Tracer Execution — Implementation Plan
 type: plan
-status: draft
+status: archived
 owner: Brent Hoover
 created: 2026-06-11
 updated: 2026-06-11

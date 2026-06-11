@@ -1,7 +1,7 @@
 ---
 title: Eval Tracer Execution — Problem Statement
 type: problem
-status: draft
+status: active
 owner: Brent Hoover
 created: 2026-06-11
 updated: 2026-06-11

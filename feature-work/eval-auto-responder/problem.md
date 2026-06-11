@@ -139,9 +139,12 @@ All resolved 2026-06-10 (operator decisions):
       The answer policy stays behind a small interface so scripted answers (or an LLM responder) can drop in later.
 - [x] **Loop guard**: cap auto-answer rounds per ticket (small, e.g. 3). On hit, stop answering, log loudly, and let
       the existing `bus_silence` stall fire. No new outcome enum or exit code; store + logs carry the post-mortem.
-- [x] **Trigger**: the `ticket_updated` → `needs_info` frame on the already-subscribed `tickets` topic. It is the
-      exact "agent is blocked" signal, and `answer_questions` binds to all open questions without needing question
-      details, so no `"threads"` subscription is required.
+- [x] **Trigger**: ~~the `ticket_updated` → `needs_info` frame + `answer_questions`~~ **Superseded during design**
+      (2026-06-10): verification showed `answer_questions` never resumes the orchestrator — it parks on a
+      `PromptRegistry` future in `_prompt_for_needs_info` (`jig/orchestrator.py:2638`) that only the typed
+      `prompt_reply` command resolves. The design instead triggers on `prompt_request` frames (topic `"prompts"`,
+      already in the runner's subscriptions) and replies via `prompt_reply` — the same mechanism a human operator
+      uses in the TUI. See design.md "How resume actually works".
 
 ## Change log
 
@@ -150,3 +153,5 @@ All resolved 2026-06-10 (operator decisions):
   Hoover)
 - 2026-06-10: Resolved all open questions — single canned answer, answers.yaml deferred, loop cap falls through to
   stall, needs_info trigger (Brent Hoover)
+- 2026-06-10: Trigger decision superseded during design — `answer_questions` cannot resume the parked orchestrator;
+  design uses `prompt_request`/`prompt_reply` instead (Brent Hoover)

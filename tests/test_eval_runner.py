@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -191,8 +191,9 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
     async def _fake_connect(*args, **kwargs):
         yield _FakeWS()
 
+    mock_run_init = AsyncMock()
     with (
-        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.init_workflow.run_init", mock_run_init),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
         patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
         patch("jig.eval.runner._teardown_proc"),
@@ -210,6 +211,13 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
 
     assert result.outcome == EvalOutcome.TRACER_FAIL
     assert result.temp_dir is not None
+    mock_run_init.assert_awaited_once_with(
+        name=ANY,
+        force=False,
+        brief_file=ANY,
+        prompts=ANY,
+        profile_name="small",
+    )
 
 
 def test_run_eval_collect_exception_tears_down_proc(tmp_path: Path) -> None:
@@ -266,8 +274,9 @@ def test_run_eval_collect_exception_tears_down_proc(tmp_path: Path) -> None:
     async def _fake_connect(*args, **kwargs):
         yield _FakeWS()
 
+    mock_run_init = AsyncMock()
     with (
-        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.init_workflow.run_init", mock_run_init),
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
         patch(
             "jig.eval.collector.collect",
@@ -288,3 +297,10 @@ def test_run_eval_collect_exception_tears_down_proc(tmp_path: Path) -> None:
             )
 
     mock_teardown.assert_called_once()
+    mock_run_init.assert_awaited_once_with(
+        name=ANY,
+        force=False,
+        brief_file=ANY,
+        prompts=ANY,
+        profile_name="small",
+    )

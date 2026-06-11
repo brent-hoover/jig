@@ -128,6 +128,10 @@ def test_hyphenated_project_name_two_token_substitution(tmp_path: Path) -> None:
     assert "uv run hn-cli --help" in readme
     assert "python -m hn_cli" in readme
 
+    # User-facing Typer help text uses the dist name, not the package name.
+    cli_src = (dest / "src" / "hn_cli" / "cli.py").read_text(encoding="utf-8")
+    assert 'help="hn-cli CLI."' in cli_src
+
     # No placeholder token survives substitution in any rendered text file.
     for f in dest.rglob("*"):
         if not f.is_file():

@@ -572,3 +572,49 @@ def test_run_eval_passes_tracer_env_with_venv_path(tmp_path: Path) -> None:
     tracer_env = call.kwargs["tracer_env"]
     expected_prefix = str(project_dir / ".venv" / "bin") + _os.pathsep
     assert tracer_env["PATH"].startswith(expected_prefix)
+
+
+def test_run_eval_build_timeout_is_tracer_fail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A hung uv sync must map to TRACER_FAIL, not crash the runner."""
+    import logging
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    mock_proc, _FakeWS = _success_path_fakes(tmp_path)
+    mock_teardown = MagicMock()
+    mock_collect = AsyncMock()
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FakeWS()
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch(
+            "jig.eval.runner.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="uv sync", timeout=300),
+        ),
+        patch("jig.eval.collector.collect", mock_collect),
+        patch("jig.eval.runner._teardown_proc", mock_teardown),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+        caplog.at_level(logging.ERROR, logger="jig.eval.runner"),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=False,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    assert result.outcome == EvalOutcome.TRACER_FAIL
+    assert result.temp_dir is not None
+    mock_collect.assert_not_awaited()
+    mock_teardown.assert_called_once()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("timed out" in m for m in errors)

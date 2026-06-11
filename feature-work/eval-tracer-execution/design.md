@@ -80,8 +80,8 @@ this degenerate case).
 ### 3. Build step + tracer PATH (`jig/eval/runner.py` + `jig/eval/collector.py`)
 
 After the race settles on SUCCESS, **inside the success path's existing `try/except Exception` guard**
-(`runner.py:306`), before the `collect()` call — placement is load-bearing: it's what makes a `TimeoutExpired`
-propagate after teardown rather than escape unguarded:
+(`runner.py:306`), before the `collect()` call — the outer guard stays as the backstop for anything unexpected,
+while `TimeoutExpired` is handled explicitly at the call (below):
 
 ```python
 build = subprocess.run(
@@ -95,8 +95,9 @@ if build.returncode != 0:
 ```
 
 Synchronous and blocking is fine here — the orchestrator subprocess is done producing events and the runner has
-nothing else to do (same reasoning as `_teardown_proc`). A `TimeoutExpired` is caught by the success path's existing
-`try/except Exception` guard and propagates after teardown.
+nothing else to do (same reasoning as `_teardown_proc`). `subprocess.TimeoutExpired` is caught explicitly at the
+`uv sync` call: a hung build is an eval signal (non-installable project), so it logs, tears down, and returns
+TRACER_FAIL like any other build failure — it does not crash the runner.
 
 `collect()` gains one optional parameter, threaded into the existing tracer `subprocess.run`:
 
@@ -213,5 +214,6 @@ fixture-side workaround) was resolved by the operator in problem.md's open quest
 ## Change log
 
 - 2026-06-11: Initial draft (Brent Hoover)
+- 2026-06-11: Build timeout maps to TRACER_FAIL explicitly instead of propagating (roborev job 514)
 - 2026-06-11: Review fixes — pinned the collect() call-site change, all seven _teardown_proc sites, build-step
   placement inside the success-path guard, mixed-token README line, Decision paragraph (Brent Hoover)

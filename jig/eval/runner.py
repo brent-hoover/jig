@@ -323,13 +323,20 @@ async def run_eval(
             _teardown_proc(proc, project_dir)
             return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
-        build = subprocess.run(
-            ["uv", "sync"],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            timeout=_BUILD_TIMEOUT,
-        )
+        try:
+            build = subprocess.run(
+                ["uv", "sync"],
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                timeout=_BUILD_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # A hung build is an eval signal (non-installable project), not a
+            # runner crash — map it to TRACER_FAIL like any other build failure.
+            log.error("uv sync timed out after %ss: %s", _BUILD_TIMEOUT, exc)
+            _teardown_proc(proc, project_dir)
+            return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)
         if build.returncode != 0:
             log.error(
                 "uv sync failed (exit %d):\n%s",

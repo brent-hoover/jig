@@ -134,12 +134,15 @@ All resolved 2026-06-11 (operator decisions):
       two-token substitution above is needed.
 - [x] **Audit for script == package assumptions**: done 2026-06-11. Nothing in jig's tests depends on it
       (`tests/test_apply_template_files.py` uses hyphen-less `example_project`, where the names coincide). The
-      hyphenated-name sites are exactly `[project] name`, the scripts key, and README invocations
-      (`uv run myproject --help`); everything else stays underscored. Token mechanics (second placeholder vs
+      hyphenated-name sites are `[project] name`, the scripts key, and the user-facing strings: README title and
+      command invocations (`uv run myproject --help`) and the Typer help text in the template `cli.py`; package
+      dirs, imports, `python -m`, hatch paths, and scripts targets stay underscored. Token mechanics (second placeholder vs
       per-file substitution rules) is a design detail.
 
 ## Change log
 
 - 2026-06-11: Initial draft (Brent Hoover)
+- 2026-06-11: Audit note expanded with user-facing placeholder sites (README title, Typer help text) per
+  roborev job 513 (Brent Hoover)
 - 2026-06-11: Resolved all open questions — subdir name source, two-token substitution, runner-owned build step;
   audit found no script==package dependencies (Brent Hoover)

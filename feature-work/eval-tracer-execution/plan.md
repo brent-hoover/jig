@@ -64,7 +64,9 @@ green; `uv run ruff check jig/ tests/` + `uv run ruff format --check` on touched
     (`log.info("eval: ... temp=%s project=%s ...")`).
   - Build step inside the success path's `try/except Exception` guard, before `collect()`: `uv sync` with
     `cwd=project_dir, capture_output=True, text=True, timeout=300`; non-zero → log ERROR with stderr tail,
-    `_teardown_proc`, `return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)`.
+    `_teardown_proc`, `return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)`. Catch
+    `subprocess.TimeoutExpired` explicitly at the call: log, teardown, return TRACER_FAIL (a hung build must not
+    crash the runner); dedicated test for the timeout path.
   - `tracer_env = {**os.environ, "PATH": f"{project_dir / '.venv' / 'bin'}{os.pathsep}..."}` passed via
     `collect(..., tracer_env=tracer_env)` — both changes land on the single call at `:314-320` (pre-edit).
 - `jig/eval/collector.py`: `collect(..., tracer_env: dict[str, str] | None = None)`; thread `env=tracer_env` into
@@ -127,6 +129,7 @@ the eval path. No data migrations.
 ## Change log
 
 - 2026-06-11: Initial draft (Brent Hoover)
+- 2026-06-11: TimeoutExpired handling + test added to step 2 (roborev job 515)
 - 2026-06-11: Review fixes — create test_eval_collector.py explicitly, named the two success-path tests needing the
   uv-sync patch, caplog assertion for build stderr, deterministic step-3 gate, line numbers demoted to checklist
   count (Brent Hoover)

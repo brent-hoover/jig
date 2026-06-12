@@ -11,6 +11,7 @@ import pytest
 
 
 from jig.eval.runner import (
+    _classify_completion,
     EvalOutcome,
     _check_tracer_outcome,
     _free_port,
@@ -50,8 +51,9 @@ def test_watch_completion_returns_out_dir() -> None:
         }
     )
 
-    data, out_dir = asyncio.run(_watch_completion(queue))
+    kind, data, out_dir = asyncio.run(_watch_completion(queue))
 
+    assert kind == "project_complete"
     assert out_dir == "/tmp/analysis"
     assert data == {"id": "run1"}
 
@@ -68,10 +70,34 @@ def test_watch_completion_timeout_no_analysis() -> None:
     )
 
     # Use a tiny analysis_wait so we don't actually wait 60s
-    data, out_dir = asyncio.run(_watch_completion(queue, analysis_wait=0.05))
+    kind, data, out_dir = asyncio.run(_watch_completion(queue, analysis_wait=0.05))
 
+    assert kind == "project_complete"
     assert out_dir is None
     assert data == {"id": "run2"}
+
+
+def test_watch_completion_project_stuck_terminates_promptly() -> None:
+    """A project_stuck frame must end the watch immediately with the
+    stuck payload — falling through to the stall detector's catch-all is
+    exactly the misclassification being fixed."""
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    queue.put_nowait(
+        {
+            "type": "event",
+            "topic": "events",
+            "kind": "project_stuck",
+            "data": {"stuck_tickets": {"x": {"status": "open", "blocked_by": ["y"]}}},
+        }
+    )
+
+    kind, data, out_dir = asyncio.run(
+        asyncio.wait_for(_watch_completion(queue), timeout=1.0)
+    )
+
+    assert kind == "project_stuck"
+    assert out_dir is None
+    assert "x" in data["stuck_tickets"]
 
 
 def test_watch_stall_poll_fires_on_silence() -> None:
@@ -626,3 +652,17 @@ def test_run_eval_build_timeout_is_tracer_fail(
     build_call = mock_build.call_args
     assert build_call.args[0] == ["uv", "sync"]
     assert build_call.kwargs["cwd"].name == "test-proj"
+
+
+def test_classify_completion_outcomes() -> None:
+    assert _classify_completion("project_stuck", {}) == EvalOutcome.STUCK
+    assert (
+        _classify_completion("project_complete", {"tickets_failed": 2})
+        == EvalOutcome.COMPLETED_WITH_FAILURES
+    )
+    assert (
+        _classify_completion("project_complete", {"tickets_failed": 0})
+        == EvalOutcome.SUCCESS
+    )
+    # Older daemons without the field classify as clean completion.
+    assert _classify_completion("project_complete", {}) == EvalOutcome.SUCCESS

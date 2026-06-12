@@ -42,7 +42,15 @@ def _free_port() -> int:
 
 class EvalOutcome(str, Enum):
     SUCCESS = "success"
+    # Project reached all-terminal and project_complete fired, but one or
+    # more tickets FAILED (root or cascade). Manifest + tracer still run —
+    # an incomplete project failing its tracer is signal, not noise.
+    COMPLETED_WITH_FAILURES = "completed_with_failures"
     STALL = "stall"
+    # Orchestrator's own watchdog declared the project stuck (nothing
+    # running, nothing ready, work outstanding). Distinct from STALL,
+    # which is the runner's external catch-all.
+    STUCK = "stuck"
     TIMEOUT = "timeout"
     INIT_ERROR = "init_error"
     TRACER_FAIL = "tracer_fail"
@@ -61,11 +69,18 @@ async def _watch_completion(
     queue: asyncio.Queue[dict],
     *,
     analysis_wait: float = _ANALYSIS_WAIT_SECONDS,
-) -> tuple[dict, str | None]:
-    """Consume frames from queue until project_complete + analysis_complete arrive.
+) -> tuple[str, dict, str | None]:
+    """Consume frames until the run reaches a terminal orchestrator signal.
 
-    Returns (project_complete_data, out_dir). out_dir is None if analysis_complete
-    does not arrive within analysis_wait seconds of project_complete.
+    Returns ``(kind, data, out_dir)``:
+
+    - ``("project_complete", project_complete_data, out_dir)`` once
+      project_complete + analysis_complete arrive. out_dir is None if
+      analysis_complete does not arrive within analysis_wait seconds.
+    - ``("project_stuck", stuck_data, None)`` immediately on the
+      orchestrator's stuck-watchdog event — waiting longer would only
+      hand the dead run to the stall detector's catch-all, which is
+      exactly the misclassification this signal exists to avoid.
     """
     project_data: dict = {}
     project_complete_at: float | None = None
@@ -74,11 +89,11 @@ async def _watch_completion(
         if project_complete_at is not None:
             remaining = analysis_wait - (time.monotonic() - project_complete_at)
             if remaining <= 0:
-                return project_data, None
+                return "project_complete", project_data, None
             try:
                 msg = await asyncio.wait_for(queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
-                return project_data, None
+                return "project_complete", project_data, None
         else:
             msg = await queue.get()
 
@@ -86,15 +101,15 @@ async def _watch_completion(
         kind = msg.get("kind", "")
         data = msg.get("data") or {}
 
-        if topic == "events" and kind == "project_complete":
+        if topic != "events":
+            continue
+        if kind == "project_stuck":
+            return "project_stuck", data, None
+        if kind == "project_complete":
             project_data = data
             project_complete_at = time.monotonic()
-        elif (
-            topic == "events"
-            and kind == "analysis_complete"
-            and project_complete_at is not None
-        ):
-            return project_data, data.get("out_dir")
+        elif kind == "analysis_complete" and project_complete_at is not None:
+            return "project_complete", project_data, data.get("out_dir")
 
 
 async def _watch_stall(
@@ -134,6 +149,19 @@ async def _watch_stall(
     if poll_task not in done:
         raise RuntimeError("_watch_stall: consumer exited before stall verdict")
     return poll_task.result()
+
+
+def _classify_completion(kind: str, data: dict) -> EvalOutcome:
+    """Map a terminal completion-watch result to an eval outcome.
+
+    ``project_stuck`` → STUCK; ``project_complete`` with failed tickets
+    → COMPLETED_WITH_FAILURES; clean completion → SUCCESS.
+    """
+    if kind == "project_stuck":
+        return EvalOutcome.STUCK
+    if data.get("tickets_failed", 0) > 0:
+        return EvalOutcome.COMPLETED_WITH_FAILURES
+    return EvalOutcome.SUCCESS
 
 
 def _check_tracer_outcome(exit_code: int, stdout: str) -> EvalOutcome | None:
@@ -296,8 +324,12 @@ async def run_eval(
                     pass
 
             if completion_task in done:
-                _, analysis_out_dir = completion_task.result()
-                outcome = EvalOutcome.SUCCESS
+                completion_kind, completion_data, analysis_out_dir = (
+                    completion_task.result()
+                )
+                outcome = _classify_completion(completion_kind, completion_data)
+                if outcome == EvalOutcome.STUCK:
+                    stall_verdict = completion_data
             elif stall_task in done:
                 stall_verdict = stall_task.result()
                 outcome = EvalOutcome.STALL
@@ -305,7 +337,7 @@ async def run_eval(
         log.error("WS error: %s", exc)
         outcome = EvalOutcome.INIT_ERROR
 
-    if outcome != EvalOutcome.SUCCESS:
+    if outcome not in (EvalOutcome.SUCCESS, EvalOutcome.COMPLETED_WITH_FAILURES):
         log.info("eval: outcome=%s verdict=%s", outcome, stall_verdict)
         _teardown_proc(proc, project_dir)
         return RunResult(
@@ -314,8 +346,17 @@ async def run_eval(
             temp_dir=temp_path,
         )
 
-    # Success path — guard ensures _teardown_proc is called even if collect/write/copy raises.
+    # Completion path (SUCCESS or COMPLETED_WITH_FAILURES — manifest and
+    # tracer run either way; an incomplete project failing its tracer is
+    # signal, not noise). Guard ensures _teardown_proc is called even if
+    # collect/write/copy raises.
     try:
+        # When tickets failed, the project is expectedly incomplete — a
+        # failing build/tracer is subsumed by COMPLETED_WITH_FAILURES
+        # rather than reported as TRACER_FAIL.
+        fail_outcome = (
+            EvalOutcome.TRACER_FAIL if outcome == EvalOutcome.SUCCESS else outcome
+        )
         run_id = str(uuid.uuid4())[:8]
         tracer_sh = jig_repo / "evals" / "projects" / project_id / "tracer.sh"
         if not tracer_sh.is_file():
@@ -339,7 +380,7 @@ async def run_eval(
             # runner crash — map it to TRACER_FAIL like any other build failure.
             log.error("uv sync timed out after %ss: %s", _BUILD_TIMEOUT, exc)
             _teardown_proc(proc, project_dir)
-            return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)
+            return RunResult(outcome=fail_outcome, temp_dir=temp_path)
         if build.returncode != 0:
             log.error(
                 "uv sync failed (exit %d):\n%s",
@@ -347,7 +388,7 @@ async def run_eval(
                 build.stderr[-2000:],
             )
             _teardown_proc(proc, project_dir)
-            return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)
+            return RunResult(outcome=fail_outcome, temp_dir=temp_path)
 
         tracer_env = {
             **os.environ,
@@ -379,7 +420,7 @@ async def run_eval(
             )
             _teardown_proc(proc, project_dir)
             return RunResult(
-                outcome=EvalOutcome.TRACER_FAIL,
+                outcome=fail_outcome,
                 manifest_path=manifest_path,
                 temp_dir=temp_path,
             )
@@ -396,7 +437,7 @@ async def run_eval(
             )
             _teardown_proc(proc, project_dir)
             return RunResult(
-                outcome=EvalOutcome.TRACER_FAIL,
+                outcome=fail_outcome,
                 manifest_path=manifest_path,
                 temp_dir=temp_path,
             )
@@ -418,7 +459,7 @@ async def run_eval(
             shutil.rmtree(temp_path, ignore_errors=True)
 
         return RunResult(
-            outcome=EvalOutcome.SUCCESS,
+            outcome=outcome,
             manifest_path=manifest_path,
             analysis_dir=analysis_dir,
             temp_dir=temp_path if keep else None,

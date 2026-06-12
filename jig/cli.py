@@ -2466,6 +2466,8 @@ def eval_run(
       2  Wall-clock timeout
       3  Init error
       4  Tracer FAIL or SKIP
+      5  Completed with failed tickets
+      6  Orchestrator declared project stuck
     """
     import logging
 
@@ -2504,7 +2506,12 @@ def eval_run(
         click.echo(f"analysis: {result.analysis_dir}")
     if result.stall_verdict is not None:
         v = result.stall_verdict
-        click.echo(f"stall:    {v.signal} — {v.detail}")  # type: ignore[attr-defined]
+        if isinstance(v, dict):
+            # project_stuck payload from the orchestrator's watchdog.
+            stuck = ", ".join(sorted(v.get("stuck_tickets", {})))
+            click.echo(f"stuck:    {stuck}")
+        else:
+            click.echo(f"stall:    {v.signal} — {v.detail}")  # type: ignore[attr-defined]
     if result.temp_dir:
         click.echo(f"temp_dir: {result.temp_dir}")
 
@@ -2514,6 +2521,8 @@ def eval_run(
         EvalOutcome.TIMEOUT: 2,
         EvalOutcome.INIT_ERROR: 3,
         EvalOutcome.TRACER_FAIL: 4,
+        EvalOutcome.COMPLETED_WITH_FAILURES: 5,
+        EvalOutcome.STUCK: 6,
     }
     sys.exit(_EXIT_CODES.get(result.outcome, 99))
 

@@ -430,6 +430,46 @@ class TestNotableOnlyBlockRouting:
         finally:
             await orch.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_unacked_notables_uses_provided_snapshot(
+        self, tmp_path: Path
+    ) -> None:
+        """When the caller passes a pre-loaded comment snapshot,
+        _unacked_notables must work from it instead of reloading the
+        store — _route_blocked_phase relies on this for a single
+        consistent view of the store across one routing decision."""
+        _save_project(tmp_path)
+        # Store holds the persisted comment; the snapshot we pass holds a
+        # DIFFERENT one. Only the snapshot's comment may be considered.
+        await _seed_store(
+            tmp_path,
+            "tb-snapshot",
+            [
+                _comment(
+                    file="tests/test_stored.py",
+                    severity=Severity.NOTABLE,
+                    reviewer="reviewer-test-adequacy",
+                )
+            ],
+        )
+        snapshot = [
+            _comment(
+                file="tests/test_snapshot.py",
+                severity=Severity.NOTABLE,
+                reviewer="reviewer-test-adequacy",
+            ).model_copy(update={"ticket_id": "tb-snapshot"})
+        ]
+        orch = Orchestrator(project_path=tmp_path)
+        await orch.startup()
+        try:
+            unacked_ids, comments = await orch._unacked_notables(
+                "tb-snapshot", all_comments=snapshot
+            )
+            assert unacked_ids == ["RC-1"]
+            assert [c.file for c in comments] == ["tests/test_snapshot.py"]
+        finally:
+            await orch.shutdown()
+
 
 # ---------- the load-bearing integration test ------------------------------
 

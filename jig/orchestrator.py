@@ -3172,7 +3172,10 @@ class Orchestrator:
         return bundle
 
     async def _unacked_notables(
-        self, ticket_id: str
+        self,
+        ticket_id: str,
+        *,
+        all_comments: "list[ReviewerComment] | None" = None,
     ) -> tuple[list[str], list["ReviewerComment"]]:
         """Unacked in-scope notable findings for ``ticket_id``.
 
@@ -3182,13 +3185,22 @@ class Orchestrator:
         ``_run_review_phase_federation`` and the notable-only routing path
         in ``_route_blocked_phase`` so both agree on exactly which
         findings are holding the phase.
+
+        ``all_comments``, when provided, must be the ticket's full
+        comment history in insertion (chronological) order — finding-ID
+        assignment depends on it. Callers that already loaded the store
+        pass it so one routing decision works from a single snapshot
+        instead of racing a second disk read against concurrent
+        reviewer writes.
         """
         from jig.finding_ids import compute_finding_ids, signature_of
         from jig.reviewers.comment import Severity
 
         all_history: list[ReviewerComment] = []
         all_acks: list[FindingAck] = []
-        if self.review_comments is not None:
+        if all_comments is not None:
+            all_history = all_comments
+        elif self.review_comments is not None:
             await self.review_comments.load()
             all_history = await self.review_comments.for_ticket_chronological(ticket_id)
         acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
@@ -3263,9 +3275,13 @@ class Orchestrator:
             # Reload from disk: reviewer_mcp.handle_reviewer_post_comment
             # writes through a fresh ReviewCommentsStore instance, so the
             # orchestrator's cached _docs does not see post-startup writes.
-            # See PR #51 review thread.
+            # See PR #51 review thread. Chronological order so the same
+            # snapshot can feed _unacked_notables (finding-ID assignment
+            # requires insertion order).
             await self.review_comments.load()
-            all_comments = await self.review_comments.for_ticket(ticket_id)
+            all_comments = await self.review_comments.for_ticket_chronological(
+                ticket_id
+            )
         # Most recent cycle = the one that just blocked. The
         # FixLoopTracker auto-increments cycle per record, so max()
         # identifies the latest.
@@ -3309,8 +3325,12 @@ class Orchestrator:
             # the most-recent-dev fallback below returns None at review
             # phases that precede the first dev phase (e.g. review-tests)
             # and would fail the ticket on purely advisory findings.
+            # Pass the snapshot loaded above so this whole routing
+            # decision sees one consistent store state.
             route = None
-            _unacked_ids, notable_comments = await self._unacked_notables(ticket_id)
+            _unacked_ids, notable_comments = await self._unacked_notables(
+                ticket_id, all_comments=all_comments
+            )
             if notable_comments:
                 route = await _route_blocking_comments(
                     workflow,

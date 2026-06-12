@@ -52,6 +52,38 @@ from jig.ticket import TicketStatus
 
 _logger = logging.getLogger(__name__)
 
+
+class AgentAuthError(RuntimeError):
+    """Raised when a spawned ``claude`` agent has no usable credentials.
+
+    The bundled CLI returns an ``is_error`` result whose text reads
+    ``"Not logged in · Please run /login"`` and then exits non-zero; the
+    SDK rewrites that bare exit into the opaque ``Claude Code returned an
+    error result: success``. We detect the auth-failure result first and
+    raise this instead so callers can present an actionable message
+    (jig agents authenticate via ``CLAUDE_CODE_OAUTH_TOKEN``)."""
+
+
+# Substrings (compared case-insensitively) that mark a Claude Code result
+# as an authentication/login failure rather than a task error. Only
+# consulted for results already flagged ``is_error`` by the CLI.
+_AUTH_FAILURE_MARKERS: tuple[str, ...] = (
+    "not logged in",
+    "please run /login",
+    "invalid api key",
+    "invalid oauth token",
+    "oauth token has expired",
+)
+
+
+def _is_auth_failure(text: str | None) -> bool:
+    """True if ``text`` is a Claude Code auth/login failure message."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in _AUTH_FAILURE_MARKERS)
+
+
 # Matches ANSI CSI escape sequences (e.g. "\x1b[31m") and standalone ESC chars.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
 # Matches control characters except \t (we convert it to space anyway).
@@ -892,6 +924,17 @@ async def run_agent(
                 elif isinstance(message, SystemMessage):
                     _logger.debug("[%s] system: %s", tag, message.subtype)
                 elif isinstance(message, ResultMessage):
+                    # Auth failures arrive as an is_error result whose text
+                    # is "Not logged in · Please run /login" (subtype is
+                    # confusingly still "success"). Surface a typed, actionable
+                    # error before the SDK turns the trailing non-zero exit
+                    # into an opaque "error result: success" exception.
+                    if message.is_error and _is_auth_failure(message.result):
+                        done.set()
+                        raise AgentAuthError(
+                            message.result
+                            or "Claude Code reported an authentication failure"
+                        )
                     final_text = message.result or ""
                     cost_usd = message.total_cost_usd
                     usage = message.usage or {}
@@ -949,6 +992,10 @@ async def run_agent(
                     result = getattr(message, "result", None)
                     if isinstance(result, str):
                         final_text = result
+        except AgentAuthError:
+            # Already typed and actionable — don't bury it under the generic
+            # "SDK query failed" exception log.
+            raise
         except Exception:
             _logger.exception("claude agent SDK query failed for %s", ctx.role)
             raise

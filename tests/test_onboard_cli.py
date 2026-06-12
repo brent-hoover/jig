@@ -46,6 +46,7 @@ def test_onboard_repo_subdirectory_errors(tmp_path):
 
 
 def test_onboard_passes_options_through(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test")
     _git_init(tmp_path)
     brief = tmp_path / "wish.md"
     brief.write_text("# Desired\n")
@@ -78,6 +79,7 @@ def test_onboard_passes_options_through(tmp_path, monkeypatch):
 
 
 def test_onboard_defaults_to_cwd(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test")
     captured = {}
 
     async def fake_run_onboard(**kwargs):

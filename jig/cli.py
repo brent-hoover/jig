@@ -159,6 +159,7 @@ def onboard(
     import asyncio
     import subprocess
 
+    from jig.agent import AgentAuthError
     from jig.onboard_workflow import run_onboard
 
     # Onboarding non-git repositories is unsupported — the workflow
@@ -187,14 +188,37 @@ def onboard(
             f"{path} is inside the git repository at {toplevel}, but is not "
             "its root. `jig onboard` must run against the repository root."
         )
-    asyncio.run(
-        run_onboard(
-            path=path,
-            brief_file=brief_file,
-            force=force,
-            profile_name=profile_name,
+
+    # jig agents authenticate with a CLAUDE_CODE_OAUTH_TOKEN, not the
+    # operator's interactive `claude` login: every spawn is pointed at a
+    # jig-managed CLAUDE_CONFIG_DIR that carries no credentials. Without the
+    # token the scanner agent spawns, prints "Not logged in", and exits —
+    # surfacing as an opaque SDK error. Fail fast with the fix instead.
+    if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        raise click.ClickException(
+            "CLAUDE_CODE_OAUTH_TOKEN is not set. jig agents authenticate with "
+            "an OAuth token, not your interactive `claude` login.\n"
+            "Run `claude setup-token` and export the printed token "
+            "(add it to your shell profile to persist):\n\n"
+            "    export CLAUDE_CODE_OAUTH_TOKEN=<token>"
         )
-    )
+
+    try:
+        asyncio.run(
+            run_onboard(
+                path=path,
+                brief_file=brief_file,
+                force=force,
+                profile_name=profile_name,
+            )
+        )
+    except AgentAuthError as exc:
+        # Token was set but rejected (expired/invalid/revoked).
+        raise click.ClickException(
+            f"Agent authentication failed: {exc}\n"
+            "Your CLAUDE_CODE_OAUTH_TOKEN may be invalid or expired — "
+            "regenerate it with `claude setup-token` and re-export it."
+        ) from exc
 
 
 def _run_orchestrator_loop(path: Path, ws_port: int, verbose: bool = False) -> None:

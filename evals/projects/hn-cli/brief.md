@@ -15,6 +15,12 @@ As a developer in the terminal, I want to fetch the top HN stories quickly so I 
 
 **Behaviors:**
 - {#run-top-cmd} `hn-cli top --limit N` prints N stories ranked by HN score, one per line.
+- {#fixture-replay} When the environment variable `HN_FIXTURE_FILE` is set, the tool
+  serves every HN API response from that file instead of the network. This is how the
+  tracer runs the tool deterministically; it is a REQUIRED feature, not test-only
+  scaffolding. The file is JSONL: one recorded response per line, shaped
+  `{"method": "GET", "url": "<full request URL>", "status": <int>, "body": <json>}`.
+  Lookup is by exact URL match.
 
 **Acceptance criteria:**
 - [run-top-cmd] Exit code is 0 on success.
@@ -29,8 +35,13 @@ As a developer in the terminal, I want to fetch the top HN stories quickly so I 
   (e.g. `1.  428  Show HN: ...  https://...`).
 - [run-top-cmd] Ranks in the final output are renumbered 1..K contiguously, where K
   is the post-filter row count (NOT the original HN rank).
-- [run-top-cmd] In eval mode, story IDs and titles match the fixture corpus
-  deterministically (tracer: `hn-cli top --limit 3`).
+- [run-top-cmd] With `HN_FIXTURE_FILE` set (see {#fixture-replay}), story IDs and
+  titles match the fixture corpus deterministically (tracer: `hn-cli top --limit 3`).
+- [fixture-replay] When `HN_FIXTURE_FILE` is set, the tool makes NO network requests;
+  every response is read from the fixture file.
+- [fixture-replay] A request URL with no matching line in the fixture file is an error:
+  exit non-zero with a message naming the missing URL. Do not fall back to the network.
+- [fixture-replay] When `HN_FIXTURE_FILE` is unset, behavior is unchanged (live HN API).
 
 ---
 
@@ -102,8 +113,12 @@ As a developer, I want JSON output so I can pipe `hn-cli` into other tools.
 ## Tracer
 
 ```
-hn-cli top --limit 3
+HN_FIXTURE_FILE=<fixtures>/hn-api.jsonl hn-cli top --limit 3
 ```
+
+The tracer always sets `HN_FIXTURE_FILE` to the fixture corpus shipped next to this
+brief (`fixtures/hn-api.jsonl`), so a build that ignores the variable and hits the
+live API will fail the deterministic-corpus check below.
 
 Pass conditions:
 

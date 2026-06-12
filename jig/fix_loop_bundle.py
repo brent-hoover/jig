@@ -59,7 +59,9 @@ async def build_fix_loop_bundle(
     ``target_phase_idx`` via ``_route_one``. Notable findings come from the
     full ``in_scope_notable_comments`` list (all cycles, pre-filtered by the
     caller via ``_filter_out_of_scope_comments``), restricted to those with
-    no satisfying ack. Notables bypass ``_route_one`` and always target dev.
+    no satisfying ack. Notables route through ``_route_one`` like blocking
+    findings — the phase that owns the file (via ``writes:`` globs) receives
+    them, with ``_route_one``'s dev fallback covering unowned files.
 
     Each finding carries its full ack history so the agent can see what was
     previously claimed and rejected.
@@ -107,9 +109,12 @@ async def build_fix_loop_bundle(
                 }
             )
 
-    # --- Notable path: all cycles, bypass routing, unsatisfied acks only ---
+    # --- Notable path: all cycles, routed, unsatisfied acks only ---
     notable_findings: list[dict] = []
     for c in in_scope_notable_comments or []:
+        idx, _ = await _route_one(workflow, blocked_phase_idx, c, worktree_path)
+        if idx != target_phase_idx:
+            continue
         finding_id = ids.get(signature_of(c))
         if finding_id is None:
             continue

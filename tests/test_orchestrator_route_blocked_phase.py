@@ -22,6 +22,7 @@ from jig.models import PhaseConfig, WorkflowConfig
 from jig.orchestrator import Orchestrator
 from jig.project import Project, save_project
 from jig.reviewers.comment import ReviewerComment, ReviewerCommentType, Severity
+from jig.store.finding_acks import FindingAck, FindingAcksStore
 from jig.store.review_comments import ReviewCommentsStore
 
 
@@ -88,6 +89,16 @@ async def _seed_store(
     for c in comments:
         stamped = c.model_copy(update={"ticket_id": ticket_id})
         await store.append(stamped)
+
+
+async def _seed_acks(tmp_path: Path, acks: list[FindingAck]) -> None:
+    """Persist acks in the project's FindingAcksStore."""
+    store_path = tmp_path / ".jig" / "store" / "finding_acks.jsonl"
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store = FindingAcksStore(store_path)
+    await store.load()
+    for a in acks:
+        await store.append(a)
 
 
 # ---------- baseline behaviour ---------------------------------------------
@@ -197,9 +208,10 @@ class TestRouteBlockedPhase:
 
     @pytest.mark.asyncio
     async def test_notable_only_falls_back_to_dev(self, tmp_path: Path) -> None:
-        """Only critical + important findings count as blocking. A
-        notable-only cycle is treated as "no blocking comments" and
-        falls back to most-recent dev (the legacy path)."""
+        """Notables route per-finding only when in scope for the issuing
+        reviewer. This notable is from pattern-conformance on a tests/**
+        file — out of its reads_glob — so it's dropped as hallucinated
+        and routing falls back to most-recent dev (the legacy path)."""
         _save_project(tmp_path)
         await _seed_store(
             tmp_path,
@@ -238,11 +250,13 @@ class TestRouteBlockedPhase:
         await _seed_store(
             tmp_path,
             "tb-note",
-            [_comment(
-                file="tests/test_x.py",
-                cycle=0,
-                reviewer="reviewer-test-adequacy",
-            )],
+            [
+                _comment(
+                    file="tests/test_x.py",
+                    cycle=0,
+                    reviewer="reviewer-test-adequacy",
+                )
+            ],
         )
         orch = Orchestrator(project_path=tmp_path)
         await orch.startup()
@@ -271,6 +285,148 @@ class TestRouteBlockedPhase:
             assert "'review'" in content
             assert "'test'" in content
             assert "writes-glob" in content
+        finally:
+            await orch.shutdown()
+
+
+# ---------- notable-only blocks (unacked-notable gate) ---------------------
+
+
+def _review_tests_workflow() -> WorkflowConfig:
+    """Default-workflow shape: review-tests precedes the first dev phase,
+    so the legacy most-recent-dev fallback has nothing to walk back to."""
+    return WorkflowConfig(
+        name="default-like",
+        phases=[
+            _phase("test", "test", writes=["tests/**"]),
+            _review_phase("review-tests", ["reviewer-test-adequacy"]),
+            _phase("implement", "dev", writes=["src/**"]),
+            _review_phase("review", ["reviewer-pattern-conformance"]),
+        ],
+    )
+
+
+class TestNotableOnlyBlockRouting:
+    """Replay of the hn-cli eval failure (2026-06-12): the unacked-notable
+    gate blocks ``review-tests`` with zero critical/important comments in
+    the latest cycle. The router used to see "no blocking comments", take
+    the most-recent-dev fallback, find no dev phase before index 1, and
+    fail the ticket on purely advisory findings."""
+
+    @pytest.mark.asyncio
+    async def test_unacked_notable_only_routes_by_writes_glob(
+        self, tmp_path: Path
+    ) -> None:
+        _save_project(tmp_path)
+        await _seed_store(
+            tmp_path,
+            "tb-notable-gate",
+            [
+                _comment(
+                    file="tests/test_x.py",
+                    severity=Severity.NOTABLE,
+                    cycle=2,
+                    reviewer="reviewer-test-adequacy",
+                )
+            ],
+        )
+        orch = Orchestrator(project_path=tmp_path)
+        await orch.startup()
+        try:
+            result = await orch._route_blocked_phase(
+                _review_tests_workflow(),
+                blocked_phase_idx=1,
+                ticket_id="tb-notable-gate",
+                worktree=tmp_path,
+            )
+            assert result == 0  # test phase, via writes-glob on the notable
+        finally:
+            await orch.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_acked_notable_does_not_drive_routing(self, tmp_path: Path) -> None:
+        """A notable with a satisfying ack is not unacked — it must not
+        influence routing. With no other comments the dev fallback wins."""
+        _save_project(tmp_path)
+        await _seed_store(
+            tmp_path,
+            "tb-notable-acked",
+            [
+                _comment(
+                    file="tests/test_x.py",
+                    severity=Severity.NOTABLE,
+                    cycle=0,
+                    reviewer="reviewer-test-adequacy",
+                )
+            ],
+        )
+        await _seed_acks(
+            tmp_path,
+            [
+                FindingAck(
+                    ticket_id="tb-notable-acked",
+                    finding_id="RC-1",
+                    kind="addressed",
+                    author="test",
+                    cycle=0,
+                    prose="added the missing assertion",
+                )
+            ],
+        )
+        orch = Orchestrator(project_path=tmp_path)
+        await orch.startup()
+        try:
+            workflow = WorkflowConfig(
+                name="w",
+                phases=[
+                    _phase("test", "test", writes=["tests/**"]),
+                    _phase("implement", "dev", writes=["src/**"]),
+                    _review_phase("review", ["reviewer-test-adequacy"]),
+                ],
+            )
+            result = await orch._route_blocked_phase(
+                workflow,
+                blocked_phase_idx=2,
+                ticket_id="tb-notable-acked",
+                worktree=tmp_path,
+            )
+            assert result == 1  # implement (dev), via fallback — not test
+        finally:
+            await orch.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_bundle_includes_notables_for_non_dev_target(
+        self, tmp_path: Path
+    ) -> None:
+        """The back-routed test agent must receive the unacked notables in
+        its fix-loop bundle — it can't ack findings it never sees, and
+        unacked notables re-block the phase on the next federation pass."""
+        _save_project(tmp_path)
+        await _seed_store(
+            tmp_path,
+            "tb-notable-bundle",
+            [
+                _comment(
+                    file="tests/test_x.py",
+                    severity=Severity.NOTABLE,
+                    cycle=2,
+                    reviewer="reviewer-test-adequacy",
+                )
+            ],
+        )
+        orch = Orchestrator(project_path=tmp_path)
+        await orch.startup()
+        try:
+            bundle = await orch._build_fix_loop_bundle_for_phase(
+                workflow=_review_tests_workflow(),
+                blocked_phase_idx=1,
+                target_phase_idx=0,
+                ticket_id="tb-notable-bundle",
+                worktree=tmp_path,
+            )
+            assert bundle is not None
+            assert [f["severity"] for f in bundle["findings"]] == ["notable"]
+            assert bundle["findings"][0]["file"] == "tests/test_x.py"
         finally:
             await orch.shutdown()
 

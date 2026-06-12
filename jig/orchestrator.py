@@ -1035,32 +1035,7 @@ class Orchestrator:
         # there ARE blocking findings, the dev re-run handles notables too.
         # Fail-closed: an error in the gate blocks rather than silently passes.
         try:
-            all_history = []
-            all_history_acks = []
-            if self.review_comments is not None:
-                await self.review_comments.load()
-                all_history = await self.review_comments.for_ticket_chronological(
-                    ticket_id
-                )
-            acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
-            if acks_path.exists():
-                _gate_acks_store = FindingAcksStore(acks_path)
-                await _gate_acks_store.load()
-                all_history_acks = await _gate_acks_store.for_ticket(ticket_id)
-
-            candidate_notables = [
-                c for c in all_history if c.severity == Severity.NOTABLE.value
-            ]
-            in_scope_notables = (
-                await self._filter_out_of_scope_comments(candidate_notables)
-                if candidate_notables
-                else []
-            )
-            unacked = _unacked_notable_finding_ids(
-                all_comments=all_history,
-                all_acks=all_history_acks,
-                in_scope_notables=in_scope_notables,
-            )
+            unacked, _notable_comments = await self._unacked_notables(ticket_id)
             if unacked:
                 _logger.info(
                     "review federation: %d unacked notable(s) for ticket %s: %s",
@@ -3164,10 +3139,14 @@ class Orchestrator:
         await acks_store.load()
         all_acks = await acks_store.for_ticket(ticket_id)
 
-        # Collect in-scope notables for the dev phase so the dev sees
-        # every finding it must acknowledge, not just blocking ones.
-        # Filter via _filter_out_of_scope_comments (hallucination guard)
-        # to stay consistent with the gate in _run_review_phase_federation.
+        # Collect in-scope notables so the back-routed agent sees every
+        # finding it must acknowledge, not just blocking ones. Filter via
+        # _filter_out_of_scope_comments (hallucination guard) to stay
+        # consistent with the gate in _run_review_phase_federation.
+        # build_fix_loop_bundle routes each notable to its owning phase
+        # (writes-glob), so non-dev targets only receive notables they own —
+        # an unacked notable the agent never sees can never be acked and
+        # would re-block the phase on every subsequent federation pass.
         from jig.reviewers.comment import Severity as _Sev
 
         candidate_notables = [
@@ -3178,15 +3157,6 @@ class Orchestrator:
             if candidate_notables
             else []
         )
-        # Only surface notables to dev-phase bundles (role contains "dev").
-        # For other phases (test, validate), leave notables for the gate's
-        # dev fallback path rather than polluting a non-dev agent's context.
-        target_role = (
-            workflow.phases[target_phase_idx].role
-            if target_phase_idx < len(workflow.phases)
-            else ""
-        )
-        notable_comments_for_bundle = in_scope_notables if target_role == "dev" else []
 
         bundle = await build_fix_loop_bundle(
             workflow=workflow,
@@ -3195,11 +3165,63 @@ class Orchestrator:
             all_comments=all_comments,
             all_acks=all_acks,
             worktree_path=worktree,
-            in_scope_notable_comments=notable_comments_for_bundle,
+            in_scope_notable_comments=in_scope_notables,
         )
         if not bundle["findings"]:
             return None
         return bundle
+
+    async def _unacked_notables(
+        self, ticket_id: str
+    ) -> tuple[list[str], list["ReviewerComment"]]:
+        """Unacked in-scope notable findings for ``ticket_id``.
+
+        Returns ``(finding_ids, comments)`` where ``comments`` holds one
+        representative ``ReviewerComment`` per unacked finding id (its
+        first in-scope occurrence). Shared by the unacked-notable gate in
+        ``_run_review_phase_federation`` and the notable-only routing path
+        in ``_route_blocked_phase`` so both agree on exactly which
+        findings are holding the phase.
+        """
+        from jig.finding_ids import compute_finding_ids, signature_of
+        from jig.reviewers.comment import Severity
+
+        all_history: list[ReviewerComment] = []
+        all_acks: list[FindingAck] = []
+        if self.review_comments is not None:
+            await self.review_comments.load()
+            all_history = await self.review_comments.for_ticket_chronological(ticket_id)
+        acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+        if acks_path.exists():
+            acks_store = FindingAcksStore(acks_path)
+            await acks_store.load()
+            all_acks = await acks_store.for_ticket(ticket_id)
+
+        candidate_notables = [
+            c for c in all_history if c.severity == Severity.NOTABLE.value
+        ]
+        in_scope_notables = (
+            await self._filter_out_of_scope_comments(candidate_notables)
+            if candidate_notables
+            else []
+        )
+        unacked = _unacked_notable_finding_ids(
+            all_comments=all_history,
+            all_acks=all_acks,
+            in_scope_notables=in_scope_notables,
+        )
+        if not unacked:
+            return [], []
+        unacked_set = set(unacked)
+        ids = compute_finding_ids(all_history)
+        comments: list[ReviewerComment] = []
+        seen: set[str] = set()
+        for c in in_scope_notables:
+            fid = ids.get(signature_of(c))
+            if fid in unacked_set and fid not in seen:
+                seen.add(fid)
+                comments.append(c)
+        return unacked, comments
 
     async def _route_blocked_phase(
         self,
@@ -3211,16 +3233,19 @@ class Orchestrator:
         """Pick the phase to re-run after a block, using per-finding
         routing (review-routing step 8).
 
-        Three sources of "phase blocked" feed this code path:
+        Four sources of "phase blocked" feed this code path:
 
         1. Review federation found critical/important comments.
-        2. Required automated check failed (handoff bounced).
-        3. Phase agent returned ``blocked`` directly.
+        2. The unacked-notable gate blocked with no critical/important
+           comments in the latest cycle.
+        3. Required automated check failed (handoff bounced).
+        4. Phase agent returned ``blocked`` directly.
 
-        Only #1 produces ``ReviewerComment`` records. For #2 and #3 we
-        fall back to the legacy "most-recent dev phase" rule that
-        ``_find_fix_phase`` implemented — those callers have no
-        per-finding metadata to route on.
+        #1 and #2 produce ``ReviewerComment`` records and route
+        per-finding. For #3 and #4 we fall back to the legacy
+        "most-recent dev phase" rule that ``_find_fix_phase``
+        implemented — those callers have no per-finding metadata to
+        route on.
 
         When reviewer comments are present, the latest cycle is run
         through ``_route_blocking_comments`` (review-routing step 7).
@@ -3277,12 +3302,34 @@ class Orchestrator:
                 project_path=self._project_path,
             )
         else:
-            # Check-failure / agent-blocked-without-comments path —
-            # legacy most-recent-dev fallback. Also covers the case
-            # where every blocking comment was out-of-scope and
-            # got filtered above.
-            fix_idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, "dev")
-            route = (fix_idx, "check-failure-fallback") if fix_idx is not None else None
+            # Notable-only block: the unacked-notable gate in
+            # _run_review_phase_federation can block a review phase with
+            # zero critical/important comments in the latest cycle. Route
+            # the unacked notables per-finding, same as blocking comments —
+            # the most-recent-dev fallback below returns None at review
+            # phases that precede the first dev phase (e.g. review-tests)
+            # and would fail the ticket on purely advisory findings.
+            route = None
+            _unacked_ids, notable_comments = await self._unacked_notables(ticket_id)
+            if notable_comments:
+                route = await _route_blocking_comments(
+                    workflow,
+                    blocked_phase_idx,
+                    notable_comments,
+                    worktree,
+                    project_path=self._project_path,
+                )
+            if route is None:
+                # Check-failure / agent-blocked-without-comments path —
+                # legacy most-recent-dev fallback. Also covers the case
+                # where every blocking comment was out-of-scope and
+                # got filtered above.
+                fix_idx = _most_recent_phase_with_role(
+                    workflow, blocked_phase_idx, "dev"
+                )
+                route = (
+                    (fix_idx, "check-failure-fallback") if fix_idx is not None else None
+                )
 
         if route is None:
             return None

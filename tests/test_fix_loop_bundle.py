@@ -175,6 +175,58 @@ async def test_rephrased_finding_collapses_to_one_entry(tmp_path: Path) -> None:
 class TestNotableInclusion:
     """Step 2: notables from all cycles appear in the dev bundle."""
 
+    async def test_notable_routed_to_owning_phase_included(
+        self, tmp_path: Path
+    ) -> None:
+        """A notable on tests/** lands in the bundle when the target IS
+        the test phase — non-dev phases receive the notables they own."""
+        notable = _comment(file="tests/test_x.py", severity=Severity.NOTABLE)
+        out = await build_fix_loop_bundle(
+            workflow=_wf(),
+            blocked_phase_idx=3,
+            target_phase_idx=1,
+            all_comments=[notable],
+            all_acks=[],
+            worktree_path=tmp_path,
+            in_scope_notable_comments=[notable],
+        )
+        assert len(out["findings"]) == 1
+        assert out["findings"][0]["file"] == "tests/test_x.py"
+
+    async def test_notable_outside_target_phase_ownership_excluded(
+        self, tmp_path: Path
+    ) -> None:
+        """A notable on tests/** must NOT land in the implement-phase
+        bundle — it routes to the test phase like blocking findings do."""
+        notable = _comment(file="tests/test_x.py", severity=Severity.NOTABLE)
+        out = await build_fix_loop_bundle(
+            workflow=_wf(),
+            blocked_phase_idx=3,
+            target_phase_idx=2,
+            all_comments=[notable],
+            all_acks=[],
+            worktree_path=tmp_path,
+            in_scope_notable_comments=[notable],
+        )
+        assert out["findings"] == []
+
+    async def test_unowned_notable_falls_back_to_dev_bundle(
+        self, tmp_path: Path
+    ) -> None:
+        """A notable with no file matches no writes glob — _route_one's
+        dev fallback keeps it in the dev bundle."""
+        notable = _comment(file=None, severity=Severity.NOTABLE)
+        out = await build_fix_loop_bundle(
+            workflow=_wf(),
+            blocked_phase_idx=3,
+            target_phase_idx=2,
+            all_comments=[notable],
+            all_acks=[],
+            worktree_path=tmp_path,
+            in_scope_notable_comments=[notable],
+        )
+        assert len(out["findings"]) == 1
+
     async def test_notable_unacked_appears_in_bundle(self, tmp_path: Path) -> None:
         comments = [_comment(file="src/main.py", severity=Severity.NOTABLE, cycle=0)]
         out = await build_fix_loop_bundle(
@@ -194,7 +246,9 @@ class TestNotableInclusion:
     ) -> None:
         # notable at cycle 0 only; importants at cycle 1 (latest) — different files
         notable = _comment(file="src/notable.py", severity=Severity.NOTABLE, cycle=0)
-        important = _comment(file="src/main.py", severity=Severity.IMPORTANT, cycle=1, prose="imp")
+        important = _comment(
+            file="src/main.py", severity=Severity.IMPORTANT, cycle=1, prose="imp"
+        )
         out = await build_fix_loop_bundle(
             workflow=_wf(),
             blocked_phase_idx=3,
@@ -210,8 +264,16 @@ class TestNotableInclusion:
 
     async def test_notable_with_addressed_ack_excluded(self, tmp_path: Path) -> None:
         notable = _comment(file="src/main.py", severity=Severity.NOTABLE, cycle=0)
-        acks = [FindingAck(ticket_id="t-1", finding_id="RC-1", kind="addressed",
-                           author="dev", cycle=1, prose="fixed")]
+        acks = [
+            FindingAck(
+                ticket_id="t-1",
+                finding_id="RC-1",
+                kind="addressed",
+                author="dev",
+                cycle=1,
+                prose="fixed",
+            )
+        ]
         out = await build_fix_loop_bundle(
             workflow=_wf(),
             blocked_phase_idx=3,
@@ -225,8 +287,16 @@ class TestNotableInclusion:
 
     async def test_notable_with_reject_ack_included(self, tmp_path: Path) -> None:
         notable = _comment(file="src/main.py", severity=Severity.NOTABLE, cycle=0)
-        acks = [FindingAck(ticket_id="t-1", finding_id="RC-1", kind="reject",
-                           author="dev", cycle=1, prose="disagree")]
+        acks = [
+            FindingAck(
+                ticket_id="t-1",
+                finding_id="RC-1",
+                kind="reject",
+                author="dev",
+                cycle=1,
+                prose="disagree",
+            )
+        ]
         out = await build_fix_loop_bundle(
             workflow=_wf(),
             blocked_phase_idx=3,
@@ -238,13 +308,27 @@ class TestNotableInclusion:
         )
         assert len(out["findings"]) == 1
 
-    async def test_notable_with_reject_then_resolved_excluded(self, tmp_path: Path) -> None:
+    async def test_notable_with_reject_then_resolved_excluded(
+        self, tmp_path: Path
+    ) -> None:
         notable = _comment(file="src/main.py", severity=Severity.NOTABLE, cycle=0)
         acks = [
-            FindingAck(ticket_id="t-1", finding_id="RC-1", kind="reject",
-                       author="dev", cycle=1, prose="disagree"),
-            FindingAck(ticket_id="t-1", finding_id="RC-1", kind="resolved",
-                       author="reviewer-generalist", cycle=2, prose="accepted"),
+            FindingAck(
+                ticket_id="t-1",
+                finding_id="RC-1",
+                kind="reject",
+                author="dev",
+                cycle=1,
+                prose="disagree",
+            ),
+            FindingAck(
+                ticket_id="t-1",
+                finding_id="RC-1",
+                kind="resolved",
+                author="reviewer-generalist",
+                cycle=2,
+                prose="accepted",
+            ),
         ]
         out = await build_fix_loop_bundle(
             workflow=_wf(),
@@ -260,10 +344,22 @@ class TestNotableInclusion:
     async def test_notable_with_reraised_ack_included(self, tmp_path: Path) -> None:
         notable = _comment(file="src/main.py", severity=Severity.NOTABLE, cycle=0)
         acks = [
-            FindingAck(ticket_id="t-1", finding_id="RC-1", kind="addressed",
-                       author="dev", cycle=0, prose="claimed fixed"),
-            FindingAck(ticket_id="t-1", finding_id="RC-1", kind="reraised",
-                       author="orchestrator", cycle=1, prose="still present"),
+            FindingAck(
+                ticket_id="t-1",
+                finding_id="RC-1",
+                kind="addressed",
+                author="dev",
+                cycle=0,
+                prose="claimed fixed",
+            ),
+            FindingAck(
+                ticket_id="t-1",
+                finding_id="RC-1",
+                kind="reraised",
+                author="orchestrator",
+                cycle=1,
+                prose="still present",
+            ),
         ]
         out = await build_fix_loop_bundle(
             workflow=_wf(),

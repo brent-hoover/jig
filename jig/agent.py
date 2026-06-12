@@ -71,7 +71,8 @@ _AUTH_FAILURE_MARKERS: tuple[str, ...] = (
     "not logged in",
     "please run /login",
     "invalid api key",
-    "oauth token",
+    "invalid oauth token",
+    "oauth token has expired",
 )
 
 

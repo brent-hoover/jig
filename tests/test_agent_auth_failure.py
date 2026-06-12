@@ -41,6 +41,9 @@ def test_is_auth_failure_positive(text: str) -> None:
         "completed the task",
         "error: file not found",
         "ran 3 turns",
+        # A task error that merely mentions oauth must not be misread as an
+        # auth failure (the marker is auth-specific, not any "oauth token").
+        "error: oauth token field missing from config",
     ],
 )
 def test_is_auth_failure_negative(text: str | None) -> None:

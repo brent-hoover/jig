@@ -36,5 +36,13 @@ if ! echo "$OUTPUT" | grep -q "terminal-native recipe browser"; then
     exit 1
 fi
 
+# Empty-url fixture item (42003, Ask HN) must use the canonical HN item page URL,
+# not an arbitrary placeholder.
+if ! echo "$OUTPUT" | grep -q "https://news.ycombinator.com/item?id=42003"; then
+    echo "FAIL: empty-url item 42003 must render https://news.ycombinator.com/item?id=42003" >&2
+    echo "$OUTPUT" >&2
+    exit 1
+fi
+
 echo "PASS"
 echo "$OUTPUT"

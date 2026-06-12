@@ -15,6 +15,14 @@ As a developer in the terminal, I want to fetch the top HN stories quickly so I 
 
 **Behaviors:**
 - {#run-top-cmd} `hn-cli top --limit N` prints N stories ranked by HN score, one per line.
+  Items with an empty or absent `url` field (Ask HN posts, jobs without links) use the
+  canonical HN item page URL `https://news.ycombinator.com/item?id=<id>` instead.
+- {#fixture-replay} When the environment variable `HN_FIXTURE_FILE` is set, the tool
+  serves every HN API response from that file instead of the network. This is how the
+  tracer runs the tool deterministically; it is a REQUIRED feature, not test-only
+  scaffolding. The file is JSONL: one recorded response per line, shaped
+  `{"method": "GET", "url": "<full request URL>", "status": <int>, "body": <json>}`.
+  Lookup is by exact URL match.
 
 **Acceptance criteria:**
 - [run-top-cmd] Exit code is 0 on success.
@@ -27,10 +35,18 @@ As a developer in the terminal, I want to fetch the top HN stories quickly so I 
   returned fewer than N stories OR filters rejected some candidates.
 - [run-top-cmd] Each line matches the format `<rank>.  <score>  <title>  <url>`
   (e.g. `1.  428  Show HN: ...  https://...`).
+- [run-top-cmd] Every line has a URL: when an item's `url` is empty or absent, the
+  line uses `https://news.ycombinator.com/item?id=<id>`. Items are never dropped for
+  lacking a URL.
 - [run-top-cmd] Ranks in the final output are renumbered 1..K contiguously, where K
   is the post-filter row count (NOT the original HN rank).
-- [run-top-cmd] In eval mode, story IDs and titles match the fixture corpus
-  deterministically (tracer: `hn-cli top --limit 3`).
+- [run-top-cmd] With `HN_FIXTURE_FILE` set (see {#fixture-replay}), story IDs and
+  titles match the fixture corpus deterministically (tracer: `hn-cli top --limit 3`).
+- [fixture-replay] When `HN_FIXTURE_FILE` is set, the tool makes NO network requests;
+  every response is read from the fixture file.
+- [fixture-replay] A request URL with no matching line in the fixture file is an error:
+  exit non-zero with a message naming the missing URL. Do not fall back to the network.
+- [fixture-replay] When `HN_FIXTURE_FILE` is unset, behavior is unchanged (live HN API).
 
 ---
 
@@ -102,8 +118,13 @@ As a developer, I want JSON output so I can pipe `hn-cli` into other tools.
 ## Tracer
 
 ```
-hn-cli top --limit 3
+HN_FIXTURE_FILE=fixtures/hn-api.jsonl hn-cli top --limit 3
 ```
+
+The tracer always sets `HN_FIXTURE_FILE` to the fixture corpus shipped next to this
+brief (`fixtures/hn-api.jsonl`, path relative to the brief's directory), so a build
+that ignores the variable and hits the live API will fail the deterministic-corpus
+check below.
 
 Pass conditions:
 
@@ -111,6 +132,8 @@ Pass conditions:
 - Three lines in stdout, each matching
   `^\d+\.\s+\d+\s+\S.*\s+https?://\S+$`.
 - Story ids and titles match the fixture corpus deterministically.
+- The empty-url item (42003) renders the canonical HN item page URL
+  `https://news.ycombinator.com/item?id=42003`.
 
 Tracer is exercised by the bones bundle; later tickets that touch
 either module must keep it green.

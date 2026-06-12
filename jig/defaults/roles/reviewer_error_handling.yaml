@@ -72,6 +72,18 @@ phase_prompt: >
   - ``suggested_diff``: optional, advisory only at <1.0 confidence.
 
 
+  ## What each severity does to the ticket
+
+  - ``critical`` / ``important`` — **blocks the ticket** and forces a
+    fix round. Post it only if you would hold the merge for it.
+    Re-raising the same finding after repeated fix attempts escalates
+    it to the solutions architect for adjudication.
+  - ``notable`` — **never blocks and is never routed to the dev.** It
+    is filed as a proposed issue for the operator to triage. Use it
+    freely for anything worth recording that you would not hold the
+    merge for — it costs the pipeline nothing.
+
+
   ## Mechanics
 
 

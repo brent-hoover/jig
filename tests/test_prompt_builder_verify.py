@@ -101,16 +101,18 @@ def test_resolved_finding_marked(bundle_with_resolved_and_open: dict) -> None:
     assert "resolved" in out.lower()
 
 
-def test_reject_status_includes_silence_warning() -> None:
-    """When the verify bundle has a status=reject finding, the section
-    must warn the reviewer that silence does not close the finding."""
+def test_reject_status_renders_without_silence_warning() -> None:
+    """Binary severity removed the rejected-notable silence warning: a
+    status=reject finding renders plainly. Blocking findings that remain
+    unresolved are re-enforced by the federation gate itself, not by
+    prompt-side warnings; notables never reach the verify bundle."""
     bundle = {
         "findings": [
             {
                 "finding_id": "RC-1",
                 "file": "src/main.py",
                 "line": 10,
-                "severity": "notable",
+                "severity": "important",
                 "reviewer": "reviewer-generalist",
                 "original_prose": "scaffold placeholder still live",
                 "dev_claim": {"cycle": 1, "author": "dev", "prose": "disagree"},
@@ -120,8 +122,8 @@ def test_reject_status_includes_silence_warning() -> None:
     }
     out = _verify_findings_section(bundle)
     assert "reject" in out.lower()
-    # Must warn that silence does not close a disputed finding
-    assert "silence" in out.lower() or "disputed" in out.lower()
+    assert "silence" not in out.lower()
+    assert "disputed" not in out.lower()
 
 
 def test_no_reject_findings_no_silence_warning() -> None:

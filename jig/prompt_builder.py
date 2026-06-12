@@ -518,7 +518,6 @@ def _blocking_findings_section(bundle: dict | None) -> str:
     overflow = bundle.get("overflow_count", 0)
 
     blocking = [f for f in findings if f.get("severity") in ("critical", "important")]
-    notables = [f for f in findings if f.get("severity") == "notable"]
 
     lines: list[str] = []
     if blocking:
@@ -544,30 +543,6 @@ def _blocking_findings_section(bundle: dict | None) -> str:
                 f"  - {ack['kind']} cycle {ack['cycle']} ({ack['author']}): "
                 f"{ack['prose']}\n"
             )
-
-    if notables:
-        lines.append("\n## Non-Blocking Findings (fix or explain why not)\n")
-        lines.append(
-            "These findings are non-blocking but require acknowledgement. For "
-            "each one: fix it and call "
-            '`mark_finding_addressed(finding_id="RC-N", how_resolved="...")`, '
-            'or call it with `kind="reject"` and a prose explanation if you '
-            "genuinely disagree. Skipping any finding will re-block the ticket.\n"
-        )
-        for f in notables:
-            loc = f.get("file") or "(diff-wide)"
-            line_no = f.get("line")
-            loc_full = f"{loc}:{line_no}" if line_no else loc
-            lines.append(
-                f"\n[{f['finding_id']}] {loc_full} — "
-                f"{f['severity']} — {f['reviewer']}\n"
-                f"{f['prose']}\n"
-            )
-            for ack in f.get("ack_history", []) or []:
-                lines.append(
-                    f"  - {ack['kind']} cycle {ack['cycle']} ({ack['author']}): "
-                    f"{ack['prose']}\n"
-                )
 
     if overflow > 0:
         lines.append(
@@ -621,18 +596,6 @@ def _verify_findings_section(bundle: dict | None) -> str:
         "Findings already marked `resolved` (by an earlier reviewer in "
         "this cycle) need no further action from you.\n"
     )
-
-    has_rejected_notables = any(
-        f.get("status") == "reject" and f.get("severity") == "notable" for f in findings
-    )
-    if has_rejected_notables:
-        lines.append(
-            "\n⚠ **Disputed notable findings (status: reject)** — the dev has "
-            "formally disagreed with one or more non-blocking findings below. "
-            "Reviewer silence does NOT close a rejected notable — the ticket will "
-            "re-block until you explicitly call `mark_finding_resolved` to accept "
-            "the rejection, or re-flag via `reviewer_post_comment` to dispute it.\n"
-        )
 
     for f in findings:
         loc = f.get("file") or "(diff-wide)"

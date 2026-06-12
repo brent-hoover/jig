@@ -73,7 +73,14 @@ _AUTH_FAILURE_MARKERS: tuple[str, ...] = (
     "invalid api key",
     "invalid oauth token",
     "oauth token has expired",
+    "failed to authenticate",
+    "invalid bearer token",
 )
+
+# HTTP statuses on an is_error result that unambiguously mean the token was
+# rejected (e.g. "API Error: 401 Invalid bearer token"). More reliable than
+# text matching; api_error_status is None when the CLI didn't emit one.
+_AUTH_FAILURE_STATUSES: frozenset[int] = frozenset({401, 403})
 
 
 def _is_auth_failure(text: str | None) -> bool:
@@ -944,12 +951,20 @@ async def run_agent(
                 elif isinstance(message, SystemMessage):
                     _logger.debug("[%s] system: %s", tag, message.subtype)
                 elif isinstance(message, ResultMessage):
-                    # Auth failures arrive as an is_error result whose text
-                    # is "Not logged in · Please run /login" (subtype is
-                    # confusingly still "success"). Surface a typed, actionable
-                    # error before the SDK turns the trailing non-zero exit
-                    # into an opaque "error result: success" exception.
-                    if message.is_error and _is_auth_failure(message.result):
+                    # Auth failures arrive as an is_error result — either a
+                    # 401/403 from the API ("Failed to authenticate. API Error:
+                    # 401 Invalid bearer token") or a login-state message ("Not
+                    # logged in · Please run /login"); subtype is confusingly
+                    # still "success". Surface a typed, actionable error before
+                    # the SDK turns the trailing non-zero exit into an opaque
+                    # "error result: success" exception.
+                    # getattr: api_error_status was added to ResultMessage in a
+                    # later SDK; absent on older ones, where text markers cover.
+                    if message.is_error and (
+                        getattr(message, "api_error_status", None)
+                        in _AUTH_FAILURE_STATUSES
+                        or _is_auth_failure(message.result)
+                    ):
                         done.set()
                         raise AgentAuthError(
                             message.result

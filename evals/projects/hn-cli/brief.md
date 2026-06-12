@@ -132,6 +132,8 @@ Pass conditions:
 - Three lines in stdout, each matching
   `^\d+\.\s+\d+\s+\S.*\s+https?://\S+$`.
 - Story ids and titles match the fixture corpus deterministically.
+- The empty-url item (42003) renders the canonical HN item page URL
+  `https://news.ycombinator.com/item?id=42003`.
 
 Tracer is exercised by the bones bundle; later tickets that touch
 either module must keep it green.

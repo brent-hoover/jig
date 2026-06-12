@@ -74,7 +74,10 @@ RECONCILE_INTERVAL_S = 30.0
 # must NOT treat the project as complete. PROPOSED is non-terminal: a
 # front-door issue awaiting operator approval is unfinished work, not a done
 # project — omitting it would let a project of only-proposed tickets emit
-# project_complete prematurely.
+# project_complete prematurely. Exception: ``review-notable`` proposed
+# issues are an operator triage backlog by design (binary severity files
+# them for every notable finding) and must never hold project_complete
+# hostage — see _counts_toward_completion.
 _NON_TERMINAL_ANALYZER_STATUSES = frozenset(
     {
         TicketStatus.PROPOSED,
@@ -85,6 +88,41 @@ _NON_TERMINAL_ANALYZER_STATUSES = frozenset(
         TicketStatus.MERGE_CONFLICT,
     }
 )
+
+
+def _counts_toward_completion(ticket) -> bool:
+    """Whether a non-terminal ticket should keep the project 'incomplete'.
+
+    Review-notable proposed issues are triage backlog, not pipeline work.
+    """
+    return not (
+        ticket.status == TicketStatus.PROPOSED and "review-notable" in ticket.labels
+    )
+
+
+# Statuses the stuck-project watchdog treats as "work that should be
+# moving". NEEDS_INFO and PROPOSED are excluded: both are legitimately
+# waiting on the operator, which is quiet-but-alive, not stuck.
+_STUCK_WATCH_STATUSES = frozenset(
+    {
+        TicketStatus.OPEN,
+        TicketStatus.IN_PROGRESS,
+        TicketStatus.BLOCKED,
+        TicketStatus.MERGE_CONFLICT,
+    }
+)
+
+# How long the stuck condition (nothing running, nothing ready, watchable
+# work outstanding) must hold across reconcile ticks before project_stuck
+# fires. Two ticks of RECONCILE_INTERVAL_S plus margin — long enough to
+# ride out the gap between one ticket finishing and its dependent being
+# scheduled.
+STUCK_GRACE_SECONDS = 120.0
+
+# Structured reason stamped on tickets failed because a dependency failed
+# (transitive cascade). Consumers must check status (FAILED) before
+# interpreting this field — BLOCKED tickets use block_reason too.
+DEP_FAILED_REASON = "dependency-failed"
 
 
 def _kill_orphan_claude_processes(project_path: Path) -> int:
@@ -246,6 +284,12 @@ class Orchestrator:
         self._reconcile_task: asyncio.Task | None = None
         self._stall_detector: StallDetector = StallDetector()
         self._analyzer_last_terminal_ids: frozenset[str] = frozenset()
+        # Stuck-project watchdog state (see _check_stuck): monotonic
+        # timestamp of the first reconcile tick that observed the stuck
+        # condition, and the ticket-id set already reported so the
+        # event fires once per distinct dead-end.
+        self._stuck_since: float | None = None
+        self._stuck_emitted_for: frozenset[str] | None = None
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -1337,6 +1381,74 @@ class Orchestrator:
             return
         await self.tickets.load()
         await self._start_ready_tickets()
+        await self._check_stuck()
+
+    async def _check_stuck(self) -> None:
+        """Stuck-project tripwire, evaluated once per reconcile tick.
+
+        The failure cascade handles dead-ends it can see (failed
+        dependencies); this catches the ones it can't — dependency
+        cycles, future scheduling bugs — by detecting the symptom
+        directly: nothing running, nothing ready, no operator-pending
+        ticket (needs_info / proposed), yet watchable work outstanding.
+        After the condition holds for ``STUCK_GRACE_SECONDS`` it emits
+        one ``project_stuck`` event per distinct stuck ticket-set and
+        logs at WARNING. It never mutates tickets.
+
+        This must live on the periodic reconcile tick: the event-driven
+        scheduler paths stop firing precisely when the project
+        dead-ends, so a check there would never run.
+        """
+        if self.tickets is None:
+            return
+        all_tickets = await self.tickets.list_all()
+        stuck_candidates = [t for t in all_tickets if t.status in _STUCK_WATCH_STATUSES]
+        has_needs_info = any(t.status == TicketStatus.NEEDS_INFO for t in all_tickets)
+        ready = await self.tickets.find_ready()
+        alive = bool(self._running_tickets) or bool(ready) or has_needs_info
+        if alive or not stuck_candidates:
+            self._stuck_since = None
+            return
+        now = time.monotonic()
+        if self._stuck_since is None:
+            self._stuck_since = now
+            return
+        if (now - self._stuck_since) < STUCK_GRACE_SECONDS:
+            return
+        stuck_ids = frozenset(t.id for t in stuck_candidates)
+        if stuck_ids == self._stuck_emitted_for:
+            return
+        self._stuck_emitted_for = stuck_ids
+        detail = {
+            t.id: {
+                "status": t.status.value,
+                "blocked_by": list(t.blocked_by),
+            }
+            for t in stuck_candidates
+        }
+        _logger.warning(
+            "project stuck: %d ticket(s) cannot progress and nothing is running — %s",
+            len(stuck_candidates),
+            ", ".join(sorted(stuck_ids)),
+        )
+        if self._emitter is not None:
+            from jig.events import JigEvent
+
+            await self._emitter.emit(
+                JigEvent(
+                    type="project_stuck",
+                    data={
+                        "kind": "project_stuck",
+                        "stuck_tickets": detail,
+                    },
+                )
+            )
+        if self._analytics_emitter is not None:
+            from jig.analytics.events import ProjectStuck
+
+            self._analytics_emitter.emit_nowait(
+                ProjectStuck(stuck_ticket_ids=sorted(stuck_ids))
+            )
 
     async def _run_reconcile_loop(self) -> None:
         """Periodically reconcile externally-appended tickets (see
@@ -1439,6 +1551,36 @@ class Orchestrator:
             if ticket.blocked_by:
                 for dep_id in ticket.blocked_by:
                     dep = await self.tickets.get(dep_id)
+                    if dep is not None and dep.status == TicketStatus.FAILED:
+                        # A failed dependency can never resolve — this
+                        # ticket is unreachable. Cascade-fail it now
+                        # (covers tickets created after the dependency
+                        # already failed, which _cascade_fail_dependents
+                        # could not have seen).
+                        _logger.info(
+                            "ticket %s blocked by failed dependency %s — "
+                            "cascade-failing",
+                            ticket_id,
+                            dep_id,
+                        )
+                        await self.tickets.update(
+                            ticket_id, block_reason=DEP_FAILED_REASON
+                        )
+                        await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
+                        await self._emit_ticket_failed(ticket_id, ticket.title)
+                        if self._analytics_emitter is not None:
+                            from jig.analytics.events import TicketCascadeFailed
+
+                            self._analytics_emitter.emit_nowait(
+                                TicketCascadeFailed(
+                                    ticket_id=ticket_id,
+                                    root_failure_id=dep_id,
+                                    failed_dependency_id=dep_id,
+                                )
+                            )
+                        await self._cascade_fail_dependents(ticket_id)
+                        await self._maybe_run_analyzer()
+                        return
                     if dep is None or dep.status != TicketStatus.RESOLVED:
                         _logger.info(
                             "ticket %s blocked by %s (status=%s), deferring",
@@ -2259,26 +2401,85 @@ class Orchestrator:
         await self._handle_schedule(new_id)
 
     async def _on_ticket_failed(self, ticket_id: str, ticket) -> None:
-        """Post-failure: emit event, clean up, pick up next ticket."""
+        """Post-failure: emit event, cascade to dependents, clean up,
+        pick up next ticket."""
         _logger.info("ticket %s failed", ticket_id)
-
-        if self._emitter is not None:
-            from jig.events import JigEvent
-
-            await self._emitter.emit(
-                JigEvent(
-                    type="ticket_failed",
-                    data={
-                        "kind": "ticket_failed",
-                        "ticket_id": ticket_id,
-                        "title": ticket.title,
-                    },
-                )
-            )
-
+        await self._emit_ticket_failed(ticket_id, ticket.title)
         self._running_tickets.pop(ticket_id, None)
+        await self._cascade_fail_dependents(ticket_id)
         await self._start_ready_tickets()
         await self._maybe_run_analyzer()
+
+    async def _emit_ticket_failed(self, ticket_id: str, title: str) -> None:
+        if self._emitter is None:
+            return
+        from jig.events import JigEvent
+
+        await self._emitter.emit(
+            JigEvent(
+                type="ticket_failed",
+                data={
+                    "kind": "ticket_failed",
+                    "ticket_id": ticket_id,
+                    "title": title,
+                },
+            )
+        )
+
+    async def _cascade_fail_dependents(self, root_id: str) -> None:
+        """Transitively fail open dependents of a failed ticket.
+
+        A ticket is only scheduled when ALL its dependencies are
+        resolved, so once any dependency is FAILED the dependent can
+        never run — leaving it open strands the project short of
+        all-terminal forever and project_complete never fires (the
+        silent dead-end from the 2026-06-12 hn-cli eval). Dependents
+        cannot be in flight (they were never scheduled), so this walk
+        does not race running agents.
+
+        Only OPEN dependents cascade — mirrors _unblock_dependents on
+        the resolve path. Each cascaded ticket gets status FAILED with
+        ``block_reason=DEP_FAILED_REASON`` and its own ticket_failed
+        event, and is walked in turn.
+        """
+        if self.tickets is None:
+            return
+        queue: list[str] = [root_id]
+        seen: set[str] = {root_id}
+        while queue:
+            current = await self.tickets.get(queue.pop(0))
+            if current is None:
+                continue
+            for dep_id in current.blocks:
+                if dep_id in seen:
+                    continue
+                seen.add(dep_id)
+                dependent = await self.tickets.get(dep_id)
+                if dependent is None or dependent.status != TicketStatus.OPEN:
+                    continue
+                if dep_id in self._running_tickets:
+                    # Defensive — an OPEN ticket can't be running, but if
+                    # state ever disagrees, never fail live work.
+                    continue
+                _logger.info(
+                    "ticket %s unreachable — dependency %s failed; cascading",
+                    dep_id,
+                    current.id,
+                )
+                await self.tickets.update(dep_id, block_reason=DEP_FAILED_REASON)
+                await self._update_ticket_status(dep_id, TicketStatus.FAILED)
+                await self._emit_ticket_failed(dep_id, dependent.title)
+                if self._analytics_emitter is not None:
+                    from jig.analytics.events import TicketCascadeFailed
+
+                    self._analytics_emitter.emit_nowait(
+                        TicketCascadeFailed(
+                            ticket_id=dep_id,
+                            root_failure_id=root_id,
+                            failed_dependency_id=current.id,
+                        )
+                    )
+                queue.append(dep_id)
 
     async def _unblock_dependents(self, completed_id: str, ticket) -> None:
         """After a ticket resolves, check its `blocks` list and schedule any
@@ -2348,7 +2549,10 @@ class Orchestrator:
         all_tickets = await self.tickets.list_all()
         if not all_tickets:
             return
-        if any(t.status in _NON_TERMINAL_ANALYZER_STATUSES for t in all_tickets):
+        if any(
+            t.status in _NON_TERMINAL_ANALYZER_STATUSES and _counts_toward_completion(t)
+            for t in all_tickets
+        ):
             return
         terminal_ids = frozenset(t.id for t in all_tickets)
         if terminal_ids == self._analyzer_last_terminal_ids:
@@ -2360,6 +2564,7 @@ class Orchestrator:
             for t in all_tickets
             if t.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
         )
+        failed = sum(1 for t in all_tickets if t.status == TicketStatus.FAILED)
         if self._emitter is not None:
             from jig.events import JigEvent
 
@@ -2369,6 +2574,7 @@ class Orchestrator:
                     data={
                         "kind": "project_complete",
                         "tickets_resolved": resolved,
+                        "tickets_failed": failed,
                         "tickets_total": len(all_tickets),
                     },
                 )

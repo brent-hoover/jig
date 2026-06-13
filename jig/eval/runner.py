@@ -364,6 +364,7 @@ async def run_eval(
             _teardown_proc(proc, project_dir)
             return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
+        build_failure: str | None = None
         try:
             # Synchronous and blocking: all WS tasks are cancelled before the
             # success path is reached, so the event loop is idle for the
@@ -375,20 +376,51 @@ async def run_eval(
                 text=True,
                 timeout=_BUILD_TIMEOUT,
             )
-        except subprocess.TimeoutExpired as exc:
-            # A hung build is an eval signal (non-installable project), not a
-            # runner crash — map it to TRACER_FAIL like any other build failure.
-            log.error("uv sync timed out after %ss: %s", _BUILD_TIMEOUT, exc)
-            _teardown_proc(proc, project_dir)
-            return RunResult(outcome=fail_outcome, temp_dir=temp_path)
-        if build.returncode != 0:
-            log.error(
-                "uv sync failed (exit %d):\n%s",
-                build.returncode,
-                build.stderr[-2000:],
+            if build.returncode != 0:
+                build_failure = (
+                    f"uv sync failed (exit {build.returncode}): {build.stderr[-2000:]}"
+                )
+        except subprocess.TimeoutExpired:
+            build_failure = f"uv sync timed out after {_BUILD_TIMEOUT}s"
+
+        if build_failure is not None:
+            log.error("build failed: %s", build_failure)
+            if outcome == EvalOutcome.SUCCESS:
+                # A hung/failed build on an otherwise-clean run is an eval
+                # signal (non-installable project) — TRACER_FAIL.
+                _teardown_proc(proc, project_dir)
+                return RunResult(outcome=EvalOutcome.TRACER_FAIL, temp_dir=temp_path)
+            # COMPLETED_WITH_FAILURES: the project is expectedly incomplete,
+            # so the build failure is subsumed by that outcome — but still
+            # persist a manifest (no tracer) so the run stays in eval history
+            # and records why the build failed, instead of vanishing.
+            manifest = await collect(
+                project_dir,
+                run_id=run_id,
+                project_id=project_id,
+                label=label,
+                tracer_cmd=None,
+            )
+            manifest.extra["build_failure"] = build_failure
+            runs_root = jig_repo / "evals" / "runs"
+            out_dir = runs_root / project_id / run_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = out_dir / "manifest.yaml"
+            manifest_path.write_text(
+                yaml.dump(
+                    manifest.model_dump(mode="json"),
+                    sort_keys=False,
+                    allow_unicode=True,
+                )
             )
             _teardown_proc(proc, project_dir)
-            return RunResult(outcome=fail_outcome, temp_dir=temp_path)
+            if not keep:
+                shutil.rmtree(temp_path, ignore_errors=True)
+            return RunResult(
+                outcome=outcome,
+                manifest_path=manifest_path,
+                temp_dir=temp_path if keep else None,
+            )
 
         tracer_env = {
             **os.environ,

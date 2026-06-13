@@ -558,6 +558,98 @@ def test_run_eval_build_failure_is_tracer_fail(
     assert build_call.kwargs["cwd"].name == "test-proj"
 
 
+def test_run_eval_build_failure_with_ticket_failures_writes_manifest(
+    tmp_path: Path,
+) -> None:
+    """A build failure on the COMPLETED_WITH_FAILURES path must still write a
+    manifest (recording the build failure) so the run stays in eval history,
+    instead of returning early with no manifest (roborev job 545)."""
+    import datetime as _dt
+    import json as _json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from jig.eval.manifest import RunManifest
+
+    mock_proc, _ = _success_path_fakes(tmp_path)
+    mock_teardown = MagicMock()
+
+    # project_complete with tickets_failed > 0 → COMPLETED_WITH_FAILURES.
+    class _FailWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {"tickets_failed": 1, "tickets_resolved": 2},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": str(tmp_path)},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FailWS()
+
+    build_result = MagicMock(returncode=1, stderr="error: build broke")
+
+    async def _fake_collect(*args, **kwargs):
+        return RunManifest(
+            run_id=kwargs.get("run_id", "rid"),
+            project_id=kwargs.get("project_id", "test-proj"),
+            collected_at=_dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc),
+        )
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch("jig.eval.runner.subprocess.run", return_value=build_result),
+        patch("jig.eval.collector.collect", new=_fake_collect),
+        patch("jig.eval.runner._teardown_proc", mock_teardown),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=True,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    assert result.outcome == EvalOutcome.COMPLETED_WITH_FAILURES
+    # The manifest was written despite the build failure — run persists.
+    assert result.manifest_path is not None
+    assert result.manifest_path.is_file()
+    written = result.manifest_path.read_text()
+    assert "build_failure" in written
+    assert "build broke" in written
+
+
 def test_run_eval_passes_tracer_env_with_venv_path(tmp_path: Path) -> None:
     """collect() must receive tracer_env whose PATH starts with the project venv bin."""
     import os as _os

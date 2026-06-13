@@ -221,12 +221,14 @@ _LAYER_ORDER: tuple[str, ...] = ("bones", "mvp", "final")
 |-------|---------|
 | `RunAgentResult` | Result of running an agent: status (success/failed/blocked/needs_info), final text, thinking blocks, tool calls, state changes |
 | `AgentCheckRunner` | For check agents (narrowly scoped, read-only, bounded timeout) |
+| `AgentAuthError` | Raised when a spawned `claude` agent has no usable credentials; surfaces the auth-failure `ResultMessage` before the SDK can rewrite it into an opaque exception |
 
 **Key Functions**:
 
 | Function | Signature | Purpose |
 |----------|-----------|---------|
-| `run_agent` | `async (ctx: AgentSpawnContext) -> RunAgentResult` | Main agent spawn entry point: build prompt, compile capabilities, create MCP server, run SDK query loop, return result |
+| `run_agent` | `async (ctx: AgentSpawnContext) -> RunAgentResult` | Main agent spawn entry point: build prompt, compile capabilities, create MCP server, run SDK query loop, return result; raises `AgentAuthError` when the CLI returns an auth-failure result |
+| `_is_auth_failure` | `(text: str \| None) -> bool` | True if `text` matches a known Claude Code login/auth-failure message (checked case-insensitively against `_AUTH_FAILURE_MARKERS`) |
 | `build_agent_prompt` | `(ctx: AgentSpawnContext) -> str` | Compose initial system + user prompt from phase config, role prompt, context resolution, ticket metadata |
 | `build_initial_prompt` | `(ctx: AgentSpawnContext) -> str` | Build the initial user-facing prompt (role task + context references) |
 | `_sanitize_for_tui` | `(text: str, limit: int = 120) -> str` | Strip ANSI/control chars, collapse whitespace for TUI single-line rendering |

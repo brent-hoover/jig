@@ -199,6 +199,17 @@ class RunAgentResult:
     warnings: list[str] = field(default_factory=list)
 
 
+def _effective_ticket_base_ref(ctx: AgentSpawnContext) -> str:
+    """Base ref for the reviewer's ``reviewer_get_diff`` tool.
+
+    review-severity-binary §4: on a re-review round ``ctx.delta_base`` is the
+    last-reviewed commit, so the reviewer's diff contains only the fix delta
+    (matching the prompt's Re-review Scope note). On first-round reviews it is
+    None and we fall back to the project default branch (full-ticket diff).
+    """
+    return ctx.delta_base or ctx.project.default_branch
+
+
 async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
     """Assemble the full initial prompt an agent would receive for a ticket."""
     skills = match_skills(project=ctx.project, skills=load_all_skills())
@@ -556,7 +567,12 @@ async def run_agent(
             # falls back to env vars and branch probes which can
             # show only the latest commit on chained / fix-loop
             # tickets.
-            ticket_base_ref=ctx.project.default_branch,
+            #
+            # review-severity-binary §4: on a re-review round ``delta_base``
+            # is the last-reviewed commit, so the reviewer's ``reviewer_get_diff``
+            # sees only the fix delta — matching the prompt's Re-review Scope
+            # note. Falls back to the default branch on first-round reviews.
+            ticket_base_ref=_effective_ticket_base_ref(ctx),
         )
 
         mcp_servers: dict = {"jig": mcp_server}

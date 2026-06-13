@@ -273,3 +273,46 @@ class TestPromptSections:
         assert "abcdef123456" in out
         assert "do not re-review unchanged code" in out.lower()
         assert _delta_review_section(None) == ""
+
+
+class TestReviewerDiffBase:
+    """The delta base must reach the reviewer's reviewer_get_diff tool, not
+    just the prompt text (roborev job 546)."""
+
+    def _ctx(self, tmp_path: Path, delta_base):
+        from jig.runtime import AgentSpawnContext, SpawnReason
+        from jig.persistence import load_role
+
+        proj = Project(id="p", name="p", path=str(tmp_path), default_branch="develop")
+        return AgentSpawnContext(
+            role="reviewer-generalist",
+            role_cfg=load_role(tmp_path, "reviewer-generalist"),
+            spawn_reason=SpawnReason.REVIEWER_FEDERATION,
+            ticket=Ticket(
+                id="t",
+                work_type=WorkType.FEATURE,
+                title="x",
+                created_by="pm",
+                description=TICKET_AC_PLACEHOLDER,
+            ),
+            parent=None,
+            worktree_path=tmp_path,
+            project=proj,
+            tickets=None,  # type: ignore[arg-type]
+            threads=None,  # type: ignore[arg-type]
+            memory=None,  # type: ignore[arg-type]
+            bus=None,  # type: ignore[arg-type]
+            delta_base=delta_base,
+        )
+
+    def test_re_review_uses_delta_base(self, tmp_path: Path) -> None:
+        from jig.agent import _effective_ticket_base_ref
+
+        ctx = self._ctx(tmp_path, delta_base="abc123def456")
+        assert _effective_ticket_base_ref(ctx) == "abc123def456"
+
+    def test_first_round_falls_back_to_default_branch(self, tmp_path: Path) -> None:
+        from jig.agent import _effective_ticket_base_ref
+
+        ctx = self._ctx(tmp_path, delta_base=None)
+        assert _effective_ticket_base_ref(ctx) == "develop"

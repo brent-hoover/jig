@@ -837,6 +837,8 @@ async def dispatch_with_llm_spawn(
     reviewers: list[str] | None = None,
     cycle: int = 0,
     phase_name: str | None = None,
+    informed_findings: dict | None = None,
+    delta_base: str | None = None,
 ) -> dict[str, list[ReviewerComment]]:
     """Federation-execution entry point (Block 3, Important 1).
 
@@ -1031,6 +1033,8 @@ async def dispatch_with_llm_spawn(
                 worktree_path=worktree_path,
                 cycle=cycle,
                 code_metrics=code_metrics,
+                informed_findings=informed_findings,
+                delta_base=delta_base,
             )
             for p in pendings
         ]

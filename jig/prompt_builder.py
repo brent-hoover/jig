@@ -554,6 +554,55 @@ def _blocking_findings_section(bundle: dict | None) -> str:
     return "".join(lines)
 
 
+def _informed_pass_section(bundle: dict | None) -> str:
+    """Render the "Findings Already Posted This Round" section for an
+    informed reviewer pass (pass 2+ of a multi-pass first review round).
+
+    The earlier pass's findings are listed so this pass ADDS coverage —
+    different files, different failure classes, different angles — and
+    does not re-derive or duplicate what is already on record.
+    """
+    if not bundle or not bundle.get("findings"):
+        return ""
+    lines: list[str] = ["## Findings Already Posted This Round\n"]
+    lines.append(
+        "An earlier reviewer pass already posted the findings below this "
+        "round. Do NOT re-post or re-derive them — they are on record and "
+        "duplicates dilute the signal. Your job is to add coverage: look "
+        "at files, behaviors, and failure classes the list does not "
+        "touch. If you find nothing new, posting nothing is the correct "
+        "outcome.\n"
+    )
+    for f in bundle["findings"]:
+        loc = f.get("file") or "(diff-wide)"
+        line_no = f.get("line")
+        loc_full = f"{loc}:{line_no}" if line_no else loc
+        lines.append(f"\n- {loc_full} — {f['severity']} — {f['prose']}\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _delta_review_section(delta_base: str | None) -> str:
+    """Render the re-review scope note when the diff is delta-based.
+
+    On re-review rounds the served diff is based at the last-reviewed
+    commit, so it contains only the fix delta. Unchanged code is
+    structurally out of scope — this note makes that explicit so the
+    reviewer verifies and converges instead of re-litigating.
+    """
+    if delta_base is None:
+        return ""
+    return (
+        "## Re-review Scope\n"
+        f"This is a re-review round. The diff you will fetch is based at "
+        f"the last-reviewed commit (`{delta_base[:12]}`) and contains only "
+        "the changes made in response to the previous round's findings. "
+        "Verify the prior findings are resolved and review the new "
+        "changes; do not re-review unchanged code — it is not in the "
+        "diff, and full-project safety is the validate phase's job.\n\n"
+    )
+
+
 def _verify_findings_section(bundle: dict | None) -> str:
     """Render the "Previous Cycle Findings" section for a reviewer
     running on cycle 2+ of a ticket that has prior addressed claims.
@@ -743,6 +792,8 @@ def build_initial_prompt(
     replan_bundle: dict[str, Any] | None = None,
     fix_loop_bundle: dict[str, Any] | None = None,
     verify_bundle: dict[str, Any] | None = None,
+    informed_findings: dict[str, Any] | None = None,
+    delta_base: str | None = None,
     code_metrics: ChangeMetrics | None = None,
     conventions_md: str | None = None,
 ) -> str:
@@ -771,7 +822,9 @@ def build_initial_prompt(
         _blocking_findings_section(fix_loop_bundle)
         if spawn_reason == SpawnReason.FIX_LOOP_RETRY
         else "",
+        _delta_review_section(delta_base),
         _verify_findings_section(verify_bundle),
+        _informed_pass_section(informed_findings),
         _code_metrics_section(code_metrics, role=role_cfg.role),
         _instructions_section(
             ticket,

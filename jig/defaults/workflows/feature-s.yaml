@@ -17,10 +17,14 @@ phases:
       - mypy-strict
   - name: review
     role: review
-    task_template: "Single-pass generalist review of: {ticket_title}"
+    task_template: "Generalist review of: {ticket_title}"
     acceptance_criteria: "No critical or important issues found"
     reviewers:
       - "reviewer-generalist"
+    # Sole-reviewer profile: two informed passes on the first round so
+    # discovery is front-loaded; re-review rounds are single-pass and
+    # delta-scoped (review-severity-binary design §4).
+    review_passes: 2
   - name: validate
     role: validate
     task_template: "Validate the implementation for: {ticket_title}"

@@ -221,6 +221,14 @@ class PhaseConfig(BaseModel):
     # permissive for tests and ad-hoc construction.
     reviewers: list[str] = []
 
+    # review-severity-binary §4: number of sequential reviewer passes in
+    # the FIRST review round of this phase. Passes after the first are
+    # informed (they receive the findings already posted this cycle and
+    # add coverage). Re-review rounds after a blocked fix are always
+    # single-pass and delta-scoped regardless of this value — discovery
+    # is front-loaded; later rounds converge.
+    review_passes: int = Field(default=1, ge=1)
+
 
 class WorkflowConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

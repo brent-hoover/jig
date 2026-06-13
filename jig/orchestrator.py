@@ -290,6 +290,12 @@ class Orchestrator:
         # event fires once per distinct dead-end.
         self._stuck_since: float | None = None
         self._stuck_emitted_for: frozenset[str] | None = None
+        # review-severity-binary §4 — worktree HEAD at the end of each
+        # review round, keyed (ticket_id, phase_name). Re-review rounds
+        # use it as the diff base so reviewers see only the fix delta.
+        # In-memory by design: a daemon restart falls back to the
+        # full-diff base (degraded to today's behavior, never wrong).
+        self._last_reviewed_commit: dict[tuple[str, str], str] = {}
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -945,35 +951,84 @@ class Orchestrator:
 
         reviewers_list = phase.reviewers if phase is not None else None
         base_ref = self._project.default_branch if self._project is not None else "main"
-        try:
-            by_reviewer = await dispatch_with_llm_spawn(
-                ticket,
-                self._project_path,
-                self,
-                worktree_path=worktree_path,
-                reviewers=reviewers_list,
-                cycle=cycle,
-                base_ref=base_ref,
-                phase_name=phase.name if phase is not None else None,
-            )
-        except ValueError:
-            # ValueError from dispatch_with_llm_spawn means a workflow
-            # config error — unknown reviewer id. Don't swallow as a
-            # transient crash; surface the misconfiguration immediately
-            # so the operator fixes the YAML.
-            raise
-        except Exception:
-            _logger.warning(
-                "review federation crashed for ticket %s; treating as clean pass",
-                ticket_id,
-                exc_info=True,
-            )
-            return RunAgentResult(
-                status="success",
-                final_text="Federation error — treated as clean pass (see logs).",
-            )
 
-        all_comments = [c for comments in by_reviewer.values() for c in comments]
+        # review-severity-binary §4 — review invocation shaping.
+        # First round (cycle 0): up to ``phase.review_passes`` sequential
+        # passes; passes after the first are informed (they see this
+        # cycle's findings so far and add coverage). Re-review rounds
+        # (cycle > 0): single pass, diff based at the last-reviewed
+        # commit so the reviewer sees only the fix delta. Missing
+        # tracked commit (daemon restart) falls back to the full diff.
+        delta_base: str | None = None
+        phase_key = (ticket_id, phase.name) if phase is not None else None
+        if cycle > 0 and phase_key is not None:
+            delta_base = self._last_reviewed_commit.get(phase_key)
+            if delta_base is not None:
+                base_ref = delta_base
+        passes = phase.review_passes if (phase is not None and cycle == 0) else 1
+
+        all_comments: list = []
+        for pass_n in range(passes):
+            informed_bundle: dict | None = None
+            if pass_n > 0 and all_comments:
+                informed_bundle = {
+                    "findings": [
+                        {
+                            "file": c.file,
+                            "line": c.line,
+                            "severity": c.severity,
+                            "prose": c.prose,
+                        }
+                        for c in all_comments
+                    ]
+                }
+            try:
+                by_reviewer = await dispatch_with_llm_spawn(
+                    ticket,
+                    self._project_path,
+                    self,
+                    worktree_path=worktree_path,
+                    reviewers=reviewers_list,
+                    cycle=cycle,
+                    base_ref=base_ref,
+                    phase_name=phase.name if phase is not None else None,
+                    informed_findings=informed_bundle,
+                    delta_base=delta_base,
+                )
+            except ValueError:
+                # ValueError from dispatch_with_llm_spawn means a workflow
+                # config error — unknown reviewer id. Don't swallow as a
+                # transient crash; surface the misconfiguration immediately
+                # so the operator fixes the YAML.
+                raise
+            except Exception:
+                _logger.warning(
+                    "review federation crashed for ticket %s; treating as clean pass",
+                    ticket_id,
+                    exc_info=True,
+                )
+                return RunAgentResult(
+                    status="success",
+                    final_text="Federation error — treated as clean pass (see logs).",
+                )
+            all_comments.extend(
+                c for comments in by_reviewer.values() for c in comments
+            )
+            if passes > 1:
+                _logger.info(
+                    "review pass %d/%d for ticket %s: %d finding(s) so far",
+                    pass_n + 1,
+                    passes,
+                    ticket_id,
+                    len(all_comments),
+                )
+
+        # Record this round's reviewed commit so the next round (if the
+        # gate blocks and a fix lands) reviews only the delta.
+        if phase_key is not None:
+            head = await self._worktree_head(worktree_path)
+            if head is not None:
+                self._last_reviewed_commit[phase_key] = head
 
         # fix-loop-context step 5: auto-reraised acks. For any new
         # comment that re-flags a previously addressed-but-not-resolved
@@ -1092,6 +1147,8 @@ class Orchestrator:
         worktree_path: Path | None = None,
         cycle: int = 0,
         code_metrics: "ChangeMetrics | None" = None,
+        informed_findings: dict | None = None,
+        delta_base: str | None = None,
     ) -> None:
         """Spawn one LLM-driven federation reviewer (Block 3).
 
@@ -1161,6 +1218,8 @@ class Orchestrator:
             verify_bundle=verify_bundle,
             code_metrics=code_metrics,
             cycle=cycle,
+            informed_findings=informed_findings,
+            delta_base=delta_base,
             initial_bus_message={
                 "kind": "review_federation_spawn",
                 "ticket_id": ticket.id,
@@ -3391,6 +3450,22 @@ class Orchestrator:
         if not bundle["findings"]:
             return None
         return bundle
+
+    async def _worktree_head(self, worktree_path) -> str | None:
+        """Resolve a worktree's HEAD commit; None on any failure.
+
+        Best-effort — a missing commit only means the next re-review
+        falls back to the full-diff base instead of the delta.
+        """
+        from jig.worktree import _run_git
+
+        try:
+            return await _run_git(Path(worktree_path), "rev-parse", "HEAD")
+        except Exception:
+            _logger.warning(
+                "could not resolve worktree HEAD at %s", worktree_path, exc_info=True
+            )
+            return None
 
     async def _file_notable_issues(
         self,

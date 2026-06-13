@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 from jig.config import Config, OrchestratorSection, save_config
 from jig.orchestrator import (
@@ -401,13 +403,18 @@ class TestEscalationTrigger:
 
 
 class TestSAToolAllowlisted:
-    def test_sa_role_allows_adjudicate_tool(self, tmp_path: Path) -> None:
-        """The SA role is strict_tools; the SDK gates MCP tools by the
-        allowed_tools allowlist. sa_adjudicate_finding must be listed or the
-        agent cannot call it and every adjudication fails closed (job 548).
-        This is the allowlist path the handler-only unit test missed."""
+    @pytest.mark.parametrize("role", ["sa", "sa_mvp", "sa_v2"])
+    def test_sa_roles_allow_adjudicate_tool(self, tmp_path: Path, role: str) -> None:
+        """Every strict_tools SA-family role must allow-list
+        sa_adjudicate_finding. The SDK gates MCP tools by allowed_tools under
+        bypassPermissions, so a missing entry means the agent cannot call the
+        tool and adjudication fails closed (jobs 548 small-profile sa, 566
+        medium-profile sa_mvp; sa_v2 defensively)."""
         from jig.persistence import load_role
 
-        cfg = load_role(tmp_path, "sa")
-        assert cfg.strict_tools is True
-        assert "sa_adjudicate_finding" in cfg.allowed_tools
+        cfg = load_role(tmp_path, role)
+        if cfg.strict_tools:
+            assert "sa_adjudicate_finding" in cfg.allowed_tools, (
+                f"{role} is strict_tools but does not allow-list "
+                "sa_adjudicate_finding — adjudication would fail closed"
+            )

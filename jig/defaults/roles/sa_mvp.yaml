@@ -342,6 +342,10 @@ allowed_tools:
   - graph_consumers_of
   - graph_tracers_for
   - graph_changed_interfaces
+  # review-severity-binary §6: registered per-spawn for SA adjudication;
+  # must be allow-listed or strict_tools filters it and adjudication
+  # fails closed.
+  - sa_adjudicate_finding
 allowed_mcps: []
 strict_tools: true
 default_context:

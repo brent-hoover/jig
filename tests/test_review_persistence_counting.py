@@ -231,3 +231,33 @@ class TestAnalytics:
         assert persisted[0].survival_count == 1
         assert persisted[0].persistence_key == _persistence_key(finding)
         assert persisted[0].cycle == 1
+
+
+class TestCrashClearsPersistence:
+    async def test_federation_crash_clears_persistence_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A federation crash is treated as a clean pass; it must also clear
+        persistence state so a later re-entry doesn't treat pre-crash
+        blockers as survivors (roborev job 547)."""
+        orch = await _make_orch(tmp_path)
+        ticket = await _make_ticket(orch)
+        phase_key = (ticket.id, "review")
+        # Seed stale persistence state as if a prior blocked round ran.
+        orch._survival_counts[phase_key] = {"reviewer-generalist|x|src/a.py": 1}
+        orch._prev_blocking_keys[phase_key] = {"reviewer-generalist|x|src/a.py"}
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("dispatch exploded")
+
+        from jig import reviewers as reviewers_pkg
+        from jig.reviewers import dispatch as dispatch_module
+
+        monkeypatch.setattr(dispatch_module, "dispatch_with_llm_spawn", _boom)
+        monkeypatch.setattr(reviewers_pkg, "dispatch_with_llm_spawn", _boom)
+
+        result = await _run_round(orch, ticket, tmp_path, cycle=1)
+
+        assert result.status == "success"  # crash → clean pass
+        assert phase_key not in orch._survival_counts
+        assert phase_key not in orch._prev_blocking_keys

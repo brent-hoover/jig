@@ -1032,8 +1032,14 @@ class Orchestrator:
                     # An earlier pass already posted findings; a later-pass
                     # crash must not discard them and wave a ticket with known
                     # blockers through. Stop multi-passing and let the gate
-                    # below evaluate what we have.
+                    # below evaluate what we have (it records/clears
+                    # persistence itself on the blocked/pass outcome).
                     break
+                # Total crash (no findings yet) — treated as a clean pass, so
+                # clear persistence too: a later re-entry must not count
+                # pre-crash blockers as survivors and emit misleading
+                # ReviewFindingPersisted events.
+                self._clear_phase_persistence(phase_key)
                 return RunAgentResult(
                     status="success",
                     final_text="Federation error — treated as clean pass (see logs).",
@@ -1144,12 +1150,19 @@ class Orchestrator:
 
         # Round converged — drop persistence state so a later re-entry to
         # this phase (or its reuse by another ticket id) starts clean.
-        if phase_key is not None:
-            self._survival_counts.pop(phase_key, None)
-            self._prev_blocking_keys.pop(phase_key, None)
+        self._clear_phase_persistence(phase_key)
 
         _logger.info("review federation passed for ticket %s", ticket_id)
         return RunAgentResult(status="success", final_text="Review passed.")
+
+    def _clear_phase_persistence(self, phase_key: "tuple[str, str] | None") -> None:
+        """Drop the survival counters + prior-blocking-keys for a review
+        phase, so a clean pass (or a crash treated as one) doesn't leave
+        stale state for a later re-entry."""
+        if phase_key is None:
+            return
+        self._survival_counts.pop(phase_key, None)
+        self._prev_blocking_keys.pop(phase_key, None)
 
     def _record_blocking_persistence(
         self,

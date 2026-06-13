@@ -210,6 +210,14 @@ class TestCascade:
             assert t.block_reason == DEP_FAILED_REASON
         # All terminal now → project_complete fired.
         assert _events_of(events, "project_complete")
+        # Downstream dependent (c) attributes blame to the original failed
+        # dependency (a), not the intermediate swept ticket (late).
+        cascade_events = [
+            e
+            for e in events
+            if e.type == "ticket_failed" and e.data["ticket_id"] == "c"
+        ]
+        assert cascade_events
 
     async def test_sweep_noop_when_deps_not_failed(self, tmp_path: Path) -> None:
         orch, events = await _make_orch(tmp_path)
@@ -222,6 +230,36 @@ class TestCascade:
         b = await orch.tickets.get("b")
         assert b is not None
         assert b.status == TicketStatus.OPEN  # untouched
+
+    async def test_sweep_blame_attributes_to_original_dep(self, tmp_path: Path) -> None:
+        """A swept late ticket's downstream dependents attribute
+        TicketCascadeFailed.root_failure_id to the original failed
+        dependency, not the intermediate swept ticket (roborev job 562)."""
+        orch, _events = await _make_orch(tmp_path)
+        assert orch.tickets is not None
+
+        emitted: list = []
+
+        class _Emitter:
+            def emit_nowait(self, event) -> None:
+                emitted.append(event)
+
+        orch._analytics_emitter = _Emitter()  # type: ignore[assignment]
+
+        await _ticket(orch, "a", status=TicketStatus.FAILED)
+        await _ticket(orch, "late", blocked_by=["a"], blocks=["c"])
+        await _ticket(orch, "c", blocked_by=["late"])
+
+        await orch._sweep_failed_dependencies()
+
+        cascades = {
+            e.ticket_id: e.root_failure_id
+            for e in emitted
+            if e.kind == "ticket_cascade_failed"
+        }
+        # both the late ticket and its downstream dependent blame "a".
+        assert cascades.get("late") == "a"
+        assert cascades.get("c") == "a"
 
 
 class TestCompletionGating:

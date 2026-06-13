@@ -2428,7 +2428,7 @@ class Orchestrator:
                     failed_dependency_id=failed_dep_id,
                 )
             )
-        await self._cascade_fail_dependents(ticket.id)
+        await self._cascade_fail_dependents(ticket.id, root_failure_id=failed_dep_id)
 
     async def _sweep_failed_dependencies(self) -> None:
         """Cascade-fail OPEN tickets whose dependency has already FAILED.
@@ -2459,7 +2459,9 @@ class Orchestrator:
         if failed_any:
             await self._maybe_run_analyzer()
 
-    async def _cascade_fail_dependents(self, root_id: str) -> None:
+    async def _cascade_fail_dependents(
+        self, root_id: str, *, root_failure_id: str | None = None
+    ) -> None:
         """Transitively fail open dependents of a failed ticket.
 
         A ticket is only scheduled when ALL its dependencies are
@@ -2477,6 +2479,11 @@ class Orchestrator:
         """
         if self.tickets is None:
             return
+        # root_failure_id is the originally-failed ticket for blame
+        # attribution; root_id is just the walk seed. They differ when the
+        # seed is an intermediate (e.g. a swept late ticket) rather than the
+        # true root failure.
+        blame = root_failure_id or root_id
         queue: list[str] = [root_id]
         seen: set[str] = {root_id}
         while queue:
@@ -2508,7 +2515,7 @@ class Orchestrator:
                     self._analytics_emitter.emit_nowait(
                         TicketCascadeFailed(
                             ticket_id=dep_id,
-                            root_failure_id=root_id,
+                            root_failure_id=blame,
                             failed_dependency_id=current.id,
                         )
                     )

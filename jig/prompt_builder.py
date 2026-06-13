@@ -544,12 +544,67 @@ def _blocking_findings_section(bundle: dict | None) -> str:
                 f"{ack['prose']}\n"
             )
 
+    guidance_entries = bundle.get("sa_guidance") or []
+    if guidance_entries:
+        lines.append("\n## SA Guidance\n")
+        lines.append(
+            "The solutions architect adjudicated the persistent finding(s) "
+            "below and upheld them with guidance. Follow the guidance — "
+            "this is the final routed fix attempt before escalation "
+            "budgets run out.\n"
+        )
+        for g in guidance_entries:
+            lines.append(f"\n[{g['finding_id']}] {g['guidance']}\n")
+
     if overflow > 0:
         lines.append(
             f"\n({overflow} more — see "
             "`.jig/store/review_comments.jsonl` for the full list)\n"
         )
 
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _adjudication_section(bundle: dict | None) -> str:
+    """Render the "Adjudication Request" section for an SA adjudication
+    spawn (review-severity-binary §6).
+
+    The bundle lists each escalated blocking finding: its stable RC-N
+    id, per-cycle prose history, the dev's addressed claims, and how
+    many fix attempts it survived. The SA must call
+    ``sa_adjudicate_finding`` exactly once per listed finding.
+    """
+    if not bundle or not bundle.get("findings"):
+        return ""
+    lines: list[str] = ["## Adjudication Request\n"]
+    lines.append(
+        "The findings below blocked this ticket's review repeatedly: the "
+        "dev attempted fixes and the reviewer re-raised them (or the "
+        "round budget ran out). You are the tie-breaker. For EACH finding "
+        "below, weigh the reviewer's claim against the dev's responses "
+        "and the actual code, then call `sa_adjudicate_finding` with one "
+        "verdict:\n"
+        "- `dismissed` — wrong, or not worth holding the merge for. "
+        "Binding: it can never block this ticket again.\n"
+        "- `uphold_guidance` — real; give the dev concrete guidance for "
+        "one more fix attempt.\n"
+        "- `uphold_fail` — real and unresolvable in this ticket; the "
+        "ticket fails.\n"
+        "Call the tool once per finding. Do not skip any.\n"
+    )
+    for f in bundle["findings"]:
+        loc = f.get("file") or "(diff-wide)"
+        lines.append(
+            f"\n[{f['finding_id']}] {loc} — {f['severity']} — "
+            f"{f['reviewer']} — survived {f['survival_count']} fix "
+            f"attempt(s)\n{f['prose']}\n"
+        )
+        for entry in f.get("history", []) or []:
+            lines.append(
+                f"  - cycle {entry['cycle']} ({entry['kind']}, "
+                f"{entry['author']}): {entry['prose']}\n"
+            )
     lines.append("\n")
     return "".join(lines)
 
@@ -794,6 +849,7 @@ def build_initial_prompt(
     verify_bundle: dict[str, Any] | None = None,
     informed_findings: dict[str, Any] | None = None,
     delta_base: str | None = None,
+    adjudication_bundle: dict[str, Any] | None = None,
     code_metrics: ChangeMetrics | None = None,
     conventions_md: str | None = None,
 ) -> str:
@@ -825,6 +881,9 @@ def build_initial_prompt(
         _delta_review_section(delta_base),
         _verify_findings_section(verify_bundle),
         _informed_pass_section(informed_findings),
+        _adjudication_section(adjudication_bundle)
+        if spawn_reason == SpawnReason.SA_ADJUDICATION
+        else "",
         _code_metrics_section(code_metrics, role=role_cfg.role),
         _instructions_section(
             ticket,

@@ -96,6 +96,50 @@ def _wrap_with_context(
     return wrapper
 
 
+def handle_sa_adjudicate_finding(adjudication: dict, args: dict) -> dict:
+    """Validate + record one SA adjudication verdict (review-severity-binary §6).
+
+    Pure function over the per-spawn collector so tests can exercise the
+    validation without constructing an MCP server. ``adjudication`` is
+    ``{"escalated": {rc_n: persistence_key}, "verdicts": {...}}``.
+    """
+    finding_id = args.get("finding_id", "")
+    verdict = args.get("verdict", "")
+    escalated = adjudication.get("escalated", {})
+    if finding_id not in escalated:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"error: {finding_id!r} is not in the escalated "
+                        f"set {sorted(escalated)!r}"
+                    ),
+                }
+            ],
+            "is_error": True,
+        }
+    if verdict not in ("dismissed", "uphold_guidance", "uphold_fail"):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "error: verdict must be one of dismissed | "
+                        "uphold_guidance | uphold_fail"
+                    ),
+                }
+            ],
+            "is_error": True,
+        }
+    adjudication.setdefault("verdicts", {})[finding_id] = {
+        "verdict": verdict,
+        "rationale": args.get("rationale", ""),
+        "guidance": args.get("guidance", "") or None,
+    }
+    return {"content": [{"type": "text", "text": f"recorded: {verdict}"}]}
+
+
 def create_agent_mcp_server(
     *,
     tickets: TicketStore,
@@ -117,6 +161,7 @@ def create_agent_mcp_server(
     cycle: int = 0,
     analytics_emitter: "AnalyticsEmitter | None" = None,
     ticket_base_ref: str | None = None,
+    adjudication: dict | None = None,
 ):
     """Create a Jig MCP server for a worker agent.
 
@@ -3176,6 +3221,35 @@ def create_agent_mcp_server(
             return {"content": [{"type": "text", "text": ack_id}]}
 
         all_tools.append(mark_finding_resolved)
+
+    if adjudication is not None:
+        # review-severity-binary §6 — registered only for SA adjudication
+        # spawns (orchestrator passes the collector); never part of a
+        # role's standing allowed_tools.
+
+        @tool(
+            "sa_adjudicate_finding",
+            "Record your adjudication verdict for one escalated finding "
+            "(by its RC-N id, listed in your Adjudication Request "
+            "section). Call once per escalated finding. Verdicts: "
+            "'dismissed' — the finding is wrong or not worth blocking "
+            "the merge for; it will never block this ticket again. "
+            "'uphold_guidance' — the finding is real; provide concrete "
+            "guidance for the dev's next fix attempt in `guidance`. "
+            "'uphold_fail' — the finding is real and unresolvable within "
+            "this ticket; the ticket fails. rationale is a short "
+            "(<=500 char) justification recorded in the audit trail.",
+            {
+                "finding_id": str,
+                "verdict": str,
+                "rationale": str,
+                "guidance": str,
+            },
+        )
+        async def sa_adjudicate_finding(args):
+            return handle_sa_adjudicate_finding(adjudication, args)
+
+        all_tools.append(sa_adjudicate_finding)
 
     if "log_audit_entry" in agent_cfg.allowed_tools:
         from jig.store.audit import AuditStore as _AuditStore

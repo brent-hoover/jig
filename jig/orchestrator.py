@@ -6,6 +6,8 @@ import os
 import signal
 import subprocess
 import time
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +30,12 @@ from jig.analytics.events import (
     TicketStateChanged,
 )
 from jig.analytics.store import AnalyticsStore
-from jig.config import DeadlockSection, OrchestratorSection, load_config
+from jig.config import (
+    DeadlockSection,
+    OrchestratorSection,
+    ProfileSection,
+    load_config,
+)
 from jig.deadlock import sweep_blocking_entries
 from jig.dev_env.orchestrator_hook import (
     DevProvisioningError,
@@ -44,7 +51,7 @@ from jig.store import Message, MessageBus, MessageType
 from jig.store.check_results import CheckResultsStore
 from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
-from jig.store.finding_acks import FindingAcksStore
+from jig.store.finding_acks import FindingAck, FindingAcksStore
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -123,6 +130,25 @@ STUCK_GRACE_SECONDS = 120.0
 # (transitive cascade). Consumers must check status (FAILED) before
 # interpreting this field — BLOCKED tickets use block_reason too.
 DEP_FAILED_REASON = "dependency-failed"
+
+
+# review-severity-binary §5/6 — SA adjudication triggers (initial
+# values, revisited against ReviewFindingPersisted eval data).
+# A blocking finding that survived this many fix attempts escalates to
+# the SA; at most MAX_SA_ESCALATIONS adjudications run per ticket
+# review phase, after which persistent blockers fail the ticket
+# directly (the SA has had its say).
+SURVIVAL_THRESHOLD = 2
+MAX_SA_ESCALATIONS = 2
+
+
+@dataclass
+class AdjudicationOutcome:
+    """Result of one SA adjudication run (review-severity-binary §6)."""
+
+    fail: bool = False
+    dismissed_keys: set[str] = dataclass_field(default_factory=set)
+    guidance: list[dict] = dataclass_field(default_factory=list)
 
 
 def _persistence_key(comment: "ReviewerComment") -> str:
@@ -327,6 +353,9 @@ class Orchestrator:
         # the operator explicitly opts out via ``.jig/config.yaml``.
         # See ``OrchestratorSection`` for full semantics.
         self._orchestrator_cfg: OrchestratorSection = OrchestratorSection()
+        # review-severity-binary §5/6 — profile config (sa_role) for SA
+        # adjudication spawns. Defaults cover tests/hand-wired setups.
+        self._profile_cfg: ProfileSection = ProfileSection()
         # Lazy-constructed Coordinator wired to the orchestrator's
         # stores. Built on first access via the ``coordinator``
         # property and reused for the orchestrator's lifetime so the
@@ -420,9 +449,11 @@ class Orchestrator:
                 cfg = load_config(self._project_path)
                 self._deadlock_cfg = cfg.deadlock
                 self._orchestrator_cfg = cfg.orchestrator
+                self._profile_cfg = cfg.profile
             except FileNotFoundError:
                 self._deadlock_cfg = DeadlockSection()
                 self._orchestrator_cfg = OrchestratorSection()
+                self._profile_cfg = ProfileSection()
             except Exception:
                 _logger.warning(
                     "could not load deadlock config; using defaults",
@@ -430,6 +461,7 @@ class Orchestrator:
                 )
                 self._deadlock_cfg = DeadlockSection()
                 self._orchestrator_cfg = OrchestratorSection()
+                self._profile_cfg = ProfileSection()
             self._running = True
             await self._resume_in_progress()
             await self._ensure_planning_ticket()
@@ -1124,6 +1156,11 @@ class Orchestrator:
         # passes cleanly when the survivor set is empty.
         if blocking:
             blocking = await self._filter_out_of_scope_comments(blocking)
+        if blocking:
+            # Binding SA dismissals (review-severity-binary §6): a key the
+            # SA dismissed can never block this ticket again, even if the
+            # reviewer re-posts it.
+            blocking = await self._filter_dismissed_keys(ticket_id, blocking)
 
         if blocking:
             n_crit = sum(1 for c in blocking if c.severity == Severity.CRITICAL.value)
@@ -1163,6 +1200,260 @@ class Orchestrator:
             return
         self._survival_counts.pop(phase_key, None)
         self._prev_blocking_keys.pop(phase_key, None)
+
+    async def _filter_dismissed_keys(self, ticket_id: str, blocking: list) -> list:
+        """Drop blocking comments whose persistence key carries a binding
+        SA dismissal (FindingAck kind="dismissed"). Acks are
+        JSONL-persisted, so the binding survives daemon restarts even
+        though the survival counters do not."""
+        acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+        if not acks_path.exists():
+            return blocking
+        acks_store = FindingAcksStore(acks_path)
+        await acks_store.load()
+        dismissed_keys = {
+            a.persistence_key
+            for a in await acks_store.for_ticket(ticket_id)
+            if a.kind == "dismissed" and a.persistence_key
+        }
+        if not dismissed_keys:
+            return blocking
+        kept = [c for c in blocking if _persistence_key(c) not in dismissed_keys]
+        dropped = len(blocking) - len(kept)
+        if dropped:
+            _logger.info(
+                "filtered %d blocking finding(s) with binding SA dismissals "
+                "on ticket %s",
+                dropped,
+                ticket_id,
+            )
+        return kept
+
+    def _keys_past_survival_threshold(
+        self, ticket_id: str, phase_name: str
+    ) -> set[str]:
+        """Persistence keys whose survival count reached the SA threshold."""
+        counts = self._survival_counts.get((ticket_id, phase_name), {})
+        return {k for k, v in counts.items() if v >= SURVIVAL_THRESHOLD}
+
+    async def _run_sa_adjudication(
+        self,
+        *,
+        ticket_id: str,
+        ticket,
+        phase_name: str,
+        worktree: Path,
+        escalated_keys: set[str],
+        cycle: int,
+        cap_trip: bool,
+    ) -> "AdjudicationOutcome":
+        """Spawn the profile's SA to adjudicate persistent blocking findings.
+
+        Escalation is by persistence key; each key is presented as its
+        latest RC-N occurrence with full history. Verdict handling:
+
+        - ``dismissed`` → ``FindingAck(kind="dismissed", persistence_key=…)``
+          persisted; the gate filter makes it binding.
+        - ``uphold_guidance`` → survival count resets; guidance rides into
+          the next fix bundle. A missing verdict for an escalated finding
+          is treated the same with no guidance (conservative: never waves
+          a finding through, never fails on SA sloppiness alone).
+        - ``uphold_fail`` → the outcome fails the ticket.
+
+        Fail-closed: a spawn error or an SA that returns zero verdicts
+        fails the ticket (the pre-SA behavior at the cap), loudly.
+        """
+        from jig.finding_ids import compute_finding_ids, signature_of
+        from jig.persistence import load_role
+        from jig.runtime import AgentSpawnContext, SpawnReason
+
+        fail_closed = AdjudicationOutcome(fail=True)
+
+        if (
+            self.review_comments is None
+            or self.tickets is None
+            or self.threads is None
+            or self.memory is None
+            or self.bus is None
+            or self._project is None
+        ):
+            _logger.error("SA adjudication: orchestrator not fully started")
+            return fail_closed
+
+        # When the round cap trips, every outstanding blocking key is on
+        # the table, not just the persistent ones.
+        if cap_trip:
+            escalated_keys = escalated_keys | self._prev_blocking_keys.get(
+                (ticket_id, phase_name), set()
+            )
+        if not escalated_keys:
+            _logger.error("SA adjudication: no escalated keys for %s", ticket_id)
+            return fail_closed
+
+        await self.review_comments.load()
+        all_comments = await self.review_comments.for_ticket_chronological(ticket_id)
+        ids = compute_finding_ids(all_comments)
+        acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
+        acks_path.parent.mkdir(parents=True, exist_ok=True)
+        acks_store = FindingAcksStore(acks_path)
+        await acks_store.load()
+        all_acks = await acks_store.for_ticket(ticket_id)
+
+        counts = self._survival_counts.get((ticket_id, phase_name), {})
+        bundle_findings: list[dict] = []
+        escalated_map: dict[str, str] = {}  # rc_n -> persistence key
+        for key in sorted(escalated_keys):
+            occurrences = [
+                c
+                for c in all_comments
+                if c.severity in ("critical", "important")
+                and _persistence_key(c) == key
+            ]
+            if not occurrences:
+                continue
+            latest = occurrences[-1]
+            rc_n = ids.get(signature_of(latest))
+            if rc_n is None:
+                continue
+            escalated_map[rc_n] = key
+            occ_fids = {
+                ids.get(signature_of(c))
+                for c in occurrences
+                if ids.get(signature_of(c)) is not None
+            }
+            history = [
+                {
+                    "cycle": c.cycle,
+                    "kind": "raised",
+                    "author": c.reviewer,
+                    "prose": c.prose,
+                }
+                for c in occurrences
+            ] + [
+                {
+                    "cycle": a.cycle,
+                    "kind": a.kind,
+                    "author": a.author,
+                    "prose": a.prose,
+                }
+                for a in all_acks
+                if a.finding_id in occ_fids
+            ]
+            history.sort(key=lambda e: e["cycle"])
+            bundle_findings.append(
+                {
+                    "finding_id": rc_n,
+                    "file": latest.file,
+                    "severity": latest.severity,
+                    "reviewer": latest.reviewer,
+                    "prose": latest.prose,
+                    "survival_count": counts.get(key, 0),
+                    "history": history,
+                }
+            )
+        if not bundle_findings:
+            _logger.error(
+                "SA adjudication: escalated keys resolved to no findings on %s",
+                ticket_id,
+            )
+            return fail_closed
+
+        sa_role = self._profile_cfg.sa_role
+        try:
+            role_cfg = load_role(self._project_path, sa_role)
+        except FileNotFoundError:
+            _logger.error(
+                "SA adjudication: role config %r not found — failing closed",
+                sa_role,
+            )
+            return fail_closed
+
+        collector: dict = {"escalated": escalated_map, "verdicts": {}}
+        ctx = AgentSpawnContext(
+            role=sa_role,
+            role_cfg=role_cfg,
+            spawn_reason=SpawnReason.SA_ADJUDICATION,
+            ticket=ticket,
+            parent=None,
+            worktree_path=worktree,
+            project=self._project,
+            tickets=self.tickets,
+            threads=self.threads,
+            memory=self.memory,
+            bus=self.bus,
+            checkpoints=self.checkpoints,
+            cycle=cycle,
+            adjudication_bundle={"findings": bundle_findings},
+            adjudication_collector=collector,
+        )
+        _logger.info(
+            "SA adjudication for ticket %s: %d finding(s)%s",
+            ticket_id,
+            len(bundle_findings),
+            " (round-cap trip)" if cap_trip else "",
+        )
+        try:
+            await self._run_agent_with_analytics(ctx)
+        except Exception:
+            _logger.error(
+                "SA adjudication spawn failed for ticket %s — failing closed",
+                ticket_id,
+                exc_info=True,
+            )
+            return fail_closed
+
+        verdicts: dict = collector.get("verdicts", {})
+        if not verdicts:
+            _logger.error(
+                "SA adjudication returned no verdicts for ticket %s — failing closed",
+                ticket_id,
+            )
+            return fail_closed
+
+        outcome = AdjudicationOutcome()
+        phase_key = (ticket_id, phase_name)
+        for rc_n, key in escalated_map.items():
+            v = verdicts.get(rc_n)
+            verdict = (v or {}).get("verdict", "uphold_guidance")
+            rationale = (v or {}).get("rationale", "(no verdict recorded)")
+            if verdict == "uphold_fail":
+                outcome.fail = True
+            elif verdict == "dismissed":
+                await acks_store.append(
+                    FindingAck(
+                        ticket_id=ticket_id,
+                        finding_id=rc_n,
+                        kind="dismissed",
+                        author=sa_role,
+                        cycle=cycle,
+                        prose=rationale,
+                        persistence_key=key,
+                    )
+                )
+                outcome.dismissed_keys.add(key)
+                self._survival_counts.get(phase_key, {}).pop(key, None)
+            else:  # uphold_guidance (explicit or missing verdict)
+                guidance = (v or {}).get("guidance") or rationale
+                outcome.guidance.append({"finding_id": rc_n, "guidance": guidance})
+                # Survival resets; the granted round is the new baseline.
+                counts = self._survival_counts.get(phase_key)
+                if counts is not None and key in counts:
+                    counts[key] = 0
+        if self._analytics_emitter is not None:
+            from jig.analytics.events import SAAdjudication
+
+            self._analytics_emitter.emit_nowait(
+                SAAdjudication(
+                    ticket_id=ticket_id,
+                    finding_ids=sorted(escalated_map),
+                    verdicts=[
+                        (verdicts.get(rc) or {}).get("verdict", "uphold_guidance")
+                        for rc in sorted(escalated_map)
+                    ],
+                    cap_trip=cap_trip,
+                )
+            )
+        return outcome
 
     def _record_blocking_persistence(
         self,
@@ -1902,6 +2193,10 @@ class Orchestrator:
             # Prevents infinite review→dev→review loops.
             max_fix_cycles = 3
             fix_counts: dict[int, int] = {}
+            # review-severity-binary §6 — SA adjudication budget per
+            # phase. After MAX_SA_ESCALATIONS, persistent blockers fail
+            # the ticket directly: the SA has had its say.
+            sa_escalations: dict[int, int] = {}
             # fix-loop-context (step 3): when ``_route_blocked_phase``
             # sends us back, build a bundle of the latest cycle's blocking
             # findings filtered to the chosen phase. The next iteration
@@ -2159,7 +2454,67 @@ class Orchestrator:
 
                     if result.status == "blocked":
                         fix_counts[phase_idx] = fix_counts.get(phase_idx, 0) + 1
-                        if fix_counts[phase_idx] > max_fix_cycles:
+                        cap_tripped = fix_counts[phase_idx] > max_fix_cycles
+
+                        # review-severity-binary §6 — SA adjudication.
+                        # Persistent findings (survived SURVIVAL_THRESHOLD
+                        # fix attempts) or a round-cap trip escalate to the
+                        # SA instead of failing directly. A reviewer can no
+                        # longer unilaterally fail a ticket.
+                        sa_guidance: list[dict] | None = None
+                        sa_granted_round = False
+                        escalated_keys = (
+                            self._keys_past_survival_threshold(ticket_id, phase.name)
+                            if phase.role == "review"
+                            else set()
+                        )
+                        if (cap_tripped or escalated_keys) and phase.role == "review":
+                            if sa_escalations.get(phase_idx, 0) < MAX_SA_ESCALATIONS:
+                                sa_escalations[phase_idx] = (
+                                    sa_escalations.get(phase_idx, 0) + 1
+                                )
+                                adjudication = await self._run_sa_adjudication(
+                                    ticket_id=ticket_id,
+                                    ticket=ticket,
+                                    phase_name=phase.name,
+                                    worktree=worktree,
+                                    escalated_keys=escalated_keys,
+                                    cycle=current_fix_cycle,
+                                    cap_trip=cap_tripped,
+                                )
+                                if adjudication.fail:
+                                    _logger.warning(
+                                        "SA adjudication upheld-unresolvable on "
+                                        "ticket %s — failing",
+                                        ticket_id,
+                                    )
+                                    await self._update_ticket_status(
+                                        ticket_id, TicketStatus.FAILED
+                                    )
+                                    await self._on_ticket_failed(ticket_id, ticket)
+                                    return
+                                if (
+                                    adjudication.dismissed_keys
+                                    and not adjudication.guidance
+                                ):
+                                    # Every escalated finding dismissed — the
+                                    # gate's binding-dismissal filter now
+                                    # excludes them; re-run the review phase
+                                    # to re-evaluate the remaining findings.
+                                    _logger.info(
+                                        "SA dismissed all escalated finding(s) "
+                                        "on ticket %s — re-running %s",
+                                        ticket_id,
+                                        phase.name,
+                                    )
+                                    ticket = await self.tickets.get(ticket_id)
+                                    continue
+                                # Upheld with guidance: grant one routed fix
+                                # round, even past the cap.
+                                sa_guidance = adjudication.guidance
+                                sa_granted_round = True
+
+                        if cap_tripped and not sa_granted_round:
                             _logger.warning(
                                 "phase %s blocked %d times — giving up on ticket %s",
                                 phase.name,
@@ -2212,6 +2567,13 @@ class Orchestrator:
                                     exc_info=True,
                                 )
                                 pending_fix_loop_bundle = None
+                            if sa_guidance:
+                                if pending_fix_loop_bundle is None:
+                                    pending_fix_loop_bundle = {
+                                        "findings": [],
+                                        "overflow_count": 0,
+                                    }
+                                pending_fix_loop_bundle["sa_guidance"] = sa_guidance
                             current_fix_cycle += 1
                             await self._update_ticket_status(
                                 ticket_id, TicketStatus.IN_PROGRESS

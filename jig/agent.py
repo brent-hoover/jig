@@ -310,6 +310,7 @@ async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
         verify_bundle=verify_bundle,
         informed_findings=ctx.informed_findings,
         delta_base=ctx.delta_base,
+        adjudication_bundle=ctx.adjudication_bundle,
         code_metrics=ctx.code_metrics,
         conventions_md=conventions_md,
     )
@@ -555,6 +556,7 @@ async def run_agent(
             phase_escalation_targets=phase_esc_targets,
             ticket_id=ctx.ticket.id,
             cycle=ctx.cycle,
+            adjudication=ctx.adjudication_collector,
             # Block 2 — analytics emitter rides through so MCP tool
             # handlers that emit analytics events (ontology edits, etc.)
             # actually emit when invoked from a real agent.

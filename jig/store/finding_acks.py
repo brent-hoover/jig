@@ -12,6 +12,10 @@ Records the per-finding acks that close the fix-loop audit trail:
   federation pass flags the same signature again, indicating the dev's
   claim did not hold. Captures the new comment's prose so the audit
   trail is self-contained.
+- ``dismissed`` — SA adjudication verdict: the finding is wrong or not
+  worth blocking. Binding — the federation gate filters blocking
+  comments whose ``persistence_key`` carries a dismissal, in all later
+  cycles (review-severity-binary §5).
 
 The store does not assign or own finding IDs — that's
 ``jig.finding_ids.compute_finding_ids``, a pure function over
@@ -46,7 +50,7 @@ class FindingAck(BaseModel):
             "produced by ``jig.finding_ids.compute_finding_ids``."
         ),
     )
-    kind: Literal["addressed", "resolved", "reraised", "reject"]
+    kind: Literal["addressed", "resolved", "reraised", "reject", "dismissed"]
     author: str = Field(
         ...,
         min_length=1,
@@ -65,6 +69,14 @@ class FindingAck(BaseModel):
             "``resolved``: the reviewer's confirmation (\"confirmed; "
             'single BASE definition"). For ``reraised``: the new '
             "finding's prose so the audit trail is self-contained."
+        ),
+    )
+    persistence_key: str | None = Field(
+        default=None,
+        description=(
+            "Coarse cross-round key (``reviewer|type|file``) recorded on "
+            "``dismissed`` acks so the binding-dismissal gate filter "
+            "survives line drift and daemon restarts. None for other kinds."
         ),
     )
     created_at: datetime = Field(default=_CREATED_AT_SENTINEL)

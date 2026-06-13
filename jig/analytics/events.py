@@ -745,6 +745,22 @@ class TicketCascadeFailed(_EventBase):
     failed_dependency_id: str
 
 
+class ReviewFindingPersisted(_EventBase):
+    """A blocking finding survived a fix attempt (consecutive blocked rounds).
+
+    Keyed by the coarse persistence key (reviewer|type|file). The
+    survival-count distribution across real runs calibrates the SA
+    escalation threshold; counts that routinely reach the round cap
+    without escalating indicate the threshold is too high.
+    """
+
+    kind: Literal["review_finding_persisted"] = "review_finding_persisted"
+    ticket_id: str
+    persistence_key: str
+    survival_count: int
+    cycle: int
+
+
 class ProjectStuck(_EventBase):
     """The stuck-project watchdog fired: nothing running, nothing ready,
     no operator-pending ticket, yet non-terminal work outstanding.
@@ -819,6 +835,7 @@ AnalyticsEvent = Annotated[
         NotableIssueFiled,
         TicketCascadeFailed,
         ProjectStuck,
+        ReviewFindingPersisted,
         TicketGraphImpact,
     ],
     Field(discriminator="kind"),

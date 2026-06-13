@@ -125,6 +125,18 @@ STUCK_GRACE_SECONDS = 120.0
 DEP_FAILED_REASON = "dependency-failed"
 
 
+def _persistence_key(comment) -> str:
+    """Coarse cross-round identity for a blocking finding.
+
+    Deliberately coarser than ``signature_of`` (drops the line/contract
+    discriminator): a fix changes the very lines a finding points at, so
+    line-anchored identity misses on exactly the rounds that matter.
+    Over-matching collapses same-type findings in one file — that errs
+    toward counting persistence sooner, and (step 6) the SA adjudicates.
+    """
+    return f"{comment.reviewer}|{comment.type}|{comment.file or ''}"
+
+
 def _kill_orphan_claude_processes(project_path: Path) -> int:
     """SIGTERM any ``claude`` CLI subprocess whose CWD is inside the
     project's worktrees directory. Returns the number of PIDs signalled.
@@ -296,6 +308,15 @@ class Orchestrator:
         # In-memory by design: a daemon restart falls back to the
         # full-diff base (degraded to today's behavior, never wrong).
         self._last_reviewed_commit: dict[tuple[str, str], str] = {}
+        # review-severity-binary §5 — persistence counting (observe-only
+        # at this step). Per (ticket_id, phase_name): survival count per
+        # blocking-finding persistence key, plus the previous blocked
+        # round's key set. A key increments only when it survives a fix
+        # attempt (present in consecutive blocked rounds); absent keys
+        # reset; fresh keys enter at zero. In-memory: a restart resets
+        # counts, degrading to extra fix rounds, never a wrong failure.
+        self._survival_counts: dict[tuple[str, str], dict[str, int]] = {}
+        self._prev_blocking_keys: dict[tuple[str, str], set[str]] = {}
         # Phase 5 Task L thresholds — loaded from config at startup
         # so shutdown/emergency_reset can read them without a second
         # config parse.
@@ -1107,6 +1128,12 @@ class Orchestrator:
                 n_crit,
                 n_imp,
             )
+            self._record_blocking_persistence(
+                ticket_id=ticket_id,
+                phase_key=phase_key,
+                blocking=blocking,
+                cycle=cycle,
+            )
             return RunAgentResult(
                 status="blocked",
                 final_text=(
@@ -1115,8 +1142,65 @@ class Orchestrator:
                 ),
             )
 
+        # Round converged — drop persistence state so a later re-entry to
+        # this phase (or its reuse by another ticket id) starts clean.
+        if phase_key is not None:
+            self._survival_counts.pop(phase_key, None)
+            self._prev_blocking_keys.pop(phase_key, None)
+
         _logger.info("review federation passed for ticket %s", ticket_id)
         return RunAgentResult(status="success", final_text="Review passed.")
+
+    def _record_blocking_persistence(
+        self,
+        *,
+        ticket_id: str,
+        phase_key: tuple[str, str] | None,
+        blocking: list,
+        cycle: int,
+    ) -> None:
+        """Track which blocking findings survived a fix attempt.
+
+        Observe-only (review-severity-binary §5): a finding's coarse
+        persistence key increments when it appears in consecutive
+        blocked rounds — the dev attempted a fix and the reviewer
+        re-raised it. Fresh keys enter at zero; a key absent from this
+        round resets to zero (flapping findings are bounded by the
+        round cap instead). Counts feed ReviewFindingPersisted
+        analytics; step 6 attaches the SA-escalation trigger.
+        """
+        if phase_key is None:
+            return
+        prev_keys = self._prev_blocking_keys.get(phase_key, set())
+        counts = self._survival_counts.setdefault(phase_key, {})
+        current_keys = {_persistence_key(c) for c in blocking}
+
+        for key in list(counts):
+            if key not in current_keys:
+                counts[key] = 0
+        for key in current_keys:
+            if key in prev_keys:
+                counts[key] = counts.get(key, 0) + 1
+                _logger.info(
+                    "blocking finding persisted (%d fix attempt(s)) on %s: %s",
+                    counts[key],
+                    ticket_id,
+                    key,
+                )
+                if self._analytics_emitter is not None:
+                    from jig.analytics.events import ReviewFindingPersisted
+
+                    self._analytics_emitter.emit_nowait(
+                        ReviewFindingPersisted(
+                            ticket_id=ticket_id,
+                            persistence_key=key,
+                            survival_count=counts[key],
+                            cycle=cycle,
+                        )
+                    )
+            else:
+                counts.setdefault(key, 0)
+        self._prev_blocking_keys[phase_key] = current_keys
 
     async def _fail_with_federation_error(self, ticket_id: str) -> None:
         """Mark a ticket FAILED + emit a federation-error Note.

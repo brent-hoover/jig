@@ -398,3 +398,16 @@ class TestEscalationTrigger:
             cap_trip=True,  # ...but the cap trip widens to k2 as well
         )
         assert outcome.dismissed_keys == {k1, k2}
+
+
+class TestSAToolAllowlisted:
+    def test_sa_role_allows_adjudicate_tool(self, tmp_path: Path) -> None:
+        """The SA role is strict_tools; the SDK gates MCP tools by the
+        allowed_tools allowlist. sa_adjudicate_finding must be listed or the
+        agent cannot call it and every adjudication fails closed (job 548).
+        This is the allowlist path the handler-only unit test missed."""
+        from jig.persistence import load_role
+
+        cfg = load_role(tmp_path, "sa")
+        assert cfg.strict_tools is True
+        assert "sa_adjudicate_finding" in cfg.allowed_tools

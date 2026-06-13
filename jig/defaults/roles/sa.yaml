@@ -272,6 +272,11 @@ allowed_tools:
   - arch_list_fields
   - arch_list_templates
   - sa_propose_scaffold
+  # review-severity-binary §6: registered per-spawn for SA adjudication.
+  # Must be allow-listed here — strict_tools gates MCP tools by this list,
+  # so without it the SA agent cannot record verdicts and every
+  # adjudication fails closed.
+  - sa_adjudicate_finding
   - graph_get_impact
   - graph_neighbors
   - graph_consumers_of

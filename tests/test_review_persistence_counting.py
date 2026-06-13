@@ -261,3 +261,25 @@ class TestCrashClearsPersistence:
         assert result.status == "success"  # crash → clean pass
         assert phase_key not in orch._survival_counts
         assert phase_key not in orch._prev_blocking_keys
+
+
+class TestClearOnFailure:
+    async def test_failure_clears_persistence_for_ticket(self, tmp_path: Path) -> None:
+        """_on_ticket_failed must drop persistence state for the ticket so a
+        same-daemon retry (reset to open) starts from a fresh baseline
+        (roborev job 565)."""
+        orch = await _make_orch(tmp_path)
+        ticket = await _make_ticket(orch)
+        pk = (ticket.id, "review")
+        orch._survival_counts[pk] = {"reviewer-generalist|x|src/a.py": 2}
+        orch._prev_blocking_keys[pk] = {"reviewer-generalist|x|src/a.py"}
+        # An unrelated ticket's state must survive.
+        other = ("other-ticket", "review")
+        orch._survival_counts[other] = {"k": 1}
+        orch._prev_blocking_keys[other] = {"k"}
+
+        await orch._on_ticket_failed(ticket.id, ticket)
+
+        assert pk not in orch._survival_counts
+        assert pk not in orch._prev_blocking_keys
+        assert other in orch._survival_counts  # untouched

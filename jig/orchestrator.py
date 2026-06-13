@@ -2563,6 +2563,14 @@ class Orchestrator:
         _logger.info("ticket %s failed", ticket_id)
         await self._emit_ticket_failed(ticket_id, ticket.title)
         self._running_tickets.pop(ticket_id, None)
+        # Drop review-persistence state for this ticket: the orchestrator
+        # may reset a failed ticket to open and retry it in the same daemon,
+        # and stale _survival_counts/_prev_blocking_keys would make the fresh
+        # run's first blocked review look like a persisted finding (job 565).
+        for key in {k for k in self._survival_counts if k[0] == ticket_id} | {
+            k for k in self._prev_blocking_keys if k[0] == ticket_id
+        }:
+            self._clear_phase_persistence(key)
         await self._cascade_fail_dependents(ticket_id)
         await self._start_ready_tickets()
         await self._maybe_run_analyzer()

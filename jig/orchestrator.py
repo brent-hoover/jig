@@ -1007,6 +1007,12 @@ class Orchestrator:
                     ticket_id,
                     exc_info=True,
                 )
+                if all_comments:
+                    # An earlier pass already posted findings; a later-pass
+                    # crash must not discard them and wave a ticket with known
+                    # blockers through. Stop multi-passing and let the gate
+                    # below evaluate what we have.
+                    break
                 return RunAgentResult(
                     status="success",
                     final_text="Federation error — treated as clean pass (see logs).",

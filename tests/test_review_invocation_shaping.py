@@ -316,3 +316,66 @@ class TestReviewerDiffBase:
 
         ctx = self._ctx(tmp_path, delta_base=None)
         assert _effective_ticket_base_ref(ctx) == "develop"
+
+
+class TestMultiPassCrash:
+    async def test_pass2_crash_preserves_pass1_blockers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If pass 1 found a blocking finding and pass 2 crashes, the ticket
+        must still block — pass 1's findings cannot be discarded (job 564)."""
+        from jig.reviewers.comment import ReviewerComment, ReviewerCommentType
+
+        orch = await _make_orch(tmp_path)
+        ticket = await _make_ticket(orch)
+
+        important = ReviewerComment(
+            type=ReviewerCommentType("pattern-divergence"),
+            severity=Severity("important"),
+            reviewer="reviewer-generalist",
+            prose="real defect " + "d" * 40,
+            confidence=0.8,
+            file="src/cli.py",
+        )
+
+        calls = {"n": 0}
+
+        async def _stub(*args: Any, **kwargs: Any) -> dict:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"reviewer-generalist": [important]}
+            raise RuntimeError("pass 2 dispatch exploded")
+
+        from jig import reviewers as reviewers_pkg
+        from jig.reviewers import dispatch as dispatch_module
+
+        monkeypatch.setattr(dispatch_module, "dispatch_with_llm_spawn", _stub)
+        monkeypatch.setattr(reviewers_pkg, "dispatch_with_llm_spawn", _stub)
+
+        result = await orch._run_review_phase_federation(
+            ticket.id, ticket, tmp_path, phase=_phase(passes=2), cycle=0
+        )
+
+        # Pass 1's important finding still blocks despite pass 2's crash.
+        assert result.status == "blocked"
+
+    async def test_total_crash_is_clean_pass(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A crash on the very first pass (no findings yet) stays fail-open."""
+        orch = await _make_orch(tmp_path)
+        ticket = await _make_ticket(orch)
+
+        async def _boom(*args: Any, **kwargs: Any) -> dict:
+            raise RuntimeError("pass 1 exploded")
+
+        from jig import reviewers as reviewers_pkg
+        from jig.reviewers import dispatch as dispatch_module
+
+        monkeypatch.setattr(dispatch_module, "dispatch_with_llm_spawn", _boom)
+        monkeypatch.setattr(reviewers_pkg, "dispatch_with_llm_spawn", _boom)
+
+        result = await orch._run_review_phase_federation(
+            ticket.id, ticket, tmp_path, phase=_phase(passes=2), cycle=0
+        )
+        assert result.status == "success"

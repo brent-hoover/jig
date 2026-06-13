@@ -188,6 +188,41 @@ class TestCascade:
         # And the now-all-terminal project completes.
         assert _events_of(events, "project_complete")
 
+    async def test_sweep_fails_late_ticket_with_failed_dep(
+        self, tmp_path: Path
+    ) -> None:
+        """An OPEN ticket blocked by an already-FAILED dependency — never
+        scheduled, so find_ready/_handle_schedule never see it — is
+        cascade-failed by the reconcile sweep, and the project completes."""
+        orch, events = await _make_orch(tmp_path)
+        assert orch.tickets is not None
+        await _ticket(orch, "a", status=TicketStatus.FAILED)
+        # Created after a failed; blocked_by a, and itself blocks c.
+        await _ticket(orch, "late", blocked_by=["a"], blocks=["c"])
+        await _ticket(orch, "c", blocked_by=["late"])
+
+        await orch._sweep_failed_dependencies()
+
+        for tid in ("late", "c"):
+            t = await orch.tickets.get(tid)
+            assert t is not None
+            assert t.status == TicketStatus.FAILED
+            assert t.block_reason == DEP_FAILED_REASON
+        # All terminal now → project_complete fired.
+        assert _events_of(events, "project_complete")
+
+    async def test_sweep_noop_when_deps_not_failed(self, tmp_path: Path) -> None:
+        orch, events = await _make_orch(tmp_path)
+        assert orch.tickets is not None
+        await _ticket(orch, "a", status=TicketStatus.RESOLVED)
+        await _ticket(orch, "b", blocked_by=["a"])  # dep resolved, not failed
+
+        await orch._sweep_failed_dependencies()
+
+        b = await orch.tickets.get("b")
+        assert b is not None
+        assert b.status == TicketStatus.OPEN  # untouched
+
 
 class TestCompletionGating:
     async def test_review_notable_proposed_does_not_block_completion(

@@ -1380,6 +1380,7 @@ class Orchestrator:
         if self.tickets is None:
             return
         await self.tickets.load()
+        await self._sweep_failed_dependencies()
         await self._start_ready_tickets()
         await self._check_stuck()
 
@@ -1553,32 +1554,8 @@ class Orchestrator:
                     dep = await self.tickets.get(dep_id)
                     if dep is not None and dep.status == TicketStatus.FAILED:
                         # A failed dependency can never resolve — this
-                        # ticket is unreachable. Cascade-fail it now
-                        # (covers tickets created after the dependency
-                        # already failed, which _cascade_fail_dependents
-                        # could not have seen).
-                        _logger.info(
-                            "ticket %s blocked by failed dependency %s — "
-                            "cascade-failing",
-                            ticket_id,
-                            dep_id,
-                        )
-                        await self.tickets.update(
-                            ticket_id, block_reason=DEP_FAILED_REASON
-                        )
-                        await self._update_ticket_status(ticket_id, TicketStatus.FAILED)
-                        await self._emit_ticket_failed(ticket_id, ticket.title)
-                        if self._analytics_emitter is not None:
-                            from jig.analytics.events import TicketCascadeFailed
-
-                            self._analytics_emitter.emit_nowait(
-                                TicketCascadeFailed(
-                                    ticket_id=ticket_id,
-                                    root_failure_id=dep_id,
-                                    failed_dependency_id=dep_id,
-                                )
-                            )
-                        await self._cascade_fail_dependents(ticket_id)
+                        # ticket is unreachable. Cascade-fail it now.
+                        await self._cascade_fail_unreachable_ticket(ticket, dep_id)
                         await self._maybe_run_analyzer()
                         return
                     if dep is None or dep.status != TicketStatus.RESOLVED:
@@ -2425,6 +2402,62 @@ class Orchestrator:
                 },
             )
         )
+
+    async def _cascade_fail_unreachable_ticket(
+        self, ticket, failed_dep_id: str
+    ) -> None:
+        """Fail one OPEN ticket made unreachable by a FAILED dependency,
+        then cascade to its own dependents. Shared by the schedule-time
+        check (_handle_schedule) and the reconcile sweep
+        (_sweep_failed_dependencies)."""
+        _logger.info(
+            "ticket %s blocked by failed dependency %s — cascade-failing",
+            ticket.id,
+            failed_dep_id,
+        )
+        await self.tickets.update(ticket.id, block_reason=DEP_FAILED_REASON)
+        await self._update_ticket_status(ticket.id, TicketStatus.FAILED)
+        await self._emit_ticket_failed(ticket.id, ticket.title)
+        if self._analytics_emitter is not None:
+            from jig.analytics.events import TicketCascadeFailed
+
+            self._analytics_emitter.emit_nowait(
+                TicketCascadeFailed(
+                    ticket_id=ticket.id,
+                    root_failure_id=failed_dep_id,
+                    failed_dependency_id=failed_dep_id,
+                )
+            )
+        await self._cascade_fail_dependents(ticket.id)
+
+    async def _sweep_failed_dependencies(self) -> None:
+        """Cascade-fail OPEN tickets whose dependency has already FAILED.
+
+        ``find_ready()`` excludes OPEN tickets with unresolved deps, so an
+        externally-created or late-approved ticket blocked by an
+        already-failed dependency never reaches ``_handle_schedule``'s
+        failed-dep branch and would sit OPEN forever. The reconcile tick
+        sweeps for them directly so the project still reaches all-terminal.
+        """
+        if self.tickets is None:
+            return
+        failed_any = False
+        for stale in await self.tickets.list_all():
+            # Re-fetch: an earlier iteration's cascade may have already
+            # failed this ticket within the same sweep.
+            t = await self.tickets.get(stale.id)
+            if t is None or t.status != TicketStatus.OPEN:
+                continue
+            if t.id in self._running_tickets:
+                continue
+            for dep_id in t.blocked_by:
+                dep = await self.tickets.get(dep_id)
+                if dep is not None and dep.status == TicketStatus.FAILED:
+                    await self._cascade_fail_unreachable_ticket(t, dep_id)
+                    failed_any = True
+                    break
+        if failed_any:
+            await self._maybe_run_analyzer()
 
     async def _cascade_fail_dependents(self, root_id: str) -> None:
         """Transitively fail open dependents of a failed ticket.

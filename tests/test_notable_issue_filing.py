@@ -173,6 +173,31 @@ class TestInPhaseGate:
         issues = _issues_for(await orch.tickets.list_all(), ticket.id)
         assert len(issues) == 2
 
+    async def test_out_of_scope_notable_not_filed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A hallucinated notable on a file outside the reviewer's
+        reads_glob must not create a real operator-triaged issue."""
+        orch = await _make_orch(tmp_path)
+        ticket = await _make_ticket(orch)
+        # reviewer-generalist reads_glob covers src/** and jig/** and
+        # excludes tests/**, so a finding on a tests/ path is out of scope.
+        in_scope = _notable(file="src/cli.py")
+        hallucinated = _notable(
+            file="tests/test_made_up.py", prose="imagined " + "z" * 40
+        )
+        _patch_federation(
+            monkeypatch,
+            {"reviewer-generalist": [in_scope, hallucinated]},
+        )
+
+        await orch._run_review_phase_federation(ticket.id, ticket, tmp_path)
+
+        assert orch.tickets is not None
+        issues = _issues_for(await orch.tickets.list_all(), ticket.id)
+        assert len(issues) == 1
+        assert "src/cli.py" in issues[0].description
+
 
 class TestDispatchGate:
     async def test_review_notable_proposed_ticket_is_never_ready(

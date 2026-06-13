@@ -3121,6 +3121,14 @@ class Orchestrator:
         if self.tickets is None or not notables:
             return 0
 
+        # Drop hallucinated notables (file outside the issuing reviewer's
+        # reads_glob) before filing — the same guard blocking findings
+        # get. Without it, a scoped reviewer that imagines a finding on a
+        # file it can't see would create a real operator-triaged issue.
+        notables = await self._filter_out_of_scope_comments(notables)
+        if not notables:
+            return 0
+
         existing_sigs: set[str] = set()
         for t in await self.tickets.list_all():
             if t.parent_id == ticket_id and "review-notable" in t.labels:

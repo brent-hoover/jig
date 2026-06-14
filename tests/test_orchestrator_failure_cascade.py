@@ -188,6 +188,48 @@ class TestCascade:
         # And the now-all-terminal project completes.
         assert _events_of(events, "project_complete")
 
+    async def test_multihop_late_ticket_attributes_original_root(
+        self, tmp_path: Path
+    ) -> None:
+        """A late ticket blocked by a cascade-failed intermediate attributes
+        TicketCascadeFailed.root_failure_id to the ORIGINAL root failure, not
+        the intermediate (job #169 review, schedule-time path)."""
+        orch, _events = await _make_orch(tmp_path)
+        assert orch.tickets is not None
+
+        emitted: list = []
+
+        class _Emitter:
+            def emit_nowait(self, event) -> None:
+                emitted.append(event)
+
+        orch._analytics_emitter = _Emitter()  # type: ignore[assignment]
+
+        # a = original root failure; b = cascade-failed intermediate.
+        await _ticket(orch, "a", status=TicketStatus.FAILED, blocks=["b"])
+        await _ticket(
+            orch,
+            "b",
+            status=TicketStatus.FAILED,
+            blocked_by=["a"],
+            blocks=["late"],
+        )
+        await orch.tickets.update("b", block_reason="dependency-failed")
+        # Late ticket created after both failed, blocked by the intermediate.
+        await _ticket(orch, "late", blocked_by=["b"])
+
+        await orch._handle_schedule("late")
+
+        late = await orch.tickets.get("late")
+        assert late is not None and late.status == TicketStatus.FAILED
+        cascades = {
+            e.ticket_id: e.root_failure_id
+            for e in emitted
+            if e.kind == "ticket_cascade_failed"
+        }
+        # Walks b → a; blame is the original root, not the intermediate.
+        assert cascades.get("late") == "a"
+
     async def test_sweep_fails_late_ticket_with_failed_dep(
         self, tmp_path: Path
     ) -> None:
@@ -341,3 +383,65 @@ class TestStuckWatchdog:
         await orch._check_stuck()
         assert orch._stuck_since is None
         assert not _events_of(events, "project_stuck")
+
+    async def test_pending_proposed_dep_is_not_stuck(self, tmp_path: Path) -> None:
+        """An OPEN ticket blocked by a front-door PROPOSED issue awaiting
+        approval is operator-pending (alive), not stuck (job #169 review)."""
+        orch, events = await _make_orch(tmp_path)
+        assert orch.tickets is not None
+        await _ticket(orch, "p", status=TicketStatus.PROPOSED, blocks=["w"])
+        await _ticket(orch, "w", blocked_by=["p"])  # OPEN, in watch set
+
+        await orch._check_stuck()
+        orch._stuck_since = time.monotonic() - (STUCK_GRACE_SECONDS + 1)
+        await orch._check_stuck()
+
+        assert not _events_of(events, "project_stuck")
+        assert orch._stuck_since is None  # treated as alive
+
+    async def test_review_notable_proposed_does_not_mask_stuck(
+        self, tmp_path: Path
+    ) -> None:
+        """A review-notable PROPOSED backlog issue must NOT count as alive —
+        a genuine stuck cycle alongside it still fires."""
+        orch, events = await _make_orch(tmp_path)
+        await self._stuck_pair(orch)
+        await _ticket(
+            orch,
+            "nb",
+            status=TicketStatus.PROPOSED,
+            labels=["review-notable", "sig:x"],
+        )
+
+        await orch._check_stuck()
+        orch._stuck_since = time.monotonic() - (STUCK_GRACE_SECONDS + 1)
+        await orch._check_stuck()
+
+        assert _events_of(events, "project_stuck")  # backlog didn't mask it
+
+    async def test_recovery_clears_emitted_set_so_re_stuck_re_alerts(
+        self, tmp_path: Path
+    ) -> None:
+        """After a project recovers, the same stuck-set re-occurring must
+        fire a fresh project_stuck (emitted-set reset on recovery)."""
+        orch, events = await _make_orch(tmp_path)
+        await self._stuck_pair(orch)
+
+        # First stuck firing.
+        await orch._check_stuck()
+        orch._stuck_since = time.monotonic() - (STUCK_GRACE_SECONDS + 1)
+        await orch._check_stuck()
+        assert len(_events_of(events, "project_stuck")) == 1
+
+        # Recover: a ready ticket appears, then is removed again.
+        await _ticket(orch, "ready")
+        await orch._check_stuck()
+        assert orch._stuck_since is None
+        assert orch._stuck_emitted_for is None  # reset on recovery
+        # Remove the ready ticket → same stuck-set re-occurs.
+        assert orch.tickets is not None
+        await orch.tickets.update_status("ready", TicketStatus.RESOLVED)
+        await orch._check_stuck()
+        orch._stuck_since = time.monotonic() - (STUCK_GRACE_SECONDS + 1)
+        await orch._check_stuck()
+        assert len(_events_of(events, "project_stuck")) == 2  # re-alerted

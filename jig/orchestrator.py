@@ -1405,10 +1405,28 @@ class Orchestrator:
         all_tickets = await self.tickets.list_all()
         stuck_candidates = [t for t in all_tickets if t.status in _STUCK_WATCH_STATUSES]
         has_needs_info = any(t.status == TicketStatus.NEEDS_INFO for t in all_tickets)
+        # A non-review-notable PROPOSED ticket is a front-door issue awaiting
+        # operator approval — quiet-but-alive, not stuck (matches the docstring
+        # and the _STUCK_WATCH_STATUSES comment). review-notable PROPOSED
+        # issues are triage backlog (excluded by _counts_toward_completion) and
+        # must NOT mask a genuine stuck cycle, so they don't count as alive.
+        has_pending_proposed = any(
+            t.status == TicketStatus.PROPOSED and _counts_toward_completion(t)
+            for t in all_tickets
+        )
         ready = await self.tickets.find_ready()
-        alive = bool(self._running_tickets) or bool(ready) or has_needs_info
+        alive = (
+            bool(self._running_tickets)
+            or bool(ready)
+            or has_needs_info
+            or has_pending_proposed
+        )
         if alive or not stuck_candidates:
+            # Reset the debounce AND the emitted-set: a project that recovers
+            # and later goes stuck again with the same ticket-set must still
+            # re-alert (otherwise the second occurrence is silently suppressed).
             self._stuck_since = None
+            self._stuck_emitted_for = None
             return
         now = time.monotonic()
         if self._stuck_since is None:
@@ -2403,6 +2421,32 @@ class Orchestrator:
             )
         )
 
+    async def _resolve_root_failure(self, dep_id: str) -> str:
+        """Walk up the cascade chain from a failed dependency to the original
+        (non-cascade) failure, for blame attribution. A DEP_FAILED_REASON
+        ticket was itself failed by one of its failed dependencies; follow that
+        chain to the root. Returns ``dep_id`` if it is already a root failure
+        or the chain can't be resolved (cycle-guarded)."""
+        if self.tickets is None:
+            return dep_id
+        current = dep_id
+        seen: set[str] = set()
+        while current not in seen:
+            seen.add(current)
+            t = await self.tickets.get(current)
+            if t is None or t.block_reason != DEP_FAILED_REASON:
+                return current
+            nxt = None
+            for b in t.blocked_by:
+                dep = await self.tickets.get(b)
+                if dep is not None and dep.status == TicketStatus.FAILED:
+                    nxt = b
+                    break
+            if nxt is None:
+                return current
+            current = nxt
+        return current
+
     async def _cascade_fail_unreachable_ticket(
         self, ticket, failed_dep_id: str
     ) -> None:
@@ -2418,17 +2462,20 @@ class Orchestrator:
         await self.tickets.update(ticket.id, block_reason=DEP_FAILED_REASON)
         await self._update_ticket_status(ticket.id, TicketStatus.FAILED)
         await self._emit_ticket_failed(ticket.id, ticket.title)
+        # failed_dep_id may itself be a cascade-failed intermediate; walk up to
+        # the original root so multi-hop late tickets attribute blame correctly.
+        root = await self._resolve_root_failure(failed_dep_id)
         if self._analytics_emitter is not None:
             from jig.analytics.events import TicketCascadeFailed
 
             self._analytics_emitter.emit_nowait(
                 TicketCascadeFailed(
                     ticket_id=ticket.id,
-                    root_failure_id=failed_dep_id,
+                    root_failure_id=root,
                     failed_dependency_id=failed_dep_id,
                 )
             )
-        await self._cascade_fail_dependents(ticket.id, root_failure_id=failed_dep_id)
+        await self._cascade_fail_dependents(ticket.id, root_failure_id=root)
 
     async def _sweep_failed_dependencies(self) -> None:
         """Cascade-fail OPEN tickets whose dependency has already FAILED.

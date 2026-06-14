@@ -968,16 +968,24 @@ class NowScreen(Container):
             from rich.text import Text
 
             resolved = data.get("tickets_resolved", 0)
+            failed = data.get("tickets_failed", 0)
             total = data.get("tickets_total", 0)
-            scrollback.write(Rule(style="bold green"))
-            scrollback.write(Align.center(Text("PROJECT COMPLETE", style="bold green")))
+            done_style = "bold yellow" if failed else "bold green"
+            scrollback.write(Rule(style=done_style))
+            heading = (
+                "PROJECT COMPLETE (with failures)" if failed else "PROJECT COMPLETE"
+            )
+            scrollback.write(Align.center(Text(heading, style=done_style)))
             if total:
+                summary = f"{resolved}/{total} tickets resolved"
+                if failed:
+                    summary += f", {failed} failed"
                 scrollback.write(
                     Align.center(
-                        Text(f"{resolved}/{total} tickets resolved", style="dim green")
+                        Text(summary, style="dim yellow" if failed else "dim green")
                     )
                 )
-            scrollback.write(Rule(style="bold green"))
+            scrollback.write(Rule(style=done_style))
         elif kind == "analysis_complete":
             outcome = data.get("outcome", "")
             out_dir = data.get("out_dir", "")

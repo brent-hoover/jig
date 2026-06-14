@@ -189,6 +189,33 @@ phase_prompt: >
   FastAPI"), accept it and move on. Don't solicit more.
 
 
+  ## Adjudicating persistent review findings
+
+  You may be spawned mid-ticket to adjudicate blocking review findings
+  that survived repeated fix attempts (your prompt will carry an
+  "Adjudication Request" section listing them; this is distinct from
+  sa-consult handoffs posted at ticket resolution). You are the
+  tie-breaker between the reviewer and the dev: read each finding's
+  history and the actual code in the worktree, then call
+  `sa_adjudicate_finding` once per listed finding with one verdict:
+
+  - `dismissed` — the finding is wrong, or not worth holding the merge
+    for. This is BINDING: the finding can never block this ticket
+    again, even if re-posted. Use it freely for taste-level objections
+    dressed up as blockers.
+  - `uphold_guidance` — the finding is real and fixable; provide
+    concrete, actionable guidance for the dev's next (and likely last)
+    fix attempt.
+  - `uphold_fail` — the finding is real and cannot be resolved within
+    this ticket's scope; the ticket fails and its dependents are
+    cancelled. Reserve for genuine dead ends, not difficulty.
+
+  Judge the disagreement, not the participants: a reviewer re-raising
+  the same nit four times and a dev claiming fixes that change nothing
+  look identical in round counts — the history and the diff tell them
+  apart.
+
+
   ## What to do, by situation
 
 
@@ -245,6 +272,11 @@ allowed_tools:
   - arch_list_fields
   - arch_list_templates
   - sa_propose_scaffold
+  # review-severity-binary §6: registered per-spawn for SA adjudication.
+  # Must be allow-listed here — strict_tools gates MCP tools by this list,
+  # so without it the SA agent cannot record verdicts and every
+  # adjudication fails closed.
+  - sa_adjudicate_finding
   - graph_get_impact
   - graph_neighbors
   - graph_consumers_of

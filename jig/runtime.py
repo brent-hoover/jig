@@ -25,6 +25,11 @@ class SpawnReason(str, Enum):
     EVALUATOR = "evaluator"
     CONFLICT_RESOLVER = "conflict_resolver"
     REPLAN = "replan"
+    # review-severity-binary §5/6 — SA spawned to adjudicate blocking
+    # findings that survived fix attempts (or a round-cap trip). The
+    # prompt carries the adjudication bundle; the agent returns one
+    # verdict per escalated finding via the sa_adjudicate_finding tool.
+    SA_ADJUDICATION = "sa_adjudication"
     # fix-loop-context — back-routed phase agent after a review block.
     # Same role as PHASE_PRIMARY would have been, but carries the
     # ``fix_loop_bundle`` with the latest cycle's blocking findings
@@ -104,3 +109,10 @@ class AgentSpawnContext:
     # at the last-reviewed commit (re-review round): the prompt notes that
     # the served diff is the fix delta and unchanged code is out of scope.
     delta_base: str | None = None
+    # review-severity-binary §6 — SA adjudication spawns only. The bundle
+    # describes each escalated finding (RC-N, history, acks, fix
+    # attempts); the collector dict receives the verdicts written by the
+    # sa_adjudicate_finding MCP tool: {"escalated": {rc_n: key},
+    # "verdicts": {rc_n: {verdict, rationale, guidance}}}.
+    adjudication_bundle: dict | None = None
+    adjudication_collector: dict | None = None

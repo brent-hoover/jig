@@ -761,6 +761,26 @@ class ReviewFindingPersisted(_EventBase):
     cycle: int
 
 
+class SAAdjudication(_EventBase):
+    """The SA adjudicated persistent blocking findings (or a cap trip).
+
+    One event per adjudication run; ``finding_ids`` and ``verdicts``
+    are parallel lists (sorted by finding id). Dismissal rates per
+    reviewer calibrate reviewer trustworthiness; uphold_fail rates
+    measure how often persistence reflects genuinely unresolvable work.
+    """
+
+    kind: Literal["sa_adjudication"] = "sa_adjudication"
+    ticket_id: str
+    finding_ids: list[str]
+    verdicts: list[str]
+    cap_trip: bool
+    # Cycle the adjudication ran on — anchors the event to the ticket
+    # timeline (early/first-blocked vs late/post-cap), mirroring
+    # ReviewFindingPersisted.cycle. (issue #175)
+    cycle: int
+
+
 class ProjectStuck(_EventBase):
     """The stuck-project watchdog fired: nothing running, nothing ready,
     no operator-pending ticket, yet non-terminal work outstanding.
@@ -836,6 +856,7 @@ AnalyticsEvent = Annotated[
         TicketCascadeFailed,
         ProjectStuck,
         ReviewFindingPersisted,
+        SAAdjudication,
         TicketGraphImpact,
     ],
     Field(discriminator="kind"),

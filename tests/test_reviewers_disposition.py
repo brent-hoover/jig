@@ -4,7 +4,8 @@ Per ``docs/v2.0/pm-workflow/design.md`` §"Severity tiers and disposition":
 
 - critical → block (ticket FAILED with reason ``reviewer-critical``)
 - important → consult SA (``Handoff(phase="sa-consult")`` posted)
-- notable → DEFERRED (``Coordinator.defer_ticket(...)``)
+- notable → ignored (binary severity: never blocks, no disposition;
+  the orchestrator files notables as proposed issues upstream)
 
 These tests pin each branch + the interaction with the Coordinator
 helper. Coverage matrix: each severity alone, multiple severities
@@ -97,7 +98,6 @@ class TestCriticalDisposition:
             [_comment(severity="critical")],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
         assert len(result.blocked_by) == 1
@@ -112,7 +112,6 @@ class TestCriticalDisposition:
             [_comment(severity="critical")],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
         fresh = await tickets.get(ticket.id)
@@ -129,7 +128,6 @@ class TestCriticalDisposition:
             [_comment(severity="critical")],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
         assert len(result.blocked_by) == 1
@@ -142,7 +140,7 @@ class TestCriticalDisposition:
         ticket = await _make_ticket(tickets)
         comments = [_comment(severity="critical") for _ in range(3)]
         result = await apply_severity_disposition(
-            comments, ticket, tickets, coord, threads=threads
+            comments, ticket, tickets, threads=threads
         )
         assert len(result.blocked_by) == 3
         fresh = await tickets.get(ticket.id)
@@ -162,7 +160,6 @@ class TestImportantDisposition:
             [_comment(severity="important")],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
         assert len(result.consulted_sa) == 1
@@ -181,9 +178,7 @@ class TestImportantDisposition:
             _comment(severity="important", reviewer="reviewer-error-handling"),
             _comment(severity="important", reviewer="reviewer-test-adequacy"),
         ]
-        await apply_severity_disposition(
-            comments, ticket, tickets, coord, threads=threads
-        )
+        await apply_severity_disposition(comments, ticket, tickets, threads=threads)
         entries = await threads.for_ticket(ticket.id)
         handoffs = [e for e in entries if isinstance(e, Handoff)]
         assert len(handoffs) == 2
@@ -199,7 +194,6 @@ class TestImportantDisposition:
             [_comment(severity="important")],
             ticket,
             tickets,
-            coord,
             threads=None,
         )
         assert len(result.consulted_sa) == 1
@@ -215,7 +209,6 @@ class TestImportantDisposition:
             [_comment(severity="important")],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
         fresh = await tickets.get(ticket.id)
@@ -223,77 +216,28 @@ class TestImportantDisposition:
         assert fresh.status != TicketStatus.FAILED
 
 
-# ---- notable → DEFERRED queue -------------------------------------------
+# ---- notable → no disposition (binary severity) ---------------------------
 
 
 class TestNotableDisposition:
-    async def test_notable_calls_coordinator_defer_ticket(self, tmp_path: Path) -> None:
+    async def test_notable_is_ignored(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
         result = await apply_severity_disposition(
             [_comment(severity="notable")],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
-        assert len(result.deferred) == 1
-        deferred_entries = coord.list_deferred()
-        assert len(deferred_entries) == 1
-        assert deferred_entries[0].ticket_id == ticket.id
-        assert deferred_entries[0].reason == "reviewer-notable"
-
-    async def test_notable_without_coordinator_records_no_action(
-        self, tmp_path: Path
-    ) -> None:
-        tickets, threads, _ = await _build_stores(tmp_path)
-        ticket = await _make_ticket(tickets)
-        result = await apply_severity_disposition(
-            [_comment(severity="notable")],
-            ticket,
-            tickets,
-            coordinator=None,
-            threads=threads,
-        )
-        assert len(result.deferred) == 1
-
-    async def test_notable_does_not_change_ticket_status(self, tmp_path: Path) -> None:
-        tickets, threads, coord = await _build_stores(tmp_path)
-        ticket = await _make_ticket(tickets)
-        await apply_severity_disposition(
-            [_comment(severity="notable")],
-            ticket,
-            tickets,
-            coord,
-            threads=threads,
-        )
+        assert result.blocked_by == []
+        assert result.consulted_sa == []
+        # No deferred-queue side effect, no thread entries, no status change.
+        assert coord.list_deferred() == []
+        entries = await threads.for_ticket(ticket.id)
+        assert not [e for e in entries if isinstance(e, Handoff)]
         fresh = await tickets.get(ticket.id)
         assert fresh is not None
         assert fresh.status != TicketStatus.FAILED
-
-    async def test_notable_summary_mentions_count(self, tmp_path: Path) -> None:
-        tickets, threads, coord = await _build_stores(tmp_path)
-        ticket = await _make_ticket(tickets)
-        await apply_severity_disposition(
-            [
-                _comment(
-                    severity="notable",
-                    reviewer="reviewer-pattern-conformance",
-                ),
-                _comment(
-                    severity="notable",
-                    reviewer="reviewer-pattern-conformance",
-                ),
-                _comment(severity="notable", reviewer="reviewer-test-adequacy"),
-            ],
-            ticket,
-            tickets,
-            coord,
-            threads=threads,
-        )
-        deferred = coord.list_deferred()
-        assert len(deferred) == 1
-        assert "3 notable" in deferred[0].notes
 
 
 # ---- mixed severities ---------------------------------------------------
@@ -313,12 +257,10 @@ class TestMixedSeverities:
             ],
             ticket,
             tickets,
-            coord,
             threads=threads,
         )
         assert len(result.blocked_by) == 1
         assert len(result.consulted_sa) == 1
-        assert len(result.deferred) == 1
 
         fresh = await tickets.get(ticket.id)
         assert fresh is not None
@@ -329,14 +271,12 @@ class TestMixedSeverities:
             isinstance(e, Handoff) and e.phase == SA_CONSULT_PHASE for e in entries
         )
 
-        assert len(coord.list_deferred()) == 1
+        # Binary severity: the notable produced no disposition side effect.
+        assert coord.list_deferred() == []
 
     async def test_empty_input_returns_empty_result(self, tmp_path: Path) -> None:
         tickets, threads, coord = await _build_stores(tmp_path)
         ticket = await _make_ticket(tickets)
-        result = await apply_severity_disposition(
-            [], ticket, tickets, coord, threads=threads
-        )
+        result = await apply_severity_disposition([], ticket, tickets, threads=threads)
         assert result.blocked_by == []
         assert result.consulted_sa == []
-        assert result.deferred == []

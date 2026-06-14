@@ -707,6 +707,27 @@ class VisualComplianceFailed(_EventBase):
     severity: Literal["critical", "important", "notable"]
 
 
+# ---- review-severity-binary — notable→issue conversion -------------------
+
+
+class NotableIssueFiled(_EventBase):
+    """A notable finding was converted into an operator-gated proposed issue.
+
+    Binary severity: notables never block or route; each distinct
+    notable (deduped by finding signature) becomes a ``proposed``
+    ticket parented to the source ticket. Per-ticket volume is a
+    reviewer-noise signal; zero events project-wide means reviewers
+    aren't using the non-blocking outlet.
+    """
+
+    kind: Literal["notable_issue_filed"] = "notable_issue_filed"
+    ticket_id: str
+    issue_id: str
+    reviewer_id: str
+    comment_type: str
+    file: str | None = None
+
+
 # ---- Phase 4.11 — graph impact event ------------------------------------
 
 
@@ -766,6 +787,7 @@ AnalyticsEvent = Annotated[
         VisualComplianceFailed,
         OntologyTermEdited,
         OntologyTermRemoved,
+        NotableIssueFiled,
         TicketGraphImpact,
     ],
     Field(discriminator="kind"),

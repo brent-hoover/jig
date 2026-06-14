@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from jig.models import PhaseConfig, WorkflowConfig
     from jig.prompt_registry import PromptRegistry
     from jig.reviewers.comment import ReviewerComment
-    from jig.store.finding_acks import FindingAck
     from jig.ticket import Ticket
 
 from jig.agent import run_agent
@@ -163,52 +162,17 @@ def _summarize_critical_note(comments: list) -> str:
     )
 
 
-def _unacked_notable_finding_ids(
-    *,
-    all_comments: "list[ReviewerComment]",
-    all_acks: "list[FindingAck]",
-    in_scope_notables: "list[ReviewerComment]",
-) -> "list[str]":
-    """Return finding IDs of in-scope notables that have no satisfying ack.
+def _notable_sig_label(signature: tuple) -> str:
+    """Deterministic ``sig:<digest>`` label for a finding signature.
 
-    A notable is satisfied when its latest ack (by append order, which
-    corresponds to insertion/cycle order for non-pathological writes) has
-    kind ``'addressed'`` or ``'resolved'``. ``'reject'`` requires reviewer
-    sign-off; ``'reraised'`` means the reviewer re-flagged; absent means
-    never acknowledged.
-
-    ``in_scope_notables`` must be pre-filtered by the caller via
-    ``_filter_out_of_scope_comments`` so hallucinated notables don't block.
+    Stamped onto notable-derived proposed issues so dedup survives
+    daemon restarts: a notable re-posted in a later cycle maps to the
+    same label and is skipped.
     """
-    from jig.finding_ids import compute_finding_ids, signature_of
+    import hashlib
 
-    if not in_scope_notables:
-        return []
-
-    ids = compute_finding_ids(all_comments) if all_comments else {}
-
-    # Build satisfied set: finding_id → latest ack kind (append-ordered).
-    acks_by_fid: dict[str, list] = {}
-    for ack in all_acks:
-        acks_by_fid.setdefault(ack.finding_id, []).append(ack)
-
-    def _is_satisfied(finding_id: str) -> bool:
-        acks = acks_by_fid.get(finding_id, [])
-        if not acks:
-            return False
-        latest_kind = acks[-1].kind
-        return latest_kind in ("addressed", "resolved")
-
-    unacked: list[str] = []
-    seen: set[str] = set()
-    for c in in_scope_notables:
-        finding_id = ids.get(signature_of(c))
-        if finding_id is None or finding_id in seen:
-            continue
-        seen.add(finding_id)
-        if not _is_satisfied(finding_id):
-            unacked.append(finding_id)
-    return unacked
+    digest = hashlib.sha1(repr(signature).encode("utf-8")).hexdigest()[:12]
+    return f"sig:{digest}"
 
 
 class DependencyMergeError(RuntimeError):
@@ -838,26 +802,26 @@ class Orchestrator:
             # a no-op rather than tripping an AttributeError.
             return
 
-        # The notable→DEFERRED branch only fires when the ticket is
-        # actually resolving; criticals (→FAILED) and importants
-        # (→BLOCKED) take precedence and the notables on the same
-        # ticket should NOT land in the deferred queue. Pass a
-        # coordinator only when no higher-severity comments are
-        # present so ``apply_severity_disposition`` skips the defer
-        # call cleanly without re-implementing the precedence rule.
+        # Binary severity: notables never block and carry no ack
+        # obligation — surface them as operator-gated proposed issues
+        # regardless of what higher-severity findings do to the ticket.
         from jig.reviewers.comment import Severity as _Severity
 
-        has_higher_severity = any(
-            c.severity in (_Severity.CRITICAL.value, _Severity.IMPORTANT.value)
-            for c in comments
-        )
-        coord_arg: object | None = None if has_higher_severity else self.coordinator
+        notables = [c for c in comments if c.severity == _Severity.NOTABLE.value]
+        if notables:
+            try:
+                await self._file_notable_issues(ticket_id, notables)
+            except Exception:
+                _logger.warning(
+                    "notable-issue conversion failed for ticket %s",
+                    ticket_id,
+                    exc_info=True,
+                )
 
         result = await apply_severity_disposition(
             comments,
             ticket,
             self.tickets,
-            coord_arg,
             threads=self.threads,
         )
 
@@ -882,8 +846,8 @@ class Orchestrator:
             # structured reason rather than a new TicketStatus).
             await self._update_ticket_status(ticket_id, TicketStatus.BLOCKED)
             await self.tickets.update(ticket_id, block_reason="reviewer-important")
-        # Notable-only path: ticket stays RESOLVED, the Coordinator
-        # already deferred it inside apply_severity_disposition.
+        # Notable-only path: ticket stays RESOLVED; the notables were
+        # filed as proposed issues above.
 
     async def _run_review_phase_federation(
         self,
@@ -999,6 +963,21 @@ class Orchestrator:
                     exc_info=True,
                 )
 
+        # Binary severity: notables never block, never route, and carry
+        # no ack obligation. Each distinct notable becomes an
+        # operator-gated proposed issue instead. Best-effort — issue
+        # filing must never affect the gate decision below.
+        notables = [c for c in all_comments if c.severity == Severity.NOTABLE.value]
+        if notables:
+            try:
+                await self._file_notable_issues(ticket_id, notables)
+            except Exception:
+                _logger.warning(
+                    "notable-issue conversion failed for ticket %s",
+                    ticket_id,
+                    exc_info=True,
+                )
+
         blocking = [
             c
             for c in all_comments
@@ -1029,37 +1008,6 @@ class Orchestrator:
                     f"Review found {n_crit} critical and {n_imp} important issue(s). "
                     "Routing back to dev phase."
                 ),
-            )
-
-        # Unacked-notable gate. Runs only when no blocking findings — if
-        # there ARE blocking findings, the dev re-run handles notables too.
-        # Fail-closed: an error in the gate blocks rather than silently passes.
-        try:
-            unacked, _notable_comments = await self._unacked_notables(ticket_id)
-            if unacked:
-                _logger.info(
-                    "review federation: %d unacked notable(s) for ticket %s: %s",
-                    len(unacked),
-                    ticket_id,
-                    unacked,
-                )
-                return RunAgentResult(
-                    status="blocked",
-                    final_text=(
-                        f"Review found {len(unacked)} unacknowledged notable finding(s). "
-                        f"Call mark_finding_addressed for each before resolving: "
-                        f"{', '.join(unacked)}"
-                    ),
-                )
-        except Exception:
-            _logger.warning(
-                "unacked-notable gate failed for ticket %s; blocking (fail-closed)",
-                ticket_id,
-                exc_info=True,
-            )
-            return RunAgentResult(
-                status="blocked",
-                final_text="Unacked-notable gate error — blocking (see logs).",
             )
 
         _logger.info("review federation passed for ticket %s", ticket_id)
@@ -3139,25 +3087,6 @@ class Orchestrator:
         await acks_store.load()
         all_acks = await acks_store.for_ticket(ticket_id)
 
-        # Collect in-scope notables so the back-routed agent sees every
-        # finding it must acknowledge, not just blocking ones. Filter via
-        # _filter_out_of_scope_comments (hallucination guard) to stay
-        # consistent with the gate in _run_review_phase_federation.
-        # build_fix_loop_bundle routes each notable to its owning phase
-        # (writes-glob), so non-dev targets only receive notables they own —
-        # an unacked notable the agent never sees can never be acked and
-        # would re-block the phase on every subsequent federation pass.
-        from jig.reviewers.comment import Severity as _Sev
-
-        candidate_notables = [
-            c for c in all_comments if c.severity == _Sev.NOTABLE.value
-        ]
-        in_scope_notables = (
-            await self._filter_out_of_scope_comments(candidate_notables)
-            if candidate_notables
-            else []
-        )
-
         bundle = await build_fix_loop_bundle(
             workflow=workflow,
             blocked_phase_idx=blocked_phase_idx,
@@ -3165,75 +3094,98 @@ class Orchestrator:
             all_comments=all_comments,
             all_acks=all_acks,
             worktree_path=worktree,
-            in_scope_notable_comments=in_scope_notables,
         )
         if not bundle["findings"]:
             return None
         return bundle
 
-    async def _unacked_notables(
+    async def _file_notable_issues(
         self,
         ticket_id: str,
-        *,
-        all_comments: "list[ReviewerComment] | None" = None,
-    ) -> tuple[list[str], list["ReviewerComment"]]:
-        """Unacked in-scope notable findings for ``ticket_id``.
+        notables: "list[ReviewerComment]",
+    ) -> int:
+        """Convert this cycle's notable findings into proposed issues.
 
-        Returns ``(finding_ids, comments)`` where ``comments`` holds one
-        representative ``ReviewerComment`` per unacked finding id (its
-        first in-scope occurrence). Shared by the unacked-notable gate in
-        ``_run_review_phase_federation`` and the notable-only routing path
-        in ``_route_blocked_phase`` so both agree on exactly which
-        findings are holding the phase.
-
-        ``all_comments``, when provided, must be the ticket's full
-        comment history in insertion (chronological) order — finding-ID
-        assignment depends on it. Callers that already loaded the store
-        pass it so one routing decision works from a single snapshot
-        instead of racing a second disk read against concurrent
-        reviewer writes.
+        Notables never block (binary severity) — instead each distinct
+        notable becomes a ``proposed`` ticket the operator triages via
+        the issue front door (``jig issue approve`` before it can ever
+        dispatch). Dedup is by finding signature, encoded as a
+        ``sig:<digest>`` label and matched against existing
+        ``review-notable`` issues parented to the source ticket — so a
+        notable re-posted in a later cycle (or after a daemon restart)
+        does not file a second issue. Returns the number filed.
         """
-        from jig.finding_ids import compute_finding_ids, signature_of
-        from jig.reviewers.comment import Severity
+        from jig.finding_ids import signature_of
+        from jig.ticket import Ticket, TicketStatus, WorkType
 
-        all_history: list[ReviewerComment] = []
-        all_acks: list[FindingAck] = []
-        if all_comments is not None:
-            all_history = all_comments
-        elif self.review_comments is not None:
-            await self.review_comments.load()
-            all_history = await self.review_comments.for_ticket_chronological(ticket_id)
-        acks_path = self._project_path / ".jig" / "store" / "finding_acks.jsonl"
-        if acks_path.exists():
-            acks_store = FindingAcksStore(acks_path)
-            await acks_store.load()
-            all_acks = await acks_store.for_ticket(ticket_id)
+        if self.tickets is None or not notables:
+            return 0
 
-        candidate_notables = [
-            c for c in all_history if c.severity == Severity.NOTABLE.value
-        ]
-        in_scope_notables = (
-            await self._filter_out_of_scope_comments(candidate_notables)
-            if candidate_notables
-            else []
-        )
-        unacked = _unacked_notable_finding_ids(
-            all_comments=all_history,
-            all_acks=all_acks,
-            in_scope_notables=in_scope_notables,
-        )
-        if not unacked:
-            return [], []
-        unacked_set = set(unacked)
-        ids = compute_finding_ids(all_history)
-        comments: list[ReviewerComment] = []
-        seen: set[str] = set()
-        for c in in_scope_notables:
-            fid = ids.get(signature_of(c))
-            if fid in unacked_set and fid not in seen:
-                seen.add(fid)
-                comments.append(c)
-        return unacked, comments
+        # Drop hallucinated notables (file outside the issuing reviewer's
+        # reads_glob) before filing — the same guard blocking findings
+        # get. Without it, a scoped reviewer that imagines a finding on a
+        # file it can't see would create a real operator-triaged issue.
+        notables = await self._filter_out_of_scope_comments(notables)
+        if not notables:
+            return 0
+
+        existing_sigs: set[str] = set()
+        for t in await self.tickets.list_all():
+            if t.parent_id == ticket_id and "review-notable" in t.labels:
+                existing_sigs.update(
+                    label for label in t.labels if label.startswith("sig:")
+                )
+
+        filed = 0
+        for comment in notables:
+            sig_label = _notable_sig_label(signature_of(comment))
+            if sig_label in existing_sigs:
+                continue
+            existing_sigs.add(sig_label)
+            anchor = comment.file or comment.contract_uri or ""
+            title = f"[review] {comment.prose}"
+            if len(title) > 100:
+                title = title[:97] + "..."
+            location = f"{comment.file}:{comment.line}" if comment.file else "n/a"
+            description = (
+                f"Non-blocking finding from {comment.reviewer} on ticket "
+                f"{ticket_id} ({comment.type}, severity notable).\n\n"
+                f"Location: {location}\n\n{comment.prose}\n\n"
+                "## Acceptance criteria\n"
+                f"- The concern described above ({location}) is addressed "
+                "and the change passes review.\n"
+            )
+            issue_id = await self.tickets.create(
+                Ticket(
+                    work_type=WorkType.REFACTOR,
+                    title=title,
+                    description=description,
+                    status=TicketStatus.PROPOSED,
+                    parent_id=ticket_id,
+                    labels=["review-notable", sig_label],
+                    created_by="review-federation",
+                )
+            )
+            filed += 1
+            _logger.info(
+                "notable from %s filed as proposed issue %s (%s)",
+                comment.reviewer,
+                issue_id,
+                anchor or comment.type,
+            )
+            if self._analytics_emitter is not None:
+                from jig.analytics.events import NotableIssueFiled
+
+                self._analytics_emitter.emit_nowait(
+                    NotableIssueFiled(
+                        ticket_id=ticket_id,
+                        issue_id=issue_id,
+                        reviewer_id=comment.reviewer,
+                        comment_type=str(comment.type),
+                        file=comment.file,
+                    )
+                )
+        return filed
 
     async def _route_blocked_phase(
         self,
@@ -3245,19 +3197,18 @@ class Orchestrator:
         """Pick the phase to re-run after a block, using per-finding
         routing (review-routing step 8).
 
-        Four sources of "phase blocked" feed this code path:
+        Three sources of "phase blocked" feed this code path:
 
         1. Review federation found critical/important comments.
-        2. The unacked-notable gate blocked with no critical/important
-           comments in the latest cycle.
-        3. Required automated check failed (handoff bounced).
-        4. Phase agent returned ``blocked`` directly.
+        2. Required automated check failed (handoff bounced).
+        3. Phase agent returned ``blocked`` directly.
 
-        #1 and #2 produce ``ReviewerComment`` records and route
-        per-finding. For #3 and #4 we fall back to the legacy
+        #1 produces ``ReviewerComment`` records and routes
+        per-finding. For #2 and #3 we fall back to the legacy
         "most-recent dev phase" rule that ``_find_fix_phase``
         implemented — those callers have no per-finding metadata to
-        route on.
+        route on. Notables never block (binary severity), so they
+        never reach this code.
 
         When reviewer comments are present, the latest cycle is run
         through ``_route_blocking_comments`` (review-routing step 7).
@@ -3275,9 +3226,7 @@ class Orchestrator:
             # Reload from disk: reviewer_mcp.handle_reviewer_post_comment
             # writes through a fresh ReviewCommentsStore instance, so the
             # orchestrator's cached _docs does not see post-startup writes.
-            # See PR #51 review thread. Chronological order so the same
-            # snapshot can feed _unacked_notables (finding-ID assignment
-            # requires insertion order).
+            # See PR #51 review thread.
             await self.review_comments.load()
             all_comments = await self.review_comments.for_ticket_chronological(
                 ticket_id
@@ -3318,38 +3267,13 @@ class Orchestrator:
                 project_path=self._project_path,
             )
         else:
-            # Notable-only block: the unacked-notable gate in
-            # _run_review_phase_federation can block a review phase with
-            # zero critical/important comments in the latest cycle. Route
-            # the unacked notables per-finding, same as blocking comments —
-            # the most-recent-dev fallback below returns None at review
-            # phases that precede the first dev phase (e.g. review-tests)
-            # and would fail the ticket on purely advisory findings.
-            # Pass the snapshot loaded above so this whole routing
-            # decision sees one consistent store state.
-            route = None
-            _unacked_ids, notable_comments = await self._unacked_notables(
-                ticket_id, all_comments=all_comments
-            )
-            if notable_comments:
-                route = await _route_blocking_comments(
-                    workflow,
-                    blocked_phase_idx,
-                    notable_comments,
-                    worktree,
-                    project_path=self._project_path,
-                )
-            if route is None:
-                # Check-failure / agent-blocked-without-comments path —
-                # legacy most-recent-dev fallback. Also covers the case
-                # where every blocking comment was out-of-scope and
-                # got filtered above.
-                fix_idx = _most_recent_phase_with_role(
-                    workflow, blocked_phase_idx, "dev"
-                )
-                route = (
-                    (fix_idx, "check-failure-fallback") if fix_idx is not None else None
-                )
+            # Check-failure / agent-blocked-without-comments path —
+            # legacy most-recent-dev fallback. Also covers the case
+            # where every blocking comment was out-of-scope and got
+            # filtered above. (Notables never block under binary
+            # severity, so there is no notable-only block to route.)
+            fix_idx = _most_recent_phase_with_role(workflow, blocked_phase_idx, "dev")
+            route = (fix_idx, "check-failure-fallback") if fix_idx is not None else None
 
         if route is None:
             return None

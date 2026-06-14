@@ -1,14 +1,14 @@
 spec_version: 1
 id: bones-with-severity-disposition
 description: |
-  Exercises the notable→deferred branch of the severity-tier
+  Exercises the notable branch of the severity-tier
   disposition policy (Track G Final). The synthetic operator runs
   the bones spine through to a resolved ticket, then synthesizes a
   notable-severity reviewer comment and routes it through
-  ``apply_severity_disposition``. The notable comment lands in the
-  DEFERRED queue (``.jig/plan/deferred-queue.jsonl``) without
-  flipping the ticket status — exactly the design's "ticket
-  continues; comment goes to DEFERRED queue" rule.
+  ``apply_severity_disposition``. Binary severity: the notable produces
+  NO disposition side effect: no deferred queue, no status change. (In
+  the live orchestrator path, notables become operator-gated proposed
+  issues; the sim exercises only the disposition function.)
 
 persona: methodical
 estimated_cost_usd_max: 1.0
@@ -214,17 +214,14 @@ steps:
             because the divergence is contained and the dev's intent
             is still readable.
     assertions:
-      - kind: artifact_written
-        path: .jig/plan/deferred-queue.jsonl
-        contains: tb-catalog-ingest
+      - kind: ticket_status
+        ticket_id: tb-catalog-ingest
+        status: resolved
 
-# ---- final assertions: ticket stays resolved + queue has the row -
+# ---- final assertions: ticket stays resolved, no deferred queue ----
 final_assertions:
   - kind: ticket_status
     ticket_id: tb-catalog-ingest
     status: resolved
-  - kind: artifact_written
-    path: .jig/plan/deferred-queue.jsonl
-    contains: reviewer-notable
   - kind: cost_under_budget
     usd: 1.0

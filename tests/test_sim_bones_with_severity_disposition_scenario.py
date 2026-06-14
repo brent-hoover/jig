@@ -1,11 +1,12 @@
 """Bones-with-severity-disposition scenario end-to-end (Track G Final, mock mode).
 
-Exercises the notable→deferred branch of the severity-tier
-disposition policy through the synthetic operator. The bones spine
-runs to a resolved ticket, then the disposition step routes a
-synthesized notable comment into the DEFERRED queue without
-flipping the ticket status.
+Exercises the notable branch of the severity-tier disposition policy
+through the synthetic operator. Binary severity: the bones spine runs
+to a resolved ticket, then the disposition step routes a synthesized
+notable comment through ``apply_severity_disposition`` and asserts it
+produces no side effect (no deferred queue, no status change).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -58,16 +59,12 @@ async def test_bones_with_severity_disposition_passes_in_mock_mode(
 
 
 @pytest.mark.asyncio
-async def test_deferred_queue_contains_notable_entry(tmp_path: Path) -> None:
-    """Spot-check the JSONL file ended up with one row."""
+async def test_notable_produces_no_deferred_queue(tmp_path: Path) -> None:
+    """Binary severity: the notable disposition writes nothing."""
     _seed_repo(tmp_path)
     scenario = load_scenario(SCENARIO_PATH)
     report = await Driver().run(scenario, project_root=tmp_path)
     assert report.passed, report.failure_summary()
 
     queue = tmp_path / ".jig" / "plan" / "deferred-queue.jsonl"
-    assert queue.is_file()
-    rows = [r for r in queue.read_text().splitlines() if r.strip()]
-    assert len(rows) == 1
-    assert "tb-catalog-ingest" in rows[0]
-    assert "reviewer-notable" in rows[0]
+    assert not queue.exists()

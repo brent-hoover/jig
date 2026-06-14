@@ -87,11 +87,21 @@ phase_prompt: >
 
   - ``notable`` — worth flagging but not blocking. Stylistic
     inconsistency in a small area, micro-optimization opportunity,
-    documentation gap. The disposition path treats notable-only
-    findings as ticket-passes-with-deferred.
+    documentation gap.
 
   When in doubt between two severities, prefer the LOWER one. The
   reviewer that cries critical too often gets ignored.
+
+  ## What each severity does to the ticket
+
+  - ``critical`` / ``important`` — **blocks the ticket** and forces a
+    fix round. Post it only if you would hold the merge for it.
+    Re-raising the same finding after repeated fix attempts escalates
+    it to the solutions architect for adjudication.
+  - ``notable`` — **never blocks and is never routed to the dev.** It
+    is filed as a proposed issue for the operator to triage. Use it
+    freely for anything worth recording that you would not hold the
+    merge for — it costs the pipeline nothing.
 
 
   ## Confidence calibration

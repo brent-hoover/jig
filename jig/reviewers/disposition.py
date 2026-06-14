@@ -9,20 +9,18 @@ each reviewer comment maps to a disposition based on its severity:
 - ``important`` → consult SA: the ticket pauses; a Handoff with
   ``phase: "sa-consult"`` lands on the ticket so the SA reviewer agent
   picks it up via the orchestrator's existing dispatch path.
-- ``notable`` → DEFERRED: the ticket continues; the comment moves to
-  the DEFERRED queue via ``Coordinator.defer_ticket`` (operator
-  triages at re-plan time).
+- ``notable`` → no disposition: binary severity — notables never
+  block and carry no ack obligation. The orchestrator surfaces them
+  as operator-gated proposed issues (``_file_notable_issues``)
+  before calling this function; they are ignored here.
 
 The function is mechanical and synchronous-ish (the only async work
-is delegating to ``TicketStore`` / ``Coordinator`` / ``ThreadStore``
-calls). It does NOT spawn agents directly — the SA-consult Handoff
-posting triggers a downstream SA agent via the orchestrator's
-existing dispatch path; the DEFERRED queue's actions are
-mechanically deferred until re-plan time.
+is delegating to ``TicketStore`` / ``ThreadStore`` calls). It does
+NOT spawn agents directly — the SA-consult Handoff posting triggers
+a downstream SA agent via the orchestrator's existing dispatch path.
 
 Out of scope here: re-running reviewers after the operator addresses
-critical comments (the cycle controller owns that), and triaging the
-DEFERRED queue (that's ``Coordinator.triage_deferred``).
+critical comments (the cycle controller owns that).
 """
 
 from __future__ import annotations
@@ -79,23 +77,12 @@ class DispositionResult(BaseModel):
             "via the orchestrator's existing dispatch path."
         ),
     )
-    deferred: list[ReviewerComment] = Field(
-        default_factory=list,
-        description=(
-            "Notable comments that moved to the DEFERRED queue when a "
-            "Coordinator was provided. When ``coordinator is None``, "
-            "notable comments still land here so callers can introspect "
-            "what would have been deferred — but no DEFERRED-queue "
-            "side effect runs."
-        ),
-    )
 
 
 async def apply_severity_disposition(
     comments: list[ReviewerComment],
     ticket: Ticket,
     tickets: TicketStore,
-    coordinator: object | None = None,
     *,
     threads: ThreadStore | None = None,
     author: str = "reviewer-disposition",
@@ -114,21 +101,15 @@ async def apply_severity_disposition(
       ``consulted_sa`` for caller introspection but no Handoff is
       posted. The orchestrator's existing handoff dispatch path picks
       up the SA-consult phase and routes to the SA reviewer agent.
-    - Notable → call ``coordinator.defer_ticket(...)`` with reason
-      ``reviewer-notable`` and notes summarising the comment. Without
-      a coordinator, the comment is recorded in ``deferred`` but no
-      side effect runs.
+    - Notable → ignored here (binary severity — never blocks, no ack
+      obligation). The orchestrator files notables as proposed issues
+      before calling this function.
 
     The function returns a ``DispositionResult`` listing every comment
     by branch so callers can correlate analytics and surface a
     structured operator summary. Multiple criticals on one ticket
     only flip the status once (idempotent); multiple importants post
     one Handoff per comment so the SA can address them individually.
-
-    ``coordinator`` is typed ``object | None`` to avoid a circular
-    import with ``jig.coordinator`` — the function only calls
-    ``coordinator.defer_ticket(...)`` so any object exposing that
-    method works (the production path passes a ``Coordinator``).
     """
     result = DispositionResult()
 
@@ -138,8 +119,6 @@ async def apply_severity_disposition(
             result.blocked_by.append(comment)
         elif severity == Severity.IMPORTANT.value:
             result.consulted_sa.append(comment)
-        elif severity == Severity.NOTABLE.value:
-            result.deferred.append(comment)
 
     # ---- critical → FAILED ------------------------------------------
     if result.blocked_by:
@@ -170,15 +149,6 @@ async def apply_severity_disposition(
             )
             await threads.post(handoff)
 
-    # ---- notable → DEFERRED queue -----------------------------------
-    if result.deferred and coordinator is not None:
-        notes = _summarize_deferred(result.deferred)
-        await coordinator.defer_ticket(  # type: ignore[attr-defined]
-            ticket.id,
-            reason="reviewer-notable",
-            notes=notes,
-        )
-
     return result
 
 
@@ -190,20 +160,3 @@ def _summarize_for_handoff(comment: ReviewerComment) -> str:
     """
     anchor = comment.contract_uri or comment.file or "<no anchor>"
     return f"SA consult: {comment.reviewer} flagged {anchor} ({comment.type})"
-
-
-def _summarize_deferred(comments: list[ReviewerComment]) -> str:
-    """Compose a short notes string for a batch of notable comments.
-
-    The DEFERRED queue keeps the index small + structured; full
-    comment bodies live in the review-comments store. This summary
-    helps the operator's triage scan ("3 notable items deferred from
-    reviewer-pattern-conformance and reviewer-test-adequacy").
-    """
-    if not comments:
-        return ""
-    by_reviewer: dict[str, int] = {}
-    for c in comments:
-        by_reviewer[c.reviewer] = by_reviewer.get(c.reviewer, 0) + 1
-    parts = [f"{count} from {reviewer}" for reviewer, count in by_reviewer.items()]
-    return f"Deferred {len(comments)} notable comment(s): " + "; ".join(parts)

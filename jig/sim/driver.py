@@ -1846,17 +1846,17 @@ async def _handle_invoke_severity_disposition(
             )
         )
 
-    coord = Coordinator(tickets=ctx.tickets, project_root=ctx.project_root)
     result = await apply_severity_disposition(
         comments,
         ticket,
         ctx.tickets,
-        coord,
         threads=ctx.threads,
     )
     ctx.last_disposition_blocked = len(result.blocked_by)
     ctx.last_disposition_consulted_sa = len(result.consulted_sa)
-    ctx.last_disposition_deferred = len(result.deferred)
+    # Binary severity: notables are not dispositioned (they become
+    # proposed issues in the live orchestrator path).
+    ctx.last_disposition_deferred = 0
 
 
 async def _handle_invoke_cascade_reject(ctx: DriverContext, step: ScenarioStep) -> None:

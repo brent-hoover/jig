@@ -8,7 +8,8 @@ observation hook:
   do NOT mark RESOLVED.
 - important comment → ticket BLOCKED with reason ``reviewer-important``;
   Handoff posted to phase ``sa-consult``; do NOT mark RESOLVED.
-- notable comment → mark RESOLVED but defer the ticket via the
+- notable comment → ticket stays RESOLVED; the notable is filed as a
+  proposed issue (binary severity) rather than deferred via the
   Coordinator (DEFERRED queue).
 - no blocking comments → mark RESOLVED as today.
 
@@ -98,6 +99,7 @@ def _comment(
     reviewer: str = "reviewer-pattern-conformance",
     type_: str = "pattern-divergence",
     prose: str = "x" * 50,
+    file: str = "jig/foo.py",
 ) -> ReviewerComment:
     return ReviewerComment(
         type=ReviewerCommentType(type_),
@@ -105,7 +107,7 @@ def _comment(
         reviewer=reviewer,
         prose=prose,
         confidence=0.85,
-        file="jig/foo.py",
+        file=file,
     )
 
 
@@ -334,7 +336,7 @@ class TestReviewFederationGate:
         )
 
     @pytest.mark.asyncio
-    async def test_notable_only_resolves_and_defers(
+    async def test_notable_only_resolves_and_files_issue(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -366,25 +368,29 @@ class TestReviewFederationGate:
         assert orch.tickets is not None
         fresh = await orch.tickets.get(ticket.id)
         assert fresh is not None
-        # Notable-only → ticket stays RESOLVED.
+        # Notable-only → ticket stays RESOLVED, nothing deferred.
         assert fresh.status == TicketStatus.RESOLVED
-        # ...but it IS deferred.
-        assert fresh.deferred_at is not None
-        # ...and the deferred-queue file has the row.
+        assert fresh.deferred_at is None
         deferred_path = tmp_path / ".jig" / "plan" / "deferred-queue.jsonl"
-        assert deferred_path.is_file()
-        contents = deferred_path.read_text()
-        assert ticket.id in contents
-        assert "reviewer-notable" in contents
+        assert not deferred_path.is_file()
+        # The notable became an operator-gated proposed issue.
+        issues = [
+            t
+            for t in await orch.tickets.list_all()
+            if "review-notable" in t.labels and t.parent_id == ticket.id
+        ]
+        assert len(issues) == 1
+        assert issues[0].status == TicketStatus.PROPOSED
+        assert issues[0].created_by == "review-federation"
+        assert any(label.startswith("sig:") for label in issues[0].labels)
 
     @pytest.mark.asyncio
-    async def test_critical_plus_notable_fails_no_defer(
+    async def test_critical_plus_notable_fails_and_files_issues(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Critical wins; notables are NOT deferred when the ticket
-        isn't actually resolving."""
+        """Critical wins on status; notables still become proposed issues."""
         orch = await _make_orch(tmp_path)
         ticket = await _make_ticket(orch)
 
@@ -392,8 +398,10 @@ class TestReviewFederationGate:
             return {
                 "reviewer-security": [_comment(severity="critical")],
                 "reviewer-pattern-conformance": [
-                    _comment(severity="notable"),
-                    _comment(severity="notable"),
+                    _comment(severity="notable", file="jig/a.py"),
+                    _comment(severity="notable", file="jig/b.py"),
+                    # Same signature as the first — dedup collapses it.
+                    _comment(severity="notable", file="jig/a.py"),
                 ],
             }
 
@@ -418,19 +426,22 @@ class TestReviewFederationGate:
         assert fresh is not None
         assert fresh.status == TicketStatus.FAILED
         assert fresh.block_reason == "reviewer-critical"
-        # Ticket isn't resolved → no DEFERRED row.
-        deferred_path = tmp_path / ".jig" / "plan" / "deferred-queue.jsonl"
-        if deferred_path.is_file():
-            assert ticket.id not in deferred_path.read_text()
+        # Binary severity: the notables are filed as proposed issues even
+        # though the ticket failed — conversion is outcome-independent.
+        issues = [
+            t
+            for t in await orch.tickets.list_all()
+            if "review-notable" in t.labels and t.parent_id == ticket.id
+        ]
+        assert len(issues) == 2
 
     @pytest.mark.asyncio
-    async def test_important_plus_notable_blocks_no_defer(
+    async def test_important_plus_notable_blocks_and_files_issue(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Important wins over notable when no critical fires; notables
-        are NOT deferred because the ticket isn't resolving."""
+        """Important wins on status; the notable still becomes an issue."""
         orch = await _make_orch(tmp_path)
         ticket = await _make_ticket(orch)
 
@@ -463,9 +474,12 @@ class TestReviewFederationGate:
         assert fresh is not None
         assert fresh.status == TicketStatus.BLOCKED
         assert fresh.block_reason == "reviewer-important"
-        deferred_path = tmp_path / ".jig" / "plan" / "deferred-queue.jsonl"
-        if deferred_path.is_file():
-            assert ticket.id not in deferred_path.read_text()
+        issues = [
+            t
+            for t in await orch.tickets.list_all()
+            if "review-notable" in t.labels and t.parent_id == ticket.id
+        ]
+        assert len(issues) == 1
 
     @pytest.mark.asyncio
     async def test_flag_off_skips_federation_keeps_resolved(

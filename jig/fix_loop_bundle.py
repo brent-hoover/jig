@@ -51,17 +51,13 @@ async def build_fix_loop_bundle(
     all_comments: "list[ReviewerComment]",
     all_acks: "list[FindingAck]",
     worktree_path: Path,
-    in_scope_notable_comments: "list[ReviewerComment] | None" = None,
 ) -> dict:
     """Build the bundle for a phase about to be back-routed.
 
-    Critical/important findings come from the latest cycle only, routed to
-    ``target_phase_idx`` via ``_route_one``. Notable findings come from the
-    full ``in_scope_notable_comments`` list (all cycles, pre-filtered by the
-    caller via ``_filter_out_of_scope_comments``), restricted to those with
-    no satisfying ack. Notables route through ``_route_one`` like blocking
-    findings — the phase that owns the file (via ``writes:`` globs) receives
-    them, with ``_route_one``'s dev fallback covering unowned files.
+    Blocking (critical/important) findings come from the latest cycle only,
+    routed to ``target_phase_idx`` via ``_route_one``. Notables never block
+    under binary severity and are not part of fix loops — they are filed as
+    proposed issues by the orchestrator instead.
 
     Each finding carries its full ack history so the agent can see what was
     previously claimed and rejected.
@@ -109,56 +105,13 @@ async def build_fix_loop_bundle(
                 }
             )
 
-    # --- Notable path: all cycles, routed, unsatisfied acks only ---
-    notable_findings: list[dict] = []
-    for c in in_scope_notable_comments or []:
-        idx, _ = await _route_one(workflow, blocked_phase_idx, c, worktree_path)
-        if idx != target_phase_idx:
-            continue
-        finding_id = ids.get(signature_of(c))
-        if finding_id is None:
-            continue
-        if any(
-            f["finding_id"] == finding_id for f in blocking_findings + notable_findings
-        ):
-            continue
-        acks = acks_by_finding.get(finding_id, [])
-        if _notable_is_satisfied(acks):
-            continue
-        ack_dicts = [_ack_to_dict(a) for a in acks]
-        notable_findings.append(
-            {
-                "finding_id": finding_id,
-                "file": c.file,
-                "line": c.line,
-                "severity": c.severity,
-                "reviewer": c.reviewer,
-                "prose": c.prose,
-                "ack_history": ack_dicts,
-            }
-        )
-
-    findings = blocking_findings + notable_findings
+    findings = blocking_findings
     if not findings:
         return {"findings": [], "overflow_count": 0}
 
     overflow = max(0, len(findings) - MAX_RENDERED_FINDINGS)
     findings = findings[:MAX_RENDERED_FINDINGS]
     return {"findings": findings, "overflow_count": overflow}
-
-
-def _notable_is_satisfied(acks: "list[FindingAck]") -> bool:
-    """A notable is satisfied when the latest ack (by append order)
-    is 'addressed' or 'resolved'. 'reject' requires reviewer sign-off first;
-    'reraised' or absent means still open."""
-    if not acks:
-        return False
-    latest = acks[-1]  # append-ordered; matches ws_server convention
-    if latest.kind == "resolved":
-        return True
-    if latest.kind == "addressed":
-        return True
-    return False
 
 
 def build_verify_bundle(
@@ -210,6 +163,11 @@ def build_verify_bundle(
     # same order as the audit trail.
     seen_fids: set[str] = set()
     for c in all_comments:
+        if c.severity == "notable":
+            # Binary severity: notables never block, are never routed,
+            # and carry no verify obligation — they live as proposed
+            # issues, not previous-cycle findings.
+            continue
         fid = ids.get(signature_of(c))
         if fid is None or fid in seen_fids:
             continue

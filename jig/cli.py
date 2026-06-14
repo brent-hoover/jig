@@ -23,6 +23,15 @@ _chdir = os.chdir
 _execvp = os.execvp
 
 
+def _format_stuck_tickets(verdict: dict) -> str:
+    """Render the comma-joined stuck ticket ids from a project_stuck payload.
+
+    ``stuck_tickets`` may be absent or present-but-null; ``... or {}`` guards
+    both so the CLI output path can't crash after a STUCK classification.
+    """
+    return ", ".join(sorted(verdict.get("stuck_tickets") or {}))
+
+
 @click.group()
 def cli() -> None:
     """Jig: Agent harness for Claude Code."""
@@ -2508,8 +2517,7 @@ def eval_run(
         v = result.stall_verdict
         if isinstance(v, dict):
             # project_stuck payload from the orchestrator's watchdog.
-            stuck = ", ".join(sorted(v.get("stuck_tickets", {})))
-            click.echo(f"stuck:    {stuck}")
+            click.echo(f"stuck:    {_format_stuck_tickets(v)}")
         else:
             click.echo(f"stall:    {v.signal} — {v.detail}")  # type: ignore[attr-defined]
     if result.temp_dir:

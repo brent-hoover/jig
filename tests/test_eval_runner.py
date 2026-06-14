@@ -890,3 +890,98 @@ def test_run_eval_tracer_fail_with_ticket_failures_is_completed_with_failures(
     # outcome reflects that, not TRACER_FAIL.
     assert result.outcome == EvalOutcome.COMPLETED_WITH_FAILURES
     assert result.manifest_path is not None
+
+
+def test_format_stuck_tickets_handles_null() -> None:
+    """The CLI stuck-display must not crash on a present-but-null
+    stuck_tickets payload (#170 bot Issue 1)."""
+    from jig.cli import _format_stuck_tickets
+
+    assert _format_stuck_tickets({"stuck_tickets": {"y": {}, "x": {}}}) == "x, y"
+    assert _format_stuck_tickets({"stuck_tickets": None}) == ""
+    assert _format_stuck_tickets({}) == ""
+
+
+def test_run_eval_missing_tracer_with_ticket_failures_writes_manifest(
+    tmp_path: Path,
+) -> None:
+    """tracer.sh absent on the COMPLETED_WITH_FAILURES path must persist a
+    manifest (recording tracer_missing) and return the outcome, not vanish as
+    INIT_ERROR (#170 bot Issue 2)."""
+    import datetime as _dt
+    import json as _json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from jig.eval.manifest import RunManifest
+
+    # No tracer.sh in the project dir → triggers the guard.
+    proj_dir = tmp_path / "evals" / "projects" / "test-proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "brief.md").write_text("# Brief\n")
+
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.wait.return_value = None
+
+    class _FailWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {"tickets_failed": 1, "tickets_resolved": 1},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": str(tmp_path)},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FailWS()
+
+    async def _fake_collect(*args, **kwargs):
+        return RunManifest(
+            run_id=kwargs.get("run_id", "rid"),
+            project_id="test-proj",
+            collected_at=_dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc),
+        )
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch("jig.eval.collector.collect", new=_fake_collect),
+        patch("jig.eval.runner._teardown_proc"),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj", label=None, keep=True, timeout_minutes=1, jig_repo=tmp_path
+            )
+        )
+
+    assert result.outcome == EvalOutcome.COMPLETED_WITH_FAILURES
+    assert result.manifest_path is not None and result.manifest_path.is_file()
+    assert "tracer_missing" in result.manifest_path.read_text()

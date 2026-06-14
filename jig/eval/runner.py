@@ -198,6 +198,41 @@ def _teardown_proc(proc: subprocess.Popen, project_path: Path) -> None:
     _kill_orphan_subprocesses(project_path, log.info)
 
 
+async def _write_failure_manifest(
+    *,
+    jig_repo: Path,
+    project_dir: Path,
+    run_id: str,
+    project_id: str,
+    label: str | None,
+    extra_key: str,
+    extra_val: str,
+) -> Path:
+    """Persist a tracer-less manifest for an expectedly-incomplete run so it
+    stays in eval history instead of vanishing. ``extra_key``/``extra_val``
+    record why the run could not be traced (build failure, missing tracer).
+    Shared by the COMPLETED_WITH_FAILURES early-return paths in run_eval."""
+    import yaml
+
+    from jig.eval.collector import collect
+
+    manifest = await collect(
+        project_dir,
+        run_id=run_id,
+        project_id=project_id,
+        label=label,
+        tracer_cmd=None,
+    )
+    manifest.extra[extra_key] = extra_val
+    out_dir = jig_repo / "evals" / "runs" / project_id / run_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = out_dir / "manifest.yaml"
+    manifest_path.write_text(
+        yaml.dump(manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+    )
+    return manifest_path
+
+
 async def run_eval(
     project_id: str,
     *,
@@ -369,6 +404,27 @@ async def run_eval(
         tracer_sh = jig_repo / "evals" / "projects" / project_id / "tracer.sh"
         if not tracer_sh.is_file():
             log.error("tracer.sh not found: %s", tracer_sh)
+            if outcome == EvalOutcome.COMPLETED_WITH_FAILURES:
+                # Same loss-of-history fix as the build-failure path: an
+                # already-completed-with-failures run must persist a manifest
+                # rather than vanish as INIT_ERROR.
+                manifest_path = await _write_failure_manifest(
+                    jig_repo=jig_repo,
+                    project_dir=project_dir,
+                    run_id=run_id,
+                    project_id=project_id,
+                    label=label,
+                    extra_key="tracer_missing",
+                    extra_val=str(tracer_sh),
+                )
+                _teardown_proc(proc, project_dir)
+                if not keep:
+                    shutil.rmtree(temp_path, ignore_errors=True)
+                return RunResult(
+                    outcome=outcome,
+                    manifest_path=manifest_path,
+                    temp_dir=temp_path if keep else None,
+                )
             _teardown_proc(proc, project_dir)
             return RunResult(outcome=EvalOutcome.INIT_ERROR, temp_dir=temp_path)
 
@@ -402,24 +458,14 @@ async def run_eval(
             # so the build failure is subsumed by that outcome — but still
             # persist a manifest (no tracer) so the run stays in eval history
             # and records why the build failed, instead of vanishing.
-            manifest = await collect(
-                project_dir,
+            manifest_path = await _write_failure_manifest(
+                jig_repo=jig_repo,
+                project_dir=project_dir,
                 run_id=run_id,
                 project_id=project_id,
                 label=label,
-                tracer_cmd=None,
-            )
-            manifest.extra["build_failure"] = build_failure
-            runs_root = jig_repo / "evals" / "runs"
-            out_dir = runs_root / project_id / run_id
-            out_dir.mkdir(parents=True, exist_ok=True)
-            manifest_path = out_dir / "manifest.yaml"
-            manifest_path.write_text(
-                yaml.dump(
-                    manifest.model_dump(mode="json"),
-                    sort_keys=False,
-                    allow_unicode=True,
-                )
+                extra_key="build_failure",
+                extra_val=build_failure,
             )
             _teardown_proc(proc, project_dir)
             if not keep:

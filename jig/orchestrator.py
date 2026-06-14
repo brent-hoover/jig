@@ -125,7 +125,7 @@ STUCK_GRACE_SECONDS = 120.0
 DEP_FAILED_REASON = "dependency-failed"
 
 
-def _persistence_key(comment) -> str:
+def _persistence_key(comment: "ReviewerComment") -> str:
     """Coarse cross-round identity for a blocking finding.
 
     Deliberately coarser than ``signature_of`` (drops the line/contract
@@ -1169,7 +1169,7 @@ class Orchestrator:
         *,
         ticket_id: str,
         phase_key: tuple[str, str] | None,
-        blocking: list,
+        blocking: "list[ReviewerComment]",
         cycle: int,
     ) -> None:
         """Track which blocking findings survived a fix attempt.
@@ -1203,14 +1203,21 @@ class Orchestrator:
                 if self._analytics_emitter is not None:
                     from jig.analytics.events import ReviewFindingPersisted
 
-                    self._analytics_emitter.emit_nowait(
-                        ReviewFindingPersisted(
-                            ticket_id=ticket_id,
-                            persistence_key=key,
-                            survival_count=counts[key],
-                            cycle=cycle,
+                    try:
+                        self._analytics_emitter.emit_nowait(
+                            ReviewFindingPersisted(
+                                ticket_id=ticket_id,
+                                persistence_key=key,
+                                survival_count=counts[key],
+                                cycle=cycle,
+                            )
                         )
-                    )
+                    except Exception:
+                        _logger.warning(
+                            "analytics emit failed for ReviewFindingPersisted on %s",
+                            ticket_id,
+                            exc_info=True,
+                        )
             else:
                 counts.setdefault(key, 0)
         self._prev_blocking_keys[phase_key] = current_keys

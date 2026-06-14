@@ -728,6 +728,35 @@ class NotableIssueFiled(_EventBase):
     file: str | None = None
 
 
+# ---- review-severity-binary — failure cascade + stuck watchdog -----------
+
+
+class TicketCascadeFailed(_EventBase):
+    """A ticket was failed because a dependency failed (transitive cascade).
+
+    Distinguishes root failures (a ticket's own work failed) from
+    cascade failures (unreachable because of someone else) so eval
+    failure counts attribute blame correctly.
+    """
+
+    kind: Literal["ticket_cascade_failed"] = "ticket_cascade_failed"
+    ticket_id: str
+    root_failure_id: str
+    failed_dependency_id: str
+
+
+class ProjectStuck(_EventBase):
+    """The stuck-project watchdog fired: nothing running, nothing ready,
+    no operator-pending ticket, yet non-terminal work outstanding.
+
+    Any occurrence is a scheduling bug or dependency cycle the failure
+    cascade could not see — zero is the healthy baseline.
+    """
+
+    kind: Literal["project_stuck"] = "project_stuck"
+    stuck_ticket_ids: list[str]
+
+
 # ---- Phase 4.11 — graph impact event ------------------------------------
 
 
@@ -788,6 +817,8 @@ AnalyticsEvent = Annotated[
         OntologyTermEdited,
         OntologyTermRemoved,
         NotableIssueFiled,
+        TicketCascadeFailed,
+        ProjectStuck,
         TicketGraphImpact,
     ],
     Field(discriminator="kind"),

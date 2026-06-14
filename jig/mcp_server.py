@@ -132,6 +132,16 @@ def handle_sa_adjudicate_finding(adjudication: dict, args: dict) -> dict:
             ],
             "is_error": True,
         }
+    if finding_id in adjudication.get("verdicts", {}):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"error: verdict for {finding_id!r} already recorded",
+                }
+            ],
+            "is_error": True,
+        }
     adjudication.setdefault("verdicts", {})[finding_id] = {
         "verdict": verdict,
         "rationale": args.get("rationale", ""),

@@ -456,7 +456,8 @@ class Orchestrator:
                 self._profile_cfg = ProfileSection()
             except Exception:
                 _logger.warning(
-                    "could not load deadlock config; using defaults",
+                    "could not load config (deadlock/orchestrator/profile); "
+                    "using defaults",
                     exc_info=True,
                 )
                 self._deadlock_cfg = DeadlockSection()
@@ -1314,6 +1315,11 @@ class Orchestrator:
             latest = occurrences[-1]
             rc_n = ids.get(signature_of(latest))
             if rc_n is None:
+                _logger.warning(
+                    "SA adjudication: no RC-N for key %s on ticket %s — skipping",
+                    key,
+                    ticket_id,
+                )
                 continue
             escalated_map[rc_n] = key
             occ_fids = {
@@ -2508,6 +2514,16 @@ class Orchestrator:
                                         ticket_id,
                                         phase.name,
                                     )
+                                    # The re-run is system-driven (SA dismissal),
+                                    # not a developer fix attempt: clear the prior
+                                    # blocking-key set so _record_blocking_persistence
+                                    # doesn't count the surviving findings as having
+                                    # survived a fix, and bump the cycle so the audit
+                                    # trail stays monotone.
+                                    self._prev_blocking_keys[
+                                        (ticket_id, phase.name)
+                                    ] = set()
+                                    current_fix_cycle += 1
                                     ticket = await self.tickets.get(ticket_id)
                                     continue
                                 # Upheld with guidance: grant one routed fix

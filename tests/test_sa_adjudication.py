@@ -66,7 +66,7 @@ async def _make_orch(tmp_path: Path) -> Orchestrator:
     orch.threads = ThreadStore(store_dir / "comments.jsonl")
     orch.bus = MessageBus(store_dir / "messages.jsonl")
     orch.review_comments = ReviewCommentsStore(store_dir / "review_comments.jsonl")
-    orch.memory = MemoryStore(store_dir / "memory.jsonl")
+    orch.memory = MemoryStore(store_dir)
     orch._project = Project(
         id="test-adjudicate", name="test-adjudicate", path=str(tmp_path)
     )
@@ -518,3 +518,61 @@ class TestAdjudicationAnalytics:
         adj = [e for e in emitted if e.kind == "sa_adjudication"]
         assert len(adj) == 1
         assert adj[0].cycle == 3
+
+
+class TestBotReviewFixes:
+    async def test_dismissal_rerun_does_not_inflate_survival(
+        self, tmp_path: Path
+    ) -> None:
+        """P0 (#173 bot item 1): when the SA dismisses all escalated findings
+        and the review phase re-runs, _prev_blocking_keys must be cleared so a
+        surviving non-dismissed finding is not counted as having survived a
+        fix attempt on the system-driven re-run."""
+        from jig.orchestrator import _persistence_key
+
+        def _imp(file: str) -> ReviewerComment:
+            return ReviewerComment(
+                type=ReviewerCommentType("pattern-divergence"),
+                severity=Severity("important"),
+                reviewer="reviewer-generalist",
+                prose="finding " + "d" * 40,
+                confidence=0.8,
+                file=file,
+            )
+
+        orch = await _make_orch(tmp_path)
+        phase_key = ("t", "review")
+        a, b = _imp("a.py"), _imp("b.py")
+        key_a, key_b = _persistence_key(a), _persistence_key(b)
+        # key-A dismissed, key-B still blocking with survival=1 from a real round.
+        orch._prev_blocking_keys[phase_key] = {key_a, key_b}
+        orch._survival_counts[phase_key] = {key_a: 2, key_b: 1}
+
+        # Simulate the dismiss-all reset (what the branch now does before continue).
+        orch._prev_blocking_keys[phase_key] = set()
+
+        # The next blocked round re-raises key-B. With _prev_blocking_keys
+        # cleared, key-B is treated as fresh (not a survival), so its count
+        # does not climb on the system-only re-run.
+        orch._record_blocking_persistence(
+            ticket_id="t", phase_key=phase_key, blocking=[b], cycle=4
+        )
+        assert orch._survival_counts[phase_key][key_b] == 1
+
+    def test_duplicate_verdict_rejected(self) -> None:
+        """#173 bot item 2: a second sa_adjudicate_finding call for the same
+        finding must error, not silently overwrite a binding verdict."""
+        from jig.mcp_server import handle_sa_adjudicate_finding
+
+        collector: dict = {"escalated": {"RC-1": "k"}, "verdicts": {}}
+        ok = handle_sa_adjudicate_finding(
+            collector, {"finding_id": "RC-1", "verdict": "dismissed", "rationale": "x"}
+        )
+        assert not ok.get("is_error")
+        # Second call (e.g. SA reconsiders) is rejected; the dismissal stands.
+        dup = handle_sa_adjudicate_finding(
+            collector,
+            {"finding_id": "RC-1", "verdict": "uphold_fail", "rationale": "y"},
+        )
+        assert dup.get("is_error")
+        assert collector["verdicts"]["RC-1"]["verdict"] == "dismissed"

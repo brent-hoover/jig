@@ -205,6 +205,8 @@ class _FakeOrchestrator:
         worktree_path: Path | None = None,
         cycle: int = 0,
         code_metrics=None,
+        informed_findings: dict | None = None,
+        delta_base: str | None = None,
     ) -> None:
         self.calls.append((reviewer_id, ticket.id, role_file))
         self.code_metrics_calls.append(code_metrics)

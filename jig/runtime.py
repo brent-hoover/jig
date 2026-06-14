@@ -95,3 +95,12 @@ class AgentSpawnContext:
     # mark_finding_addressed / mark_finding_resolved get the right cycle
     # stamped without the agent having to pass it.
     cycle: int = 0
+    # review-severity-binary §4 — findings already posted this cycle by
+    # an earlier reviewer pass, rendered as the "Findings Already Posted"
+    # section with an add-coverage instruction. Populated only for the
+    # informed pass 2+ of a multi-pass first review round.
+    informed_findings: dict | None = None
+    # review-severity-binary §4 — when set, this reviewer's diff is based
+    # at the last-reviewed commit (re-review round): the prompt notes that
+    # the served diff is the fix delta and unchanged code is out of scope.
+    delta_base: str | None = None

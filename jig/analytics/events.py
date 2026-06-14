@@ -775,6 +775,10 @@ class SAAdjudication(_EventBase):
     finding_ids: list[str]
     verdicts: list[str]
     cap_trip: bool
+    # Cycle the adjudication ran on — anchors the event to the ticket
+    # timeline (early/first-blocked vs late/post-cap), mirroring
+    # ReviewFindingPersisted.cycle. (issue #175)
+    cycle: int
 
 
 class ProjectStuck(_EventBase):

@@ -1451,6 +1451,7 @@ class Orchestrator:
                         for rc in sorted(escalated_map)
                     ],
                     cap_trip=cap_trip,
+                    cycle=cycle,
                 )
             )
         return outcome

@@ -496,3 +496,25 @@ class TestAdjudicationPromptCap:
         out = _adjudication_section(bundle)
         assert "omitted" not in out
         assert out.count("- cycle ") == 2
+
+
+class TestAdjudicationAnalytics:
+    async def test_sa_adjudication_event_carries_cycle(self, tmp_path: Path) -> None:
+        """The SAAdjudication analytics event records the cycle it ran on, so
+        the event log can place it on the ticket timeline (issue #175)."""
+        orch = await _make_orch(tmp_path)
+        ticket = await _make_ticket(orch)
+
+        emitted: list = []
+
+        class _Emitter:
+            def emit_nowait(self, event) -> None:
+                emitted.append(event)
+
+        orch._analytics_emitter = _Emitter()  # type: ignore[assignment]
+        fake = _FakeSAResult({"*": {"verdict": "dismissed", "rationale": "no"}})
+        await _adjudicate(orch, ticket, tmp_path, fake)  # passes cycle=3
+
+        adj = [e for e in emitted if e.kind == "sa_adjudication"]
+        assert len(adj) == 1
+        assert adj[0].cycle == 3

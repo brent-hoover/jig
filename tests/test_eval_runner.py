@@ -11,6 +11,7 @@ import pytest
 
 
 from jig.eval.runner import (
+    _classify_completion,
     EvalOutcome,
     _check_tracer_outcome,
     _free_port,
@@ -50,8 +51,9 @@ def test_watch_completion_returns_out_dir() -> None:
         }
     )
 
-    data, out_dir = asyncio.run(_watch_completion(queue))
+    kind, data, out_dir = asyncio.run(_watch_completion(queue))
 
+    assert kind == "project_complete"
     assert out_dir == "/tmp/analysis"
     assert data == {"id": "run1"}
 
@@ -68,10 +70,70 @@ def test_watch_completion_timeout_no_analysis() -> None:
     )
 
     # Use a tiny analysis_wait so we don't actually wait 60s
-    data, out_dir = asyncio.run(_watch_completion(queue, analysis_wait=0.05))
+    kind, data, out_dir = asyncio.run(_watch_completion(queue, analysis_wait=0.05))
 
+    assert kind == "project_complete"
     assert out_dir is None
     assert data == {"id": "run2"}
+
+
+def test_watch_completion_ignores_stuck_after_complete() -> None:
+    """A project_stuck frame arriving AFTER project_complete (in the
+    analysis-wait window) must be ignored, not returned as STUCK — otherwise
+    a tardy watchdog tick inverts the classification (#170 bot Must-Fix)."""
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    queue.put_nowait(
+        {
+            "type": "event",
+            "topic": "events",
+            "kind": "project_complete",
+            "data": {"tickets_failed": 0},
+        }
+    )
+    queue.put_nowait(
+        {
+            "type": "event",
+            "topic": "events",
+            "kind": "project_stuck",
+            "data": {"stuck_tickets": {"x": {}}},
+        }
+    )
+    queue.put_nowait(
+        {
+            "type": "event",
+            "topic": "events",
+            "kind": "analysis_complete",
+            "data": {"out_dir": "/tmp/a"},
+        }
+    )
+
+    kind, data, out_dir = asyncio.run(_watch_completion(queue, analysis_wait=2.0))
+
+    assert kind == "project_complete"
+    assert out_dir == "/tmp/a"
+
+
+def test_watch_completion_project_stuck_terminates_promptly() -> None:
+    """A project_stuck frame must end the watch immediately with the
+    stuck payload — falling through to the stall detector's catch-all is
+    exactly the misclassification being fixed."""
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+    queue.put_nowait(
+        {
+            "type": "event",
+            "topic": "events",
+            "kind": "project_stuck",
+            "data": {"stuck_tickets": {"x": {"status": "open", "blocked_by": ["y"]}}},
+        }
+    )
+
+    kind, data, out_dir = asyncio.run(
+        asyncio.wait_for(_watch_completion(queue), timeout=1.0)
+    )
+
+    assert kind == "project_stuck"
+    assert out_dir is None
+    assert "x" in data["stuck_tickets"]
 
 
 def test_watch_stall_poll_fires_on_silence() -> None:
@@ -532,6 +594,98 @@ def test_run_eval_build_failure_is_tracer_fail(
     assert build_call.kwargs["cwd"].name == "test-proj"
 
 
+def test_run_eval_build_failure_with_ticket_failures_writes_manifest(
+    tmp_path: Path,
+) -> None:
+    """A build failure on the COMPLETED_WITH_FAILURES path must still write a
+    manifest (recording the build failure) so the run stays in eval history,
+    instead of returning early with no manifest (roborev job 545)."""
+    import datetime as _dt
+    import json as _json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from jig.eval.manifest import RunManifest
+
+    mock_proc, _ = _success_path_fakes(tmp_path)
+    mock_teardown = MagicMock()
+
+    # project_complete with tickets_failed > 0 → COMPLETED_WITH_FAILURES.
+    class _FailWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {"tickets_failed": 1, "tickets_resolved": 2},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": str(tmp_path)},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FailWS()
+
+    build_result = MagicMock(returncode=1, stderr="error: build broke")
+
+    async def _fake_collect(*args, **kwargs):
+        return RunManifest(
+            run_id=kwargs.get("run_id", "rid"),
+            project_id=kwargs.get("project_id", "test-proj"),
+            collected_at=_dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc),
+        )
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch("jig.eval.runner.subprocess.run", return_value=build_result),
+        patch("jig.eval.collector.collect", new=_fake_collect),
+        patch("jig.eval.runner._teardown_proc", mock_teardown),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=True,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    assert result.outcome == EvalOutcome.COMPLETED_WITH_FAILURES
+    # The manifest was written despite the build failure — run persists.
+    assert result.manifest_path is not None
+    assert result.manifest_path.is_file()
+    written = result.manifest_path.read_text()
+    assert "build_failure" in written
+    assert "build broke" in written
+
+
 def test_run_eval_passes_tracer_env_with_venv_path(tmp_path: Path) -> None:
     """collect() must receive tracer_env whose PATH starts with the project venv bin."""
     import os as _os
@@ -626,3 +780,208 @@ def test_run_eval_build_timeout_is_tracer_fail(
     build_call = mock_build.call_args
     assert build_call.args[0] == ["uv", "sync"]
     assert build_call.kwargs["cwd"].name == "test-proj"
+
+
+def test_classify_completion_outcomes() -> None:
+    assert _classify_completion("project_stuck", {}) == EvalOutcome.STUCK
+    assert (
+        _classify_completion("project_complete", {"tickets_failed": 2})
+        == EvalOutcome.COMPLETED_WITH_FAILURES
+    )
+    assert (
+        _classify_completion("project_complete", {"tickets_failed": 0})
+        == EvalOutcome.SUCCESS
+    )
+    # Older daemons without the field classify as clean completion.
+    assert _classify_completion("project_complete", {}) == EvalOutcome.SUCCESS
+    # A null (present-but-None) tickets_failed must not raise (job: #170 bot).
+    assert (
+        _classify_completion("project_complete", {"tickets_failed": None})
+        == EvalOutcome.SUCCESS
+    )
+    # Unknown kind is a programming error, surfaced loudly.
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        _classify_completion("bogus_kind", {})
+
+
+def test_run_eval_tracer_fail_with_ticket_failures_is_completed_with_failures(
+    tmp_path: Path,
+) -> None:
+    """On the COMPLETED_WITH_FAILURES path, a tracer failure (manifest.tracer
+    is None) must yield COMPLETED_WITH_FAILURES via fail_outcome, NOT
+    TRACER_FAIL — the incomplete project subsumes the tracer failure
+    (#170 bot Issue 3, runner.py:454)."""
+    import json as _json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    proj_dir = tmp_path / "evals" / "projects" / "test-proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "brief.md").write_text("# Brief\n")
+    (proj_dir / "tracer.sh").write_text("#!/bin/bash\necho ok\n")
+
+    mock_manifest = MagicMock()
+    mock_manifest.tracer = None  # tracer-failure site at runner.py:454
+    mock_manifest.model_dump.return_value = {}
+
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.wait.return_value = None
+
+    class _FailWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {"tickets_failed": 1, "tickets_resolved": 2},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": str(tmp_path)},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FailWS()
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch("jig.eval.runner.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
+        patch("jig.eval.runner._teardown_proc"),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=True,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    # tracer failed, but the project already completed-with-failures: the
+    # outcome reflects that, not TRACER_FAIL.
+    assert result.outcome == EvalOutcome.COMPLETED_WITH_FAILURES
+    assert result.manifest_path is not None
+
+
+def test_format_stuck_tickets_handles_null() -> None:
+    """The CLI stuck-display must not crash on a present-but-null
+    stuck_tickets payload (#170 bot Issue 1)."""
+    from jig.cli import _format_stuck_tickets
+
+    assert _format_stuck_tickets({"stuck_tickets": {"y": {}, "x": {}}}) == "x, y"
+    assert _format_stuck_tickets({"stuck_tickets": None}) == ""
+    assert _format_stuck_tickets({}) == ""
+
+
+def test_run_eval_missing_tracer_with_ticket_failures_writes_manifest(
+    tmp_path: Path,
+) -> None:
+    """tracer.sh absent on the COMPLETED_WITH_FAILURES path must persist a
+    manifest (recording tracer_missing) and return the outcome, not vanish as
+    INIT_ERROR (#170 bot Issue 2)."""
+    import datetime as _dt
+    import json as _json
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from jig.eval.manifest import RunManifest
+
+    # No tracer.sh in the project dir → triggers the guard.
+    proj_dir = tmp_path / "evals" / "projects" / "test-proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "brief.md").write_text("# Brief\n")
+
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.wait.return_value = None
+
+    class _FailWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "project_complete",
+                        "data": {"tickets_failed": 1, "tickets_resolved": 1},
+                    }
+                ),
+                _json.dumps(
+                    {
+                        "type": "event",
+                        "topic": "events",
+                        "kind": "analysis_complete",
+                        "data": {"out_dir": str(tmp_path)},
+                    }
+                ),
+            ]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            if self._idx < len(self._frames):
+                frame = self._frames[self._idx]
+                self._idx += 1
+                return frame
+            await asyncio.sleep(9999)
+
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FailWS()
+
+    async def _fake_collect(*args, **kwargs):
+        return RunManifest(
+            run_id=kwargs.get("run_id", "rid"),
+            project_id="test-proj",
+            collected_at=_dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc),
+        )
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch("jig.eval.collector.collect", new=_fake_collect),
+        patch("jig.eval.runner._teardown_proc"),
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj", label=None, keep=True, timeout_minutes=1, jig_repo=tmp_path
+            )
+        )
+
+    assert result.outcome == EvalOutcome.COMPLETED_WITH_FAILURES
+    assert result.manifest_path is not None and result.manifest_path.is_file()
+    assert "tracer_missing" in result.manifest_path.read_text()

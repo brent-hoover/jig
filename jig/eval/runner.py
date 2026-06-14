@@ -104,6 +104,12 @@ async def _watch_completion(
         if topic != "events":
             continue
         if kind == "project_stuck":
+            if project_complete_at is not None:
+                # Project already completed; a tardy watchdog tick arriving in
+                # the analysis-wait window must not discard the completion and
+                # misclassify the run as STUCK — the exact inversion this
+                # outcome split exists to prevent. Ignore and keep waiting.
+                continue
             return "project_stuck", data, None
         if kind == "project_complete":
             project_data = data
@@ -159,7 +165,9 @@ def _classify_completion(kind: str, data: dict) -> EvalOutcome:
     """
     if kind == "project_stuck":
         return EvalOutcome.STUCK
-    if data.get("tickets_failed", 0) > 0:
+    if kind != "project_complete":
+        raise ValueError(f"unexpected completion kind: {kind!r}")
+    if (data.get("tickets_failed") or 0) > 0:
         return EvalOutcome.COMPLETED_WITH_FAILURES
     return EvalOutcome.SUCCESS
 

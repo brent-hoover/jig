@@ -418,3 +418,81 @@ class TestSAToolAllowlisted:
                 f"{role} is strict_tools but does not allow-list "
                 "sa_adjudicate_finding — adjudication would fail closed"
             )
+
+
+class TestAdjudicationPromptCap:
+    def test_history_is_capped_with_overflow_pointer(self) -> None:
+        """A finding re-raised many times must not produce an unbounded
+        adjudication prompt — history is capped, prose truncated, and the
+        omitted count points at the stores (roborev job 590)."""
+        from jig.prompt_builder import (
+            _ADJUDICATION_PROSE_MAX_CHARS,
+            _MAX_ADJUDICATION_HISTORY,
+            _adjudication_section,
+        )
+
+        n = _MAX_ADJUDICATION_HISTORY + 5
+        bundle = {
+            "findings": [
+                {
+                    "finding_id": "RC-1",
+                    "file": "src/a.py",
+                    "severity": "important",
+                    "reviewer": "reviewer-generalist",
+                    "survival_count": n,
+                    "prose": "P" * 2000,
+                    "history": [
+                        {
+                            "cycle": c,
+                            "kind": "raised",
+                            "author": "reviewer-generalist",
+                            "prose": "H" * 2000,
+                        }
+                        for c in range(n)
+                    ],
+                }
+            ]
+        }
+
+        out = _adjudication_section(bundle)
+
+        # Only the most-recent N history entries are rendered.
+        assert out.count("- cycle ") == _MAX_ADJUDICATION_HISTORY
+        # Overflow is summarized with a pointer to the stores.
+        assert "earlier history entr" in out
+        assert "review_comments.jsonl" in out
+        # The most recent cycle is kept; the oldest is dropped.
+        assert f"cycle {n - 1} " in out
+        assert "cycle 0 " not in out
+        # No rendered prose exceeds the truncation budget. The line prefix
+        # ("  - cycle N (kind, author): ") adds bounded overhead; allow for it.
+        for line in out.splitlines():
+            assert len(line) <= _ADJUDICATION_PROSE_MAX_CHARS + 100
+
+    def test_short_history_unchanged(self) -> None:
+        from jig.prompt_builder import _adjudication_section
+
+        bundle = {
+            "findings": [
+                {
+                    "finding_id": "RC-1",
+                    "file": "src/a.py",
+                    "severity": "important",
+                    "reviewer": "reviewer-generalist",
+                    "survival_count": 2,
+                    "prose": "short finding",
+                    "history": [
+                        {"cycle": 0, "kind": "raised", "author": "r", "prose": "x"},
+                        {
+                            "cycle": 1,
+                            "kind": "addressed",
+                            "author": "dev",
+                            "prose": "y",
+                        },
+                    ],
+                }
+            ]
+        }
+        out = _adjudication_section(bundle)
+        assert "omitted" not in out
+        assert out.count("- cycle ") == 2

@@ -26,6 +26,14 @@ __all__ = ["SpawnReason", "build_initial_prompt"]
 # a dozen failures doesn't blow the context budget.
 _EVAL_EXCERPT_MAX_CHARS = 400
 
+# review-severity-binary §6 — cap the adjudication-request history so a
+# finding re-raised many times (exactly the case that triggers
+# adjudication) can't produce an unbounded prompt. Mirrors the
+# overflow_count cap on _blocking_findings_section. Most-recent entries
+# are kept; older ones are summarized with a pointer to the stores.
+_MAX_ADJUDICATION_HISTORY = 12
+_ADJUDICATION_PROSE_MAX_CHARS = 500
+
 
 class _SafeFormatDict(dict):
     """Dict subclass that echoes unknown keys back as ``{key}`` rather than raising.
@@ -595,15 +603,26 @@ def _adjudication_section(bundle: dict | None) -> str:
     )
     for f in bundle["findings"]:
         loc = f.get("file") or "(diff-wide)"
+        head_prose = _truncate(f["prose"], _ADJUDICATION_PROSE_MAX_CHARS)
         lines.append(
             f"\n[{f['finding_id']}] {loc} — {f['severity']} — "
             f"{f['reviewer']} — survived {f['survival_count']} fix "
-            f"attempt(s)\n{f['prose']}\n"
+            f"attempt(s)\n{head_prose}\n"
         )
-        for entry in f.get("history", []) or []:
+        history = f.get("history", []) or []
+        overflow = max(0, len(history) - _MAX_ADJUDICATION_HISTORY)
+        if overflow:
+            lines.append(
+                f"  ({overflow} earlier history entr"
+                f"{'y' if overflow == 1 else 'ies'} omitted — see "
+                "`.jig/store/review_comments.jsonl` and "
+                "`.jig/store/finding_acks.jsonl`)\n"
+            )
+        for entry in history[-_MAX_ADJUDICATION_HISTORY:]:
+            entry_prose = _truncate(entry["prose"], _ADJUDICATION_PROSE_MAX_CHARS)
             lines.append(
                 f"  - cycle {entry['cycle']} ({entry['kind']}, "
-                f"{entry['author']}): {entry['prose']}\n"
+                f"{entry['author']}): {entry_prose}\n"
             )
     lines.append("\n")
     return "".join(lines)

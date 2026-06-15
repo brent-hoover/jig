@@ -1021,7 +1021,7 @@ class Orchestrator:
                 base_ref = delta_base
         passes = phase.review_passes if (phase is not None and cycle == 0) else 1
 
-        all_comments: list = []
+        all_comments: "list[ReviewerComment]" = []
         for pass_n in range(passes):
             informed_bundle: dict | None = None
             if pass_n > 0 and all_comments:
@@ -3948,7 +3948,7 @@ class Orchestrator:
             return None
         return bundle
 
-    async def _worktree_head(self, worktree_path) -> str | None:
+    async def _worktree_head(self, worktree_path: Path | None) -> str | None:
         """Resolve a worktree's HEAD commit; None on any failure.
 
         Best-effort — a missing commit only means the next re-review

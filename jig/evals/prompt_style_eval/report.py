@@ -22,7 +22,6 @@ Statistics:
 
 from __future__ import annotations
 
-import json
 import random
 import statistics
 from collections import Counter, defaultdict
@@ -50,6 +49,8 @@ class CellReport:
     prompt_id: str
     prompt_version: str  # sha256:<hex>
     model: str
+    model_snapshot: str | None
+    temperature: float
     rubric_version: str
     n: int
     outcomes: dict[Outcome, int]
@@ -67,6 +68,8 @@ class CellReport:
             "prompt_id": self.prompt_id,
             "prompt_version": self.prompt_version,
             "model": self.model,
+            "model_snapshot": self.model_snapshot,
+            "temperature": self.temperature,
             "rubric_version": self.rubric_version,
             "n": self.n,
             "outcomes": dict(self.outcomes),
@@ -123,9 +126,10 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
     rubric_version)``. Anything that changes the experiment — a prompt edit, a
     model swap, a rubric upgrade — produces a fresh row rather than blending.
     """
-    grouped: dict[tuple[str, str, str, str, str, str], list[RunRecord]] = defaultdict(
-        list
-    )
+    grouped: dict[
+        tuple[str, str, str, str, str, str | None, float, str],
+        list[RunRecord],
+    ] = defaultdict(list)
     for record in records:
         key = (
             record.cell.task_id,
@@ -133,6 +137,8 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
             record.cell.prompt_id,
             record.cell.prompt_version,
             record.cell.model,
+            record.cell.model_snapshot,
+            record.cell.temperature,
             record.cell.rubric_version,
         )
         grouped[key].append(record)
@@ -144,6 +150,8 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
             prompt_id,
             prompt_version,
             model,
+            model_snapshot,
+            temperature,
             rubric_version,
             group,
         )
@@ -153,6 +161,8 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
             prompt_id,
             prompt_version,
             model,
+            model_snapshot,
+            temperature,
             rubric_version,
         ), group in sorted(grouped.items())
     ]
@@ -165,6 +175,8 @@ def _aggregate_cell(
     prompt_id: str,
     prompt_version: str,
     model: str,
+    model_snapshot: str | None,
+    temperature: float,
     rubric_version: str,
     records: list[RunRecord],
 ) -> CellReport:
@@ -218,6 +230,8 @@ def _aggregate_cell(
         prompt_id=prompt_id,
         prompt_version=prompt_version,
         model=model,
+        model_snapshot=model_snapshot,
+        temperature=temperature,
         rubric_version=rubric_version,
         n=len(records),
         outcomes=outcomes,
@@ -231,58 +245,12 @@ def _aggregate_cell(
 
 
 def render_text(report: Report) -> str:
-    """Human-readable text rendering. One block per cell, grouped by task."""
-    if not report.cells:
-        return "no records to report\n"
+    from jig.evals.prompt_style_eval.report_render import render_text as _render_text
 
-    out: list[str] = []
-    by_task: dict[tuple[str, str], list[CellReport]] = defaultdict(list)
-    for cell in report.cells:
-        by_task[(cell.task_id, cell.task_version)].append(cell)
-
-    for (task_id, task_version), cells in sorted(by_task.items()):
-        out.append(f"Task: {task_id} ({task_version})")
-        out.append("─" * 72)
-        for cell in cells:
-            out.extend(_render_cell(cell))
-            out.append("")
-        out.append("")
-    return "\n".join(out)
-
-
-def _render_cell(cell: CellReport) -> list[str]:
-    pct = lambda x: f"{x * 100:5.1f}%"  # noqa: E731
-    short_ver = (
-        cell.prompt_version[7:15]
-        if cell.prompt_version.startswith("sha256:")
-        else cell.prompt_version[:8]
-    )
-    out: list[str] = []
-    out.append(
-        f"  {cell.prompt_id} @ {short_ver}  [{cell.model}]  "
-        f"(n={cell.n}, cost=${cell.total_cost_usd:.4f}, "
-        f"judge cov={cell.judge_coverage}/{cell.n})"
-    )
-    outcome_str = (
-        "  ".join(f"{k}={v}" for k, v in cell.outcomes.items() if v > 0) or "—"
-    )
-    out.append(f"    outcomes:  {outcome_str}")
-    out.append(
-        f"    pass rate: {pct(cell.pass_rate)}  "
-        f"[95% CI: {pct(cell.pass_ci[0])} – {pct(cell.pass_ci[1])}]"
-    )
-    if cell.static_mean:
-        out.append(
-            "    static:    "
-            f"LoC={cell.static_mean['loc']:.1f}  "
-            f"ruff={cell.static_mean['ruff_findings']:.1f}  "
-            f"cc_max={cell.static_mean['cyclomatic_max']:.1f}"
-        )
-    if cell.judge_mean:
-        bits = "  ".join(f"{k}={v:.2f}" for k, v in cell.judge_mean.items())
-        out.append(f"    judge:     {bits}")
-    return out
+    return _render_text(report)
 
 
 def render_json(report: Report) -> str:
-    return json.dumps(report.to_dict(), indent=2)
+    from jig.evals.prompt_style_eval.report_render import render_json as _render_json
+
+    return _render_json(report)

@@ -956,7 +956,7 @@ async def run_agent(
                     _logger.debug("[%s] system: %s", tag, message.subtype)
                 elif isinstance(message, ResultMessage):
                     # Auth failures arrive as an is_error result — either a
-                    # 401/403 from the API ("Failed to authenticate. API Error:
+                    # 401 from the API ("Failed to authenticate. API Error:
                     # 401 Invalid bearer token") or a login-state message ("Not
                     # logged in · Please run /login"); subtype is confusingly
                     # still "success". Surface a typed, actionable error before

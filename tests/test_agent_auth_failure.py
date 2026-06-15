@@ -16,7 +16,12 @@ import subprocess
 import pytest
 from click.testing import CliRunner
 
+from typing import TYPE_CHECKING
+
 from jig.agent import _is_auth_failure
+
+if TYPE_CHECKING:
+    from claude_agent_sdk.types import ResultMessage
 
 
 @pytest.mark.parametrize(
@@ -26,6 +31,7 @@ from jig.agent import _is_auth_failure
         "Invalid API key · Please run /login",
         "OAuth token has expired · Please run /login",
         "NOT LOGGED IN",
+        "Failed to authenticate. API Error: 401 Invalid bearer token",
     ],
 )
 def test_is_auth_failure_positive(text: str) -> None:
@@ -54,9 +60,7 @@ def _git_init(path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=str(path), check=True)
 
 
-def test_onboard_preflight_errors_when_token_unset(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_onboard_preflight_errors_when_token_unset(tmp_path: Path, monkeypatch) -> None:
     from jig.cli import cli
 
     # The token check runs after target validation, so the path must be a
@@ -70,9 +74,7 @@ def test_onboard_preflight_errors_when_token_unset(
     assert "claude setup-token" in result.output
 
 
-def test_onboard_preflight_passes_when_token_set(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_onboard_preflight_passes_when_token_set(tmp_path: Path, monkeypatch) -> None:
     """A set token clears the pre-flight; onboard proceeds (run_onboard
     stubbed) without emitting the token error."""
     from jig.cli import cli
@@ -95,10 +97,12 @@ def test_onboard_preflight_passes_when_token_set(
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in result.output
 
 
-def _auth_result_message(text: str, *, is_error: bool):
+def _auth_result_message(
+    text: str, *, is_error: bool, api_error_status: int | None = None
+) -> "ResultMessage":
     from claude_agent_sdk.types import ResultMessage
 
-    return ResultMessage(
+    msg = ResultMessage(
         subtype="success",
         duration_ms=10,
         duration_api_ms=8,
@@ -109,6 +113,14 @@ def _auth_result_message(text: str, *, is_error: bool):
         usage={},
         result=text,
     )
+    # api_error_status only exists on newer SDKs; set it as an attribute so
+    # the test works regardless of the installed ResultMessage signature
+    # (run_agent reads it via getattr).
+    if api_error_status is not None:
+        # object.__setattr__ stays correct even if a future SDK makes
+        # ResultMessage a frozen pydantic model.
+        object.__setattr__(msg, "api_error_status", api_error_status)
+    return msg
 
 
 @pytest.mark.asyncio
@@ -126,6 +138,29 @@ async def test_run_agent_raises_agent_auth_error_on_login_result(
         async for _ in prompt:
             break
         yield _auth_result_message("Not logged in · Please run /login", is_error=True)
+
+    monkeypatch.setattr(agent_module, "query", fake_query)
+    with pytest.raises(agent_module.AgentAuthError):
+        await agent_module.run_agent(ctx)
+
+
+@pytest.mark.asyncio
+async def test_run_agent_raises_agent_auth_error_on_401_status(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A rejected token surfaces as api_error_status=401 even when the
+    result text doesn't match a known login phrase — detect it structurally."""
+    from jig import agent as agent_module
+    from tests.test_agent_streaming import _make_context
+
+    ctx = await _make_context(tmp_path)
+
+    async def fake_query(prompt, options, **kwargs):
+        async for _ in prompt:
+            break
+        yield _auth_result_message(
+            "the request was rejected", is_error=True, api_error_status=401
+        )
 
     monkeypatch.setattr(agent_module, "query", fake_query)
     with pytest.raises(agent_module.AgentAuthError):

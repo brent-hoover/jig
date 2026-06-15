@@ -16,7 +16,12 @@ import subprocess
 import pytest
 from click.testing import CliRunner
 
+from typing import TYPE_CHECKING
+
 from jig.agent import _is_auth_failure
+
+if TYPE_CHECKING:
+    from claude_agent_sdk.types import ResultMessage
 
 
 @pytest.mark.parametrize(
@@ -55,9 +60,7 @@ def _git_init(path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=str(path), check=True)
 
 
-def test_onboard_preflight_errors_when_token_unset(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_onboard_preflight_errors_when_token_unset(tmp_path: Path, monkeypatch) -> None:
     from jig.cli import cli
 
     # The token check runs after target validation, so the path must be a
@@ -71,9 +74,7 @@ def test_onboard_preflight_errors_when_token_unset(
     assert "claude setup-token" in result.output
 
 
-def test_onboard_preflight_passes_when_token_set(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_onboard_preflight_passes_when_token_set(tmp_path: Path, monkeypatch) -> None:
     """A set token clears the pre-flight; onboard proceeds (run_onboard
     stubbed) without emitting the token error."""
     from jig.cli import cli
@@ -98,7 +99,7 @@ def test_onboard_preflight_passes_when_token_set(
 
 def _auth_result_message(
     text: str, *, is_error: bool, api_error_status: int | None = None
-):
+) -> "ResultMessage":
     from claude_agent_sdk.types import ResultMessage
 
     msg = ResultMessage(
@@ -116,7 +117,9 @@ def _auth_result_message(
     # the test works regardless of the installed ResultMessage signature
     # (run_agent reads it via getattr).
     if api_error_status is not None:
-        msg.api_error_status = api_error_status
+        # object.__setattr__ stays correct even if a future SDK makes
+        # ResultMessage a frozen pydantic model.
+        object.__setattr__(msg, "api_error_status", api_error_status)
     return msg
 
 

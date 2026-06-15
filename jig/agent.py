@@ -80,7 +80,11 @@ _AUTH_FAILURE_MARKERS: tuple[str, ...] = (
 # HTTP statuses on an is_error result that unambiguously mean the token was
 # rejected (e.g. "API Error: 401 Invalid bearer token"). More reliable than
 # text matching; api_error_status is None when the CLI didn't emit one.
-_AUTH_FAILURE_STATUSES: frozenset[int] = frozenset({401, 403})
+# 401 only: it always means invalid/expired credentials, which regenerating
+# the token fixes. 403 is excluded — it commonly signals org permission, plan,
+# model-access, or capacity gates that a new token won't resolve, so routing it
+# to AgentAuthError ("regenerate with claude setup-token") would mislead.
+_AUTH_FAILURE_STATUSES: frozenset[int] = frozenset({401})
 
 
 def _is_auth_failure(text: str | None) -> bool:

@@ -273,7 +273,7 @@ The module enforces role-based tool access via `_STRICT_DENY_BUILTINS` (frozense
 
 | Class | Purpose |
 |-------|---------|
-| `SpawnReason` | Enum: PHASE_PRIMARY, QA_RESPONDER, EVALUATOR, CONFLICT_RESOLVER, REPLAN — reasons for spawning an agent |
+| `SpawnReason` | Enum: PHASE_PRIMARY, QA_RESPONDER, EVALUATOR, CONFLICT_RESOLVER, REPLAN, SA_ADJUDICATION — reasons for spawning an agent |
 | `AgentSpawnContext` | Frozen dataclass carrying complete spawn context: role, ticket, worktree, project, all stores, phase config, optional extra env |
 
 **Key Fields** (in `AgentSpawnContext`):
@@ -298,6 +298,9 @@ The module enforces role-based tool access via `_STRICT_DENY_BUILTINS` (frozense
 | `analytics_emitter` | `object \| None` | Analytics emitter (narrowly typed to avoid import cycles) |
 | `on_thinking` | `Callable[[], None] \| None` | Callback on each thinking heartbeat (for stall detection) |
 | `code_metrics` | `ChangeMetrics \| None` | Deterministic code quality signal (max CC, ruff findings, LoC delta, taxonomy hits) injected as "Objective Code Metrics" block into LLM reviewer prompts; None for non-reviewer spawns |
+| `delta_base` | `str \| None` | Git commit used to scope re-review diffs; when set, `reviewer_get_diff` and the prompt show only the fix delta rather than the full-ticket diff |
+| `adjudication_bundle` | `dict \| None` | SA adjudication prompt payload — escalated finding list and prior-round history; populated on `SA_ADJUDICATION` spawns only |
+| `adjudication_collector` | `dict \| None` | Per-spawn dict into which the SA records verdicts via the `sa_adjudicate_finding` MCP tool; populated on `SA_ADJUDICATION` spawns only |
 
 **Dependencies**:
 - `jig.models` — `PhaseConfig`, `RoleConfig`
@@ -398,7 +401,7 @@ The module enforces role-based tool access via `_STRICT_DENY_BUILTINS` (frozense
 
 | Function | Signature | Purpose |
 |----------|-----------|---------|
-| `create_agent_mcp_server` | `(*, tickets: TicketStore, threads: ThreadStore, memory: MemoryStore, bus: MessageBus, agent_role: str, agent_cfg: RoleConfig, worktree_path: Path, project_path: Path, valid_roles: frozenset[str] = frozenset(), package_manager: str = "", checkpoints: CheckpointStore \| None = None, phase_name: str = "", can_waive: frozenset[str] = frozenset(), phase_questions_to: frozenset[str] = frozenset(), phase_escalation_targets: frozenset[str] = frozenset(), ticket_id: str = "", analytics_emitter: "AnalyticsEmitter \| None" = None)` | Create SDK MCP server with all tool handlers scoped to the spawn context |
+| `create_agent_mcp_server` | `(*, tickets: TicketStore, threads: ThreadStore, memory: MemoryStore, bus: MessageBus, agent_role: str, agent_cfg: RoleConfig, worktree_path: Path, project_path: Path, valid_roles: frozenset[str] = frozenset(), package_manager: str = "", checkpoints: CheckpointStore \| None = None, phase_name: str = "", can_waive: frozenset[str] = frozenset(), phase_questions_to: frozenset[str] = frozenset(), phase_escalation_targets: frozenset[str] = frozenset(), ticket_id: str = "", analytics_emitter: "AnalyticsEmitter \| None" = None, adjudication: "dict \| None" = None)` | Create SDK MCP server with all tool handlers scoped to the spawn context; when `adjudication` is supplied, registers the `sa_adjudicate_finding` tool for SA adjudication spawns |
 
 **Key Wrapper Function**:
 
@@ -535,7 +538,7 @@ SelfApprovalPolicy = Literal["warn", "blocked"]
 | Class | Purpose |
 |-------|---------|
 | `RoleConfig` | Role configuration: phase/response prompts, allowed tools, context (default/required), allowed MCPs, strict_tools flag, capabilities, cross_ticket_access, allow_add_dependency |
-| `PhaseConfig` | Phase configuration: name, role, task template, acceptance criteria, automated checks, evaluator spec, thread routing (questions_to, escalation_targets), capability overrides |
+| `PhaseConfig` | Phase configuration: name, role, task template, acceptance criteria, automated checks, evaluator spec, thread routing (questions_to, escalation_targets), capability overrides, review_passes (sequential reviewer passes on the first review round; default 1) |
 | `WorkflowConfig` | Workflow configuration: name, list of phases |
 | `MergeStrategy` | Enum: DIRECT, SQUASH, PR, FEATURE_BRANCH |
 | **Evaluator types** (discriminated union): `PreviousPhaseRoleEvaluator`, `SpecificRoleEvaluator`, `AutomatedOnlyEvaluator`, `SpecificHumanEvaluator`, `MultiEvaluator` |

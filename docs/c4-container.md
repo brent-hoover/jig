@@ -133,7 +133,7 @@ All components except the TUI and Sim Framework live inside the Daemon:
   fix-loop, per-commit hook integration
   - Documentation: [c4-component.md — Reviewer Federation](./c4-component.md#9-reviewer-federation)
 - **Store Layer**: `TicketStore`, `ThreadStore`, `MessageBus`, `MemoryStore`, `CheckpointStore`,
-  `ReviewCommentsStore`, `EventEmitter` — all in-memory with JSONL persistence on disk
+  `ReviewCommentsStore`, `FindingAcksStore`, `EventEmitter` — all in-memory with JSONL persistence on disk
   - Documentation: [c4-component.md — Store Layer](./c4-component.md#11-store-layer)
 
 #### Interfaces
@@ -344,6 +344,7 @@ JSONL files as the backing store.
 | `.jig/store/checkpoints.jsonl` | `CheckpointStore` | Agent checkpoints and deferred-queue items |
 | `.jig/store/review_comments.jsonl` | `ReviewCommentsStore` | Reviewer federation comment records |
 | `.jig/store/check_results.jsonl` | `CheckResultsStore` | Automated check results per ticket/phase |
+| `.jig/store/finding_acks.jsonl` | `FindingAcksStore` | Finding ack audit trail (addressed / resolved / reraised / dismissed by SA adjudication); dismissed verdicts are binding across cycles and daemon restarts |
 | `.jig/store/quality_snapshots.jsonl` | `QualitySnapshotStore` | Per-end-of-ticket quality snapshots (CC, ruff findings, LoC delta, taxonomy hits, attribution cell) |
 | `.jig/spec/` | (spec loader) | PO artifacts: discovery YAML, suites, briefs, ontology |
 | `.jig/plan/build-plan.yaml` | (spec loader) | Planner PM build plan |

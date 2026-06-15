@@ -197,6 +197,11 @@ failure → conflict resolution or replan).
   blocked ticket
 - **Review federation**: Post-completion, dispatches the configured reviewer agents and gates resolution on their
   output
+- **SA adjudication**: When a blocking finding survives `SURVIVAL_THRESHOLD` (2) consecutive fix attempts, spawns
+  the profile's SA role for adjudication instead of failing the ticket directly; SA verdicts are dismissed
+  (binding — finding can never block the ticket again), uphold_guidance (one more fix round granted with SA
+  guidance), or uphold_fail (ticket fails); capped at `MAX_SA_ESCALATIONS` (2) adjudications per review phase
+  before persistent blockers fail directly
 - **Orchestrator reload**: Reloads config (roles, workflows) without stopping in-flight agents
 - **Emergency reset**: Handles operator-initiated emergency resets via bus message
 - **Analytics emission**: Records `AgentSpawned`, `AgentCompleted`, `TicketStateChanged`, and `TicketGraphImpact`
@@ -360,7 +365,7 @@ sandboxing of the Claude Code subprocess itself.
 |-----------|------|-------------|
 | `run_agent(ctx: AgentSpawnContext) -> RunAgentResult` | Async function | Single spawn entry point; called by Orchestrator |
 | `AgentSpawnContext` | Dataclass | Bag of stores + project + role config; all agent dependencies bundled here |
-| `SpawnReason` | Enum | Why an agent was spawned: `PHASE_PRIMARY`, `QA_RESPONDER`, `EVALUATOR`, `CONFLICT_RESOLVER`, `REPLAN` |
+| `SpawnReason` | Enum | Why an agent was spawned: `PHASE_PRIMARY`, `QA_RESPONDER`, `EVALUATOR`, `CONFLICT_RESOLVER`, `REPLAN`, `SA_ADJUDICATION` |
 | `RunAgentResult` | Dataclass | Outcome: status, final text, thinking blocks, tool calls, state changes |
 | MCP tools (all) | MCP over stdio | Full tool surface exposed to the spawned agent; see MCP tool list below |
 
@@ -705,8 +710,10 @@ the review gate fail-closed; can also route to the DEFERRED queue).
 
 Two dispatch cadences exist: per-commit (fast, mechanical-only reviewers run in single-digit seconds) and
 end-of-ticket (full federation, including judgment reviewers). After critical or important issues are found, or when
-notable findings remain unacknowledged, the Orchestrator enters a fix-loop (capped at 3 cycles); exhaustion triggers
-auto-escalation.
+notable findings remain unacknowledged, the Orchestrator enters a fix-loop. A blocking finding that survives
+`SURVIVAL_THRESHOLD` (2) fix attempts escalates to the profile's SA role for adjudication rather than failing
+directly; after `MAX_SA_ESCALATIONS` (2) adjudications per review phase, persistent blockers fail the ticket. Fix
+cycles past the cap also trigger SA adjudication on all outstanding blocking keys.
 
 ### Software Features
 
@@ -913,6 +920,10 @@ handlers, never through direct store references.
 - **ReviewCommentsStore**: Reviewer federation comment persistence; per-ticket query; backed by
   `review_comments.jsonl`
 - **CheckResultsStore**: Automated check results per ticket/phase; backed by `check_results.jsonl`
+- **FindingAcksStore**: Append-only audit trail for reviewer finding lifecycle events (addressed, resolved,
+  reraised, dismissed); SA adjudication `dismissed` verdicts are persisted here and bind permanently — the
+  federation gate filters dismissed finding keys across all later cycles and daemon restarts; backed by
+  `finding_acks.jsonl`
 - **QualitySnapshotStore**: Per-end-of-ticket quality measurement snapshots (max cyclomatic complexity, ruff
   finding count, net LoC delta, taxonomy hit counts, attribution cell, spawned reviewer ids, role YAML
   hashes); recorded by the reviewer federation at each dispatch cycle; backed by
@@ -1088,7 +1099,7 @@ C4Component
 
         Component(sim_framework, "Sim Framework", "Python / pytest / YAML", "Synthetic operator simulation. Scenario-based end-to-end testing, five operator personas, five assertion types, coverage tracking.")
 
-        ComponentDb(store_layer, "Store Layer", "Python / JSONL", "Append-only persistence. TicketStore, ThreadStore, MessageBus, MemoryStore, CheckpointStore, ReviewCommentsStore, QualitySnapshotStore, EventEmitter.")
+        ComponentDb(store_layer, "Store Layer", "Python / JSONL", "Append-only persistence. TicketStore, ThreadStore, MessageBus, MemoryStore, CheckpointStore, ReviewCommentsStore, FindingAcksStore, QualitySnapshotStore, EventEmitter.")
     }
 
     System_Ext(claude_api, "Claude API", "Anthropic LLM inference for all agent roles via claude-agent-sdk")

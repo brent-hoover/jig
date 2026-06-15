@@ -1,0 +1,25 @@
+version: python_quality_v1
+items:
+  - id: behavioral_completeness
+    prompt: "Does the code implement the stated behavior, including edge cases and error paths, without relying on brittle special cases?"
+    scale: likert_5
+
+  - id: type_discipline
+    prompt: "Are public functions and methods typed precisely, with domain concepts represented explicitly rather than as ambiguous raw dictionaries or untyped values?"
+    scale: likert_5
+
+  - id: cohesive_boundaries
+    prompt: "Are responsibilities separated into cohesive functions or classes with clear boundaries and low coupling?"
+    scale: likert_5
+
+  - id: root_cause_fixes
+    prompt: "For review/fix tasks, do the changes address the underlying defect rather than only the visible example failure?"
+    scale: likert_5
+
+  - id: no_broad_exception_handling
+    prompt: "Does the code avoid bare except clauses, broad exception swallowing, and silent fallback behavior that hides defects?"
+    scale: bool
+
+  - id: simple_enough
+    prompt: "Is the implementation no more complex than the problem requires while still being extensible at the natural policy boundaries?"
+    scale: likert_5

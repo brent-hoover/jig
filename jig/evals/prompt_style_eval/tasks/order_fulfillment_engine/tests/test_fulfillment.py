@@ -110,6 +110,20 @@ def test_out_of_stock_order_does_not_partially_mutate_inventory() -> None:
     assert engine.stock_for("lamp") == 2
 
 
+def test_unknown_sku_order_does_not_partially_mutate_inventory() -> None:
+    engine = _engine()
+
+    with pytest.raises(OutOfStock):
+        engine.place_order(
+            Customer("c1", "standard", "local"),
+            [OrderLine("book", 2), OrderLine("missing", 1)],
+        )
+
+    assert engine.stock_for("book") == 8
+    assert engine.stock_for("lamp") == 2
+    assert engine.stock_for("pen") == 50
+
+
 def test_cancellation_restores_stock_and_refunds_original_total() -> None:
     engine = _engine()
     order = engine.place_order(Customer("c1", "vip", "local"), [OrderLine("book", 2)])

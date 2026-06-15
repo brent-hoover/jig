@@ -2,6 +2,7 @@ from cart_totals import LineItem, apply_coupon, subtotal_cents, totals_by_sku
 from ledger import InsufficientFunds, Ledger
 from permissions import Resource, User, can_access
 from scheduler import Meeting, next_slot
+import pytest
 
 
 def test_subtotal_uses_quantity_and_integer_cents() -> None:
@@ -42,6 +43,11 @@ def test_scheduler_returns_none_when_no_slot_fits() -> None:
     assert next_slot(meetings, 30, 540, 720) is None
 
 
+def test_scheduler_rejects_non_positive_duration() -> None:
+    with pytest.raises(ValueError):
+        next_slot([], 0, 540, 720)
+
+
 def test_permissions_deny_suspended_and_unknown_actions() -> None:
     resource = Resource("r1", owner_id="alice")
 
@@ -67,13 +73,25 @@ def test_ledger_transfer_is_atomic_on_insufficient_funds() -> None:
     ledger.create_account("a", 100)
     ledger.create_account("b", 25)
 
-    try:
+    with pytest.raises(InsufficientFunds):
         ledger.transfer("a", "b", 101)
-    except InsufficientFunds:
-        pass
 
     assert ledger.balance("a") == 100
     assert ledger.balance("b") == 25
+
+
+def test_ledger_missing_accounts_are_errors() -> None:
+    ledger = Ledger()
+    ledger.create_account("a", 100)
+
+    with pytest.raises(KeyError):
+        ledger.balance("missing")
+    with pytest.raises(KeyError):
+        ledger.deposit("missing", 100)
+    with pytest.raises(KeyError):
+        ledger.transfer("a", "missing", 25)
+
+    assert ledger.balance("a") == 100
 
 
 def test_ledger_rejects_invalid_amounts_and_preserves_total() -> None:
@@ -82,12 +100,20 @@ def test_ledger_rejects_invalid_amounts_and_preserves_total() -> None:
     ledger.create_account("b", 0)
     ledger.deposit("b", 250)
 
-    try:
+    with pytest.raises(ValueError):
+        ledger.create_account("bad-opening", -1)
+    with pytest.raises(ValueError):
+        ledger.create_account("fractional-opening", 1.5)
+    with pytest.raises(ValueError):
         ledger.deposit("a", 0)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("zero deposit should fail")
+    with pytest.raises(ValueError):
+        ledger.deposit("a", -1)
+    with pytest.raises(ValueError):
+        ledger.deposit("a", 1.5)
+    with pytest.raises(ValueError):
+        ledger.transfer("a", "b", -1)
+    with pytest.raises(ValueError):
+        ledger.transfer("a", "b", 1.5)
 
     ledger.transfer("a", "b", 400)
     assert ledger.balance("a") == 600

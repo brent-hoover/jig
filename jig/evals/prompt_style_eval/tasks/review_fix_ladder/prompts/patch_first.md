@@ -15,6 +15,25 @@ The defects are intentionally varied:
 - `ledger.py` silently creates balances, accepts invalid amounts, and mutates
   the source account before proving a transfer can succeed.
 
+Required behavior after your fixes:
+
+- `cart_totals.py`: keep totals as integer cents; include quantity in every
+  total; aggregate duplicate SKUs; leave `None`, empty, and unknown coupons
+  unchanged; apply `SAVE10` as a 10 percent discount rounded down; apply
+  `FIVEOFF` as a 500-cent discount capped at zero.
+- `scheduler.py`: handle unsorted meetings; ignore meetings outside the
+  workday; treat an exact-fit gap as valid; return `None` when no slot fits;
+  reject non-positive durations with `ValueError`.
+- `permissions.py`: suspended users cannot do anything; unknown actions are
+  denied; archived resources are read-only for admins and inaccessible to
+  everyone else; viewers can read non-archived resources; editors can read and
+  update only their own non-archived resources; only admins can delete
+  non-archived resources.
+- `ledger.py`: missing accounts are errors; money values must be integer cents;
+  opening balances may be zero but not negative; deposits and transfers must be
+  positive; insufficient transfers leave both accounts unchanged; successful
+  transfers preserve total money across all accounts.
+
 ```python
 # cart_totals.py
 from dataclasses import dataclass

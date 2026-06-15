@@ -132,6 +132,7 @@ class Ledger:
         self._balances: dict[str, int] = {}
 
     def create_account(self, account_id: str, opening_balance_cents: int = 0) -> None:
+        self._require_integer_amount(opening_balance_cents)
         if opening_balance_cents < 0:
             raise ValueError("opening_balance_cents must be non-negative")
         if account_id in self._balances:
@@ -156,6 +157,12 @@ class Ledger:
 
     @staticmethod
     def _require_positive_amount(amount_cents: int) -> None:
+        Ledger._require_integer_amount(amount_cents)
         if amount_cents <= 0:
             raise ValueError("amount_cents must be positive")
+
+    @staticmethod
+    def _require_integer_amount(amount_cents: int) -> None:
+        if not isinstance(amount_cents, int) or isinstance(amount_cents, bool):
+            raise ValueError("amount_cents must be integer cents")
 ```

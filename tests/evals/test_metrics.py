@@ -11,6 +11,7 @@ import pytest
 
 from jig.evals.prompt_style_eval.metrics import (
     compute,
+    compute_files,
     count_loc,
     max_cyclomatic,
     run_ruff,
@@ -54,12 +55,7 @@ def test_cyclomatic_for_simple_function() -> None:
 
 
 def test_cyclomatic_increases_with_branching() -> None:
-    code = (
-        "def f(x):\n"
-        "    if x:\n"
-        "        return 1\n"
-        "    return 0\n"
-    )
+    code = "def f(x):\n    if x:\n        return 1\n    return 0\n"
     assert max_cyclomatic(code) == 2
 
 
@@ -134,3 +130,21 @@ async def test_compute_surfaces_bare_except_in_breakdown() -> None:
     metrics = await compute(code)
     assert metrics.ruff_findings >= 1
     assert "E722" in metrics.ruff_breakdown
+
+
+async def test_compute_files_aggregates_metrics_per_file() -> None:
+    metrics = await compute_files(
+        {
+            "a.py": "def simple() -> int:\n    return 1\n",
+            "b.py": (
+                "def branchy(value: int) -> int:\n"
+                "    if value > 0:\n"
+                "        return 1\n"
+                "    return 0\n"
+            ),
+        }
+    )
+
+    assert metrics.loc == 6
+    assert metrics.cyclomatic_max == 2
+    assert metrics.ruff_findings == 0

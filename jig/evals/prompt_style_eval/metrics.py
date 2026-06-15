@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
+from collections.abc import Mapping
 
 # Canonical definitions live in jig.code_metrics (one radon call site for the
 # whole codebase); re-exported here for the eval harness's existing callers.
 from jig.code_metrics import count_loc, max_cyclomatic
 from jig.evals.prompt_style_eval.models import StaticMetrics
 
-__all__ = ["compute", "count_loc", "max_cyclomatic", "run_ruff"]
+__all__ = ["compute", "compute_files", "count_loc", "max_cyclomatic", "run_ruff"]
 
 
 async def run_ruff(code: str) -> tuple[int, dict[str, int]]:
@@ -57,4 +59,17 @@ async def compute(code: str) -> StaticMetrics:
         ruff_findings=findings,
         ruff_breakdown=breakdown,
         cyclomatic_max=max_cyclomatic(code),
+    )
+
+
+async def compute_files(files: Mapping[str, str]) -> StaticMetrics:
+    per_file = await asyncio.gather(*(compute(source) for source in files.values()))
+    breakdown: Counter[str] = Counter()
+    for item in per_file:
+        breakdown.update(item.ruff_breakdown)
+    return StaticMetrics(
+        loc=sum(item.loc for item in per_file),
+        ruff_findings=sum(item.ruff_findings for item in per_file),
+        ruff_breakdown=dict(breakdown),
+        cyclomatic_max=max((item.cyclomatic_max for item in per_file), default=0),
     )

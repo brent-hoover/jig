@@ -2,8 +2,8 @@ Fix the following Python code. Return only corrected source files, one fenced
 Python block per file, with headings `cart_totals.py`, `scheduler.py`,
 `permissions.py`, and `ledger.py`.
 
-Do not change the public API names. Prefer small, direct fixes over new
-frameworks or broad abstractions.
+Do not change the public API names. Standard library only. Include type hints.
+Prefer small, direct fixes over new frameworks or broad abstractions.
 
 The defects are intentionally varied:
 

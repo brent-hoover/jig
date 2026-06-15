@@ -30,10 +30,19 @@ _logger = logging.getLogger(__name__)
 
 def _score_files(files: dict[str, str], task: Task) -> dict[str, str]:
     names = task.score_files or [task.entrypoint]
+    if task.score_files:
+        return {
+            name: files.get(name, _missing_score_file_source(name))
+            for name in task.score_files
+        }
     selected = {name: files[name] for name in names if name in files}
     if selected:
         return selected
     return {next(iter(files)): next(iter(files.values()))}
+
+
+def _missing_score_file_source(filename: str) -> str:
+    return f'raise NotImplementedError("Missing required score file: {filename}")\n'
 
 
 def _judge_source(files: dict[str, str]) -> str:

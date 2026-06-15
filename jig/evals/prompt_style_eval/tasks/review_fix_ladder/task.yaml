@@ -1,5 +1,5 @@
 id: review_fix_ladder
-version: v2
+version: v3
 language: python
 entrypoint: cart_totals.py
 test_command: ["python", "-m", "pytest", "-q", "tests/"]

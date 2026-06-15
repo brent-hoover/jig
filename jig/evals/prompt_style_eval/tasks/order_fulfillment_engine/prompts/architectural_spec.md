@@ -62,3 +62,5 @@ FulfillmentEngine(products)
 
 Keep boundaries clear enough that pricing, inventory reservation, and shipment
 planning could change independently.
+
+Return your solution as a single Python code block.

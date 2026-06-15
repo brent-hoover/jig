@@ -46,6 +46,7 @@ _OUTCOMES: tuple[Outcome, ...] = (
 @dataclass
 class CellReport:
     task_id: str
+    task_version: str
     prompt_id: str
     prompt_version: str  # sha256:<hex>
     model: str
@@ -62,6 +63,7 @@ class CellReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
+            "task_version": self.task_version,
             "prompt_id": self.prompt_id,
             "prompt_version": self.prompt_version,
             "model": self.model,
@@ -121,10 +123,13 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
     rubric_version)``. Anything that changes the experiment — a prompt edit, a
     model swap, a rubric upgrade — produces a fresh row rather than blending.
     """
-    grouped: dict[tuple[str, str, str, str, str], list[RunRecord]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str, str, str, str], list[RunRecord]] = defaultdict(
+        list
+    )
     for record in records:
         key = (
             record.cell.task_id,
+            record.cell.task_version,
             record.cell.prompt_id,
             record.cell.prompt_version,
             record.cell.model,
@@ -134,10 +139,17 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
 
     cells = [
         _aggregate_cell(
-            task_id, prompt_id, prompt_version, model, rubric_version, group
+            task_id,
+            task_version,
+            prompt_id,
+            prompt_version,
+            model,
+            rubric_version,
+            group,
         )
         for (
             task_id,
+            task_version,
             prompt_id,
             prompt_version,
             model,
@@ -149,6 +161,7 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
 
 def _aggregate_cell(
     task_id: str,
+    task_version: str,
     prompt_id: str,
     prompt_version: str,
     model: str,
@@ -201,6 +214,7 @@ def _aggregate_cell(
 
     return CellReport(
         task_id=task_id,
+        task_version=task_version,
         prompt_id=prompt_id,
         prompt_version=prompt_version,
         model=model,
@@ -222,12 +236,12 @@ def render_text(report: Report) -> str:
         return "no records to report\n"
 
     out: list[str] = []
-    by_task: dict[str, list[CellReport]] = defaultdict(list)
+    by_task: dict[tuple[str, str], list[CellReport]] = defaultdict(list)
     for cell in report.cells:
-        by_task[cell.task_id].append(cell)
+        by_task[(cell.task_id, cell.task_version)].append(cell)
 
-    for task_id, cells in sorted(by_task.items()):
-        out.append(f"Task: {task_id}")
+    for (task_id, task_version), cells in sorted(by_task.items()):
+        out.append(f"Task: {task_id} ({task_version})")
         out.append("─" * 72)
         for cell in cells:
             out.extend(_render_cell(cell))

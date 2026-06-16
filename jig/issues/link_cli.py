@@ -1,40 +1,14 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Coroutine
 from pathlib import Path
-from typing import Any, TypeVar
 
 import click
 
-from jig.issues.discovery import find_project_root
-from jig.issues.service import IssueService
-
-T = TypeVar("T")
-
-_path_option = click.option(
-    "--path",
-    default=None,
-    type=click.Path(exists=True, path_type=Path),
-    help="Project root. Default: walk up from the current directory.",
-)
+from jig.issues.cli_support import path_option, run, service
 
 
-def _service(path: Path | None) -> IssueService:
-    if path is not None:
-        return IssueService(path)
-    try:
-        return IssueService(find_project_root(Path.cwd()))
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-
-def _run(coro: Coroutine[Any, Any, T]) -> T:
-    return asyncio.run(coro)
-
-
-@click.command("link")
-@_path_option
+@click.command("link", help="Add or remove dependency / parent edges on an issue.")
+@path_option
 @click.argument("ref")
 @click.option("--blocks", multiple=True)
 @click.option("--blocked-by", "blocked_by", multiple=True)
@@ -50,9 +24,9 @@ def link_cmd(
     parent: str | None,
     remove: bool,
 ) -> None:
-    svc = _service(path)
+    svc = service(path)
     try:
-        ticket = _run(
+        ticket = run(
             svc.link(
                 ref,
                 blocks=list(blocks) or None,

@@ -169,7 +169,12 @@ class _IssueBoardHandler(BaseHTTPRequestHandler):
             )
             return
         if self.path == "/api/issues":
-            self._send_json(HTTPStatus.OK, asyncio.run(load_board(self._project_root)))
+            try:
+                board = asyncio.run(load_board(self._project_root))
+            except (OSError, ValueError, ValidationError) as exc:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
+            self._send_json(HTTPStatus.OK, board)
             return
         self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
@@ -200,7 +205,9 @@ class _IssueBoardHandler(BaseHTTPRequestHandler):
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length).decode()
-        decoded = json.loads(raw or "{}")
+        if not raw:
+            raise ValueError("request body is required")
+        decoded = json.loads(raw)
         if not isinstance(decoded, dict):
             raise ValueError("expected a JSON object")
         return decoded

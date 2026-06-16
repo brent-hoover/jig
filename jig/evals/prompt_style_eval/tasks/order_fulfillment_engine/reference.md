@@ -175,6 +175,8 @@ class FulfillmentEngine:
         current_weight = 0
         for line in lines:
             product = self._products[line.sku]
+            if product.weight_grams > self._MAX_SHIPMENT_WEIGHT:
+                raise ValueError("product exceeds max shipment weight")
             remaining = line.quantity
             while remaining > 0:
                 capacity = self._MAX_SHIPMENT_WEIGHT - current_weight

@@ -83,6 +83,17 @@ def test_shipments_split_lines_by_weight_limit_and_preserve_quantity() -> None:
     assert quote.shipping_cents == 1500
 
 
+def test_item_heavier_than_shipment_limit_is_rejected() -> None:
+    engine = FulfillmentEngine(
+        {"anvil": Product("anvil", unit_price_cents=10_000, weight_grams=1600, stock=1)}
+    )
+
+    with pytest.raises(ValueError):
+        engine.quote(Customer("c1", "standard", "local"), [OrderLine("anvil", 1)])
+
+    assert engine.stock_for("anvil") == 1
+
+
 def test_place_order_reserves_stock_and_returns_placed_order() -> None:
     engine = _engine()
 

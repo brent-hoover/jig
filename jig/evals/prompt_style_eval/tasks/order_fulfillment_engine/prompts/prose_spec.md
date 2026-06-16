@@ -43,5 +43,7 @@ Business behavior:
 - Tax is 8 percent of `(subtotal - discount + shipping)`, rounded down.
 - Shipment planning must keep each shipment at or under 1500 grams. Split a
   line across shipments when needed.
+- A product whose single unit weighs more than 1500 grams cannot be quoted or
+  ordered.
 
 Return your solution as a single Python code block.

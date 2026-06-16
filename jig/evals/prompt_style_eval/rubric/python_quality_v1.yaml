@@ -13,7 +13,7 @@ items:
     scale: likert_5
 
   - id: root_cause_fixes
-    prompt: "For review/fix tasks, do the changes address the underlying defect rather than only the visible example failure?"
+    prompt: "Does the implementation address the core problem and edge cases rather than only the literal examples or most visible failure?"
     scale: likert_5
 
   - id: no_broad_exception_handling

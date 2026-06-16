@@ -62,13 +62,11 @@ def _assistant(text: str) -> AssistantMessage:
     )
 
 
-def _make_query(
+def _first_candidate_then_judge_query(
     candidate_messages: list[Any],
     judge_messages: list[Any],
     captured_prompts: list[str] | None = None,
 ):
-    """Return a fake ``query`` that alternates between candidate and judge
-    invocations on successive calls."""
     call_count = {"n": 0}
 
     async def _query(*, prompt: str, options: Any) -> AsyncIterator[Any]:  # noqa: ARG001
@@ -119,7 +117,7 @@ async def test_run_cell_code_outcome_end_to_end(
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[_assistant(_code_block(_TODO_REF_CODE)), _result()],
             judge_messages=[_assistant(judge_response), _result(cost=0.0003)],
         ),
@@ -151,7 +149,7 @@ async def test_run_cell_question_outcome(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[
                 _assistant("Should I use SQLite or a JSON file for persistence?"),
                 _result(),
@@ -210,7 +208,7 @@ async def test_run_cell_judge_failure_keeps_code_outcome(
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[_assistant(_code_block(_TODO_REF_CODE)), _result()],
             judge_messages=[
                 _assistant("I'm not sure how to evaluate this code."),
@@ -248,7 +246,7 @@ async def test_run_cell_scores_configured_multi_file_outputs(
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[_assistant(_REVIEW_REF_RESPONSE), _result()],
             judge_messages=[_assistant(judge_response), _result(cost=0.0003)],
             captured_prompts=captured_prompts,

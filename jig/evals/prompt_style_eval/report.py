@@ -120,11 +120,10 @@ def bootstrap_ci(
 
 
 def aggregate(records: Iterable[RunRecord]) -> Report:
-    """Group records by full cell identity and aggregate each group.
+    """Group records by full ``Cell`` identity before aggregation.
 
-    Cells are differentiated by ``(task_id, prompt_id, prompt_version, model,
-    rubric_version)``. Anything that changes the experiment — a prompt edit, a
-    model swap, a rubric upgrade — produces a fresh row rather than blending.
+    Task version, prompt version, model snapshot, temperature, and rubric
+    version all split cells so incompatible experiment variants cannot blend.
     """
     grouped: dict[
         tuple[str, str, str, str, str, str | None, float, str],

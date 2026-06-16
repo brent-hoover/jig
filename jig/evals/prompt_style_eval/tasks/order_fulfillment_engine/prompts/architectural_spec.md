@@ -56,6 +56,8 @@ FulfillmentEngine(products)
 - Unknown coupons behave like no coupon.
 - Shipment max weight is 1500 grams. Split lines if a single line cannot fit in
   the remaining shipment capacity.
+- A product whose single unit weighs more than 1500 grams cannot be quoted or
+  ordered.
 - Local shipping is 500 cents for one shipment or 900 cents for multiple.
 - Non-local shipping is 1200 cents plus 300 cents per extra shipment.
 - Tax is `floor((subtotal - discount + shipping) * 0.08)`.

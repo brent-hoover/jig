@@ -149,11 +149,11 @@ class Ledger:
     def transfer(self, source_id: str, target_id: str, amount_cents: int) -> None:
         self._require_positive_amount(amount_cents)
         source_balance = self._balances[source_id]
-        self._balances[target_id]
+        target_balance = self._balances[target_id]
         if source_balance < amount_cents:
             raise InsufficientFunds(source_id)
         self._balances[source_id] = source_balance - amount_cents
-        self._balances[target_id] += amount_cents
+        self._balances[target_id] = target_balance + amount_cents
 
     @staticmethod
     def _require_positive_amount(amount_cents: int) -> None:

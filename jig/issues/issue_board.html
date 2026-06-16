@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jig Issue Board</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --ink: #1c2430;
+      --muted: #687386;
+      --line: #d8dee8;
+      --accent: #2f6fed;
+      --danger: #bd3b3b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 16px;
+      padding: 16px;
+    }
+    .board {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(220px, 1fr);
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 12px;
+    }
+    .column {
+      min-height: 72vh;
+      border: 1px solid var(--line);
+      background: #eef1f5;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .column header {
+      padding: 0 0 10px;
+      border: 0;
+      background: transparent;
+    }
+    .count {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 10px;
+      margin-bottom: 8px;
+      box-shadow: 0 1px 2px rgb(28 36 48 / 8%);
+    }
+    .key {
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .title {
+      margin-top: 4px;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    aside {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 14px;
+      align-self: start;
+      position: sticky;
+      top: 16px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    label {
+      display: block;
+      margin: 10px 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+    }
+    textarea {
+      min-height: 150px;
+      resize: vertical;
+    }
+    button {
+      width: 100%;
+      margin-top: 12px;
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .error {
+      min-height: 20px;
+      margin-top: 10px;
+      color: var(--danger);
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      aside { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Jig Issue Board</h1>
+    <div id="total" class="count">0 issues</div>
+  </header>
+  <main>
+    <section class="board" id="board" aria-label="Issue board"></section>
+    <aside>
+      <h2>New issue</h2>
+      <form id="issue-form">
+        <label for="title">Title</label>
+        <input id="title" name="title" required autocomplete="off">
+        <label for="work_type">Type</label>
+        <select id="work_type" name="work_type">
+          <option value="feature">feature</option>
+          <option value="bugfix">bugfix</option>
+          <option value="refactor">refactor</option>
+          <option value="spike">spike</option>
+          <option value="perf">perf</option>
+          <option value="migration">migration</option>
+          <option value="docs">docs</option>
+        </select>
+        <label for="size">Size</label>
+        <select id="size" name="size">
+          <option value="xs">xs</option>
+          <option value="s">s</option>
+          <option value="m" selected>m</option>
+          <option value="l">l</option>
+          <option value="xl">xl</option>
+        </select>
+        <label for="labels">Labels</label>
+        <input id="labels" name="labels" autocomplete="off">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" required>## Acceptance criteria
+- </textarea>
+        <button type="submit">Create proposed issue</button>
+        <div id="error" class="error" role="alert"></div>
+      </form>
+    </aside>
+  </main>
+  <script>
+    const board = document.querySelector("#board");
+    const total = document.querySelector("#total");
+    const form = document.querySelector("#issue-form");
+    const errorBox = document.querySelector("#error");
+
+    function text(node, value) {
+      node.textContent = value;
+      return node;
+    }
+
+    function render(data) {
+      board.replaceChildren();
+      total.textContent = `${data.tickets.length} issue${data.tickets.length === 1 ? "" : "s"}`;
+      for (const column of data.columns) {
+        const tickets = data.tickets.filter((ticket) => ticket.status === column.status);
+        const section = document.createElement("section");
+        section.className = "column";
+        section.dataset.column = column.status;
+        const header = document.createElement("header");
+        header.append(text(document.createElement("strong"), column.label));
+        header.append(text(document.createElement("span"), tickets.length));
+        header.lastChild.className = "count";
+        section.append(header);
+        for (const ticket of tickets) {
+          const card = document.createElement("article");
+          card.className = "card";
+          card.append(text(document.createElement("div"), ticket.key || ticket.id));
+          card.lastChild.className = "key";
+          card.append(text(document.createElement("div"), ticket.title));
+          card.lastChild.className = "title";
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.append(text(document.createElement("span"), ticket.work_type));
+          meta.append(text(document.createElement("span"), ticket.size));
+          if (ticket.assignee) {
+            meta.append(text(document.createElement("span"), ticket.assignee));
+          }
+          card.append(meta);
+          section.append(card);
+        }
+        board.append(section);
+      }
+    }
+
+    async function refresh() {
+      const response = await fetch("/api/issues");
+      render(await response.json());
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      errorBox.textContent = "";
+      const fields = new FormData(form);
+      const labels = String(fields.get("labels") || "")
+        .split(",")
+        .map((label) => label.trim())
+        .filter(Boolean);
+      const response = await fetch("/api/issues", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          title: fields.get("title"),
+          work_type: fields.get("work_type"),
+          size: fields.get("size"),
+          labels,
+          description: fields.get("description"),
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        errorBox.textContent = body.error || "Create failed";
+        return;
+      }
+      form.reset();
+      document.querySelector("#description").value = "## Acceptance criteria\n- ";
+      await refresh();
+    });
+
+    refresh().catch((error) => {
+      errorBox.textContent = String(error);
+    });
+  </script>
+</body>
+</html>

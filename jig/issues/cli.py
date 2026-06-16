@@ -7,8 +7,9 @@ Contract/lookup failures surface as ClickExceptions (non-zero exit, no write).
 
 import asyncio
 import sys
+from collections.abc import Coroutine
 from pathlib import Path
-from typing import Awaitable, TypeVar
+from typing import Any, TypeVar
 
 import click
 
@@ -37,7 +38,7 @@ def _service(path: Path | None) -> IssueService:
     return IssueService(root)
 
 
-def _run(coro: Awaitable[T]) -> T:
+def _run(coro: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(coro)
 
 
@@ -253,35 +254,8 @@ def comment(
     click.echo(f"comment {cid} added to {ref}")
 
 
-@issue_group.command("link")
-@_path_option
-@click.argument("ref")
-@click.option("--blocks", multiple=True)
-@click.option("--blocked-by", "blocked_by", multiple=True)
-@click.option("--parent", default=None)
-@click.option(
-    "--remove", is_flag=True, help="Remove the given edges instead of adding."
-)
-def link(
-    path: Path | None,
-    ref: str,
-    blocks: tuple[str, ...],
-    blocked_by: tuple[str, ...],
-    parent: str | None,
-    remove: bool,
-) -> None:
-    """Add or remove dependency / parent edges on an issue."""
-    svc = _service(path)
-    try:
-        ticket = _run(
-            svc.link(
-                ref,
-                blocks=list(blocks) or None,
-                blocked_by=list(blocked_by) or None,
-                parent=parent,
-                remove=remove,
-            )
-        )
-    except (ValueError, KeyError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.echo(f"updated {ticket.key}")
+from jig.issues.link_cli import link_cmd  # noqa: E402
+from jig.issues.web import board_cmd  # noqa: E402
+
+issue_group.add_command(link_cmd)
+issue_group.add_command(board_cmd)

@@ -177,6 +177,12 @@ class _IssueBoardHandler(BaseHTTPRequestHandler):
         if self.path != "/api/issues":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
+        if self.headers.get_content_type() != "application/json":
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": "Content-Type must be application/json"},
+            )
+            return
         try:
             payload = self._read_json()
             ticket = asyncio.run(create_issue(self._project_root, payload))

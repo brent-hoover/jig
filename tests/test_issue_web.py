@@ -24,9 +24,10 @@ def _request(
     path: str,
     *,
     body: dict[str, str] | None = None,
+    content_type: str = "application/json",
 ) -> tuple[int, str, str]:
     encoded = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"} if encoded is not None else {}
+    headers = {"Content-Type": content_type} if encoded is not None else {}
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
     try:
         conn.request(method, path, body=encoded, headers=headers)
@@ -113,3 +114,32 @@ def test_issue_board_command_is_registered() -> None:
     result = CliRunner().invoke(cli, ["issue", "board", "--help"])
     assert result.exit_code == 0, result.output
     assert "Serve the issue Kanban board" in result.output
+
+
+def test_issue_board_rejects_non_json_create_requests(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    server = create_issue_board_server(root, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        status, content_type, body = _request(
+            int(server.server_port),
+            "POST",
+            "/api/issues",
+            body={
+                "title": "cross-site create",
+                "work_type": "feature",
+                "description": TICKET_AC_PLACEHOLDER,
+            },
+            content_type="text/plain",
+        )
+        assert status == 415
+        assert content_type.startswith("application/json")
+        assert "application/json" in body
+
+        tickets = json.loads(_request(int(server.server_port), "GET", "/api/issues")[2])
+        assert tickets["tickets"] == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

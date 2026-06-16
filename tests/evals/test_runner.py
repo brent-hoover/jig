@@ -23,16 +23,22 @@ from jig.evals.prompt_style_eval.models import Cell
 from jig.evals.prompt_style_eval.runner import run_cell
 
 
-def _cell(prompt_id: str = "yaml_spec", prompt_version: str = "sha256:test") -> Cell:
+def _cell(
+    prompt_id: str = "yaml_spec",
+    prompt_version: str = "sha256:test",
+    task_id: str = "todo_cli",
+    task_version: str = "v1",
+    rubric_version: str = "v1",
+) -> Cell:
     return Cell(
-        task_id="todo_cli",
-        task_version="v1",
+        task_id=task_id,
+        task_version=task_version,
         prompt_id=prompt_id,
         prompt_version=prompt_version,
         model="claude-opus-4-7",
         model_snapshot=None,
         temperature=0.0,
-        rubric_version="v1",
+        rubric_version=rubric_version,
     )
 
 
@@ -56,13 +62,17 @@ def _assistant(text: str) -> AssistantMessage:
     )
 
 
-def _make_query(candidate_messages: list[Any], judge_messages: list[Any]):
-    """Return a fake ``query`` that alternates between candidate and judge
-    invocations on successive calls."""
+def _first_candidate_then_judge_query(
+    candidate_messages: list[Any],
+    judge_messages: list[Any],
+    captured_prompts: list[str] | None = None,
+):
     call_count = {"n": 0}
 
     async def _query(*, prompt: str, options: Any) -> AsyncIterator[Any]:  # noqa: ARG001
         call_count["n"] += 1
+        if captured_prompts is not None:
+            captured_prompts.append(prompt)
         messages = candidate_messages if call_count["n"] == 1 else judge_messages
         for message in messages:
             yield message
@@ -70,16 +80,34 @@ def _make_query(candidate_messages: list[Any], judge_messages: list[Any]):
     return _query
 
 
-_TODO_REF_CODE = (Path(__file__).resolve().parent.parent.parent
-                  / "jig" / "evals" / "prompt_style_eval" / "tasks" / "todo_cli" / "reference.py"
-                  ).read_text(encoding="utf-8")
+_TODO_REF_CODE = (
+    Path(__file__).resolve().parent.parent.parent
+    / "jig"
+    / "evals"
+    / "prompt_style_eval"
+    / "tasks"
+    / "todo_cli"
+    / "reference.py"
+).read_text(encoding="utf-8")
+
+_REVIEW_REF_RESPONSE = (
+    Path(__file__).resolve().parent.parent.parent
+    / "jig"
+    / "evals"
+    / "prompt_style_eval"
+    / "tasks"
+    / "review_fix_ladder"
+    / "reference.md"
+).read_text(encoding="utf-8")
 
 
 def _code_block(body: str) -> str:
     return f"Here's the solution:\n```python\n{body}\n```"
 
 
-async def test_run_cell_code_outcome_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_run_cell_code_outcome_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Reference solution → expect outcome=code, tests passing, judge populated."""
     judge_response = (
         '{"type_hints_present": true, "no_bare_except": true, '
@@ -89,7 +117,7 @@ async def test_run_cell_code_outcome_end_to_end(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[_assistant(_code_block(_TODO_REF_CODE)), _result()],
             judge_messages=[_assistant(judge_response), _result(cost=0.0003)],
         ),
@@ -121,7 +149,7 @@ async def test_run_cell_question_outcome(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[
                 _assistant("Should I use SQLite or a JSON file for persistence?"),
                 _result(),
@@ -180,7 +208,7 @@ async def test_run_cell_judge_failure_keeps_code_outcome(
     monkeypatch.setattr(
         sdk_module,
         "query",
-        _make_query(
+        _first_candidate_then_judge_query(
             candidate_messages=[_assistant(_code_block(_TODO_REF_CODE)), _result()],
             judge_messages=[
                 _assistant("I'm not sure how to evaluate this code."),
@@ -204,3 +232,54 @@ async def test_run_cell_judge_failure_keeps_code_outcome(
     assert record.outcome == "code"
     assert record.test_result is not None
     assert record.judge is None
+
+
+async def test_run_cell_scores_configured_multi_file_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    judge_response = (
+        '{"behavioral_completeness": 5, "type_discipline": 5, '
+        '"cohesive_boundaries": 5, "root_cause_fixes": 5, '
+        '"no_broad_exception_handling": true, "simple_enough": 5}'
+    )
+    captured_prompts: list[str] = []
+    monkeypatch.setattr(
+        sdk_module,
+        "query",
+        _first_candidate_then_judge_query(
+            candidate_messages=[_assistant(_REVIEW_REF_RESPONSE), _result()],
+            judge_messages=[_assistant(judge_response), _result(cost=0.0003)],
+            captured_prompts=captured_prompts,
+        ),
+    )
+
+    task = load_task("review_fix_ladder")
+    prompt = load_prompt("review_fix_ladder", "patch_first")
+    rubric = load_rubric("python_quality_v1")
+
+    record = await run_cell(
+        _cell(
+            task_id=task.id,
+            task_version=task.version,
+            prompt_id=prompt.prompt_id,
+            prompt_version=prompt.content_hash,
+            rubric_version=rubric.version,
+        ),
+        prompt.text,
+        task,
+        task_tests_dir(task.id),
+        rubric,
+        judge_model="claude-sonnet-4-6",
+    )
+
+    assert record.outcome == "code"
+    assert record.test_result is not None
+    assert record.test_result.passed is True
+    assert record.static_metrics is not None
+    assert record.static_metrics.loc > 100
+    assert len(captured_prompts) == 2
+    judge_prompt = captured_prompts[1]
+    assert "# File: cart_totals.py" in judge_prompt
+    assert "# File: scheduler.py" in judge_prompt
+    assert "# File: permissions.py" in judge_prompt
+    assert "# File: ledger.py" in judge_prompt

@@ -28,6 +28,34 @@ from jig.evals.prompt_style_eval.sdk import invoke
 _logger = logging.getLogger(__name__)
 
 
+def _score_files(files: dict[str, str], task: Task) -> dict[str, str]:
+    names = task.score_files or [task.entrypoint]
+    selected = {name: files[name] for name in names if name in files}
+    if selected:
+        return selected
+    return files
+
+
+def _judge_score_files(files: dict[str, str], task: Task) -> dict[str, str]:
+    if task.score_files:
+        return {
+            name: files.get(name, _missing_score_file_source(name))
+            for name in task.score_files
+        }
+    return _score_files(files, task)
+
+
+def _missing_score_file_source(filename: str) -> str:
+    return f'raise NotImplementedError("Missing required score file: {filename}")\n'
+
+
+def _judge_source(files: dict[str, str]) -> str:
+    blocks: list[str] = []
+    for filename, source in files.items():
+        blocks.append(f"# File: {filename}\n{source.rstrip()}")
+    return "\n\n".join(blocks)
+
+
 async def run_cell(
     cell: Cell,
     prompt_text: str,
@@ -89,18 +117,11 @@ async def run_cell(
 
     test_result = await sandbox.run_tests(files, task, tests_dir, fixtures=fixtures)
 
-    # Static metrics: judge the entrypoint file (the candidate's main artifact
-    # for single-file tasks; for multi-file tasks the entrypoint is the most
-    # interesting single file to measure, even if the entire candidate is
-    # bigger).
-    entrypoint_source = files.get(task.entrypoint) or next(iter(files.values()))
-    static_metrics = await metrics.compute(entrypoint_source)
+    static_metrics = await metrics.compute_files(_score_files(files, task))
+    judge_source = _judge_source(_judge_score_files(files, task))
 
-    # Judge: same — use the entrypoint as the representative artifact for
-    # the quality rubric. (If the judge should later see all files, we'd
-    # build a combined string here.)
     try:
-        judge = await judge_score(entrypoint_source, rubric, model=judge_model)
+        judge = await judge_score(judge_source, rubric, model=judge_model)
     except JudgeError as exc:
         _logger.warning("Judge failed for run %s: %s", run_id, exc)
         judge = None

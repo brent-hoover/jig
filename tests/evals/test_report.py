@@ -22,15 +22,20 @@ from jig.evals.prompt_style_eval.report import (
 )
 
 
-def _cell(prompt_id: str = "yaml_spec") -> Cell:
+def _cell(
+    prompt_id: str = "yaml_spec",
+    task_version: str = "v1",
+    model_snapshot: str | None = None,
+    temperature: float = 0.0,
+) -> Cell:
     return Cell(
         task_id="todo_cli",
-        task_version="v1",
+        task_version=task_version,
         prompt_id=prompt_id,
         prompt_version="sha256:x",
         model="claude-opus-4-7",
-        model_snapshot=None,
-        temperature=0.0,
+        model_snapshot=model_snapshot,
+        temperature=temperature,
         rubric_version="v1",
     )
 
@@ -39,6 +44,9 @@ def _code_run(
     run_id: str,
     *,
     prompt_id: str = "yaml_spec",
+    task_version: str = "v1",
+    model_snapshot: str | None = None,
+    temperature: float = 0.0,
     passed: bool = True,
     loc: int = 50,
     judge: bool = True,
@@ -46,7 +54,7 @@ def _code_run(
     return RunRecord(
         run_id=run_id,
         timestamp=datetime(2026, 5, 12, tzinfo=UTC),
-        cell=_cell(prompt_id),
+        cell=_cell(prompt_id, task_version, model_snapshot, temperature),
         prompt="x",
         transcript=[],
         outcome="code",
@@ -58,7 +66,9 @@ def _code_run(
             duration_s=0.1,
         ),
         static_metrics=StaticMetrics(
-            loc=loc, ruff_findings=0, cyclomatic_max=2,
+            loc=loc,
+            ruff_findings=0,
+            cyclomatic_max=2,
         ),
         judge=(
             JudgeScore(
@@ -75,11 +85,17 @@ def _code_run(
     )
 
 
-def _question_run(run_id: str, prompt_id: str = "yaml_spec") -> RunRecord:
+def _question_run(
+    run_id: str,
+    prompt_id: str = "yaml_spec",
+    task_version: str = "v1",
+    model_snapshot: str | None = None,
+    temperature: float = 0.0,
+) -> RunRecord:
     return RunRecord(
         run_id=run_id,
         timestamp=datetime(2026, 5, 12, tzinfo=UTC),
-        cell=_cell(prompt_id),
+        cell=_cell(prompt_id, task_version, model_snapshot, temperature),
         prompt="x",
         transcript=[],
         outcome="question",
@@ -98,6 +114,43 @@ def test_aggregate_groups_by_task_and_prompt() -> None:
     assert len(report.cells) == 2
     keys = {(c.task_id, c.prompt_id) for c in report.cells}
     assert keys == {("todo_cli", "yaml_spec"), ("todo_cli", "prose_spec")}
+
+
+def test_aggregate_groups_by_task_version() -> None:
+    records = [
+        _code_run("a", task_version="v1"),
+        _code_run("b", task_version="v2"),
+    ]
+
+    report = aggregate(records)
+
+    assert len(report.cells) == 2
+    assert {cell.task_version for cell in report.cells} == {"v1", "v2"}
+
+
+def test_aggregate_groups_by_model_snapshot_and_temperature() -> None:
+    records = [
+        _code_run("a", model_snapshot="s1", temperature=0.0),
+        _code_run("b", model_snapshot="s1", temperature=0.7),
+        _code_run("c", model_snapshot="s2", temperature=0.0),
+    ]
+
+    report = aggregate(records)
+
+    assert len(report.cells) == 3
+    keys = {(cell.model_snapshot, cell.temperature) for cell in report.cells}
+    assert keys == {("s1", 0.0), ("s1", 0.7), ("s2", 0.0)}
+
+
+def test_aggregate_sorts_mixed_snapshot_values() -> None:
+    records = [
+        _code_run("a", model_snapshot=None),
+        _code_run("b", model_snapshot="s1"),
+    ]
+
+    report = aggregate(records)
+
+    assert [cell.model_snapshot for cell in report.cells] == [None, "s1"]
 
 
 def test_pass_rate_counts_non_code_outcomes_as_failures() -> None:
@@ -158,7 +211,9 @@ def test_render_text_includes_cell_summary() -> None:
     records = [_code_run("a"), _code_run("b")]
     text = render_text(aggregate(records))
     assert "todo_cli" in text
+    assert "v1" in text
     assert "yaml_spec" in text
+    assert "temp=0" in text
     assert "pass rate" in text
 
 
@@ -175,3 +230,6 @@ def test_render_json_roundtrips() -> None:
     data = _json.loads(payload)
     assert "cells" in data
     assert data["cells"][0]["n"] == 3
+    assert data["cells"][0]["task_version"] == "v1"
+    assert data["cells"][0]["temperature"] == 0.0
+    assert data["cells"][0]["model_snapshot"] is None

@@ -1,0 +1,6 @@
+id: order_fulfillment_engine
+version: v2
+language: python
+entrypoint: fulfillment.py
+test_command: ["python", "-m", "pytest", "-q", "tests/"]
+timeout_s: 45

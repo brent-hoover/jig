@@ -30,15 +30,19 @@ _logger = logging.getLogger(__name__)
 
 def _score_files(files: dict[str, str], task: Task) -> dict[str, str]:
     names = task.score_files or [task.entrypoint]
+    selected = {name: files[name] for name in names if name in files}
+    if selected:
+        return selected
+    return files
+
+
+def _judge_score_files(files: dict[str, str], task: Task) -> dict[str, str]:
     if task.score_files:
         return {
             name: files.get(name, _missing_score_file_source(name))
             for name in task.score_files
         }
-    selected = {name: files[name] for name in names if name in files}
-    if selected:
-        return selected
-    return {next(iter(files)): next(iter(files.values()))}
+    return _score_files(files, task)
 
 
 def _missing_score_file_source(filename: str) -> str:
@@ -113,9 +117,8 @@ async def run_cell(
 
     test_result = await sandbox.run_tests(files, task, tests_dir, fixtures=fixtures)
 
-    scored_files = _score_files(files, task)
-    static_metrics = await metrics.compute_files(scored_files)
-    judge_source = _judge_source(scored_files)
+    static_metrics = await metrics.compute_files(_score_files(files, task))
+    judge_source = _judge_source(_judge_score_files(files, task))
 
     try:
         judge = await judge_score(judge_source, rubric, model=judge_model)

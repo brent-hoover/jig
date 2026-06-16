@@ -142,6 +142,17 @@ def test_aggregate_groups_by_model_snapshot_and_temperature() -> None:
     assert keys == {("s1", 0.0), ("s1", 0.7), ("s2", 0.0)}
 
 
+def test_aggregate_sorts_mixed_snapshot_values() -> None:
+    records = [
+        _code_run("a", model_snapshot=None),
+        _code_run("b", model_snapshot="s1"),
+    ]
+
+    report = aggregate(records)
+
+    assert [cell.model_snapshot for cell in report.cells] == [None, "s1"]
+
+
 def test_pass_rate_counts_non_code_outcomes_as_failures() -> None:
     records = [
         _code_run("a", passed=True),

@@ -164,9 +164,38 @@ def aggregate(records: Iterable[RunRecord]) -> Report:
             model_snapshot,
             temperature,
             rubric_version,
-        ), group in sorted(grouped.items())
+        ), group in sorted(grouped.items(), key=_group_sort_key)
     ]
     return Report(cells=cells)
+
+
+def _group_sort_key(
+    item: tuple[
+        tuple[str, str, str, str, str, str | None, float, str],
+        list[RunRecord],
+    ],
+) -> tuple[str, str, str, str, str, str, float, str]:
+    key, _records = item
+    (
+        task_id,
+        task_version,
+        prompt_id,
+        prompt_version,
+        model,
+        snapshot,
+        temperature,
+        rubric,
+    ) = key
+    return (
+        task_id,
+        task_version,
+        prompt_id,
+        prompt_version,
+        model,
+        snapshot or "",
+        temperature,
+        rubric,
+    )
 
 
 def _aggregate_cell(

@@ -26,3 +26,8 @@ Covered more in TENETS.md but here quickly our goals are:
 3. Clear instructions and boundaries: Well-constructed tickets with specs and validation steps and concurrent-review 
 4. Structured, consistent language: Using YAMl-based specs so agents see it as a contract, not a suggestion
 5. Both sides earn their best thinking through structure: We walk the human through the whole process of planning their app, and then unleash the agents
+
+## Evals
+
+The prompt-style eval harness and Python agent-quality tasks are documented in
+[`jig/evals/prompt_style_eval/README.md`](jig/evals/prompt_style_eval/README.md).

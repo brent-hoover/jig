@@ -82,6 +82,7 @@ async def _run_git(
         stderr=asyncio.subprocess.PIPE,
     )
     _, stderr = await proc.communicate(stdin)
+    assert proc.returncode is not None
     return proc.returncode, stderr.decode("utf-8", errors="replace").strip()
 
 

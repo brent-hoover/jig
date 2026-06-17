@@ -51,7 +51,7 @@ def _is_work_type_kw(value: ast.expr) -> bool:
     return False
 
 
-def _is_ticket_call(node: ast.expr) -> bool:
+def _is_ticket_call(node: ast.AST) -> bool:
     if not isinstance(node, ast.Call):
         return False
     func = node.func

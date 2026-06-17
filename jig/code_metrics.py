@@ -97,6 +97,7 @@ async def _run(cmd: list[str], cwd: Path) -> tuple[int, str]:
         stderr=asyncio.subprocess.PIPE,
     )
     out, _ = await proc.communicate()
+    assert proc.returncode is not None
     return proc.returncode, out.decode("utf-8", errors="replace")
 
 

@@ -154,27 +154,27 @@ def resolve_owner(
             # Whole-spec owner — config alone; schemas don't declare
             # a default for "all fields", so fall back to PO per
             # doc 04 §Jointly owned artifacts.
-            role = whole_spec_owner_default
-            return _route_for_role(config, role)
+            default_role = whole_spec_owner_default
+            return _route_for_role(config, default_role)
         if body.startswith("spec."):
             field = body[len("spec.") :]
-            role = _spec_field_owner(config, work_type_schema, field)
-            if role is None:
+            field_role = _spec_field_owner(config, work_type_schema, field)
+            if field_role is None:
                 raise OwnershipError(
                     f"no owner declared for {target!r} "
                     f"(field={field!r}); check config.ownership.spec "
                     "or the work-type schema's ownership map"
                 )
-            return _route_for_role(config, role)
+            return _route_for_role(config, field_role)
         raise OwnershipError(f"unsupported ticket:// target for ownership: {target}")
 
     if scheme == "project":
-        role = _project_owner(config, body)
-        if role is None:
+        project_role = _project_owner(config, body)
+        if project_role is None:
             raise OwnershipError(
                 f"no owner declared for {target!r}; add config.ownership.{body}"
             )
-        return _route_for_role(config, role)
+        return _route_for_role(config, project_role)
 
     raise OwnershipError(f"unknown target scheme for ownership: {target}")
 

@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeAlias
+
+if TYPE_CHECKING:
+    from jig.store.models import StoreModel, TypedCollection
 
 from jig.store.core import JsonlStore
 
@@ -68,17 +73,23 @@ class Collection:
         return await self.insert(doc)
 
 
+if TYPE_CHECKING:
+    DatabaseCollection: TypeAlias = Collection | TypedCollection[StoreModel]
+else:
+    DatabaseCollection: TypeAlias = Collection
+
+
 class Database:
     def __init__(self, base_path: Path) -> None:
         self._base_path = base_path
-        self._collections: dict[str, tuple[Collection, tuple, type | None]] = {}
+        self._collections: dict[str, tuple[DatabaseCollection, tuple, type | None]] = {}
 
     async def collection(
         self,
         name: str,
         index_fields: list[str] | None = None,
-        model: type | None = None,
-    ) -> Collection:
+        model: type[StoreModel] | None = None,
+    ) -> DatabaseCollection:
         key_index = tuple(index_fields or [])
         if name in self._collections:
             cached, cached_index, cached_model = self._collections[name]
@@ -94,6 +105,7 @@ class Database:
             return cached
 
         path = self._base_path / f"{name}.jsonl"
+        col: DatabaseCollection
         if model is None:
             col = Collection(path, index_fields=index_fields)
         else:

@@ -128,3 +128,9 @@ def test_approve_transitions_to_open(tmp_path: Path) -> None:
 
     shown = CliRunner().invoke(cli, ["issue", "show", "--path", str(root), "jig-1"])
     assert "open" in shown.output.lower()
+
+
+def test_link_help_describes_command() -> None:
+    res = CliRunner().invoke(cli, ["issue", "link", "--help"])
+    assert res.exit_code == 0, res.output
+    assert "Add or remove dependency / parent edges" in res.output

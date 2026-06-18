@@ -5,40 +5,15 @@ builds an IssueService, runs one async operation, and prints a terse result.
 Contract/lookup failures surface as ClickExceptions (non-zero exit, no write).
 """
 
-import asyncio
 import sys
 from pathlib import Path
-from typing import Awaitable, TypeVar
 
 import click
 
-from jig.issues.discovery import find_project_root
-from jig.issues.service import IssueService
+from jig.issues.cli_support import path_option, run, service
+from jig.issues.link_cli import link_cmd
+from jig.issues.web import board_cmd
 from jig.thread import entry_content
-
-T = TypeVar("T")
-
-_path_option = click.option(
-    "--path",
-    default=None,
-    type=click.Path(exists=True, path_type=Path),
-    help="Project root. Default: walk up from the current directory.",
-)
-
-
-def _service(path: Path | None) -> IssueService:
-    if path is not None:
-        root = path
-    else:
-        try:
-            root = find_project_root(Path.cwd())
-        except FileNotFoundError as exc:
-            raise click.ClickException(str(exc)) from exc
-    return IssueService(root)
-
-
-def _run(coro: Awaitable[T]) -> T:
-    return asyncio.run(coro)
 
 
 def _read_body(body: str | None, body_file: str | None) -> str:
@@ -60,7 +35,7 @@ def issue_group() -> None:
 
 
 @issue_group.command("create")
-@_path_option
+@path_option
 @click.option("--title", required=True)
 @click.option("--type", "work_type", required=True, help="Work type, e.g. feature.")
 @click.option("--size", default="m", show_default=True)
@@ -86,9 +61,9 @@ def create(
 ) -> None:
     """Create an issue. It lands as PROPOSED until approved."""
     description = _read_body(body, body_file)
-    svc = _service(path)
+    svc = service(path)
     try:
-        ticket = _run(
+        ticket = run(
             svc.create(
                 title=title,
                 work_type=work_type,
@@ -106,7 +81,7 @@ def create(
 
 
 @issue_group.command("list")
-@_path_option
+@path_option
 @click.option("--status", default=None)
 @click.option("--type", "work_type", default=None)
 @click.option("--label", default=None)
@@ -119,8 +94,8 @@ def list_cmd(
     assignee: str | None,
 ) -> None:
     """List issues, optionally filtered."""
-    svc = _service(path)
-    tickets = _run(
+    svc = service(path)
+    tickets = run(
         svc.list(status=status, work_type=work_type, label=label, assignee=assignee)
     )
     for t in tickets:
@@ -128,18 +103,18 @@ def list_cmd(
 
 
 @issue_group.command("show")
-@_path_option
+@path_option
 @click.argument("ref")
 def show(path: Path | None, ref: str) -> None:
     """Show one issue and its comments. REF is a jig-N key or UUID."""
-    svc = _service(path)
+    svc = service(path)
 
     async def _go():
         ticket = await svc.get(ref)
         return ticket, await svc.comments(ref)
 
     try:
-        ticket, comments = _run(_go())
+        ticket, comments = run(_go())
     except KeyError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -162,7 +137,7 @@ def show(path: Path | None, ref: str) -> None:
 
 
 @issue_group.command("update")
-@_path_option
+@path_option
 @click.argument("ref")
 @click.option("--status", default=None)
 @click.option("--assignee", default=None)
@@ -179,7 +154,7 @@ def update(
     remove_label: tuple[str, ...],
 ) -> None:
     """Update an issue's fields. Cannot promote PROPOSED -> OPEN (use approve)."""
-    svc = _service(path)
+    svc = service(path)
 
     async def _go():
         fields: dict = {}
@@ -201,40 +176,40 @@ def update(
         return await svc.update(ref, **fields)
 
     try:
-        ticket = _run(_go())
+        ticket = run(_go())
     except (ValueError, KeyError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{ticket.key} -> {ticket.status.value}")
 
 
 @issue_group.command("approve")
-@_path_option
+@path_option
 @click.argument("ref")
 def approve(path: Path | None, ref: str) -> None:
     """Approve a PROPOSED issue for work (PROPOSED -> OPEN)."""
-    svc = _service(path)
+    svc = service(path)
     try:
-        ticket = _run(svc.approve(ref))
+        ticket = run(svc.approve(ref))
     except (ValueError, KeyError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{ticket.key} -> {ticket.status.value}")
 
 
 @issue_group.command("close")
-@_path_option
+@path_option
 @click.argument("ref")
 def close(path: Path | None, ref: str) -> None:
     """Close an issue."""
-    svc = _service(path)
+    svc = service(path)
     try:
-        ticket = _run(svc.close(ref))
+        ticket = run(svc.close(ref))
     except (ValueError, KeyError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{ticket.key} -> {ticket.status.value}")
 
 
 @issue_group.command("comment")
-@_path_option
+@path_option
 @click.argument("ref")
 @click.option("--body", default=None)
 @click.option(
@@ -245,43 +220,13 @@ def comment(
 ) -> None:
     """Add a comment to an issue."""
     text = _read_body(body, body_file)
-    svc = _service(path)
+    svc = service(path)
     try:
-        cid = _run(svc.comment(ref, text))
+        cid = run(svc.comment(ref, text))
     except KeyError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"comment {cid} added to {ref}")
 
 
-@issue_group.command("link")
-@_path_option
-@click.argument("ref")
-@click.option("--blocks", multiple=True)
-@click.option("--blocked-by", "blocked_by", multiple=True)
-@click.option("--parent", default=None)
-@click.option(
-    "--remove", is_flag=True, help="Remove the given edges instead of adding."
-)
-def link(
-    path: Path | None,
-    ref: str,
-    blocks: tuple[str, ...],
-    blocked_by: tuple[str, ...],
-    parent: str | None,
-    remove: bool,
-) -> None:
-    """Add or remove dependency / parent edges on an issue."""
-    svc = _service(path)
-    try:
-        ticket = _run(
-            svc.link(
-                ref,
-                blocks=list(blocks) or None,
-                blocked_by=list(blocked_by) or None,
-                parent=parent,
-                remove=remove,
-            )
-        )
-    except (ValueError, KeyError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.echo(f"updated {ticket.key}")
+issue_group.add_command(link_cmd)
+issue_group.add_command(board_cmd)

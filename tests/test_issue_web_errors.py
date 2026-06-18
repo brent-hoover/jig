@@ -139,3 +139,25 @@ def test_issue_board_returns_json_500_for_corrupt_ticket_store(
     assert status == 500
     assert content_type.startswith("application/json")
     assert "malformed JSON" in body
+
+
+def test_issue_board_returns_json_500_for_schema_invalid_ticket(
+    tmp_path: Path,
+) -> None:
+    # Valid JSON that satisfies the store envelope (_op/_id) but fails the
+    # Ticket pydantic model. load_board() raises pydantic.ValidationError,
+    # which subclasses ValueError, so the do_GET handler must still surface a
+    # JSON 500 rather than leaking an uncaught traceback.
+    root = _project(tmp_path)
+    (root / ".jig" / "store" / "tickets.jsonl").write_text(
+        json.dumps({"_op": "insert", "_id": "abc", "title": "missing fields"}) + "\n"
+    )
+
+    with _server(root) as port:
+        status, content_type, body = _request(
+            port, "GET", "/api/issues", content_type=None
+        )
+
+    assert status == 500
+    assert content_type.startswith("application/json")
+    assert "error" in json.loads(body)

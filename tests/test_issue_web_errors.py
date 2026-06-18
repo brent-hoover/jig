@@ -146,8 +146,12 @@ def test_issue_board_returns_json_500_for_schema_invalid_ticket(
 ) -> None:
     # Valid JSON that satisfies the store envelope (_op/_id) but fails the
     # Ticket pydantic model. load_board() raises pydantic.ValidationError,
-    # which subclasses ValueError, so the do_GET handler must still surface a
-    # JSON 500 rather than leaking an uncaught traceback.
+    # which subclasses ValueError (pydantic v2: MRO is ValidationError ->
+    # ValueError -> Exception), so the do_GET handler's except (OSError,
+    # ValueError) still surfaces a JSON 500 rather than leaking an uncaught
+    # traceback. If a future pydantic upgrade breaks that subclass
+    # relationship, this test fails loudly (RemoteDisconnected, not a 500),
+    # signalling that do_GET must catch ValidationError explicitly.
     root = _project(tmp_path)
     (root / ".jig" / "store" / "tickets.jsonl").write_text(
         json.dumps({"_op": "insert", "_id": "abc", "title": "missing fields"}) + "\n"

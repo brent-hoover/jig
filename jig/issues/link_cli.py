@@ -7,7 +7,7 @@ import click
 from jig.issues.cli_support import path_option, run, service
 
 
-@click.command("link", help="Add or remove dependency / parent edges on an issue.")
+@click.command("link")
 @path_option
 @click.argument("ref")
 @click.option("--blocks", multiple=True)
@@ -24,6 +24,7 @@ def link_cmd(
     parent: str | None,
     remove: bool,
 ) -> None:
+    """Add or remove dependency / parent edges on an issue."""
     svc = service(path)
     try:
         ticket = run(

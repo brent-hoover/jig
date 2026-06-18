@@ -131,6 +131,8 @@ def serve_issue_board(project_root: Path, *, host: str, port: int) -> None:
             server.serve_forever()
         except KeyboardInterrupt:
             click.echo("\nshutting down")
+        except OSError as exc:
+            raise click.ClickException(str(exc)) from exc
 
 
 @click.command("board", help="Serve the issue Kanban board as a local Web View.")
@@ -171,7 +173,7 @@ class _IssueBoardHandler(BaseHTTPRequestHandler):
         if self.path == "/api/issues":
             try:
                 board = asyncio.run(load_board(self._project_root))
-            except (OSError, ValueError, ValidationError) as exc:
+            except (OSError, ValueError) as exc:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
                 return
             self._send_json(HTTPStatus.OK, board)

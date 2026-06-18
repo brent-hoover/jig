@@ -179,8 +179,14 @@ class IssueService:
         # ref raises before the operation partially mutates state. The parent
         # ref is resolved even when removing, so a bad parent ref is rejected
         # rather than silently clearing the field.
-        dep_ids = [(await self._require(r)).id for r in (blocked_by or [])]
-        block_ids = [(await self._require(r)).id for r in (blocks or [])]
+        blocked_refs: list[str] = blocked_by or []
+        block_refs: list[str] = blocks or []
+        dep_ids: list[str] = []
+        for blocked_ref in blocked_refs:
+            dep_ids.append((await self._require(blocked_ref)).id)
+        block_ids: list[str] = []
+        for block_ref in block_refs:
+            block_ids.append((await self._require(block_ref)).id)
         parent_id = (await self._require(parent)).id if parent is not None else None
 
         if parent is not None:

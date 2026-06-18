@@ -42,7 +42,7 @@ class TicketStore:
         self._lock_path = path.parent / ".issue.lock"
         self._on_status_change: StatusChangeCallback | None = None
         self._on_create: CreateCallback | None = None
-        self._background_tasks: set[asyncio.Task] = set()
+        self._background_tasks: set[asyncio.Future[None]] = set()
 
     def set_status_change_callback(self, cb: StatusChangeCallback | None) -> None:
         """Register a callback fired on every observed status transition.
@@ -212,10 +212,10 @@ class TicketStore:
             logger.warning("ticket-create callback raised: %s", exc, exc_info=exc)
             return
         if inspect.isawaitable(result):
-            task = asyncio.create_task(result)  # type: ignore[arg-type]
+            task = asyncio.ensure_future(result)
             self._background_tasks.add(task)
 
-            def _on_done(t: asyncio.Task) -> None:
+            def _on_done(t: asyncio.Future[None]) -> None:
                 self._background_tasks.discard(t)
                 if not t.cancelled() and (exc := t.exception()):
                     logger.warning(
@@ -317,10 +317,10 @@ class TicketStore:
             logger.warning("status-change callback raised: %s", exc, exc_info=exc)
             return
         if inspect.isawaitable(result):
-            task = asyncio.create_task(result)  # type: ignore[arg-type]
+            task = asyncio.ensure_future(result)
             self._background_tasks.add(task)
 
-            def _on_done(t: asyncio.Task) -> None:
+            def _on_done(t: asyncio.Future[None]) -> None:
                 self._background_tasks.discard(t)
                 if not t.cancelled() and (exc := t.exception()):
                     logger.warning(

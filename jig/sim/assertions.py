@@ -108,9 +108,7 @@ class ArtifactWrittenAssertion(_AssertionBase):
     requiring an exact-match fixture.
     """
 
-    kind: Literal[AssertionKind.ARTIFACT_WRITTEN.value] = (
-        AssertionKind.ARTIFACT_WRITTEN.value
-    )
+    kind: Literal["artifact_written"] = AssertionKind.ARTIFACT_WRITTEN.value
     path: str = Field(..., min_length=1)
     contains: str | None = None
 
@@ -124,7 +122,7 @@ class AnalyticsEventEmittedAssertion(_AssertionBase):
     structural matches land with MVP if needed.
     """
 
-    kind: Literal[AssertionKind.ANALYTICS_EVENT_EMITTED.value] = (
+    kind: Literal["analytics_event_emitted"] = (
         AssertionKind.ANALYTICS_EVENT_EMITTED.value
     )
     event_kind: str = Field(..., min_length=1)
@@ -143,7 +141,7 @@ class TicketStatusAssertion(_AssertionBase):
     cadence).
     """
 
-    kind: Literal[AssertionKind.TICKET_STATUS.value] = AssertionKind.TICKET_STATUS.value
+    kind: Literal["ticket_status"] = AssertionKind.TICKET_STATUS.value
     ticket_id: str = Field(..., min_length=1)
     status: str = Field(..., min_length=1)
 
@@ -155,7 +153,7 @@ class ReviewerReturnedNoCriticalAssertion(_AssertionBase):
     ids land alongside the rest of the federation (Track G6+).
     """
 
-    kind: Literal[AssertionKind.REVIEWER_RETURNED_NO_CRITICAL.value] = (
+    kind: Literal["reviewer_returned_no_critical"] = (
         AssertionKind.REVIEWER_RETURNED_NO_CRITICAL.value
     )
     reviewer_id: str = Field(..., min_length=1)
@@ -177,7 +175,7 @@ class EnvVarSetAssertion(_AssertionBase):
       assertion can match the URL with ``name="_url"``.
     """
 
-    kind: Literal[AssertionKind.ENV_VAR_SET.value] = AssertionKind.ENV_VAR_SET.value
+    kind: Literal["env_var_set"] = AssertionKind.ENV_VAR_SET.value
     name: str = Field(..., min_length=1)
     value: str | None = None
     source: Literal["fixture_env", "operator_supplied"] = "fixture_env"
@@ -196,7 +194,7 @@ class ReviewCommentInStoreAssertion(_AssertionBase):
     comments at the requested severity tier.
     """
 
-    kind: Literal[AssertionKind.REVIEW_COMMENT_IN_STORE.value] = (
+    kind: Literal["review_comment_in_store"] = (
         AssertionKind.REVIEW_COMMENT_IN_STORE.value
     )
     ticket_id: str = Field(..., min_length=1)
@@ -214,9 +212,7 @@ class CostUnderBudgetAssertion(_AssertionBase):
     bones success criterion is < $1.
     """
 
-    kind: Literal[AssertionKind.COST_UNDER_BUDGET.value] = (
-        AssertionKind.COST_UNDER_BUDGET.value
-    )
+    kind: Literal["cost_under_budget"] = AssertionKind.COST_UNDER_BUDGET.value
     usd: float = Field(..., gt=0.0)
 
 
@@ -242,9 +238,7 @@ class ContractValidatedAssertion(_AssertionBase):
     landed with intent rather than just that the YAML grew.
     """
 
-    kind: Literal[AssertionKind.CONTRACT_VALIDATED.value] = (
-        AssertionKind.CONTRACT_VALIDATED.value
-    )
+    kind: Literal["contract_validated"] = AssertionKind.CONTRACT_VALIDATED.value
     module_id: str = Field(..., min_length=1)
     contract_id: str = Field(..., min_length=1)
     contract_kind: Literal["behavioral", "data"]
@@ -269,7 +263,7 @@ class WireframeAssertion(_AssertionBase):
     wireframe round-tripped without reaching for ``artifact_written``.
     """
 
-    kind: Literal[AssertionKind.WIREFRAME.value] = AssertionKind.WIREFRAME.value
+    kind: Literal["wireframe"] = AssertionKind.WIREFRAME.value
     screen_id: str = Field(..., min_length=1)
     contains: str | None = None
     lint_passed: bool = True
@@ -283,7 +277,7 @@ class BuildPlanLayerStatusAssertion(_AssertionBase):
     implicit "layer-transitioned" check to a first-class assertion.
     """
 
-    kind: Literal[AssertionKind.BUILD_PLAN_LAYER_STATUS.value] = (
+    kind: Literal["build_plan_layer_status"] = (
         AssertionKind.BUILD_PLAN_LAYER_STATUS.value
     )
     epic_id: str = Field(..., min_length=1)
@@ -302,7 +296,7 @@ class RiskStatusAssertion(_AssertionBase):
     Until now they could only assert the analytics event fired.
     """
 
-    kind: Literal[AssertionKind.RISK_STATUS.value] = AssertionKind.RISK_STATUS.value
+    kind: Literal["risk_status"] = AssertionKind.RISK_STATUS.value
     risk_id: str = Field(..., min_length=1)
     status: Literal[
         "open",
@@ -326,9 +320,7 @@ class CascadeProposalAssertion(_AssertionBase):
     confirm the file exists; this assertion proves the contents.
     """
 
-    kind: Literal[AssertionKind.CASCADE_PROPOSAL.value] = (
-        AssertionKind.CASCADE_PROPOSAL.value
-    )
+    kind: Literal["cascade_proposal"] = AssertionKind.CASCADE_PROPOSAL.value
     risk_id: str = Field(..., min_length=1)
     state: Literal["pending", "staged", "holding", "rejected", "resolved"] | None = None
     min_contracts: int = Field(
@@ -359,7 +351,7 @@ class OntologyTermAssertion(_AssertionBase):
     the term landed with content rather than just that the file grew.
     """
 
-    kind: Literal[AssertionKind.ONTOLOGY_TERM.value] = AssertionKind.ONTOLOGY_TERM.value
+    kind: Literal["ontology_term"] = AssertionKind.ONTOLOGY_TERM.value
     term: str = Field(..., min_length=1)
     definition_contains: str | None = None
 
@@ -373,7 +365,7 @@ class DiscoveryStateConsistentAssertion(_AssertionBase):
     without inspecting the divergence list directly.
     """
 
-    kind: Literal[AssertionKind.DISCOVERY_STATE_CONSISTENT.value] = (
+    kind: Literal["discovery_state_consistent"] = (
         AssertionKind.DISCOVERY_STATE_CONSISTENT.value
     )
     expected_divergence_count: int = Field(default=0, ge=0)
@@ -389,9 +381,7 @@ class EnvelopeUpdatedAssertion(_AssertionBase):
     than just that the analytics event fired.
     """
 
-    kind: Literal[AssertionKind.ENVELOPE_UPDATED.value] = (
-        AssertionKind.ENVELOPE_UPDATED.value
-    )
+    kind: Literal["envelope_updated"] = AssertionKind.ENVELOPE_UPDATED.value
     size: Literal["xs", "s", "m", "l", "xl"]
     min_sample_count: int = Field(default=1, ge=1)
 
@@ -405,7 +395,7 @@ class OrphanReportAssertion(_AssertionBase):
     output instead.
     """
 
-    kind: Literal[AssertionKind.ORPHAN_REPORT.value] = AssertionKind.ORPHAN_REPORT.value
+    kind: Literal["orphan_report"] = AssertionKind.ORPHAN_REPORT.value
     min_entries: int = Field(default=1, ge=0)
 
 
@@ -419,9 +409,7 @@ class ProvisioningSucceededAssertion(_AssertionBase):
     assertion verifies the provisioner actually returned a URL.
     """
 
-    kind: Literal[AssertionKind.PROVISIONING_SUCCEEDED.value] = (
-        AssertionKind.PROVISIONING_SUCCEEDED.value
-    )
+    kind: Literal["provisioning_succeeded"] = AssertionKind.PROVISIONING_SUCCEEDED.value
     service_id: str = Field(..., min_length=1)
     url_contains: str | None = Field(
         default=None,
@@ -441,9 +429,7 @@ class FixtureCassetteAssertion(_AssertionBase):
     operator-expected request shape.
     """
 
-    kind: Literal[AssertionKind.FIXTURE_CASSETTE.value] = (
-        AssertionKind.FIXTURE_CASSETTE.value
-    )
+    kind: Literal["fixture_cassette"] = AssertionKind.FIXTURE_CASSETTE.value
     service_id: str = Field(..., min_length=1)
     request_signature: str | None = None
 
@@ -458,9 +444,7 @@ class TierPromotionAssertion(_AssertionBase):
     to the starting rung.
     """
 
-    kind: Literal[AssertionKind.TIER_PROMOTION.value] = (
-        AssertionKind.TIER_PROMOTION.value
-    )
+    kind: Literal["tier_promotion"] = AssertionKind.TIER_PROMOTION.value
     from_tier: Literal["standard", "senior", "sa"] | None = None
     to_tier: Literal["standard", "senior", "sa"]
 

@@ -113,6 +113,65 @@ markers = [
     "sim_smoke: smoke-tier sim scenario tests",
 ]
 
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+exclude = [
+    "^evals/projects/",
+    "^jig/defaults/project_templates/",
+    "^jig/evals/prompt_style_eval/tasks/.*/tests/",
+    "^scripts/dogfood_smoke\\.py$",
+    "^scripts/tui_demo\\.py$",
+    "^tests/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "radon.*",
+    "yaml",
+    "yaml.*",
+]
+ignore_missing_imports = true
+
+# Incremental mypy adoption: these modules suppress the error codes below rather
+# than being fully typed. mypy is effectively off for them — the "clean mypy"
+# baseline holds only for modules NOT listed here. Graduate modules out of this
+# list one at a time as their typing is cleaned up; the goal is to empty it.
+[[tool.mypy.overrides]]
+module = [
+    "jig.agent",
+    "jig.catalog",
+    "jig.check_runner",
+    "jig.cli",
+    "jig.eval.runner",
+    "jig.init_workflow",
+    "jig.issues.cli",
+    "jig.issues.mcp",
+    "jig.issues.service",
+    "jig.onboard_workflow",
+    "jig.orchestrator",
+    "jig.pm.cycle_view",
+    "jig.po_l1_mcp",
+    "jig.sa_incremental_mcp",
+    "jig.sim.cli",
+    "jig.sim.driver",
+    "jig.tui.*",
+    "jig.uri.spec",
+    "jig.vd_mcp",
+    "jig.ws_server",
+]
+disable_error_code = [
+    "arg-type",
+    "assignment",
+    "attr-defined",
+    "dict-item",
+    "index",
+    "operator",
+    "override",
+    "union-attr",
+    "valid-type",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

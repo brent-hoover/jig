@@ -1345,7 +1345,17 @@ class Orchestrator:
                 for a in all_acks
                 if a.finding_id in occ_fids
             ]
-            history.sort(key=lambda e: e["cycle"])
+
+            def _history_cycle(entry: dict[str, object]) -> int:
+                # ``cycle`` is sourced from ReviewerComment.cycle / FindingAck.cycle,
+                # both typed ``int`` — the isinstance is a typing narrowing, not a
+                # runtime conversion. Assert the invariant rather than coercing a
+                # non-int (which would silently mask a malformed history entry).
+                cycle = entry["cycle"]
+                assert isinstance(cycle, int), f"history cycle not int: {cycle!r}"
+                return cycle
+
+            history.sort(key=_history_cycle)
             bundle_findings.append(
                 {
                     "finding_id": rc_n,

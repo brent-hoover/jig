@@ -224,21 +224,17 @@ def _aggregate_cell(
         r.judge.cost_usd for r in records if r.judge is not None
     )
 
-    code_records = [
-        r for r in records if r.outcome == "code" and r.static_metrics is not None
+    code_metrics = [
+        r.static_metrics
+        for r in records
+        if r.outcome == "code" and r.static_metrics is not None
     ]
     static_mean: dict[str, float] = {}
-    if code_records:
+    if code_metrics:
         static_mean = {
-            "loc": statistics.fmean(r.static_metrics.loc for r in code_records),  # type: ignore[union-attr]
-            "ruff_findings": statistics.fmean(
-                r.static_metrics.ruff_findings
-                for r in code_records  # type: ignore[union-attr]
-            ),
-            "cyclomatic_max": statistics.fmean(
-                r.static_metrics.cyclomatic_max
-                for r in code_records  # type: ignore[union-attr]
-            ),
+            "loc": statistics.fmean(m.loc for m in code_metrics),
+            "ruff_findings": statistics.fmean(m.ruff_findings for m in code_metrics),
+            "cyclomatic_max": statistics.fmean(m.cyclomatic_max for m in code_metrics),
         }
 
     judged = [r for r in records if r.judge is not None]

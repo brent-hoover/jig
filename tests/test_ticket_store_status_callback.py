@@ -122,6 +122,44 @@ async def test_async_callback_scheduled(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_callback_raise_logs_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An async callback that raises after scheduling surfaces a warning.
+
+    The store schedules async callbacks as background tasks; if one raises, the
+    only signal is the done-callback warning. Verify that signal actually fires.
+    """
+    store = TicketStore(tmp_path / "tickets.jsonl")
+    await store.load()
+
+    async def cb(ticket_id: str, prev: str | None, curr: str) -> None:
+        raise RuntimeError("boom")
+
+    store.set_status_change_callback(cb)
+
+    t = Ticket(
+        work_type=WorkType.FEATURE,
+        title="t",
+        created_by="u",
+        description=TICKET_AC_PLACEHOLDER,
+    )
+    tid = await store.create(t)
+
+    with caplog.at_level("WARNING"):
+        await store.update_status(tid, TicketStatus.IN_PROGRESS)
+        # One tick runs the task body (which raises); the done-callback that logs
+        # the warning is scheduled via call_soon and fires on a later tick.
+        for _ in range(3):
+            await asyncio.sleep(0)
+
+    assert any(
+        "status-change callback raised" in r.getMessage() and "boom" in r.getMessage()
+        for r in caplog.records
+    ), caplog.text
+
+
+@pytest.mark.asyncio
 async def test_clearing_callback(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()

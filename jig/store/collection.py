@@ -73,6 +73,11 @@ class Collection:
         return await self.insert(doc)
 
 
+# Type-checking-only union: statically a database collection may be the untyped
+# ``Collection`` or a ``TypedCollection`` (the two are unrelated classes). At
+# runtime the alias collapses to ``Collection`` alone, so this is for annotations
+# only — do NOT use ``DatabaseCollection`` as an ``isinstance`` target, as that
+# would silently miss ``TypedCollection`` instances.
 if TYPE_CHECKING:
     DatabaseCollection: TypeAlias = Collection | TypedCollection[StoreModel]
 else:

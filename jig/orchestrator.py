@@ -1347,8 +1347,13 @@ class Orchestrator:
             ]
 
             def _history_cycle(entry: dict[str, object]) -> int:
+                # ``cycle`` is sourced from ReviewerComment.cycle / FindingAck.cycle,
+                # both typed ``int`` — the isinstance is a typing narrowing, not a
+                # runtime conversion. Assert the invariant rather than coercing a
+                # non-int (which would silently mask a malformed history entry).
                 cycle = entry["cycle"]
-                return cycle if isinstance(cycle, int) else int(str(cycle))
+                assert isinstance(cycle, int), f"history cycle not int: {cycle!r}"
+                return cycle
 
             history.sort(key=_history_cycle)
             bundle_findings.append(

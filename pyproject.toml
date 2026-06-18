@@ -133,6 +133,10 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Incremental mypy adoption: these modules suppress the error codes below rather
+# than being fully typed. mypy is effectively off for them — the "clean mypy"
+# baseline holds only for modules NOT listed here. Graduate modules out of this
+# list one at a time as their typing is cleaned up; the goal is to empty it.
 [[tool.mypy.overrides]]
 module = [
     "jig.agent",

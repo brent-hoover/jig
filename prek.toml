@@ -7,14 +7,14 @@ hooks = [
     id = "ruff",
     name = "ruff",
     language = "system",
-    entry = "python3 -m ruff check",
+    entry = "uv run ruff check",
     files = "\\.py$",
   },
   {
     id = "ruff-format",
     name = "ruff-format",
     language = "system",
-    entry = "python3 -m ruff format",
+    entry = "uv run ruff format",
     files = "\\.py$",
   },
 ]

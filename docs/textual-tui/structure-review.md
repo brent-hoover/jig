@@ -190,4 +190,3 @@ Recommended test additions:
 6. Extract pure view helpers from the largest screens as follow-up cleanup.
 
 This order keeps the changes reviewable: first user-visible bugs, then safety, then architecture.
-

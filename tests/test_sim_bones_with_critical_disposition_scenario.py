@@ -5,6 +5,7 @@ policy through the synthetic operator. The bones spine runs to a
 resolved ticket, then a synthesized critical comment routes through
 ``apply_severity_disposition`` and flips the ticket to FAILED.
 """
+
 from __future__ import annotations
 
 import subprocess

@@ -5,6 +5,7 @@ StubVisionProvider returns a canned ``VisionDiffResult`` carrying two
 ``VisualDifference`` entries; the FullVisualComplianceReviewer should
 emit one ``visual-vision-diff`` comment per entry.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,9 +21,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-vision-diff.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-vision-diff.scenario.yaml"
 )
 
 
@@ -63,16 +62,14 @@ async def test_vision_diff_comments_were_emitted(tmp_path: Path) -> None:
 
     vc = report.captured_reviewer_comments.get("visual-compliance")
     assert vc is not None, (
-        "FullVisualComplianceReviewer didn't run — vision-diff sim "
-        "wiring is broken."
+        "FullVisualComplianceReviewer didn't run — vision-diff sim wiring is broken."
     )
     diffs = [c for c in vc if c.type == "visual-vision-diff"]
     assert len(diffs) == 2, (
         f"expected 2 vision-diff comments matching the canned result; "
         f"got {len(diffs)}: {[c.prose for c in diffs]}"
     )
-    kinds = {("layout-shift" in c.prose, "color-mismatch" in c.prose)
-             for c in diffs}
+    kinds = {("layout-shift" in c.prose, "color-mismatch" in c.prose) for c in diffs}
     # Both kinds should be present across the two comments.
     assert any(layout for layout, _ in kinds)
     assert any(color for _, color in kinds)

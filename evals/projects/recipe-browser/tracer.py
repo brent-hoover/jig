@@ -11,6 +11,7 @@ Requires: playwright (pip install playwright; playwright install chromium)
 The app must be running on localhost:8000 before this script is called.
 Falls back to a curl-based smoke if playwright is unavailable.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -82,7 +83,9 @@ def _playwright_smoke() -> bool:
             browser.close()
             return False
         if page.locator("[data-recipe-row]:visible >> text=Beef Stew").count():
-            print("FAIL: Beef Stew should be hidden after 'quick' filter", file=sys.stderr)
+            print(
+                "FAIL: Beef Stew should be hidden after 'quick' filter", file=sys.stderr
+            )
             browser.close()
             return False
 
@@ -117,6 +120,7 @@ def _playwright_smoke() -> bool:
 def main() -> None:
     try:
         import playwright  # noqa: F401
+
         ok = _playwright_smoke()
     except ImportError:
         ok = _curl_smoke()

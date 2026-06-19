@@ -7,6 +7,7 @@ transitions cleanly to resolved without re-opening (the persona's
 ``confirm_eagerly`` policy never triggers a refusal-then-confirm
 loop in the scripted YAML).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -22,9 +23,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-fast-and-shippy.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-fast-and-shippy.scenario.yaml"
 )
 
 

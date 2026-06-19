@@ -6,8 +6,11 @@ import pytest
 from jig.tui.app import JigApp
 
 
-def _spec_dump(name: str = "test", caps: list[dict] | None = None,
-               non_goals: list[dict] | None = None) -> dict:
+def _spec_dump(
+    name: str = "test",
+    caps: list[dict] | None = None,
+    non_goals: list[dict] | None = None,
+) -> dict:
     """Build a fake StructuredSpec dict matching the wire shape."""
     return {
         "name": name,
@@ -21,9 +24,17 @@ def _spec_dump(name: str = "test", caps: list[dict] | None = None,
 
 def _cap(id: str, title: str, state: str = "planned", **kw) -> dict:
     base = {
-        "id": id, "title": title, "state": state, "summary": "",
-        "user_story": None, "behaviors": [], "acceptance_criteria": [],
-        "excluded": [], "open_questions": [], "tickets": [], "aliases": [],
+        "id": id,
+        "title": title,
+        "state": state,
+        "summary": "",
+        "user_story": None,
+        "behaviors": [],
+        "acceptance_criteria": [],
+        "excluded": [],
+        "open_questions": [],
+        "tickets": [],
+        "aliases": [],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "last_updated": datetime.now(timezone.utc).isoformat(),
         "state_changed_at": datetime.now(timezone.utc).isoformat(),
@@ -41,11 +52,15 @@ async def test_spec_screen_renders_snapshot(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.press("ctrl+3")  # Spec pane
         screen = app.query_one(SpecScreen)
-        await screen.handle_snapshot(_spec_dump(
-            "myproj",
-            caps=[_cap("a", "Alpha", "backlog"), _cap("b", "Beta", "planned")],
-            non_goals=[{"id": "ng1", "text": "no x", "rationale": "", "aliases": []}],
-        ))
+        await screen.handle_snapshot(
+            _spec_dump(
+                "myproj",
+                caps=[_cap("a", "Alpha", "backlog"), _cap("b", "Beta", "planned")],
+                non_goals=[
+                    {"id": "ng1", "text": "no x", "rationale": "", "aliases": []}
+                ],
+            )
+        )
         await pilot.pause(0.05)
         tree = app.query_one("#spec-tree", Tree)
         # Root has children for each state group + non-goals
@@ -76,11 +91,13 @@ async def test_app_routes_spec_snapshot_to_screen(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
         await pilot.press("ctrl+3")
-        await app._handle_daemon_message({
-            "type": "snapshot",
-            "topic": "spec",
-            "data": _spec_dump("p1", caps=[_cap("a", "Alpha")]),
-        })
+        await app._handle_daemon_message(
+            {
+                "type": "snapshot",
+                "topic": "spec",
+                "data": _spec_dump("p1", caps=[_cap("a", "Alpha")]),
+            }
+        )
         await pilot.pause(0.05)
         tree = app.query_one("#spec-tree", Tree)
         labels = [str(child.label) for child in tree.root.children]

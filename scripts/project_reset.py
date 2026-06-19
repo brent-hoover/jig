@@ -30,6 +30,7 @@ Refuses to run if the project path isn't absolute or isn't a directory
 (unless ``--project`` is used, in which case the workspace is created).
 ``--brief`` (when given) must point to an existing readable file.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -131,16 +132,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.project:
         if args.project_path or args.brief:
             print(
-                "error: --project is mutually exclusive with project_path "
-                "and --brief",
+                "error: --project is mutually exclusive with project_path and --brief",
                 file=sys.stderr,
             )
             return 2
         workspace, resolved_brief = _resolve_eval_project(args.project)
         if not resolved_brief.is_file():
             print(
-                f"error: no brief for project {args.project!r} at "
-                f"{resolved_brief}",
+                f"error: no brief for project {args.project!r} at {resolved_brief}",
                 file=sys.stderr,
             )
             return 2

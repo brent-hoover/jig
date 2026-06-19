@@ -1156,7 +1156,12 @@ class ScriptedPromptHandler(AutoPromptHandler):
     """
 
     def __init__(
-        self, *, brief=None, profile=None, onboard_review=None, answer="Batched nightly."
+        self,
+        *,
+        brief=None,
+        profile=None,
+        onboard_review=None,
+        answer="Batched nightly.",
     ):
         self._brief = list(brief or [])
         self._profile = list(profile or [])
@@ -1279,9 +1284,7 @@ class TestPhase1Loop:
         # onboard_completed_at written
         import yaml as _yaml
 
-        pdata = _yaml.safe_load(
-            (tmp_path / ".jig" / "project.yaml").read_text()
-        )
+        pdata = _yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
         assert "onboard_completed_at" in pdata
 
     async def test_full_onboard_flow_no_desired_state_skips_pm_backlog(
@@ -1299,9 +1302,7 @@ class TestPhase1Loop:
         assert "sa_mvp" in spawned
         import yaml as _yaml
 
-        pdata = _yaml.safe_load(
-            (tmp_path / ".jig" / "project.yaml").read_text()
-        )
+        pdata = _yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
         assert "onboard_completed_at" in pdata
 
     async def test_operator_review_rerun_respawns_sa(self, tmp_path, monkeypatch):
@@ -1319,9 +1320,7 @@ class TestPhase1Loop:
         assert spawned.count("sa_mvp") == 2
         import yaml as _yaml
 
-        pdata = _yaml.safe_load(
-            (tmp_path / ".jig" / "project.yaml").read_text()
-        )
+        pdata = _yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
         assert "onboard_completed_at" in pdata
 
     async def test_pm_backlog_without_handoff_does_not_stamp_completion(
@@ -1355,9 +1354,7 @@ class TestPhase1Loop:
             # the fake infra raises, letting us check the stamp was NOT written.
             await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
 
-        pdata = _yaml.safe_load(
-            (tmp_path / ".jig" / "project.yaml").read_text()
-        )
+        pdata = _yaml.safe_load((tmp_path / ".jig" / "project.yaml").read_text())
         assert "onboard_completed_at" not in pdata
 
     async def test_brief_resume_respawns_po(self, tmp_path, monkeypatch):
@@ -1590,7 +1587,9 @@ class TestRunOnboardInit:
         await run_onboard(path=tmp_path, prompts=AutoPromptHandler())
 
         # Baseline must still hold the pre-tamper hash for .jig/config.yaml.
-        post_hash = _json.loads(baseline_path.read_text())["guard"].get(".jig/config.yaml")
+        post_hash = _json.loads(baseline_path.read_text())["guard"].get(
+            ".jig/config.yaml"
+        )
         assert post_hash == original_config_hash, (
             "crash-window resume refreshed the owned-path hash — "
             "tampered config.yaml would pass verification"

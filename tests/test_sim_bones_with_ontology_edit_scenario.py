@@ -5,6 +5,7 @@ ontology terms, edits one, finds references, removes one with an
 in-place reference rewrite, and verifies the bones spine still lands
 green.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,9 +21,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-ontology-edit.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-ontology-edit.scenario.yaml"
 )
 
 

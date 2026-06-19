@@ -1,4 +1,5 @@
 """Tests for v2 SA schemas — Architecture, Module, ContractsFile, Risk."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -58,13 +59,15 @@ def test_empty_architecture_valid():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("source_type, source_ref", [
-    (SourceType.context7, "/typer/latest"),
-    (SourceType.live_fetch,
-     "https://hacker-news.firebaseio.com/v0/item/8863.json"),
-    (SourceType.operator_specified, None),
-    (SourceType.inferred, None),
-])
+@pytest.mark.parametrize(
+    "source_type, source_ref",
+    [
+        (SourceType.context7, "/typer/latest"),
+        (SourceType.live_fetch, "https://hacker-news.firebaseio.com/v0/item/8863.json"),
+        (SourceType.operator_specified, None),
+        (SourceType.inferred, None),
+    ],
+)
 def test_tech_decision_valid_for_each_source_type(source_type, source_ref):
     td = TechDecision(
         id="cli-framework",
@@ -139,24 +142,34 @@ def test_architecture_rejects_duplicate_tech_decision_ids():
     with pytest.raises(ValidationError, match="tech_decisions"):
         Architecture(
             tech_decisions=[
-                TechDecision(id="cli-framework", choice="typer", rationale="x",
-                             source_type=SourceType.inferred),
-                TechDecision(id="cli-framework", choice="click", rationale="y",
-                             source_type=SourceType.inferred),
+                TechDecision(
+                    id="cli-framework",
+                    choice="typer",
+                    rationale="x",
+                    source_type=SourceType.inferred,
+                ),
+                TechDecision(
+                    id="cli-framework",
+                    choice="click",
+                    rationale="y",
+                    source_type=SourceType.inferred,
+                ),
             ],
         )
 
 
 def test_architecture_parses_with_tech_decisions():
     a = Architecture(
-        tech_decisions=[TechDecision(
-            id="http-client",
-            choice="httpx",
-            rationale="async/sync dual support.",
-            source_type=SourceType.context7,
-            source_ref="/encode/httpx",
-            version_pinned="0.27",
-        )],
+        tech_decisions=[
+            TechDecision(
+                id="http-client",
+                choice="httpx",
+                rationale="async/sync dual support.",
+                source_type=SourceType.context7,
+                source_ref="/encode/httpx",
+                version_pinned="0.27",
+            )
+        ],
     )
     assert len(a.tech_decisions) == 1
     assert a.tech_decisions[0].choice == "httpx"
@@ -164,20 +177,26 @@ def test_architecture_parses_with_tech_decisions():
 
 def test_architecture_with_module_and_data_store():
     a = Architecture(
-        data_stores=[DataStore(id="main-db", kind="postgres",
-                               accessed_by=["catalog-ingest"])],
-        modules=[Module(
-            id="catalog-ingest",
-            title="Catalog Ingest",
-            summary="pulls from customer systems, normalizes",
-            implements_capabilities=["shopify-connect", "normalize-skus"],
-            owns=["products"],
-            tier_hint=TierHint.SENIOR,
-            requires_tracer_bullet=True,
-            intent=_intent("ingest customer catalogs", "single function per source"),
-        )],
-        change_log=[ChangeLogEntry(revision=1, date=date(2026, 4, 30),
-                                   summary="initial pass")],
+        data_stores=[
+            DataStore(id="main-db", kind="postgres", accessed_by=["catalog-ingest"])
+        ],
+        modules=[
+            Module(
+                id="catalog-ingest",
+                title="Catalog Ingest",
+                summary="pulls from customer systems, normalizes",
+                implements_capabilities=["shopify-connect", "normalize-skus"],
+                owns=["products"],
+                tier_hint=TierHint.SENIOR,
+                requires_tracer_bullet=True,
+                intent=_intent(
+                    "ingest customer catalogs", "single function per source"
+                ),
+            )
+        ],
+        change_log=[
+            ChangeLogEntry(revision=1, date=date(2026, 4, 30), summary="initial pass")
+        ],
     )
     assert a.modules[0].tier_hint == TierHint.SENIOR
     assert a.modules[0].requires_tracer_bullet is True
@@ -253,34 +272,47 @@ def test_contracts_file_minimum_valid():
 def test_contracts_file_with_full_shape():
     cf = ContractsFile(
         module="catalog-ingest",
-        owns=[OwnedCollection(collection="products", db="main-db",
-                              read_access=["categorization"])],
-        external_dependencies=[ExternalDependency(
-            id="shopify-api", kind="external_http",
-            rate_limit="2 req/sec per shop",
-            failure_mode="retry with exponential backoff",
-        )],
-        integration_ac=[IntegrationAcceptance(
-            capability="shopify-connect",
-            must=[
-                "OAuth tokens stored encrypted",
-                "Rate limit honored",
-            ],
-        )],
-        behavioral_contracts=[BehavioralContract(
-            id="ingest-batch-atomicity",
-            applies_to={"capability": "normalize-skus", "module": "catalog-ingest"},
-            precondition="batch_id refers to in-progress row",
-            postcondition="all-or-nothing persistence",
-            invariant="status transitions are forward-only",
-            side_effects=["Writes to products"],
-            intent=_intent("partial batches break consumers", "single transaction"),
-        )],
-        data_contracts=[DataContract(
-            id="product-shape", description="normalized product",
-            schema_ref="project://arch/contracts/shared/product",
-            intent=_intent("uniform shape across modules", "Pydantic model"),
-        )],
+        owns=[
+            OwnedCollection(
+                collection="products", db="main-db", read_access=["categorization"]
+            )
+        ],
+        external_dependencies=[
+            ExternalDependency(
+                id="shopify-api",
+                kind="external_http",
+                rate_limit="2 req/sec per shop",
+                failure_mode="retry with exponential backoff",
+            )
+        ],
+        integration_ac=[
+            IntegrationAcceptance(
+                capability="shopify-connect",
+                must=[
+                    "OAuth tokens stored encrypted",
+                    "Rate limit honored",
+                ],
+            )
+        ],
+        behavioral_contracts=[
+            BehavioralContract(
+                id="ingest-batch-atomicity",
+                applies_to={"capability": "normalize-skus", "module": "catalog-ingest"},
+                precondition="batch_id refers to in-progress row",
+                postcondition="all-or-nothing persistence",
+                invariant="status transitions are forward-only",
+                side_effects=["Writes to products"],
+                intent=_intent("partial batches break consumers", "single transaction"),
+            )
+        ],
+        data_contracts=[
+            DataContract(
+                id="product-shape",
+                description="normalized product",
+                schema_ref="project://arch/contracts/shared/product",
+                intent=_intent("uniform shape across modules", "Pydantic model"),
+            )
+        ],
     )
     assert cf.behavioral_contracts[0].postcondition == "all-or-nothing persistence"
     assert cf.data_contracts[0].id == "product-shape"
@@ -922,9 +954,7 @@ def test_cascade_proposal_resolved_state_no_extra_fields_required():
     stage-approve handler enforces. The schema allows resolved with
     no extra fields so the round-trip from the file works.
     """
-    cp = CascadeProposal(
-        **_cascade_kwargs(state=CascadeState.RESOLVED)
-    )
+    cp = CascadeProposal(**_cascade_kwargs(state=CascadeState.RESOLVED))
     assert cp.state == CascadeState.RESOLVED
 
 
@@ -957,7 +987,8 @@ def test_architecture_rejects_duplicate_risk_ids():
         Architecture(
             risks=[
                 Risk(
-                    id="r1", text="x",
+                    id="r1",
+                    text="x",
                     impact=RiskImpact.LOW,
                     likelihood=RiskLikelihood.LOW,
                     status=RiskStatus.SPIKE_PROPOSED,
@@ -965,7 +996,8 @@ def test_architecture_rejects_duplicate_risk_ids():
                     intent=_intent(),
                 ),
                 Risk(
-                    id="r1", text="y",
+                    id="r1",
+                    text="y",
                     impact=RiskImpact.MEDIUM,
                     likelihood=RiskLikelihood.MEDIUM,
                     status=RiskStatus.SPIKE_PROPOSED,
@@ -978,6 +1010,7 @@ def test_architecture_rejects_duplicate_risk_ids():
 
 def test_architecture_rejects_duplicate_open_question_ids():
     from jig.schemas.arch import OpenQuestion as OQ
+
     with pytest.raises(ValidationError, match="duplicate id"):
         Architecture(
             open_questions=[
@@ -1009,10 +1042,14 @@ def test_contracts_file_rejects_duplicate_behavioral_contract_ids():
             module="m",
             behavioral_contracts=[
                 BehavioralContract(
-                    id="bc", postcondition="x", intent=_intent(),
+                    id="bc",
+                    postcondition="x",
+                    intent=_intent(),
                 ),
                 BehavioralContract(
-                    id="bc", postcondition="y", intent=_intent(),
+                    id="bc",
+                    postcondition="y",
+                    intent=_intent(),
                 ),
             ],
         )

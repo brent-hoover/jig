@@ -145,9 +145,7 @@ class TestExhaustionDetection:
         assert exhausted is True
         assert cats == [ReviewerCommentType.CONTRACT_VIOLATION.value]
 
-    async def test_returns_all_recurring_categories(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_returns_all_recurring_categories(self, tmp_path: Path) -> None:
         loop = FixLoop(await _store(tmp_path))
         for _ in range(3):
             await loop.record_cycle(

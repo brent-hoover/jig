@@ -10,6 +10,7 @@ These tests pin each rule of the gate plus the integration with
 ``handle_reviewer_post_comment`` so a future tweak to the rules has
 to update both the rule + its test, surfacing intent.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -169,9 +170,7 @@ class TestProseTooShort:
         assert "boilerplate" in (result.reason or "").lower()
 
     def test_exact_min_passes(self) -> None:
-        result = validate_comment_for_self_check(
-            _comment(prose="x" * MIN_PROSE_LENGTH)
-        )
+        result = validate_comment_for_self_check(_comment(prose="x" * MIN_PROSE_LENGTH))
         assert result.should_post is True
 
 
@@ -180,9 +179,7 @@ class TestProseTooShort:
 
 class TestNoAnchor:
     def test_no_anchor_drops(self) -> None:
-        result = validate_comment_for_self_check(
-            _comment(file=None, contract_uri=None)
-        )
+        result = validate_comment_for_self_check(_comment(file=None, contract_uri=None))
         assert result.should_post is False
         assert "anchor" in (result.reason or "").lower()
 
@@ -233,9 +230,7 @@ class TestMCPHandlerWiring:
                 args={
                     "type": "pattern-divergence",
                     "severity": "notable",
-                    "prose": (
-                        "Possibly worth thinking about idiom here later"
-                    ),
+                    "prose": ("Possibly worth thinking about idiom here later"),
                     "confidence": 0.3,  # below floor
                     "file": "jig/foo.py",
                 },
@@ -244,9 +239,7 @@ class TestMCPHandlerWiring:
         # Subclasses ValueError so existing exception handling keeps working.
         assert isinstance(excinfo.value, ValueError)
 
-    async def test_dropped_comment_does_not_persist(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_dropped_comment_does_not_persist(self, tmp_path: Path) -> None:
         with pytest.raises(SelfCheckDropped):
             await handle_reviewer_post_comment(
                 project_path=tmp_path,

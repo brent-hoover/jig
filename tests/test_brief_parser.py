@@ -77,7 +77,7 @@ def test_parse_anchor_rejects_non_kebab_id():
 
 def test_parse_anchor_rejects_malformed():
     with pytest.raises(AnchorParseError):
-        parse_anchor("{#}")           # empty id
+        parse_anchor("{#}")  # empty id
     with pytest.raises(AnchorParseError):
         parse_anchor("{# leading-space}")
     with pytest.raises(AnchorParseError):
@@ -103,9 +103,9 @@ def test_parse_reference_rejects_non_kebab():
 
 def test_parse_reference_rejects_malformed():
     with pytest.raises(ReferenceParseError):
-        parse_reference("set-due-date")    # no brackets
+        parse_reference("set-due-date")  # no brackets
     with pytest.raises(ReferenceParseError):
-        parse_reference("[]")              # empty
+        parse_reference("[]")  # empty
 
 
 # --- section splitter ---

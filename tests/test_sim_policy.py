@@ -4,6 +4,7 @@ Tests the deterministic-given-seed contract of ``apply_policy`` +
 ``sample_response``, the per-persona distinct sampling distributions,
 and integration with ``Scenario.policy_driven`` via ``Driver.run``.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -56,9 +57,7 @@ def test_apply_policy_seed_changes_response():
     """Different seeds usually change the sampled response (across enough seeds)."""
     p = load_persona(persona_path("scope-creeper"))
     samples = {
-        apply_policy(
-            p, "x", prompt_kind="confirm_gate", scenario_seed=s
-        ).response
+        apply_policy(p, "x", prompt_kind="confirm_gate", scenario_seed=s).response
         for s in range(50)
     }
     # The persona has multiple template entries; over 50 seeds we
@@ -110,12 +109,10 @@ def test_methodical_vs_hostile_distributions_differ():
     methodical = load_persona(persona_path("methodical"))
     hostile = load_persona(persona_path("hostile"))
     methodical_samples = {
-        sample_response(methodical, "confirm_gate", scenario_seed=s)
-        for s in range(20)
+        sample_response(methodical, "confirm_gate", scenario_seed=s) for s in range(20)
     }
     hostile_samples = {
-        sample_response(hostile, "confirm_gate", scenario_seed=s)
-        for s in range(20)
+        sample_response(hostile, "confirm_gate", scenario_seed=s) for s in range(20)
     }
     # The two persona populations must not overlap (methodical falls
     # back to its gate-policy text; hostile samples its template bank).

@@ -162,7 +162,9 @@ def _fake_query_factory(messages: list[Any]):
     return _query
 
 
-def _result_message(*, cost: float = 0.0012, usage: dict[str, Any] | None = None) -> ResultMessage:
+def _result_message(
+    *, cost: float = 0.0012, usage: dict[str, Any] | None = None
+) -> ResultMessage:
     return ResultMessage(
         subtype="success",
         duration_ms=10,
@@ -194,7 +196,9 @@ async def test_score_returns_judge_score_with_tokens_and_cost(
                 _assistant(
                     '{"type_hints_present": true, "function_names_descriptive": 5}'
                 ),
-                _result_message(cost=0.002, usage={"input_tokens": 100, "output_tokens": 20}),
+                _result_message(
+                    cost=0.002, usage={"input_tokens": 100, "output_tokens": 20}
+                ),
             ]
         ),
     )

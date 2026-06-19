@@ -11,6 +11,7 @@ non-trivial validation rules per ``docs/v2.0/sa-architecture/design.md``
   reason every authored v2 artifact carries an intent layer — agents
   default to terse and skip it without an enforced gate.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -135,15 +136,11 @@ async def test_arch_set_risk_writes_spike_proposed_risk(wired):
 
 @pytest.mark.asyncio
 async def test_arch_set_risk_idempotent_replace(wired):
-    await handle_arch_set_risk(
-        project_path=wired["project_path"], risk=_full_risk()
-    )
+    await handle_arch_set_risk(project_path=wired["project_path"], risk=_full_risk())
     revised = _full_risk()
     revised["text"] = "Confirmed: delta sync impossible."
     revised["status"] = "spike_running"
-    await handle_arch_set_risk(
-        project_path=wired["project_path"], risk=revised
-    )
+    await handle_arch_set_risk(project_path=wired["project_path"], risk=revised)
     arch = load_architecture(wired["project_path"])
     assert len(arch.risks) == 1
     assert arch.risks[0].text.startswith("Confirmed")
@@ -152,14 +149,10 @@ async def test_arch_set_risk_idempotent_replace(wired):
 
 @pytest.mark.asyncio
 async def test_arch_set_risk_multi_id_accumulates(wired):
-    await handle_arch_set_risk(
-        project_path=wired["project_path"], risk=_full_risk()
-    )
+    await handle_arch_set_risk(project_path=wired["project_path"], risk=_full_risk())
     second = _full_risk()
     second["id"] = "r-second"
-    await handle_arch_set_risk(
-        project_path=wired["project_path"], risk=second
-    )
+    await handle_arch_set_risk(project_path=wired["project_path"], risk=second)
     arch = load_architecture(wired["project_path"])
     ids = [r.id for r in arch.risks]
     assert sorted(ids) == ["r-second", "r-shopify-delta"]
@@ -172,27 +165,21 @@ async def test_arch_set_risk_multi_id_accumulates(wired):
 async def test_arch_set_risk_rejects_spike_proposed_without_dependents(wired):
     bad = _full_risk(dependent_contracts=[])
     with pytest.raises(ValueError, match="dependent_contracts"):
-        await handle_arch_set_risk(
-            project_path=wired["project_path"], risk=bad
-        )
+        await handle_arch_set_risk(project_path=wired["project_path"], risk=bad)
 
 
 @pytest.mark.asyncio
 async def test_arch_set_risk_rejects_spike_running_without_dependents(wired):
     bad = _full_risk(status="spike_running", dependent_contracts=[])
     with pytest.raises(ValueError, match="dependent_contracts"):
-        await handle_arch_set_risk(
-            project_path=wired["project_path"], risk=bad
-        )
+        await handle_arch_set_risk(project_path=wired["project_path"], risk=bad)
 
 
 @pytest.mark.asyncio
 async def test_arch_set_risk_rejects_confirmed_impossible_without_dependents(wired):
     bad = _full_risk(status="confirmed_impossible", dependent_contracts=[])
     with pytest.raises(ValueError, match="dependent_contracts"):
-        await handle_arch_set_risk(
-            project_path=wired["project_path"], risk=bad
-        )
+        await handle_arch_set_risk(project_path=wired["project_path"], risk=bad)
 
 
 # ---- validation: intent gate ---------------------------------------------
@@ -205,9 +192,7 @@ async def test_arch_set_risk_rejects_spike_proposed_without_intent(wired):
     # gate fires.
     bad.pop("intent")
     with pytest.raises(ValueError, match="intent"):
-        await handle_arch_set_risk(
-            project_path=wired["project_path"], risk=bad
-        )
+        await handle_arch_set_risk(project_path=wired["project_path"], risk=bad)
 
 
 @pytest.mark.asyncio
@@ -216,9 +201,7 @@ async def test_arch_set_risk_rejects_mitigated_without_intent(wired):
     bad["status"] = "mitigated"
     bad.pop("intent")
     with pytest.raises(ValueError, match="intent"):
-        await handle_arch_set_risk(
-            project_path=wired["project_path"], risk=bad
-        )
+        await handle_arch_set_risk(project_path=wired["project_path"], risk=bad)
 
 
 # ---- validation: open-status laxness ----------------------------------

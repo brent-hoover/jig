@@ -28,10 +28,7 @@ import pytest
 from jig.init_workflow import _apply_template_files
 
 _TEMPLATES_ROOT = (
-    Path(__file__).resolve().parents[1]
-    / "jig"
-    / "defaults"
-    / "project_templates"
+    Path(__file__).resolve().parents[1] / "jig" / "defaults" / "project_templates"
 )
 
 
@@ -58,7 +55,9 @@ def test_template_scaffolds_and_smoke_passes(
         project_name="scaffold_smoke",
     )
 
-    def _run(cmd: list[str], timeout: int, label: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        cmd: list[str], timeout: int, label: str
+    ) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
                 cmd,
@@ -68,8 +67,16 @@ def test_template_scaffolds_and_smoke_passes(
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-            stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            stdout = (
+                exc.stdout.decode()
+                if isinstance(exc.stdout, bytes)
+                else (exc.stdout or "")
+            )
+            stderr = (
+                exc.stderr.decode()
+                if isinstance(exc.stderr, bytes)
+                else (exc.stderr or "")
+            )
             pytest.fail(
                 f"{label} timed out after {timeout}s for {template_name}:\n"
                 f"--- stdout (partial) ---\n{stdout}\n"

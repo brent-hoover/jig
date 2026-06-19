@@ -35,10 +35,7 @@ def test_bold_heading_names_the_file() -> None:
 
 def test_markdown_heading_names_the_file() -> None:
     text = (
-        "### app.py\n\n"
-        "```python\nx = 1\n```\n\n"
-        "### client.py\n\n"
-        "```python\ny = 2\n```"
+        "### app.py\n\n```python\nx = 1\n```\n\n### client.py\n\n```python\ny = 2\n```"
     )
     out = extract_files(text, default_filename="app.py")
     assert out == {"app.py": "x = 1", "client.py": "y = 2"}
@@ -55,37 +52,26 @@ def test_first_line_comment_names_the_file() -> None:
 
 
 def test_heading_takes_precedence_over_first_line_comment() -> None:
-    text = (
-        "**server.py**\n\n"
-        "```python\n# something_else.py\nx = 1\n```"
-    )
+    text = "**server.py**\n\n```python\n# something_else.py\nx = 1\n```"
     out = extract_files(text, default_filename="app.py")
     assert out == {"server.py": "# something_else.py\nx = 1"}
 
 
 def test_file_colon_label_supported() -> None:
-    text = (
-        "File: app.py\n\n"
-        "```python\nx = 1\n```"
-    )
+    text = "File: app.py\n\n```python\nx = 1\n```"
     out = extract_files(text, default_filename="default.py")
     assert out == {"app.py": "x = 1"}
 
 
 def test_filename_colon_label_supported() -> None:
-    text = (
-        "app.py:\n\n"
-        "```python\nx = 1\n```"
-    )
+    text = "app.py:\n\n```python\nx = 1\n```"
     out = extract_files(text, default_filename="default.py")
     assert out == {"app.py": "x = 1"}
 
 
 def test_subsequent_unlabeled_block_is_dropped() -> None:
     text = (
-        "```python\nfirst = 1\n```\n\n"
-        "And here's another:\n\n"
-        "```python\nsecond = 2\n```"
+        "```python\nfirst = 1\n```\n\nAnd here's another:\n\n```python\nsecond = 2\n```"
     )
     out = extract_files(text, default_filename="app.py")
     # First gets the default; second is unlabeled and dropped.

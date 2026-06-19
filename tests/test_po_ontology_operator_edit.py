@@ -15,6 +15,7 @@ Per ``docs/v2.0/multi-level-spec/design.md`` §"Project ontology":
 CLI surfaces (jig ontology list/show/edit/remove/find-references) are
 covered by the test_cli_ontology.py file.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -137,9 +138,7 @@ def _seed_artifact(project_path: Path, rel: str, text: str) -> None:
 
 @pytest.mark.asyncio
 async def test_find_references_returns_empty_when_no_artifacts(tmp_path: Path):
-    refs = await handle_ontology_find_references(
-        project_path=tmp_path, term="blocker"
-    )
+    refs = await handle_ontology_find_references(project_path=tmp_path, term="blocker")
     assert refs == []
 
 
@@ -160,9 +159,7 @@ async def test_find_references_matches_artifacts(tmp_path: Path):
         ".jig/spec/suites.yaml",
         "suites: []\n# blocker tracking is suite-scoped\n",
     )
-    refs = await handle_ontology_find_references(
-        project_path=tmp_path, term="blocker"
-    )
+    refs = await handle_ontology_find_references(project_path=tmp_path, term="blocker")
     paths = {r.path for r in refs}
     assert ".jig/spec/suites/catalog/brief.md" in paths
     assert ".jig/spec/modules/m1/contracts.yaml" in paths
@@ -174,12 +171,9 @@ async def test_find_references_word_boundary(tmp_path: Path):
     _seed_artifact(
         tmp_path,
         ".jig/spec/suites/catalog/brief.md",
-        "Line one mentions a blocker.\n"
-        "Line two mentions roadblockers (a substring).\n",
+        "Line one mentions a blocker.\nLine two mentions roadblockers (a substring).\n",
     )
-    refs = await handle_ontology_find_references(
-        project_path=tmp_path, term="blocker"
-    )
+    refs = await handle_ontology_find_references(project_path=tmp_path, term="blocker")
     assert len(refs) == 1
     assert refs[0].line == 1
 
@@ -199,9 +193,7 @@ async def test_find_references_skips_ontology_heading(tmp_path: Path):
         ".jig/spec/suites/catalog/brief.md",
         "We hit a blocker on Tuesday.\n",
     )
-    refs = await handle_ontology_find_references(
-        project_path=tmp_path, term="blocker"
-    )
+    refs = await handle_ontology_find_references(project_path=tmp_path, term="blocker")
     paths = {r.path for r in refs}
     assert ".jig/spec/ontology.md" not in paths
     assert ".jig/spec/suites/catalog/brief.md" in paths
@@ -224,9 +216,7 @@ async def test_remove_term_drops_entry(tmp_path: Path):
     await handle_ontology_add_term(
         project_path=tmp_path, term="standup", definition="y"
     )
-    result = await handle_ontology_remove_term(
-        project_path=tmp_path, term="blocker"
-    )
+    result = await handle_ontology_remove_term(project_path=tmp_path, term="blocker")
     assert isinstance(result, RemoveResult)
     assert result.term == "blocker"
     assert result.replacement_term is None
@@ -279,9 +269,7 @@ async def test_remove_term_orphans_refs_when_no_replacement(tmp_path: Path):
         ".jig/spec/suites/catalog/brief.md",
         "The blocker we hit on Tuesday.\n",
     )
-    result = await handle_ontology_remove_term(
-        project_path=tmp_path, term="blocker"
-    )
+    result = await handle_ontology_remove_term(project_path=tmp_path, term="blocker")
     assert result.replacement_term is None
     assert len(result.orphaned) == 1
     assert isinstance(result.orphaned[0], OntologyReference)
@@ -313,9 +301,7 @@ async def test_remove_term_rejects_replacement_not_in_ontology(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_remove_term_emits_analytics_event(
-    tmp_path: Path, emitter: EventEmitter
-):
+async def test_remove_term_emits_analytics_event(tmp_path: Path, emitter: EventEmitter):
     await handle_ontology_add_term(
         project_path=tmp_path, term="blocker", definition="x"
     )

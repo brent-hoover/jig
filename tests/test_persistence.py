@@ -417,9 +417,7 @@ class TestWorkflowAlias:
         yield
         persistence._WORKFLOW_ALIAS_LOGGED.clear()
 
-    def test_feature_xs_resolves_to_feature_s(
-        self, tmp_new_jig_project: Path
-    ) -> None:
+    def test_feature_xs_resolves_to_feature_s(self, tmp_new_jig_project: Path) -> None:
         loaded = load_workflow(tmp_new_jig_project, "feature-xs")
         assert loaded.name == "feature-s"
         phase_names = [p.name for p in loaded.phases]
@@ -437,9 +435,7 @@ class TestWorkflowAlias:
 
         caplog.set_level(logging.WARNING, logger="jig.persistence")
         load_workflow(tmp_new_jig_project, "feature-xs")
-        warnings = [
-            r for r in caplog.records if r.message == "workflow alias resolved"
-        ]
+        warnings = [r for r in caplog.records if r.message == "workflow alias resolved"]
         assert len(warnings) == 1
         assert warnings[0].original == "feature-xs"
         assert warnings[0].resolved == "feature-s"
@@ -454,9 +450,7 @@ class TestWorkflowAlias:
         caplog.set_level(logging.WARNING, logger="jig.persistence")
         load_workflow(tmp_new_jig_project, "feature-xs")
         load_workflow(tmp_new_jig_project, "feature-xs")
-        warnings = [
-            r for r in caplog.records if r.message == "workflow alias resolved"
-        ]
+        warnings = [r for r in caplog.records if r.message == "workflow alias resolved"]
         assert len(warnings) == 1, (
             "the dedupe set must prevent the second call from re-logging"
         )
@@ -484,9 +478,7 @@ class TestWorkflowAlias:
         loaded = load_workflow(tmp_new_jig_project, "feature-xs")
         assert loaded.name == "feature-xs"
         assert [p.name for p in loaded.phases] == ["implement"]
-        warnings = [
-            r for r in caplog.records if r.message == "workflow alias resolved"
-        ]
+        warnings = [r for r in caplog.records if r.message == "workflow alias resolved"]
         assert warnings == [], (
             "alias must NOT fire when a project-local file exists for the "
             "requested name — that would silently bypass operator customization"

@@ -17,6 +17,7 @@ resume": the L1 PO can resume mid-walk. Final hardens the edge cases:
 Reconcile modes are operator-driven (auto / prompt / prefer-state /
 prefer-doc / abandon-state). LLM-driven reconciliation is v2.x.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

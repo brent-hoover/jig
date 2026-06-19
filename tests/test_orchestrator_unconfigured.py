@@ -4,6 +4,7 @@ Covers the bootstrap path introduced with the /init-from-TUI UX:
   - startup() with no config.yaml → unconfigured mode (no stores, no loops)
   - reload() after config.yaml is written → configured mode (stores loaded)
 """
+
 import pytest
 from pathlib import Path
 
@@ -32,10 +33,7 @@ async def test_orchestrator_reload_promotes_to_configured(tmp_path: Path):
     jig_dir = tmp_path / ".jig"
     jig_dir.mkdir(parents=True, exist_ok=True)
     (jig_dir / "config.yaml").write_text(
-        f"project:\n"
-        f"  id: test-id\n"
-        f"  name: test\n"
-        f"  path: {tmp_path}\n"
+        f"project:\n  id: test-id\n  name: test\n  path: {tmp_path}\n"
     )
 
     await orch.reload()
@@ -74,10 +72,7 @@ async def test_orchestrator_reload_is_noop_when_already_configured(tmp_path: Pat
     jig_dir = tmp_path / ".jig"
     jig_dir.mkdir(parents=True, exist_ok=True)
     (jig_dir / "config.yaml").write_text(
-        f"project:\n"
-        f"  id: test-id\n"
-        f"  name: test\n"
-        f"  path: {tmp_path}\n"
+        f"project:\n  id: test-id\n  name: test\n  path: {tmp_path}\n"
     )
 
     orch = Orchestrator(project_path=tmp_path, emitter=EventEmitter())

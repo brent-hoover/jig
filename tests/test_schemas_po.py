@@ -1,4 +1,5 @@
 """Tests for v2 PO schemas — L0 Project + ProductNonGoal."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -37,8 +38,11 @@ def test_project_with_non_goals():
         problem="y",
         audience="z",
         non_goals=[
-            ProductNonGoal(id="no-cms", text="We will not build a CMS",
-                           rationale="out of scope for v2"),
+            ProductNonGoal(
+                id="no-cms",
+                text="We will not build a CMS",
+                rationale="out of scope for v2",
+            ),
             ProductNonGoal(id="no-recs", text="No recommendation engine"),
         ],
     )

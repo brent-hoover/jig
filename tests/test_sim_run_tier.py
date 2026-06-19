@@ -4,6 +4,7 @@ Tests the ``tier`` field on Scenario, the ``_scenarios_for_tier``
 filtering helper, the ``jig sim run-tier <tier>`` CLI command's
 exit-code semantics, and the ``sim_smoke`` pytest marker registration.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -164,9 +165,7 @@ def test_cli_run_tier_smoke_runs_only_smoke(tmp_path: Path):
     _write_minimal_scenario(scenario_dir / "c.scenario.yaml", "c-night", "nightly")
 
     runner = CliRunner()
-    result = runner.invoke(
-        sim, ["run-tier", "smoke", "--scenarios", str(scenario_dir)]
-    )
+    result = runner.invoke(sim, ["run-tier", "smoke", "--scenarios", str(scenario_dir)])
     assert result.exit_code == 0, result.output
     assert "a-smoke" in result.output
     assert "b-full" not in result.output
@@ -181,9 +180,7 @@ def test_cli_run_tier_full_includes_smoke(tmp_path: Path):
     _write_minimal_scenario(scenario_dir / "b.scenario.yaml", "b-full", "full")
 
     runner = CliRunner()
-    result = runner.invoke(
-        sim, ["run-tier", "full", "--scenarios", str(scenario_dir)]
-    )
+    result = runner.invoke(sim, ["run-tier", "full", "--scenarios", str(scenario_dir)])
     assert result.exit_code == 0, result.output
     assert "a-smoke" in result.output
     assert "b-full" in result.output
@@ -241,9 +238,7 @@ def test_cli_run_tier_exits_1_on_failure(tmp_path: Path):
     }
     (scenario_dir / "bad.scenario.yaml").write_text(yaml.safe_dump(bad))
     runner = CliRunner()
-    result = runner.invoke(
-        sim, ["run-tier", "smoke", "--scenarios", str(scenario_dir)]
-    )
+    result = runner.invoke(sim, ["run-tier", "smoke", "--scenarios", str(scenario_dir)])
     assert result.exit_code == 1, result.output
     assert "FAIL" in result.output
     assert "bad-handler" in result.output

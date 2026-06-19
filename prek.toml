@@ -1,0 +1,26 @@
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "ruff",
+    name = "ruff",
+    language = "system",
+    entry = "uv run ruff check",
+    files = "\\.py$",
+  },
+  {
+    id = "ruff-format",
+    name = "ruff-format",
+    language = "system",
+    entry = "uv run ruff format",
+    files = "\\.py$",
+  },
+]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "check-yaml" },
+  { id = "end-of-file-fixer" },
+  { id = "no-commit-to-branch", args = ["-b", "develop"] },
+]

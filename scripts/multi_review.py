@@ -547,9 +547,7 @@ async def _run_agent(prompt: str, cwd: Path, model: str) -> str:
     return final_text
 
 
-async def run_reviewer(
-    reviewer: Reviewer, ctx: ReviewContext
-) -> tuple[str, bool, str]:
+async def run_reviewer(reviewer: Reviewer, ctx: ReviewContext) -> tuple[str, bool, str]:
     """Returns (name, success, message). On failure, message is the error."""
     prompt = build_reviewer_prompt(reviewer, ctx)
     started = time.monotonic()

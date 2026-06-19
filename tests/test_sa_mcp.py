@@ -3,6 +3,7 @@
 Mirrors the structure of ``tests/test_po_l3_mcp.py`` — the v2 SA finalize
 follows the same one-shot finalize pattern as L3.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -226,9 +227,7 @@ async def test_sa_finalize_writes_module_contracts_yaml(wired):
         module_contracts=_contracts_dict(),
         author="sa-v2",
     )
-    contracts_file = module_contracts_path(
-        wired["project_path"], "catalog-ingest"
-    )
+    contracts_file = module_contracts_path(wired["project_path"], "catalog-ingest")
     assert contracts_file.is_file()
     data = yaml.safe_load(contracts_file.read_text())
     assert data["module"] == "catalog-ingest"
@@ -294,9 +293,7 @@ async def test_sa_finalize_rejects_module_intent_missing(wired):
         )
     # Neither artifact lands when the validator rejects the input.
     assert not architecture_path(wired["project_path"]).exists()
-    assert not module_contracts_path(
-        wired["project_path"], "catalog-ingest"
-    ).exists()
+    assert not module_contracts_path(wired["project_path"], "catalog-ingest").exists()
 
 
 @pytest.mark.asyncio
@@ -439,9 +436,7 @@ async def test_sa_finalize_idempotent_overwrite(wired):
         author="sa-v2",
     )
     # Reactivate so the second call's resolve-after-handoff doesn't no-op.
-    await wired["tickets"].update(
-        SA_TICKET_ID, status=TicketStatus.IN_PROGRESS
-    )
+    await wired["tickets"].update(SA_TICKET_ID, status=TicketStatus.IN_PROGRESS)
     second_arch = _arch_dict()
     second_arch["modules"][0]["summary"] = "Refined: pulls + dedupes."
     await handle_sa_finalize(
@@ -453,7 +448,5 @@ async def test_sa_finalize_idempotent_overwrite(wired):
         module_contracts=_contracts_dict(),
         author="sa-v2",
     )
-    data = yaml.safe_load(
-        architecture_path(wired["project_path"]).read_text()
-    )
+    data = yaml.safe_load(architecture_path(wired["project_path"]).read_text())
     assert data["modules"][0]["summary"] == "Refined: pulls + dedupes."

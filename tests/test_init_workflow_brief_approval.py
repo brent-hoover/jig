@@ -4,7 +4,9 @@ import click
 import pytest
 
 from jig.init_workflow import (
-    BriefApprovalChoice, prompt_brief_approval, render_brief_for_approval,
+    BriefApprovalChoice,
+    prompt_brief_approval,
+    render_brief_for_approval,
 )
 
 

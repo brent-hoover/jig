@@ -1,4 +1,5 @@
 """Verify role-scoped registration of v2 SA MCP tools (Track C2)."""
+
 from __future__ import annotations
 
 from pathlib import Path

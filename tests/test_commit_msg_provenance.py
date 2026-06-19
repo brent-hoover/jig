@@ -67,17 +67,13 @@ class TestWriteWorktreeContext:
     def test_writes_context_file_with_phase_and_agent(self, tmp_path: Path) -> None:
         from jig.hooks.commit_msg_provenance import write_worktree_context
 
-        ctx_path = write_worktree_context(
-            tmp_path, phase="implement", agent="dev"
-        )
+        ctx_path = write_worktree_context(tmp_path, phase="implement", agent="dev")
         assert ctx_path == tmp_path / ".jig" / "worktree.context"
         text = ctx_path.read_text()
         assert "phase=implement" in text
         assert "agent=dev" in text
 
-    def test_overwrites_existing_context_on_phase_change(
-        self, tmp_path: Path
-    ) -> None:
+    def test_overwrites_existing_context_on_phase_change(self, tmp_path: Path) -> None:
         """Phase boundaries rewrite the context — old values gone."""
         from jig.hooks.commit_msg_provenance import write_worktree_context
 
@@ -117,7 +113,6 @@ def worktree_with_hook(tmp_path: Path) -> Path:
 
 
 class TestHookBehavior:
-
     def test_appends_both_trailers_when_context_complete(
         self, worktree_with_hook: Path
     ) -> None:
@@ -146,9 +141,7 @@ class TestHookBehavior:
         assert "Phase: test" in body
         assert "Agent:" not in body
 
-    def test_idempotent_on_existing_trailers(
-        self, worktree_with_hook: Path
-    ) -> None:
+    def test_idempotent_on_existing_trailers(self, worktree_with_hook: Path) -> None:
         """Re-running the hook on a message that already has the trailers
         doesn't duplicate them (commit --amend, hook chain edge cases)."""
         from jig.hooks.commit_msg_provenance import write_worktree_context
@@ -162,9 +155,7 @@ class TestHookBehavior:
         assert body.count("Phase: implement") == 1
         assert body.count("Agent: dev") == 1
 
-    def test_noop_when_context_file_missing(
-        self, worktree_with_hook: Path
-    ) -> None:
+    def test_noop_when_context_file_missing(self, worktree_with_hook: Path) -> None:
         """Worktrees that pre-date this work, or commits made outside a
         phase, get unchanged messages and a clean exit."""
         # Deliberately do not write .jig/worktree.context.
@@ -254,9 +245,7 @@ class TestEndToEndGitCommit:
         write_worktree_context(git_repo, phase="implement", agent="dev")
 
         (git_repo / "x.txt").write_text("hi\n")
-        subprocess.run(
-            ["git", "-C", str(git_repo), "add", "x.txt"], check=True
-        )
+        subprocess.run(["git", "-C", str(git_repo), "add", "x.txt"], check=True)
         # No --no-verify: the hook must fire normally.
         subprocess.run(
             ["git", "-C", str(git_repo), "commit", "-m", "feat: add x"],

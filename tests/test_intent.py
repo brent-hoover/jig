@@ -1,4 +1,5 @@
 """Tests for the v2 intent layer (problem / simplest / complications)."""
+
 from __future__ import annotations
 
 import pytest

@@ -4,6 +4,7 @@ Tests ``jig sim regression new`` (scaffold) + ``jig sim regression list``
 + from-scenario cloning + the load-bearing convention that scaffolded
 files load cleanly via ``load_scenario``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -67,9 +68,7 @@ def test_regression_new_includes_realism_gap_id(tmp_path: Path):
         ],
     )
     assert result.exit_code == 0, result.output
-    text = (
-        tmp_path / "regressions" / "orphan-namespace.scenario.yaml"
-    ).read_text()
+    text = (tmp_path / "regressions" / "orphan-namespace.scenario.yaml").read_text()
     assert "Originating realism-gap: gap-xyz" in text
 
 
@@ -119,9 +118,7 @@ def test_regression_new_from_scenario_clones_structure(tmp_path: Path):
     runner = CliRunner()
     # Use one of the in-tree scenarios as the source.
     src_scenario = (
-        Path(__file__).parent
-        / "scenarios"
-        / "bones-walking-skeleton.scenario.yaml"
+        Path(__file__).parent / "scenarios" / "bones-walking-skeleton.scenario.yaml"
     )
     assert src_scenario.is_file()
     result = runner.invoke(
@@ -154,11 +151,12 @@ def test_regression_new_from_scenario_clones_structure(tmp_path: Path):
 
 def test_regression_list_empty(tmp_path: Path):
     runner = CliRunner()
-    result = runner.invoke(
-        sim, ["regression", "list", "--scenarios", str(tmp_path)]
-    )
+    result = runner.invoke(sim, ["regression", "list", "--scenarios", str(tmp_path)])
     assert result.exit_code == 0, result.output
-    assert "no regressions" in result.output.lower() or "no regression" in result.output.lower()
+    assert (
+        "no regressions" in result.output.lower()
+        or "no regression" in result.output.lower()
+    )
 
 
 def test_regression_list_reports_scaffold_and_ready_status(tmp_path: Path):
@@ -197,9 +195,7 @@ def test_regression_list_reports_scaffold_and_ready_status(tmp_path: Path):
         )
     )
 
-    result = runner.invoke(
-        sim, ["regression", "list", "--scenarios", str(tmp_path)]
-    )
+    result = runner.invoke(sim, ["regression", "list", "--scenarios", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "alpha" in result.output
     assert "[scaffold]" in result.output

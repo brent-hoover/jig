@@ -9,6 +9,7 @@ Tests pin two things:
    bones ``sa-v2`` role still sees only its one-shot tool, not the
    new incremental surface).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -70,9 +71,7 @@ def _names(captured):
 
 
 @pytest.mark.asyncio
-async def test_sa_mvp_role_exposes_all_incremental_tools(
-    tmp_path, stores, monkeypatch
-):
+async def test_sa_mvp_role_exposes_all_incremental_tools(tmp_path, stores, monkeypatch):
     tickets, threads, memory, bus = stores
     cfg = RoleConfig(
         role="sa-mvp",

@@ -1,4 +1,5 @@
 """Tests for the wireframe format / linter / wireframe.css generator (Track D MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -122,9 +123,7 @@ class TestLinterMetaChecks:
         )
 
     def test_invalid_meta_is_critical(self) -> None:
-        html = (
-            "<!-- wireframe-meta: {oops not json} -->\n<html></html>"
-        )
+        html = "<!-- wireframe-meta: {oops not json} -->\n<html></html>"
         errors = lint_wireframe(html)
         codes = {e.code for e in errors}
         assert LintErrorCode.META_INVALID.value in codes
@@ -138,50 +137,34 @@ class TestLinterInlineStyles:
             "</body></html>"
         )
         errors = lint_wireframe(html)
-        assert any(
-            e.code == LintErrorCode.INLINE_STYLE.value for e in errors
-        )
+        assert any(e.code == LintErrorCode.INLINE_STYLE.value for e in errors)
 
     def test_camelcase_style_also_caught(self) -> None:
         # Defensive: even unusual casings of `style=` are flagged.
         html = (
-            f"{_meta_comment()}\n<html><body>"
-            "<div Style=color:red></div>"
-            "</body></html>"
+            f"{_meta_comment()}\n<html><body><div Style=color:red></div></body></html>"
         )
         errors = lint_wireframe(html)
-        assert any(
-            e.code == LintErrorCode.INLINE_STYLE.value for e in errors
-        )
+        assert any(e.code == LintErrorCode.INLINE_STYLE.value for e in errors)
 
 
 class TestLinterColorChecks:
     def test_hex_color_outside_style_is_important(self) -> None:
-        html = (
-            f"{_meta_comment()}\n<html><body class='bg-#ffffff'></body></html>"
-        )
+        html = f"{_meta_comment()}\n<html><body class='bg-#ffffff'></body></html>"
         errors = lint_wireframe(html)
-        assert any(
-            e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors
-        )
+        assert any(e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors)
 
     def test_rgb_color_outside_style_is_important(self) -> None:
         html = (
             f"{_meta_comment()}\n<html><body data-tone='rgba(0,0,0,0.5)'></body></html>"
         )
         errors = lint_wireframe(html)
-        assert any(
-            e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors
-        )
+        assert any(e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors)
 
     def test_hsl_color_outside_style_is_important(self) -> None:
-        html = (
-            f"{_meta_comment()}\n<html><body data-tone='hsl(120, 50%, 50%)'></body></html>"
-        )
+        html = f"{_meta_comment()}\n<html><body data-tone='hsl(120, 50%, 50%)'></body></html>"
         errors = lint_wireframe(html)
-        assert any(
-            e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors
-        )
+        assert any(e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors)
 
     def test_color_inside_style_block_is_allowed(self) -> None:
         # The style block is the operator's escape hatch for one-offs;
@@ -192,9 +175,7 @@ class TestLinterColorChecks:
             "<body></body></html>"
         )
         errors = lint_wireframe(html)
-        assert not any(
-            e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors
-        )
+        assert not any(e.code == LintErrorCode.REAL_COLOR_VALUE.value for e in errors)
 
 
 class TestLinterScriptChecks:
@@ -208,8 +189,7 @@ class TestLinterScriptChecks:
         )
         errors = lint_wireframe(html)
         assert not any(
-            e.code == LintErrorCode.DISALLOWED_SCRIPT_TAG.value
-            for e in errors
+            e.code == LintErrorCode.DISALLOWED_SCRIPT_TAG.value for e in errors
         )
 
     def test_arbitrary_script_tag_is_critical(self) -> None:
@@ -219,10 +199,7 @@ class TestLinterScriptChecks:
             "</body></html>"
         )
         errors = lint_wireframe(html)
-        assert any(
-            e.code == LintErrorCode.DISALLOWED_SCRIPT_TAG.value
-            for e in errors
-        )
+        assert any(e.code == LintErrorCode.DISALLOWED_SCRIPT_TAG.value for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +226,7 @@ class TestWireframeCssGenerator:
             tokens=Tokens(
                 source="operator_supplied",
                 tokens=[
-                    DesignToken(
-                        id="color-primary", kind="color", value="#0a66c2"
-                    ),
+                    DesignToken(id="color-primary", kind="color", value="#0a66c2"),
                 ],
             ),
             components=DEFAULT_DESIGN_SYSTEM.components,
@@ -267,9 +242,7 @@ class TestWireframeCssGenerator:
             tokens=Tokens(
                 source="operator_supplied",
                 tokens=[
-                    DesignToken(
-                        id="color-success", kind="color", value="#27ae60"
-                    ),
+                    DesignToken(id="color-success", kind="color", value="#27ae60"),
                 ],
             ),
             components=DEFAULT_DESIGN_SYSTEM.components,
@@ -286,9 +259,7 @@ class TestWireframeCssGenerator:
 
 class TestSpecLoaderWireframeHelpers:
     def test_path_helpers_match_layout(self, tmp_path: Path) -> None:
-        assert wireframes_dir(tmp_path) == (
-            tmp_path / ".jig" / "spec" / "wireframes"
-        )
+        assert wireframes_dir(tmp_path) == (tmp_path / ".jig" / "spec" / "wireframes")
         assert wireframe_path(tmp_path, "signup").name == "signup.html"
         assert wireframe_css_path(tmp_path).name == "wireframe.css"
         assert wireframe_notes_path(tmp_path, "signup").name == "signup.notes.md"

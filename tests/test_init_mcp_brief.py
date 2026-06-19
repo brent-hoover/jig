@@ -1,4 +1,5 @@
 """brief_* MCP tool handlers."""
+
 import pytest
 
 from jig.init_mcp import (
@@ -48,9 +49,7 @@ async def wired(tmp_path):
 
 @pytest.mark.asyncio
 async def test_brief_list_sections_returns_in_order(wired):
-    result = await handle_brief_list_sections(
-        project_path=wired["project_path"]
-    )
+    result = await handle_brief_list_sections(project_path=wired["project_path"])
     assert result == ["Built", "Non-goals"]
 
 
@@ -115,6 +114,7 @@ async def test_po_finish_brief_emits_handoff(wired):
     brief = await wired["tickets"].get("brief")
     assert brief is not None
     from jig.ticket import TicketStatus
+
     assert brief.status == TicketStatus.RESOLVED
 
 

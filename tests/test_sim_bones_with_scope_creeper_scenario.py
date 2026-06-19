@@ -5,6 +5,7 @@ Verifies the spine resolves cleanly with the scope-creeper persona's
 validator rejects unauthorized capability additions (the persona's
 attempt to push scope past the L2 allowlist).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -119,9 +120,7 @@ async def test_l3_allowlist_rejects_scope_creeper_extra(tmp_path: Path):
                         {
                             "id": "pull-catalog",
                             "description": "After OAuth completes we pull",
-                            "acceptance_criteria": [
-                                "Catalog rows appear in products"
-                            ],
+                            "acceptance_criteria": ["Catalog rows appear in products"],
                         }
                     ],
                 },

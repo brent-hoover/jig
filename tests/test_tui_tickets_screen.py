@@ -33,10 +33,12 @@ async def test_tickets_screen_renders_snapshot(tmp_path: Path):
         await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
 
-        await screen.handle_snapshot([
-            _ticket("a", title="Alpha"),
-            _ticket("b", title="Beta", status="in_progress"),
-        ])
+        await screen.handle_snapshot(
+            [
+                _ticket("a", title="Alpha"),
+                _ticket("b", title="Beta", status="in_progress"),
+            ]
+        )
         await pilot.pause(0.05)
 
         list_view = app.query_one("#tickets-list", ListView)
@@ -71,7 +73,9 @@ async def test_tickets_screen_handles_updated_event(tmp_path: Path):
         screen = app.query_one(TicketsScreen)
 
         await screen.handle_snapshot([_ticket("a", title="Alpha", status="open")])
-        await screen.handle_event("updated", _ticket("a", title="Alpha", status="resolved"))
+        await screen.handle_event(
+            "updated", _ticket("a", title="Alpha", status="resolved")
+        )
         await pilot.pause(0.05)
 
         assert screen.tickets["a"]["status"] == "resolved"
@@ -84,11 +88,13 @@ async def test_app_routes_tickets_snapshot_to_screen(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
         await pilot.press("ctrl+2")
-        await app._handle_daemon_message({
-            "type": "snapshot",
-            "topic": "tickets",
-            "data": [_ticket("a", title="Alpha")],
-        })
+        await app._handle_daemon_message(
+            {
+                "type": "snapshot",
+                "topic": "tickets",
+                "data": [_ticket("a", title="Alpha")],
+            }
+        )
         await pilot.pause(0.05)
         list_view = app.query_one("#tickets-list", ListView)
         assert len(list_view.children) == 1
@@ -104,10 +110,12 @@ async def test_tickets_detail_shows_selected_ticket(tmp_path: Path):
         await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
 
-        await screen.handle_snapshot([
-            _ticket("a", title="Alpha", description="alpha desc"),
-            _ticket("b", title="Beta", description="beta desc"),
-        ])
+        await screen.handle_snapshot(
+            [
+                _ticket("a", title="Alpha", description="alpha desc"),
+                _ticket("b", title="Beta", description="beta desc"),
+            ]
+        )
         await pilot.pause(0.05)
         detail = app.query_one("#tickets-detail", Static)
         # The first ticket should be selected by default; description shown
@@ -124,11 +132,13 @@ async def test_tickets_screen_toggles_to_board_view(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
-        await screen.handle_snapshot([
-            _ticket("a", title="Alpha", status="open"),
-            _ticket("b", title="Beta", status="in_progress"),
-            _ticket("c", title="Gamma", status="resolved"),
-        ])
+        await screen.handle_snapshot(
+            [
+                _ticket("a", title="Alpha", status="open"),
+                _ticket("b", title="Beta", status="in_progress"),
+                _ticket("c", title="Gamma", status="resolved"),
+            ]
+        )
         await pilot.pause(0.05)
 
         # Initially in list mode: list-mode-row is visible
@@ -161,10 +171,12 @@ async def test_board_view_groups_merge_conflict_under_blocked(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.press("ctrl+2")
         screen = app.query_one(TicketsScreen)
-        await screen.handle_snapshot([
-            _ticket("a", title="A", status="blocked"),
-            _ticket("b", title="B", status="merge_conflict"),
-        ])
+        await screen.handle_snapshot(
+            [
+                _ticket("a", title="A", status="blocked"),
+                _ticket("b", title="B", status="merge_conflict"),
+            ]
+        )
         await pilot.pause(0.05)
         await pilot.press("b")
         await pilot.pause(0.05)
@@ -186,7 +198,9 @@ async def test_board_view_updates_when_tickets_change(tmp_path: Path):
         await pilot.press("b")
         await pilot.pause(0.05)
         # Now in board mode, push an event
-        await screen.handle_event("created", _ticket("x", title="X", status="in_progress"))
+        await screen.handle_event(
+            "created", _ticket("x", title="X", status="in_progress")
+        )
         await pilot.pause(0.05)
         ip_hdr = app.query_one("#hdr-in_progress", Static)
         assert "(1)" in str(ip_hdr.content)
@@ -236,6 +250,7 @@ async def test_e_hotkey_does_nothing_with_no_selection(tmp_path: Path):
         await pilot.pause(0.05)
         # No modal should be active
         from jig.tui.screens.ticket_form import EditTicketModal
+
         assert not isinstance(app.screen, EditTicketModal)
 
 

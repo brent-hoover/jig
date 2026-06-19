@@ -1,4 +1,5 @@
 """Tests for the wireframes index generator + ``jig serve`` CLI (Track D MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,22 +52,16 @@ class TestPopulatedDir:
         assert out.index("post-a-job.html") < out.index("signup.html")
 
     def test_pulls_title_from_meta(self, tmp_path: Path) -> None:
-        (tmp_path / "signup.html").write_text(
-            _wireframe("signup", "Sign up form")
-        )
+        (tmp_path / "signup.html").write_text(_wireframe("signup", "Sign up form"))
         out = generate_index(tmp_path)
         assert "Sign up form" in out
 
-    def test_falls_back_to_filename_when_meta_missing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_falls_back_to_filename_when_meta_missing(self, tmp_path: Path) -> None:
         (tmp_path / "broken.html").write_text("<html><body>no meta</body></html>")
         out = generate_index(tmp_path)
         assert "broken" in out
 
-    def test_falls_back_to_filename_when_meta_invalid(
-        self, tmp_path: Path
-    ) -> None:
+    def test_falls_back_to_filename_when_meta_invalid(self, tmp_path: Path) -> None:
         (tmp_path / "broken.html").write_text(
             "<!-- wireframe-meta: {bad json} -->\n<html></html>"
         )
@@ -105,20 +100,14 @@ class TestStateToggles:
 
 
 class TestServeCli:
-    def test_serve_errors_when_wireframes_dir_missing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_serve_errors_when_wireframes_dir_missing(self, tmp_path: Path) -> None:
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["serve", "--path", str(tmp_path), "--port", "0"]
-        )
+        result = runner.invoke(cli, ["serve", "--path", str(tmp_path), "--port", "0"])
         # Path exists but no .jig/spec/wireframes/ — should error.
         assert result.exit_code != 0
         assert "wireframes dir not found" in result.output
 
-    def test_serve_regenerates_index_html(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_serve_regenerates_index_html(self, tmp_path: Path, monkeypatch) -> None:
         wf = tmp_path / ".jig" / "spec" / "wireframes"
         wf.mkdir(parents=True)
         (wf / "signup.html").write_text(_wireframe("signup", "Sign up"))

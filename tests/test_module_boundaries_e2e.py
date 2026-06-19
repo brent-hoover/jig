@@ -42,7 +42,12 @@ def _setup_project_with_rules(tmp_path: Path) -> Path:
         yaml.safe_dump(
             {
                 "modules": [
-                    {"id": "job-posting", "title": "JP", "summary": "x", "intent": intent},
+                    {
+                        "id": "job-posting",
+                        "title": "JP",
+                        "summary": "x",
+                        "intent": intent,
+                    },
                     {"id": "billing", "title": "B", "summary": "x", "intent": intent},
                 ]
             }

@@ -47,8 +47,13 @@ def test_filter_adds_correlation_fields_to_record(tmp_path: Path) -> None:
 
     filt = LogContextFilter()
     record = logging.LogRecord(
-        name="t", level=logging.INFO, pathname="", lineno=0,
-        msg="hi", args=(), exc_info=None,
+        name="t",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="hi",
+        args=(),
+        exc_info=None,
     )
 
     tok_tid = _ticket_id_var.set("abcd1234-5678-90ab-cdef-000000000000")
@@ -76,8 +81,13 @@ def test_filter_handles_unset_contextvars(tmp_path: Path) -> None:
 
     filt = LogContextFilter()
     record = logging.LogRecord(
-        name="t", level=logging.INFO, pathname="", lineno=0,
-        msg="hi", args=(), exc_info=None,
+        name="t",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="hi",
+        args=(),
+        exc_info=None,
     )
     filt.filter(record)
     assert record.ticket_id is None
@@ -98,7 +108,8 @@ def test_console_format_includes_ticket_short(tmp_path: Path) -> None:
     # Match the console formatter
     root = logging.getLogger()
     existing_fmt = next(
-        h.formatter for h in root.handlers
+        h.formatter
+        for h in root.handlers
         if isinstance(h, logging.StreamHandler) and h.formatter is not None
     )
     stream_handler.setFormatter(existing_fmt)

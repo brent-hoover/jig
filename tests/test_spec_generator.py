@@ -1,4 +1,5 @@
 """Spec-generator one-shot spawn."""
+
 from pathlib import Path
 
 import pytest
@@ -18,9 +19,7 @@ async def _bootstrap_project(tmp_path: Path):
     """Create the .jig directory shape needed for a spawn."""
     (tmp_path / ".jig" / "spec").mkdir(parents=True)
     (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "docs" / "brief.md").write_text(
-        "# p\n\n## Built\n\n- one\n"
-    )
+    (tmp_path / "docs" / "brief.md").write_text("# p\n\n## Built\n\n- one\n")
     (tmp_path / ".jig" / "roles").mkdir(parents=True, exist_ok=True)
     save_project(
         tmp_path,

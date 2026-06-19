@@ -122,7 +122,9 @@ class TestCommitMessage:
     def test_no_file(self) -> None:
         c = _make(file_=None, line=None)
         msg = _commit_message(c)
-        assert msg == f"chore(auto-apply): {ReviewerCommentType.CONTRACT_VIOLATION.value}"
+        assert (
+            msg == f"chore(auto-apply): {ReviewerCommentType.CONTRACT_VIOLATION.value}"
+        )
 
 
 class TestApplyHappyPath:
@@ -159,9 +161,7 @@ class TestApplyFailures:
         assert comment is c
         assert "git_apply_rc" in reason
 
-    async def test_one_failure_does_not_block_next(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_one_failure_does_not_block_next(self, tmp_path: Path) -> None:
         repo = await _init_repo(tmp_path)
         bad = _make(suggested_diff="not a diff")
         good = _make(suggested_diff=_GOOD_DIFF)
@@ -171,9 +171,7 @@ class TestApplyFailures:
 
 
 class TestApplyMixed:
-    async def test_skipped_and_applied_in_same_batch(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_skipped_and_applied_in_same_batch(self, tmp_path: Path) -> None:
         repo = await _init_repo(tmp_path)
         skip_low_conf = _make(confidence=0.5, suggested_diff=_GOOD_DIFF)
         skip_critical = _make(severity=Severity.CRITICAL, suggested_diff=_GOOD_DIFF)

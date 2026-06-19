@@ -6,6 +6,7 @@ agent re-prompts after a refusal) requires LLM-driven turns and lands
 in v2.x; this scenario's contract is "the agent doesn't crash on
 hostile inputs and the spine resolves."
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,9 +21,7 @@ from jig.sim.scenario import load_scenario
 pytestmark = pytest.mark.sim_smoke
 
 
-SCENARIO_PATH = (
-    Path(__file__).parent / "scenarios" / "bones-with-hostile.scenario.yaml"
-)
+SCENARIO_PATH = Path(__file__).parent / "scenarios" / "bones-with-hostile.scenario.yaml"
 
 
 def _seed_repo(root: Path) -> None:

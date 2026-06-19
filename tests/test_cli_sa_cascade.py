@@ -1,4 +1,5 @@
 """``jig sa cascade`` CLI viewer (Track C Final, Deliverable 2)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -116,9 +117,7 @@ async def test_cli_list_cascade_command_renders_table(project_with_cascade):
 @pytest.mark.asyncio
 async def test_cli_list_empty_cascade_dir(tmp_path: Path):
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["sa", "cascade", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["sa", "cascade", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0
     assert "(no cascades)" in result.output
 

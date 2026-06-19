@@ -5,6 +5,7 @@ These tests assert the same persistence behavior the TUI's
 `ws_server._handle_answer_questions` produces, so the two answer
 channels stay observationally identical.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -63,9 +64,7 @@ async def test_one_question_one_answer(wired, monkeypatch):
     qids = await _seed_brief_with_questions(wired, questions=["What is it?"])
 
     answers = iter(["a tool for doing X"])
-    monkeypatch.setattr(
-        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
-    )
+    monkeypatch.setattr("jig.init_prompts.click.prompt", lambda *a, **kw: next(answers))
 
     await prompt_and_post_answers(
         tickets=wired["tickets"],
@@ -89,21 +88,18 @@ async def test_one_question_one_answer(wired, monkeypatch):
 
     # status_change SystemEvent is recorded for the audit trail.
     sys_events = [
-        e for e in entries
+        e
+        for e in entries
         if isinstance(e, SystemEvent) and e.event_type == "status_change"
     ]
     assert any("needs_info -> in_progress" in e.content for e in sys_events)
 
 
 async def test_multiple_questions_each_get_an_answer(wired, monkeypatch):
-    qids = await _seed_brief_with_questions(
-        wired, questions=["who?", "what?", "why?"]
-    )
+    qids = await _seed_brief_with_questions(wired, questions=["who?", "what?", "why?"])
 
     answers = iter(["users", "thing X", "to solve Y"])
-    monkeypatch.setattr(
-        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
-    )
+    monkeypatch.setattr("jig.init_prompts.click.prompt", lambda *a, **kw: next(answers))
 
     await prompt_and_post_answers(
         tickets=wired["tickets"],
@@ -125,9 +121,7 @@ async def test_publishes_bus_events(wired, monkeypatch):
     await _seed_brief_with_questions(wired, questions=["q1"])
 
     answers = iter(["a1"])
-    monkeypatch.setattr(
-        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
-    )
+    monkeypatch.setattr("jig.init_prompts.click.prompt", lambda *a, **kw: next(answers))
 
     received: list[dict] = []
     queue = await wired["bus"].subscribe("tickets.brief")
@@ -169,9 +163,7 @@ async def test_already_answered_questions_are_not_reprompted(wired, monkeypatch)
     )
 
     answers = iter(["fresh answer"])
-    monkeypatch.setattr(
-        "jig.init_prompts.click.prompt", lambda *a, **kw: next(answers)
-    )
+    monkeypatch.setattr("jig.init_prompts.click.prompt", lambda *a, **kw: next(answers))
 
     await prompt_and_post_answers(
         tickets=wired["tickets"],

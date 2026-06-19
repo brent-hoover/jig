@@ -1,4 +1,5 @@
 """Tests for the VD frontend.yaml schema + load/save helpers (Track D MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -93,8 +94,6 @@ class TestSpecLoaderHelpers:
         assert loaded.allowed_dependencies == ["alpinejs"]
         assert loaded.stack.framework == "htmx_alpine"
 
-    def test_load_missing_raises_file_not_found(
-        self, tmp_path: Path
-    ) -> None:
+    def test_load_missing_raises_file_not_found(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             load_frontend_spec(tmp_path)

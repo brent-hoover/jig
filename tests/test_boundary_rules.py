@@ -200,8 +200,16 @@ def _semgrep_files(tmp_path: Path, rules: list[dict]) -> set[str]:
     rule_file = tmp_path / "rules.yml"
     rule_file.write_text(yaml.safe_dump({"rules": rules}))
     proc = subprocess.run(
-        ["semgrep", "--metrics", "off", "--quiet", "--json", "--config",
-         str(rule_file), str(tmp_path)],
+        [
+            "semgrep",
+            "--metrics",
+            "off",
+            "--quiet",
+            "--json",
+            "--config",
+            str(rule_file),
+            str(tmp_path),
+        ],
         capture_output=True,
         text=True,
     )
@@ -220,9 +228,7 @@ def _make_project(tmp_path: Path, *, name: str, modules: dict) -> Path:
     for every module so the generator's dir-existence check passes."""
     (tmp_path / ".jig").mkdir()
     (tmp_path / ".jig" / "config.yaml").write_text(
-        yaml.safe_dump(
-            {"project": {"name": name, "id": name, "path": str(tmp_path)}}
-        )
+        yaml.safe_dump({"project": {"name": name, "id": name, "path": str(tmp_path)}})
     )
     top_pkg = name.replace("-", "_")
     for mod_id, boundaries in modules.items():
@@ -415,10 +421,14 @@ def test_generate_failure_preserves_existing_rules(tmp_path):
         },
     )
     generate_boundary_rules(tmp_path)  # good rules exist
-    rule_file = tmp_path / ".jig" / "rules" / "semgrep" / "boundaries" / "job-posting.yml"
+    rule_file = (
+        tmp_path / ".jig" / "rules" / "semgrep" / "boundaries" / "job-posting.yml"
+    )
     before = rule_file.read_bytes()
     # now introduce a bad boundary (unknown module id)
-    (tmp_path / ".jig" / "spec" / "modules" / "job-posting" / "boundaries.yaml").write_text(
+    (
+        tmp_path / ".jig" / "spec" / "modules" / "job-posting" / "boundaries.yaml"
+    ).write_text(
         yaml.safe_dump(
             {
                 "module": "job-posting",

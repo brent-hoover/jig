@@ -3,6 +3,7 @@
 Tests RealismGap model + JSONL store round-trip + the
 ``jig sim realism log/list`` CLI surface.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -130,11 +131,15 @@ def test_cli_realism_log_writes_gap(tmp_path: Path):
     result = runner.invoke(
         sim,
         [
-            "realism", "log",
+            "realism",
+            "log",
             "Operator confirmed playback with bare yeah; meant 'I dunno'.",
-            "--kind", "ambiguous-confirmation",
-            "--persona", "ambivalent",
-            "--project-root", str(tmp_path),
+            "--kind",
+            "ambiguous-confirmation",
+            "--persona",
+            "ambivalent",
+            "--project-root",
+            str(tmp_path),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -147,9 +152,13 @@ def test_cli_realism_log_then_list_round_trips(tmp_path: Path):
     log_result = runner.invoke(
         sim,
         [
-            "realism", "log", "first one",
-            "--kind", "k1",
-            "--project-root", str(tmp_path),
+            "realism",
+            "log",
+            "first one",
+            "--kind",
+            "k1",
+            "--project-root",
+            str(tmp_path),
         ],
     )
     assert log_result.exit_code == 0, log_result.output
@@ -164,9 +173,7 @@ def test_cli_realism_log_then_list_round_trips(tmp_path: Path):
 
 def test_cli_realism_list_empty_message(tmp_path: Path):
     runner = CliRunner()
-    result = runner.invoke(
-        sim, ["realism", "list", "--project-root", str(tmp_path)]
-    )
+    result = runner.invoke(sim, ["realism", "list", "--project-root", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "no realism gaps logged" in result.output
 
@@ -176,8 +183,11 @@ def test_cli_realism_log_default_source_operator(tmp_path: Path):
     runner.invoke(
         sim,
         [
-            "realism", "log", "x",
-            "--project-root", str(tmp_path),
+            "realism",
+            "log",
+            "x",
+            "--project-root",
+            str(tmp_path),
         ],
     )
     list_result = runner.invoke(
@@ -191,9 +201,13 @@ def test_cli_realism_log_real_run_source(tmp_path: Path):
     runner.invoke(
         sim,
         [
-            "realism", "log", "x",
-            "--source", "real-run",
-            "--project-root", str(tmp_path),
+            "realism",
+            "log",
+            "x",
+            "--source",
+            "real-run",
+            "--project-root",
+            str(tmp_path),
         ],
     )
     list_result = runner.invoke(

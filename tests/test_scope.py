@@ -24,9 +24,7 @@ class TestPathInScopeIncludes:
         assert path_in_scope("src/foo.py", include=["src/**"], exclude=[])
 
     def test_single_pattern_no_match(self) -> None:
-        assert not path_in_scope(
-            "tests/foo.py", include=["src/**"], exclude=[]
-        )
+        assert not path_in_scope("tests/foo.py", include=["src/**"], exclude=[])
 
     def test_multiple_patterns_any_match(self) -> None:
         # Any single include match is enough.
@@ -52,9 +50,7 @@ class TestPathInScopeIncludes:
         # under PurePosixPath.match semantics.
         assert path_in_scope("script.py", include=["*.py"], exclude=[])
         # NOT files in subdirectories.
-        assert not path_in_scope(
-            "src/foo.py", include=["*.py"], exclude=[]
-        )
+        assert not path_in_scope("src/foo.py", include=["*.py"], exclude=[])
 
     def test_negated_character_class(self) -> None:
         """Glob ``[!abc]`` (skip a/b/c) translates to regex
@@ -81,19 +77,13 @@ class TestPathInScopeIncludes:
         ]
         assert path_in_scope("tests/test_foo.py", include=include, exclude=[])
         assert path_in_scope("conftest.py", include=include, exclude=[])
-        assert path_in_scope(
-            "src/conftest.py", include=include, exclude=[]
-        )
+        assert path_in_scope("src/conftest.py", include=include, exclude=[])
         assert path_in_scope(
             "tests/integration/test_e2e.py", include=include, exclude=[]
         )
-        assert path_in_scope(
-            "src/foo_test.py", include=include, exclude=[]
-        )
+        assert path_in_scope("src/foo_test.py", include=include, exclude=[])
         # Non-test source file not in scope for the test reviewer.
-        assert not path_in_scope(
-            "src/foo.py", include=include, exclude=[]
-        )
+        assert not path_in_scope("src/foo.py", include=include, exclude=[])
 
 
 class TestPathInScopeExcludes:
@@ -142,38 +132,24 @@ class TestPathInScopeExcludes:
             "**/*_test.py",
         ]
         # Source — in.
-        assert path_in_scope(
-            "src/myproject/api.py", include=include, exclude=exclude
-        )
-        assert path_in_scope(
-            "jig/orchestrator.py", include=include, exclude=exclude
-        )
+        assert path_in_scope("src/myproject/api.py", include=include, exclude=exclude)
+        assert path_in_scope("jig/orchestrator.py", include=include, exclude=exclude)
         # Config — in.
-        assert path_in_scope(
-            "pyproject.toml", include=include, exclude=exclude
-        )
+        assert path_in_scope("pyproject.toml", include=include, exclude=exclude)
         assert path_in_scope("uv.lock", include=include, exclude=exclude)
         # Tests — out.
-        assert not path_in_scope(
-            "tests/test_api.py", include=include, exclude=exclude
-        )
+        assert not path_in_scope("tests/test_api.py", include=include, exclude=exclude)
         assert not path_in_scope(
             "tests/integration/test_flow.py",
             include=include,
             exclude=exclude,
         )
-        assert not path_in_scope(
-            "conftest.py", include=include, exclude=exclude
-        )
+        assert not path_in_scope("conftest.py", include=include, exclude=exclude)
         # A test file named within src/ (rare but legal) — exclude
         # still wins.
-        assert not path_in_scope(
-            "src/conftest.py", include=include, exclude=exclude
-        )
+        assert not path_in_scope("src/conftest.py", include=include, exclude=exclude)
         # Outside any scope — out.
-        assert not path_in_scope(
-            "README.md", include=include, exclude=exclude
-        )
+        assert not path_in_scope("README.md", include=include, exclude=exclude)
 
 
 class TestPathInScopeSafety:
@@ -181,17 +157,11 @@ class TestPathInScopeSafety:
         assert not path_in_scope("", include=["**"], exclude=[])
 
     def test_absolute_path_rejected(self) -> None:
-        assert not path_in_scope(
-            "/etc/passwd", include=["**"], exclude=[]
-        )
+        assert not path_in_scope("/etc/passwd", include=["**"], exclude=[])
 
     def test_path_traversal_rejected(self) -> None:
-        assert not path_in_scope(
-            "src/../etc/passwd", include=["**"], exclude=[]
-        )
-        assert not path_in_scope(
-            "../outside/repo.py", include=["**"], exclude=[]
-        )
+        assert not path_in_scope("src/../etc/passwd", include=["**"], exclude=[])
+        assert not path_in_scope("../outside/repo.py", include=["**"], exclude=[])
 
     def test_dotdot_in_middle_rejected(self) -> None:
         assert not path_in_scope(

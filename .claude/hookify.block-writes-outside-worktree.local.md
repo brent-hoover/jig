@@ -2,6 +2,7 @@
 name: block-writes-outside-worktree
 enabled: true
 event: file
+tool_matcher: Edit|Write|MultiEdit
 conditions:
   - field: file_path
     operator: starts_with
@@ -30,3 +31,6 @@ docs, plans — must go in a worktree branch, not the main checkout.
 
 Writing to develop directly (even without committing) pollutes the main branch
 and makes cleanup difficult.
+
+Note: this rule is scoped to write tools (`tool_matcher: Edit|Write|MultiEdit`) so that
+read-only tools (Read) are never blocked by it.

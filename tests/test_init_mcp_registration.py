@@ -11,6 +11,7 @@ follow the same pattern used in ``tests/test_capabilities.py`` and spy
 on ``create_sdk_mcp_server`` to capture the list of tools the factory
 hands to the SDK; tool names are then read off ``t.name``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -194,8 +195,17 @@ def test_strict_disallowed_tools_blocks_dangerous_builtins():
     out = _strict_disallowed_tools(["Read", "ask_question"])
     # All the exploratory/mutating builtins are denied for a role that
     # didn't explicitly opt in.
-    for name in ("Bash", "Edit", "Write", "Glob", "Grep", "Agent",
-                 "WebSearch", "WebFetch", "NotebookEdit"):
+    for name in (
+        "Bash",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Agent",
+        "WebSearch",
+        "WebFetch",
+        "NotebookEdit",
+    ):
         assert name in out, f"{name} should be blocked: {out}"
     # Read is in the deny list by default; this role opted in by
     # listing Read in allowed_tools, so it's removed from the deny list.
@@ -279,7 +289,9 @@ async def test_spec_generator_server_exposes_only_spec_tools(
 
 @pytest.mark.asyncio
 async def test_sa_server_registers_capability_aware_tools(
-    tmp_path, stores, monkeypatch,
+    tmp_path,
+    stores,
+    monkeypatch,
 ):
     tickets, threads, memory, bus = stores
     cfg = RoleConfig(
@@ -298,9 +310,14 @@ async def test_sa_server_registers_capability_aware_tools(
     captured: dict = {}
     _spy_factory(monkeypatch, captured)
     create_agent_mcp_server(
-        tickets=tickets, threads=threads, memory=memory, bus=bus,
-        agent_role="sa", agent_cfg=cfg,
-        worktree_path=tmp_path, project_path=tmp_path,
+        tickets=tickets,
+        threads=threads,
+        memory=memory,
+        bus=bus,
+        agent_role="sa",
+        agent_cfg=cfg,
+        worktree_path=tmp_path,
+        project_path=tmp_path,
     )
     names = _tool_names(captured)
     assert {

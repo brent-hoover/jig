@@ -1,4 +1,5 @@
 """Bones-with-cascade-risk-low-override scenario end-to-end (Track C Final, mock mode)."""
+
 from __future__ import annotations
 
 import subprocess

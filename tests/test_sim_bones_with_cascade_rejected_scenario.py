@@ -1,4 +1,5 @@
 """Bones-with-cascade-rejected scenario end-to-end (Track C Final, mock mode)."""
+
 from __future__ import annotations
 
 import json
@@ -16,9 +17,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-cascade-rejected.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-cascade-rejected.scenario.yaml"
 )
 
 

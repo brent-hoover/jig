@@ -3,6 +3,7 @@
 The MCP-tool tests live in test_po_ontology_operator_edit.py; this file
 covers the ``jig ontology …`` group in jig/cli.py.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,9 +46,7 @@ def test_ontology_list_lists_added_terms(tmp_path: Path):
 
 def test_ontology_show_prints_definition(tmp_path: Path):
     _seed_term(tmp_path, "blocker", "Something preventing progress.")
-    r = _runner().invoke(
-        cli, ["ontology", "show", "blocker", "--path", str(tmp_path)]
-    )
+    r = _runner().invoke(cli, ["ontology", "show", "blocker", "--path", str(tmp_path)])
     assert r.exit_code == 0
     assert "### blocker" in r.output
     assert "Something preventing progress." in r.output
@@ -55,9 +54,7 @@ def test_ontology_show_prints_definition(tmp_path: Path):
 
 def test_ontology_show_missing_term_errors(tmp_path: Path):
     _seed_term(tmp_path, "blocker", "x")
-    r = _runner().invoke(
-        cli, ["ontology", "show", "ghost", "--path", str(tmp_path)]
-    )
+    r = _runner().invoke(cli, ["ontology", "show", "ghost", "--path", str(tmp_path)])
     assert r.exit_code != 0
     assert "ghost" in r.output
 

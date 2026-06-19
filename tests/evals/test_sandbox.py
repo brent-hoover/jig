@@ -102,9 +102,7 @@ async def test_run_tests_fails_when_tests_fail(tmp_path: Path) -> None:
 async def test_run_tests_times_out_on_infinite_loop(tmp_path: Path) -> None:
     tests_dir = _write_tests(
         tmp_path,
-        "from solution import loop\n\n"
-        "def test_loop():\n"
-        "    loop()\n",
+        "from solution import loop\n\ndef test_loop():\n    loop()\n",
     )
     code = "def loop() -> None:\n    while True:\n        pass\n"
     result = await run_tests({"solution.py": code}, _make_task(timeout_s=2), tests_dir)
@@ -131,9 +129,7 @@ async def test_subprocess_cwd_is_the_tmpdir(tmp_path: Path) -> None:
 async def test_runtime_error_in_solution_fails_loud(tmp_path: Path) -> None:
     tests_dir = _write_tests(
         tmp_path,
-        "from solution import boom\n\n"
-        "def test_boom():\n"
-        "    boom()\n",
+        "from solution import boom\n\ndef test_boom():\n    boom()\n",
     )
     code = "def boom() -> None:\n    raise RuntimeError('expected')\n"
     result = await run_tests({"solution.py": code}, _make_task(), tests_dir)

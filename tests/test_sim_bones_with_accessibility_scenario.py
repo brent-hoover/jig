@@ -5,6 +5,7 @@ step. The deliberately-broken wireframe HTML in the scenario should
 trip multiple WCAG AA rules (missing img alt, empty button, missing
 html lang).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,9 +21,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-accessibility.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-accessibility.scenario.yaml"
 )
 
 
@@ -62,9 +61,7 @@ async def test_accessibility_violations_were_emitted(tmp_path: Path) -> None:
     assert report.passed, report.failure_summary()
 
     a11y = report.captured_reviewer_comments.get("accessibility")
-    assert a11y is not None, (
-        "AccessibilityReviewer didn't run — sim wiring is broken."
-    )
+    assert a11y is not None, "AccessibilityReviewer didn't run — sim wiring is broken."
     rule_ids = {c.wcag_rule_id for c in a11y if c.wcag_rule_id is not None}
     # The broken HTML hits 1.1.1 (img alt), 2.4.4 (button text), and
     # 3.1.1 (html lang). At minimum we expect the alt + button + lang

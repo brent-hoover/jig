@@ -38,9 +38,7 @@ class TestLoadingShape:
         assert "pytest-all" in cat.names()
         assert "mypy-strict" in cat.names()
 
-    def test_empty_checks_mapping_falls_back_to_shipped(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_checks_mapping_falls_back_to_shipped(self, tmp_path: Path) -> None:
         # An empty ``checks: {}`` block in the project file is
         # treated as "no project entries" and the loader falls back
         # to the shipped catalog (matches the docstring's "non-empty"

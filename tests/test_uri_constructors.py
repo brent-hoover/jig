@@ -5,6 +5,7 @@ goes through the kebab-case validator.  The constructors are tiny so the
 tests are mechanical — coverage value is in catching typos that would
 otherwise route real artifacts to the wrong path.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -64,10 +65,7 @@ def test_spec_discovery_uri():
 
 
 def test_spec_persona_uri():
-    assert (
-        spec_persona_uri("merchant")
-        == "project://spec/discovery/personas/merchant"
-    )
+    assert spec_persona_uri("merchant") == "project://spec/discovery/personas/merchant"
 
 
 def test_spec_persona_uri_rejects_non_kebab():
@@ -83,10 +81,7 @@ def test_spec_journey_uri():
 
 
 def test_spec_playback_uri():
-    assert (
-        spec_playback_uri("j-x")
-        == "project://spec/discovery/playbacks/j-x"
-    )
+    assert spec_playback_uri("j-x") == "project://spec/discovery/playbacks/j-x"
 
 
 def test_spec_ontology_uri():
@@ -95,8 +90,7 @@ def test_spec_ontology_uri():
 
 def test_spec_ontology_term_uri():
     assert (
-        spec_ontology_term_uri("merchant")
-        == "project://spec/ontology/terms/merchant"
+        spec_ontology_term_uri("merchant") == "project://spec/ontology/terms/merchant"
     )
 
 
@@ -109,17 +103,11 @@ def test_spec_suite_uri():
 
 
 def test_spec_suite_brief_uri():
-    assert (
-        spec_suite_brief_uri("catalog")
-        == "project://spec/suites/catalog/brief"
-    )
+    assert spec_suite_brief_uri("catalog") == "project://spec/suites/catalog/brief"
 
 
 def test_spec_suite_structured_uri():
-    assert (
-        spec_suite_structured_uri("catalog")
-        == "project://spec/suites/catalog/spec"
-    )
+    assert spec_suite_structured_uri("catalog") == "project://spec/suites/catalog/spec"
 
 
 def test_spec_capability_uri():
@@ -159,10 +147,7 @@ def test_arch_architecture_uri_no_revision():
 
 
 def test_arch_architecture_uri_with_revision():
-    assert (
-        arch_architecture_uri(revision=5)
-        == "project://arch/architecture@revision:5"
-    )
+    assert arch_architecture_uri(revision=5) == "project://arch/architecture@revision:5"
 
 
 def test_arch_architecture_uri_rejects_non_positive_revision():
@@ -171,10 +156,7 @@ def test_arch_architecture_uri_rejects_non_positive_revision():
 
 
 def test_arch_module_uri():
-    assert (
-        arch_module_uri("catalog-ingest")
-        == "project://arch/modules/catalog-ingest"
-    )
+    assert arch_module_uri("catalog-ingest") == "project://arch/modules/catalog-ingest"
 
 
 def test_arch_module_uri_rejects_non_kebab():
@@ -191,9 +173,7 @@ def test_arch_contracts_uri_basic():
 
 def test_arch_contracts_uri_with_fragment_and_revision():
     assert (
-        arch_contracts_uri(
-            "catalog-ingest", fragment="owns/products", revision=7
-        )
+        arch_contracts_uri("catalog-ingest", fragment="owns/products", revision=7)
         == "project://arch/modules/catalog-ingest/contracts"
         "@revision:7#owns/products"
     )
@@ -201,8 +181,7 @@ def test_arch_contracts_uri_with_fragment_and_revision():
 
 def test_arch_shared_contract_uri():
     assert (
-        arch_shared_contract_uri("product")
-        == "project://arch/contracts/shared/product"
+        arch_shared_contract_uri("product") == "project://arch/contracts/shared/product"
     )
 
 
@@ -216,9 +195,7 @@ def test_arch_integration_ac_uri_capability_only():
 
 def test_arch_integration_ac_uri_with_must_index():
     assert (
-        arch_integration_ac_uri(
-            "catalog-ingest", "shopify-connect", must_index=2
-        )
+        arch_integration_ac_uri("catalog-ingest", "shopify-connect", must_index=2)
         == "project://arch/modules/catalog-ingest/contracts"
         "#integration_ac/shopify-connect/must/2"
     )
@@ -256,8 +233,7 @@ def test_arch_risk_uri():
 
 def test_design_wireframe_uri():
     assert (
-        design_wireframe_uri("post-a-job")
-        == "project://design/wireframes/post-a-job"
+        design_wireframe_uri("post-a-job") == "project://design/wireframes/post-a-job"
     )
 
 
@@ -266,9 +242,7 @@ def test_design_system_tokens_uri():
 
 
 def test_design_system_components_uri():
-    assert (
-        design_system_components_uri() == "project://design/system/components"
-    )
+    assert design_system_components_uri() == "project://design/system/components"
 
 
 def test_design_system_brand_uri():
@@ -290,8 +264,7 @@ def test_plan_build_uri():
 
 def test_plan_epic_uri():
     assert (
-        plan_epic_uri("catalog-ingest")
-        == "project://plan/build/epics/catalog-ingest"
+        plan_epic_uri("catalog-ingest") == "project://plan/build/epics/catalog-ingest"
     )
 
 

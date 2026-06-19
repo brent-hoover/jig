@@ -55,7 +55,9 @@ def _get_tool(captured: dict, name: str):
     for t in captured["tools"]:
         if t.name == name:
             return t
-    raise AssertionError(f"tool {name!r} not registered; got {[t.name for t in captured['tools']]}")
+    raise AssertionError(
+        f"tool {name!r} not registered; got {[t.name for t in captured['tools']]}"
+    )
 
 
 def _seed_repo(worktree: Path) -> str:
@@ -65,16 +67,23 @@ def _seed_repo(worktree: Path) -> str:
     second commit adds files to both subdirs — that's what the
     reviewer would see on its ticket worktree.
     """
-    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
-    subprocess.run(["git", "init", "-q", "-b", "main"],
-                   cwd=worktree, check=True, env=env)
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main"], cwd=worktree, check=True, env=env
+    )
     (worktree / "src").mkdir()
     (worktree / "tests").mkdir()
     (worktree / "src" / "existing.py").write_text("# baseline src\n")
     (worktree / "tests" / "existing_test.py").write_text("# baseline tests\n")
     subprocess.run(["git", "add", "."], cwd=worktree, check=True, env=env)
-    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=worktree, check=True, env=env)
+    subprocess.run(
+        ["git", "commit", "-qm", "baseline"], cwd=worktree, check=True, env=env
+    )
     (worktree / "src" / "feature.py").write_text(
         "def added_in_ticket():\n    return 'src side'\n"
     )
@@ -84,7 +93,9 @@ def _seed_repo(worktree: Path) -> str:
     subprocess.run(["git", "add", "."], cwd=worktree, check=True, env=env)
     subprocess.run(
         ["git", "commit", "-qm", "ticket-changes"],
-        cwd=worktree, check=True, env=env,
+        cwd=worktree,
+        check=True,
+        env=env,
     )
     return "HEAD~1"
 
@@ -218,39 +229,49 @@ async def test_reviewer_get_diff_uses_merge_base_for_threaded_ref(
     """
     tickets, threads, memory, bus = stores
     env = {
-        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
     }
-    subprocess.run(["git", "init", "-q", "-b", "main"],
-                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True, env=env
+    )
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "baseline.py").write_text("# baseline\n")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
-    subprocess.run(["git", "commit", "-qm", "baseline"],
-                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(
+        ["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True, env=env
+    )
     # Save the baseline SHA — that's the divergence point we expect
     # merge-base to find.
     baseline_sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=tmp_path,
-        capture_output=True, text=True, check=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
     # The ticket's branch makes a change.
-    subprocess.run(["git", "checkout", "-qb", "jig/t-a"],
-                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(
+        ["git", "checkout", "-qb", "jig/t-a"], cwd=tmp_path, check=True, env=env
+    )
     (tmp_path / "src" / "ticket.py").write_text("def t(): return 1\n")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
-    subprocess.run(["git", "commit", "-qm", "ticket change"],
-                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(
+        ["git", "commit", "-qm", "ticket change"], cwd=tmp_path, check=True, env=env
+    )
     # ``main`` then advances with unrelated work (simulating a
     # parallel ticket merging in).
-    subprocess.run(["git", "checkout", "-q", "main"],
-                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=tmp_path, check=True, env=env)
     (tmp_path / "src" / "unrelated.py").write_text("# unrelated\n")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
-    subprocess.run(["git", "commit", "-qm", "unrelated"],
-                   cwd=tmp_path, check=True, env=env)
-    subprocess.run(["git", "checkout", "-q", "jig/t-a"],
-                   cwd=tmp_path, check=True, env=env)
+    subprocess.run(
+        ["git", "commit", "-qm", "unrelated"], cwd=tmp_path, check=True, env=env
+    )
+    subprocess.run(
+        ["git", "checkout", "-q", "jig/t-a"], cwd=tmp_path, check=True, env=env
+    )
 
     cfg = RoleConfig(
         role="reviewer-pattern-conformance",
@@ -494,9 +515,7 @@ async def test_reviewer_read_file_refuses_absolute_and_traversal(
 
     for evil in ("/etc/passwd", "../outside.py", "src/../etc/passwd"):
         payload = await _invoke(tool, path=evil)
-        assert "error" in payload, (
-            f"path {evil!r} was NOT refused; got {payload}"
-        )
+        assert "error" in payload, f"path {evil!r} was NOT refused; got {payload}"
         assert "content" not in payload
 
 
@@ -510,9 +529,7 @@ async def test_reviewer_read_file_refuses_symlink_to_excluded(
     tickets, threads, memory, bus = stores
     _setup_read_repo(tmp_path)
     # Plant a symlink at src/leak → tests/test_api.py.
-    (tmp_path / "src" / "leak").symlink_to(
-        tmp_path / "tests" / "test_api.py"
-    )
+    (tmp_path / "src" / "leak").symlink_to(tmp_path / "tests" / "test_api.py")
     cfg = RoleConfig(
         role="reviewer-pattern-conformance",
         allowed_tools=["reviewer_read_file"],

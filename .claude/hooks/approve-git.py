@@ -13,6 +13,7 @@ fall through to the regular prompt.
 Chaining with `;` or `|` is rejected; only `&&` is permitted so a
 failure in an earlier segment aborts the chain.
 """
+
 from __future__ import annotations
 
 import json

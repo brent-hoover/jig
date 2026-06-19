@@ -1,4 +1,5 @@
 """Bones-with-tier-promotion scenario end-to-end (Track F Final, mock mode)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -14,9 +15,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-tier-promotion.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-tier-promotion.scenario.yaml"
 )
 
 
@@ -56,8 +55,7 @@ async def test_bones_with_tier_promotion_emits_event(tmp_path: Path):
     report = await Driver().run(scenario, project_root=tmp_path)
     assert report.passed, report.failure_summary()
     triggered = [
-        e for e in report.captured_events
-        if e.kind == "auto_escalation_triggered"
+        e for e in report.captured_events if e.kind == "auto_escalation_triggered"
     ]
     assert len(triggered) == 1
     ev = triggered[0]

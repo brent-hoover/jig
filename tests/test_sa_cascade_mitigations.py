@@ -17,6 +17,7 @@ Final scope adds:
 Each mitigation has its own narrow handler in
 ``jig.sa_incremental_mcp``; this module is the regression suite.
 """
+
 from __future__ import annotations
 
 import json
@@ -256,9 +257,7 @@ async def test_stage_cascade_default_chunk_size_is_5(wired):
     """Default chunk_size=5 per the task spec."""
     _spike_id, path = await _seed_cascade(
         wired,
-        dependents=[
-            f"project://arch/modules/m/contracts#a/x{i}" for i in range(12)
-        ],
+        dependents=[f"project://arch/modules/m/contracts#a/x{i}" for i in range(12)],
     )
     proposal = _load_proposal(path)
     stages = await handle_arch_stage_cascade(

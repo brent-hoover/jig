@@ -1,4 +1,5 @@
 """Verify role-scoped registration of L1 PO MCP tools (Track B MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -55,15 +56,15 @@ def test_l1_po_role_excludes_other_phase_tools(tmp_path: Path):
     """Strict scoping: L1 must not see L0 / L3 / SA / v1-brief tooling."""
     cfg = load_role(tmp_path, "l1_po")
     for forbidden in (
-        "l0_finalize",       # L0 already done by upstream phase
-        "l3_finalize",       # downstream phase
-        "sa_finalize",       # SA's job
-        "plan_finalize",     # PM's job
-        "brief_set_section", # v1 monolithic-brief tooling
-        "po_finish_brief",   # v1 PO finish
-        "spec_publish",      # spec-generator
+        "l0_finalize",  # L0 already done by upstream phase
+        "l3_finalize",  # downstream phase
+        "sa_finalize",  # SA's job
+        "plan_finalize",  # PM's job
+        "brief_set_section",  # v1 monolithic-brief tooling
+        "po_finish_brief",  # v1 PO finish
+        "spec_publish",  # spec-generator
         "spec_report_gaps",
-        "arch_set_field",    # v1 SA tooling
+        "arch_set_field",  # v1 SA tooling
     ):
         assert forbidden not in cfg.allowed_tools
 

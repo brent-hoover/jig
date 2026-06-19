@@ -1,4 +1,5 @@
 """Verify role-scoped registration of L2 PO MCP tools (Track B4 MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -6,6 +6,7 @@ right provisioner. The shared cleanup-policy contract (drop / archive /
 keep) is exercised per-provisioner so the operator's choice in
 architecture YAML lands the way the design promises.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -74,10 +75,7 @@ async def test_sqlite_provision_creates_file_and_returns_url(
         namespace_template="agent_{ticket_id}",
     )
     url = await p.provision(svc, agent_id="dev", ticket_id="t-001")
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "agent_t_001.db"
-    )
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "agent_t_001.db"
     assert db_path.is_file()
     assert url.startswith("sqlite:///")
     assert "agent_t_001.db" in url
@@ -95,10 +93,7 @@ async def test_sqlite_cleanup_drop_removes_file(tmp_path: Path) -> None:
         cleanup_on_failure="archive",
     )
     await p.provision(svc, agent_id="dev", ticket_id="t-001")
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "agent_t_001.db"
-    )
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "agent_t_001.db"
     assert db_path.is_file()
     await p.cleanup(svc, agent_id="dev", ticket_id="t-001", success=True)
     assert not db_path.is_file()
@@ -116,10 +111,7 @@ async def test_sqlite_cleanup_archive_renames_file(tmp_path: Path) -> None:
         cleanup_on_failure="archive",
     )
     await p.provision(svc, agent_id="dev", ticket_id="t-001")
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "agent_t_001.db"
-    )
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "agent_t_001.db"
     assert db_path.is_file()
     await p.cleanup(svc, agent_id="dev", ticket_id="t-001", success=False)
     assert not db_path.is_file()
@@ -140,10 +132,7 @@ async def test_sqlite_cleanup_keep_leaves_file(tmp_path: Path) -> None:
         cleanup_on_failure="keep",
     )
     await p.provision(svc, agent_id="dev", ticket_id="t-001")
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "agent_t_001.db"
-    )
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "agent_t_001.db"
     await p.cleanup(svc, agent_id="dev", ticket_id="t-001", success=True)
     assert db_path.is_file()
     await p.cleanup(svc, agent_id="dev", ticket_id="t-001", success=False)
@@ -178,8 +167,7 @@ async def test_sqlite_namespace_template_substitutes_agent_and_ticket(
     )
     await p.provision(svc, agent_id="bones-agent", ticket_id="T-42-Foo")
     db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "bones_agent__t_42_foo.db"
+        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "bones_agent__t_42_foo.db"
     )
     assert db_path.is_file()
 
@@ -298,10 +286,7 @@ async def test_registry_dispatches_sqlite_ephemeral(tmp_path: Path) -> None:
     )
     assert "ephem" in out
     assert "agent_t_001.db" in out["ephem"]
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "agent_t_001.db"
-    )
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "agent_t_001.db"
     assert db_path.is_file()
 
 
@@ -347,13 +332,8 @@ async def test_cleanup_dispatches_sqlite_ephemeral(tmp_path: Path) -> None:
         ],
         connection_string_templates={"ephem": ""},
     )
-    await provision_agent_namespace(
-        m, agent_id="dev", ticket_id="t-001", registry=reg
-    )
-    db_path = (
-        tmp_path / ".jig" / "dev" / "ephemeral" / "ephem"
-        / "agent_t_001.db"
-    )
+    await provision_agent_namespace(m, agent_id="dev", ticket_id="t-001", registry=reg)
+    db_path = tmp_path / ".jig" / "dev" / "ephemeral" / "ephem" / "agent_t_001.db"
     assert db_path.is_file()
     await cleanup_agent_namespace(
         m,

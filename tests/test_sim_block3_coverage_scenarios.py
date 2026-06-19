@@ -15,6 +15,7 @@ dispatch. LLM reviewers inject canned comments via the mocked
 orchestrator; mechanical reviewers run for real against the authored
 artifacts.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -62,9 +63,7 @@ def _seed_repo(root: Path) -> None:
     ],
 )
 @pytest.mark.asyncio
-async def test_coverage_scenario_passes(
-    tmp_path: Path, scenario_id: str
-) -> None:
+async def test_coverage_scenario_passes(tmp_path: Path, scenario_id: str) -> None:
     """Each Block 3 coverage scenario runs end-to-end in mock mode."""
     _seed_repo(tmp_path)
     scenario = load_scenario(SCENARIOS_DIR / f"{scenario_id}.scenario.yaml")

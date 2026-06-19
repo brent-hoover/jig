@@ -57,5 +57,3 @@ def test_hooks_install_refuses_without_force_on_backup_collision(tmp_path: Path)
     assert "backup already exists" in result.output or "backup already exists" in str(
         result.exception
     )
-
-

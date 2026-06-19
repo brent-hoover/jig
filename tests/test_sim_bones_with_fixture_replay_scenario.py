@@ -4,6 +4,7 @@ Exercises ``invoke_fixture_replay`` — the vcr-style cassette record +
 REPLAY_ONLY round-trip. Verifies a cassette lands at
 ``.jig/dev/fixtures/<service>.jsonl`` and the replayed body matches.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -19,9 +20,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-fixture-replay.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-fixture-replay.scenario.yaml"
 )
 
 

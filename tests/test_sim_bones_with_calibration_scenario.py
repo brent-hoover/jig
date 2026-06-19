@@ -1,4 +1,5 @@
 """Bones-with-calibration scenario end-to-end (Track F Final, mock mode)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -14,9 +15,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-calibration.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-calibration.scenario.yaml"
 )
 
 

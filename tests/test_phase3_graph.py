@@ -13,6 +13,7 @@ Covers:
   - write_graph: materialises .jig/graph/dependency-graph.yaml
   - ticket_impact: touched, consumers, crossed_boundaries
 """
+
 from __future__ import annotations
 
 import json
@@ -40,17 +41,24 @@ def _minimal_intent() -> dict:
 def _write_arch(root: Path, modules: list[dict], data_stores=None) -> None:
     p = root / ".jig" / "spec" / "architecture.yaml"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.dump({
-        "spec_version": 1,
-        "data_stores": data_stores or [],
-        "modules": modules,
-    }, allow_unicode=True))
+    p.write_text(
+        yaml.dump(
+            {
+                "spec_version": 1,
+                "data_stores": data_stores or [],
+                "modules": modules,
+            },
+            allow_unicode=True,
+        )
+    )
 
 
 def _write_contracts(root: Path, module_id: str, data: dict) -> None:
     p = root / ".jig" / "spec" / "modules" / module_id / "contracts.yaml"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.dump({"spec_version": 1, "module": module_id, **data}, allow_unicode=True))
+    p.write_text(
+        yaml.dump({"spec_version": 1, "module": module_id, **data}, allow_unicode=True)
+    )
 
 
 def _minimal_module(mid: str, **extra) -> dict:
@@ -59,7 +67,11 @@ def _minimal_module(mid: str, **extra) -> dict:
         "title": mid.title(),
         "summary": f"Module {mid}.",
         "intent": _minimal_intent(),
-        "n_a_categories": ["behavioral_contracts", "external_dependencies", "ownership"],
+        "n_a_categories": [
+            "behavioral_contracts",
+            "external_dependencies",
+            "ownership",
+        ],
         **extra,
     }
 
@@ -69,6 +81,7 @@ def _minimal_module(mid: str, **extra) -> dict:
 
 def test_node_construction():
     from jig.graph.types import Node
+
     n = Node(id="module:foo", kind="module", title="Foo")
     assert n.id == "module:foo"
     assert n.kind == "module"
@@ -76,12 +89,14 @@ def test_node_construction():
 
 def test_edge_construction():
     from jig.graph.types import Edge
+
     e = Edge(src="module:a", dst="module:b", kind="consumes")
     assert e.kind == "consumes"
 
 
 def test_dependency_graph_defaults():
     from jig.graph.types import DependencyGraph
+
     g = DependencyGraph(generated_at=_ts())
     assert g.nodes == []
     assert g.edges == []
@@ -90,6 +105,7 @@ def test_dependency_graph_defaults():
 
 def test_ticket_impact_defaults():
     from jig.graph.types import TicketImpact
+
     ti = TicketImpact(ticket_id="t-01", generated_at=_ts())
     assert ti.touched == []
     assert ti.consumers == {}
@@ -102,6 +118,7 @@ def test_ticket_impact_defaults():
 
 def _simple_graph():
     from jig.graph.types import DependencyGraph, Edge, Node
+
     nodes = [
         Node(id="module:a", kind="module"),
         Node(id="module:b", kind="module"),
@@ -143,6 +160,7 @@ def test_neighbors_depth_zero():
 
 def test_neighbors_cycle_safe():
     from jig.graph.types import DependencyGraph, Edge, Node
+
     # A → B → A cycle
     g = DependencyGraph(
         generated_at=_ts(),
@@ -172,6 +190,7 @@ def test_reachable_from():
 
 def test_reachable_from_cycle_safe():
     from jig.graph.types import DependencyGraph, Edge, Node
+
     g = DependencyGraph(
         generated_at=_ts(),
         nodes=[Node(id="module:a", kind="module"), Node(id="module:b", kind="module")],
@@ -188,6 +207,7 @@ def test_reachable_from_cycle_safe():
 
 def test_build_graph_no_arch_returns_empty(tmp_path):
     from jig.graph.derive import build_graph
+
     g = build_graph(tmp_path)
     assert g.nodes == []
     assert g.edges == []
@@ -195,7 +215,12 @@ def test_build_graph_no_arch_returns_empty(tmp_path):
 
 def test_build_graph_module_and_data_store(tmp_path):
     from jig.graph.derive import build_graph
-    _write_arch(tmp_path, [_minimal_module("api-client")], data_stores=[{"id": "main-db", "kind": "postgres"}])
+
+    _write_arch(
+        tmp_path,
+        [_minimal_module("api-client")],
+        data_stores=[{"id": "main-db", "kind": "postgres"}],
+    )
     g = build_graph(tmp_path)
     node_ids = {n.id for n in g.nodes}
     assert "module:api-client" in node_ids
@@ -204,13 +229,20 @@ def test_build_graph_module_and_data_store(tmp_path):
 
 def test_build_graph_exposed_api_node_and_edge(tmp_path):
     from jig.graph.derive import build_graph
+
     _write_arch(tmp_path, [_minimal_module("provider")])
-    _write_contracts(tmp_path, "provider", {
-        "owns": [],
-        "exposes": [{"name": "get_data", "kind": "function", "summary": "Get data."}],
-        "emits": [],
-        "integration_ac": [],
-    })
+    _write_contracts(
+        tmp_path,
+        "provider",
+        {
+            "owns": [],
+            "exposes": [
+                {"name": "get_data", "kind": "function", "summary": "Get data."}
+            ],
+            "emits": [],
+            "integration_ac": [],
+        },
+    )
     g = build_graph(tmp_path)
     node_ids = {n.id for n in g.nodes}
     edge_pairs = {(e.src, e.dst, e.kind) for e in g.edges}
@@ -220,13 +252,18 @@ def test_build_graph_exposed_api_node_and_edge(tmp_path):
 
 def test_build_graph_emitted_event(tmp_path):
     from jig.graph.derive import build_graph
+
     _write_arch(tmp_path, [_minimal_module("emitter")])
-    _write_contracts(tmp_path, "emitter", {
-        "owns": [],
-        "exposes": [],
-        "emits": [{"name": "data.created", "summary": "Created."}],
-        "integration_ac": [],
-    })
+    _write_contracts(
+        tmp_path,
+        "emitter",
+        {
+            "owns": [],
+            "exposes": [],
+            "emits": [{"name": "data.created", "summary": "Created."}],
+            "integration_ac": [],
+        },
+    )
     g = build_graph(tmp_path)
     node_ids = {n.id for n in g.nodes}
     assert "emitted_event:emitter:data.created" in node_ids
@@ -236,10 +273,16 @@ def test_build_graph_emitted_event(tmp_path):
 
 def test_build_graph_consumes_api_edge(tmp_path):
     from jig.graph.derive import build_graph
-    _write_arch(tmp_path, [
-        _minimal_module("provider"),
-        _minimal_module("consumer", consumes_apis=[{"module": "provider", "name": "get_data"}]),
-    ])
+
+    _write_arch(
+        tmp_path,
+        [
+            _minimal_module("provider"),
+            _minimal_module(
+                "consumer", consumes_apis=[{"module": "provider", "name": "get_data"}]
+            ),
+        ],
+    )
     g = build_graph(tmp_path)
     edges = {(e.src, e.dst, e.kind) for e in g.edges}
     assert ("module:consumer", "exposed_api:provider:get_data", "consumes") in edges
@@ -247,51 +290,77 @@ def test_build_graph_consumes_api_edge(tmp_path):
 
 def test_build_graph_consumes_event_edge(tmp_path):
     from jig.graph.derive import build_graph
-    _write_arch(tmp_path, [
-        _minimal_module("publisher"),
-        _minimal_module("subscriber", consumes_events=[{"module": "publisher", "name": "evt.fired"}]),
-    ])
+
+    _write_arch(
+        tmp_path,
+        [
+            _minimal_module("publisher"),
+            _minimal_module(
+                "subscriber",
+                consumes_events=[{"module": "publisher", "name": "evt.fired"}],
+            ),
+        ],
+    )
     g = build_graph(tmp_path)
     edges = {(e.src, e.dst, e.kind) for e in g.edges}
-    assert ("module:subscriber", "emitted_event:publisher:evt.fired", "consumes") in edges
+    assert (
+        "module:subscriber",
+        "emitted_event:publisher:evt.fired",
+        "consumes",
+    ) in edges
 
 
 def test_build_graph_owned_collection_backed_by_store(tmp_path):
     from jig.graph.derive import build_graph
+
     _write_arch(
         tmp_path,
         [_minimal_module("store-mod")],
         data_stores=[{"id": "main-db", "kind": "postgres"}],
     )
-    _write_contracts(tmp_path, "store-mod", {
-        "owns": [{"collection": "items", "db": "main-db", "write_access": ["store-mod"]}],
-        "exposes": [],
-        "emits": [],
-        "integration_ac": [],
-    })
+    _write_contracts(
+        tmp_path,
+        "store-mod",
+        {
+            "owns": [
+                {"collection": "items", "db": "main-db", "write_access": ["store-mod"]}
+            ],
+            "exposes": [],
+            "emits": [],
+            "integration_ac": [],
+        },
+    )
     g = build_graph(tmp_path)
     node_ids = {n.id for n in g.nodes}
     edges = {(e.src, e.dst, e.kind) for e in g.edges}
     assert "owned_collection:store-mod:items" in node_ids
     assert ("module:store-mod", "owned_collection:store-mod:items", "owns") in edges
-    assert ("owned_collection:store-mod:items", "data_store:main-db", "backed_by") in edges
+    assert (
+        "owned_collection:store-mod:items",
+        "data_store:main-db",
+        "backed_by",
+    ) in edges
 
 
 def test_build_graph_ticket_nodes(tmp_path):
     from jig.graph.derive import build_graph
+
     _write_arch(tmp_path, [_minimal_module("api-client")])
     tickets_path = tmp_path / ".jig" / "store" / "tickets.jsonl"
     tickets_path.parent.mkdir(parents=True, exist_ok=True)
     tickets_path.write_text(
-        json.dumps({
-            "id": "feat-01",
-            "title": "Build API",
-            "work_type": "feature",
-            "status": "open",
-            "created_by": "pm",
-            "module_id": "api-client",
-            "capability_ids": ["fetch-stories"],
-        }) + "\n"
+        json.dumps(
+            {
+                "id": "feat-01",
+                "title": "Build API",
+                "work_type": "feature",
+                "status": "open",
+                "created_by": "pm",
+                "module_id": "api-client",
+                "capability_ids": ["fetch-stories"],
+            }
+        )
+        + "\n"
     )
     g = build_graph(tmp_path)
     node_ids = {n.id for n in g.nodes}
@@ -303,7 +372,10 @@ def test_build_graph_ticket_nodes(tmp_path):
 
 def test_build_graph_implements_capabilities_edge(tmp_path):
     from jig.graph.derive import build_graph
-    _write_arch(tmp_path, [_minimal_module("mod-a", implements_capabilities=["fetch-data"])])
+
+    _write_arch(
+        tmp_path, [_minimal_module("mod-a", implements_capabilities=["fetch-data"])]
+    )
     g = build_graph(tmp_path)
     edges = {(e.src, e.dst, e.kind) for e in g.edges}
     node_ids = {n.id for n in g.nodes}
@@ -316,6 +388,7 @@ def test_build_graph_implements_capabilities_edge(tmp_path):
 
 def test_write_graph_creates_file(tmp_path):
     from jig.graph.derive import write_graph
+
     _write_arch(tmp_path, [_minimal_module("mod-a")])
     path = write_graph(tmp_path)
     assert path.exists()
@@ -330,6 +403,7 @@ def test_write_graph_creates_file(tmp_path):
 
 def _make_graph_for_impact():
     from jig.graph.types import DependencyGraph, Edge, Node
+
     nodes = [
         Node(id="ticket:t-01", kind="ticket"),
         Node(id="module:api", kind="module"),
@@ -346,6 +420,7 @@ def _make_graph_for_impact():
 
 def test_ticket_impact_touched_nodes():
     from jig.graph.derive import ticket_impact
+
     g = _make_graph_for_impact()
     impact = ticket_impact(g, "t-01")
     touched_ids = {n.id for n in impact.touched}
@@ -354,6 +429,7 @@ def test_ticket_impact_touched_nodes():
 
 def test_ticket_impact_consumers():
     from jig.graph.derive import ticket_impact
+
     g = _make_graph_for_impact()
     impact = ticket_impact(g, "t-01")
     # module:db consumes module:api, so module:api has a consumer
@@ -364,6 +440,7 @@ def test_ticket_impact_consumers():
 
 def test_ticket_impact_crossed_boundaries_single_module():
     from jig.graph.derive import ticket_impact
+
     g = _make_graph_for_impact()
     impact = ticket_impact(g, "t-01", depth=1)
     # At depth=1, we walk from module:api → exposed_api:api:get (not a module)
@@ -374,6 +451,7 @@ def test_ticket_impact_crossed_boundaries_single_module():
 def test_ticket_impact_crossed_boundaries_multi_module():
     from jig.graph.types import DependencyGraph, Edge, Node
     from jig.graph.derive import ticket_impact
+
     nodes = [
         Node(id="ticket:t-02", kind="ticket"),
         Node(id="module:a", kind="module"),
@@ -390,6 +468,7 @@ def test_ticket_impact_crossed_boundaries_multi_module():
 
 def test_ticket_impact_unknown_ticket():
     from jig.graph.derive import ticket_impact
+
     g = _make_graph_for_impact()
     impact = ticket_impact(g, "no-such-ticket")
     assert impact.touched == []
@@ -400,6 +479,7 @@ def test_ticket_impact_unknown_ticket():
 def test_ticket_impact_exercised_tracers():
     from jig.graph.types import DependencyGraph, Edge, Node
     from jig.graph.derive import ticket_impact
+
     nodes = [
         Node(id="ticket:t-03", kind="ticket"),
         Node(id="module:api", kind="module"),

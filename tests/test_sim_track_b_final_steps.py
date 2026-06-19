@@ -5,6 +5,7 @@ Direct unit-style tests for ``invoke_discovery_resume`` and
 without going through a full scenario keeps these tests fast + focused
 on the handler logic.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -131,7 +132,11 @@ async def test_resume_step_unknown_mutation_errors(tmp_path: Path):
     report = await Driver().run(scenario, project_root=tmp_path)
     # Step itself errored; report should reflect that.
     assert not report.passed
-    assert any("invoke_discovery_resume" in (s.error or "") or "unknown mutation" in (s.error or "") for s in report.step_outcomes)
+    assert any(
+        "invoke_discovery_resume" in (s.error or "")
+        or "unknown mutation" in (s.error or "")
+        for s in report.step_outcomes
+    )
 
 
 # ---- invoke_ontology_edit -------------------------------------------------

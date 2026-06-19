@@ -6,6 +6,8 @@ import pytest
 
 from jig.worktree import (
     MergeConflictError,
+    _auto_lint,
+    _git_env,
     commit_worktree,
     create_worktree,
     remove_worktree,
@@ -42,6 +44,12 @@ def git_repo(tmp_path: Path) -> Path:
     )
     subprocess.run(
         ["git", "config", "user.name", "Test"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"],
         cwd=repo,
         check=True,
         capture_output=True,
@@ -99,6 +107,47 @@ class TestCommitWorktree:
         result = await commit_worktree(wt_path, "nothing to commit")
         assert result.sha is None
         assert result.metrics is None
+
+    async def test_auto_lint_uses_uv_run_when_global_ruff_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        (worktree / "pyproject.toml").write_text("[project]\nname = 'demo'\nversion = '0.1.0'\n")
+        calls: list[tuple[str, ...]] = []
+
+        monkeypatch.setattr(
+            "jig.worktree.shutil.which",
+            lambda cmd: None if cmd == "ruff" else "/usr/bin/uv" if cmd == "uv" else None,
+        )
+
+        class FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return b"", b""
+
+        async def fake_exec(*args, **kwargs):
+            calls.append(tuple(args))
+            assert kwargs["cwd"] == worktree
+            return FakeProc()
+
+        monkeypatch.setattr("jig.worktree.asyncio.create_subprocess_exec", fake_exec)
+
+        assert await _auto_lint(worktree) == []
+        assert calls == [
+            ("uv", "run", "ruff", "format", "."),
+            ("uv", "run", "ruff", "check", "--fix", "."),
+            ("uv", "run", "ruff", "check", "."),
+        ]
+
+    def test_git_env_disables_global_gpg_signing(self):
+        env = _git_env()
+        assert env["GIT_TERMINAL_PROMPT"] == "0"
+        assert env["GIT_CONFIG_KEY_0"] == "commit.gpgsign"
+        assert env["GIT_CONFIG_VALUE_0"] == "false"
+        assert env["GIT_CONFIG_KEY_1"] == "tag.gpgsign"
+        assert env["GIT_CONFIG_VALUE_1"] == "false"
 
     async def test_commit_result_carries_change_metrics(self, git_repo: Path):
         wt_path = await create_worktree(git_repo, "issue-1", "main")

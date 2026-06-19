@@ -18,6 +18,24 @@ from jig.safe_path import validate_safe_path_segment
 _logger = logging.getLogger(__name__)
 
 
+def _git_env() -> dict[str, str]:
+    """Environment for non-interactive jig-managed git commands.
+
+    Agent/eval commits run without an operator at the terminal, so they must not
+    inherit global GPG-signing settings that require pinentry. This mirrors the
+    container path and keeps host evals/CI deterministic.
+    """
+    return {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "commit.gpgsign",
+        "GIT_CONFIG_VALUE_0": "false",
+        "GIT_CONFIG_KEY_1": "tag.gpgsign",
+        "GIT_CONFIG_VALUE_1": "false",
+    }
+
+
 @dataclass(frozen=True)
 class CommitResult:
     """Outcome of :func:`commit_worktree`.
@@ -87,6 +105,7 @@ async def _run_git(cwd: Path, *args: str) -> str:
         "git",
         *args,
         cwd=cwd,
+        env=_git_env(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -434,9 +453,11 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     if not (worktree_path / "pyproject.toml").exists():
         return []
 
+    ruff_cmd = _ruff_command(worktree_path)
+
     # 1. Auto-format
     proc = await asyncio.create_subprocess_exec(
-        "ruff",
+        *ruff_cmd,
         "format",
         ".",
         cwd=worktree_path,
@@ -455,7 +476,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
 
     # 2. Auto-fix lint violations
     proc = await asyncio.create_subprocess_exec(
-        "ruff",
+        *ruff_cmd,
         "check",
         "--fix",
         ".",
@@ -467,7 +488,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
 
     # 3. Check for remaining unfixable issues
     proc = await asyncio.create_subprocess_exec(
-        "ruff",
+        *ruff_cmd,
         "check",
         ".",
         cwd=worktree_path,
@@ -481,6 +502,21 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     errors = stdout.decode().strip().splitlines()
     _logger.warning("ruff check found %d unfixable issues", len(errors))
     return errors
+
+
+def _ruff_command(worktree_path: Path) -> tuple[str, ...]:
+    """Return the command prefix that runs ruff for ``worktree_path``.
+
+    Generated eval projects declare ruff as a uv-managed dev dependency and do
+    not necessarily have a global ``ruff`` binary or pre-created ``.venv``. Use
+    a global binary when available (fast path), otherwise ask uv to provide the
+    project-local toolchain.
+    """
+    if shutil.which("ruff") is not None:
+        return ("ruff",)
+    if shutil.which("uv") is not None:
+        return ("uv", "run", "ruff")
+    raise LintError(["ruff is not installed/on PATH and uv is unavailable"])
 
 
 async def _boundary_check(worktree_path: Path) -> list[str]:

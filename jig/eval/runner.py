@@ -529,16 +529,34 @@ async def run_eval(
             )
 
         analysis_dir: Path | None = None
+        analysis_dst = out_dir / "analysis"
         if analysis_out_dir is not None:
             src = Path(analysis_out_dir)
             if src.is_dir():
-                dst = out_dir / "analysis"
-                shutil.copytree(src, dst)
-                analysis_dir = dst
+                shutil.copytree(src, analysis_dst)
+                analysis_dir = analysis_dst
             else:
                 log.warning("analysis_out_dir not a directory: %s", src)
-        else:
-            log.warning("analysis_complete not received; skipping analysis copy")
+
+        if analysis_dir is None:
+            # The eval contract requires an analysis artifact. The orchestrator
+            # emits project_complete before launching the analyzer in the
+            # background; if that background task is slow, missing, or its
+            # event is dropped, do not delete the project and silently skip
+            # analysis. Generate it synchronously here while the stores still
+            # exist, then tear down.
+            log.warning("analysis_complete not received; generating analysis inline")
+            from jig.evals.watcher.analyzer import analyze
+
+            analyze(
+                project_path=project_dir,
+                run_id=run_id,
+                out_dir=analysis_dst,
+                jig_repo=jig_repo,
+                project_name=project_id,
+                use_llm=True,
+            )
+            analysis_dir = analysis_dst
 
         _teardown_proc(proc, project_dir)
         if not keep:

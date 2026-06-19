@@ -2142,7 +2142,18 @@ def _commit_scaffold(
         prefix = existing.rstrip() + "\n" if existing.strip() else ""
         atomic_write_text(gitignore, prefix + "\n".join(to_add) + "\n")
 
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    env = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        # Disable GPG signing regardless of the operator's global git config.
+        # Scaffold commits run in non-interactive contexts (eval, CI) where
+        # gpg-agent/pinentry can't prompt for a passphrase.
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "commit.gpgsign",
+        "GIT_CONFIG_VALUE_0": "false",
+        "GIT_CONFIG_KEY_1": "tag.gpgsign",
+        "GIT_CONFIG_VALUE_1": "false",
+    }
     try:
         subprocess.run(
             ["git", "add", "-A"],

@@ -77,6 +77,7 @@ is operator-only (not exposed over the MCP). Refs accept a `jig-N` key or a UUID
 - Stores are append-only JSONL — no SQL, no external services
 - Agent roles defined as YAML in `.jig/roles/`
 - Workflows defined as YAML in `.jig/workflows/`
+- Commit hooks enforced by prek
 
 ## Sandboxing
 

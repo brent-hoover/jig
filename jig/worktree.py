@@ -2,11 +2,13 @@
 
 import asyncio
 import errno
+import hashlib
 import json
 import logging
 import os
 import shutil
 import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +18,24 @@ from jig.models import MergeStrategy
 from jig.safe_path import validate_safe_path_segment
 
 _logger = logging.getLogger(__name__)
+
+
+def _git_env() -> dict[str, str]:
+    """Environment for non-interactive jig-managed git commands.
+
+    Agent/eval commits run without an operator at the terminal, so they must not
+    inherit global GPG-signing settings that require pinentry. This mirrors the
+    container path and keeps host evals/CI deterministic.
+    """
+    return {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "commit.gpgsign",
+        "GIT_CONFIG_VALUE_0": "false",
+        "GIT_CONFIG_KEY_1": "tag.gpgsign",
+        "GIT_CONFIG_VALUE_1": "false",
+    }
 
 
 @dataclass(frozen=True)
@@ -87,6 +107,7 @@ async def _run_git(cwd: Path, *args: str) -> str:
         "git",
         *args,
         cwd=cwd,
+        env=_git_env(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -434,12 +455,15 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     if not (worktree_path / "pyproject.toml").exists():
         return []
 
+    ruff_cmd, ruff_env = _ruff_invocation(worktree_path)
+
     # 1. Auto-format
     proc = await asyncio.create_subprocess_exec(
-        "ruff",
+        *ruff_cmd,
         "format",
         ".",
         cwd=worktree_path,
+        env=ruff_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -455,11 +479,12 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
 
     # 2. Auto-fix lint violations
     proc = await asyncio.create_subprocess_exec(
-        "ruff",
+        *ruff_cmd,
         "check",
         "--fix",
         ".",
         cwd=worktree_path,
+        env=ruff_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -467,10 +492,11 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
 
     # 3. Check for remaining unfixable issues
     proc = await asyncio.create_subprocess_exec(
-        "ruff",
+        *ruff_cmd,
         "check",
         ".",
         cwd=worktree_path,
+        env=ruff_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -481,6 +507,42 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     errors = stdout.decode().strip().splitlines()
     _logger.warning("ruff check found %d unfixable issues", len(errors))
     return errors
+
+
+def _uv_project_environment(worktree_path: Path) -> Path:
+    """A uv venv location *outside* the worktree.
+
+    ``uv run`` otherwise materializes a ``.venv/`` inside the project. Since
+    :func:`commit_worktree` later runs ``git add -A`` and the scaffolded
+    templates do not ignore ``.venv/``, that environment would be staged and
+    committed. Keying the directory by the worktree path keeps it stable across
+    repeated lint runs (uv reuses it) while staying off the repo tree.
+    """
+    digest = hashlib.sha256(str(worktree_path.resolve()).encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "jig-ruff-venvs" / digest
+
+
+def _ruff_invocation(
+    worktree_path: Path,
+) -> tuple[tuple[str, ...], dict[str, str] | None]:
+    """Return the ruff command prefix and subprocess env for ``worktree_path``.
+
+    Generated eval projects declare ruff as a uv-managed dev dependency and do
+    not necessarily have a global ``ruff`` binary or pre-created ``.venv``. Use
+    a global binary when available (fast path, no env overlay), otherwise ask uv
+    to provide the project-local toolchain — pointing its environment outside
+    the worktree so the resulting ``.venv/`` is never staged by the subsequent
+    ``git add -A``.
+    """
+    if shutil.which("ruff") is not None:
+        return ("ruff",), None
+    if shutil.which("uv") is not None:
+        env = {
+            **os.environ,
+            "UV_PROJECT_ENVIRONMENT": str(_uv_project_environment(worktree_path)),
+        }
+        return ("uv", "run", "ruff"), env
+    raise LintError(["ruff is not installed/on PATH and uv is unavailable"])
 
 
 async def _boundary_check(worktree_path: Path) -> list[str]:
@@ -661,7 +723,13 @@ async def remove_worktree(
     validate_safe_path_segment(ticket_id, "ticket_id")
     worktree_path = project_path / ".jig" / "worktrees" / ticket_id
     branch_name = f"jig/{ticket_id}"
+    # Compute the out-of-tree uv ruff env path *before* git removes the
+    # worktree, then delete it so the redirected venv (see _ruff_invocation)
+    # does not accumulate one orphaned tree per worktree across eval runs.
+    uv_env = _uv_project_environment(worktree_path)
     await _run_git(project_path, "worktree", "remove", str(worktree_path), "--force")
+    if uv_env.exists():
+        shutil.rmtree(uv_env, ignore_errors=True)
     if not keep_branch:
         try:
             await _run_git(project_path, "branch", "-D", branch_name)

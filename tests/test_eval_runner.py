@@ -286,6 +286,78 @@ def test_run_eval_none_tracer_is_tracer_fail(tmp_path: Path) -> None:
     )
 
 
+def test_run_eval_generates_analysis_inline_when_event_missing(tmp_path: Path) -> None:
+    """A completed eval must persist analysis even if analysis_complete never arrives."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    proj_dir = tmp_path / "evals" / "projects" / "test-proj"
+    proj_dir.mkdir(parents=True)
+    (proj_dir / "brief.md").write_text("# Brief\n")
+    (proj_dir / "tracer.sh").write_text("#!/bin/bash\necho ok\n")
+
+    mock_manifest = MagicMock()
+    mock_manifest.tracer = MagicMock(exit_code=0, stdout="PASS\n")
+    mock_manifest.model_dump.return_value = {"tracer": {"passed": True}}
+
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.wait.return_value = None
+
+    class _FakeWS:
+        async def send(self, *args, **kwargs) -> None:
+            pass
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self) -> str:
+            await asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+    @asynccontextmanager
+    async def _fake_connect(*args, **kwargs):
+        yield _FakeWS()
+
+    def fake_analyze(**kwargs):
+        out_dir = kwargs["out_dir"]
+        out_dir.mkdir(parents=True)
+        (out_dir / "analysis.md").write_text("# Analysis\n")
+        (out_dir / "metrics.json").write_text("{}\n")
+        return MagicMock(outcome="succeeded", duration_s=1.0)
+
+    with (
+        patch("jig.init_workflow.run_init", new=AsyncMock()),
+        patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
+        patch("jig.eval.runner.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
+        # _watch_completion returns (kind, data, analysis_out_dir); the trailing
+        # None means "no analysis_out_dir", which drives the inline-analyze branch.
+        patch(
+            "jig.eval.runner._watch_completion",
+            new=AsyncMock(return_value=("project_complete", {}, None)),
+        ),
+        patch("jig.eval.runner._teardown_proc"),
+        patch(
+            "jig.evals.watcher.analyzer.analyze", side_effect=fake_analyze
+        ) as analyze,
+        patch("websockets.asyncio.client.connect", new=_fake_connect),
+    ):
+        result = asyncio.run(
+            run_eval(
+                "test-proj",
+                label=None,
+                keep=False,
+                timeout_minutes=1,
+                jig_repo=tmp_path,
+            )
+        )
+
+    assert result.outcome == EvalOutcome.SUCCESS
+    assert result.analysis_dir is not None
+    assert (result.analysis_dir / "analysis.md").is_file()
+    analyze.assert_called_once()
+
+
 def test_run_eval_collect_exception_tears_down_proc(tmp_path: Path) -> None:
     """collect() raising must not orphan the orchestrator subprocess."""
     import json as _json

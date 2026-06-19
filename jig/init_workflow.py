@@ -43,6 +43,7 @@ from jig.store.tickets import TicketStore
 from jig.template_registry import list_templates, load_template_metadata
 from jig.thread import Answer, Handoff, Note, Question, SystemEvent
 from jig.ticket import Ticket, TicketStatus, WorkType
+from jig.worktree import _git_env  # noqa: PLC2701  (shared non-interactive git env)
 
 logger = logging.getLogger(__name__)
 
@@ -2128,7 +2129,6 @@ def _commit_scaffold(
     enters the project's git history. Best-effort: a failure here logs a
     note but does not block init.
     """
-    import os
     import subprocess
 
     c = console or _spawn_console()
@@ -2142,18 +2142,10 @@ def _commit_scaffold(
         prefix = existing.rstrip() + "\n" if existing.strip() else ""
         atomic_write_text(gitignore, prefix + "\n".join(to_add) + "\n")
 
-    env = {
-        **os.environ,
-        "GIT_TERMINAL_PROMPT": "0",
-        # Disable GPG signing regardless of the operator's global git config.
-        # Scaffold commits run in non-interactive contexts (eval, CI) where
-        # gpg-agent/pinentry can't prompt for a passphrase.
-        "GIT_CONFIG_COUNT": "2",
-        "GIT_CONFIG_KEY_0": "commit.gpgsign",
-        "GIT_CONFIG_VALUE_0": "false",
-        "GIT_CONFIG_KEY_1": "tag.gpgsign",
-        "GIT_CONFIG_VALUE_1": "false",
-    }
+    # Scaffold commits run in non-interactive contexts (eval, CI) where
+    # gpg-agent/pinentry can't prompt; reuse worktree's single source of truth
+    # for the GPG-suppression / non-interactive git environment.
+    env = _git_env()
     try:
         subprocess.run(
             ["git", "add", "-A"],

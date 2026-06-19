@@ -330,9 +330,16 @@ def test_run_eval_generates_analysis_inline_when_event_missing(tmp_path: Path) -
         patch("jig.eval.runner.subprocess.Popen", return_value=mock_proc),
         patch("jig.eval.runner.subprocess.run", return_value=MagicMock(returncode=0)),
         patch("jig.eval.collector.collect", new=AsyncMock(return_value=mock_manifest)),
-        patch("jig.eval.runner._watch_completion", new=AsyncMock(return_value=("project_complete", {}, None))),
+        # _watch_completion returns (kind, data, analysis_out_dir); the trailing
+        # None means "no analysis_out_dir", which drives the inline-analyze branch.
+        patch(
+            "jig.eval.runner._watch_completion",
+            new=AsyncMock(return_value=("project_complete", {}, None)),
+        ),
         patch("jig.eval.runner._teardown_proc"),
-        patch("jig.evals.watcher.analyzer.analyze", side_effect=fake_analyze) as analyze,
+        patch(
+            "jig.evals.watcher.analyzer.analyze", side_effect=fake_analyze
+        ) as analyze,
         patch("websockets.asyncio.client.connect", new=_fake_connect),
     ):
         result = asyncio.run(

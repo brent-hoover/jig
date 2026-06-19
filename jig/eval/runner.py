@@ -548,7 +548,11 @@ async def run_eval(
             log.warning("analysis_complete not received; generating analysis inline")
             from jig.evals.watcher.analyzer import analyze
 
-            analyze(
+            # analyze() is synchronous and, with use_llm=True, spawns a
+            # claude-agent-sdk subprocess that can block for tens of seconds.
+            # Offload to a thread so the event loop stays responsive.
+            await asyncio.to_thread(
+                analyze,
                 project_path=project_dir,
                 run_id=run_id,
                 out_dir=analysis_dst,

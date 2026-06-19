@@ -77,7 +77,8 @@ is operator-only (not exposed over the MCP). Refs accept a `jig-N` key or a UUID
 - Stores are append-only JSONL — no SQL, no external services
 - Agent roles defined as YAML in `.jig/roles/`
 - Workflows defined as YAML in `.jig/workflows/`
-- Commit hooks enforced by prek
+- Commit hooks enforced by prek — run `prek install` once after cloning so the hooks run locally
+  (`prek.toml` defines them: ruff check/format, check-yaml, end-of-file-fixer, no-commit-to-develop)
 
 ## Sandboxing
 

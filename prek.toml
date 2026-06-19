@@ -10,4 +10,17 @@ hooks = [
     entry = "python3 -m ruff check",
     files = "\\.py$",
   },
+  {
+    id = "ruff-format",
+    name = "ruff-format",
+    language = "system",
+    entry = "python3 -m ruff format",
+    files = "\\.py$",
+  },
+]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "no-commit-to-branch", args = ["-b", "develop"] },
 ]

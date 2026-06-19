@@ -9,6 +9,7 @@ from jig.worktree import (
     _auto_lint,
     _git_env,
     _ruff_invocation,
+    _uv_project_environment,
     commit_worktree,
     create_worktree,
     remove_worktree,
@@ -234,6 +235,20 @@ class TestRemoveWorktree:
         assert wt_path.is_dir()
         await remove_worktree(git_repo, "issue-1")
         assert not wt_path.is_dir()
+
+    async def test_removes_out_of_tree_uv_env(self, git_repo: Path):
+        # Regression (job 606): the redirected uv ruff venv lives outside the
+        # worktree, so remove_worktree must delete it or it leaks one tree per
+        # worktree path across eval runs.
+        wt_path = await create_worktree(git_repo, "issue-1", "main")
+        uv_env = _uv_project_environment(wt_path)
+        uv_env.mkdir(parents=True, exist_ok=True)
+        (uv_env / "pyvenv.cfg").write_text("home = /usr\n")
+        assert uv_env.exists()
+
+        await remove_worktree(git_repo, "issue-1")
+
+        assert not uv_env.exists()
 
 
 def _make_project_with_claude_md(tmp_path: Path, content: str | None) -> Path:

@@ -723,7 +723,13 @@ async def remove_worktree(
     validate_safe_path_segment(ticket_id, "ticket_id")
     worktree_path = project_path / ".jig" / "worktrees" / ticket_id
     branch_name = f"jig/{ticket_id}"
+    # Compute the out-of-tree uv ruff env path *before* git removes the
+    # worktree, then delete it so the redirected venv (see _ruff_invocation)
+    # does not accumulate one orphaned tree per worktree across eval runs.
+    uv_env = _uv_project_environment(worktree_path)
     await _run_git(project_path, "worktree", "remove", str(worktree_path), "--force")
+    if uv_env.exists():
+        shutil.rmtree(uv_env, ignore_errors=True)
     if not keep_branch:
         try:
             await _run_git(project_path, "branch", "-D", branch_name)

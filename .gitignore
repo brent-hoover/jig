@@ -253,3 +253,5 @@ evals/runs/
 evals/analyzer-recommendations/
 .worktrees/
 .antigravitycli/
+# roborev snapshots
+/.roborev/

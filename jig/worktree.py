@@ -2,11 +2,13 @@
 
 import asyncio
 import errno
+import hashlib
 import json
 import logging
 import os
 import shutil
 import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -453,7 +455,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     if not (worktree_path / "pyproject.toml").exists():
         return []
 
-    ruff_cmd = _ruff_command(worktree_path)
+    ruff_cmd, ruff_env = _ruff_invocation(worktree_path)
 
     # 1. Auto-format
     proc = await asyncio.create_subprocess_exec(
@@ -461,6 +463,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
         "format",
         ".",
         cwd=worktree_path,
+        env=ruff_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -481,6 +484,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
         "--fix",
         ".",
         cwd=worktree_path,
+        env=ruff_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -492,6 +496,7 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
         "check",
         ".",
         cwd=worktree_path,
+        env=ruff_env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -504,18 +509,39 @@ async def _auto_lint(worktree_path: Path) -> list[str]:
     return errors
 
 
-def _ruff_command(worktree_path: Path) -> tuple[str, ...]:
-    """Return the command prefix that runs ruff for ``worktree_path``.
+def _uv_project_environment(worktree_path: Path) -> Path:
+    """A uv venv location *outside* the worktree.
+
+    ``uv run`` otherwise materializes a ``.venv/`` inside the project. Since
+    :func:`commit_worktree` later runs ``git add -A`` and the scaffolded
+    templates do not ignore ``.venv/``, that environment would be staged and
+    committed. Keying the directory by the worktree path keeps it stable across
+    repeated lint runs (uv reuses it) while staying off the repo tree.
+    """
+    digest = hashlib.sha256(str(worktree_path.resolve()).encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "jig-ruff-venvs" / digest
+
+
+def _ruff_invocation(
+    worktree_path: Path,
+) -> tuple[tuple[str, ...], dict[str, str] | None]:
+    """Return the ruff command prefix and subprocess env for ``worktree_path``.
 
     Generated eval projects declare ruff as a uv-managed dev dependency and do
     not necessarily have a global ``ruff`` binary or pre-created ``.venv``. Use
-    a global binary when available (fast path), otherwise ask uv to provide the
-    project-local toolchain.
+    a global binary when available (fast path, no env overlay), otherwise ask uv
+    to provide the project-local toolchain — pointing its environment outside
+    the worktree so the resulting ``.venv/`` is never staged by the subsequent
+    ``git add -A``.
     """
     if shutil.which("ruff") is not None:
-        return ("ruff",)
+        return ("ruff",), None
     if shutil.which("uv") is not None:
-        return ("uv", "run", "ruff")
+        env = {
+            **os.environ,
+            "UV_PROJECT_ENVIRONMENT": str(_uv_project_environment(worktree_path)),
+        }
+        return ("uv", "run", "ruff"), env
     raise LintError(["ruff is not installed/on PATH and uv is unavailable"])
 
 

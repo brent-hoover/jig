@@ -8,6 +8,7 @@ from jig.worktree import (
     MergeConflictError,
     _auto_lint,
     _git_env,
+    _ruff_invocation,
     commit_worktree,
     create_worktree,
     remove_worktree,
@@ -113,12 +114,16 @@ class TestCommitWorktree:
     ):
         worktree = tmp_path / "worktree"
         worktree.mkdir()
-        (worktree / "pyproject.toml").write_text("[project]\nname = 'demo'\nversion = '0.1.0'\n")
+        (worktree / "pyproject.toml").write_text(
+            "[project]\nname = 'demo'\nversion = '0.1.0'\n"
+        )
         calls: list[tuple[str, ...]] = []
 
         monkeypatch.setattr(
             "jig.worktree.shutil.which",
-            lambda cmd: None if cmd == "ruff" else "/usr/bin/uv" if cmd == "uv" else None,
+            lambda cmd: (
+                None if cmd == "ruff" else "/usr/bin/uv" if cmd == "uv" else None
+            ),
         )
 
         class FakeProc:
@@ -127,9 +132,12 @@ class TestCommitWorktree:
             async def communicate(self):
                 return b"", b""
 
+        envs: list[dict[str, str] | None] = []
+
         async def fake_exec(*args, **kwargs):
             calls.append(tuple(args))
             assert kwargs["cwd"] == worktree
+            envs.append(kwargs["env"])
             return FakeProc()
 
         monkeypatch.setattr("jig.worktree.asyncio.create_subprocess_exec", fake_exec)
@@ -140,6 +148,41 @@ class TestCommitWorktree:
             ("uv", "run", "ruff", "check", "--fix", "."),
             ("uv", "run", "ruff", "check", "."),
         ]
+        # Every uv invocation must steer its venv outside the worktree so the
+        # subsequent ``git add -A`` cannot stage a ``.venv/`` (regression: job 605).
+        for env in envs:
+            assert env is not None
+            venv = Path(env["UV_PROJECT_ENVIRONMENT"])
+            assert not venv.is_relative_to(worktree)
+
+    def test_ruff_invocation_uv_env_outside_worktree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        monkeypatch.setattr(
+            "jig.worktree.shutil.which",
+            lambda cmd: (
+                None if cmd == "ruff" else "/usr/bin/uv" if cmd == "uv" else None
+            ),
+        )
+        cmd, env = _ruff_invocation(worktree)
+        assert cmd == ("uv", "run", "ruff")
+        assert env is not None
+        assert not Path(env["UV_PROJECT_ENVIRONMENT"]).is_relative_to(
+            worktree.resolve()
+        )
+
+    def test_ruff_invocation_global_ruff_no_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(
+            "jig.worktree.shutil.which",
+            lambda cmd: "/usr/bin/ruff" if cmd == "ruff" else None,
+        )
+        cmd, env = _ruff_invocation(tmp_path)
+        assert cmd == ("ruff",)
+        assert env is None
 
     def test_git_env_disables_global_gpg_signing(self):
         env = _git_env()

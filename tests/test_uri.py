@@ -3,6 +3,7 @@
 Spec authority is the only resolver wired up for v2 bones; arch/design/plan/
 store parse cleanly but raise UnimplementedAuthorityError at resolve time.
 """
+
 from datetime import datetime, timezone
 
 import pytest
@@ -32,8 +33,9 @@ from jig.uri.errors import UnknownAuthorityError
 
 def test_parse_root_spec():
     p = parse_project_uri("project://spec")
-    assert p == ProjectUri(authority="spec", path=(), revision=None,
-                           fragment=None, fragment_style="none")
+    assert p == ProjectUri(
+        authority="spec", path=(), revision=None, fragment=None, fragment_style="none"
+    )
 
 
 def test_parse_capability_by_id():
@@ -198,9 +200,7 @@ def test_resolve_capability_behavior_fragment():
 
 def test_resolve_unknown_behavior_fragment_raises():
     with pytest.raises(ProjectUriError, match="behavior"):
-        resolve_spec_uri(
-            "project://spec/capabilities/due-dates#nope", _spec()
-        )
+        resolve_spec_uri("project://spec/capabilities/due-dates#nope", _spec())
 
 
 def test_resolve_non_goal_by_id():

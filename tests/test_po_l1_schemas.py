@@ -1,4 +1,5 @@
 """L1 PO schemas + path helpers + state YAML round-trip (Track B MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -206,7 +207,10 @@ def test_discovery_playback_path_helper(tmp_path: Path):
     assert (
         discovery_playback_path(tmp_path, "j-merchant-onboarding")
         == tmp_path
-        / ".jig" / "spec" / "discovery" / "playbacks"
+        / ".jig"
+        / "spec"
+        / "discovery"
+        / "playbacks"
         / "j-merchant-onboarding.md"
     )
 

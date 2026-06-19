@@ -1,4 +1,5 @@
 """Project ontology MCP tool handlers + markdown round-trip (Track B6 MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,9 +38,7 @@ def test_render_one_term_with_examples():
         terms=[
             OntologyTerm(
                 term="blocker",
-                definition=(
-                    "Something preventing a team member from making progress."
-                ),
+                definition=("Something preventing a team member from making progress."),
                 examples=[
                     "waiting on Sarah",
                     "CI is down",

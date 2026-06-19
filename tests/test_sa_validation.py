@@ -5,6 +5,7 @@ Both validators are mechanical (no LLM): per
 §"The SA checklist". They return data (warnings list / missing-set);
 callers decide whether to raise or surface inline.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -40,9 +41,7 @@ def test_validate_bc_clean_contract_returns_no_warnings() -> None:
     bc = BehavioralContract(
         id="ingest-batch-atomicity",
         applies_to={"module": "catalog-ingest", "capability": "normalize-skus"},
-        precondition=(
-            "batch_id refers to an in-progress row in ingestion_runs."
-        ),
+        precondition=("batch_id refers to an in-progress row in ingestion_runs."),
         postcondition=(
             "Either every product persists and batch.status is completed, "
             "or none persist and batch.status is failed."
@@ -61,7 +60,9 @@ def test_validate_bc_warns_on_no_constraint() -> None:
         intent=_intent(),
     )
     warnings = validate_behavioral_contract(bc)
-    assert any("not constraining anything" in w or "no postcondition" in w for w in warnings)
+    assert any(
+        "not constraining anything" in w or "no postcondition" in w for w in warnings
+    )
 
 
 def test_validate_bc_warns_on_no_anchor() -> None:
@@ -202,9 +203,7 @@ def test_checklist_integration_ac_addressed_by_entry() -> None:
     )
     cf = ContractsFile(
         module="m",
-        integration_ac=[
-            IntegrationAcceptance(capability="cap", must=["does X"])
-        ],
+        integration_ac=[IntegrationAcceptance(capability="cap", must=["does X"])],
     )
     assert validate_module_checklist(m, cf) == set()
 
@@ -224,9 +223,7 @@ def test_checklist_behavioral_contracts_addressed_by_entry() -> None:
             BehavioralContract(
                 id="x",
                 applies_to={"module": "m"},
-                postcondition=(
-                    "After the call the row exists in the right table."
-                ),
+                postcondition=("After the call the row exists in the right table."),
                 intent=_intent(),
             )
         ],
@@ -380,9 +377,7 @@ async def test_arch_finalize_posts_bc_warnings_as_note(tmp_path):
         module_id="m",
         behavioral_contract={
             "id": "flawed-bc",
-            "postcondition": (
-                "every batch transitions to processed exactly once"
-            ),
+            "postcondition": ("every batch transitions to processed exactly once"),
             "intent": _intent().model_dump(),
         },
     )

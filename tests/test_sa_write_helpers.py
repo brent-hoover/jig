@@ -11,6 +11,7 @@ categories the module legitimately doesn't address. ``arch_finalize``
 in Deliverable 3 reads this to skip checklist enforcement on the named
 categories — silence is treated as "forgot", not "doesn't apply".
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -211,7 +212,5 @@ def test_save_module_contracts_yaml_is_valid_yaml(
     tmp_path: Path, contracts: ContractsFile
 ) -> None:
     save_module_contracts(tmp_path, "catalog-ingest", contracts)
-    data = yaml.safe_load(
-        module_contracts_path(tmp_path, "catalog-ingest").read_text()
-    )
+    data = yaml.safe_load(module_contracts_path(tmp_path, "catalog-ingest").read_text())
     assert data["module"] == "catalog-ingest"

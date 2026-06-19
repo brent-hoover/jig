@@ -9,6 +9,7 @@ Bones scope: each threshold's trip condition + the no-signal happy
 path. Wiring into the orchestrator's per-ticket lifecycle is a separate
 hook task.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -331,7 +332,10 @@ async def test_emit_signals_writes_auto_escalation_event(analytics, tmp_path):
 async def test_emit_no_signals_writes_nothing(analytics):
     emitter = EventEmitter(analytics, simulator_mode=True)
     emit_signals_as_events(
-        emitter, signals=[], ticket_id="tb-cat", agent_id="dev-1",
+        emitter,
+        signals=[],
+        ticket_id="tb-cat",
+        agent_id="dev-1",
         from_tier="standard",
     )
     await emitter.drain()

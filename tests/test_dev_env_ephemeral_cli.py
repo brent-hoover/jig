@@ -1,4 +1,5 @@
 """Tests for ``jig dev ephemeral list/inspect/drop`` CLI (Track E Final)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -38,7 +39,9 @@ def _seed_sqlite_ephemeral(
     )
     asyncio.run(p.provision(svc, agent_id="dev", ticket_id=ticket_id))
     db_path = (
-        ephemeral_root(tmp_path) / service_id / f"agent_{ticket_id.replace('-', '_')}.db"
+        ephemeral_root(tmp_path)
+        / service_id
+        / f"agent_{ticket_id.replace('-', '_')}.db"
     )
     if rows:
         conn = sqlite3.connect(db_path)
@@ -60,9 +63,7 @@ def _seed_sqlite_ephemeral(
 def test_cli_dev_ephemeral_list_empty(tmp_path: Path) -> None:
     """Empty ephemeral root → friendly message."""
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "ephemeral", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "ephemeral", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "(no ephemeral instances)" in result.output
 
@@ -71,9 +72,7 @@ def test_cli_dev_ephemeral_list_shows_files(tmp_path: Path) -> None:
     _seed_sqlite_ephemeral(tmp_path, service_id="ephem", ticket_id="t-001")
     _seed_sqlite_ephemeral(tmp_path, service_id="ephem", ticket_id="t-002")
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "ephemeral", "list", "--path", str(tmp_path)]
-    )
+    result = runner.invoke(cli, ["dev", "ephemeral", "list", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "ephem" in result.output
     assert "agent_t_001.db" in result.output
@@ -99,9 +98,7 @@ def test_cli_dev_ephemeral_inspect_unknown_id_errors(tmp_path: Path) -> None:
 def test_cli_dev_ephemeral_inspect_sqlite_shows_table_counts(
     tmp_path: Path,
 ) -> None:
-    _seed_sqlite_ephemeral(
-        tmp_path, service_id="ephem", ticket_id="t-001", rows=3
-    )
+    _seed_sqlite_ephemeral(tmp_path, service_id="ephem", ticket_id="t-001", rows=3)
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -147,9 +144,7 @@ def test_cli_dev_ephemeral_inspect_empty_sqlite(tmp_path: Path) -> None:
 
 
 def test_cli_dev_ephemeral_drop_removes_file(tmp_path: Path) -> None:
-    db_path = _seed_sqlite_ephemeral(
-        tmp_path, service_id="ephem", ticket_id="t-001"
-    )
+    db_path = _seed_sqlite_ephemeral(tmp_path, service_id="ephem", ticket_id="t-001")
     assert db_path.is_file()
     runner = CliRunner()
     result = runner.invoke(

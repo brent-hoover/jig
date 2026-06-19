@@ -1,4 +1,5 @@
 """Unit tests for StallDetector — pure logic, no I/O."""
+
 from __future__ import annotations
 
 import pytest

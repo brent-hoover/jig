@@ -5,6 +5,7 @@ steps after the dispatch loop completes. Validates that the feedback
 loop integrates with the rest of the v2 spine in mock mode without
 requiring an LLM.
 """
+
 from __future__ import annotations
 
 import subprocess

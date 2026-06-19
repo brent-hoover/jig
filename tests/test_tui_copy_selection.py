@@ -273,9 +273,7 @@ async def test_ctrl_c_binding_registered(tmp_path: Path) -> None:
     ``ctrl+c→help_quit`` takes over and the fix doesn't fire."""
     bindings = JigApp.BINDINGS
     matches = [
-        b
-        for b in bindings
-        if (getattr(b, "key", None) or "").lower() == "ctrl+c"
+        b for b in bindings if (getattr(b, "key", None) or "").lower() == "ctrl+c"
     ]
     assert matches, "no ctrl+c binding on JigApp"
     actions = [getattr(b, "action", None) for b in matches]

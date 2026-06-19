@@ -65,7 +65,10 @@ async def test_subscribe_to_tickets_yields_snapshot(tmp_path):
 
     emitter = EventEmitter()
     server = WebSocketServer(
-        emitter, port=0, orchestrator=orch, project_path=tmp_path,
+        emitter,
+        port=0,
+        orchestrator=orch,
+        project_path=tmp_path,
     )
     await server.start()
     try:
@@ -90,7 +93,10 @@ async def test_subscribe_unknown_topic_returns_error(tmp_path):
 
     emitter = EventEmitter()
     server = WebSocketServer(
-        emitter, port=0, orchestrator=orch, project_path=tmp_path,
+        emitter,
+        port=0,
+        orchestrator=orch,
+        project_path=tmp_path,
     )
     await server.start()
     try:
@@ -114,7 +120,10 @@ async def test_legacy_command_still_works_after_new_protocol(tmp_path):
 
     emitter = EventEmitter()
     server = WebSocketServer(
-        emitter, port=0, orchestrator=orch, project_path=tmp_path,
+        emitter,
+        port=0,
+        orchestrator=orch,
+        project_path=tmp_path,
     )
     await server.start()
     try:
@@ -271,7 +280,9 @@ async def test_command_dispatch_via_wire_protocol(tmp_path):
     await server.start()
     try:
         async with websockets.connect(f"ws://127.0.0.1:{server.port}") as client:
-            await client.send(json.dumps({"type": "command", "name": "status", "args": []}))
+            await client.send(
+                json.dumps({"type": "command", "name": "status", "args": []})
+            )
             raw = await asyncio.wait_for(client.recv(), timeout=2.0)
             msg = json.loads(raw)
             assert msg["type"] == "result"
@@ -284,6 +295,7 @@ async def test_command_dispatch_via_wire_protocol(tmp_path):
 
 def test_prompts_topic_is_valid():
     from jig.ws_server import _VALID_TOPICS
+
     assert "prompts" in _VALID_TOPICS
 
 
@@ -384,7 +396,12 @@ def test_classify_event_maps_agent_render_to_agents_topic():
     classified = server._classify_event(
         JigEvent(type="agent_render", data={"content": "hi"})
     )
-    assert classified == {"type": "event", "topic": "agents", "kind": "render", "data": {"content": "hi"}}
+    assert classified == {
+        "type": "event",
+        "topic": "agents",
+        "kind": "render",
+        "data": {"content": "hi"},
+    }
 
 
 def test_classify_event_maps_prompt_request_to_prompts_topic():
@@ -421,7 +438,9 @@ async def test_subscribe_snapshots_survive_unconfigured_orchestrator(tmp_path):
     assert orch.is_configured is False
     assert orch.tickets is None
 
-    server = WebSocketServer(emitter=emitter, port=0, orchestrator=orch, project_path=tmp_path)
+    server = WebSocketServer(
+        emitter=emitter, port=0, orchestrator=orch, project_path=tmp_path
+    )
     # Each of these used to AttributeError; now they return safe empties.
     assert await server._build_snapshot("tickets") == []
     assert await server._build_snapshot("events") == []
@@ -471,16 +490,20 @@ async def test_long_running_command_does_not_block_subsequent_messages(tmp_path)
             port = server.port
             async with websockets.connect(f"ws://127.0.0.1:{port}") as ws:
                 # Send the blocker first
-                await ws.send(json.dumps(
-                    {"type": "command", "name": "__test_blocker", "args": {}}
-                ))
+                await ws.send(
+                    json.dumps(
+                        {"type": "command", "name": "__test_blocker", "args": {}}
+                    )
+                )
                 # Give it a moment to enter the await
                 await asyncio.sleep(0.1)
                 # Send the unblocker — read loop MUST process it even though
                 # blocker hasn't returned yet
-                await ws.send(json.dumps(
-                    {"type": "command", "name": "__test_unblock", "args": {}}
-                ))
+                await ws.send(
+                    json.dumps(
+                        {"type": "command", "name": "__test_unblock", "args": {}}
+                    )
+                )
                 # If the read loop is serialized this never sets
                 await asyncio.wait_for(second_command_ran.wait(), timeout=2.0)
         finally:

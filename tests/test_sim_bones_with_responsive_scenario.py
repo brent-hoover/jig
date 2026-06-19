@@ -6,6 +6,7 @@ simultaneously (no viewport, fixed-width attribute, empty
 breakpoints) so the scenario verifies the reviewer's per-rule
 emission.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -21,9 +22,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-responsive.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-responsive.scenario.yaml"
 )
 
 

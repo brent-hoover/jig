@@ -6,6 +6,7 @@ runs to a resolved ticket, then a synthesized important comment
 routes through ``apply_severity_disposition`` which posts a
 ``Handoff(phase="sa-consult")`` on the thread.
 """
+
 from __future__ import annotations
 
 import subprocess

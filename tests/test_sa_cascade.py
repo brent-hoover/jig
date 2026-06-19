@@ -19,6 +19,7 @@ operator-confirm step is NOT built — they hand-edit the cascade YAML
 and re-run the SA agent. The full transactional confirmation +
 failure-mode mitigations land in Final.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -200,9 +201,7 @@ async def test_cascade_proposal_posts_handoff_on_architecture(wired):
     )
     assert cascade_handoff is not None
     # Outputs cite the cascade-proposal path so the operator finds it.
-    assert any(
-        ".jig/arch/cascades/" in o for o in cascade_handoff.outputs
-    )
+    assert any(".jig/arch/cascades/" in o for o in cascade_handoff.outputs)
 
 
 @pytest.mark.asyncio
@@ -247,9 +246,7 @@ async def test_no_cascade_for_mitigated_outcome(wired):
         assert not list(target_dir.glob("*.yaml"))
     entries = await wired["threads"].for_ticket(SA_TICKET_ID)
     handoffs = [e for e in entries if isinstance(e, Handoff)]
-    assert not any(
-        h.phase == "operator-cascade-confirm" for h in handoffs
-    )
+    assert not any(h.phase == "operator-cascade-confirm" for h in handoffs)
 
 
 @pytest.mark.asyncio
@@ -272,9 +269,7 @@ async def test_cascade_proposal_path_helper_round_trips(wired, tmp_path):
     # Reconstructed path must match: extract the timestamp from
     # the filename and round-trip via the helper.
     ts = actual.stem.removeprefix(f"{risk_id}-")
-    reconstructed = cascade_proposal_path(
-        wired["project_path"], risk_id, ts
-    )
+    reconstructed = cascade_proposal_path(wired["project_path"], risk_id, ts)
     assert reconstructed == actual
 
 

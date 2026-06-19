@@ -316,9 +316,7 @@ class TestRouteOneOutOfScope:
             ],
         )
 
-    def _scoped_reviewer_role(
-        self, project_path: Path, role: str
-    ) -> None:
+    def _scoped_reviewer_role(self, project_path: Path, role: str) -> None:
         """Write a role config with ``reads_glob`` so the routing
         layer's load_role call finds it."""
         from jig.models import RoleConfig
@@ -342,9 +340,7 @@ class TestRouteOneOutOfScope:
             ),
         )
 
-    async def test_out_of_scope_finding_dropped(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_out_of_scope_finding_dropped(self, tmp_path: Path) -> None:
         """A non-test reviewer files on tests/test_x.py — the routing
         layer drops it instead of bouncing back to test."""
         from jig.reviewer_routing import _route_one
@@ -362,9 +358,7 @@ class TestRouteOneOutOfScope:
         assert idx is None
         assert reason == "out-of-scope-finding"
 
-    async def test_in_scope_finding_routes_normally(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_in_scope_finding_routes_normally(self, tmp_path: Path) -> None:
         """Same reviewer, file in scope (src/foo.py) — routes
         normally via writes-glob."""
         from jig.reviewer_routing import _route_one
@@ -382,9 +376,7 @@ class TestRouteOneOutOfScope:
         assert idx == 2  # "implement" phase via writes-glob
         assert "writes-glob" in reason
 
-    async def test_without_project_path_skips_scope_check(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_without_project_path_skips_scope_check(self, tmp_path: Path) -> None:
         """Back-compat: callers (e.g. ``fix_loop_bundle``) that don't
         pass ``project_path`` get the legacy behaviour — the scope
         check is silently skipped. Finding routes via writes-glob."""
@@ -399,9 +391,7 @@ class TestRouteOneOutOfScope:
         # Routes via tests/** writes-glob — defence skipped.
         assert idx == 0
 
-    async def test_role_without_reads_glob_skips_check(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_role_without_reads_glob_skips_check(self, tmp_path: Path) -> None:
         """A reviewer that doesn't declare ``reads_glob`` is
         considered unscoped — the routing check doesn't second-guess
         its findings."""

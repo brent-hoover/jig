@@ -6,6 +6,7 @@ with the rest of the v2 spine. The mock dev commit body now includes
 the wireframe screen-id so the visual_compliance reviewer's reference
 check passes.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,9 +21,7 @@ from jig.sim.scenario import load_scenario
 pytestmark = pytest.mark.sim_smoke
 
 
-SCENARIO_PATH = (
-    Path(__file__).parent / "scenarios" / "bones-with-vd.scenario.yaml"
-)
+SCENARIO_PATH = Path(__file__).parent / "scenarios" / "bones-with-vd.scenario.yaml"
 
 
 def _seed_repo(root: Path) -> None:
@@ -66,9 +65,7 @@ async def test_bones_with_vd_writes_frontend_and_wireframe(
     assert report.passed, report.failure_summary()
 
     frontend_yaml = tmp_path / ".jig" / "spec" / "frontend.yaml"
-    wireframe_html = (
-        tmp_path / ".jig" / "spec" / "wireframes" / "post-a-job.html"
-    )
+    wireframe_html = tmp_path / ".jig" / "spec" / "wireframes" / "post-a-job.html"
     assert frontend_yaml.is_file()
     assert wireframe_html.is_file()
     body = wireframe_html.read_text()

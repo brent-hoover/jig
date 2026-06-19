@@ -337,9 +337,7 @@ def test_run_pre_commit_shipped_catalog_not_hook_eligible(
     assert "no hook-eligible" in capsys.readouterr().out
 
 
-def test_run_pre_commit_runs_only_hook_eligible_checks(
-    tmp_path: Path, capsys
-) -> None:
+def test_run_pre_commit_runs_only_hook_eligible_checks(tmp_path: Path, capsys) -> None:
     """Mixed catalog: only entries with ``hook_eligible: true`` run."""
     _git_init(tmp_path)
     _seed_catalog(

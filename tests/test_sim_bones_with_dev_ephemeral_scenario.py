@@ -5,6 +5,7 @@ path. Verifies a fresh DB file lands under
 ``.jig/dev/ephemeral/<service>/`` during provision and is removed
 during cleanup (drop policy).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,9 +21,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-dev-ephemeral.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-dev-ephemeral.scenario.yaml"
 )
 
 

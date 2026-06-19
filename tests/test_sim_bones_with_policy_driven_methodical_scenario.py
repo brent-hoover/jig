@@ -6,6 +6,7 @@ per-step responses through ``jig.sim.policy.apply_policy`` rather
 than reading scripted text. Validates that the spine still resolves
 end-to-end AND that the report carries one PolicyTurn per step.
 """
+
 from __future__ import annotations
 
 import subprocess

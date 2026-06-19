@@ -7,6 +7,7 @@ triage pass surfaces the deferred entry as ``leave_deferred``
 (ticket still in flight). The deferred-queue JSONL artifact + the
 deferred ticket's open status gate the path.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -22,9 +23,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-deferred-ticket.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-deferred-ticket.scenario.yaml"
 )
 
 

@@ -10,6 +10,7 @@ Cycle 1 → materializes bones; mock dev resolves the bones ticket.
 Cycle 2 → advances bones → done, materializes mvp; mock dev resolves it.
 Cycle 3 → advances mvp → done, no further materialization.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -25,9 +26,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-multi-layer.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-multi-layer.scenario.yaml"
 )
 
 

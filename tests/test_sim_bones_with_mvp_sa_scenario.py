@@ -6,6 +6,7 @@ SA step goes through the v2 SA MVP incremental authoring path
 helpers. Proves the SA discovery loop integrates end-to-end with the
 rest of the v2 spine in mock mode.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,11 +21,7 @@ from jig.sim.scenario import load_scenario
 pytestmark = pytest.mark.sim_smoke
 
 
-SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-mvp-sa.scenario.yaml"
-)
+SCENARIO_PATH = Path(__file__).parent / "scenarios" / "bones-with-mvp-sa.scenario.yaml"
 
 
 def _seed_repo(root: Path) -> None:

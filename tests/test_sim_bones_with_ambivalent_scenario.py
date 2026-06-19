@@ -5,6 +5,7 @@ driven by the ambivalent persona. Validates the scripted
 clarification-loop pattern lands a discovery.md with the
 ``clarification`` marker and the spine still resolves end-to-end.
 """
+
 from __future__ import annotations
 
 import subprocess

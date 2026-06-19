@@ -11,6 +11,7 @@ rendering for the common shapes, (c) evidence aggregation across a
 list of comments. The bones-era field defaults stay backward-
 compatible so existing JSONL records keep loading without migration.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -226,9 +227,7 @@ class TestMarkdownRendering:
         assert "anchor: project://arch/contracts#x" in out
 
     def test_no_anchor_omits_anchor_line(self) -> None:
-        out = format_comment_markdown(
-            _comment(file=None, line=None, contract_uri=None)
-        )
+        out = format_comment_markdown(_comment(file=None, line=None, contract_uri=None))
         assert "anchor:" not in out
 
     def test_metadata_line_includes_confidence_and_cadence_and_cycle(

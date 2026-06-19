@@ -1,4 +1,5 @@
 """L3 PO MCP tool handlers + suite-brief renderer (Track B5, bones)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -161,7 +162,9 @@ def test_render_suite_brief_with_non_goals():
         intro="x",
         capabilities=[],
         non_goals=[
-            NonGoal(id="no-bulk-edit", text="No in-app bulk edit", rationale="defer to v2"),
+            NonGoal(
+                id="no-bulk-edit", text="No in-app bulk edit", rationale="defer to v2"
+            ),
             NonGoal(id="no-csv", text="No CSV export"),
         ],
     )
@@ -410,7 +413,8 @@ async def test_l3_finalize_idempotent_overwrite(wired):
     # Reactivate the ticket so the second call's resolve-after-handoff
     # doesn't no-op.
     await wired["tickets"].update(
-        "suite-catalog", status=TicketStatus.IN_PROGRESS,
+        "suite-catalog",
+        status=TicketStatus.IN_PROGRESS,
     )
     second_cap = _capability()
     second_cap["summary"] = "Second pass — refined wording."
@@ -495,6 +499,7 @@ def test_suites_index_round_trip():
 def test_suites_index_load_helper(tmp_path: Path):
     """Convenience: load_suites_index reads + parses the on-disk file."""
     from jig.spec_loader import load_suites_index
+
     spec_dir = tmp_path / ".jig" / "spec"
     spec_dir.mkdir(parents=True)
     (spec_dir / "suites.yaml").write_text(_suites_yaml())
@@ -505,5 +510,6 @@ def test_suites_index_load_helper(tmp_path: Path):
 def test_suites_index_path_helper(tmp_path: Path):
     """Path helper points at the v2 layout location."""
     from jig.spec_loader import suites_index_path
+
     p = suites_index_path(tmp_path)
     assert p == tmp_path / ".jig" / "spec" / "suites.yaml"

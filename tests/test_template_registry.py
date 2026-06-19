@@ -37,9 +37,7 @@ def test_template_without_metadata_file_raises(tmp_path: Path, monkeypatch):
     fake_root = tmp_path / "templates"
     fake_root.mkdir()
     (fake_root / "bare").mkdir()
-    monkeypatch.setattr(
-        "jig.template_registry._templates_root", lambda: fake_root
-    )
+    monkeypatch.setattr("jig.template_registry._templates_root", lambda: fake_root)
     with pytest.raises(ValueError, match="missing template.yaml"):
         load_template_metadata("bare")
 
@@ -52,11 +50,7 @@ def test_template_name_derived_from_directory(tmp_path: Path, monkeypatch):
     fake_root.mkdir()
     tpl = fake_root / "realname"
     tpl.mkdir()
-    (tpl / "template.yaml").write_text(
-        "name: lying-name\nlanguage: python\n"
-    )
-    monkeypatch.setattr(
-        "jig.template_registry._templates_root", lambda: fake_root
-    )
+    (tpl / "template.yaml").write_text("name: lying-name\nlanguage: python\n")
+    monkeypatch.setattr("jig.template_registry._templates_root", lambda: fake_root)
     md = load_template_metadata("realname")
     assert md.name == "realname"

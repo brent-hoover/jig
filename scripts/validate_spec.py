@@ -16,6 +16,7 @@ Exit codes:
   1  invalid (validation or parse error)
   2  usage error / file not found
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,14 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 _SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -50,7 +58,11 @@ class CapabilityState(str, Enum):
     ARCHIVED = "archived"
 
 
-_AC_REQUIRED = {CapabilityState.PLANNED, CapabilityState.IN_PROGRESS, CapabilityState.BUILT}
+_AC_REQUIRED = {
+    CapabilityState.PLANNED,
+    CapabilityState.IN_PROGRESS,
+    CapabilityState.BUILT,
+}
 
 
 class UserStory(BaseModel):
@@ -178,7 +190,10 @@ def validate(path: Path) -> int:
         return 1
 
     if not isinstance(data, dict):
-        print(f"error: top-level YAML must be a mapping, got {type(data).__name__}", file=sys.stderr)
+        print(
+            f"error: top-level YAML must be a mapping, got {type(data).__name__}",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -192,7 +207,9 @@ def validate(path: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate a jig project.structured.yaml file.")
+    parser = argparse.ArgumentParser(
+        description="Validate a jig project.structured.yaml file."
+    )
     parser.add_argument(
         "path",
         type=Path,

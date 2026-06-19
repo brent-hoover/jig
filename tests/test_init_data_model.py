@@ -1,4 +1,5 @@
 """Data model extensions for the init workflow."""
+
 import asyncio
 from pathlib import Path
 

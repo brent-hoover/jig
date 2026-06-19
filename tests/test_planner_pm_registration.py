@@ -1,4 +1,5 @@
 """Verify role-scoped registration of Planner PM MCP tools (Track F MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,9 +42,7 @@ def _names(captured):
 
 
 @pytest.mark.asyncio
-async def test_planner_pm_server_exposes_plan_finalize(
-    tmp_path, stores, monkeypatch
-):
+async def test_planner_pm_server_exposes_plan_finalize(tmp_path, stores, monkeypatch):
     tickets, threads, memory, bus = stores
     cfg = RoleConfig(
         role="planner-pm",

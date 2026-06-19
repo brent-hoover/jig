@@ -1,4 +1,5 @@
 """L1 PO MCP tool handlers + discovery doc renderer (Track B MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -154,10 +155,7 @@ def test_render_discovery_md_full_doc():
     assert "- {#customer} shopper hitting the storefront" in md
     # Journeys section + entry shape.
     assert "## Journeys" in md
-    assert (
-        "### Merchant onboarding {#j-merchant-onboarding} (persona: merchant)"
-        in md
-    )
+    assert "### Merchant onboarding {#j-merchant-onboarding} (persona: merchant)" in md
     assert "Merchant signs up, uploads catalog" in md
     assert "Capabilities implied:" in md
     assert "- {#self-serve-signup} Self-serve account creation with email" in md
@@ -647,9 +645,7 @@ async def test_finalize_rejects_journey_with_unknown_persona(wired):
 @pytest.mark.asyncio
 async def test_finalize_rejects_journey_capability_not_in_roster(wired):
     j = _journey(capability_ids=["mystery-cap"])
-    with pytest.raises(
-        ValueError, match="capability_id 'mystery-cap' not present"
-    ):
+    with pytest.raises(ValueError, match="capability_id 'mystery-cap' not present"):
         await handle_discovery_finalize(
             tickets=wired["tickets"],
             threads=wired["threads"],

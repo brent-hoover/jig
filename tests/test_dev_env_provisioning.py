@@ -1,4 +1,5 @@
 """Tests for the per-agent namespace provisioning hooks (Track E MVP)."""
+
 from __future__ import annotations
 
 import pytest
@@ -124,9 +125,7 @@ async def test_postgres_cleanup_archive_on_failure():
         cleanup_on_failure="archive",
     )
     await p.cleanup(svc, "agent_t_001", success=False)
-    assert rec.calls == [
-        "ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"
-    ]
+    assert rec.calls == ["ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"]
 
 
 @pytest.mark.asyncio
@@ -363,9 +362,7 @@ async def test_cleanup_agent_namespace_drops_on_success_archives_on_failure():
     await cleanup_agent_namespace(
         m, agent_id="dev", ticket_id="t-001", success=False, registry=reg
     )
-    assert rec.calls == [
-        "ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"
-    ]
+    assert rec.calls == ["ALTER SCHEMA agent_t_001 RENAME TO archived_agent_t_001"]
 
 
 @pytest.mark.asyncio
@@ -437,9 +434,7 @@ async def test_operator_supplied_substitutes_id_placeholders():
     )
     url = await provisioner.provision(
         service,
-        connection_string_template=(
-            "postgres://hosted/db?app={agent_id}_{ticket_id}"
-        ),
+        connection_string_template=("postgres://hosted/db?app={agent_id}_{ticket_id}"),
         agent_id="Dev-1",
         ticket_id="T-001",
         epic_id=None,
@@ -486,10 +481,18 @@ async def test_operator_supplied_cleanup_is_noop():
     )
     # Both success + failure paths return None and don't raise.
     await provisioner.cleanup(
-        service, agent_id="d", ticket_id="t", success=True, epic_id=None,
+        service,
+        agent_id="d",
+        ticket_id="t",
+        success=True,
+        epic_id=None,
     )
     await provisioner.cleanup(
-        service, agent_id="d", ticket_id="t", success=False, epic_id=None,
+        service,
+        agent_id="d",
+        ticket_id="t",
+        success=False,
+        epic_id=None,
     )
 
 
@@ -510,11 +513,16 @@ async def test_dispatch_routes_operator_supplied_services():
         },
     )
     out = await provision_agent_namespace(
-        m, agent_id="dev", ticket_id="t-1",
+        m,
+        agent_id="dev",
+        ticket_id="t-1",
     )
     assert out == {"vendor-queue": "nats://operator.example.com:4222"}
 
     # Cleanup must be a no-op — the operator owns the service lifecycle.
     await cleanup_agent_namespace(
-        m, agent_id="dev", ticket_id="t-1", success=True,
+        m,
+        agent_id="dev",
+        ticket_id="t-1",
+        success=True,
     )

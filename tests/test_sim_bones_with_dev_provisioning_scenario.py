@@ -6,6 +6,7 @@ data store. Verifies the dev manifest lands on disk and the
 provisioning lifecycle (CREATE SCHEMA + DROP SCHEMA on success) fires
 through the in-memory recorder.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -21,9 +22,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-dev-provisioning.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-dev-provisioning.scenario.yaml"
 )
 
 

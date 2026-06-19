@@ -6,6 +6,7 @@ manual L2 hand-write. Proves the L1 PO authoring path lands a valid
 ``discovery.md`` + structured cache that downstream phases can read
 past, end-to-end through the v2 spine in mock mode.
 """
+
 from __future__ import annotations
 
 import subprocess

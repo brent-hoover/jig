@@ -6,6 +6,7 @@ L2 step goes through the v2 L2 PO agent path
 This proves the L2 Suite Organizer integrates end-to-end with the rest
 of the v2 spine in mock mode.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -21,9 +22,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-l2-organizer.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-l2-organizer.scenario.yaml"
 )
 
 

@@ -5,6 +5,7 @@ screen renders read-only on-disk artifacts via spec_loader. Tests use
 Textual's ``App.run_test()`` to mount the app and assert on the
 visible Static widgets.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

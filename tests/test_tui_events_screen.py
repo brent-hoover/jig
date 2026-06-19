@@ -6,8 +6,12 @@ import pytest
 from jig.tui.app import JigApp
 
 
-def _ev(kind: str, ticket_id: str = "t1", topic: str = "tickets.t1",
-        ts: datetime | None = None) -> dict:
+def _ev(
+    kind: str,
+    ticket_id: str = "t1",
+    topic: str = "tickets.t1",
+    ts: datetime | None = None,
+) -> dict:
     return {
         "id": f"ev-{ticket_id}-{kind}",
         "from": "test",
@@ -29,11 +33,13 @@ async def test_events_screen_renders_snapshot(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.press("ctrl+4")  # Events pane
         screen = app.query_one(EventsScreen)
-        await screen.handle_snapshot([
-            _ev("ticket_created"),
-            _ev("ticket_updated"),
-            _ev("comment_posted"),
-        ])
+        await screen.handle_snapshot(
+            [
+                _ev("ticket_created"),
+                _ev("ticket_updated"),
+                _ev("comment_posted"),
+            ]
+        )
         await pilot.pause(0.05)
         list_view = app.query_one("#events-list", ListView)
         assert len(list_view.children) == 3
@@ -48,11 +54,13 @@ async def test_f_cycles_filter(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.press("ctrl+4")
         screen = app.query_one(EventsScreen)
-        await screen.handle_snapshot([
-            _ev("ticket_created"),
-            _ev("comment_posted"),
-            _ev("agent_run"),
-        ])
+        await screen.handle_snapshot(
+            [
+                _ev("ticket_created"),
+                _ev("comment_posted"),
+                _ev("agent_run"),
+            ]
+        )
         await pilot.pause(0.05)
         # all → 3
         list_view = app.query_one("#events-list", ListView)
@@ -132,11 +140,13 @@ async def test_app_routes_events_snapshot(tmp_path: Path):
     app = JigApp(project_path=tmp_path)
     async with app.run_test() as pilot:
         await pilot.press("ctrl+4")
-        await app._handle_daemon_message({
-            "type": "snapshot",
-            "topic": "events",
-            "data": [_ev("ticket_created"), _ev("scaffold_applied")],
-        })
+        await app._handle_daemon_message(
+            {
+                "type": "snapshot",
+                "topic": "events",
+                "data": [_ev("ticket_created"), _ev("scaffold_applied")],
+            }
+        )
         await pilot.pause(0.05)
         list_view = app.query_one("#events-list", ListView)
         assert len(list_view.children) == 2

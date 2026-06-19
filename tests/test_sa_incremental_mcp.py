@@ -11,6 +11,7 @@ Validator wiring (behavioral-contract authoring warnings + SA
 checklist enforcement) lands in commit 3 — this commit pins the
 data-shape behavior of the upsert + finalize plumbing.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -129,9 +130,7 @@ async def test_arch_set_module_idempotent_replace(wired):
     )
     revised = _module_dict()
     revised["title"] = "Catalog Ingest (revised)"
-    await handle_arch_set_module(
-        project_path=wired["project_path"], module=revised
-    )
+    await handle_arch_set_module(project_path=wired["project_path"], module=revised)
     arch = load_architecture(wired["project_path"])
     assert len(arch.modules) == 1
     assert arch.modules[0].title == "Catalog Ingest (revised)"
@@ -159,9 +158,7 @@ async def test_arch_set_module_rejects_invalid_payload(wired):
     bad = _module_dict()
     del bad["intent"]
     with pytest.raises(ValueError, match="module does not validate"):
-        await handle_arch_set_module(
-            project_path=wired["project_path"], module=bad
-        )
+        await handle_arch_set_module(project_path=wired["project_path"], module=bad)
     # No partial write on validation failure.
     assert not architecture_path(wired["project_path"]).exists()
 
@@ -434,9 +431,7 @@ async def test_module_set_open_question_happy_path(wired):
 
 async def _author_minimal(project_path: Path) -> None:
     """Author one module + one owned collection so finalize has something to validate."""
-    await handle_arch_set_module(
-        project_path=project_path, module=_module_dict()
-    )
+    await handle_arch_set_module(project_path=project_path, module=_module_dict())
     await handle_module_set_owned_collection(
         project_path=project_path,
         module_id="catalog-ingest",
@@ -488,10 +483,7 @@ async def test_arch_finalize_emits_handoff_to_pm(wired):
     assert len(handoffs) == 1
     assert handoffs[0].phase == SA_NEXT_PHASE
     assert ".jig/spec/architecture.yaml" in handoffs[0].outputs
-    assert (
-        ".jig/spec/modules/catalog-ingest/contracts.yaml"
-        in handoffs[0].outputs
-    )
+    assert ".jig/spec/modules/catalog-ingest/contracts.yaml" in handoffs[0].outputs
 
 
 @pytest.mark.asyncio
@@ -644,7 +636,9 @@ def _write_config(project_path: Path, name: str = "my-ats") -> None:
     import yaml
 
     (project_path / ".jig" / "config.yaml").write_text(
-        yaml.safe_dump({"project": {"name": name, "id": name, "path": str(project_path)}})
+        yaml.safe_dump(
+            {"project": {"name": name, "id": name, "path": str(project_path)}}
+        )
     )
 
 
@@ -669,7 +663,12 @@ async def test_arch_finalize_generates_boundary_rules(wired):
         author="sa-mvp",
     )
     rule_file = (
-        project_path / ".jig" / "rules" / "semgrep" / "boundaries" / "catalog-ingest.yml"
+        project_path
+        / ".jig"
+        / "rules"
+        / "semgrep"
+        / "boundaries"
+        / "catalog-ingest.yml"
     )
     assert rule_file.is_file()
 

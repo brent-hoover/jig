@@ -7,6 +7,7 @@ partial-walk-orphan / clean), and verifies that
 ``handle_discovery_resume`` returns the expected divergence + applies
 the requested reconciliation.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -22,9 +23,7 @@ pytestmark = pytest.mark.sim_smoke
 
 
 SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-discovery-resume.scenario.yaml"
+    Path(__file__).parent / "scenarios" / "bones-with-discovery-resume.scenario.yaml"
 )
 
 

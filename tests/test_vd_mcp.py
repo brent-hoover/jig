@@ -1,4 +1,5 @@
 """Tests for the VD MCP tool handlers + role config (Track D MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -128,9 +129,7 @@ class TestSetWireframe:
         meta = _meta(title="Post a job v2")
         # HTML carries a stale meta comment; the meta arg should replace it.
         stale_meta = render_meta_comment(_meta(title="OLD TITLE"))
-        html = (
-            f"{stale_meta}\n<!doctype html><html><body></body></html>"
-        )
+        html = f"{stale_meta}\n<!doctype html><html><body></body></html>"
         await handle_vd_set_wireframe(
             project_path=tmp_path,
             screen_id="post-a-job",
@@ -188,9 +187,7 @@ class TestWireframeNotes:
 
 class TestSetDesignToken:
     async def test_upserts_into_tokens_yaml(self, tmp_path: Path) -> None:
-        token = DesignToken(
-            id="color-primary", kind="color", value="#0a66c2"
-        )
+        token = DesignToken(id="color-primary", kind="color", value="#0a66c2")
         tid = await handle_vd_set_design_token(
             project_path=tmp_path, token=token.model_dump(mode="json")
         )

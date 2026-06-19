@@ -59,29 +59,30 @@ def _seed_rc9_repo(worktree: Path) -> None:
     """Build a tmp project with the RC-9 shape: src/ + tests/ with
     duplicate helpers across two test files."""
     env = {
-        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
     }
-    subprocess.run(["git", "init", "-q", "-b", "main"],
-                   cwd=worktree, check=True, env=env)
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main"], cwd=worktree, check=True, env=env
+    )
     (worktree / "src").mkdir()
     (worktree / "tests").mkdir()
-    (worktree / "src" / "api.py").write_text(
-        "def fetch():\n    return 1\n"
-    )
+    (worktree / "src" / "api.py").write_text("def fetch():\n    return 1\n")
     (worktree / "tests" / "test_api.py").write_text(
-        "def _register_mocks():\n    return {}\n\n"
-        "def test_fetch():\n    pass\n"
+        "def _register_mocks():\n    return {}\n\ndef test_fetch():\n    pass\n"
     )
     (worktree / "tests" / "test_cli.py").write_text(
         # Duplicate helper — exactly the RC-9 anti-pattern.
-        "def _register_mocks():\n    return {}\n\n"
-        "def test_cli():\n    pass\n"
+        "def _register_mocks():\n    return {}\n\ndef test_cli():\n    pass\n"
     )
     subprocess.run(["git", "add", "."], cwd=worktree, check=True, env=env)
     subprocess.run(
         ["git", "commit", "-qm", "initial"],
-        cwd=worktree, check=True, env=env,
+        cwd=worktree,
+        check=True,
+        env=env,
     )
 
 
@@ -232,12 +233,15 @@ async def test_routing_drops_pattern_conformance_finding_on_test_file(
         name="feature-s-full",
         phases=[
             PhaseConfig(name="test", role="test", writes=["tests/**"]),
-            PhaseConfig(name="review-tests", role="review",
-                        reviewers=["reviewer-test-adequacy"]),
-            PhaseConfig(name="implement", role="dev",
-                        writes=["src/**", "pyproject.toml"]),
-            PhaseConfig(name="review", role="review",
-                        reviewers=["reviewer-pattern-conformance"]),
+            PhaseConfig(
+                name="review-tests", role="review", reviewers=["reviewer-test-adequacy"]
+            ),
+            PhaseConfig(
+                name="implement", role="dev", writes=["src/**", "pyproject.toml"]
+            ),
+            PhaseConfig(
+                name="review", role="review", reviewers=["reviewer-pattern-conformance"]
+            ),
         ],
     )
     save_workflow(tmp_path, wf)
@@ -279,12 +283,15 @@ async def test_routing_accepts_test_adequacy_finding_on_test_file(
         name="feature-s-full",
         phases=[
             PhaseConfig(name="test", role="test", writes=["tests/**"]),
-            PhaseConfig(name="review-tests", role="review",
-                        reviewers=["reviewer-test-adequacy"]),
-            PhaseConfig(name="implement", role="dev",
-                        writes=["src/**", "pyproject.toml"]),
-            PhaseConfig(name="review", role="review",
-                        reviewers=["reviewer-pattern-conformance"]),
+            PhaseConfig(
+                name="review-tests", role="review", reviewers=["reviewer-test-adequacy"]
+            ),
+            PhaseConfig(
+                name="implement", role="dev", writes=["src/**", "pyproject.toml"]
+            ),
+            PhaseConfig(
+                name="review", role="review", reviewers=["reviewer-pattern-conformance"]
+            ),
         ],
     )
     save_workflow(tmp_path, wf)

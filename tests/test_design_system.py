@@ -1,4 +1,5 @@
 """Tests for the VD design-system schemas + loaders (Track D MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,9 +65,7 @@ class TestComponentSchema:
         assert {v.id for v in c.variants} == {"primary", "ghost"}
 
     def test_component_library_round_trip(self) -> None:
-        lib = ComponentLibrary(
-            components=[Component(id="card", name="Card")]
-        )
+        lib = ComponentLibrary(components=[Component(id="card", name="Card")])
         rebuilt = ComponentLibrary.model_validate(lib.model_dump(mode="json"))
         assert rebuilt.components[0].name == "Card"
 

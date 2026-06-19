@@ -99,9 +99,7 @@ class TestQueries:
         assert len(cycle1) == 2
         assert all(c.cycle == 1 for c in cycle1)
 
-    async def test_for_ticket_returns_empty_when_absent(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_for_ticket_returns_empty_when_absent(self, tmp_path: Path) -> None:
         store = await _store(tmp_path)
         assert await store.for_ticket("tkt-missing") == []
 

@@ -6,6 +6,7 @@ authors a risk, proposes a spike ticket, and completes the spike with
 ``mitigated`` (the happy path). Cascade-after-impossible is covered by
 ``test_sim_bones_with_cascade_scenario``.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -20,11 +21,7 @@ from jig.sim.scenario import load_scenario
 pytestmark = pytest.mark.sim_smoke
 
 
-SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-spike.scenario.yaml"
-)
+SCENARIO_PATH = Path(__file__).parent / "scenarios" / "bones-with-spike.scenario.yaml"
 
 
 def _seed_repo(root: Path) -> None:
@@ -64,10 +61,9 @@ async def test_bones_with_spike_transitions_risk_to_mitigated(tmp_path: Path):
     assert report.passed, report.failure_summary()
 
     from jig.spec_loader import load_architecture
+
     arch = load_architecture(tmp_path)
-    risk = next(
-        (r for r in arch.risks if r.id == "r-shopify-rate-limit"), None
-    )
+    risk = next((r for r in arch.risks if r.id == "r-shopify-rate-limit"), None)
     assert risk is not None
     assert risk.status.value == "mitigated"
     # Spike ticket id is the deterministic ``spike-<risk_id>``.
@@ -83,6 +79,7 @@ async def test_bones_with_spike_does_not_emit_cascade_proposal(tmp_path: Path):
     assert report.passed, report.failure_summary()
 
     from jig.spec_loader import cascades_dir
+
     cdir = cascades_dir(tmp_path)
     if cdir.exists():
         assert not list(cdir.glob("*.yaml")), (

@@ -104,7 +104,9 @@ class TestResolveRoute:
                 EscalationRoute(type="convention_violation", route="human_review"),
             ],
         )
-        assert resolve_route(cfg, "no-print", "convention_violation") == "agent_resolution"
+        assert (
+            resolve_route(cfg, "no-print", "convention_violation") == "agent_resolution"
+        )
 
     def test_type_match_when_rule_unmatched(self) -> None:
         cfg = EscalationConfig(
@@ -113,7 +115,9 @@ class TestResolveRoute:
                 EscalationRoute(type="convention_violation", route="agent_resolution"),
             ],
         )
-        assert resolve_route(cfg, "any-rule", "convention_violation") == "agent_resolution"
+        assert (
+            resolve_route(cfg, "any-rule", "convention_violation") == "agent_resolution"
+        )
 
     def test_default_when_no_match(self) -> None:
         cfg = EscalationConfig(
@@ -130,7 +134,10 @@ class TestResolveRoute:
                 EscalationRoute(rule_id="critical-rule", route="human_review"),
             ],
         )
-        assert resolve_route(cfg, "critical-rule", "convention_violation") == "human_review"
+        assert (
+            resolve_route(cfg, "critical-rule", "convention_violation")
+            == "human_review"
+        )
 
 
 class TestLoadDeprecations:
@@ -178,10 +185,17 @@ class TestDeprecationsToSemgrepRules:
         assert result == {"rules": []}
 
     def test_rule_structure(self) -> None:
-        cfg = DeprecationsConfig(deprecations=[
-            Deprecation(id="old-logger", pattern="log.warn(...)", fix="log.warning(...)",
-                        rationale="Use .warning()", languages=["python"]),
-        ])
+        cfg = DeprecationsConfig(
+            deprecations=[
+                Deprecation(
+                    id="old-logger",
+                    pattern="log.warn(...)",
+                    fix="log.warning(...)",
+                    rationale="Use .warning()",
+                    languages=["python"],
+                ),
+            ]
+        )
         result = cfg.to_semgrep_rules()
         assert len(result["rules"]) == 1
         rule = result["rules"][0]
@@ -193,16 +207,22 @@ class TestDeprecationsToSemgrepRules:
         assert rule["severity"] == "WARNING"
 
     def test_fallback_message_when_no_rationale(self) -> None:
-        cfg = DeprecationsConfig(deprecations=[
-            Deprecation(id="my-rule", pattern="old()", fix="new()", languages=["python"]),
-        ])
+        cfg = DeprecationsConfig(
+            deprecations=[
+                Deprecation(
+                    id="my-rule", pattern="old()", fix="new()", languages=["python"]
+                ),
+            ]
+        )
         rule = cfg.to_semgrep_rules()["rules"][0]
         assert "my-rule" in rule["message"]
 
     def test_languages_always_emitted(self) -> None:
-        cfg = DeprecationsConfig(deprecations=[
-            Deprecation(id="x", pattern="p", fix="f", languages=["generic"]),
-        ])
+        cfg = DeprecationsConfig(
+            deprecations=[
+                Deprecation(id="x", pattern="p", fix="f", languages=["generic"]),
+            ]
+        )
         rule = cfg.to_semgrep_rules()["rules"][0]
         assert rule["languages"] == ["generic"]
 
@@ -233,7 +253,9 @@ class TestListSemgrepRulePaths:
         semgrep_dir = tmp_path / ".jig" / "rules" / "semgrep"
         semgrep_dir.mkdir(parents=True)
         (semgrep_dir / "my-rule.yml").write_text("rules: []")
-        (tmp_path / ".jig" / "rules" / "deprecations.yml").write_text("deprecations: []")
+        (tmp_path / ".jig" / "rules" / "deprecations.yml").write_text(
+            "deprecations: []"
+        )
         paths = list_semgrep_rule_paths(tmp_path)
         names = [p.name for p in paths]
         assert "my-rule.yml" in names
@@ -310,7 +332,9 @@ class TestCheckRuleCoverage:
         (semgrep_dir / "no-print.yml").write_text(
             "rules:\n  - id: no-print\n    pattern: print(...)\n    message: x\n    languages: [python]\n    severity: WARNING\n"
         )
-        (jig_dir / "conventions.md").write_text("# Conventions\n\nno-print is enforced.\n")
+        (jig_dir / "conventions.md").write_text(
+            "# Conventions\n\nno-print is enforced.\n"
+        )
         result = check_rule_coverage(tmp_path)
         assert result["undocumented"] == []
 
@@ -343,7 +367,9 @@ class TestCheckRuleCoverage:
         (rules_dir / "deprecations.yml").write_text(
             "deprecations:\n  - id: old-logger\n    pattern: log.warn(...)\n    fix: log.warning(...)\n    languages: [python]\n"
         )
-        (jig_dir / "conventions.md").write_text("# Conventions\n\nold-logger is deprecated.\n")
+        (jig_dir / "conventions.md").write_text(
+            "# Conventions\n\nold-logger is deprecated.\n"
+        )
         result = check_rule_coverage(tmp_path)
         assert result["undocumented"] == []
 
@@ -377,7 +403,9 @@ class TestCheckRuleCoverage:
         jig_dir = tmp_path / ".jig"
         rules_dir = jig_dir / "rules"
         rules_dir.mkdir(parents=True)
-        (rules_dir / "deprecations.yml").write_text("deprecations:\n  - id: x\n    bogus: true\n")
+        (rules_dir / "deprecations.yml").write_text(
+            "deprecations:\n  - id: x\n    bogus: true\n"
+        )
         (jig_dir / "conventions.md").write_text("# Conventions\n")
         result = check_rule_coverage(tmp_path)
         assert result["missing_conventions"] == []

@@ -11,6 +11,7 @@ Press Q to quit the demo (also kills Terminal 1 server).
 
 The script writes a daemon.addr file so the TUI connects automatically.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -97,11 +98,15 @@ SCENES: list[tuple[str, list[dict]]] = [
     (
         "Ticket dispatched → spec",
         [
-            _ev("events", "ticket_dispatched", {
-                "ticket_id": TICKET_ID,
-                "ticket_title": TICKET_TITLE,
-                "role": "spec",
-            }),
+            _ev(
+                "events",
+                "ticket_dispatched",
+                {
+                    "ticket_id": TICKET_ID,
+                    "ticket_title": TICKET_TITLE,
+                    "role": "spec",
+                },
+            ),
             _ev("tickets", "updated", TICKET_DISPATCHED),
         ],
     ),
@@ -109,65 +114,85 @@ SCENES: list[tuple[str, list[dict]]] = [
     (
         "Agent start (spec)",
         [
-            _ev("agents", "start", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "ticket_title": TICKET_TITLE,
-                "phase": "spec",
-            }),
+            _ev(
+                "agents",
+                "start",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "ticket_title": TICKET_TITLE,
+                    "phase": "spec",
+                },
+            ),
         ],
     ),
     # 5 ── agent thinking
     (
         "Agent thinking",
         [
-            _ev("agents", "thinking", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "elapsed": 3,
-                "active": True,
-            }),
+            _ev(
+                "agents",
+                "thinking",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "elapsed": 3,
+                    "active": True,
+                },
+            ),
         ],
     ),
     # 6 ── agent reads a file
     (
         "Agent tool use (Read)",
         [
-            _ev("agents", "tool", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "tool": "Read",
-                "detail": "jig/models.py",
-            }),
+            _ev(
+                "agents",
+                "tool",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "tool": "Read",
+                    "detail": "jig/models.py",
+                },
+            ),
         ],
     ),
     # 7 ── tool result
     (
         "Agent tool result",
         [
-            _ev("agents", "tool_result", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "tool": "Read",
-                "is_error": False,
-                "excerpt": "1  from __future__ import annotations\n2  from pydantic import BaseModel\n...",
-            }),
+            _ev(
+                "agents",
+                "tool_result",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "tool": "Read",
+                    "is_error": False,
+                    "excerpt": "1  from __future__ import annotations\n2  from pydantic import BaseModel\n...",
+                },
+            ),
         ],
     ),
     # 8 ── agent writes some text output
     (
         "Agent text output",
         [
-            _ev("agents", "text", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "text": (
-                    "I'll draft the spec for the auth endpoint. "
-                    "The ticket calls for JWT-based authentication with /login and /me "
-                    "endpoints. I'll define the request/response shapes and the "
-                    "acceptance criteria now."
-                ),
-            }),
+            _ev(
+                "agents",
+                "text",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "text": (
+                        "I'll draft the spec for the auth endpoint. "
+                        "The ticket calls for JWT-based authentication with /login and /me "
+                        "endpoints. I'll define the request/response shapes and the "
+                        "acceptance criteria now."
+                    ),
+                },
+            ),
         ],
     ),
     # 8b ── PM text with embedded Markdown table + Unicode ambiguous-width
@@ -178,177 +203,233 @@ SCENES: list[tuple[str, list[dict]]] = [
     (
         "PM planning text (corruption repro)",
         [
-            _ev("agents", "text", {
-                "role": "pm",
-                "ticket_id": TICKET_ID,
-                "text": (
-                    "Now I have the full picture. Let me draft the plan "
-                    "and post it for approval."
-                ),
-            }),
-            _ev("agents", "text", {
-                "role": "pm",
-                "ticket_id": TICKET_ID,
-                "text": (
-                    "Here's the plan I've drafted: **4 tickets, linear "
-                    "chain** (≤2 tickets → no parallelism needed): "
-                    "| # | Title | Type | Size | Depends on | "
-                    "|---|-------|------|------|------------| "
-                    "| 1 | Core: project setup + `hn-cli top --limit N` "
-                    "| feature | m | — | "
-                    "| 2 | Filtering: `--min-score` and `--type` flags "
-                    "| feature | s | 1 | "
-                    "| 3 | JSON output: `--format json` | feature | s | 2 | "
-                    "| 4 | Integration validation | feature | "
-                    "m (validation) | 3 |"
-                ),
-            }),
+            _ev(
+                "agents",
+                "text",
+                {
+                    "role": "pm",
+                    "ticket_id": TICKET_ID,
+                    "text": (
+                        "Now I have the full picture. Let me draft the plan "
+                        "and post it for approval."
+                    ),
+                },
+            ),
+            _ev(
+                "agents",
+                "text",
+                {
+                    "role": "pm",
+                    "ticket_id": TICKET_ID,
+                    "text": (
+                        "Here's the plan I've drafted: **4 tickets, linear "
+                        "chain** (≤2 tickets → no parallelism needed): "
+                        "| # | Title | Type | Size | Depends on | "
+                        "|---|-------|------|------|------------| "
+                        "| 1 | Core: project setup + `hn-cli top --limit N` "
+                        "| feature | m | — | "
+                        "| 2 | Filtering: `--min-score` and `--type` flags "
+                        "| feature | s | 1 | "
+                        "| 3 | JSON output: `--format json` | feature | s | 2 | "
+                        "| 4 | Integration validation | feature | "
+                        "m (validation) | 3 |"
+                    ),
+                },
+            ),
         ],
     ),
     # 9 ── agent uses WebSearch
     (
         "Agent tool use (WebSearch)",
         [
-            _ev("agents", "tool", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "tool": "WebSearch",
-                "detail": "FastAPI JWT authentication best practices 2025",
-            }),
-            _ev("agents", "thinking", {
-                "role": "spec",
-                "ticket_id": TICKET_ID,
-                "elapsed": 12,
-                "active": True,
-            }),
+            _ev(
+                "agents",
+                "tool",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "tool": "WebSearch",
+                    "detail": "FastAPI JWT authentication best practices 2025",
+                },
+            ),
+            _ev(
+                "agents",
+                "thinking",
+                {
+                    "role": "spec",
+                    "ticket_id": TICKET_ID,
+                    "elapsed": 12,
+                    "active": True,
+                },
+            ),
         ],
     ),
     # 10 ── phase transition: test agent starts
     (
         "Phase change → test agent",
         [
-            _ev("agents", "start", {
-                "role": "test",
-                "ticket_id": TICKET_ID,
-                "ticket_title": TICKET_TITLE,
-                "phase": "test",
-            }),
+            _ev(
+                "agents",
+                "start",
+                {
+                    "role": "test",
+                    "ticket_id": TICKET_ID,
+                    "ticket_title": TICKET_TITLE,
+                    "phase": "test",
+                },
+            ),
         ],
     ),
     # 11 ── test agent writes files
     (
         "Test agent writing files",
         [
-            _ev("agents", "tool", {
-                "role": "test",
-                "ticket_id": TICKET_ID,
-                "tool": "Write",
-                "detail": "tests/test_auth.py",
-            }),
-            _ev("agents", "text", {
-                "role": "test",
-                "ticket_id": TICKET_ID,
-                "text": "Writing the failing test suite for the /login endpoint...",
-            }),
+            _ev(
+                "agents",
+                "tool",
+                {
+                    "role": "test",
+                    "ticket_id": TICKET_ID,
+                    "tool": "Write",
+                    "detail": "tests/test_auth.py",
+                },
+            ),
+            _ev(
+                "agents",
+                "text",
+                {
+                    "role": "test",
+                    "ticket_id": TICKET_ID,
+                    "text": "Writing the failing test suite for the /login endpoint...",
+                },
+            ),
         ],
     ),
     # 12 ── implement agent starts (parallel: two agents active)
     (
         "Two parallel agents",
         [
-            _ev("agents", "start", {
-                "role": "implement",
-                "ticket_id": TICKET_ID,
-                "ticket_title": TICKET_TITLE,
-                "phase": "implement",
-            }),
-            _ev("agents", "thinking", {
-                "role": "implement",
-                "ticket_id": TICKET_ID,
-                "elapsed": 2,
-                "active": True,
-            }),
-            _ev("agents", "thinking", {
-                "role": "test",
-                "ticket_id": TICKET_ID,
-                "elapsed": 45,
-                "active": True,
-            }),
+            _ev(
+                "agents",
+                "start",
+                {
+                    "role": "implement",
+                    "ticket_id": TICKET_ID,
+                    "ticket_title": TICKET_TITLE,
+                    "phase": "implement",
+                },
+            ),
+            _ev(
+                "agents",
+                "thinking",
+                {
+                    "role": "implement",
+                    "ticket_id": TICKET_ID,
+                    "elapsed": 2,
+                    "active": True,
+                },
+            ),
+            _ev(
+                "agents",
+                "thinking",
+                {
+                    "role": "test",
+                    "ticket_id": TICKET_ID,
+                    "elapsed": 45,
+                    "active": True,
+                },
+            ),
         ],
     ),
     # 13 ── prompt: brief approval
     (
         "Prompt: brief approval",
         [
-            _ev("prompts", "request", {
-                "prompt_id": "p-brief-001",
-                "prompt_type": "brief_approval",
-                "question": "Here is the project brief I've drafted. Does this look right?",
-                "options": [
-                    {"key": "y", "label": "Approve", "default": True},
-                    {"key": "n", "label": "Request changes"},
-                ],
-                "rendered": (
-                    "## Project Brief\n\n"
-                    "**Goal**: Build a REST API with JWT authentication.\n\n"
-                    "**Scope**:\n- POST /login — issue JWT tokens\n"
-                    "- GET /me — return current user\n\n"
-                    "**Stack**: FastAPI, python-jose, SQLAlchemy\n\n"
-                    "**Out of scope**: OAuth2 flows, refresh tokens (v2)"
-                ),
-            }),
+            _ev(
+                "prompts",
+                "request",
+                {
+                    "prompt_id": "p-brief-001",
+                    "prompt_type": "brief_approval",
+                    "question": "Here is the project brief I've drafted. Does this look right?",
+                    "options": [
+                        {"key": "y", "label": "Approve", "default": True},
+                        {"key": "n", "label": "Request changes"},
+                    ],
+                    "rendered": (
+                        "## Project Brief\n\n"
+                        "**Goal**: Build a REST API with JWT authentication.\n\n"
+                        "**Scope**:\n- POST /login — issue JWT tokens\n"
+                        "- GET /me — return current user\n\n"
+                        "**Stack**: FastAPI, python-jose, SQLAlchemy\n\n"
+                        "**Out of scope**: OAuth2 flows, refresh tokens (v2)"
+                    ),
+                },
+            ),
         ],
     ),
     # 14 ── prompt: branch choice
     (
         "Prompt: branch choice",
         [
-            _ev("prompts", "request", {
-                "prompt_id": "p-branch-002",
-                "prompt_type": "branch_choice",
-                "question": "Which branch should I base this work on?",
-                "options": [
-                    {"key": "1", "label": "main", "default": True},
-                    {"key": "2", "label": "develop"},
-                    {"key": "3", "label": "feature/auth-v2"},
-                ],
-                "rendered": (
-                    "I found the following branches. Pick the one to base this ticket on:\n\n"
-                    "- **main** (default, 3 commits behind develop)\n"
-                    "- **develop** (active, up to date)\n"
-                    "- **feature/auth-v2** (WIP, 14 commits ahead of develop)"
-                ),
-            }),
+            _ev(
+                "prompts",
+                "request",
+                {
+                    "prompt_id": "p-branch-002",
+                    "prompt_type": "branch_choice",
+                    "question": "Which branch should I base this work on?",
+                    "options": [
+                        {"key": "1", "label": "main", "default": True},
+                        {"key": "2", "label": "develop"},
+                        {"key": "3", "label": "feature/auth-v2"},
+                    ],
+                    "rendered": (
+                        "I found the following branches. Pick the one to base this ticket on:\n\n"
+                        "- **main** (default, 3 commits behind develop)\n"
+                        "- **develop** (active, up to date)\n"
+                        "- **feature/auth-v2** (WIP, 14 commits ahead of develop)"
+                    ),
+                },
+            ),
         ],
     ),
     # 15 ── prompt: question from PM/agent
     (
         "Prompt: agent question",
         [
-            _ev("prompts", "request", {
-                "prompt_id": "p-qa-003",
-                "prompt_type": "question_answer",
-                "question": (
-                    "Should the /me endpoint return the full user object "
-                    "(including email, created_at) or just the user ID?"
-                ),
-                "options": [
-                    {"key": "f", "label": "Full user object", "default": True},
-                    {"key": "i", "label": "ID only"},
-                    {"key": "l", "label": "Let me decide later"},
-                ],
-                "rendered": None,
-            }),
+            _ev(
+                "prompts",
+                "request",
+                {
+                    "prompt_id": "p-qa-003",
+                    "prompt_type": "question_answer",
+                    "question": (
+                        "Should the /me endpoint return the full user object "
+                        "(including email, created_at) or just the user ID?"
+                    ),
+                    "options": [
+                        {"key": "f", "label": "Full user object", "default": True},
+                        {"key": "i", "label": "ID only"},
+                        {"key": "l", "label": "Let me decide later"},
+                    ],
+                    "rendered": None,
+                },
+            ),
         ],
     ),
     # 16 ── ticket completed
     (
         "Ticket completed",
         [
-            _ev("events", "ticket_completed", {
-                "ticket_id": TICKET_ID,
-                "ticket_title": TICKET_TITLE,
-            }),
+            _ev(
+                "events",
+                "ticket_completed",
+                {
+                    "ticket_id": TICKET_ID,
+                    "ticket_title": TICKET_TITLE,
+                },
+            ),
             _ev("tickets", "updated", TICKET_RESOLVED),
         ],
     ),
@@ -356,16 +437,24 @@ SCENES: list[tuple[str, list[dict]]] = [
     (
         "Ticket failed",
         [
-            _ev("events", "ticket_dispatched", {
-                "ticket_id": TICKET_ID2,
-                "ticket_title": TICKET_TITLE2,
-                "role": "test",
-            }),
-            _ev("events", "ticket_failed", {
-                "ticket_id": TICKET_ID2,
-                "ticket_title": TICKET_TITLE2,
-                "reason": "test suite exited with code 1 after 3 retries",
-            }),
+            _ev(
+                "events",
+                "ticket_dispatched",
+                {
+                    "ticket_id": TICKET_ID2,
+                    "ticket_title": TICKET_TITLE2,
+                    "role": "test",
+                },
+            ),
+            _ev(
+                "events",
+                "ticket_failed",
+                {
+                    "ticket_id": TICKET_ID2,
+                    "ticket_title": TICKET_TITLE2,
+                    "reason": "test suite exited with code 1 after 3 retries",
+                },
+            ),
             _ev("tickets", "updated", dict(TICKET_OPEN2) | {"status": "failed"}),
         ],
     ),
@@ -373,17 +462,22 @@ SCENES: list[tuple[str, list[dict]]] = [
     (
         "Merge conflict",
         [
-            _ev("events", "ticket_merge_conflict", {
-                "ticket_id": TICKET_ID2,
-                "ticket_title": TICKET_TITLE2,
-                "conflicted_files": ["src/auth.py", "tests/test_auth.py"],
-            }),
+            _ev(
+                "events",
+                "ticket_merge_conflict",
+                {
+                    "ticket_id": TICKET_ID2,
+                    "ticket_title": TICKET_TITLE2,
+                    "conflicted_files": ["src/auth.py", "tests/test_auth.py"],
+                },
+            ),
         ],
     ),
 ]
 
 
 # ── WebSocket server ───────────────────────────────────────────────────────
+
 
 class DemoServer:
     def __init__(self) -> None:
@@ -432,7 +526,9 @@ class DemoServer:
             return
         self._scene_idx += 1
         label, events = SCENES[self._scene_idx]
-        print(f"\r[demo] scene {self._scene_idx}/{len(SCENES)-1}: {label}", flush=True)
+        print(
+            f"\r[demo] scene {self._scene_idx}/{len(SCENES) - 1}: {label}", flush=True
+        )
         for evt in events:
             await self._broadcast(evt)
 
@@ -448,6 +544,7 @@ class DemoServer:
 
 
 # ── Keyboard input (raw stdin in a thread) ────────────────────────────────
+
 
 async def _keyboard_loop(
     server: DemoServer,
@@ -479,6 +576,7 @@ def _read_stdin(loop: asyncio.AbstractEventLoop, q: asyncio.Queue[bool]) -> None
 
 # ── Main ──────────────────────────────────────────────────────────────────
 
+
 async def main(project_path: Path) -> None:
     server = DemoServer()
     advance_queue: asyncio.Queue[bool] = asyncio.Queue()
@@ -497,8 +595,11 @@ async def main(project_path: Path) -> None:
         addr_file.write_text(addr)
         print(f"[demo] WS server on {addr}", flush=True)
         print(f"[demo] addr written to {addr_file}", flush=True)
-        print(f"[demo] {len(SCENES)} scenes — SPACE/ENTER to advance, Q to quit", flush=True)
-        print(f"[demo] scene 0/{len(SCENES)-1}: {SCENES[0][0]}", flush=True)
+        print(
+            f"[demo] {len(SCENES)} scenes — SPACE/ENTER to advance, Q to quit",
+            flush=True,
+        )
+        print(f"[demo] scene 0/{len(SCENES) - 1}: {SCENES[0][0]}", flush=True)
 
         loop = asyncio.get_running_loop()
 
@@ -508,6 +609,7 @@ async def main(project_path: Path) -> None:
         try:
             # Run stdin reader in a thread
             import concurrent.futures
+
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             loop.run_in_executor(executor, _read_stdin, loop, advance_queue)
 

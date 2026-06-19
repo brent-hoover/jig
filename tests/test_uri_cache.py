@@ -9,6 +9,7 @@ TTL fallback bounds worst-case staleness if invalidation events are
 missed. Cache is opt-in via the ``cache=`` kwarg on
 ``resolve_project_uri``; bare callers are unaffected.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -129,13 +130,9 @@ def test_invalidate_authority_drops_only_that_authority():
 
 def test_invalidate_with_path_prefix_only_drops_matching():
     cache = UriResolverCache()
-    contracts = parse_project_uri(
-        "project://arch/modules/catalog-ingest/contracts"
-    )
+    contracts = parse_project_uri("project://arch/modules/catalog-ingest/contracts")
     architecture = parse_project_uri("project://arch/architecture")
-    other_module = parse_project_uri(
-        "project://arch/modules/categorization/contracts"
-    )
+    other_module = parse_project_uri("project://arch/modules/categorization/contracts")
     cache.put(contracts, _resolved(kind="arch"))
     cache.put(architecture, _resolved(kind="arch"))
     cache.put(other_module, _resolved(kind="arch"))
@@ -169,31 +166,28 @@ async def emitter(tmp_path):
 
 async def test_subscribe_invalidates_on_contract_amended(emitter):
     cache = UriResolverCache()
-    contracts = parse_project_uri(
-        "project://arch/modules/catalog-ingest/contracts"
-    )
+    contracts = parse_project_uri("project://arch/modules/catalog-ingest/contracts")
     architecture = parse_project_uri("project://arch/architecture")
-    other_module = parse_project_uri(
-        "project://arch/modules/categorization/contracts"
-    )
+    other_module = parse_project_uri("project://arch/modules/categorization/contracts")
     cache.put(contracts, _resolved(kind="arch"))
     cache.put(architecture, _resolved(kind="arch"))
     cache.put(other_module, _resolved(kind="arch"))
 
     cache.subscribe_to_events(emitter)
 
-    await emitter.emit(ContractAmended(
-        contract_uri=(
-            "project://arch/modules/catalog-ingest/contracts"
-            "#owns/products"
-        ),
-        from_revision=1,
-        to_revision=2,
-        source="sa_initial_pass",
-        operator_confirmed=True,
-        breaking_change=False,
-        timestamp=_ts(),
-    ))
+    await emitter.emit(
+        ContractAmended(
+            contract_uri=(
+                "project://arch/modules/catalog-ingest/contracts#owns/products"
+            ),
+            from_revision=1,
+            to_revision=2,
+            source="sa_initial_pass",
+            operator_confirmed=True,
+            breaking_change=False,
+            timestamp=_ts(),
+        )
+    )
 
     # Both this module's contracts AND architecture invalidate; sibling stays.
     assert cache.get(contracts) is None
@@ -210,13 +204,15 @@ async def test_subscribe_invalidates_on_wireframe_revised(emitter):
 
     cache.subscribe_to_events(emitter)
 
-    await emitter.emit(WireframeRevised(
-        screen_id="post-a-job",
-        from_revision=1,
-        to_revision=2,
-        trigger="operator_feedback",
-        timestamp=_ts(),
-    ))
+    await emitter.emit(
+        WireframeRevised(
+            screen_id="post-a-job",
+            from_revision=1,
+            to_revision=2,
+            trigger="operator_feedback",
+            timestamp=_ts(),
+        )
+    )
 
     assert cache.get(target) is None
     assert cache.get(sibling) is not None
@@ -231,12 +227,14 @@ async def test_subscribe_invalidates_on_ticket_state_changed(emitter):
 
     cache.subscribe_to_events(emitter)
 
-    await emitter.emit(TicketStateChanged(
-        ticket_id="t-001",
-        from_state="open",
-        to_state="in_progress",
-        timestamp=_ts(),
-    ))
+    await emitter.emit(
+        TicketStateChanged(
+            ticket_id="t-001",
+            from_state="open",
+            to_state="in_progress",
+            timestamp=_ts(),
+        )
+    )
 
     assert cache.get(target) is None
     assert cache.get(sibling) is not None
@@ -249,12 +247,14 @@ async def test_unrelated_event_does_not_invalidate(emitter):
     cache.subscribe_to_events(emitter)
 
     # TicketStateChanged shouldn't touch arch entries.
-    await emitter.emit(TicketStateChanged(
-        ticket_id="t-001",
-        from_state="open",
-        to_state="done",
-        timestamp=_ts(),
-    ))
+    await emitter.emit(
+        TicketStateChanged(
+            ticket_id="t-001",
+            from_state="open",
+            to_state="done",
+            timestamp=_ts(),
+        )
+    )
     assert cache.get(arch) is not None
 
 
@@ -296,9 +296,7 @@ def test_resolve_project_uri_uses_cache_when_provided(monkeypatch, tmp_path):
         call_count[0] += 1
         return spec, tmp_path / "spec.yaml"
 
-    monkeypatch.setattr(
-        "jig.spec_loader.load_structured_spec", fake_loader
-    )
+    monkeypatch.setattr("jig.spec_loader.load_structured_spec", fake_loader)
     out1 = resolver_mod.resolve_project_uri(
         "project://spec/capabilities/due-dates", tmp_path, cache=cache
     )
@@ -309,9 +307,7 @@ def test_resolve_project_uri_uses_cache_when_provided(monkeypatch, tmp_path):
     assert call_count[0] == 1
 
 
-def test_resolve_project_uri_no_cache_kwarg_is_backward_compat(
-    monkeypatch, tmp_path
-):
+def test_resolve_project_uri_no_cache_kwarg_is_backward_compat(monkeypatch, tmp_path):
     """Default behaviour (no cache kwarg) calls loader every time."""
     from jig.uri import resolver as resolver_mod
 
@@ -322,13 +318,7 @@ def test_resolve_project_uri_no_cache_kwarg_is_backward_compat(
         call_count[0] += 1
         return spec, tmp_path / "spec.yaml"
 
-    monkeypatch.setattr(
-        "jig.spec_loader.load_structured_spec", fake_loader
-    )
-    resolver_mod.resolve_project_uri(
-        "project://spec/capabilities/due-dates", tmp_path
-    )
-    resolver_mod.resolve_project_uri(
-        "project://spec/capabilities/due-dates", tmp_path
-    )
+    monkeypatch.setattr("jig.spec_loader.load_structured_spec", fake_loader)
+    resolver_mod.resolve_project_uri("project://spec/capabilities/due-dates", tmp_path)
+    resolver_mod.resolve_project_uri("project://spec/capabilities/due-dates", tmp_path)
     assert call_count[0] == 2

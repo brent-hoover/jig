@@ -24,7 +24,9 @@ semgrep_required = pytest.mark.skipif(
 )
 
 
-def _make_worktree(tmp_path: Path, *, code: str | None, rules: list[dict] | None) -> Path:
+def _make_worktree(
+    tmp_path: Path, *, code: str | None, rules: list[dict] | None
+) -> Path:
     """Build <project>/.jig/worktrees/t1/ with optional module code + project-
     root boundary rules. Returns the worktree path."""
     worktree = tmp_path / ".jig" / "worktrees" / "t1"
@@ -61,9 +63,7 @@ async def test_boundary_check_raises_on_violation(tmp_path):
 
 @semgrep_required
 async def test_boundary_check_passes_compliant_code(tmp_path):
-    worktree = _make_worktree(
-        tmp_path, code="import httpx\n", rules=[_requests_rule()]
-    )
+    worktree = _make_worktree(tmp_path, code="import httpx\n", rules=[_requests_rule()])
     assert await _boundary_check(worktree) == []  # enforced clean, no warnings
 
 
@@ -96,9 +96,7 @@ async def test_boundary_check_degrades_on_semgrep_error(tmp_path, monkeypatch):
         return _FakeProc()
 
     monkeypatch.setattr("jig.worktree.shutil.which", lambda _: "/usr/bin/semgrep")
-    monkeypatch.setattr(
-        "jig.worktree.asyncio.create_subprocess_exec", _fake_exec
-    )
+    monkeypatch.setattr("jig.worktree.asyncio.create_subprocess_exec", _fake_exec)
     # exit >= 2 is a tool error → loud-degrade (warning returned), NOT a
     # BoundaryViolationError
     warnings = await _boundary_check(worktree)

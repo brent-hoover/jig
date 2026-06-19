@@ -949,4 +949,3 @@ classDiagram
 - **Daemon Resilience**: DaemonClient auto-reconnects with exponential backoff (1s → 30s). The TUI remains responsive even during daemon disconnection; screens show "waiting for…" states.
 
 - **Role-Based Styling**: The Now screen applies consistent color schemes to agent roles so operators quickly identify which agent is speaking. These colors are defined in `_ROLE_COLORS`, `_ROLE_BG_TINTS`, and `_ROLE_BANNER_BG` dicts.
-

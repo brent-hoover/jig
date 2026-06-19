@@ -1,4 +1,5 @@
 """Tests for jig.spec_schema — CapabilityState, UserStory, Behavior, NonGoal."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -6,7 +7,14 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from jig.spec_schema import Capability, CapabilityState, UserStory, Behavior, NonGoal, StructuredSpec
+from jig.spec_schema import (
+    Capability,
+    CapabilityState,
+    UserStory,
+    Behavior,
+    NonGoal,
+    StructuredSpec,
+)
 
 
 def _now() -> datetime:
@@ -21,18 +29,25 @@ def _ts() -> dict:
 
 def test_capability_state_values():
     assert {s.value for s in CapabilityState} == {
-        "backlog", "planned_uncommitted", "planned", "in_progress", "built", "archived",
+        "backlog",
+        "planned_uncommitted",
+        "planned",
+        "in_progress",
+        "built",
+        "archived",
     }
 
 
 def test_user_story_uses_as_alias():
     """`as` is a Python keyword, so the field is `as_` with `alias='as'`.
     YAML/dict input uses `as`."""
-    s = UserStory.model_validate({
-        "as": "busy professional",
-        "want": "due dates",
-        "benefit": "I never miss a deadline",
-    })
+    s = UserStory.model_validate(
+        {
+            "as": "busy professional",
+            "want": "due dates",
+            "benefit": "I never miss a deadline",
+        }
+    )
     assert s.as_ == "busy professional"
     assert s.want == "due dates"
     assert s.benefit == "I never miss a deadline"
@@ -183,6 +198,7 @@ def test_structured_spec_minimal_empty():
 
 def test_structured_spec_round_trips_through_yaml():
     import yaml
+
     s = StructuredSpec(
         name="x",
         summary="y",
@@ -218,10 +234,12 @@ def test_behavior_id_accepts_single_character():
 
 def test_capability_by_id_or_alias_finds_by_id():
     spec = StructuredSpec(
-        name="x", summary="y",
+        name="x",
+        summary="y",
         capabilities=[
-            Capability(id="due-dates", title="t",
-                       state=CapabilityState.BACKLOG, **_ts()),
+            Capability(
+                id="due-dates", title="t", state=CapabilityState.BACKLOG, **_ts()
+            ),
         ],
         generated_at=_now(),
     )
@@ -232,11 +250,16 @@ def test_capability_by_id_or_alias_finds_by_id():
 
 def test_capability_by_id_or_alias_finds_by_alias():
     spec = StructuredSpec(
-        name="x", summary="y",
+        name="x",
+        summary="y",
         capabilities=[
-            Capability(id="deadlines", title="t",
-                       state=CapabilityState.BACKLOG,
-                       aliases=["due-dates"], **_ts()),
+            Capability(
+                id="deadlines",
+                title="t",
+                state=CapabilityState.BACKLOG,
+                aliases=["due-dates"],
+                **_ts(),
+            ),
         ],
         generated_at=_now(),
     )
@@ -252,7 +275,8 @@ def test_capability_by_id_or_alias_returns_none_for_unknown():
 
 def test_non_goal_by_id_or_alias_finds_by_alias():
     spec = StructuredSpec(
-        name="x", summary="y",
+        name="x",
+        summary="y",
         non_goals=[
             NonGoal(id="no-multi-user", text="multi", aliases=["no-collab"]),
         ],
@@ -268,7 +292,8 @@ def test_capability_in_progress_requires_ac():
     just `planned`. Regression coverage."""
     with pytest.raises(ValidationError):
         Capability(
-            id="x", title="t",
+            id="x",
+            title="t",
             state=CapabilityState.IN_PROGRESS,
             **_ts(),
         )
@@ -277,7 +302,8 @@ def test_capability_in_progress_requires_ac():
 def test_capability_built_requires_ac():
     with pytest.raises(ValidationError):
         Capability(
-            id="x", title="t",
+            id="x",
+            title="t",
             state=CapabilityState.BUILT,
             **_ts(),
         )

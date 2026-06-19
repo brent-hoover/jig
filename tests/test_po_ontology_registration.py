@@ -1,4 +1,5 @@
 """Verify role-scoped registration of project ontology MCP tools (Track B6 MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -134,9 +135,7 @@ OPERATOR_EDIT_TOOLS = {
 
 
 @pytest.mark.asyncio
-async def test_operator_edit_tools_register_when_allowed(
-    tmp_path, stores, monkeypatch
-):
+async def test_operator_edit_tools_register_when_allowed(tmp_path, stores, monkeypatch):
     """Track B Final adds three operator-edit tools that the L1 PO can
     invoke when the operator asks for a revision mid-walk."""
     tickets, threads, memory, bus = stores

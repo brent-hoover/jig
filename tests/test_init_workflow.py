@@ -438,8 +438,13 @@ async def test_prompt_sa_confirm_forwards_tech_decisions_and_size(tmp_path: Path
                 "template_name": "python",
                 "rationale": "cli tool",
                 "tech_decisions": [
-                    {"id": "http-client", "choice": "httpx", "rationale": "async/sync",
-                     "source_type": "context7", "source_ref": "/encode/httpx"}
+                    {
+                        "id": "http-client",
+                        "choice": "httpx",
+                        "rationale": "async/sync",
+                        "source_type": "context7",
+                        "source_ref": "/encode/httpx",
+                    }
                 ],
                 "size": "M",
             },
@@ -449,8 +454,9 @@ async def test_prompt_sa_confirm_forwards_tech_decisions_and_size(tmp_path: Path
     seen: dict = {}
 
     class _Spy:
-        async def ask_sa_confirm(self, *, template_name, rationale, tech_decisions,
-                                 size, console):
+        async def ask_sa_confirm(
+            self, *, template_name, rationale, tech_decisions, size, console
+        ):
             seen["tech_decisions"] = tech_decisions
             seen["size"] = size
             return ConfirmChoice.YES
@@ -659,9 +665,7 @@ async def _apply_scaffold_min(project, *, sa_path, tech_decisions=None, size="S"
             tickets=tickets,
             threads=threads,
         )
-    return yaml.safe_load(
-        (project / ".jig" / "spec" / "architecture.yaml").read_text()
-    )
+    return yaml.safe_load((project / ".jig" / "spec" / "architecture.yaml").read_text())
 
 
 async def test_apply_scaffold_writes_tech_decisions_and_size(tmp_path: Path):
@@ -677,7 +681,9 @@ async def test_apply_scaffold_writes_tech_decisions_and_size(tmp_path: Path):
             "version_pinned": "0.12",
         }
     ]
-    data = await _apply_scaffold_min(project, sa_path=True, tech_decisions=tds, size="M")
+    data = await _apply_scaffold_min(
+        project, sa_path=True, tech_decisions=tds, size="M"
+    )
     assert data["tech_decisions"] == tds
     assert data["size"] == "M"
 
@@ -695,7 +701,9 @@ async def test_apply_scaffold_writes_size_without_tech_decisions(tmp_path: Path)
 async def test_apply_scaffold_direct_path_writes_neither(tmp_path: Path):
     project = tmp_path / "p"
     create_stub(project, name="p")
-    data = await _apply_scaffold_min(project, sa_path=False, tech_decisions=[], size="M")
+    data = await _apply_scaffold_min(
+        project, sa_path=False, tech_decisions=[], size="M"
+    )
     assert "size" not in data
     assert "tech_decisions" not in data
 
@@ -754,9 +762,7 @@ async def test_apply_scaffold_sa_accept_seam_from_proposal(tmp_path: Path):
             tickets=tickets,
             threads=threads,
         )
-    data = yaml.safe_load(
-        (project / ".jig" / "spec" / "architecture.yaml").read_text()
-    )
+    data = yaml.safe_load((project / ".jig" / "spec" / "architecture.yaml").read_text())
     assert data["tech_decisions"] == tds
     assert data["size"] == "M"
 
@@ -799,8 +805,12 @@ def test_scaffold_summary_inferred_decision_warns(tmp_path: Path):
         {
             "template": "python",
             "tech_decisions": [
-                {"id": "auth-api", "choice": "oauth", "rationale": "no public docs",
-                 "source_type": "inferred"}
+                {
+                    "id": "auth-api",
+                    "choice": "oauth",
+                    "rationale": "no public docs",
+                    "source_type": "inferred",
+                }
             ],
         },
     )
@@ -854,8 +864,12 @@ async def test_create_planning_ticket_not_blocked_by_inferred(tmp_path: Path):
         {
             "template": "python",
             "tech_decisions": [
-                {"id": "auth-api", "choice": "oauth", "rationale": "no public docs",
-                 "source_type": "inferred"}
+                {
+                    "id": "auth-api",
+                    "choice": "oauth",
+                    "rationale": "no public docs",
+                    "source_type": "inferred",
+                }
             ],
         },
     )

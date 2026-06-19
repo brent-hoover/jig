@@ -6,6 +6,7 @@ renderer (Pydantic class). MVP scope: one renderer, deterministic
 template substitution. The other formats (OpenAPI, SQL DDL, etc.)
 are deferred per the v2 sequencing table.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -164,16 +165,12 @@ def test_generated_source_imports_and_validates_an_instance(tmp_path: Path):
     import importlib.util
     import sys
 
-    contract = _contract(
-        fields={"sku": "str", "qty": "int", "tags": "list[str]"}
-    )
+    contract = _contract(fields={"sku": "str", "qty": "int", "tags": "list[str]"})
     src = render_pydantic_from_data_contract(contract)
     module_file = tmp_path / "generated_product_row.py"
     module_file.write_text(src)
 
-    spec = importlib.util.spec_from_file_location(
-        "generated_product_row", module_file
-    )
+    spec = importlib.util.spec_from_file_location("generated_product_row", module_file)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["generated_product_row"] = mod
@@ -251,9 +248,7 @@ def test_cli_render_pydantic_unknown_module(tmp_path: Path):
 def test_cli_render_pydantic_unknown_contract(tmp_path: Path):
     runner = CliRunner()
     contract = _contract(fields={"x": "int"})
-    _write_contracts_with_data_contract(
-        tmp_path, module_id="m", contract=contract
-    )
+    _write_contracts_with_data_contract(tmp_path, module_id="m", contract=contract)
     result = runner.invoke(
         cli,
         [
@@ -272,9 +267,7 @@ def test_cli_render_pydantic_unknown_contract(tmp_path: Path):
 def test_cli_render_pydantic_handles_missing_fields_payload(tmp_path: Path):
     runner = CliRunner()
     contract = _contract(fields=None)
-    _write_contracts_with_data_contract(
-        tmp_path, module_id="m", contract=contract
-    )
+    _write_contracts_with_data_contract(tmp_path, module_id="m", contract=contract)
     result = runner.invoke(
         cli,
         ["render", "pydantic", "m", "product-row", "--path", str(tmp_path)],
@@ -320,7 +313,9 @@ def test_rendered_header_includes_regenerate_hint():
 
 
 @pytest.mark.asyncio
-async def test_module_set_data_contract_auto_renders_when_fields_present(tmp_path: Path):
+async def test_module_set_data_contract_auto_renders_when_fields_present(
+    tmp_path: Path,
+):
     """When module_set_data_contract is invoked with a contract that
     carries inline fields, the handler atomically writes a Pydantic
     file under .jig/generated/contracts/<module>/<contract>.py."""
@@ -334,9 +329,7 @@ async def test_module_set_data_contract_auto_renders_when_fields_present(tmp_pat
         data_contract=contract.model_dump(mode="json"),
     )
     assert cid == "product-row"
-    expected = generated_contract_path(
-        tmp_path, "catalog-ingest", "product-row"
-    )
+    expected = generated_contract_path(tmp_path, "catalog-ingest", "product-row")
     assert expected.is_file()
     src = expected.read_text()
     assert "class ProductRow(BaseModel):" in src
@@ -510,12 +503,8 @@ async def test_generated_file_is_importable_round_trip(tmp_path: Path):
         data_contract=contract.model_dump(mode="json"),
     )
 
-    target = generated_contract_path(
-        tmp_path, "catalog-ingest", "round-trip-row"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "round_trip_row", target
-    )
+    target = generated_contract_path(tmp_path, "catalog-ingest", "round-trip-row")
+    spec = importlib.util.spec_from_file_location("round_trip_row", target)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["round_trip_row"] = mod

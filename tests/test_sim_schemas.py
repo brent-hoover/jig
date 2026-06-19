@@ -10,6 +10,7 @@ superset (policy-driven turns, coverage_tags, realism budget, etc.). The
 bones subset captures only what the bones scenario actually needs;
 extension fields land alongside the workflows that need them.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -87,9 +88,7 @@ def test_cost_under_budget_round_trips():
 
 def test_assertion_rejects_unknown_kind():
     with pytest.raises(ValidationError):
-        ScenarioAssertion.validate_python(
-            {"kind": "made_up_kind", "path": ".jig/x"}
-        )
+        ScenarioAssertion.validate_python({"kind": "made_up_kind", "path": ".jig/x"})
 
 
 def test_assertion_rejects_unknown_fields():

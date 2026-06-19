@@ -35,8 +35,7 @@ from jig.tui.screens.now import NowScreen
 # ``[pm:planning] text:`` log lines from the run that produced
 # the scrollback corruption the operator screenshot captured.
 PM_TEXT_1 = (
-    "Now I have the full picture. Let me draft the plan and post it "
-    "for approval."
+    "Now I have the full picture. Let me draft the plan and post it for approval."
 )
 PM_TEXT_2 = (
     "Here's the plan I've drafted: **4 tickets, linear chain** "
@@ -163,7 +162,6 @@ async def test_pm_planning_text_no_lines_exceed_widget_width(
             f"{len(offenders)} line(s) exceed it (would bleed into the "
             "Sidebar gutter):\n  "
             + "\n  ".join(
-                f"line {i}: cell_len={n}, text={text!r}"
-                for i, n, text in offenders
+                f"line {i}: cell_len={n}, text={text!r}" for i, n, text in offenders
             )
         )

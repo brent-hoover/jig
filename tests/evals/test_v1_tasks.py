@@ -85,7 +85,9 @@ def test_task_has_required_files(task_id: str) -> None:
     missing = [name for name in required if not (task_dir / name).exists()]
     assert not missing, f"{task_id}: missing {missing}"
     # Either reference.md or reference.py must exist.
-    has_reference = (task_dir / "reference.md").exists() or (task_dir / "reference.py").exists()
+    has_reference = (task_dir / "reference.md").exists() or (
+        task_dir / "reference.py"
+    ).exists()
     assert has_reference, f"{task_id}: neither reference.md nor reference.py present"
 
 

@@ -1,4 +1,5 @@
 """Tests for jig.daemon — background process management."""
+
 import os
 import socket
 import time
@@ -152,7 +153,9 @@ def test_allocate_ws_port_falls_back_when_preferred_busy():
 # ---------------------------------------------------------------------------
 
 
-def test_daemon_status_reports_docker_when_container_file_present(tmp_path, monkeypatch):
+def test_daemon_status_reports_docker_when_container_file_present(
+    tmp_path, monkeypatch
+):
     """When daemon.container exists and container is alive, status reports docker."""
     paths = daemon_paths(tmp_path, ensure=True)
     paths.container_file.write_text("abc123def456")

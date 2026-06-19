@@ -1,4 +1,5 @@
 """Tests for dev-environment manifest derivation (Track E MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -246,7 +247,9 @@ def test_dev_manifest_rejects_service_without_template():
     template at provision time; a missing entry is a runtime
     KeyError on the agent's first I/O.
     """
-    with pytest.raises(ValidationError, match="missing from connection_string_templates"):
+    with pytest.raises(
+        ValidationError, match="missing from connection_string_templates"
+    ):
         DevManifest(
             services=[_service("svc-a"), _service("svc-b")],
             connection_string_templates={

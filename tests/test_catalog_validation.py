@@ -182,9 +182,7 @@ class TestReadsGlobInvariants:
         # No exception.
         validate_catalog(initialized_project)
 
-    def test_no_reads_glob_no_constraints(
-        self, initialized_project: Path
-    ) -> None:
+    def test_no_reads_glob_no_constraints(self, initialized_project: Path) -> None:
         """A role WITHOUT ``reads_glob`` is unscoped — the
         invariants don't apply. Legacy roles with ``Read`` +
         ``Bash(git diff*)`` continue to work unchanged."""
@@ -250,9 +248,7 @@ class TestCheckReferences:
                         },
                         "pytest-new-tests-fail": {
                             "type": "scripted",
-                            "command": (
-                                "python -m jig.check_helpers.pytest_diff red"
-                            ),
+                            "command": ("python -m jig.check_helpers.pytest_diff red"),
                         },
                     }
                 }

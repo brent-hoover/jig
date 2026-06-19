@@ -3,6 +3,7 @@
 Tests the canonical-tag taxonomy + ``compute_coverage`` aggregation +
 ``format_coverage`` markdown rendering + the ``jig sim coverage`` CLI.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,12 +32,22 @@ from jig.sim.scenario import Scenario, load_scenario
 def test_canonical_tags_has_known_categories():
     """Spot-check the load-bearing categories from the task taxonomy."""
     for tag in (
-        "po-l0", "po-l1", "po-l2", "po-l3",
-        "sa-bones", "sa-incremental", "sa-risks",
-        "sa-spike-mitigated", "sa-spike-confirmed-impossible", "sa-cascade",
-        "pm-planner", "pm-coordinator-bones", "pm-coordinator-multi-layer",
+        "po-l0",
+        "po-l1",
+        "po-l2",
+        "po-l3",
+        "sa-bones",
+        "sa-incremental",
+        "sa-risks",
+        "sa-spike-mitigated",
+        "sa-spike-confirmed-impossible",
+        "sa-cascade",
+        "pm-planner",
+        "pm-coordinator-bones",
+        "pm-coordinator-multi-layer",
         "pm-deferred",
-        "dev-mock", "dev-real",
+        "dev-mock",
+        "dev-real",
         "reviewer-contract-compliance",
         "reviewer-cross-cutting-policy",
         "reviewer-spec-compliance",
@@ -294,9 +305,7 @@ def test_compute_coverage_with_threshold_meets_when_above():
 def test_compute_coverage_with_threshold_fails_when_below():
     """Library covering < threshold fails the gate."""
     scn = _scn("s1", ["po-l0"])
-    report = compute_coverage_with_threshold(
-        [scn], CoverageThreshold(min_percent=80.0)
-    )
+    report = compute_coverage_with_threshold([scn], CoverageThreshold(min_percent=80.0))
     assert report.meets_threshold is False
     # Single tag covered out of >>1 canonical tags ≪ 80%.
     assert report.coverage_percent < 80.0
@@ -316,9 +325,7 @@ def test_compute_coverage_threshold_renders_in_format():
 
 def test_compute_coverage_threshold_render_fail_state():
     scn = _scn("s1", ["po-l0"])
-    report = compute_coverage_with_threshold(
-        [scn], CoverageThreshold(min_percent=80.0)
-    )
+    report = compute_coverage_with_threshold([scn], CoverageThreshold(min_percent=80.0))
     out = format_coverage(report)
     assert "FAIL" in out
 
@@ -349,9 +356,7 @@ def test_cli_coverage_threshold_fail_on_empty_dir(tmp_path: Path):
 def test_cli_run_tier_enforce_threshold_pass(tmp_path: Path):
     """``run-tier smoke --enforce-threshold 1`` passes against in-tree library."""
     runner = CliRunner()
-    result = runner.invoke(
-        sim, ["run-tier", "smoke", "--enforce-threshold", "1.0"]
-    )
+    result = runner.invoke(sim, ["run-tier", "smoke", "--enforce-threshold", "1.0"])
     assert result.exit_code == 0, result.output
     assert "Coverage:" in result.output
 

@@ -6,6 +6,7 @@ notes wrappers. Tests pin two things:
 1. A role with all of them in ``allowed_tools`` sees them on its server.
 2. Strict-tools gating keeps them off roles that don't grant them.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,9 +60,7 @@ def _names(captured):
 
 
 @pytest.mark.asyncio
-async def test_vd_role_exposes_all_vd_tools(
-    tmp_path, stores, monkeypatch
-):
+async def test_vd_role_exposes_all_vd_tools(tmp_path, stores, monkeypatch):
     tickets, threads, memory, bus = stores
     cfg = RoleConfig(
         role="vd",
@@ -86,9 +85,7 @@ async def test_vd_role_exposes_all_vd_tools(
 
 
 @pytest.mark.asyncio
-async def test_vd_tools_not_registered_when_not_allowed(
-    tmp_path, stores, monkeypatch
-):
+async def test_vd_tools_not_registered_when_not_allowed(tmp_path, stores, monkeypatch):
     """Strict-tools gating keeps VD tools off roles that don't grant them."""
     tickets, threads, memory, bus = stores
     cfg = RoleConfig(

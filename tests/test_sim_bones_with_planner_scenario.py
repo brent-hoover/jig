@@ -5,6 +5,7 @@ goes through the v2 Planner PM agent path (``invoke_plan_finalize``)
 rather than the operator hand-write helper. This proves the Planner
 integrates end-to-end with the rest of the v2 spine in mock mode.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -19,9 +20,7 @@ from jig.sim.scenario import load_scenario
 pytestmark = pytest.mark.sim_smoke
 
 
-SCENARIO_PATH = (
-    Path(__file__).parent / "scenarios" / "bones-with-planner.scenario.yaml"
-)
+SCENARIO_PATH = Path(__file__).parent / "scenarios" / "bones-with-planner.scenario.yaml"
 
 
 def _seed_repo(root: Path) -> None:

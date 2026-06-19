@@ -7,6 +7,7 @@ which triggers cascade-proposal generation; this test verifies the
 artifact landed under ``.jig/arch/cascades/`` and that the architecture
 ticket carries the cascade Handoff for operator review.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -26,11 +27,7 @@ from jig.thread import Handoff
 pytestmark = pytest.mark.sim_smoke
 
 
-SCENARIO_PATH = (
-    Path(__file__).parent
-    / "scenarios"
-    / "bones-with-cascade.scenario.yaml"
-)
+SCENARIO_PATH = Path(__file__).parent / "scenarios" / "bones-with-cascade.scenario.yaml"
 
 
 def _seed_repo(root: Path) -> None:

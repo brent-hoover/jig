@@ -33,9 +33,7 @@ def _result_message(
     stop_reason: str | None = "end_turn",
 ) -> ResultMessage:
     resolved_usage = (
-        {"input_tokens": 50, "output_tokens": 30}
-        if usage is _SENTINEL
-        else usage
+        {"input_tokens": 50, "output_tokens": 30} if usage is _SENTINEL else usage
     )
     return ResultMessage(
         subtype="success",

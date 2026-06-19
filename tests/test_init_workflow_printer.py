@@ -8,6 +8,7 @@ spawn-time UI (rule + spinner) is handled by ``_spawn_status`` which
 uses rich's Status; not unit-tested directly because it's
 display-only and Live composition is brittle to mock.
 """
+
 from __future__ import annotations
 
 from jig.events import JigEvent
@@ -25,18 +26,24 @@ def test_format_event_text_is_suppressed():
 def test_format_event_tool_calls_are_suppressed():
     """Tool invocations are implementation noise — the agent's actions
     surface through the structured prompts that follow."""
-    assert _format_event(
-        JigEvent(
-            "agent_tool",
-            {"role": "po", "tool": "Bash", "detail": "ls -la"},
+    assert (
+        _format_event(
+            JigEvent(
+                "agent_tool",
+                {"role": "po", "tool": "Bash", "detail": "ls -la"},
+            )
         )
-    ) is None
-    assert _format_event(
-        JigEvent(
-            "agent_tool",
-            {"role": "po", "tool": "mcp__jig__brief_list_sections"},
+        is None
+    )
+    assert (
+        _format_event(
+            JigEvent(
+                "agent_tool",
+                {"role": "po", "tool": "mcp__jig__brief_list_sections"},
+            )
         )
-    ) is None
+        is None
+    )
 
 
 def test_format_event_tool_result_success_is_suppressed():
@@ -78,8 +85,12 @@ def test_format_event_suppresses_toolsearch_errors_too():
     out = _format_event(
         JigEvent(
             "agent_tool_result",
-            {"role": "po", "tool": "ToolSearch", "is_error": True,
-             "excerpt": "schema fetch failed"},
+            {
+                "role": "po",
+                "tool": "ToolSearch",
+                "is_error": True,
+                "excerpt": "schema fetch failed",
+            },
         )
     )
     assert out is None

@@ -13,7 +13,9 @@ from jig.prompt_registry import PromptRegistry
 from jig.tui.tui_prompts import TuiPromptHandler
 
 
-def _scripted_replier(emitter: EventEmitter, registry: PromptRegistry, replies: list[str]):
+def _scripted_replier(
+    emitter: EventEmitter, registry: PromptRegistry, replies: list[str]
+):
     """Helper: subscribe to emitter, deliver scripted replies in order
     when prompt_request events arrive. Returns a task you can await on
     or cancel."""
@@ -52,6 +54,7 @@ async def test_brief_approval_resolves(tmp_path: Path):
     replier = _scripted_replier(emitter, registry, ["Y"])
     try:
         from rich.console import Console
+
         choice = await asyncio.wait_for(
             handler.ask_brief_approval(project_path=tmp_path, console=Console()),
             timeout=2.0,
@@ -69,6 +72,7 @@ async def test_branch_choice_default_yes_maps_to_sa():
     replier = _scripted_replier(emitter, registry, ["Y"])
     try:
         from rich.console import Console
+
         choice = await asyncio.wait_for(
             handler.ask_branch_choice(console=Console()),
             timeout=2.0,
@@ -86,6 +90,7 @@ async def test_sa_confirm_swap_round_trips():
     replier = _scripted_replier(emitter, registry, ["swap"])
     try:
         from rich.console import Console
+
         choice = await asyncio.wait_for(
             handler.ask_sa_confirm(
                 template_name="python-cli",
@@ -112,6 +117,7 @@ async def test_direct_template_loops_on_bad_input():
     replier = _scripted_replier(emitter, registry, ["abc", "99", "2"])
     try:
         from rich.console import Console
+
         # Patch render_template_list so we don't need real templates on disk
         with patch("jig.tui.tui_prompts.render_template_list", return_value="(list)"):
             name = await asyncio.wait_for(
@@ -134,6 +140,7 @@ async def test_force_confirm_no_returns_false(tmp_path: Path):
     replier = _scripted_replier(emitter, registry, ["N"])
     try:
         from rich.console import Console
+
         ok = await asyncio.wait_for(
             handler.ask_force_confirm(target=tmp_path, console=Console()),
             timeout=2.0,
@@ -153,7 +160,10 @@ async def test_question_answer_passes_through(tmp_path: Path):
     replier = _scripted_replier(emitter, registry, ["my answer"])
     try:
         from rich.console import Console
-        q = Question(ticket_id="brief", author="po", question="What is X?", target="any_human")
+
+        q = Question(
+            ticket_id="brief", author="po", question="What is X?", target="any_human"
+        )
         ans = await asyncio.wait_for(
             handler.ask_question_answer(
                 question=q, index=1, total=1, console=Console()

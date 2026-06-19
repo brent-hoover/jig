@@ -12,6 +12,7 @@ Tests verify:
 - the trace log records one row per intended interaction
 - existing scripted scenarios still pass when run in tui_mode
 """
+
 from __future__ import annotations
 
 import json
@@ -68,9 +69,7 @@ async def test_tui_adapter_creates_trace_file(tmp_path: Path):
 async def test_tui_adapter_records_jsonl_rows(tmp_path: Path):
     adapter = TuiDriverAdapter(project_root=tmp_path)
     await adapter.start()
-    await adapter.record(
-        step_kind="materialize_tickets", params={"x": 1}, tag="tui"
-    )
+    await adapter.record(step_kind="materialize_tickets", params={"x": 1}, tag="tui")
     await adapter.record(
         step_kind="run_reviewer", params={"ticket_id": "t1"}, tag="tui"
     )

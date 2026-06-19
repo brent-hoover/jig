@@ -1,4 +1,5 @@
 """L2 PO MCP tool handlers + capability-coverage validator (Track B4 MVP)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -173,7 +174,7 @@ def test_validate_coverage_surfaces_all_problems_in_one_message():
     discovery = _make_discovery(["a", "b", "c"])
     suites = [
         _suite(sid="s1", capabilities=["a", "rogue"]),  # extra
-        _suite(sid="s2", capabilities=["a"]),           # duplicate of 'a'
+        _suite(sid="s2", capabilities=["a"]),  # duplicate of 'a'
         # Missing 'b' and 'c'.
     ]
     with pytest.raises(ValueError) as exc:
@@ -227,8 +228,18 @@ async def test_l2_finalize_writes_suites_yaml(wired):
         bus=wired["bus"],
         project_path=wired["project_path"],
         suites=[
-            {"id": "onboarding", "title": "Onboarding", "summary": "x", "capabilities": ["a"]},
-            {"id": "catalog", "title": "Catalog", "summary": "y", "capabilities": ["b", "c"]},
+            {
+                "id": "onboarding",
+                "title": "Onboarding",
+                "summary": "x",
+                "capabilities": ["a"],
+            },
+            {
+                "id": "catalog",
+                "title": "Catalog",
+                "summary": "y",
+                "capabilities": ["b", "c"],
+            },
         ],
         author="po-l2",
     )

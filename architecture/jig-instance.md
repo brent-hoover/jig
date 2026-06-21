@@ -249,7 +249,7 @@ evaluability drivers. Suites → modules is **not** 1:1.
   Pure → directly testable; Build-owned but dependency-free.
 
 **SUBSTRATE** (dep: Model)
-- **Store** — JSONL persistence behind the `project://{spec,arch,plan,store}` URI authorities.
+- **Store** — JSONL persistence behind the `project://` URI authorities `{spec, arch, design, plan, store}`.
 - **Bus** — typed message stream (events, not magic strings).
 
 **RUNTIME** (dep: Model, Store, Bus)
@@ -257,11 +257,12 @@ evaluability drivers. Suites → modules is **not** 1:1.
   `RunAgent` contract, implementations = real / recorded / fixture. (Evaluability driver lands here.)
 
 **ENGINES** (dep DOWN on Model/Store/Bus/Runtime; **never sideways** — coordinate via Store authorities + Bus)
-- **Discovery** — interview engine; writes intent to `spec://`.
-- **Architecture** — SA engine; reads `spec://`, writes `arch://`; runs the SA↔operator loop. **Owns cascade**
-  (model-change propagation).
+- **Discovery** — interview engine; writes intent to `project://spec/...`.
+- **Architecture** — SA engine; reads `project://spec/...`, writes `project://arch/...`; runs the SA↔operator
+  loop. **Owns cascade** (model-change propagation).
 - **Visual Design (VD)** — frontend-architecture + visual-artifacts engine; **parallel to Architecture**;
-  reads `spec://`, writes `design://` (wireframes, screens, design system, frontend stack).
+  reads `project://spec/...`, writes `project://design/...` (wireframes, screens, design system, frontend
+  stack).
 - **Build** — the factory; wraps *Pipeline core (decide)* + *dispatch/effects shell* + *Supervisor*;
   orchestrates pipeline + review loop; invokes Enforcement + Agent Runtime.
 - **Enforcement** — checks library (mechanical + reviewers); invoked by Build.
@@ -278,8 +279,8 @@ evaluability drivers. Suites → modules is **not** 1:1.
 ### Key contracts (the boundaries that carry weight)
 
 1. **Store authorities (URI scheme)** — inter-engine coordination: engines don't call each other; they
-   read/write `spec` / `arch` / `plan` / `store` authorities + emit Bus events. Writer ownership:
-   Discovery→spec, Architecture→arch, PM/Build→plan.
+   read/write the `project://` authorities `spec` / `arch` / `design` / `plan` / `store` + emit Bus events.
+   Writer ownership: Discovery→spec, Architecture→arch, VD→design, PM/Build→plan.
 2. **`RunAgent` seam** — `spawn_context -> stream/result`; real vs recorded vs fixture. THE evaluability seam.
 3. **Build↔Enforcement** — `review(diff, invariant_context) -> findings`; Build orchestrates the fix-loop.
    Must be **headless-invocable** (review-loop eval driver).
@@ -298,7 +299,7 @@ Operator decisions (loop run and closed):
 - **Scope** → **greenfield-only for now.** Ongoing / existing-project journeys deferred; Reconciliation scoped
   to build-time drift, not project evolution (yet).
 - **VD / frontend-architecture** → **include a VD module** (ENGINES layer, parallel to Architecture; owns
-  `design://` — frontend stack, wireframes, screens, design system).
+  `project://design/...` — frontend stack, wireframes, screens, design system).
 
 Spikes registered for build-time (don't block approval — bounded explorations, not operator questions):
 - Can `decide()` be genuinely pure given the SDK's async/streaming nature?

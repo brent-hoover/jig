@@ -232,6 +232,68 @@ exists.
 
 ### Phase 2.3 — COMPLETE
 
-All seven suites decomposed to architectural resolution (user story + facets). Ready for **Phase 3**: the
-architect walks personas + suites and proposes Jig's module/boundary/contract structure, via the SA↔operator
-loop. The boundary-layer map in `model.md` / the Phase-3 proposal already sketched is the starting point.
+All seven suites decomposed to architectural resolution (user story + facets).
+
+## Phase 3 — Architecture (proposed)
+
+Architect's proposal for Jig itself, grounded in the 7 suites, the orchestrator decomposition, and the
+evaluability drivers. Suites → modules is **not** 1:1.
+
+### Modules by layer (allowed dependencies point DOWN only)
+
+**CORE** (pure, no I/O)
+- **Model** — Living-Invariant entities (Project, Persona, Journey, Capability, Suite, Boundary, Contract,
+  Module, Ontology, Trace) + the 5 invariants as pure functions; Ticket / Thread domain types.
+- **Pipeline core (`decide`)** — the pure per-ticket state machine `decide(state, event) -> (next, actions)`.
+  Pure → directly testable; Build-owned but dependency-free.
+
+**SUBSTRATE** (dep: Model)
+- **Store** — JSONL persistence behind the `project://{spec,arch,plan,store}` URI authorities.
+- **Bus** — typed message stream (events, not magic strings).
+
+**RUNTIME** (dep: Model, Store, Bus)
+- **Agent Runtime** — spawn/stream agents (SDK + sandbox + per-agent MCP). **The substitutable seam:** one
+  `RunAgent` contract, implementations = real / recorded / fixture. (Evaluability driver lands here.)
+
+**ENGINES** (dep DOWN on Model/Store/Bus/Runtime; **never sideways** — coordinate via Store authorities + Bus)
+- **Discovery** — interview engine; writes intent to `spec://`.
+- **Architecture** — SA engine; reads `spec://`, writes `arch://`; runs the SA↔operator loop.
+- **Build** — the factory; wraps *Pipeline core (decide)* + *dispatch/effects shell* + *Supervisor*;
+  orchestrates pipeline + review loop; invokes Enforcement + Agent Runtime.
+- **Enforcement** — checks library (mechanical + reviewers); invoked by Build.
+- **Reconciliation** — derive-actual-from-code + diff vs declared; new static-analysis dep; feeds Build.
+- **Evaluation** — offline measurement; drives Build / review-loop headless via the seam.
+
+**EDGE** (dep: engines via a thin daemon API, never internals)
+- **Operator Interface** — daemon + WS + TUI + CLI; persona variation localized HERE.
+
+> **God-object fix, concretely:** `orchestrator.py` → *Pipeline core (decide)* + *dispatch/effects shell* +
+> *Supervisor*, all inside Build. `cli.py` / `ws_server.py` / TUI → the EDGE thin client. The scattered
+> `schemas/` + `ticket.py` + `thread.py` → CORE Model.
+
+### Key contracts (the boundaries that carry weight)
+
+1. **Store authorities (URI scheme)** — inter-engine coordination: engines don't call each other; they
+   read/write `spec` / `arch` / `plan` / `store` authorities + emit Bus events. Writer ownership:
+   Discovery→spec, Architecture→arch, PM/Build→plan.
+2. **`RunAgent` seam** — `spawn_context -> stream/result`; real vs recorded vs fixture. THE evaluability seam.
+3. **Build↔Enforcement** — `review(diff, invariant_context) -> findings`; Build orchestrates the fix-loop.
+   Must be **headless-invocable** (review-loop eval driver).
+4. **Typed Bus events** — what the state machine consumes / the supervisor emits (kills magic-string topics).
+5. **Daemon API** — EDGE↔engines (command / event / snapshot protocol).
+
+Evaluability drivers concentrate on #2, #3, and a headless Build entry point.
+
+### SA ↔ operator loop — open questions + spikes (the resume point)
+
+**Operator-answerable (need the operator's call):**
+- Does **"Orchestrator" retire or narrow**? (ontology decision)
+- **Cascade governance**: Architecture or Reconciliation?
+- **Scope**: greenfield-only, or must the architecture also support ongoing / existing-project journeys?
+  (drives how prominent Reconciliation is)
+- **VD / frontend-architecture**: a module for Jig itself, or N/A for a TUI?
+
+**Spikes (technical unknowns):**
+- Can `decide()` be genuinely pure given the SDK's async/streaming nature? (prototype decide + shell)
+- Static-analysis approach for Reconciliation (validate drift detection on Jig itself).
+- Agent record/replay for fixture-based evals (the `RunAgent` fake).

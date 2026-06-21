@@ -196,9 +196,10 @@ review→fix→re-review; Enforcement provides reviewers/findings; Agent Runtime
 
 **Architectural signal for the SA:** this is the **mostly-missing "living" leg.** It introduces a *new
 dependency on static code analysis* (derive actual structure), which nothing else needs. Structural drift =
-deterministic (graph diff); intent drift = reviewer-adjudicated; both **feed Build as work**. Boundary to
-settle: **cascade / model-change governance overlaps Architecture** (the SA owns contracts; reconciliation
-keeps things consistent when they change) — decide whether cascade lives here or in Architecture.
+deterministic (graph diff); intent drift = reviewer-adjudicated; both **feed Build as work**. **Resolved
+(Phase 3): cascade / model-change governance lives in Architecture** (SA owns contracts → owns changing them);
+Reconciliation handles only code↔model drift, and — per the greenfield-only scope — is scoped to build-time
+drift, not project evolution (yet).
 
 ### Suite: Evaluation (the measurement face)
 
@@ -257,7 +258,10 @@ evaluability drivers. Suites → modules is **not** 1:1.
 
 **ENGINES** (dep DOWN on Model/Store/Bus/Runtime; **never sideways** — coordinate via Store authorities + Bus)
 - **Discovery** — interview engine; writes intent to `spec://`.
-- **Architecture** — SA engine; reads `spec://`, writes `arch://`; runs the SA↔operator loop.
+- **Architecture** — SA engine; reads `spec://`, writes `arch://`; runs the SA↔operator loop. **Owns cascade**
+  (model-change propagation).
+- **Visual Design (VD)** — frontend-architecture + visual-artifacts engine; **parallel to Architecture**;
+  reads `spec://`, writes `design://` (wireframes, screens, design system, frontend stack).
 - **Build** — the factory; wraps *Pipeline core (decide)* + *dispatch/effects shell* + *Supervisor*;
   orchestrates pipeline + review loop; invokes Enforcement + Agent Runtime.
 - **Enforcement** — checks library (mechanical + reviewers); invoked by Build.
@@ -284,16 +288,22 @@ evaluability drivers. Suites → modules is **not** 1:1.
 
 Evaluability drivers concentrate on #2, #3, and a headless Build entry point.
 
-### SA ↔ operator loop — open questions + spikes (the resume point)
+### SA ↔ operator loop — RESOLVED (Phase 3 complete)
 
-**Operator-answerable (need the operator's call):**
-- Does **"Orchestrator" retire or narrow**? (ontology decision)
-- **Cascade governance**: Architecture or Reconciliation?
-- **Scope**: greenfield-only, or must the architecture also support ongoing / existing-project journeys?
-  (drives how prominent Reconciliation is)
-- **VD / frontend-architecture**: a module for Jig itself, or N/A for a TUI?
+Operator decisions (loop run and closed):
+- **Orchestrator** → **narrowed to the Build coordinator** (wires decide() core + dispatch/effects shell +
+  supervisor). Term survives with a precise scope; no longer a synonym for everything.
+- **Cascade governance** → **Architecture** (SA owns contracts → owns changing them). Reconciliation handles
+  only code↔model drift.
+- **Scope** → **greenfield-only for now.** Ongoing / existing-project journeys deferred; Reconciliation scoped
+  to build-time drift, not project evolution (yet).
+- **VD / frontend-architecture** → **include a VD module** (ENGINES layer, parallel to Architecture; owns
+  `design://` — frontend stack, wireframes, screens, design system).
 
-**Spikes (technical unknowns):**
-- Can `decide()` be genuinely pure given the SDK's async/streaming nature? (prototype decide + shell)
+Spikes registered for build-time (don't block approval — bounded explorations, not operator questions):
+- Can `decide()` be genuinely pure given the SDK's async/streaming nature?
 - Static-analysis approach for Reconciliation (validate drift detection on Jig itself).
 - Agent record/replay for fixture-based evals (the `RunAgent` fake).
+
+> **Phase 3 APPROVED → requirements-gathering + architecture complete.** Ready to build (PM build-plan +
+> factory loop = Phase 4).

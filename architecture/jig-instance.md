@@ -120,6 +120,118 @@ external integrations; feeds Architecture. Hard parts: stateful multi-turn inter
 approval gate) and a **dependency on Build/Factory** (spikes). Two kinds of "need more": operator-answerable →
 ask; technical-unknown → spike.
 
-### Remaining suites
+### Suite: Build (the factory loop)
 
-Build, Enforcement, Reconciliation, Evaluation, Operator Experience — decompose next, one suite at a time.
+| Capability | User story | Data | Integrations | NFR | Risk |
+|---|---|---|---|---|---|
+| Plan the build | As a dev, I want approved capabilities decomposed into ordered tickets (epics × bones/MVP/final), so work is sized and sequenced | BuildPlan / Epic / Ticket → plan store | reads arch + spec | low | med (decomposition + ordering quality) |
+| Dispatch tickets | As a dev, I want ready tickets dispatched to agents automatically, so work progresses without shepherding | ticket state transitions, agent tasks | **Agent Runtime, Bus** | concurrency, reliability | **HIGH** (this is the orchestrator god-object) |
+| Write tests for a ticket | As a dev, I want a test agent to write failing tests against AC, so the implementation is verified | test files → worktree | Agent Runtime, worktree | **QA/dev isolation** (FIRST_PRINCIPLES law 4) | med |
+| Implement a ticket | As a dev, I want a dev agent to implement against the contract + AC, so the capability gets built | code → worktree | Agent Runtime, worktree, per-agent MCP, sandbox | isolation | med-high |
+| Review a ticket | As a dev, I want federated reviewers run on the PR, so quality is gated before merge | review comments | **invokes Enforcement suite**, Agent Runtime | parallelism | med |
+| Validate & merge | As a dev, I want the worktree linted/tested and merged when green, so main stays coherent | check results, commit/merge | worktree, git | correctness gate | med |
+| Handle failure / escalation | As a dev, I want failed/stalled tickets escalated (replan / spike / operator), so the build never silently stalls | escalation, deferred queue | PM, operator, **Supervisor** | reliability | **HIGH** (deadlock / stall / cascade) |
+
+**Architectural signal for the SA — this is the crux suite.** Highest risk and highest coupling; it's where
+today's `orchestrator.py` god-object lives. The load-bearing architectural calls:
+
+1. **One per-ticket state machine (happy + sad path); one thin global supervisor.** The orchestrator's two
+   duties — *walk a ticket through the pipeline* and *deal with its problems* — are the **same** per-ticket
+   state machine: problems (blocked, needs-info, review-failed, merge-conflict) are its **sad-path
+   transitions**, decidable from `(ticket state + event)`. The **only** thing that is a separate engine is
+   cross-ticket / cross-time **detection** one ticket's state can't reveal: deadlock (cycle in the dependency
+   graph), stall (heartbeat timeout).
+   - **Decision test:** *can you decide it from one ticket's state + one event?* yes → state machine; no →
+     supervisor.
+   - **Single-writer rule (dissolves the entanglement):** the supervisor never mutates tickets — it **emits an
+     event** into the relevant ticket's state machine, which stays the sole writer of ticket state. A stall
+     sweep hands the machine a `stalled` event; it doesn't race the reactive path. (`deadlock.py` /
+     `stall_detector.py` become event-emitting detectors, not mutators.)
+   - **Naming (one concept, one home):** "Supervisor" is a *new* term (today's `ontology.md` has only
+     "Orchestrator", meaning everything). Post-decomposition "Orchestrator" must **narrow** (to the Build
+     coordinator wiring *ticket state machine* + *dispatch/effects* + *supervisor*) or **retire** — else it
+     becomes a synonym for its own parts. Supervisor ≠ Orchestrator.
+2. **Agent isolation** — QA/dev never share code (law 4); each agent gets a worktree + sandbox + own MCP.
+3. **Containment** — Build *invokes* Enforcement and Agent Runtime but must not *own* them (it depends down,
+   not sideways).
+4. **Evaluable in isolation (a stated driver — see README "Drivers").** The pipeline must run **headless** —
+   fed `ticket + contract + AC + worktree fixture`, returning `code + check results` — *without* the
+   daemon/TUI/whole app. Forces: (a) a programmatic entry point; (b) **Agent Runtime as a substitutable seam**
+   (real vs simulated/recorded/fixture agents — the code-side analog of the synthetic-operator simulator);
+   (c) the pure `decide()` machine is directly testable with synthetic events; (d) an Evaluation↔Build harness
+   contract. This is the original "hard to test" pain aimed at the pipeline — and it's *why* the
+   state-machine/shell split earns its keep.
+
+### Suite: Enforcement
+
+| Capability | User story | Data | Integrations | NFR | Risk |
+|---|---|---|---|---|---|
+| Mechanical structure checks | As a dev, I want boundary/dependency violations caught mechanically, so containment holds without judgment | check results | reads arch (boundaries) + code; import deny-lists / bwrap | fast, deterministic, per-commit | low |
+| Contract conformance checks | As a dev, I want code verified against its declared contracts, so pieces compose as promised | check results | arch contracts + code | deterministic-ish | med |
+| Trace / coverage checks | As a dev, I want orphan capabilities/contracts and uncovered journeys flagged, so coverage holds | graph-query results | reads full Living-Invariant graph | graph compute | low (**deterministic once trace is data** — the lever) |
+| Semantic review (LLM reviewers) | As a dev, I want reviewers to judge "does this code actually fulfill the behavior", so the residue mechanical checks can't decide is covered | findings / review comments | **Agent Runtime**, invoked by Build | parallel federation | med (LLM judgment quality) |
+| Severity & disposition | As a dev, I want findings triaged by severity (critical blocks merge), so the gate is calibrated | findings + acks + deferred queue | Build (merge gate), operator (override) | low | med |
+| Vocabulary / ontology enforcement | As a dev, I want synonym/term drift flagged against the ontology, so "one concept, one home" holds | check results | reads ontology + artifacts | low | low-med |
+
+**Architectural signal for the SA:** Enforcement is a **library of checks invoked by Build** (and run
+per-commit) — it depends down on the Model, never owns dispatch (clean containment: Build → Enforcement →
+Model). Mostly **deterministic** (structure / contract / trace / vocabulary); the only LLM piece is semantic
+review, which needs Agent Runtime. The trace/coverage checks collapse to deterministic graph queries **once
+trace edges are first-class data** — the central lever for "mechanical as much as possible."
+
+**Evaluability (stated driver):** the **code-review loop** must be runnable **headless on a labeled-diff
+fixture corpus** (`diff → expected findings`) with substitutable reviewer agents — so reviewer precision/recall
+and fix-loop convergence are measurable without the whole app. Cross-suite: Build orchestrates
+review→fix→re-review; Enforcement provides reviewers/findings; Agent Runtime supplies the agents.
+
+### Suite: Reconciliation (the "living" leg — mostly missing today)
+
+| Capability | User story | Data | Integrations | NFR | Risk |
+|---|---|---|---|---|---|
+| Derive actual structure from code | As a dev, I want the real import/dependency graph extracted from code, so declared structure can be compared to reality | derived graph | code analysis (grimp-like), catalog/graph modules | periodic / per-merge | med (derivation accuracy) |
+| Diff declared vs actual | As a dev, I want drift between the declared architecture and the real code surfaced, so the map can't silently lie | drift report | reads Model + derived structure | periodic | med |
+| Surface drift as work | As a dev, I want drift turned into tickets/findings, so reconciling is actionable, not just a report | tickets / findings | **Build** (creates work), operator (triage) | low | med |
+| Reconcile intent drift | As a dev, I want semantic drift (a contract no longer serving any journey) adjudicated, so intent stays honest too | findings | Agent Runtime (reviewer), Model | low | med (semantic) |
+| Govern model change (cascade) | As a dev, I want a change to the declared model to propagate to dependents under control, so the invariant evolves coherently | CascadeProposal / CascadeStage | Architecture (SA), operator approval | low | med-high |
+
+**Architectural signal for the SA:** this is the **mostly-missing "living" leg.** It introduces a *new
+dependency on static code analysis* (derive actual structure), which nothing else needs. Structural drift =
+deterministic (graph diff); intent drift = reviewer-adjudicated; both **feed Build as work**. Boundary to
+settle: **cascade / model-change governance overlaps Architecture** (the SA owns contracts; reconciliation
+keeps things consistent when they change) — decide whether cascade lives here or in Architecture.
+
+### Suite: Evaluation (the measurement face)
+
+| Capability | User story | Data | Integrations | NFR | Risk |
+|---|---|---|---|---|---|
+| Collect run metrics | As a dev, I want metrics collected from a completed run, so quality is measured not vibed | eval manifest → metrics store | reads run artifacts | low | low |
+| Define eval criteria | As a dev, I want to define what "good" means (criteria/judges), so measurement is meaningful | eval configs | Model (what to measure) | low | med (metric design) |
+| Run evals / judge | As a dev, I want evals run (incl. LLM-judge), so outputs are scored | eval results | Agent Runtime (judges) | batch / offline | med (judge reliability) |
+| Track quality over time | As a dev, I want metrics tracked across runs, so regressions surface | historical metrics | metrics store | low | low |
+| Feed enforcement / heuristics | As a dev, I want eval signal to tune enforcement thresholds, so the system learns | feedback | Enforcement, heuristics | low | med |
+
+**Architectural signal for the SA:** **read-mostly / offline** — observes runs and scores them; not in the
+critical build path. Depends on Agent Runtime (judges) + reads Model + run artifacts. Distinct from
+Reconciliation (eval = "is the output/architecture *good*?"; reconciliation = "does code *match* the declared
+model?"). The synthetic-operator simulator ties in here for workflow testing.
+
+### Suite: Operator Experience (the EDGE)
+
+| Capability | User story | Data | Integrations | NFR | Risk |
+|---|---|---|---|---|---|
+| Render board / state views | As a dev, I want data-rich views of tickets/agents/spec/events, so I can see what's happening | reads stores via WS | daemon / ws_server, stores | real-time, **persona density** | low |
+| Present gates & collect approvals | As a dev, I want gates that show what's being decided and collect structured approval/override, so I drive (tenet 5) | prompt req/reply, override reasons | daemon, analytics | interactive | med (gate UX = thinking tool) |
+| Drive the interview | As a dev, I want to conduct discovery through the UI, so authoring happens here | prompt flow | Discovery suite, daemon | stateful/interactive | med |
+| Issue commands / concierge | As a dev, I want slash commands + a concierge helper, so I can act and ask | command envelopes | daemon command registry | interactive | low |
+| Persona-conditioned rendering | As a dev/founder, I want views/gates at the right density for my persona | persona config | persona setting | **the variation point** | low (must stay localized) |
+
+**Architectural signal for the SA:** the **EDGE** — a thin client (TUI) over a daemon API; depends on engines
+through a thin API, **never their internals** (containment). It is where the **persona variation points are
+localized** (the 10–20%); persona-awareness leaking past here is the smell. Daemon/client split already
+exists.
+
+### Phase 2.3 — COMPLETE
+
+All seven suites decomposed to architectural resolution (user story + facets). Ready for **Phase 3**: the
+architect walks personas + suites and proposes Jig's module/boundary/contract structure, via the SA↔operator
+loop. The boundary-layer map in `model.md` / the Phase-3 proposal already sketched is the starting point.

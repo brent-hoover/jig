@@ -29,6 +29,20 @@ offers users. Jig is the hardest realistic test case we have, sitting right here
 the model surfaces in Jig's own code is either a real defect in Jig **or** a gap in the model's
 expressiveness. That signal is unfakeable.
 
+## Drivers (why this work)
+
+- **Comprehension + testability** (the original pains): hold the system in your head; isolate pieces to verify.
+- **Evaluable code-pipeline.** A primary motivation: the Build / code-pipeline must run **in isolation —
+  without the daemon/TUI/whole app — so it can be eval'd.** This is a first-class architectural requirement (a
+  fitness function), and it retro-justifies the Build decomposition: a pure `decide()` state machine + a
+  substitutable **Agent Runtime** seam are the *precondition* for headless pipeline evals (the code-side
+  analog of the synthetic-operator simulator). See `jig-instance.md` → Build suite signal #4.
+  - Applies equally to the **code-review loop** (reviewers + fix-loop): feed `diff + invariant context` →
+    `findings` → fix → re-review, headless, with substitutable reviewer/fix agents, against a **fixture corpus
+    of labeled diffs → expected findings** (reviewer precision/recall) plus a fix-loop **convergence** metric.
+    Cross-suite: **Build** orchestrates the loop, **Enforcement** judges, **Agent Runtime** supplies the
+    (substitutable) agents — so the requirement lands on all three boundaries.
+
 ## Files
 
 - `model.md` — the entity model, the invariants, the two-ladder structure, the lifecycle.

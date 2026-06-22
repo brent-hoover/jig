@@ -940,8 +940,13 @@ async def test_replan_fired_after_successful_conflict_resolution(
 
     replan_calls: list[tuple[str, list[str]]] = []
 
-    async def fake_try_replan(ticket_id, ticket, conflicted_files):
+    async def fake_try_replan(ticket_id, ticket, conflicted_files, **kwargs):
         replan_calls.append((ticket_id, list(conflicted_files)))
+        # Run any post-replan cleanup callback so the worktree is removed and
+        # the ticket can reach RESOLVED (mirrors real _try_replan behaviour).
+        cleanup = kwargs.get("_post_replan_cleanup")
+        if cleanup is not None:
+            await cleanup()
 
     orch._try_replan = fake_try_replan  # type: ignore[method-assign]
 
@@ -1016,7 +1021,7 @@ async def test_replan_not_fired_when_resolver_fails(
 
     replan_calls: list[str] = []
 
-    async def fake_try_replan(ticket_id, ticket, conflicted_files):
+    async def fake_try_replan(ticket_id, ticket, conflicted_files, **kwargs):
         replan_calls.append(ticket_id)
 
     orch._try_replan = fake_try_replan  # type: ignore[method-assign]

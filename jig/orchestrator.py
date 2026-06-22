@@ -2755,6 +2755,7 @@ class Orchestrator:
         _max_attempts: int = 3,
         _base_delay: float = 2.0,
         _sleep: Callable[[float], Awaitable[None]] | None = None,
+        _post_replan_cleanup: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Spawn a PM agent in REPLAN mode after a conflict is auto-resolved.
 
@@ -2765,75 +2766,93 @@ class Orchestrator:
         exponential backoff (``_base_delay * 2**i`` seconds between attempts).
         The ``_sleep`` parameter is injectable for tests that need instant
         execution.
+
+        ``_post_replan_cleanup`` is an optional async callback invoked after all
+        retry attempts finish (success or exhaustion). The caller should pass
+        the ticket-worktree ``remove_worktree`` coroutine here when scheduling
+        this task fire-and-forget — that guarantees the worktree stays alive
+        across every retry attempt and is cleaned up by the background task
+        rather than by the caller immediately after scheduling.
         """
         from jig.runtime import AgentSpawnContext, SpawnReason
 
-        if (
-            self._project is None
-            or self.tickets is None
-            or self.threads is None
-            or self.memory is None
-            or self.bus is None
-        ):
-            return
-
         try:
-            role_cfg = load_role(self._project_path, "pm")
-        except FileNotFoundError:
-            _logger.warning(
-                "_try_replan: pm role not found; skipping replan for %s",
-                ticket_id,
-            )
-            return
+            if (
+                self._project is None
+                or self.tickets is None
+                or self.threads is None
+                or self.memory is None
+                or self.bus is None
+            ):
+                return
 
-        sleep_fn: Callable[[float], Awaitable[None]] = (
-            _sleep if _sleep is not None else asyncio.sleep
-        )
-        worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
-        ctx = AgentSpawnContext(
-            role="pm",
-            role_cfg=role_cfg,
-            spawn_reason=SpawnReason.REPLAN,
-            ticket=ticket,
-            parent=None,
-            worktree_path=worktree_path,
-            project=self._project,
-            tickets=self.tickets,
-            threads=self.threads,
-            memory=self.memory,
-            bus=self.bus,
-            checkpoints=self.checkpoints,
-            initial_bus_message={
-                "kind": "replan_spawn",
-                "ticket_id": ticket_id,
-                "conflicted_files": conflicted_files,
-            },
-        )
-        for attempt in range(_max_attempts):
-            if not self._running:
-                return
             try:
-                await self._run_agent_with_analytics(ctx, spawned_by="replan")
+                role_cfg = load_role(self._project_path, "pm")
+            except FileNotFoundError:
+                _logger.warning(
+                    "_try_replan: pm role not found; skipping replan for %s",
+                    ticket_id,
+                )
                 return
-            except Exception as exc:
-                delay = _base_delay * (2**attempt)
-                if attempt < _max_attempts - 1:
+
+            sleep_fn: Callable[[float], Awaitable[None]] = (
+                _sleep if _sleep is not None else asyncio.sleep
+            )
+            worktree_path = self._project_path / ".jig" / "worktrees" / ticket_id
+            ctx = AgentSpawnContext(
+                role="pm",
+                role_cfg=role_cfg,
+                spawn_reason=SpawnReason.REPLAN,
+                ticket=ticket,
+                parent=None,
+                worktree_path=worktree_path,
+                project=self._project,
+                tickets=self.tickets,
+                threads=self.threads,
+                memory=self.memory,
+                bus=self.bus,
+                checkpoints=self.checkpoints,
+                initial_bus_message={
+                    "kind": "replan_spawn",
+                    "ticket_id": ticket_id,
+                    "conflicted_files": conflicted_files,
+                },
+            )
+            for attempt in range(_max_attempts):
+                if not self._running:
+                    return
+                try:
+                    await self._run_agent_with_analytics(ctx, spawned_by="replan")
+                    return
+                except Exception as exc:
+                    delay = _base_delay * (2**attempt)
+                    if attempt < _max_attempts - 1:
+                        _logger.warning(
+                            "_try_replan: attempt %d/%d failed for %s (retry in %.1fs): %s",
+                            attempt + 1,
+                            _max_attempts,
+                            ticket_id,
+                            delay,
+                            exc,
+                        )
+                        await sleep_fn(delay)
+                        if not self._running:
+                            return
+                    else:
+                        _logger.warning(
+                            "_try_replan: agent failed for %s after %d attempts",
+                            ticket_id,
+                            _max_attempts,
+                            exc_info=True,
+                        )
+        finally:
+            if _post_replan_cleanup is not None:
+                try:
+                    await _post_replan_cleanup()
+                except Exception:
                     _logger.warning(
-                        "_try_replan: attempt %d/%d failed for %s (retry in %.1fs): %s",
-                        attempt + 1,
-                        _max_attempts,
+                        "_try_replan: post-replan cleanup failed for %s",
                         ticket_id,
-                        delay,
-                        exc,
-                    )
-                    await sleep_fn(delay)
-                    if not self._running:
-                        return
-                else:
-                    _logger.warning(
-                        "_try_replan: agent failed for %s after %d attempts",
-                        ticket_id,
-                        _max_attempts,
                         exc_info=True,
                     )
 
@@ -2860,6 +2879,7 @@ class Orchestrator:
         merge_result = ""
         merge_conflict = False
         merge_failed = False
+        replan_task_scheduled = False
         if self._project is not None:
             strategy = self._project.merge_strategy
             try:
@@ -2892,11 +2912,40 @@ class Orchestrator:
                             "conflict resolved by agent, merge retry succeeded: %s",
                             merge_result,
                         )
+
+                        # Pass remove_worktree as the post-replan cleanup so the
+                        # background task owns the worktree lifetime.  Without
+                        # this, _on_ticket_completed removes the worktree before
+                        # any retry backoff sleep completes, causing retries to
+                        # run with a missing cwd/CLAUDE.md target.
+                        async def _worktree_cleanup() -> None:
+                            try:
+                                await remove_worktree(
+                                    self._project_path, ticket_id, keep_branch=True
+                                )
+                                _logger.info(
+                                    "worktree removed for %s (branch %s preserved)",
+                                    ticket_id,
+                                    branch_name,
+                                )
+                            except Exception:
+                                _logger.warning(
+                                    "worktree cleanup failed for %s",
+                                    ticket_id,
+                                    exc_info=True,
+                                )
+
                         _task = asyncio.create_task(
-                            self._try_replan(ticket_id, ticket, conflicted_files)
+                            self._try_replan(
+                                ticket_id,
+                                ticket,
+                                conflicted_files,
+                                _post_replan_cleanup=_worktree_cleanup,
+                            )
                         )
                         self._background_tasks.add(_task)
                         _task.add_done_callback(self._background_tasks.discard)
+                        replan_task_scheduled = True
                     except MergeConflictError as retry_exc:
                         merge_conflict = True
                         merge_result = str(retry_exc)
@@ -2980,13 +3029,23 @@ class Orchestrator:
 
         self._running_tickets.pop(ticket_id, None)
 
-        try:
-            await remove_worktree(self._project_path, ticket_id, keep_branch=True)
-            _logger.info(
-                "worktree removed for %s (branch %s preserved)", ticket_id, branch_name
-            )
-        except Exception:
-            _logger.warning("worktree cleanup failed for %s", ticket_id, exc_info=True)
+        # Skip worktree removal when a replan background task was scheduled:
+        # that task holds a reference to a _worktree_cleanup callback and will
+        # remove the worktree after all retry attempts complete.  Removing the
+        # worktree here would race against retry backoff sleeps, leaving retries
+        # with a missing cwd/CLAUDE.md target.
+        if not replan_task_scheduled:
+            try:
+                await remove_worktree(self._project_path, ticket_id, keep_branch=True)
+                _logger.info(
+                    "worktree removed for %s (branch %s preserved)",
+                    ticket_id,
+                    branch_name,
+                )
+            except Exception:
+                _logger.warning(
+                    "worktree cleanup failed for %s", ticket_id, exc_info=True
+                )
 
         await self._maybe_spawn_per_merge_canonicalize(ticket_id, ticket)
         await self._unblock_dependents(ticket_id, ticket)

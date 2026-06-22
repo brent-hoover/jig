@@ -660,3 +660,125 @@ async def test_normal_phase_dispatch_invokes_sdk_exactly_once(
         )
     finally:
         await orch.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Shutdown during replan backoff — background task must not outlive orchestrator
+# ---------------------------------------------------------------------------
+
+
+async def test_try_replan_stops_retrying_after_shutdown(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_try_replan must not spawn another PM SDK call after shutdown().
+
+    The orchestrator's shutdown() cancels background tasks (including any
+    in-flight _try_replan fire-and-forget task).  Additionally, after the
+    backoff sleep, _try_replan must check self._running and abort rather than
+    spawning another agent call.
+
+    This test drives the scenario directly: fail attempt 1, simulate shutdown
+    during the backoff sleep, then assert that attempt 2 never happens.
+    """
+    orch = await _make_orch(tmp_path)
+    tid, ticket = await _create_ticket(orch)
+    _stub_load_role(monkeypatch, "pm")
+
+    call_count = 0
+
+    async def fail_first_then_succeed(ctx, spawned_by="orchestrator"):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("transient failure on attempt 1")
+        return RunAgentResult(status="success", final_text="ok")
+
+    orch._run_agent_with_analytics = fail_first_then_succeed  # type: ignore[method-assign]
+
+    async def shutdown_during_sleep(seconds: float) -> None:
+        """Simulate shutdown happening while the backoff sleep is in progress."""
+        orch._running = False
+
+    await orch._try_replan(
+        tid,
+        ticket,
+        ["foo.py"],
+        _max_attempts=3,
+        _base_delay=2.0,
+        _sleep=shutdown_during_sleep,
+    )
+
+    # Only attempt 1 should have run; after the sleep _running is False so
+    # _try_replan must return without making attempt 2.
+    assert call_count == 1, (
+        f"_try_replan must stop after shutdown during backoff sleep; "
+        f"got {call_count} agent calls (expected 1)"
+    )
+
+    await orch.shutdown()
+
+
+async def test_shutdown_cancels_background_replan_task(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """shutdown() must cancel any in-flight _try_replan background task.
+
+    If _try_replan is sleeping during its backoff and shutdown() is called,
+    the background task (stored in _background_tasks) must be cancelled so it
+    cannot spawn another agent call after the orchestrator has stopped.
+    """
+    import asyncio
+
+    orch = await _make_orch(tmp_path)
+    tid, ticket = await _create_ticket(orch)
+    _stub_load_role(monkeypatch, "pm")
+
+    sleep_started = asyncio.Event()
+    sleep_cancelled = asyncio.Event()
+    agent_call_count = 0
+
+    async def fail_once(ctx, spawned_by="orchestrator"):
+        nonlocal agent_call_count
+        agent_call_count += 1
+        if agent_call_count == 1:
+            raise RuntimeError("first attempt fails")
+        return RunAgentResult(status="success", final_text="ok")
+
+    orch._run_agent_with_analytics = fail_once  # type: ignore[method-assign]
+
+    async def slow_sleep(seconds: float) -> None:
+        """Block until cancelled — simulates a long backoff window."""
+        sleep_started.set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            sleep_cancelled.set()
+            raise
+
+    # Manually schedule _try_replan as a background task the same way
+    # the orchestrator does, so shutdown() sees it in _background_tasks.
+    _task = asyncio.create_task(
+        orch._try_replan(
+            tid,
+            ticket,
+            ["foo.py"],
+            _max_attempts=3,
+            _base_delay=2.0,
+            _sleep=slow_sleep,
+        )
+    )
+    orch._background_tasks.add(_task)
+    _task.add_done_callback(orch._background_tasks.discard)
+
+    # Wait until the task is sleeping inside backoff, then shut down.
+    await asyncio.wait_for(sleep_started.wait(), timeout=5.0)
+    await orch.shutdown()
+
+    # The background task must have been cancelled.
+    assert _task.cancelled() or _task.done(), (
+        "background _try_replan task must be done after shutdown()"
+    )
+    # No second agent call should have been made.
+    assert agent_call_count == 1, (
+        f"shutdown must prevent the second agent call; got {agent_call_count} calls"
+    )

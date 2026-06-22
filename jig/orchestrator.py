@@ -1736,6 +1736,7 @@ class Orchestrator:
             tasks_to_cancel.append(self._reconcile_task)
         tasks_to_cancel.extend(self._running_tickets.values())
         tasks_to_cancel.extend(self._live_subscribers.values())
+        tasks_to_cancel.extend(list(self._background_tasks))
         for task in tasks_to_cancel:
             task.cancel()
         for task in tasks_to_cancel:
@@ -1747,6 +1748,7 @@ class Orchestrator:
                 _logger.warning("task raised during shutdown", exc_info=True)
         self._running_tickets.clear()
         self._live_subscribers.clear()
+        self._background_tasks.clear()
         self._dispatch_task = None
         self._service_task = None
         self._deadlock_task = None
@@ -2713,6 +2715,8 @@ class Orchestrator:
             },
         )
         for attempt in range(_max_attempts):
+            if not self._running:
+                return False
             try:
                 result = await self._run_agent_with_analytics(
                     ctx, spawned_by="conflict_resolver"
@@ -2731,6 +2735,8 @@ class Orchestrator:
                         exc,
                     )
                     await sleep_fn(delay)
+                    if not self._running:
+                        return False
                 else:
                     _logger.warning(
                         "_try_resolve_conflict: agent failed for %s after %d attempts",
@@ -2804,6 +2810,8 @@ class Orchestrator:
             },
         )
         for attempt in range(_max_attempts):
+            if not self._running:
+                return
             try:
                 await self._run_agent_with_analytics(ctx, spawned_by="replan")
                 return
@@ -2819,6 +2827,8 @@ class Orchestrator:
                         exc,
                     )
                     await sleep_fn(delay)
+                    if not self._running:
+                        return
                 else:
                     _logger.warning(
                         "_try_replan: agent failed for %s after %d attempts",

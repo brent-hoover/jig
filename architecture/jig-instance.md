@@ -308,3 +308,47 @@ Spikes registered for build-time (don't block approval — bounded explorations,
 
 > **Phase 3 APPROVED → requirements-gathering + architecture complete.** Ready to build (PM build-plan +
 > factory loop = Phase 4).
+
+## Phase 4 — Build (PM build-plan + factory loop)
+
+**Brownfield reality:** Jig is **not** greenfield — the code exists (the god objects). So Phase 4 for Jig is a
+**migration toward the approved architecture**, not a from-scratch build. (The greenfield-only scope decision
+was about what Jig *builds for others*, not Jig's own codebase.) The build plan decomposes the **gap** between
+current code and target.
+
+### Epics (≈ a module-cluster of work), in dependency order
+
+1. **CORE Model** — extract the Living-Invariant entities + 5 invariants into a pure, I/O-free module;
+   **dedupe `OntologyTerm`**, consolidate `schemas/` + `ticket.py` + `thread.py`. Foundational.
+2. **Substrate** — Store behind the `project://` authorities; Bus with **typed events** (kill magic-string
+   topics).
+3. **Agent Runtime seam** — the `RunAgent` contract + real / recorded / fixture impls (unlocks evaluability).
+4. **Build engine** — split `orchestrator.py` → **decide() core** (pure) + **dispatch/effects shell** +
+   **supervisor** (single-writer rule). The god-object fix.
+5. **Enforcement** — checks library (mechanical + reviewer federation) as a module Build *invokes*.
+6. **Authoring engines** — Discovery, Architecture, VD behind their `project://` authorities.
+7. **Reconciliation** — derive-actual-from-code + drift→work (new).
+8. **Evaluation** — headless harness driving Build + review-loop on fixture corpora.
+9. **EDGE** — daemon / WS / TUI / CLI as a thin client over the daemon API; persona variation localized here.
+
+### Layered progression (bones → MVP → final)
+
+- **Bones (walking skeleton — all epics' tracer bullets first):** stand up the target **boundaries + seams**
+  and flow **one thin happy path end-to-end** through the new structure (logic shimmed to old code where
+  needed). **Bones acceptance = the evaluability driver:** the code-pipeline *and* review loop run **headless
+  on a fixture, without the daemon/TUI**, using fake agents. Proving the seams compose early is the point.
+- **MVP (per epic):** migrate real logic behind each boundary; real enforcement checks; real interview.
+- **Final (per epic):** edge cases, full reviewer federation, reconciliation drift, full eval corpus.
+
+### Spikes (slot before the relevant epic's MVP)
+
+- **pure `decide()` under the async SDK** → before Build MVP.
+- **static-analysis approach for Reconciliation** → before Reconciliation.
+- **agent record/replay for fixtures** → before Agent Runtime seam / Evaluation.
+
+### Where the dogfood lands
+
+Bones proves the architecture against Jig's own hardest case: if the refactored pipeline runs headless on a
+fixture and the review loop scores it, the Living Invariant's central bet (an evaluable, seam-substitutable
+factory) is validated **on Jig** before it's sold to anyone else. After the plan: execution = the factory loop
+(Coordinator PM dispatching tickets; agents building each epic layer) — Jig building Jig.

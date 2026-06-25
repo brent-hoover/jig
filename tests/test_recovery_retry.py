@@ -736,6 +736,7 @@ async def test_shutdown_cancels_background_replan_task(
     sleep_started = asyncio.Event()
     sleep_cancelled = asyncio.Event()
     agent_call_count = 0
+    cleanup_called = False
 
     async def fail_once(ctx, spawned_by="orchestrator"):
         nonlocal agent_call_count
@@ -755,6 +756,10 @@ async def test_shutdown_cancels_background_replan_task(
             sleep_cancelled.set()
             raise
 
+    async def cleanup() -> None:
+        nonlocal cleanup_called
+        cleanup_called = True
+
     # Manually schedule _try_replan as a background task the same way
     # the orchestrator does, so shutdown() sees it in _background_tasks.
     _task = asyncio.create_task(
@@ -765,6 +770,7 @@ async def test_shutdown_cancels_background_replan_task(
             _max_attempts=3,
             _base_delay=2.0,
             _sleep=slow_sleep,
+            _post_replan_cleanup=cleanup,
         )
     )
     orch._background_tasks.add(_task)
@@ -782,3 +788,63 @@ async def test_shutdown_cancels_background_replan_task(
     assert agent_call_count == 1, (
         f"shutdown must prevent the second agent call; got {agent_call_count} calls"
     )
+    # Worktree cleanup must still run on the cancellation path — that is the
+    # whole point of owning it in the background task's finally block.
+    assert cleanup_called, (
+        "_post_replan_cleanup must run even when the task is cancelled by shutdown()"
+    )
+
+
+async def test_post_replan_cleanup_runs_when_pm_role_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """_post_replan_cleanup must run on the early-return paths too.
+
+    When the pm role is missing, _try_replan returns early from inside the
+    outer try block. The finally must still fire the cleanup callback so the
+    ticket worktree is removed regardless of why the replan bailed out.
+    """
+    from jig import orchestrator as orch_module
+
+    orch = await _make_orch(tmp_path)
+    try:
+        tid, ticket = await _create_ticket(orch)
+
+        def _raise_missing(*a, **k):
+            raise FileNotFoundError("pm role not found")
+
+        monkeypatch.setattr(orch_module, "load_role", _raise_missing)
+
+        agent_call_count = 0
+
+        async def count_calls(ctx, spawned_by="orchestrator"):
+            nonlocal agent_call_count
+            agent_call_count += 1
+            return RunAgentResult(status="success", final_text="ok")
+
+        orch._run_agent_with_analytics = count_calls  # type: ignore[method-assign]
+
+        cleanup_called = False
+
+        async def cleanup() -> None:
+            nonlocal cleanup_called
+            cleanup_called = True
+
+        await orch._try_replan(
+            tid,
+            ticket,
+            ["foo.py"],
+            _max_attempts=3,
+            _base_delay=2.0,
+            _sleep=_noop_sleep,
+            _post_replan_cleanup=cleanup,
+        )
+
+        # Early return before any SDK call...
+        assert agent_call_count == 0, "no agent should spawn when pm role is missing"
+        # ...but cleanup must still have run.
+        assert cleanup_called, (
+            "_post_replan_cleanup must run on the early-return path (missing pm role)"
+        )
+    finally:
+        await orch.shutdown()

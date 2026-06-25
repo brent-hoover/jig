@@ -2723,8 +2723,8 @@ class Orchestrator:
                 )
                 return result.status == "success"
             except Exception as exc:
-                delay = _base_delay * (2**attempt)
                 if attempt < _max_attempts - 1:
+                    delay = _base_delay * (2**attempt)
                     _logger.warning(
                         "_try_resolve_conflict: attempt %d/%d failed for %s "
                         "(retry in %.1fs): %s",
@@ -2825,8 +2825,8 @@ class Orchestrator:
                     await self._run_agent_with_analytics(ctx, spawned_by="replan")
                     return
                 except Exception as exc:
-                    delay = _base_delay * (2**attempt)
                     if attempt < _max_attempts - 1:
+                        delay = _base_delay * (2**attempt)
                         _logger.warning(
                             "_try_replan: attempt %d/%d failed for %s (retry in %.1fs): %s",
                             attempt + 1,
@@ -2849,7 +2849,11 @@ class Orchestrator:
             if _post_replan_cleanup is not None:
                 try:
                     await _post_replan_cleanup()
-                except Exception:
+                except BaseException:
+                    # BaseException (not Exception) so a CancelledError raised
+                    # by cleanup itself — e.g. a second cancellation, or
+                    # remove_worktree awaiting a subprocess during loop
+                    # teardown — cannot silently leave the worktree on disk.
                     _logger.warning(
                         "_try_replan: post-replan cleanup failed for %s",
                         ticket_id,

@@ -59,8 +59,8 @@ async def test_happy_path_drives_open_to_resolved() -> None:
     assert actions == [
         SpawnAgent(ticket_id="jig-1", role="dev"),
         MergeWorktree(ticket_id="jig-1"),
-        PublishCompleted(ticket_id="jig-1"),
         UnblockDependents(ticket_id="jig-1"),
+        PublishCompleted(ticket_id="jig-1"),
     ]
 
 

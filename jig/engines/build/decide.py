@@ -167,15 +167,29 @@ def _on_agent_succeeded(
 def _on_worktree_merged(
     state: BuildState, event: WorktreeMerged
 ) -> tuple[EngineState, tuple[Action, ...]]:
+    # The externally-visible PublishCompleted is ordered LAST so a failure in the
+    # internal UnblockDependents can't leave a duplicate completion event behind
+    # on a retry. (Dispatch is at-least-once; handlers must be idempotent — full
+    # per-action idempotency is MVP.)
     return TicketStatus.RESOLVED, (
-        PublishCompleted(event.ticket_id),
         UnblockDependents(event.ticket_id),
+        PublishCompleted(event.ticket_id),
     )
 
 
 def _on_agent_completed(
     state: BuildState, event: AgentCompleted
 ) -> tuple[EngineState, tuple[Action, ...]]:
+    if event.status == TicketStatus.RESOLVED:
+        # RESOLVED is reached only through the merge path
+        # (AgentSucceeded -> MergeWorktree -> WorktreeMerged). An AgentCompleted
+        # claiming RESOLVED would skip merge/publish/unblock — no-op it. This
+        # event is for non-success terminals (failed, blocked, needs-info).
+        _log.debug(
+            "decide: ignoring AgentCompleted(RESOLVED) for %s — use the merge path",
+            event.ticket_id,
+        )
+        return state.statuses[event.ticket_id], ()
     return event.status, ()
 
 

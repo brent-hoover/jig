@@ -28,7 +28,14 @@ class UnhandledActionError(RuntimeError):
 
 
 class Dispatcher:
-    """Executes inert actions via injected, type-keyed effect handlers."""
+    """Executes inert actions via injected, type-keyed effect handlers.
+
+    Delivery is **at-least-once**: a transition's actions run in order, but if a
+    later action fails the coordinator doesn't commit, so a retry re-runs the
+    whole transition's actions. Effect handlers must therefore be idempotent
+    (and ``decide`` orders irreversible externally-visible actions last). Full
+    per-action idempotency / ack tracking is MVP.
+    """
 
     def __init__(self, handlers: Mapping[type, EffectHandler]) -> None:
         self._handlers = dict(handlers)

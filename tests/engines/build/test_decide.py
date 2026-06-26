@@ -98,14 +98,28 @@ def test_non_ready_ticket_is_a_no_op() -> None:
     assert next_state == state
 
 
-def test_agent_completion_updates_status_without_spawning() -> None:
+def test_agent_completion_sets_a_non_success_terminal_status() -> None:
+    # AgentCompleted carries explicit non-success terminals (failed/blocked/…).
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(
+        state, AgentCompleted(ticket_id="jig-1", status=TicketStatus.FAILED)
+    )
+
+    assert next_state.statuses["jig-1"] == TicketStatus.FAILED
+    assert actions == ()
+
+
+def test_agent_completed_cannot_shortcut_to_resolved() -> None:
+    # RESOLVED must go through the merge path; AgentCompleted(RESOLVED) no-ops
+    # rather than skipping merge/publish/unblock.
     state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
 
     next_state, actions = decide(
         state, AgentCompleted(ticket_id="jig-1", status=TicketStatus.RESOLVED)
     )
 
-    assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
     assert actions == ()
 
 
@@ -146,8 +160,8 @@ def test_merge_resolves_and_unblocks_dependents() -> None:
 
     assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
     assert actions == (
-        PublishCompleted(ticket_id="jig-1"),
         UnblockDependents(ticket_id="jig-1"),
+        PublishCompleted(ticket_id="jig-1"),
     )
 
 
@@ -167,8 +181,8 @@ def test_full_happy_path_open_to_resolved() -> None:
     assert collected == [
         SpawnAgent(ticket_id="jig-1", role="dev"),
         MergeWorktree(ticket_id="jig-1"),
-        PublishCompleted(ticket_id="jig-1"),
         UnblockDependents(ticket_id="jig-1"),
+        PublishCompleted(ticket_id="jig-1"),
     ]
 
 

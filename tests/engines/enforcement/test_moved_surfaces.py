@@ -24,3 +24,14 @@ def test_reviewer_dispatch_exposed_under_enforcement_reviewers() -> None:
 
     assert moved.select_reviewers_for_ticket is canonical.select_reviewers_for_ticket
     assert moved.known_llm_reviewer_ids is canonical.known_llm_reviewer_ids
+
+
+def test_reviewer_dispatch_mirrors_the_full_canonical_surface() -> None:
+    # The new home must expose the WHOLE public surface, not a subset — else
+    # code migrating its imports hits ImportError. Pinned in lockstep.
+    import jig.reviewers.dispatch as canonical
+    from jig.engines.enforcement.reviewers import dispatch as moved
+
+    assert set(moved.__all__) == set(canonical.__all__)
+    for name in canonical.__all__:
+        assert getattr(moved, name) is getattr(canonical, name)

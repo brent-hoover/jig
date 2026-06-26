@@ -18,9 +18,14 @@ import pytest
 
 from jig.engines.build.decide import (
     AgentCompleted,
+    AgentSucceeded,
     BuildState,
+    MergeWorktree,
+    PublishCompleted,
     SpawnAgent,
     TicketReady,
+    UnblockDependents,
+    WorktreeMerged,
     decide,
 )
 from jig.ticket import TicketStatus
@@ -101,6 +106,58 @@ def test_agent_completion_updates_status_without_spawning() -> None:
 
     assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
     assert actions == ()
+
+
+def test_agent_success_triggers_a_merge() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(state, AgentSucceeded(ticket_id="jig-1"))
+
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+    assert actions == (MergeWorktree(ticket_id="jig-1"),)
+
+
+def test_merge_resolves_and_unblocks_dependents() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
+
+    assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert actions == (
+        PublishCompleted(ticket_id="jig-1"),
+        UnblockDependents(ticket_id="jig-1"),
+    )
+
+
+def test_full_happy_path_open_to_resolved() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+    collected: list = []
+
+    for event in (
+        TicketReady(ticket_id="jig-1", role="dev"),
+        AgentSucceeded(ticket_id="jig-1"),
+        WorktreeMerged(ticket_id="jig-1"),
+    ):
+        state, actions = decide(state, event)
+        collected.extend(actions)
+
+    assert state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert collected == [
+        SpawnAgent(ticket_id="jig-1", role="dev"),
+        MergeWorktree(ticket_id="jig-1"),
+        PublishCompleted(ticket_id="jig-1"),
+        UnblockDependents(ticket_id="jig-1"),
+    ]
+
+
+def test_event_with_no_table_entry_is_a_no_op() -> None:
+    # WorktreeMerged on an OPEN ticket has no transition — no-op.
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+
+    next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
+
+    assert actions == ()
+    assert next_state == state
 
 
 async def test_async_shell_executes_the_inert_actions() -> None:

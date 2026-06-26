@@ -1,21 +1,20 @@
-"""Spike 1 (#201) — the pure ``decide()`` state machine.
+"""The Build engine's pure ``decide()`` state machine.
 
-**Finding: purity holds.** ``decide(state, event) -> (next_state, actions)`` is a
-plain synchronous function. The inherently-async work ("spawn agent") is not
-performed here — it is *described* by an inert ``SpawnAgent`` dataclass that the
-async dispatch shell executes afterward. So the Build engine can be split as
-functional-core (this module, pure) / imperative-shell (``dispatch.py``, async)
-without ``decide`` ever needing to ``await``.
+``decide(state, event) -> (next_state, actions)`` is a plain synchronous,
+side-effect-free function (proven in Spike 1, #201). The inherently-async work
+(spawn agent, merge worktree, …) is *described* by inert action dataclasses that
+the async dispatch shell (``dispatch.py``) executes afterward. ``decide`` never
+awaits and never mutates input state — functional-core / imperative-shell.
 
-This is the minimal proof: one real dispatchable transition (``OPEN ->
-IN_PROGRESS``, the transition ``find_ready`` feeds today) plus a completion
-transition. Epic 4 (Build) bones grows this into the full lifecycle, the
-data-driven transition table, and the dispatch/supervisor split.
+The machine is **data-driven**: transitions live in the ``_TRANSITIONS`` table
+keyed by ``(current status, event type)``, not in if/else chains. Bones covers
+the happy path (``OPEN → IN_PROGRESS → merge → RESOLVED``); MVP/Final grow the
+table with sad-path transitions (blocked, needs-info, review-failed, replan).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -41,6 +40,7 @@ class BuildState:
 
 # ---------------------------------------------------------------------------
 # Events — inputs to the machine (synthetic in tests, bus-derived in the shell).
+# Every event carries ``ticket_id`` so the engine can look up current status.
 # ---------------------------------------------------------------------------
 
 
@@ -53,14 +53,30 @@ class TicketReady:
 
 
 @dataclass(frozen=True)
+class AgentSucceeded:
+    """The agent finished its work successfully; the ticket is ready to merge."""
+
+    ticket_id: str
+
+
+@dataclass(frozen=True)
+class WorktreeMerged:
+    """The ticket's worktree branch merged cleanly into the default branch."""
+
+    ticket_id: str
+
+
+@dataclass(frozen=True)
 class AgentCompleted:
-    """An agent finished; the ticket reached a terminal status."""
+    """An agent finished and the ticket reached an explicit terminal status
+    (used for non-happy-path terminal transitions; the happy path uses
+    ``AgentSucceeded`` + ``WorktreeMerged``)."""
 
     ticket_id: str
     status: TicketStatus
 
 
-Event = TicketReady | AgentCompleted
+Event = TicketReady | AgentSucceeded | WorktreeMerged | AgentCompleted
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +94,73 @@ class SpawnAgent:
     role: str
 
 
-Action = SpawnAgent
+@dataclass(frozen=True)
+class MergeWorktree:
+    """Merge the ticket's worktree branch into the default branch."""
+
+    ticket_id: str
+
+
+@dataclass(frozen=True)
+class PublishCompleted:
+    """Announce the ticket completed (the ``ticket_completed`` bus/emitter event)."""
+
+    ticket_id: str
+
+
+@dataclass(frozen=True)
+class UnblockDependents:
+    """Re-evaluate tickets blocked on ``ticket_id`` now that it resolved."""
+
+    ticket_id: str
+
+
+Action = SpawnAgent | MergeWorktree | PublishCompleted | UnblockDependents
+
+
+# ---------------------------------------------------------------------------
+# Transition table — (current status, event type) -> transition function.
+# Each function is pure: (state, event) -> (next status, actions).
+# ---------------------------------------------------------------------------
+
+_TransitionFn = Callable[
+    ["BuildState", "Event"], tuple[TicketStatus, tuple[Action, ...]]
+]
+
+
+def _on_ticket_ready(
+    state: BuildState, event: TicketReady
+) -> tuple[TicketStatus, tuple[Action, ...]]:
+    return TicketStatus.IN_PROGRESS, (SpawnAgent(event.ticket_id, event.role),)
+
+
+def _on_agent_succeeded(
+    state: BuildState, event: AgentSucceeded
+) -> tuple[TicketStatus, tuple[Action, ...]]:
+    return TicketStatus.IN_PROGRESS, (MergeWorktree(event.ticket_id),)
+
+
+def _on_worktree_merged(
+    state: BuildState, event: WorktreeMerged
+) -> tuple[TicketStatus, tuple[Action, ...]]:
+    return TicketStatus.RESOLVED, (
+        PublishCompleted(event.ticket_id),
+        UnblockDependents(event.ticket_id),
+    )
+
+
+def _on_agent_completed(
+    state: BuildState, event: AgentCompleted
+) -> tuple[TicketStatus, tuple[Action, ...]]:
+    return event.status, ()
+
+
+_TRANSITIONS: dict[tuple[TicketStatus, type], _TransitionFn] = {
+    (TicketStatus.OPEN, TicketReady): _on_ticket_ready,
+    (TicketStatus.IN_PROGRESS, AgentSucceeded): _on_agent_succeeded,
+    (TicketStatus.IN_PROGRESS, WorktreeMerged): _on_worktree_merged,
+    (TicketStatus.IN_PROGRESS, AgentCompleted): _on_agent_completed,
+}
 
 
 def _with_status(state: BuildState, ticket_id: str, status: TicketStatus) -> BuildState:
@@ -90,16 +172,15 @@ def _with_status(state: BuildState, ticket_id: str, status: TicketStatus) -> Bui
 def decide(state: BuildState, event: Event) -> tuple[BuildState, tuple[Action, ...]]:
     """Pure transition: ``(state, event) -> (next_state, actions)``.
 
-    Synchronous and side-effect-free. Returns the next state plus a tuple of
-    inert actions for the shell to execute.
+    Looks the transition up in ``_TRANSITIONS`` by the ticket's current status
+    and the event type. An unknown ``(status, event)`` pair is a no-op (the
+    state and an empty action tuple are returned unchanged). Synchronous and
+    side-effect-free.
     """
-    match event:
-        case TicketReady(ticket_id, role):
-            if state.statuses.get(ticket_id) == TicketStatus.OPEN:
-                next_state = _with_status(state, ticket_id, TicketStatus.IN_PROGRESS)
-                return next_state, (SpawnAgent(ticket_id=ticket_id, role=role),)
-            return state, ()
-        case AgentCompleted(ticket_id, status):
-            return _with_status(state, ticket_id, status), ()
+    current = state.statuses.get(event.ticket_id)
+    transition = _TRANSITIONS.get((current, type(event)))
+    if transition is None:
+        return state, ()
 
-    return state, ()
+    next_status, actions = transition(state, event)
+    return _with_status(state, event.ticket_id, next_status), actions

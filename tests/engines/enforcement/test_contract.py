@@ -8,17 +8,34 @@ MVP runs real boundary/vocabulary checks and wires Build to call it.
 
 from __future__ import annotations
 
+import inspect
+
 from jig.engines.enforcement import InvariantContext, MechanicalReview, Review
 from jig.model import Finding
 
 
-def test_review_is_a_runtime_checkable_protocol() -> None:
-    assert isinstance(MechanicalReview(), Review)
+def test_mechanical_review_satisfies_the_async_review_contract() -> None:
+    review = MechanicalReview()
+    # Structurally a Review (has __call__)...
+    assert isinstance(review, Review)
+    # ...and async — the property the runtime_checkable Protocol can NOT enforce
+    # (see test below), so it's asserted explicitly.
+    assert inspect.iscoroutinefunction(review.__call__)
 
-    class _NotAReview:
-        pass
 
-    assert not isinstance(_NotAReview(), Review)
+def test_runtime_protocol_check_only_verifies_callability() -> None:
+    # Documents a Python limitation, not a guarantee: isinstance(x, Review) only
+    # checks that __call__ exists, not that it's a coroutine. A SYNC callable
+    # passes the Protocol check even though `await x(...)` would raise at the
+    # call site — so async-ness must be verified separately (test above).
+    def sync_impl(diff: str, invariant_context: InvariantContext) -> list[Finding]:
+        return []
+
+    assert isinstance(sync_impl, Review)  # passes despite being sync
+    assert not inspect.iscoroutinefunction(sync_impl)
+
+    # A non-callable is genuinely not a Review.
+    assert not isinstance(object(), Review)
 
 
 async def test_mechanical_review_returns_findings() -> None:

@@ -51,5 +51,5 @@ class StoreAuthority:
         """
         authority = self.authority_of(uri)
         raise UnimplementedAuthorityError(
-            f"StoreAuthority.write for authority {authority!r} is wired in Epic 2 MVP"
+            f"StoreAuthority.write for authority {authority!r} is not yet implemented"
         )

@@ -83,11 +83,13 @@ class _TicketLifecycleEvent(TypedEvent):
     """
 
     ticket_id: str
-    topic: str | None = None
+    # Empty sentinel (not ``str | None``) keeps the annotation ``str`` — the
+    # validator fills the per-ticket default before any caller sees it.
+    topic: str = Field(default="")
 
     @model_validator(mode="after")
     def _default_to_per_ticket_topic(self) -> "_TicketLifecycleEvent":
-        if self.topic is None:
+        if not self.topic:
             self.topic = ticket_topic(self.ticket_id)
         return self
 

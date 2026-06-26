@@ -122,5 +122,8 @@ def test_typed_event_forbids_extra_keys() -> None:
         TicketUpdated(ticket_id="jig-1", status="open", bogus="x")
 
 
-def test_typed_event_base_has_no_kind() -> None:
-    assert not hasattr(TypedEvent, "kind") or TypedEvent.__dict__.get("kind") is None
+def test_base_typed_event_raises_on_to_message() -> None:
+    # The base declares ``kind`` as an un-valued ClassVar; only concrete events
+    # are renderable. Test the observable contract, not pydantic internals.
+    with pytest.raises(AttributeError):
+        TypedEvent().to_message()

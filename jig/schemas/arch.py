@@ -17,6 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jig.intent import Intent
+from jig.model.ontology import OntologyTerm
 from jig.schemas._validators import (
     ServiceKind,
     validate_kebab_id,
@@ -922,15 +923,6 @@ class ContractsFile(BaseModel):
 # ---------------------------------------------------------------------------
 # Per-module isolation boundaries (modules/<m>/boundaries.yaml)
 # ---------------------------------------------------------------------------
-
-
-class OntologyTerm(BaseModel):
-    """One glossary entry — a domain term the module owns, for humans/agents."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    term: str
-    definition: str
 
 
 class InternalBoundaries(BaseModel):

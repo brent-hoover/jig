@@ -1,0 +1,1730 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "hermes-agent",
+  "elements": [
+    {
+      "type": "text",
+      "id": "title",
+      "x": 350,
+      "y": 15,
+      "text": "Jig Target Architecture",
+      "fontSize": 24,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "originalText": "Jig Target Architecture",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "x": 280,
+      "y": 42,
+      "text": "Dependencies point DOWN only. Engines never talk sideways -- they coordinate via Store + Bus.",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "Dependencies point DOWN only. Engines never talk sideways -- they coordinate via Store + Bus.",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "edge_zone",
+      "x": 20,
+      "y": 70,
+      "width": 1260,
+      "height": 90,
+      "backgroundColor": "#fff9db",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "edge_label",
+      "x": 30,
+      "y": 75,
+      "text": "EDGE",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#e67700",
+      "originalText": "EDGE",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "edge_sub",
+      "x": 80,
+      "y": 75,
+      "text": "thin client over daemon API; persona variation localized here",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "thin client over daemon API; persona variation localized here",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "op_interface",
+      "x": 370,
+      "y": 100,
+      "width": 300,
+      "height": 50,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_op_interface",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_op_interface",
+      "x": 374,
+      "y": 115,
+      "width": 292,
+      "height": 20,
+      "text": "Operator Interface\n(daemon + WS + TUI + CLI)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "op_interface",
+      "originalText": "Operator Interface\n(daemon + WS + TUI + CLI)",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "c_daemon",
+      "x": 420,
+      "y": 163,
+      "text": "--- Contract: Daemon API (command / event / snapshot) ---",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#495057",
+      "originalText": "--- Contract: Daemon API (command / event / snapshot) ---",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "eng_zone",
+      "x": 20,
+      "y": 183,
+      "width": 1260,
+      "height": 280,
+      "backgroundColor": "#ebfbee",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "eng_label",
+      "x": 30,
+      "y": 188,
+      "text": "ENGINES",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#2f9e44",
+      "originalText": "ENGINES",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "eng_sub",
+      "x": 100,
+      "y": 188,
+      "text": "dep DOWN on Model/Store/Bus/Runtime; never sideways -- coordinate via Store authorities + Bus events",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "dep DOWN on Model/Store/Bus/Runtime; never sideways -- coordinate via Store authorities + Bus events",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "discovery",
+      "x": 50,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_discovery",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_discovery",
+      "x": 54,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Discovery\n(interview)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "discovery",
+      "originalText": "Discovery\n(interview)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "architecture",
+      "x": 225,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_architecture",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_architecture",
+      "x": 229,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Architecture\n(SA + cascade)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "architecture",
+      "originalText": "Architecture\n(SA + cascade)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "vd",
+      "x": 400,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_vd",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_vd",
+      "x": 404,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Visual\nDesign",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "vd",
+      "originalText": "Visual\nDesign",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "build",
+      "x": 575,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_build",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_build",
+      "x": 579,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Build\n(factory loop)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "build",
+      "originalText": "Build\n(factory loop)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "enforcement",
+      "x": 750,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_enforcement",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_enforcement",
+      "x": 754,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Enforcement\n(checks)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "enforcement",
+      "originalText": "Enforcement\n(checks)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "reconciliation",
+      "x": 925,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_reconciliation",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_reconciliation",
+      "x": 929,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Reconcil-\nation",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "reconciliation",
+      "originalText": "Reconcil-\nation",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "evaluation",
+      "x": 1100,
+      "y": 218,
+      "width": 160,
+      "height": 60,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_evaluation",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_evaluation",
+      "x": 1104,
+      "y": 238,
+      "width": 152,
+      "height": 20,
+      "text": "Evaluation\n(offline)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "evaluation",
+      "originalText": "Evaluation\n(offline)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "decide",
+      "x": 575,
+      "y": 293,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_decide",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_decide",
+      "x": 579,
+      "y": 305,
+      "width": 132,
+      "height": 20,
+      "text": "decide()\npure state machine",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "decide",
+      "originalText": "decide()\npure state machine",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "dispatch",
+      "x": 730,
+      "y": 293,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_dispatch",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_dispatch",
+      "x": 734,
+      "y": 305,
+      "width": 132,
+      "height": 20,
+      "text": "dispatch\neffects shell (async)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "dispatch",
+      "originalText": "dispatch\neffects shell (async)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "supervisor",
+      "x": 645,
+      "y": 348,
+      "width": 150,
+      "height": 40,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_supervisor",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_supervisor",
+      "x": 649,
+      "y": 358,
+      "width": 142,
+      "height": 20,
+      "text": "Supervisor\n(stall/deadlock detector)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "supervisor",
+      "originalText": "Supervisor\n(stall/deadlock detector)",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "a_decide_dispatch",
+      "x": 715,
+      "y": 315,
+      "width": 15,
+      "height": 0,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          15,
+          0
+        ]
+      ],
+      "strokeColor": "#1e1e1e",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "startBinding": {
+        "elementId": "decide",
+        "fixedPoint": [
+          1,
+          0.5
+        ]
+      },
+      "endBinding": {
+        "elementId": "dispatch",
+        "fixedPoint": [
+          0,
+          0.5
+        ]
+      }
+    },
+    {
+      "type": "arrow",
+      "id": "a_decide_sup",
+      "x": 645,
+      "y": 338,
+      "width": 75,
+      "height": 10,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          75,
+          10
+        ]
+      ],
+      "strokeColor": "#1e1e1e",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "startBinding": {
+        "elementId": "decide",
+        "fixedPoint": [
+          0.5,
+          1
+        ]
+      },
+      "endBinding": {
+        "elementId": "supervisor",
+        "fixedPoint": [
+          0,
+          0.5
+        ]
+      }
+    },
+    {
+      "type": "arrow",
+      "id": "a_sup_dispatch",
+      "x": 795,
+      "y": 348,
+      "width": 5,
+      "height": 10,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          5,
+          -10
+        ]
+      ],
+      "strokeColor": "#1e1e1e",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "startBinding": {
+        "elementId": "supervisor",
+        "fixedPoint": [
+          0.5,
+          0
+        ]
+      },
+      "endBinding": {
+        "elementId": "dispatch",
+        "fixedPoint": [
+          0.5,
+          1
+        ]
+      }
+    },
+    {
+      "type": "text",
+      "id": "auth_spec",
+      "x": 60,
+      "y": 298,
+      "text": "writes\nproject://spec/",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#1971c2",
+      "originalText": "writes\nproject://spec/",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "auth_arch",
+      "x": 235,
+      "y": 298,
+      "text": "writes\nproject://arch/",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#1971c2",
+      "originalText": "writes\nproject://arch/",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "auth_design",
+      "x": 410,
+      "y": 298,
+      "text": "writes\nproject://design/",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#1971c2",
+      "originalText": "writes\nproject://design/",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "build_invokes",
+      "x": 585,
+      "y": 283,
+      "text": "invokes Enforcement\n+ Agent Runtime",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#e67700",
+      "originalText": "invokes Enforcement\n+ Agent Runtime",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "recon_feeds",
+      "x": 935,
+      "y": 283,
+      "text": "feeds Build\n(drift -> work)",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#2f9e44",
+      "originalText": "feeds Build\n(drift -> work)",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "eval_drives",
+      "x": 1110,
+      "y": 283,
+      "text": "drives Build\nheadless",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#e03131",
+      "originalText": "drives Build\nheadless",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "c_store",
+      "x": 270,
+      "y": 466,
+      "text": "--- Contracts: Store authorities (project://spec, arch, design, plan, store) + Typed Bus events ---",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#495057",
+      "originalText": "--- Contracts: Store authorities (project://spec, arch, design, plan, store) + Typed Bus events ---",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "rt_zone",
+      "x": 20,
+      "y": 486,
+      "width": 1260,
+      "height": 90,
+      "backgroundColor": "#f3f0ff",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "rt_label",
+      "x": 30,
+      "y": 491,
+      "text": "RUNTIME",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#7048e8",
+      "originalText": "RUNTIME",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "rt_sub",
+      "x": 100,
+      "y": 491,
+      "text": "dep: Model, Store, Bus",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "dep: Model, Store, Bus",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "runagent",
+      "x": 320,
+      "y": 511,
+      "width": 250,
+      "height": 50,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_runagent",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_runagent",
+      "x": 324,
+      "y": 526,
+      "width": 242,
+      "height": 20,
+      "text": "Agent Runtime\nRunAgent seam",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "runagent",
+      "originalText": "Agent Runtime\nRunAgent seam",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "real_agent",
+      "x": 600,
+      "y": 511,
+      "width": 150,
+      "height": 50,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_real_agent",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_real_agent",
+      "x": 604,
+      "y": 526,
+      "width": 142,
+      "height": 20,
+      "text": "RealRunAgent\n(claude SDK)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "real_agent",
+      "originalText": "RealRunAgent\n(claude SDK)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "recorded_agent",
+      "x": 770,
+      "y": 511,
+      "width": 160,
+      "height": 50,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_recorded_agent",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_recorded_agent",
+      "x": 774,
+      "y": 526,
+      "width": 152,
+      "height": 20,
+      "text": "RecordedRunAgent\n(replay)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "recorded_agent",
+      "originalText": "RecordedRunAgent\n(replay)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "fixture_agent",
+      "x": 950,
+      "y": 511,
+      "width": 160,
+      "height": 50,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_fixture_agent",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_fixture_agent",
+      "x": 954,
+      "y": 526,
+      "width": 152,
+      "height": 20,
+      "text": "FixtureRunAgent\n(canned)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "fixture_agent",
+      "originalText": "FixtureRunAgent\n(canned)",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "a_real",
+      "x": 570,
+      "y": 536,
+      "width": 30,
+      "height": 0,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          30,
+          0
+        ]
+      ],
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed",
+      "startBinding": {
+        "elementId": "runagent",
+        "fixedPoint": [
+          1,
+          0.5
+        ]
+      },
+      "endBinding": {
+        "elementId": "real_agent",
+        "fixedPoint": [
+          0,
+          0.5
+        ]
+      }
+    },
+    {
+      "type": "arrow",
+      "id": "a_recorded",
+      "x": 570,
+      "y": 536,
+      "width": 200,
+      "height": 0,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          200,
+          0
+        ]
+      ],
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed",
+      "startBinding": {
+        "elementId": "runagent",
+        "fixedPoint": [
+          1,
+          0.5
+        ]
+      },
+      "endBinding": {
+        "elementId": "recorded_agent",
+        "fixedPoint": [
+          0,
+          0.5
+        ]
+      }
+    },
+    {
+      "type": "arrow",
+      "id": "a_fixture",
+      "x": 570,
+      "y": 536,
+      "width": 380,
+      "height": 0,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          380,
+          0
+        ]
+      ],
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed",
+      "startBinding": {
+        "elementId": "runagent",
+        "fixedPoint": [
+          1,
+          0.5
+        ]
+      },
+      "endBinding": {
+        "elementId": "fixture_agent",
+        "fixedPoint": [
+          0,
+          0.5
+        ]
+      }
+    },
+    {
+      "type": "text",
+      "id": "c_runagent",
+      "x": 420,
+      "y": 579,
+      "text": "--- Contract: RunAgent (spawn -> stream/result; substitutable for evals) ---",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#495057",
+      "originalText": "--- Contract: RunAgent (spawn -> stream/result; substitutable for evals) ---",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "sub_zone",
+      "x": 20,
+      "y": 599,
+      "width": 1260,
+      "height": 100,
+      "backgroundColor": "#fff4e6",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "sub_label",
+      "x": 30,
+      "y": 604,
+      "text": "SUBSTRATE",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#e67700",
+      "originalText": "SUBSTRATE",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "sub_sub",
+      "x": 110,
+      "y": 604,
+      "text": "dep: Model",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "dep: Model",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "store",
+      "x": 270,
+      "y": 624,
+      "width": 280,
+      "height": 55,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_store",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_store",
+      "x": 274,
+      "y": 641,
+      "width": 272,
+      "height": 20,
+      "text": "Store\nJSONL persistence behind project:// authorities",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "store",
+      "originalText": "Store\nJSONL persistence behind project:// authorities",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "bus",
+      "x": 600,
+      "y": 624,
+      "width": 280,
+      "height": 55,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_bus",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_bus",
+      "x": 604,
+      "y": 641,
+      "width": 272,
+      "height": 20,
+      "text": "Bus\ntyped message stream (events, not magic strings)",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "bus",
+      "originalText": "Bus\ntyped message stream (events, not magic strings)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "core_zone",
+      "x": 20,
+      "y": 709,
+      "width": 1260,
+      "height": 120,
+      "backgroundColor": "#e7f5ff",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "core_label",
+      "x": 30,
+      "y": 714,
+      "text": "CORE",
+      "fontSize": 16,
+      "fontFamily": 1,
+      "strokeColor": "#1971c2",
+      "originalText": "CORE",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "core_sub",
+      "x": 80,
+      "y": 714,
+      "text": "pure, no I/O -- directly testable with synthetic events",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "pure, no I/O -- directly testable with synthetic events",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "model",
+      "x": 50,
+      "y": 739,
+      "width": 550,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_model",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_model",
+      "x": 54,
+      "y": 751,
+      "width": 542,
+      "height": 20,
+      "text": "Model: entities + 5 invariants\n(Project, Persona, Journey, Capability, Suite, Boundary, Contract, Module, Ontology, Trace)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "model",
+      "originalText": "Model: entities + 5 invariants\n(Project, Persona, Journey, Capability, Suite, Boundary, Contract, Module, Ontology, Trace)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "decide_core",
+      "x": 670,
+      "y": 739,
+      "width": 280,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_decide_core",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_decide_core",
+      "x": 674,
+      "y": 751,
+      "width": 272,
+      "height": 20,
+      "text": "Pipeline Core: decide()\npure state machine (state, event) -> (next, actions)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "decide_core",
+      "originalText": "Pipeline Core: decide()\npure state machine (state, event) -> (next, actions)",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "invariants",
+      "x": 50,
+      "y": 794,
+      "text": "5 invariants: Coverage | Conformance | Containment | Vocabulary (one concept, one home) | Ownership",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1971c2",
+      "originalText": "5 invariants: Coverage | Conformance | Containment | Vocabulary (one concept, one home) | Ownership",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "d_edge_eng",
+      "x": 520,
+      "y": 160,
+      "width": 0,
+      "height": 23,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          23
+        ]
+      ],
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "boundElements": [
+        {
+          "id": "t_d_edge_eng",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_d_edge_eng",
+      "x": 470,
+      "y": 159,
+      "width": 100,
+      "height": 20,
+      "text": "daemon API",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#f59e0b",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "d_edge_eng",
+      "originalText": "daemon API",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "d_eng_rt",
+      "x": 420,
+      "y": 463,
+      "width": 0,
+      "height": 23,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          23
+        ]
+      ],
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "boundElements": [
+        {
+          "id": "t_d_eng_rt",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_d_eng_rt",
+      "x": 370,
+      "y": 462,
+      "width": 100,
+      "height": 20,
+      "text": "RunAgent",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#8b5cf6",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "d_eng_rt",
+      "originalText": "RunAgent",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "d_eng_sub",
+      "x": 720,
+      "y": 463,
+      "width": 0,
+      "height": 136,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          136
+        ]
+      ],
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "boundElements": [
+        {
+          "id": "t_d_eng_sub",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_d_eng_sub",
+      "x": 670,
+      "y": 519,
+      "width": 100,
+      "height": 20,
+      "text": "Store + Bus",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#f59e0b",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "d_eng_sub",
+      "originalText": "Store + Bus",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "d_rt_sub",
+      "x": 440,
+      "y": 576,
+      "width": 0,
+      "height": 23,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          23
+        ]
+      ],
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "d_sub_core",
+      "x": 420,
+      "y": 699,
+      "width": 0,
+      "height": 10,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          10
+        ]
+      ],
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "solid",
+      "boundElements": [
+        {
+          "id": "t_d_sub_core",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_d_sub_core",
+      "x": 370,
+      "y": 692,
+      "width": 100,
+      "height": 20,
+      "text": "Model",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#4a9eed",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "d_sub_core",
+      "originalText": "Model",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "d_rt_core",
+      "x": 620,
+      "y": 576,
+      "width": 0,
+      "height": 133,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          133
+        ]
+      ],
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "text",
+      "id": "legend_t",
+      "x": 30,
+      "y": 844,
+      "text": "LAYERS:",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "originalText": "LAYERS:",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_core",
+      "x": 100,
+      "y": 839,
+      "width": 100,
+      "height": 28,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_leg_core",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_core",
+      "x": 104,
+      "y": 843,
+      "width": 92,
+      "height": 20,
+      "text": "Core",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_core",
+      "originalText": "Core",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_sub",
+      "x": 210,
+      "y": 839,
+      "width": 100,
+      "height": 28,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_leg_sub",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_sub",
+      "x": 214,
+      "y": 843,
+      "width": 92,
+      "height": 20,
+      "text": "Substrate",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_sub",
+      "originalText": "Substrate",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_rt",
+      "x": 320,
+      "y": 839,
+      "width": 100,
+      "height": 28,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_leg_rt",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_rt",
+      "x": 324,
+      "y": 843,
+      "width": 92,
+      "height": 20,
+      "text": "Runtime",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_rt",
+      "originalText": "Runtime",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_eng",
+      "x": 430,
+      "y": 839,
+      "width": 100,
+      "height": 28,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_leg_eng",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_eng",
+      "x": 434,
+      "y": 843,
+      "width": 92,
+      "height": 20,
+      "text": "Engines",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_eng",
+      "originalText": "Engines",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_edge",
+      "x": 540,
+      "y": 839,
+      "width": 100,
+      "height": 28,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 2,
+      "boundElements": [
+        {
+          "id": "t_leg_edge",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_edge",
+      "x": 544,
+      "y": 843,
+      "width": 92,
+      "height": 20,
+      "text": "Edge",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_edge",
+      "originalText": "Edge",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "arrow_legend",
+      "x": 670,
+      "y": 844,
+      "text": "--- solid arrow = depends on (calls down)   --- dashed arrow = uses types from",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "--- solid arrow = depends on (calls down)   --- dashed arrow = uses types from",
+      "autoResize": true
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}

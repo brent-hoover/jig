@@ -177,16 +177,28 @@ def _on_worktree_merged(
     )
 
 
+# AgentCompleted carries a non-success terminal outcome. RESOLVED is excluded
+# (that goes through the merge path); OPEN/PROPOSED/IN_PROGRESS/CLOSED are not
+# agent-completion outcomes — accepting them would let a malformed event regress
+# an in-progress ticket.
+_AGENT_TERMINAL_STATUSES: frozenset[TicketStatus] = frozenset(
+    {
+        TicketStatus.FAILED,
+        TicketStatus.BLOCKED,
+        TicketStatus.NEEDS_INFO,
+        TicketStatus.MERGE_CONFLICT,
+    }
+)
+
+
 def _on_agent_completed(
     state: BuildState, event: AgentCompleted
 ) -> tuple[EngineState, tuple[Action, ...]]:
-    if event.status == TicketStatus.RESOLVED:
-        # RESOLVED is reached only through the merge path
-        # (AgentSucceeded -> MergeWorktree -> WorktreeMerged). An AgentCompleted
-        # claiming RESOLVED would skip merge/publish/unblock — no-op it. This
-        # event is for non-success terminals (failed, blocked, needs-info).
+    if event.status not in _AGENT_TERMINAL_STATUSES:
         _log.debug(
-            "decide: ignoring AgentCompleted(RESOLVED) for %s — use the merge path",
+            "decide: ignoring AgentCompleted(%s) for %s — not a valid agent "
+            "terminal status (RESOLVED goes through the merge path)",
+            event.status.value,
             event.ticket_id,
         )
         return state.statuses[event.ticket_id], ()

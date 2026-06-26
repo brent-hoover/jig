@@ -123,6 +123,19 @@ def test_agent_completed_cannot_shortcut_to_resolved() -> None:
     assert actions == ()
 
 
+def test_agent_completed_cannot_regress_to_a_non_terminal_status() -> None:
+    # A malformed completion (e.g. OPEN) must not roll an in-progress ticket
+    # back — only genuine agent terminals (failed/blocked/needs-info/conflict).
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    for bogus in (TicketStatus.OPEN, TicketStatus.PROPOSED, TicketStatus.IN_PROGRESS):
+        next_state, actions = decide(
+            state, AgentCompleted(ticket_id="jig-1", status=bogus)
+        )
+        assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+        assert actions == ()
+
+
 def test_agent_success_enters_merging_and_triggers_a_merge() -> None:
     state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
 

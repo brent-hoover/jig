@@ -18,9 +18,15 @@ import pytest
 
 from jig.engines.build.decide import (
     AgentCompleted,
+    AgentSucceeded,
+    BuildPhase,
     BuildState,
+    MergeWorktree,
+    PublishCompleted,
     SpawnAgent,
     TicketReady,
+    UnblockDependents,
+    WorktreeMerged,
     decide,
 )
 from jig.ticket import TicketStatus
@@ -92,15 +98,131 @@ def test_non_ready_ticket_is_a_no_op() -> None:
     assert next_state == state
 
 
-def test_agent_completion_updates_status_without_spawning() -> None:
+def test_agent_completion_sets_a_non_success_terminal_status() -> None:
+    # AgentCompleted carries explicit non-success terminals (failed/blocked/…).
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(
+        state, AgentCompleted(ticket_id="jig-1", status=TicketStatus.FAILED)
+    )
+
+    assert next_state.statuses["jig-1"] == TicketStatus.FAILED
+    assert actions == ()
+
+
+def test_agent_completed_cannot_shortcut_to_resolved() -> None:
+    # RESOLVED must go through the merge path; AgentCompleted(RESOLVED) no-ops
+    # rather than skipping merge/publish/unblock.
     state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
 
     next_state, actions = decide(
         state, AgentCompleted(ticket_id="jig-1", status=TicketStatus.RESOLVED)
     )
 
-    assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
     assert actions == ()
+
+
+def test_agent_completed_cannot_regress_to_a_non_terminal_status() -> None:
+    # A malformed completion (e.g. OPEN) must not roll an in-progress ticket
+    # back — only genuine agent terminals (failed/blocked/needs-info/conflict).
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    # MERGE_CONFLICT is a merge outcome (from MERGING), not an agent one.
+    for bogus in (
+        TicketStatus.OPEN,
+        TicketStatus.PROPOSED,
+        TicketStatus.IN_PROGRESS,
+        TicketStatus.MERGE_CONFLICT,
+    ):
+        next_state, actions = decide(
+            state, AgentCompleted(ticket_id="jig-1", status=bogus)
+        )
+        assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+        assert actions == ()
+
+
+def test_agent_success_enters_merging_and_triggers_a_merge() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(state, AgentSucceeded(ticket_id="jig-1"))
+
+    assert next_state.statuses["jig-1"] == BuildPhase.MERGING
+    assert actions == (MergeWorktree(ticket_id="jig-1"),)
+
+
+def test_duplicate_agent_success_does_not_merge_twice() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    state, first = decide(state, AgentSucceeded(ticket_id="jig-1"))
+    state, second = decide(state, AgentSucceeded(ticket_id="jig-1"))
+
+    assert first == (MergeWorktree(ticket_id="jig-1"),)
+    assert second == ()  # already merging — no second merge
+    assert state.statuses["jig-1"] == BuildPhase.MERGING
+
+
+def test_worktree_merged_without_a_pending_merge_is_a_no_op() -> None:
+    # WorktreeMerged is only valid from MERGING; a stray one must not resolve.
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
+
+    assert actions == ()
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+
+
+def test_merge_resolves_and_unblocks_dependents() -> None:
+    state = BuildState(statuses={"jig-1": BuildPhase.MERGING})
+
+    next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
+
+    assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert actions == (
+        UnblockDependents(ticket_id="jig-1"),
+        PublishCompleted(ticket_id="jig-1"),
+    )
+
+
+def test_full_happy_path_open_to_resolved() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+    collected: list = []
+
+    for event in (
+        TicketReady(ticket_id="jig-1", role="dev"),
+        AgentSucceeded(ticket_id="jig-1"),
+        WorktreeMerged(ticket_id="jig-1"),
+    ):
+        state, actions = decide(state, event)
+        collected.extend(actions)
+
+    assert state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert collected == [
+        SpawnAgent(ticket_id="jig-1", role="dev"),
+        MergeWorktree(ticket_id="jig-1"),
+        UnblockDependents(ticket_id="jig-1"),
+        PublishCompleted(ticket_id="jig-1"),
+    ]
+
+
+def test_event_with_no_table_entry_is_a_no_op() -> None:
+    # WorktreeMerged on an OPEN ticket has no transition — no-op.
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+
+    next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
+
+    assert actions == ()
+    assert next_state == state
+
+
+def test_event_for_unknown_ticket_id_is_a_no_op() -> None:
+    # A ticket absent from state (vs. present-but-no-transition) is also a no-op.
+    state = BuildState(statuses={})
+
+    next_state, actions = decide(state, TicketReady(ticket_id="jig-99", role="dev"))
+
+    assert actions == ()
+    assert next_state == state
 
 
 async def test_async_shell_executes_the_inert_actions() -> None:

@@ -38,9 +38,17 @@ class BuildCoordinator:
         return self._state
 
     async def handle(self, event: Event) -> None:
-        """One step: decide the transition, advance state, dispatch the actions."""
-        self._state, actions = decide(self._state, event)
+        """One step: decide the transition, dispatch the actions, then commit.
+
+        State is committed only *after* dispatch succeeds, so a failed/missing
+        effect handler leaves the coordinator on the prior state — the same
+        event can be retried and the effects re-attempted, never silently lost.
+        (Partial-failure within a multi-action transition re-runs all of that
+        transition's actions on retry; finer-grained idempotency is MVP.)
+        """
+        next_state, actions = decide(self._state, event)
         await self._dispatcher.execute(actions)
+        self._state = next_state
 
     def supervise(self, **signals) -> list[SupervisoryEvent]:
         """Translate detector signals into supervisory events (no mutation)."""

@@ -9,6 +9,8 @@ untouched in Bones).
 
 from __future__ import annotations
 
+import pytest
+
 from jig.engines.build.coordinator import BuildCoordinator
 from jig.engines.build.decide import (
     AgentSucceeded,
@@ -20,7 +22,7 @@ from jig.engines.build.decide import (
     UnblockDependents,
     WorktreeMerged,
 )
-from jig.engines.build.dispatch import Dispatcher
+from jig.engines.build.dispatch import Dispatcher, UnhandledActionError
 from jig.engines.build.supervisor import DeadlockNudgeNeeded
 from jig.runtime import FixtureRunAgent
 from jig.ticket import TicketStatus
@@ -74,6 +76,20 @@ async def test_spawn_flows_through_the_run_agent_seam() -> None:
     await coordinator.handle(TicketReady(ticket_id="jig-1", role="dev"))
 
     assert run_agent.calls == [SpawnAgent(ticket_id="jig-1", role="dev")]
+
+
+async def test_state_is_not_advanced_when_dispatch_fails() -> None:
+    # If an effect can't be dispatched, the transition must not commit — so the
+    # same event can be retried and the effect re-attempted (not silently lost).
+    coordinator = BuildCoordinator(
+        Dispatcher({}),  # no handler -> SpawnAgent dispatch raises
+        state=BuildState(statuses={"jig-1": TicketStatus.OPEN}),
+    )
+
+    with pytest.raises(UnhandledActionError):
+        await coordinator.handle(TicketReady(ticket_id="jig-1", role="dev"))
+
+    assert coordinator.state.statuses["jig-1"] == TicketStatus.OPEN
 
 
 def test_supervise_emits_events_without_touching_state() -> None:

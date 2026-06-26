@@ -1,3 +1,12 @@
+---
+title: Jig Architecture — Living Invariant
+type: reference
+status: draft
+owner: brent-hoover
+created: 2026-06-21
+updated: 2026-06-26
+---
+
 # Jig Architecture — Living Invariant
 
 > Working capture of an ongoing architecture-scoping effort. Low ceremony on purpose — **not** the
@@ -45,11 +54,22 @@ expressiveness. That signal is unfakeable.
 
 ## Files
 
+Text:
+
 - `model.md` — the entity model, the invariants, the two-ladder structure, the lifecycle.
 - `interview.md` — the operator interview that authors the intent half (Ask / Produces / Locks-in).
 - `jig-instance.md` — the dogfood: Jig's own pitch, pillars, personas, principles as we generate them.
 - `plan.md` — the migration plan: 9 epics, bones-first, absorbing all feature-work problem statements.
-- `jig-living-invariant.excalidraw` — two-ladder + layered architecture diagram.
+
+Diagrams (open in [excalidraw.com](https://excalidraw.com) — read in this order):
+
+- `jig-target-architecture.excalidraw` — **target state**: 5 layers, 7 engines with authority
+  annotations, Build decomposition, RunAgent seam with 3 impls, contracts between layers.
+- `jig-code-structure.excalidraw` — **current state**: actual module files with line counts,
+  color-coded by target layer. Red = god-objects. Gray = target modules that don't exist yet.
+- `jig-living-invariant.excalidraw` — **theory diagram**: two-ladder convergence, four-faces
+  cycle, layered architecture overview.
+- `jig-architecture-sketch.excalidraw` — original hand sketch (archive).
 
 ## Absorbed feature-work docs
 

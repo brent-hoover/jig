@@ -35,31 +35,31 @@ the system. The architecture lives in `model.md` and `jig-instance.md`.
 This plan supersedes the following `feature-work/` problem statements, whose
 requirements are folded into the epics below:
 
-- [ ] `feature-work/larger-projects/problem.md` — SA role unification + tracer-bullet
+- [x] `feature-work/larger-projects/problem.md` — SA role unification + tracer-bullet
       planning phase. **Absorbed into Epic 6** (SAU unification, TB planning phase,
       graph tools, derisker ordering, TracerSpec integration, medium eval scenario).
-- [ ] `feature-work/sa-architect/problem.md` — SA grounded decisions (Context7,
+- [x] `feature-work/sa-architect/problem.md` — SA grounded decisions (Context7,
       WebFetch). **Absorbed into Epic 6** (Architecture engine MVP — grounded
       decision protocol preserved in unified SAU).
-- [ ] `feature-work/architecture-skeleton/problem.md` — Architecture artifacts
+- [x] `feature-work/architecture-skeleton/problem.md` — Architecture artifacts
       incomplete (modules, contracts). **Absorbed into Epic 6** (Architecture
       engine produces full artifact set: modules, contracts, boundaries).
-- [ ] `feature-work/module-boundaries/problem.md` — Module boundary enforcement.
+- [x] `feature-work/module-boundaries/problem.md` — Module boundary enforcement.
       **Absorbed into Epic 5** (Enforcement — mechanical structure checks +
       boundary rules).
-- [ ] `feature-work/medium-l0-l3-pipeline/problem.md` — PO L0-L3 pipeline, v1 vs
+- [x] `feature-work/medium-l0-l3-pipeline/problem.md` — PO L0-L3 pipeline, v1 vs
       v2 topology. **Absorbed into Epic 6** (Discovery engine — L0-L3 pipeline
       becomes the Discovery interview at architectural resolution).
-- [ ] `feature-work/project-onboarding/problem.md` — Brownfield onboarding path.
+- [x] `feature-work/project-onboarding/problem.md` — Brownfield onboarding path.
       **Absorbed into Epic 6** (Discovery engine — onboarding extracted as
       `jig/engines/discovery/onboard.py`; brownfield TB support is a design
       target, not a requirement, per larger-projects constraints).
-- [ ] `feature-work/jig-init-process/problem.md` — Init flow has no
+- [x] `feature-work/jig-init-process/problem.md` — Init flow has no
       conversation/architecture. **Absorbed into Epic 6** (Discovery engine —
       init conversation becomes the Discovery interview).
 
-Each doc above should be marked `status: superseded` with
-`superseded_by: ../../architecture/plan.md` before this plan is approved.
+All docs above are marked `status: superseded` with
+`superseded_by: ../../architecture/plan.md`.
 
 ## Preconditions
 

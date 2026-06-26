@@ -1,3 +1,12 @@
+---
+title: Dogfood — Jig's Own Living Invariant
+type: reference
+status: draft
+owner: brent-hoover
+created: 2026-06-21
+updated: 2026-06-26
+---
+
 # Dogfood — Jig's Own Living Invariant
 
 Jig run through its own interview. This is both the product test (can the model describe a real, messy system?)

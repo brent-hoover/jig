@@ -1,3 +1,12 @@
+---
+title: The Operator Interview — Authoring the Living Invariant
+type: reference
+status: draft
+owner: brent-hoover
+created: 2026-06-21
+updated: 2026-06-26
+---
+
 # The Operator Interview — Authoring the Living Invariant
 
 The interview is the **authoring half** of the Living Invariant. It and the entity model are **duals**: every

@@ -1,3 +1,12 @@
+---
+title: The Living Invariant — Entity Model
+type: reference
+status: draft
+owner: brent-hoover
+created: 2026-06-21
+updated: 2026-06-26
+---
+
 # The Living Invariant — Entity Model
 
 ## One sentence

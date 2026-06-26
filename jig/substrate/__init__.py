@@ -11,9 +11,7 @@ from __future__ import annotations
 
 from jig.substrate.bus import TypedBus
 from jig.substrate.events import (
-    TicketCompleted,
     TicketCreated,
-    TicketFailed,
     TicketUpdated,
     TypedEvent,
     ticket_topic,
@@ -22,9 +20,7 @@ from jig.substrate.store_authority import StoreAuthority
 
 __all__ = [
     "StoreAuthority",
-    "TicketCompleted",
     "TicketCreated",
-    "TicketFailed",
     "TicketUpdated",
     "TypedBus",
     "TypedEvent",

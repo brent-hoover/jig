@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from jig.model.ontology import OntologyTerm
 from jig.schemas._validators import (
     validate_kebab_id,
     validate_kebab_id_list,
@@ -624,36 +625,6 @@ class StateDivergence(BaseModel):
 
 
 # ---- Project ontology -----------------------------------------------------
-
-
-class OntologyTerm(BaseModel):
-    """One entry in the project ontology — operator's domain vocabulary.
-
-    Per design.md §"Project ontology — capturing the operator's domain
-    vocabulary": ubiquitous-language entries surfaced during PO
-    discovery so every downstream agent (SA, VD, PM, dev, reviewer)
-    uses consistent terminology. Stored on disk as markdown sections
-    keyed by ``term`` heading; ``examples`` render as a bullet list
-    under ``**Examples:**`` when present.
-
-    ``term`` is preserved as the operator wrote it (lowercased for
-    lookup but the original casing surfaces in the rendered heading).
-    No kebab-case rule — domain words may include spaces and quotes
-    ("looks off" signals).
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    term: str = Field(..., min_length=1, description="The operator's word.")
-    definition: str = Field(
-        ...,
-        min_length=1,
-        description="One paragraph definition in the operator's vocabulary.",
-    )
-    examples: list[str] = Field(
-        default_factory=list,
-        description="Optional usage examples, one per bullet.",
-    )
 
 
 class PendingOntologyTerm(BaseModel):

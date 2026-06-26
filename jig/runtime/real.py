@@ -38,4 +38,5 @@ class RealRunAgent:
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
             warnings=list(result.warnings),
+            # events left empty in Bones; populated by RecordedRunAgent in MVP.
         )

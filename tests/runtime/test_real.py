@@ -48,3 +48,4 @@ async def test_real_delegates_to_run_agent_and_maps_the_result(monkeypatch) -> N
     assert result.tokens_in == 10
     assert result.tokens_out == 20
     assert result.warnings == ["audit write failed"]
+    assert result.events == []  # Bones leaves the recorded-events slot empty

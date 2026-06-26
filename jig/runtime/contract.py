@@ -14,13 +14,14 @@ production implementation (which pulls in the whole agent stack) lives in
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypeAlias, runtime_checkable
 
 from jig.runtime.spawn_context import AgentSpawnContext
 
 # Bones: the run context is the existing spawn context, named for the seam.
-# MVP/Final may promote it to a first-class runtime type.
-AgentRunContext = AgentSpawnContext
+# MVP/Final may promote it to a first-class runtime type. ``TypeAlias`` signals
+# the rebinding is intentional, not accidental.
+AgentRunContext: TypeAlias = AgentSpawnContext
 
 
 @dataclass

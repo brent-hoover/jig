@@ -1,0 +1,121 @@
+"""Spike 1 (#201) — is ``decide()`` genuinely pure under the async SDK?
+
+The question: actions include "spawn agent", which is inherently async. Can
+``decide(state, event) -> (next_state, actions)`` stay a pure, synchronous
+function? These tests are the proof: ``decide`` is sync, deterministic, and
+mutates nothing; the spawn is an inert ``SpawnAgent`` dataclass that an async
+shell executes afterward. Purity holds — the seam is functional-core /
+imperative-shell.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+from dataclasses import is_dataclass
+
+import pytest
+
+from jig.engines.build.decide import (
+    AgentCompleted,
+    BuildState,
+    SpawnAgent,
+    TicketReady,
+    decide,
+)
+from jig.ticket import TicketStatus
+
+
+def test_decide_is_a_plain_sync_function() -> None:
+    # The crux: decide does NOT need to await to decide.
+    assert not inspect.iscoroutinefunction(decide)
+
+
+def test_ready_ticket_transitions_to_in_progress_and_spawns() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+
+    next_state, actions = decide(state, TicketReady(ticket_id="jig-1", role="dev"))
+
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+    assert actions == (SpawnAgent(ticket_id="jig-1", role="dev"),)
+
+
+def test_the_spawn_action_is_an_inert_dataclass_not_a_coroutine() -> None:
+    _, actions = decide(
+        BuildState(statuses={"jig-1": TicketStatus.OPEN}),
+        TicketReady(ticket_id="jig-1", role="dev"),
+    )
+    (action,) = actions
+    assert is_dataclass(action)
+    assert not inspect.iscoroutine(action)
+
+
+def test_decide_does_not_mutate_the_input_state() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+
+    decide(state, TicketReady(ticket_id="jig-1", role="dev"))
+
+    # Original state is untouched — decide returns a new state.
+    assert state.statuses["jig-1"] == TicketStatus.OPEN
+
+
+def test_build_state_is_isolated_from_caller_mutation() -> None:
+    # Mutating the mapping the caller passed must not change the snapshot —
+    # otherwise the purity/determinism guarantee leaks.
+    statuses = {"jig-1": TicketStatus.OPEN}
+    state = BuildState(statuses=statuses)
+
+    statuses["jig-1"] = TicketStatus.FAILED
+
+    assert state.statuses["jig-1"] == TicketStatus.OPEN
+
+
+def test_build_state_snapshot_rejects_mutation() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+    with pytest.raises(TypeError):
+        state.statuses["jig-1"] = TicketStatus.FAILED  # type: ignore[index]
+
+
+def test_decide_is_deterministic() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+    event = TicketReady(ticket_id="jig-1", role="dev")
+
+    assert decide(state, event) == decide(state, event)
+
+
+def test_non_ready_ticket_is_a_no_op() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(state, TicketReady(ticket_id="jig-1", role="dev"))
+
+    assert actions == ()
+    assert next_state == state
+
+
+def test_agent_completion_updates_status_without_spawning() -> None:
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(
+        state, AgentCompleted(ticket_id="jig-1", status=TicketStatus.RESOLVED)
+    )
+
+    assert next_state.statuses["jig-1"] == TicketStatus.RESOLVED
+    assert actions == ()
+
+
+async def test_async_shell_executes_the_inert_actions() -> None:
+    """The async part lives in the shell, never in decide."""
+    spawned: list[tuple[str, str]] = []
+
+    async def execute(action: SpawnAgent) -> None:
+        await asyncio.sleep(0)  # the inherently-async work happens here
+        spawned.append((action.ticket_id, action.role))
+
+    state = BuildState(statuses={"jig-1": TicketStatus.OPEN})
+    next_state, actions = decide(state, TicketReady(ticket_id="jig-1", role="dev"))
+
+    for action in actions:
+        await execute(action)
+
+    assert spawned == [("jig-1", "dev")]
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS

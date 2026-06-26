@@ -114,6 +114,13 @@ without them, but each must be resolved before its epic's MVP.
   asynchronously. If `decide` must `await` to decide, purity breaks and we need a
   different seam.
 - **Time-box:** One session.
+- **Resolved (#201):** **Purity holds.** A synchronous
+  `decide(state, event) -> (next_state, actions)` handles `OPEN → IN_PROGRESS`
+  and returns an inert `SpawnAgent` dataclass; an async dispatch shell executes
+  it. `decide` never awaits, never mutates input state, and is deterministic.
+  The Build seam is functional-core (`jig/engines/build/decide.py`, pure) /
+  imperative-shell (`dispatch.py`, async). Proof + tests landed in
+  `jig/engines/build/` ahead of Epic 4 bones.
 
 ### Spike 2: Static-analysis approach for Reconciliation
 

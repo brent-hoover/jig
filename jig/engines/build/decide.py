@@ -177,16 +177,17 @@ def _on_worktree_merged(
     )
 
 
-# AgentCompleted carries a non-success terminal outcome. RESOLVED is excluded
-# (that goes through the merge path); OPEN/PROPOSED/IN_PROGRESS/CLOSED are not
-# agent-completion outcomes — accepting them would let a malformed event regress
-# an in-progress ticket.
+# AgentCompleted carries a non-success agent outcome — exactly the non-"success"
+# values of RunAgentResult.status (failed / blocked / needs_info). RESOLVED goes
+# through the merge path; MERGE_CONFLICT is a *merge* outcome (from
+# BuildPhase.MERGING), not an agent one, so it's excluded here — modeling the
+# merge-conflict result event is Final-phase sad-path work. OPEN/PROPOSED/etc.
+# are not completion outcomes and would regress an in-progress ticket.
 _AGENT_TERMINAL_STATUSES: frozenset[TicketStatus] = frozenset(
     {
         TicketStatus.FAILED,
         TicketStatus.BLOCKED,
         TicketStatus.NEEDS_INFO,
-        TicketStatus.MERGE_CONFLICT,
     }
 )
 

@@ -128,7 +128,13 @@ def test_agent_completed_cannot_regress_to_a_non_terminal_status() -> None:
     # back — only genuine agent terminals (failed/blocked/needs-info/conflict).
     state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
 
-    for bogus in (TicketStatus.OPEN, TicketStatus.PROPOSED, TicketStatus.IN_PROGRESS):
+    # MERGE_CONFLICT is a merge outcome (from MERGING), not an agent one.
+    for bogus in (
+        TicketStatus.OPEN,
+        TicketStatus.PROPOSED,
+        TicketStatus.IN_PROGRESS,
+        TicketStatus.MERGE_CONFLICT,
+    ):
         next_state, actions = decide(
             state, AgentCompleted(ticket_id="jig-1", status=bogus)
         )

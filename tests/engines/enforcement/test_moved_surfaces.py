@@ -1,0 +1,38 @@
+"""Enforcement bones — mechanical + reviewer surfaces exposed at the new home
+(Epic 5, tasks 3-4).
+
+Bones establishes the enforcement package boundary by re-exporting the current
+modules at their new home (the physical relocation + shim removal is MVP, which
+also avoids the ``reviewers/__init__`` <-> ``dispatch`` import cycle for now).
+The objects must be identical to the canonical ones.
+"""
+
+from __future__ import annotations
+
+
+def test_boundary_rules_exposed_under_enforcement_mechanical() -> None:
+    import jig.boundary_rules as canonical
+    from jig.engines.enforcement.mechanical import boundary_rules as moved
+
+    # Every re-exported name must resolve to the identical canonical object.
+    for name in moved.__all__:
+        assert getattr(moved, name) is getattr(canonical, name)
+
+
+def test_reviewer_dispatch_exposed_under_enforcement_reviewers() -> None:
+    import jig.reviewers.dispatch as canonical
+    from jig.engines.enforcement.reviewers import dispatch as moved
+
+    assert moved.select_reviewers_for_ticket is canonical.select_reviewers_for_ticket
+    assert moved.known_llm_reviewer_ids is canonical.known_llm_reviewer_ids
+
+
+def test_reviewer_dispatch_mirrors_the_full_canonical_surface() -> None:
+    # The new home must expose the WHOLE public surface, not a subset — else
+    # code migrating its imports hits ImportError. Pinned in lockstep.
+    import jig.reviewers.dispatch as canonical
+    from jig.engines.enforcement.reviewers import dispatch as moved
+
+    assert set(moved.__all__) == set(canonical.__all__)
+    for name in canonical.__all__:
+        assert getattr(moved, name) is getattr(canonical, name)

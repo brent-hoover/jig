@@ -1,0 +1,590 @@
+---
+title: Jig Architecture Migration — Implementation Plan
+type: plan
+status: draft
+owner: brent-hoover
+created: 2026-06-25
+updated: 2026-06-26
+design: ./jig-instance.md
+---
+
+# Jig Architecture Migration — Implementation Plan
+
+## Overview
+
+Brownfield migration of Jig's codebase from its current structure (god-object
+`orchestrator.py` at 4543 lines, `mcp_server.py` at 3374 lines, scattered schemas,
+magic-string bus topics, duplicate `OntologyTerm`) to the target architecture
+defined in `model.md` and `jig-instance.md`: a layered system of CORE Model →
+Substrate → Agent Runtime → Engines → EDGE, coordinated via `project://` store
+authorities and a typed Bus, with a pure `decide()` state machine at the heart
+of the Build engine.
+
+The migration follows a bones-first progression: stand up the target boundaries
+and seams first, flow one thin happy path end-to-end through the new structure
+(with logic shimmed to old code where needed), then migrate real logic behind
+each boundary epic-by-epic. The bones acceptance test is the evaluability
+driver: the code-pipeline and review loop run headless on a fixture, without the
+daemon/TUI, using fake agents.
+
+This plan is throwaway — it exists to coordinate the migration, not to document
+the system. The architecture lives in `model.md` and `jig-instance.md`.
+
+## Absorbed feature-work docs
+
+This plan supersedes the following `feature-work/` problem statements, whose
+requirements are folded into the epics below:
+
+- [x] `feature-work/larger-projects/problem.md` — SA role unification + tracer-bullet
+      planning phase. **Absorbed into Epic 6** (SAU unification, TB planning phase,
+      graph tools, derisker ordering, TracerSpec integration, medium eval scenario).
+- [x] `feature-work/sa-architect/problem.md` — SA grounded decisions (Context7,
+      WebFetch). **Absorbed into Epic 6** (Architecture engine MVP — grounded
+      decision protocol preserved in unified SAU).
+- [x] `feature-work/architecture-skeleton/problem.md` — Architecture artifacts
+      incomplete (modules, contracts). **Absorbed into Epic 6** (Architecture
+      engine produces full artifact set: modules, contracts, boundaries).
+- [x] `feature-work/module-boundaries/problem.md` — Module boundary enforcement.
+      **Absorbed into Epic 5** (Enforcement — mechanical structure checks +
+      boundary rules).
+- [x] `feature-work/medium-l0-l3-pipeline/problem.md` — PO L0-L3 pipeline, v1 vs
+      v2 topology. **Absorbed into Epic 6** (Discovery engine — L0-L3 pipeline
+      becomes the Discovery interview at architectural resolution).
+- [x] `feature-work/project-onboarding/problem.md` — Brownfield onboarding path.
+      **Absorbed into Epic 6** (Discovery engine — onboarding extracted as
+      `jig/engines/discovery/onboard.py`; brownfield TB support is a design
+      target, not a requirement, per larger-projects constraints).
+- [x] `feature-work/jig-init-process/problem.md` — Init flow has no
+      conversation/architecture. **Absorbed into Epic 6** (Discovery engine —
+      init conversation becomes the Discovery interview).
+
+All docs above are marked `status: superseded` with
+`superseded_by: ../../architecture/plan.md`.
+
+## Preconditions
+
+- [x] Phase 3 architecture approved (see `jig-instance.md` → Phase 3)
+- [x] `project://` URI scheme exists (`jig/ownership.py`) — store authorities are
+      not greenfield
+- [x] Bus exists (`jig/store/bus.py`) with topic-based publish/subscribe — typed
+      events are an upgrade, not a new system
+- [x] JSONL store layer exists (`jig/store/core.py`) — substrate is an extraction,
+      not a build
+- [x] Agent spawn/sandbox exists (`jig/agent.py`, `jig/sandbox.py`) — Agent
+      Runtime seam is a contract extraction, not a new capability
+- [ ] Spikes resolved (see Spikes section — at minimum the `decide()` purity
+      spike must be attempted before Build MVP, but bones can start without it)
+- [ ] Operator confirms the bones-first progression and the epic ordering
+
+## Current state (the gap)
+
+The target architecture has 5 layers and 7 engine suites. The current codebase
+maps to it as follows — this is the migration gap:
+
+| Target layer/suite | Current code | Gap |
+|---|---|---|
+| CORE Model | `jig/schemas/arch.py` (1250), `jig/schemas/po.py` (705), `jig/ticket.py`, `jig/thread.py` | Scattered across schemas/ + ticket.py + thread.py; not a single pure module; `OntologyTerm` duplicated in arch.py and po.py; no pure invariant functions |
+| Substrate: Store | `jig/store/` (16 modules), `jig/ownership.py` | Exists but not behind `project://` authorities as a unified interface; stores are per-type, not authority-grouped |
+| Substrate: Bus | `jig/store/bus.py`, `jig/events.py` | Magic-string topics (`"orchestrator"`); no typed event schema |
+| Agent Runtime | `jig/agent.py` (1113), `jig/sandbox.py`, `jig/container.py`, `jig/mcp_server.py` (3374) | No `RunAgent` contract; agent spawn is coupled to orchestrator + MCP; no substitutable seam for fakes |
+| Build engine | `jig/orchestrator.py` (4543), `jig/coordinator.py` (726), `jig/deadlock.py`, `jig/stall_detector.py` | God-object; no pure `decide()`; dispatch/effects/logic entangled; supervisor not separated |
+| Enforcement | `jig/boundary_rules.py`, `jig/checks.py`, `jig/check_runner.py`, `jig/reviewers/` (1215+644) | Exists as scattered checks + reviewer federation; not a clean library Build invokes; not headless-invocable |
+| Discovery | `jig/init_workflow.py` (2697), `jig/onboard_workflow.py` (1658), `jig/po_*.py` (4 MCP modules), `jig/spec_generator.py` | Init + onboard + PO MCPs are one tangled workflow; not behind a `project://spec/` authority |
+| Architecture | `jig/sa_mcp.py`, `jig/sa_incremental_mcp.py` (1564), `jig/init_mcp.py` | Three SA roles (sa, sa_mvp, sa_v2); not unified; cascade governance not extracted |
+| Reconciliation | (mostly missing) | No derive-from-code; no drift detection; new static-analysis dependency |
+| Evaluation | `jig/eval/`, `jig/evals/`, `jig/sim/` | Exists but not headless; not driving Build on fixtures; synthetic-operator simulator is separate |
+| EDGE | `jig/cli.py` (3119), `jig/ws_server.py` (794), `jig/tui/`, `jig/daemon.py` | TUI/CLI/daemon exist but are thick; persona variation not localized; internals are directly accessed |
+
+## Spikes
+
+Three registered spikes (from `jig-instance.md` → Phase 4). Bones can start
+without them, but each must be resolved before its epic's MVP.
+
+### Spike 1: Can `decide()` be genuinely pure under the async SDK?
+
+- **Slot before:** Build MVP (Epic 4)
+- **Question:** The Claude Agent SDK is async/streaming. Can a pure
+  `decide(state, event) -> (next_state, actions)` function work when actions
+  include "spawn agent" (inherently async)? Or does the state machine need an
+  async variant?
+- **Approach:** Write a minimal `decide()` that handles one ticket transition
+  (e.g. `ready → in_progress`) and returns an action like
+  `SpawnAgent(ticket_id, role)`. Test it with synthetic events. If the action
+  is a dataclass (not a coroutine), purity holds — the shell executes it
+  asynchronously. If `decide` must `await` to decide, purity breaks and we need a
+  different seam.
+- **Time-box:** One session.
+
+### Spike 2: Static-analysis approach for Reconciliation
+
+- **Slot before:** Reconciliation MVP (Epic 7)
+- **Question:** How do we derive the actual import/dependency graph from Python
+  code? `grimp`? `ast` walk? Something else?
+- **Approach:** Try `grimp` against Jig's own codebase. If it produces a usable
+  module graph, compare it to the declared architecture. If `grimp` is too
+  opinionated about package layout, fall back to a custom `ast`-based importer.
+- **Time-box:** One session.
+
+### Spike 3: Agent record/replay for fixture-based evals
+
+- **Slot before:** Agent Runtime seam MVP (Epic 3) and Evaluation (Epic 8)
+- **Question:** Can we record a real agent's streaming output and replay it
+  through the `RunAgent` seam as a fixture?
+- **Approach:** Record one `claude-agent-sdk` run (capture the stream events).
+  Build a `RecordedAgent` impl of `RunAgent` that replays them. Verify a
+  downstream consumer (the check runner) can't tell the difference.
+- **Time-box:** One session.
+
+## Epics (dependency order)
+
+Each epic has three phases: **Bones** (tracer bullet — boundary + seam, logic
+shimmed), **MVP** (real logic migrated behind the boundary), **Final** (edge
+cases, full coverage). Bones for all epics should land before any epic's MVP.
+
+---
+
+### Epic 1 — CORE Model
+
+Extract the Living-Invariant entities and invariants into a pure, I/O-free
+module. This is foundational — everything depends on it.
+
+**Bones:**
+1. Create `jig/model/` package (pure, no I/O imports).
+2. Move `OntologyTerm` to `jig/model/ontology.py` (single definition).
+3. Update `jig/schemas/arch.py` and `jig/schemas/po.py` to re-export from
+   `jig/model/ontology.py` (backwards-compatible shim — the duplicate definitions
+   become aliases).
+4. Define the 5 invariants as pure function signatures in
+   `jig/model/invariants.py` (stub bodies, not yet implemented):
+   - `coverage(model) -> list[Finding]`
+   - `conformance(model, code) -> list[Finding]`
+   - `containment(model, code) -> list[Finding]`
+   - `vocabulary(model) -> list[Finding]`
+   - `ownership(model) -> list[Finding]`
+5. Move `Ticket` and `Thread` domain types to `jig/model/ticket.py` and
+   `jig/model/thread.py` (re-export from current locations for compat).
+
+**MVP:**
+1. Implement the `coverage` invariant (orphan capability/contract/journey
+   detection) as a pure graph query over trace edges.
+2. Implement the `containment` invariant (boundary dependency check) as a pure
+   graph query.
+3. Implement `vocabulary` (one concept, one home — count concepts with >1
+   definition).
+4. Migrate consumers to import from `jig/model/` directly (remove re-export
+   shims where feasible).
+
+**Final:**
+1. Implement `conformance` (requires code analysis — may defer to
+   Reconciliation).
+2. Implement `ownership` (every Boundary has exactly one owner).
+3. Remove all re-export shims.
+
+**Verify:** `pytest tests/` passes (existing 346 test files). New
+`tests/model/test_invariants.py` covers the pure functions.
+
+---
+
+### Epic 2 — Substrate (Store + Bus)
+
+Extract the store layer behind `project://` authorities and replace magic-string
+bus topics with typed events.
+
+**Bones:**
+1. Create `jig/substrate/` package.
+2. Define `StoreAuthority` — a unified read/write interface for
+   `project://spec/`, `project://arch/`, `project://design/`, `project://plan/`,
+   `project://store/`. Backed by existing JSONL stores (no new persistence).
+3. Define `TypedEvent` schema (pydantic) for bus events. Map existing
+   magic-string topics (`"orchestrator"`, `"tickets.{id}"`) to typed equivalents
+   (`TicketScheduled`, `TicketCompleted`, etc.).
+4. Add a typed-event adapter in the Bus that accepts both old string topics and
+   new typed events (compatibility layer).
+
+**MVP:**
+1. Route all store access through `StoreAuthority` (existing stores become
+   internal impls).
+2. Migrate orchestrator's bus publishes from `"orchestrator"` string to typed
+   events.
+3. Migrate bus subscribers to consume typed events.
+
+**Final:**
+1. Remove the string-topic compatibility layer.
+2. Delete `jig/events.py` if fully superseded.
+
+**Verify:** `pytest tests/` passes. New `tests/substrate/` covers authority
+routing and typed events. Bus tests (`tests/test_bus.py`,
+`tests/test_bus_recent.py`) pass unchanged through the compat layer, then
+updated.
+
+---
+
+### Epic 3 — Agent Runtime seam
+
+Extract the agent spawn/sandbox/MCP lifecycle into a `RunAgent` contract with
+real/recorded/fixture implementations.
+
+**Bones:**
+1. Create `jig/runtime/` package.
+2. Define `RunAgent` contract:
+   ```python
+   class RunAgent(Protocol):
+       async def __call__(self, ctx: AgentRunContext) -> AgentRunResult: ...
+   ```
+   Where `AgentRunContext` carries ticket, role, worktree, MCP config.
+   `AgentRunResult` carries stream events, exit status, artifacts.
+3. Extract existing spawn logic from `jig/agent.py` into `RealRunAgent`.
+4. Add `FixtureRunAgent` (returns canned `AgentRunResult` — the bone for
+   headless evals).
+
+**MVP:**
+1. Resolve Spike 3 (record/replay). Add `RecordedRunAgent`.
+2. Route all agent spawns through `RunAgent` (orchestrator calls the seam, not
+   `agent.py` directly).
+3. Extract per-agent MCP server lifecycle from `mcp_server.py` into the runtime.
+   `mcp_server.py` becomes registration/wiring only.
+
+**Final:**
+1. Sandbox/container lifecycle as runtime-internal.
+2. Full `RecordedRunAgent` with streaming replay.
+
+**Verify:** `pytest tests/` passes. New `tests/runtime/` covers the seam with
+all three implementations. Existing agent tests
+(`tests/test_agent_*.py`) pass through `RealRunAgent`.
+
+---
+
+### Epic 4 — Build engine (the god-object fix)
+
+Split `orchestrator.py` into pure `decide()` + dispatch/effects shell +
+supervisor. This is the highest-risk, highest-coupling epic.
+
+**Bones:**
+1. Create `jig/engines/build/` package.
+2. Extract `decide(state, event) -> (next_state, actions)` as a pure function
+   in `jig/engines/build/decide.py`. Start with one ticket lifecycle
+   (e.g. `ready → in_progress → review → merged`). The state machine is
+   data-driven (states + transitions as data, not if/else chains).
+3. Extract the dispatch/effects shell in
+   `jig/engines/build/dispatch.py` — the part that executes `decide()`'s actions
+   (spawn agent, run check, merge worktree). The shell is the only async part.
+4. Extract `Supervisor` in `jig/engines/build/supervisor.py` — deadlock/stall
+   detection that emits events into `decide()` (never mutates tickets
+   directly). Based on existing `jig/deadlock.py` and `jig/stall_detector.py`.
+5. Wire `Orchestrator` as the thin coordinator: `decide()` + `dispatch` +
+   `supervisor` + bus subscription. Existing `orchestrator.py` becomes a
+   facade that delegates to the new modules (backwards compat for tests).
+
+**MVP:**
+1. Resolve Spike 1 (`decide()` purity). If pure works, migrate all ticket
+   transitions to the state machine.
+2. Migrate review federation orchestration into the Build engine (currently
+   in orchestrator's `_run_review_federation`).
+3. Migrate dependency resolution (`_unblock_dependents`,
+   `_cascade_fail_dependents`) into `decide()` transitions.
+
+**Final:**
+1. Migrate sad-path transitions (blocked, needs-info, review-failed,
+   merge-conflict, replan).
+2. Migrate the full escalation/replan flow.
+3. Remove the `orchestrator.py` facade (all consumers now use the new modules).
+
+**Verify:** `pytest tests/` passes. New `tests/engines/build/test_decide.py`
+tests the pure state machine with synthetic events (no I/O). Existing
+orchestrator tests pass through the facade, then migrate to test the new
+modules directly.
+
+---
+
+### Epic 5 — Enforcement
+
+Extract checks + reviewer federation into a library that Build invokes. Absorbs
+`feature-work/module-boundaries/problem.md` (module boundary enforcement).
+
+**Bones:**
+1. Create `jig/engines/enforcement/` package.
+2. Define `Review(diff, invariant_context) -> list[Finding]` as the
+   headless-invocable contract.
+3. Move `jig/boundary_rules.py` → `jig/engines/enforcement/mechanical/`.
+4. Move `jig/reviewers/dispatch.py` → `jig/engines/enforcement/reviewers/`.
+
+**MVP:**
+1. Migrate `jig/check_runner.py` into the enforcement library.
+2. Wire Build to invoke Enforcement via the `Review` contract (not direct
+   calls to `jig/reviewers/`).
+3. Make the review loop headless: `review(diff, context) -> findings → fix →
+   re-review` runnable without the daemon.
+4. Mechanical boundary enforcement: import deny-lists checked per-commit against
+   declared module boundaries. A boundary violation is a build-blocking finding,
+   not a reviewer judgment. (From `module-boundaries/problem.md`: the module
+   boundary check must be deterministic, not LLM-adjudicated.)
+5. Vocabulary/ontology enforcement: flag term drift against the project
+   Ontology — synonyms, redefined terms, concepts with multiple homes. This is
+   the "one concept, one home" invariant made mechanical.
+
+**Final:**
+1. Full reviewer federation (all reviewer types).
+2. Severity/disposition calibration.
+3. Contract conformance checks (code verified against declared contracts —
+   deterministic-ish, may overlap with Reconciliation for derived-from-code
+   checks).
+
+**Verify:** `pytest tests/` passes. New `tests/engines/enforcement/` covers the
+`Review` contract and mechanical boundary checks. Reviewer tests
+(`tests/test_review_*.py`) pass through the new location. Module boundary tests
+(`tests/test_boundary_*.py`) pass through the enforcement library.
+
+---
+
+### Epic 6 — Authoring engines (Discovery, Architecture, VD)
+
+Extract the init/onboard/SA workflows behind their `project://` authorities.
+Absorbs `feature-work/larger-projects/problem.md` (SAU unification + TB
+planning), `feature-work/sa-architect/problem.md` (grounded decisions),
+`feature-work/architecture-skeleton/problem.md` (architecture artifacts),
+`feature-work/medium-l0-l3-pipeline/problem.md` (PO L0-L3 pipeline),
+`feature-work/project-onboarding/problem.md` (brownfield onboarding), and
+`feature-work/jig-init-process/problem.md` (init conversation).
+
+**Bones:**
+1. Create `jig/engines/discovery/`, `jig/engines/architecture/`,
+   `jig/engines/visual_design/`.
+2. Define authority boundaries: Discovery writes `project://spec/...`,
+   Architecture writes `project://arch/...`, VD writes `project://design/...`.
+3. Extract SA↔operator loop from `jig/init_workflow.py` into
+   `jig/engines/architecture/` (the ask/answer/approval flow).
+4. Extract the PO interview conversation from `jig/init_workflow.py` into
+   `jig/engines/discovery/` (replaces the v1 flat / v2 L0-L3 split with one
+   Discovery interview at architectural resolution — from
+   `medium-l0-l3-pipeline/problem.md` and `jig-init-process/problem.md`).
+
+**MVP:**
+1. **Unify the three SA roles** (sa, sa_mvp, sa_v2) into one size-adaptive
+   `jig/engines/architecture/sa.py`. All profiles route through this single
+   role. No `sa` vs `sa_mvp` vs `sa_v2` branching in routing. (From
+   `larger-projects/problem.md` requirement 1.)
+2. **SAU Phase 1 (Architecture):** the unified SA produces the full
+   architecture artifact set — contracts, schemas, boundaries, data ownership,
+   grounded tech decisions. Preserves `sa_mvp` scope (per-module contracts,
+   behavioral + data contracts, risks) and `sa`'s grounded-decision protocol
+   (Context7 + WebFetch). (From `larger-projects/problem.md` requirement 2,
+   `sa-architect/problem.md`, `architecture-skeleton/problem.md`.)
+3. **SAU Phase 2 (Planning):** the unified SA produces an ordered tracer-bullet
+   execution plan as a machine-readable artifact. Slices are thin vertical
+   cross-module cuts, each ending with working, testable software. Order
+   follows the derisker-first principle: highest-downstream-impact slices first.
+   (From `larger-projects/problem.md` requirement 3.) This is the first-class
+   execution planning phase that Jig is missing today.
+4. **Graph tools first-class:** `graph_get_impact`, `graph_neighbors`,
+   `graph_consumers_of`, `graph_tracers_for`, `graph_changed_interfaces`
+   functional in the unified SAU role, allow-listed under strict_tools. These
+   were stranded in `sa_v2` only; they now work in every SAU call. (From
+   `larger-projects/problem.md` requirement 5.)
+5. **TB plan composes with TracerSpec:** the planning-layer TB plan integrates
+   with the existing eval-layer `TracerSpec` smoke test schema
+   (`jig/schemas/tracer.py`) via `bones_ticket_id` or equivalent. The TB plan is
+   upstream of tickets; PM consumes it for ticket slicing. (From
+   `larger-projects/problem.md` requirement 4.)
+6. Extract onboarding from `jig/onboard_workflow.py` into
+   `jig/engines/discovery/onboard.py`. (From `project-onboarding/problem.md`.)
+7. Profile routing: SAU keeps a small/medium behavioral distinction (same role,
+   different modes — small projects produce fewer TBs, not no TBs). This is
+   size-graded, not profile-graded. (From `larger-projects/problem.md` open
+   question 3 — resolved here as "keep the distinction, it's depth-of-descent
+   not separate roles.")
+
+**Final:**
+1. VD engine (light for Jig-the-TUI, full for general projects).
+2. Cascade governance (model-change propagation) in Architecture.
+3. TB-plan operator confirmation: operator reviews/overrides the TB plan
+   alongside the existing architecture confirmation (not a separate gate).
+   (From `larger-projects/problem.md` open question 4.)
+4. Brownfield TB support as a design target (not a requirement for this
+   migration). Greenfield TB planning is the requirement; brownfield uses the
+   onboarding path. (From `larger-projects/problem.md` requirement 8.)
+
+**Open questions to resolve before MVP:**
+- **TB plan output format:** new SAU artifact (e.g.
+  `.jig/spec/tracer_bullets.yaml`), a new section in `architecture.yaml`, or
+  embedded in `suites.yaml`? (From `larger-projects/problem.md` open question 1.)
+- **Derisker heuristic:** how to compute "most derisking" slice ordering.
+  Candidates: external integrations first, module coupling spine, technology
+  choices under load, or some combination. Does the operator confirm/override
+  the ordering? (From `larger-projects/problem.md` open question 2.)
+- **Onboarding SAU dispatch:** clean replacement or needs greenfield/brownfield
+  signal? (From `larger-projects/problem.md` open question 5.)
+
+**Verify:**
+- `pytest tests/` passes. Init/onboard tests (`tests/test_init_*.py`,
+  `tests/test_onboard_*.py`) pass through the new locations. SA role tests
+  updated for the unified role (`test_sa_adjudication.py`,
+  `test_sa_v2_registration.py`, `test_sa_incremental_registration.py` rewritten).
+- One SA role YAML in `jig/defaults/roles/`. All three old files collapse.
+  (From `larger-projects/problem.md` success criteria.)
+- SAU produces two distinct, observable outputs: architecture (Phase 1) and
+  tracer-bullet plan (Phase 2). TB plan is parseable and machine-readable.
+- Graph tools functional in SAU.
+- Existing `TracerSpec` smoke tests continue to run and validate systems; no
+  regression from SAU TB planning.
+- hn-cli eval stays green. (From `larger-projects/problem.md` success criteria.)
+- Medium-sized eval scenario uses SAU and produces a valid TB plan. (From
+  `larger-projects/problem.md` success criteria — lands when the medium eval
+  project is ready.)
+
+---
+
+### Epic 7 — Reconciliation
+
+New: derive actual structure from code, diff against declared model, surface
+drift as work.
+
+**Bones:**
+1. Create `jig/engines/reconciliation/`.
+2. Define `derive_actual_graph(code_path) -> DependencyGraph`.
+3. Define `diff(declared, actual) -> DriftReport`.
+
+**MVP:**
+1. Resolve Spike 2 (static-analysis approach). Implement
+   `derive_actual_graph` using the chosen tool.
+2. Run drift detection on Jig's own codebase (dogfood — the declared
+   architecture in `architecture/` vs the real code).
+3. Surface drift as tickets via Build.
+
+**Final:**
+1. Intent drift (reviewer-adjudicated).
+2. Cascade triggering from structural drift.
+
+**Verify:** New `tests/engines/reconciliation/`. Dogfood: running
+reconciliation on Jig itself produces a drift report comparing the target
+architecture to the current code.
+
+---
+
+### Epic 8 — Evaluation (headless harness)
+
+Drive Build + review loop headless on fixture corpora.
+
+**Bones:**
+1. Create `jig/engines/evaluation/`.
+2. Define the eval harness contract: `EvalRun(build_config, fixtures) ->
+   EvalResult`.
+3. Wire the harness to use `FixtureRunAgent` (Epic 3) + headless Build
+   (Epic 4) + headless Enforcement (Epic 5).
+
+**MVP:**
+1. Build a fixture corpus of labeled diffs → expected findings (for reviewer
+   precision/recall).
+2. Build a fix-loop convergence metric.
+3. Run the code-pipeline eval headless on a fixture (the bones acceptance
+   test).
+
+**Final:**
+1. Full eval corpus.
+2. Metrics over time (quality tracking).
+3. Synthetic-operator simulator integration.
+
+**Verify:** The bones acceptance test passes: the code-pipeline runs headless
+on a fixture, without the daemon/TUI, using fake agents.
+
+---
+
+### Epic 9 — EDGE (thin client)
+
+Make the TUI/CLI/daemon a thin client over a daemon API, persona variation
+localized.
+
+**Bones:**
+1. Define the daemon API contract (command/event/snapshot protocol) in
+   `jig/edge/api.py`.
+2. Audit `jig/cli.py` and `jig/tui/` for direct access to engine internals.
+   List the violations.
+
+**MVP:**
+1. Route all CLI/TUI access through the daemon API (no direct store or engine
+   imports).
+2. Localize persona variation points (developer vs founder density) in the
+   edge layer.
+
+**Final:**
+1. TUI refactor (thinning).
+2. CLI command consolidation.
+3. Persona-conditioned rendering.
+
+**Verify:** `pytest tests/` passes. TUI tests
+(`tests/test_tui_*.py`, `tests/tui/`) pass through the API. No engine module
+is imported by `jig/edge/` except via the API contract.
+
+---
+
+## Bones acceptance test (the gate for the bones phase)
+
+All epic bones (Epic 1–9 bones) must land before any epic's MVP starts. The
+acceptance test for the bones phase is:
+
+> The code-pipeline and review loop run **headless on a fixture**, without the
+> daemon/TUI, using `FixtureRunAgent` (Epic 3) + pure `decide()` (Epic 4) +
+> `Review` contract (Epic 5) + `StoreAuthority` (Epic 2) + Model entities
+> (Epic 1). No `Orchestrator` god-object, no `mcp_server.py`, no daemon, no TUI
+> in the path.
+
+This is the evaluability driver from `jig-instance.md` → Build suite signal #4.
+If the bones compose, the architecture is validated on Jig's own hardest case
+before any real logic migrates.
+
+## Rollback
+
+The migration is brownfield and backwards-compatible at each step:
+
+- Epic 1: re-export shims mean consumers can ignore the new `jig/model/` package.
+  Rollback = delete `jig/model/`, restore the original schema definitions.
+- Epic 2: typed events are additive (string topics still work through the
+  compat layer). Rollback = remove typed-event adapter, keep string topics.
+- Epic 3: `RealRunAgent` wraps the existing `agent.py` — no behavior change.
+  Rollback = route spawns back to `agent.py` directly.
+- Epic 4: `orchestrator.py` becomes a facade delegating to new modules.
+  Rollback = remove the facade's delegation, restore the original method bodies.
+- Epic 5–9: extraction moves code, not behavior. Rollback = restore the
+  original file locations.
+
+If multiple epics are partially migrated and the system is unstable, the safe
+state is: revert to the last commit where all tests pass, re-plan the failing
+epic, and retry. The test suite (346 files) is the safety net — if it's green,
+the migration hasn't broken anything.
+
+## Out of scope for this plan
+
+- **Bug fixes** — tracked separately on the board, not folded into this
+  migration. They proceed on their own schedule. The eval-found issues (#186
+  dep-merge race, #187 same-module divergence, #188 PM re-plan retry) are
+  bug fixes, not architecture migration work.
+- **New features** (deployment agent, mutation testing, kanban board, etc.) —
+  remain on the board as individual tickets, not part of this migration.
+- **Pair-programming experiment** — separate eval experiment after the
+  architecture is stable. SAU's graph tools + TB plan feed directly into it,
+  but the experiment itself is not scoped here (from `larger-projects/problem.md`
+  non-goals).
+- **Onboarding internal redesign** — the onboard workflow is extracted as part
+  of Epic 6, but its internal redesign is a separate concern. The extraction
+  moves it behind a `project://spec/` authority; how onboarding works inside
+  that boundary is a future design doc.
+- **Non-Python boundary enforcement** — out of scope (see `model.md`).
+- **Runtime (import-hook) enforcement** — out of scope (see `model.md`).
+- **VD engine full implementation** — light for Jig-the-TUI only in this
+  migration; full VD is a general-project concern.
+- **Brownfield TB retrofitting** — TB planning applies to new / not-yet-understood
+  work. Existing-running code uses the onboarding path. Brownfield TB support is
+  a design target, not a requirement (from `larger-projects/problem.md`
+  non-goals).
+- **Changes to PM ticket schema** — TB plans are upstream of tickets. How PM
+  slices tickets against the TB plan is a downstream design question (from
+  `larger-projects/problem.md` non-goals).
+
+## Change log
+
+- 2026-06-25: Initial draft (brent-hoover, Frank)
+- 2026-06-26: Folded `larger-projects/problem.md` requirements into Epic 6
+  (SAU unification, TB planning phase, graph tools, derisker ordering,
+  TracerSpec integration, medium eval scenario). Folded `module-boundaries`
+  into Epic 5 (mechanical boundary + vocabulary enforcement). Added absorbed
+  feature-work docs section. Added open questions from larger-projects to
+  Epic 6. Updated out-of-scope for consistency. (Frank)

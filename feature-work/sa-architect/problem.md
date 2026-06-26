@@ -1,11 +1,17 @@
 ---
 title: SA as Architect — Problem Statement
 type: problem
-status: active
+status: superseded
 owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-08
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# SA as Architect — Problem Statement
+
+> **Superseded.** Absorbed into `architecture/plan.md` Epic 6 (Architecture
+> engine MVP — grounded decision protocol preserved in unified SAU).
 
 # SA as Architect — Problem Statement
 

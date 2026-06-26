@@ -1,0 +1,2752 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "hermes-agent",
+  "elements": [
+    {
+      "type": "text",
+      "id": "title",
+      "x": 200,
+      "y": 15,
+      "text": "Jig Code Structure: Current Modules -> Target Layers",
+      "fontSize": 20,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "originalText": "Jig Code Structure: Current Modules -> Target Layers",
+      "autoResize": true
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "x": 350,
+      "y": 42,
+      "text": "Boxes show actual files + line counts. Color = target layer.",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#757575",
+      "originalText": "Boxes show actual files + line counts. Color = target layer.",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "core_zone",
+      "x": 20,
+      "y": 70,
+      "width": 1340,
+      "height": 200,
+      "backgroundColor": "#e7f5ff",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#4a9eed",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "core_label",
+      "x": 30,
+      "y": 75,
+      "text": "TARGET: CORE (pure, no I/O)  --  Model entities + invariants + decide()",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1971c2",
+      "originalText": "TARGET: CORE (pure, no I/O)  --  Model entities + invariants + decide()",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "sub_zone",
+      "x": 20,
+      "y": 280,
+      "width": 1340,
+      "height": 130,
+      "backgroundColor": "#fff4e6",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "sub_label",
+      "x": 30,
+      "y": 285,
+      "text": "TARGET: SUBSTRATE  --  Store (project://) + Bus (typed events)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#e67700",
+      "originalText": "TARGET: SUBSTRATE  --  Store (project://) + Bus (typed events)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "rt_zone",
+      "x": 20,
+      "y": 420,
+      "width": 1340,
+      "height": 110,
+      "backgroundColor": "#f3f0ff",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#8b5cf6",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "rt_label",
+      "x": 30,
+      "y": 425,
+      "text": "TARGET: RUNTIME  --  Agent Runtime (RunAgent seam)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#7048e8",
+      "originalText": "TARGET: RUNTIME  --  Agent Runtime (RunAgent seam)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "eng_zone",
+      "x": 20,
+      "y": 540,
+      "width": 1340,
+      "height": 280,
+      "backgroundColor": "#ebfbee",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "eng_label",
+      "x": 30,
+      "y": 545,
+      "text": "TARGET: ENGINES  --  Discovery | Architecture | Build | Enforcement | Reconciliation | Evaluation",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#2f9e44",
+      "originalText": "TARGET: ENGINES  --  Discovery | Architecture | Build | Enforcement | Reconciliation | Evaluation",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "edge_zone",
+      "x": 20,
+      "y": 840,
+      "width": 1340,
+      "height": 130,
+      "backgroundColor": "#fff9db",
+      "fillStyle": "solid",
+      "roundness": {
+        "type": 3
+      },
+      "strokeColor": "#f59e0b",
+      "strokeWidth": 1,
+      "opacity": 15
+    },
+    {
+      "type": "text",
+      "id": "edge_label",
+      "x": 30,
+      "y": 845,
+      "text": "TARGET: EDGE  --  Operator Interface (daemon + WS + TUI + CLI)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#e67700",
+      "originalText": "TARGET: EDGE  --  Operator Interface (daemon + WS + TUI + CLI)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "schemas_arch",
+      "x": 40,
+      "y": 105,
+      "width": 180,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_schemas_arch",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_schemas_arch",
+      "x": 44,
+      "y": 117,
+      "width": 172,
+      "height": 20,
+      "text": "schemas/arch.py\n(1250 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "schemas_arch",
+      "originalText": "schemas/arch.py\n(1250 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "schemas_po",
+      "x": 240,
+      "y": 105,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_schemas_po",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_schemas_po",
+      "x": 244,
+      "y": 117,
+      "width": 152,
+      "height": 20,
+      "text": "schemas/po.py\n(705 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "schemas_po",
+      "originalText": "schemas/po.py\n(705 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "ticket",
+      "x": 420,
+      "y": 105,
+      "width": 130,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_ticket",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_ticket",
+      "x": 424,
+      "y": 117,
+      "width": 122,
+      "height": 20,
+      "text": "ticket.py\n(603 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "ticket",
+      "originalText": "ticket.py\n(603 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "thread",
+      "x": 570,
+      "y": 105,
+      "width": 130,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_thread",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_thread",
+      "x": 574,
+      "y": 117,
+      "width": 122,
+      "height": 20,
+      "text": "thread.py\n(540 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "thread",
+      "originalText": "thread.py\n(540 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "spec_schema",
+      "x": 720,
+      "y": 105,
+      "width": 150,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_spec_schema",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_spec_schema",
+      "x": 724,
+      "y": 117,
+      "width": 142,
+      "height": 20,
+      "text": "spec_schema.py\n(440 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "spec_schema",
+      "originalText": "spec_schema.py\n(440 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "models",
+      "x": 890,
+      "y": 105,
+      "width": 120,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_models",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_models",
+      "x": 894,
+      "y": 117,
+      "width": 112,
+      "height": 20,
+      "text": "models.py\n(380 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "models",
+      "originalText": "models.py\n(380 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "ontology_dup",
+      "x": 1030,
+      "y": 105,
+      "width": 280,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_ontology_dup",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_ontology_dup",
+      "x": 1034,
+      "y": 117,
+      "width": 272,
+      "height": 20,
+      "text": "OntologyTerm DUPLICATED\nin arch.py + po.py",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "ontology_dup",
+      "originalText": "OntologyTerm DUPLICATED\nin arch.py + po.py",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "decide_new",
+      "x": 420,
+      "y": 175,
+      "width": 280,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#dee2e6",
+      "fillStyle": "solid",
+      "strokeColor": "#868e96",
+      "boundElements": [
+        {
+          "id": "t_decide_new",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_decide_new",
+      "x": 424,
+      "y": 187,
+      "width": 272,
+      "height": 20,
+      "text": "decide() -- DOES NOT EXIST YET\n(pure state machine, to be built)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "decide_new",
+      "originalText": "decide() -- DOES NOT EXIST YET\n(pure state machine, to be built)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "work_types",
+      "x": 40,
+      "y": 175,
+      "width": 150,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_work_types",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_work_types",
+      "x": 44,
+      "y": 187,
+      "width": 142,
+      "height": 20,
+      "text": "work_types.py\n(200 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "work_types",
+      "originalText": "work_types.py\n(200 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "phase",
+      "x": 210,
+      "y": 175,
+      "width": 130,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_phase",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_phase",
+      "x": 214,
+      "y": 187,
+      "width": 122,
+      "height": 20,
+      "text": "phase.py\n(180 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "phase",
+      "originalText": "phase.py\n(180 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "intent",
+      "x": 360,
+      "y": 120,
+      "width": 130,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_intent",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_intent",
+      "x": 364,
+      "y": 132,
+      "width": 122,
+      "height": 20,
+      "text": "intent.py\n(150 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "intent",
+      "originalText": "intent.py\n(150 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "store_pkg",
+      "x": 40,
+      "y": 315,
+      "width": 200,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_store_pkg",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_store_pkg",
+      "x": 44,
+      "y": 327,
+      "width": 192,
+      "height": 20,
+      "text": "store/ (15 files)\n2188 lines",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "store_pkg",
+      "originalText": "store/ (15 files)\n2188 lines",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "ownership",
+      "x": 260,
+      "y": 315,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_ownership",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_ownership",
+      "x": 264,
+      "y": 327,
+      "width": 152,
+      "height": 20,
+      "text": "ownership.py\n(390 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "ownership",
+      "originalText": "ownership.py\n(390 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "bus",
+      "x": 440,
+      "y": 315,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_bus",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_bus",
+      "x": 444,
+      "y": 327,
+      "width": 132,
+      "height": 20,
+      "text": "store/bus.py\n(250 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "bus",
+      "originalText": "store/bus.py\n(250 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "events",
+      "x": 600,
+      "y": 315,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_events",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_events",
+      "x": 604,
+      "y": 327,
+      "width": 132,
+      "height": 20,
+      "text": "events.py\n(magic strings)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "events",
+      "originalText": "events.py\n(magic strings)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "uri",
+      "x": 760,
+      "y": 315,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_uri",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_uri",
+      "x": 764,
+      "y": 327,
+      "width": 152,
+      "height": 20,
+      "text": "uri/ (17 files)\n1088 lines",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "uri",
+      "originalText": "uri/ (17 files)\n1088 lines",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "persistence",
+      "x": 940,
+      "y": 315,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_persistence",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_persistence",
+      "x": 944,
+      "y": 327,
+      "width": 152,
+      "height": 20,
+      "text": "persistence.py\n(280 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "persistence",
+      "originalText": "persistence.py\n(280 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "atomic",
+      "x": 1120,
+      "y": 315,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_atomic",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_atomic",
+      "x": 1124,
+      "y": 327,
+      "width": 132,
+      "height": 20,
+      "text": "atomic.py\n(150 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "atomic",
+      "originalText": "atomic.py\n(150 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "agent",
+      "x": 40,
+      "y": 450,
+      "width": 200,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "boundElements": [
+        {
+          "id": "t_agent",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_agent",
+      "x": 44,
+      "y": 462,
+      "width": 192,
+      "height": 20,
+      "text": "agent.py\n(1113 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "agent",
+      "originalText": "agent.py\n(1113 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "sandbox",
+      "x": 260,
+      "y": 450,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "boundElements": [
+        {
+          "id": "t_sandbox",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_sandbox",
+      "x": 264,
+      "y": 462,
+      "width": 152,
+      "height": 20,
+      "text": "sandbox.py\n(280 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "sandbox",
+      "originalText": "sandbox.py\n(280 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "container",
+      "x": 440,
+      "y": 450,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "boundElements": [
+        {
+          "id": "t_container",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_container",
+      "x": 444,
+      "y": 462,
+      "width": 152,
+      "height": 20,
+      "text": "container.py\n(220 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "container",
+      "originalText": "container.py\n(220 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "mcp_server",
+      "x": 620,
+      "y": 450,
+      "width": 220,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_mcp_server",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_mcp_server",
+      "x": 624,
+      "y": 462,
+      "width": 212,
+      "height": 20,
+      "text": "mcp_server.py\n(3374 lines) -- GOD OBJECT",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "mcp_server",
+      "originalText": "mcp_server.py\n(3374 lines) -- GOD OBJECT",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "runtime",
+      "x": 860,
+      "y": 450,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "boundElements": [
+        {
+          "id": "t_runtime",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_runtime",
+      "x": 864,
+      "y": 462,
+      "width": 152,
+      "height": 20,
+      "text": "runtime.py\n(150 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "runtime",
+      "originalText": "runtime.py\n(150 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "runagent_new",
+      "x": 1040,
+      "y": 450,
+      "width": 280,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#dee2e6",
+      "fillStyle": "solid",
+      "strokeColor": "#868e96",
+      "boundElements": [
+        {
+          "id": "t_runagent_new",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_runagent_new",
+      "x": 1044,
+      "y": 462,
+      "width": 272,
+      "height": 20,
+      "text": "RunAgent seam -- DOES NOT EXIST\n(real/recorded/fixture)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "runagent_new",
+      "originalText": "RunAgent seam -- DOES NOT EXIST\n(real/recorded/fixture)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "orch",
+      "x": 40,
+      "y": 575,
+      "width": 260,
+      "height": 55,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_orch",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_orch",
+      "x": 44,
+      "y": 592,
+      "width": 252,
+      "height": 20,
+      "text": "orchestrator.py\n(4543 lines) -- GOD OBJECT",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "orch",
+      "originalText": "orchestrator.py\n(4543 lines) -- GOD OBJECT",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "coord",
+      "x": 320,
+      "y": 575,
+      "width": 170,
+      "height": 55,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_coord",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_coord",
+      "x": 324,
+      "y": 592,
+      "width": 162,
+      "height": 20,
+      "text": "coordinator.py\n(726 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "coord",
+      "originalText": "coordinator.py\n(726 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "deadlock",
+      "x": 510,
+      "y": 575,
+      "width": 140,
+      "height": 55,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_deadlock",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_deadlock",
+      "x": 514,
+      "y": 592,
+      "width": 132,
+      "height": 20,
+      "text": "deadlock.py\n(210 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "deadlock",
+      "originalText": "deadlock.py\n(210 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "stall",
+      "x": 670,
+      "y": 575,
+      "width": 140,
+      "height": 55,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_stall",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_stall",
+      "x": 674,
+      "y": 592,
+      "width": 132,
+      "height": 20,
+      "text": "stall_detector.py\n(180 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "stall",
+      "originalText": "stall_detector.py\n(180 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "worktree",
+      "x": 40,
+      "y": 645,
+      "width": 170,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_worktree",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_worktree",
+      "x": 44,
+      "y": 657,
+      "width": 162,
+      "height": 20,
+      "text": "worktree.py\n(957 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "worktree",
+      "originalText": "worktree.py\n(957 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "quarter",
+      "x": 230,
+      "y": 645,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_quarter",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_quarter",
+      "x": 234,
+      "y": 657,
+      "width": 152,
+      "height": 20,
+      "text": "quartermaster.py\n(857 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "quarter",
+      "originalText": "quartermaster.py\n(857 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "fix_loop",
+      "x": 410,
+      "y": 645,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_fix_loop",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_fix_loop",
+      "x": 414,
+      "y": 657,
+      "width": 152,
+      "height": 20,
+      "text": "fix_loop_bundle.py\n(450 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "fix_loop",
+      "originalText": "fix_loop_bundle.py\n(450 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "auto_escal",
+      "x": 590,
+      "y": 645,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_auto_escal",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_auto_escal",
+      "x": 594,
+      "y": 657,
+      "width": 152,
+      "height": 20,
+      "text": "auto_escalation.py\n(350 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "auto_escal",
+      "originalText": "auto_escalation.py\n(350 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "helper_spawn",
+      "x": 770,
+      "y": 645,
+      "width": 150,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_helper_spawn",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_helper_spawn",
+      "x": 774,
+      "y": 657,
+      "width": 142,
+      "height": 20,
+      "text": "helper_spawn.py\n(280 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "helper_spawn",
+      "originalText": "helper_spawn.py\n(280 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "handoff",
+      "x": 940,
+      "y": 645,
+      "width": 150,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_handoff",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_handoff",
+      "x": 944,
+      "y": 657,
+      "width": 142,
+      "height": 20,
+      "text": "handoff_gate.py\n(260 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "handoff",
+      "originalText": "handoff_gate.py\n(260 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "scope",
+      "x": 1110,
+      "y": 645,
+      "width": 130,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_scope",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_scope",
+      "x": 1114,
+      "y": 657,
+      "width": 122,
+      "height": 20,
+      "text": "scope.py\n(200 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "scope",
+      "originalText": "scope.py\n(200 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "boundary",
+      "x": 40,
+      "y": 710,
+      "width": 170,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_boundary",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_boundary",
+      "x": 44,
+      "y": 722,
+      "width": 162,
+      "height": 20,
+      "text": "boundary_rules.py\n(320 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "boundary",
+      "originalText": "boundary_rules.py\n(320 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "checks",
+      "x": 230,
+      "y": 710,
+      "width": 130,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_checks",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_checks",
+      "x": 234,
+      "y": 722,
+      "width": 122,
+      "height": 20,
+      "text": "checks.py\n(250 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "checks",
+      "originalText": "checks.py\n(250 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "check_run",
+      "x": 380,
+      "y": 710,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_check_run",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_check_run",
+      "x": 384,
+      "y": 722,
+      "width": 152,
+      "height": 20,
+      "text": "check_runner.py\n(400 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "check_run",
+      "originalText": "check_runner.py\n(400 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "reviewers",
+      "x": 560,
+      "y": 710,
+      "width": 200,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_reviewers",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_reviewers",
+      "x": 564,
+      "y": 722,
+      "width": 192,
+      "height": 20,
+      "text": "reviewers/ (19 files)\n5691 lines",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "reviewers",
+      "originalText": "reviewers/ (19 files)\n5691 lines",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "rev_route",
+      "x": 780,
+      "y": 710,
+      "width": 180,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_rev_route",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_rev_route",
+      "x": 784,
+      "y": 722,
+      "width": 172,
+      "height": 20,
+      "text": "reviewer_routing.py\n(380 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "rev_route",
+      "originalText": "reviewer_routing.py\n(380 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "graph_ctx",
+      "x": 980,
+      "y": 710,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_graph_ctx",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_graph_ctx",
+      "x": 984,
+      "y": 722,
+      "width": 132,
+      "height": 20,
+      "text": "graph_context.py\n(300 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "graph_ctx",
+      "originalText": "graph_context.py\n(300 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "graph_mcp",
+      "x": 1140,
+      "y": 710,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_graph_mcp",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_graph_mcp",
+      "x": 1144,
+      "y": 722,
+      "width": 132,
+      "height": 20,
+      "text": "graph_mcp.py\n(315 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "graph_mcp",
+      "originalText": "graph_mcp.py\n(315 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "init_wf",
+      "x": 40,
+      "y": 770,
+      "width": 200,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_init_wf",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_init_wf",
+      "x": 44,
+      "y": 782,
+      "width": 192,
+      "height": 20,
+      "text": "init_workflow.py\n(2697 lines) -- TANGLED",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "init_wf",
+      "originalText": "init_workflow.py\n(2697 lines) -- TANGLED",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "onboard",
+      "x": 260,
+      "y": 770,
+      "width": 180,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_onboard",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_onboard",
+      "x": 264,
+      "y": 782,
+      "width": 172,
+      "height": 20,
+      "text": "onboard_workflow.py\n(1658 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "onboard",
+      "originalText": "onboard_workflow.py\n(1658 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "spec_gen",
+      "x": 460,
+      "y": 770,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_spec_gen",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_spec_gen",
+      "x": 464,
+      "y": 782,
+      "width": 152,
+      "height": 20,
+      "text": "spec_generator.py\n(380 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "spec_gen",
+      "originalText": "spec_generator.py\n(380 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "po_mcps",
+      "x": 640,
+      "y": 770,
+      "width": 200,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_po_mcps",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_po_mcps",
+      "x": 644,
+      "y": 782,
+      "width": 192,
+      "height": 20,
+      "text": "po_l0-l3_mcp.py + ontology\n(4000+ lines total)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "po_mcps",
+      "originalText": "po_l0-l3_mcp.py + ontology\n(4000+ lines total)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "sa_mcp",
+      "x": 860,
+      "y": 770,
+      "width": 150,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_sa_mcp",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_sa_mcp",
+      "x": 864,
+      "y": 782,
+      "width": 142,
+      "height": 20,
+      "text": "sa_mcp.py\n(420 lines) -- ONE OF 3",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "sa_mcp",
+      "originalText": "sa_mcp.py\n(420 lines) -- ONE OF 3",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "sa_inc",
+      "x": 1030,
+      "y": 770,
+      "width": 170,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_sa_inc",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_sa_inc",
+      "x": 1034,
+      "y": 782,
+      "width": 162,
+      "height": 20,
+      "text": "sa_incremental_mcp.py\n(1564 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "sa_inc",
+      "originalText": "sa_incremental_mcp.py\n(1564 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "init_mcp",
+      "x": 1220,
+      "y": 770,
+      "width": 140,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_init_mcp",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_init_mcp",
+      "x": 1224,
+      "y": 782,
+      "width": 132,
+      "height": 20,
+      "text": "init_mcp.py\n(772 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "init_mcp",
+      "originalText": "init_mcp.py\n(772 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "cli",
+      "x": 40,
+      "y": 875,
+      "width": 180,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_cli",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_cli",
+      "x": 44,
+      "y": 887,
+      "width": 172,
+      "height": 20,
+      "text": "cli.py\n(3119 lines) -- THICK",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "cli",
+      "originalText": "cli.py\n(3119 lines) -- THICK",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "ws",
+      "x": 240,
+      "y": 875,
+      "width": 160,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_ws",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_ws",
+      "x": 244,
+      "y": 887,
+      "width": 152,
+      "height": 20,
+      "text": "ws_server.py\n(794 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "ws",
+      "originalText": "ws_server.py\n(794 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "tui",
+      "x": 420,
+      "y": 875,
+      "width": 180,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_tui",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_tui",
+      "x": 424,
+      "y": 887,
+      "width": 172,
+      "height": 20,
+      "text": "tui/ (37 files)\n6954 lines",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "tui",
+      "originalText": "tui/ (37 files)\n6954 lines",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "daemon",
+      "x": 620,
+      "y": 875,
+      "width": 150,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_daemon",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_daemon",
+      "x": 624,
+      "y": 887,
+      "width": 142,
+      "height": 20,
+      "text": "daemon.py\n(320 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "daemon",
+      "originalText": "daemon.py\n(320 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "story",
+      "x": 790,
+      "y": 875,
+      "width": 120,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_story",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_story",
+      "x": 794,
+      "y": 887,
+      "width": 112,
+      "height": 20,
+      "text": "story.py\n(280 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "story",
+      "originalText": "story.py\n(280 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "prompt_bld",
+      "x": 930,
+      "y": 875,
+      "width": 170,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_prompt_bld",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_prompt_bld",
+      "x": 934,
+      "y": 887,
+      "width": 162,
+      "height": 20,
+      "text": "prompt_builder.py\n(917 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "prompt_bld",
+      "originalText": "prompt_builder.py\n(917 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "config",
+      "x": 1120,
+      "y": 875,
+      "width": 120,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_config",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_config",
+      "x": 1124,
+      "y": 887,
+      "width": 112,
+      "height": 20,
+      "text": "config.py\n(250 lines)",
+      "fontSize": 13,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "config",
+      "originalText": "config.py\n(250 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "profile",
+      "x": 1260,
+      "y": 875,
+      "width": 100,
+      "height": 45,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_profile",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_profile",
+      "x": 1264,
+      "y": 887,
+      "width": 92,
+      "height": 20,
+      "text": "profile_loader\n(180 lines)",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "profile",
+      "originalText": "profile_loader\n(180 lines)",
+      "autoResize": true
+    },
+    {
+      "type": "arrow",
+      "id": "a1",
+      "x": 160,
+      "y": 630,
+      "width": 40,
+      "height": 180,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -40,
+          -180
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a2",
+      "x": 160,
+      "y": 630,
+      "width": 40,
+      "height": 315,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -40,
+          -315
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a3",
+      "x": 160,
+      "y": 630,
+      "width": 160,
+      "height": 525,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          160,
+          -525
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a4",
+      "x": 160,
+      "y": 630,
+      "width": 520,
+      "height": 180,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          520,
+          -180
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a5",
+      "x": 160,
+      "y": 630,
+      "width": 40,
+      "height": 245,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -40,
+          245
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a6",
+      "x": 160,
+      "y": 630,
+      "width": 420,
+      "height": 80,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          420,
+          80
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a7",
+      "x": 140,
+      "y": 790,
+      "width": 20,
+      "height": 685,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -20,
+          -685
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a8",
+      "x": 140,
+      "y": 790,
+      "width": 20,
+      "height": 475,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -20,
+          -475
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "arrow",
+      "id": "a9",
+      "x": 140,
+      "y": 790,
+      "width": 790,
+      "height": 85,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          790,
+          85
+        ]
+      ],
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "endArrowhead": "arrow",
+      "strokeStyle": "dashed"
+    },
+    {
+      "type": "text",
+      "id": "legend_title",
+      "x": 30,
+      "y": 940,
+      "text": "LEGEND:",
+      "fontSize": 14,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "originalText": "LEGEND:",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_core",
+      "x": 100,
+      "y": 935,
+      "width": 120,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid",
+      "strokeColor": "#4a9eed",
+      "boundElements": [
+        {
+          "id": "t_leg_core",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_core",
+      "x": 104,
+      "y": 940,
+      "width": 112,
+      "height": 20,
+      "text": "Core",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_core",
+      "originalText": "Core",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_sub",
+      "x": 230,
+      "y": 935,
+      "width": 120,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffd8a8",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_leg_sub",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_sub",
+      "x": 234,
+      "y": 940,
+      "width": 112,
+      "height": 20,
+      "text": "Substrate",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_sub",
+      "originalText": "Substrate",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_rt",
+      "x": 360,
+      "y": 935,
+      "width": 120,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#d0bfff",
+      "fillStyle": "solid",
+      "strokeColor": "#8b5cf6",
+      "boundElements": [
+        {
+          "id": "t_leg_rt",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_rt",
+      "x": 364,
+      "y": 940,
+      "width": 112,
+      "height": 20,
+      "text": "Runtime",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_rt",
+      "originalText": "Runtime",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_eng",
+      "x": 490,
+      "y": 935,
+      "width": 120,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeColor": "#2f9e44",
+      "boundElements": [
+        {
+          "id": "t_leg_eng",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_eng",
+      "x": 494,
+      "y": 940,
+      "width": 112,
+      "height": 20,
+      "text": "Engine",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_eng",
+      "originalText": "Engine",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_edge",
+      "x": 620,
+      "y": 935,
+      "width": 120,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#fff3bf",
+      "fillStyle": "solid",
+      "strokeColor": "#f59e0b",
+      "boundElements": [
+        {
+          "id": "t_leg_edge",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_edge",
+      "x": 624,
+      "y": 940,
+      "width": 112,
+      "height": 20,
+      "text": "Edge",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_edge",
+      "originalText": "Edge",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_god",
+      "x": 750,
+      "y": 935,
+      "width": 140,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#ffc9c9",
+      "fillStyle": "solid",
+      "strokeColor": "#e03131",
+      "boundElements": [
+        {
+          "id": "t_leg_god",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_god",
+      "x": 754,
+      "y": 940,
+      "width": 132,
+      "height": 20,
+      "text": "God/Tangled",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_god",
+      "originalText": "God/Tangled",
+      "autoResize": true
+    },
+    {
+      "type": "rectangle",
+      "id": "leg_new",
+      "x": 900,
+      "y": 935,
+      "width": 160,
+      "height": 30,
+      "roundness": {
+        "type": 3
+      },
+      "backgroundColor": "#dee2e6",
+      "fillStyle": "solid",
+      "strokeColor": "#868e96",
+      "boundElements": [
+        {
+          "id": "t_leg_new",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "t_leg_new",
+      "x": 904,
+      "y": 940,
+      "width": 152,
+      "height": 20,
+      "text": "Not built yet",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e",
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "leg_new",
+      "originalText": "Not built yet",
+      "autoResize": true
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff"
+  }
+}

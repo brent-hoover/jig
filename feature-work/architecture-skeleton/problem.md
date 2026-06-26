@@ -1,11 +1,17 @@
 ---
 title: Architecture Skeleton — Problem Statement
 type: problem
-status: active
+status: superseded
 owner: brent
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# Architecture Skeleton — Problem Statement
+
+> **Superseded.** Absorbed into `architecture/plan.md` Epic 6 (Architecture
+> engine produces full artifact set: modules, contracts, boundaries).
 
 # Architecture Skeleton — Problem Statement
 

@@ -1,11 +1,18 @@
 ---
 title: Medium L0–L3 PO Pipeline — Problem Statement
 type: problem
-status: active
+status: superseded
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-10
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# Medium L0–L3 PO Pipeline — Problem Statement
+
+> **Superseded.** Absorbed into `architecture/plan.md` Epic 6 (Discovery
+> engine — L0-L3 pipeline becomes the Discovery interview at architectural
+> resolution).
 
 # Medium L0–L3 PO Pipeline — Problem Statement
 

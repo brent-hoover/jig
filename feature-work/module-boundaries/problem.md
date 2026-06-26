@@ -1,11 +1,17 @@
 ---
 title: Module Boundaries — Problem Statement
 type: problem
-status: draft
+status: superseded
 owner: brent-hoover
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# Module Boundaries — Problem Statement
+
+> **Superseded.** Absorbed into `architecture/plan.md` Epic 5 (Enforcement —
+> mechanical boundary checks + vocabulary/ontology enforcement).
 
 # Module Boundaries — Problem Statement
 

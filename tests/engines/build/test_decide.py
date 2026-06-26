@@ -182,6 +182,16 @@ def test_event_with_no_table_entry_is_a_no_op() -> None:
     assert next_state == state
 
 
+def test_event_for_unknown_ticket_id_is_a_no_op() -> None:
+    # A ticket absent from state (vs. present-but-no-transition) is also a no-op.
+    state = BuildState(statuses={})
+
+    next_state, actions = decide(state, TicketReady(ticket_id="jig-99", role="dev"))
+
+    assert actions == ()
+    assert next_state == state
+
+
 async def test_async_shell_executes_the_inert_actions() -> None:
     """The async part lives in the shell, never in decide."""
     spawned: list[tuple[str, str]] = []

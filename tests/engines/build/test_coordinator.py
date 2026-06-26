@@ -9,6 +9,8 @@ untouched in Bones).
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from jig.engines.build.coordinator import BuildCoordinator
@@ -66,6 +68,8 @@ async def test_spawn_flows_through_the_run_agent_seam() -> None:
     run_agent = FixtureRunAgent()
 
     async def spawn(action: SpawnAgent) -> None:
+        # MVP converts SpawnAgent -> AgentSpawnContext here; the fixture ignores
+        # ctx, so passing the action through is fine for the Bones seam test.
         await run_agent(action)
 
     coordinator = BuildCoordinator(
@@ -90,6 +94,29 @@ async def test_state_is_not_advanced_when_dispatch_fails() -> None:
         await coordinator.handle(TicketReady(ticket_id="jig-1", role="dev"))
 
     assert coordinator.state.statuses["jig-1"] == TicketStatus.OPEN
+
+
+async def test_concurrent_handles_for_different_tickets_do_not_clobber() -> None:
+    # Two tickets handled concurrently must both keep their transition — the
+    # last commit must not overwrite the other ticket's already-advanced state.
+    gate = asyncio.Event()
+
+    async def gated_spawn(action: SpawnAgent) -> None:
+        await gate.wait()
+
+    coordinator = BuildCoordinator(
+        Dispatcher({SpawnAgent: gated_spawn}),
+        state=BuildState(statuses={"a": TicketStatus.OPEN, "b": TicketStatus.OPEN}),
+    )
+
+    t1 = asyncio.create_task(coordinator.handle(TicketReady(ticket_id="a", role="dev")))
+    t2 = asyncio.create_task(coordinator.handle(TicketReady(ticket_id="b", role="dev")))
+    await asyncio.sleep(0)  # let both reach dispatch before either commits
+    gate.set()
+    await asyncio.gather(t1, t2)
+
+    assert coordinator.state.statuses["a"] == TicketStatus.IN_PROGRESS
+    assert coordinator.state.statuses["b"] == TicketStatus.IN_PROGRESS
 
 
 def test_supervise_emits_events_without_touching_state() -> None:

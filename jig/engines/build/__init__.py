@@ -15,6 +15,7 @@ from jig.engines.build.decide import (
     AgentSucceeded,
     BuildPhase,
     BuildState,
+    EngineState,
     MergeWorktree,
     PublishCompleted,
     SpawnAgent,
@@ -29,6 +30,7 @@ from jig.engines.build.supervisor import (
     DeadlockNudgeNeeded,
     StallDetected,
     Supervisor,
+    SupervisoryEvent,
 )
 
 __all__ = [
@@ -40,11 +42,13 @@ __all__ = [
     "DeadlockEscalationNeeded",
     "DeadlockNudgeNeeded",
     "Dispatcher",
+    "EngineState",
     "MergeWorktree",
     "PublishCompleted",
     "SpawnAgent",
     "StallDetected",
     "Supervisor",
+    "SupervisoryEvent",
     "TicketReady",
     "UnblockDependents",
     "UnhandledActionError",

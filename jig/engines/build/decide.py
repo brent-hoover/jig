@@ -14,12 +14,15 @@ table with sad-path transitions (blocked, needs-info, review-failed, replan).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 
 from jig.ticket import TicketStatus
+
+_log = logging.getLogger(__name__)
 
 
 class BuildPhase(str, Enum):
@@ -176,7 +179,7 @@ def _on_agent_completed(
     return event.status, ()
 
 
-_TRANSITIONS: dict[tuple[EngineState, type], _TransitionFn] = {
+_TRANSITIONS: dict[tuple[EngineState, type[Event]], _TransitionFn] = {
     (TicketStatus.OPEN, TicketReady): _on_ticket_ready,
     (TicketStatus.IN_PROGRESS, AgentSucceeded): _on_agent_succeeded,
     (BuildPhase.MERGING, WorktreeMerged): _on_worktree_merged,
@@ -200,6 +203,11 @@ def decide(state: BuildState, event: Event) -> tuple[BuildState, tuple[Action, .
     """
     current = state.statuses.get(event.ticket_id)
     if current is None:
+        _log.debug(
+            "decide: unknown ticket_id %s — discarding %s",
+            event.ticket_id,
+            type(event).__name__,
+        )
         return state, ()
 
     transition = _TRANSITIONS.get((current, type(event)))

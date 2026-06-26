@@ -20,7 +20,7 @@ from jig.engines.build.supervisor import (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class _FakeVerdict:
     signal: str
     detail: str

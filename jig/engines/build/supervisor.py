@@ -14,7 +14,7 @@ imports); MVP feeds it the real ``StallDetector.check()`` verdict and
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -66,7 +66,7 @@ class Supervisor:
         return events
 
 
-__all__: Sequence[str] = [
+__all__ = [
     "DeadlockEscalationNeeded",
     "DeadlockNudgeNeeded",
     "StallDetected",

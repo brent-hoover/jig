@@ -13,6 +13,7 @@ from jig.engines.build.coordinator import BuildCoordinator
 from jig.engines.build.decide import (
     AgentCompleted,
     AgentSucceeded,
+    BuildPhase,
     BuildState,
     MergeWorktree,
     PublishCompleted,
@@ -34,6 +35,7 @@ __all__ = [
     "AgentCompleted",
     "AgentSucceeded",
     "BuildCoordinator",
+    "BuildPhase",
     "BuildState",
     "DeadlockEscalationNeeded",
     "DeadlockNudgeNeeded",

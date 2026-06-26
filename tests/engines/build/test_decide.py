@@ -19,6 +19,7 @@ import pytest
 from jig.engines.build.decide import (
     AgentCompleted,
     AgentSucceeded,
+    BuildPhase,
     BuildState,
     MergeWorktree,
     PublishCompleted,
@@ -108,17 +109,38 @@ def test_agent_completion_updates_status_without_spawning() -> None:
     assert actions == ()
 
 
-def test_agent_success_triggers_a_merge() -> None:
+def test_agent_success_enters_merging_and_triggers_a_merge() -> None:
     state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
 
     next_state, actions = decide(state, AgentSucceeded(ticket_id="jig-1"))
 
-    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+    assert next_state.statuses["jig-1"] == BuildPhase.MERGING
     assert actions == (MergeWorktree(ticket_id="jig-1"),)
 
 
-def test_merge_resolves_and_unblocks_dependents() -> None:
+def test_duplicate_agent_success_does_not_merge_twice() -> None:
     state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    state, first = decide(state, AgentSucceeded(ticket_id="jig-1"))
+    state, second = decide(state, AgentSucceeded(ticket_id="jig-1"))
+
+    assert first == (MergeWorktree(ticket_id="jig-1"),)
+    assert second == ()  # already merging — no second merge
+    assert state.statuses["jig-1"] == BuildPhase.MERGING
+
+
+def test_worktree_merged_without_a_pending_merge_is_a_no_op() -> None:
+    # WorktreeMerged is only valid from MERGING; a stray one must not resolve.
+    state = BuildState(statuses={"jig-1": TicketStatus.IN_PROGRESS})
+
+    next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
+
+    assert actions == ()
+    assert next_state.statuses["jig-1"] == TicketStatus.IN_PROGRESS
+
+
+def test_merge_resolves_and_unblocks_dependents() -> None:
+    state = BuildState(statuses={"jig-1": BuildPhase.MERGING})
 
     next_state, actions = decide(state, WorktreeMerged(ticket_id="jig-1"))
 

@@ -16,9 +16,28 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import Enum
 from types import MappingProxyType
 
 from jig.ticket import TicketStatus
+
+
+class BuildPhase(str, Enum):
+    """Build-engine-internal sub-states that have no persisted ``TicketStatus``.
+
+    ``MERGING`` distinguishes "agent succeeded, worktree merge dispatched,
+    awaiting the result" from plain ``IN_PROGRESS`` (agent still working). Making
+    it a distinct state keeps the transitions sound: a duplicate ``AgentSucceeded``
+    can't dispatch a second merge, and a stray ``WorktreeMerged`` can't resolve a
+    ticket that never entered merge-pending.
+    """
+
+    MERGING = "merging"
+
+
+# An engine state is either a persisted ticket status or an internal phase.
+EngineState = TicketStatus | BuildPhase
+
 
 # ---------------------------------------------------------------------------
 # State — an immutable snapshot the machine reasons over.
@@ -27,12 +46,12 @@ from jig.ticket import TicketStatus
 
 @dataclass(frozen=True)
 class BuildState:
-    """Ticket statuses keyed by id. Immutable: ``decide`` returns a new state,
-    never mutates this one. The mapping is defensively copied and frozen at
-    construction so a caller-owned dict can't mutate the snapshot out from
-    under the purity guarantee."""
+    """Engine state per ticket id (a ``TicketStatus`` or internal ``BuildPhase``).
+    Immutable: ``decide`` returns a new state, never mutates this one. The mapping
+    is defensively copied and frozen at construction so a caller-owned dict can't
+    mutate the snapshot out from under the purity guarantee."""
 
-    statuses: Mapping[str, TicketStatus]
+    statuses: Mapping[str, EngineState]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "statuses", MappingProxyType(dict(self.statuses)))
@@ -124,25 +143,25 @@ Action = SpawnAgent | MergeWorktree | PublishCompleted | UnblockDependents
 # ---------------------------------------------------------------------------
 
 _TransitionFn = Callable[
-    ["BuildState", "Event"], tuple[TicketStatus, tuple[Action, ...]]
+    ["BuildState", "Event"], tuple[EngineState, tuple[Action, ...]]
 ]
 
 
 def _on_ticket_ready(
     state: BuildState, event: TicketReady
-) -> tuple[TicketStatus, tuple[Action, ...]]:
+) -> tuple[EngineState, tuple[Action, ...]]:
     return TicketStatus.IN_PROGRESS, (SpawnAgent(event.ticket_id, event.role),)
 
 
 def _on_agent_succeeded(
     state: BuildState, event: AgentSucceeded
-) -> tuple[TicketStatus, tuple[Action, ...]]:
-    return TicketStatus.IN_PROGRESS, (MergeWorktree(event.ticket_id),)
+) -> tuple[EngineState, tuple[Action, ...]]:
+    return BuildPhase.MERGING, (MergeWorktree(event.ticket_id),)
 
 
 def _on_worktree_merged(
     state: BuildState, event: WorktreeMerged
-) -> tuple[TicketStatus, tuple[Action, ...]]:
+) -> tuple[EngineState, tuple[Action, ...]]:
     return TicketStatus.RESOLVED, (
         PublishCompleted(event.ticket_id),
         UnblockDependents(event.ticket_id),
@@ -151,19 +170,19 @@ def _on_worktree_merged(
 
 def _on_agent_completed(
     state: BuildState, event: AgentCompleted
-) -> tuple[TicketStatus, tuple[Action, ...]]:
+) -> tuple[EngineState, tuple[Action, ...]]:
     return event.status, ()
 
 
-_TRANSITIONS: dict[tuple[TicketStatus, type], _TransitionFn] = {
+_TRANSITIONS: dict[tuple[EngineState, type], _TransitionFn] = {
     (TicketStatus.OPEN, TicketReady): _on_ticket_ready,
     (TicketStatus.IN_PROGRESS, AgentSucceeded): _on_agent_succeeded,
-    (TicketStatus.IN_PROGRESS, WorktreeMerged): _on_worktree_merged,
+    (BuildPhase.MERGING, WorktreeMerged): _on_worktree_merged,
     (TicketStatus.IN_PROGRESS, AgentCompleted): _on_agent_completed,
 }
 
 
-def _with_status(state: BuildState, ticket_id: str, status: TicketStatus) -> BuildState:
+def _with_status(state: BuildState, ticket_id: str, status: EngineState) -> BuildState:
     next_statuses = dict(state.statuses)
     next_statuses[ticket_id] = status
     return BuildState(statuses=next_statuses)

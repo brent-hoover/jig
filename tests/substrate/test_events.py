@@ -39,6 +39,25 @@ def test_ticket_topic_helper_builds_per_ticket_topic() -> None:
     assert ticket_topic("jig-1") == "tickets.jig-1"
 
 
+def test_ticket_events_default_to_the_per_ticket_topic() -> None:
+    # A bare event routes to the broad audience (TUI + agent subscribers),
+    # matching the real publishers — NOT the orchestrator topic.
+    assert TicketUpdated(ticket_id="jig-1", status="open").topic == "tickets.jig-1"
+    assert (
+        TicketCreated(
+            ticket_id="jig-1", title="T", work_type="feature", size="s", status="open"
+        ).topic
+        == "tickets.jig-1"
+    )
+
+
+def test_orchestrator_dispatch_copy_is_explicit() -> None:
+    msg = TicketUpdated(
+        ticket_id="jig-1", status="open", topic="orchestrator"
+    ).to_message()
+    assert msg.topic == "orchestrator"
+
+
 def test_ticket_updated_payload_is_faithful() -> None:
     msg = TicketUpdated(ticket_id="jig-1", status="in_progress").to_message()
     assert msg.payload == {

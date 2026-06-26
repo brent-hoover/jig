@@ -20,21 +20,38 @@ async def _fresh_bus(tmp_path) -> MessageBus:
     return bus
 
 
-async def test_publishes_typed_event_as_message(tmp_path) -> None:
+async def test_publishes_typed_event_to_its_default_per_ticket_topic(tmp_path) -> None:
     bus = await _fresh_bus(tmp_path)
     tb = TypedBus(bus)
-    queue = await bus.subscribe("orchestrator")
+    queue = await bus.subscribe("tickets.jig-1")
 
+    # No explicit topic -> routes to the per-ticket topic, not orchestrator.
     await tb.publish(TicketUpdated(ticket_id="jig-1", status="open"))
 
     msg = await queue.get()
-    assert msg.topic == "orchestrator"
+    assert msg.topic == "tickets.jig-1"
     assert msg.type == MessageType.CONTEXT_UPDATE
     assert msg.payload == {
         "kind": "ticket_updated",
         "ticket_id": "jig-1",
         "status": "open",
     }
+
+
+async def test_publishes_orchestrator_dispatch_copy_when_topic_explicit(
+    tmp_path,
+) -> None:
+    bus = await _fresh_bus(tmp_path)
+    tb = TypedBus(bus)
+    queue = await bus.subscribe("orchestrator")
+
+    await tb.publish(
+        TicketUpdated(ticket_id="jig-1", status="open", topic="orchestrator")
+    )
+
+    msg = await queue.get()
+    assert msg.topic == "orchestrator"
+    assert msg.payload["kind"] == "ticket_updated"
 
 
 async def test_still_accepts_legacy_message(tmp_path) -> None:
@@ -84,7 +101,9 @@ async def test_delegates_other_bus_methods(tmp_path) -> None:
 
     # subscribe_agent returns a stable queue and receives published events
     agent_q = await tb.subscribe_agent("orchestrator", "agent-1")
-    await tb.publish(TicketUpdated(ticket_id="jig-1", status="open"))
+    await tb.publish(
+        TicketUpdated(ticket_id="jig-1", status="open", topic="orchestrator")
+    )
     msg = await agent_q.get()
     assert msg.payload["ticket_id"] == "jig-1"
 

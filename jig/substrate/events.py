@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from jig.store.bus import Message, MessageType
 
@@ -71,12 +71,32 @@ class TypedEvent(BaseModel):
         )
 
 
-class TicketCreated(TypedEvent):
+class _TicketLifecycleEvent(TypedEvent):
+    """Shared base for per-ticket lifecycle events.
+
+    The real publishers fan each event to the per-ticket ``tickets.<id>`` topic
+    (TUI + agent subscribers) and, for the dispatch copy, to ``"orchestrator"``.
+    So the default topic here is the per-ticket one — a bare event routes to the
+    broad audience; the orchestrator-dispatch copy is an explicit
+    ``topic="orchestrator"``. This avoids silently dropping per-ticket
+    subscribers on migration.
+    """
+
+    ticket_id: str
+    topic: str | None = None
+
+    @model_validator(mode="after")
+    def _default_to_per_ticket_topic(self) -> "_TicketLifecycleEvent":
+        if self.topic is None:
+            self.topic = ticket_topic(self.ticket_id)
+        return self
+
+
+class TicketCreated(_TicketLifecycleEvent):
     """``ticket_created`` — faithful to ``jig.ticket_events._build_payload``."""
 
     kind: ClassVar[str] = "ticket_created"
 
-    ticket_id: str
     title: str
     description: str = ""
     work_type: str
@@ -95,7 +115,7 @@ class TicketCreated(TypedEvent):
         return payload
 
 
-class TicketUpdated(TypedEvent):
+class TicketUpdated(_TicketLifecycleEvent):
     """``ticket_updated`` — the status-transition event the service loop
     re-schedules on (``{kind, ticket_id, status}``).
 
@@ -108,7 +128,6 @@ class TicketUpdated(TypedEvent):
 
     kind: ClassVar[str] = "ticket_updated"
 
-    ticket_id: str
     status: str
     internal: bool = False
 

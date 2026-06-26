@@ -142,9 +142,11 @@ Action = SpawnAgent | MergeWorktree | PublishCompleted | UnblockDependents
 # Each function is pure: (state, event) -> (next status, actions).
 # ---------------------------------------------------------------------------
 
-_TransitionFn = Callable[
-    ["BuildState", "Event"], tuple[EngineState, tuple[Action, ...]]
-]
+# Each handler accepts a narrower event type (TicketReady, AgentSucceeded, …);
+# the table guarantees it only ever receives that type. ``Callable[...]`` keeps
+# the readable narrow signatures assignable here (callable args are
+# contravariant, so a fixed ``Event`` parameter would reject them).
+_TransitionFn = Callable[..., tuple[EngineState, tuple[Action, ...]]]
 
 
 def _on_ticket_ready(
@@ -197,6 +199,9 @@ def decide(state: BuildState, event: Event) -> tuple[BuildState, tuple[Action, .
     side-effect-free.
     """
     current = state.statuses.get(event.ticket_id)
+    if current is None:
+        return state, ()
+
     transition = _TRANSITIONS.get((current, type(event)))
     if transition is None:
         return state, ()

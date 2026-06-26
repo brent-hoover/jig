@@ -48,6 +48,23 @@ expressiveness. That signal is unfakeable.
 - `model.md` — the entity model, the invariants, the two-ladder structure, the lifecycle.
 - `interview.md` — the operator interview that authors the intent half (Ask / Produces / Locks-in).
 - `jig-instance.md` — the dogfood: Jig's own pitch, pillars, personas, principles as we generate them.
+- `plan.md` — the migration plan: 9 epics, bones-first, absorbing all feature-work problem statements.
+- `jig-living-invariant.excalidraw` — two-ladder + layered architecture diagram.
+
+## Absorbed feature-work docs
+
+The migration `plan.md` supersedes and absorbs these `feature-work/` problem
+statements — their requirements are now explicit tasks in the plan's epics:
+
+- `larger-projects/problem.md` → Epic 6 (SAU unification, TB planning, graph tools, derisker, TracerSpec, medium eval)
+- `sa-architect/problem.md` → Epic 6 (grounded decisions preserved in SAU)
+- `architecture-skeleton/problem.md` → Epic 6 (full artifact set)
+- `module-boundaries/problem.md` → Epic 5 (mechanical boundary + vocabulary enforcement)
+- `medium-l0-l3-pipeline/problem.md` → Epic 6 (Discovery interview replaces v1/v2 split)
+- `project-onboarding/problem.md` → Epic 6 (onboarding extracted behind `project://spec/`)
+- `jig-init-process/problem.md` → Epic 6 (init conversation becomes Discovery interview)
+
+Each is marked `status: superseded` with `superseded_by: ../../architecture/plan.md`.
 
 ## Fragments this unifies
 

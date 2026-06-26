@@ -1,11 +1,18 @@
 ---
 title: Project Onboarding — Problem Statement
 type: problem
-status: draft
+status: superseded
 owner: brent-hoover
 created: 2026-05-20
-updated: 2026-06-09
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# Project Onboarding — Problem Statement
+
+> **Superseded.** Absorbed into `architecture/plan.md` Epic 6 (Discovery
+> engine — onboarding extracted as `jig/engines/discovery/onboard.py`).
+> Brownfield TB support is a design target, not a requirement.
 
 # Project Onboarding — Problem Statement
 

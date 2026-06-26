@@ -1,11 +1,20 @@
 ---
 title: Larger Projects — Problem Statement
 type: problem
-status: draft
+status: superseded
 owner: brent-hoover
 created: 2026-06-18
-updated: 2026-06-18
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# Larger Projects — Problem Statement
+
+> **Superseded.** This problem statement is absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines). The SAU unification,
+> tracer-bullet planning phase, graph tools, derisker ordering, TracerSpec
+> integration, and medium eval scenario are all explicit tasks in Epic 6 MVP.
+> See the "Absorbed feature-work docs" section of `architecture/plan.md`.
 
 # Larger Projects — Problem Statement
 

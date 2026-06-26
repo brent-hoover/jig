@@ -1,11 +1,17 @@
 ---
 title: jig init process — Problem Statement
 type: problem
-status: draft
+status: superseded
 owner: brent
 created: 2026-04-24
-updated: 2026-04-24
+updated: 2026-06-26
+superseded_by: ../../architecture/plan.md
 ---
+
+# jig init process — Problem Statement
+
+> **Superseded.** Absorbed into `architecture/plan.md` Epic 6 (Discovery
+> engine — init conversation becomes the Discovery interview).
 
 # jig init process — Problem Statement
 

@@ -34,8 +34,14 @@ class InvariantContext:
 
 @runtime_checkable
 class Review(Protocol):
-    """Enforce the invariants on a diff and return the violations found."""
+    """Enforce the invariants on a diff and return the violations found.
 
-    def __call__(
+    Async: the implementations behind it are I/O-bound (the reviewer federation
+    spawns agents; mechanical checks shell out to semgrep), and the orchestrator
+    that invokes it runs an event loop. Pinning the seam async now avoids a
+    contract-breaking change once Build depends on it.
+    """
+
+    async def __call__(
         self, diff: str, invariant_context: InvariantContext
     ) -> list[Finding]: ...

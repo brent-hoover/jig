@@ -13,7 +13,13 @@ from jig.model import Finding
 
 
 class MechanicalReview:
-    """A deterministic ``Review`` over a diff. Bones returns no findings."""
+    """A deterministic ``Review`` over a diff. Bones returns no findings.
 
-    def __call__(self, diff: str, invariant_context: InvariantContext) -> list[Finding]:
+    Async to satisfy the ``Review`` contract — MVP shells out to semgrep for the
+    import deny-list check, which is I/O-bound.
+    """
+
+    async def __call__(
+        self, diff: str, invariant_context: InvariantContext
+    ) -> list[Finding]:
         return []

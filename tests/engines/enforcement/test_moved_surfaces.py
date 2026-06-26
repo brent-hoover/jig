@@ -14,8 +14,9 @@ def test_boundary_rules_exposed_under_enforcement_mechanical() -> None:
     import jig.boundary_rules as canonical
     from jig.engines.enforcement.mechanical import boundary_rules as moved
 
-    assert moved.generate_boundary_rules is canonical.generate_boundary_rules
-    assert moved.build_deny_rule is canonical.build_deny_rule
+    # Every re-exported name must resolve to the identical canonical object.
+    for name in moved.__all__:
+        assert getattr(moved, name) is getattr(canonical, name)
 
 
 def test_reviewer_dispatch_exposed_under_enforcement_reviewers() -> None:

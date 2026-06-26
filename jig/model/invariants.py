@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, TypeAlias
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # Placeholder aliases — replaced by real entity aggregates in later epics.
 Model: TypeAlias = Any
@@ -31,6 +31,8 @@ class Finding(BaseModel):
     entity at fault (a capability id, ontology term, boundary name, …) when
     known.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     invariant: str
     message: str

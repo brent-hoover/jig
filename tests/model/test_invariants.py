@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+from pydantic import ValidationError
+
 from jig.model.invariants import (
     Finding,
     conformance,
@@ -24,6 +27,20 @@ def test_finding_is_constructible() -> None:
     assert f.invariant == "coverage"
     assert f.message == "orphan capability: foo"
     assert f.subject is None
+
+
+def test_finding_carries_subject() -> None:
+    f = Finding(
+        invariant="vocabulary",
+        message="term used but not defined",
+        subject="fulfillment",
+    )
+    assert f.subject == "fulfillment"
+
+
+def test_finding_forbids_extra_keys() -> None:
+    with pytest.raises(ValidationError, match="extra"):
+        Finding(invariant="coverage", message="m", typo_field="oops")
 
 
 def test_stub_invariants_return_no_findings() -> None:

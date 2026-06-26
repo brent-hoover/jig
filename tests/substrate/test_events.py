@@ -48,6 +48,25 @@ def test_ticket_updated_payload_is_faithful() -> None:
     }
 
 
+def test_ticket_updated_omits_internal_marker_by_default() -> None:
+    payload = TicketUpdated(ticket_id="jig-1", status="resolved").to_message().payload
+    assert "_internal" not in payload
+
+
+def test_ticket_updated_emits_internal_marker_when_set() -> None:
+    """Agent-side terminal updates carry ``_internal`` so the TUI relay skips
+    them (matches ``ticket_mcp``'s conditional marker)."""
+    msg = TicketUpdated(
+        ticket_id="jig-1", status="resolved", internal=True
+    ).to_message()
+    assert msg.payload == {
+        "kind": "ticket_updated",
+        "ticket_id": "jig-1",
+        "status": "resolved",
+        "_internal": True,
+    }
+
+
 def test_ticket_created_payload_matches_build_payload_shape() -> None:
     """Payload must match ``jig.ticket_events._build_payload`` field-for-field,
     including the legacy ``type`` alias of ``work_type``."""

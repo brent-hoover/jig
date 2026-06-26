@@ -97,12 +97,26 @@ class TicketCreated(TypedEvent):
 
 class TicketUpdated(TypedEvent):
     """``ticket_updated`` — the status-transition event the service loop
-    re-schedules on (``{kind, ticket_id, status}``)."""
+    re-schedules on (``{kind, ticket_id, status}``).
+
+    ``internal`` carries the legacy ``_internal`` marker: when an agent (not the
+    orchestrator) signals a terminal status, the update still travels on the bus
+    so the agent runner sees it, but the emitter relay skips it so the TUI does
+    not flicker (see ``ticket_mcp`` and ``Orchestrator`` emitter relay). It is
+    serialized as ``_internal: True`` only when set, matching the publishers.
+    """
 
     kind: ClassVar[str] = "ticket_updated"
 
     ticket_id: str
     status: str
+    internal: bool = False
+
+    def _payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"ticket_id": self.ticket_id, "status": self.status}
+        if self.internal:
+            payload["_internal"] = True
+        return payload
 
 
 __all__ = [

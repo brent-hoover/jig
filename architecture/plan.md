@@ -123,6 +123,17 @@ without them, but each must be resolved before its epic's MVP.
   module graph, compare it to the declared architecture. If `grimp` is too
   opinionated about package layout, fall back to a custom `ast`-based importer.
 - **Time-box:** One session.
+- **Resolved (#202): use grimp.** Empirically, grimp built a 318-module graph of
+  `jig/` in ~0.03s with no package-layout complaints, and correctly resolved the
+  `from pkg import module` module-vs-name ambiguity a naive `ast` walk can't
+  (without reimplementing module resolution). grimp is the import-graph engine
+  behind import-linter — purpose-built for "actual structure from code" and
+  reusable by Enforcement's boundary checks. Footprint is negligible: its only
+  requirement, `typing-extensions`, is already a Jig dependency. `ast` fallback
+  not needed. `derive_actual_graph` is now implemented in
+  `jig/engines/reconciliation/derive.py` (this also delivers Reconciliation MVP
+  task 1, #221); the dogfood drift run + surfacing drift as tickets remain in
+  #221.
 
 ### Spike 3: Agent record/replay for fixture-based evals
 

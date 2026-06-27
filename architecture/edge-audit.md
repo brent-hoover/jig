@@ -55,6 +55,6 @@ clipboard), `jig.events`, `jig.daemon`.
 - The new `jig/edge/api.py` contract is the boundary all of these collapse behind. The MVP work is mechanical
   but broad: replace each direct call with a `DaemonApi` command/snapshot/event, then enforce the boundary
   with the `tests/edge/test_purity.py` invariant extended to the whole `jig/edge/` package.
-- `jig/edge/` itself imports **no** engine module today (proven by `test_edge_imports_only_edge_appropriate_modules`),
+- `jig/edge/` itself imports **no** engine module today (proven by `test_edge_imports_only_itself`),
   so the boundary is clean from the start — the migration moves the edge code *into* `jig/edge/` behind the
   contract rather than the reverse.

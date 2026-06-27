@@ -15,6 +15,7 @@ excluded). The declared-vs-actual ``diff`` (Epic 7) then surfaces drift.
 
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -34,15 +35,34 @@ def derive_actual_graph(code_path: Path) -> DependencyGraph:
     package = code_path.name
     parent = str(code_path.parent)
 
-    # Make the given path's parent the FIRST finder entry so the package at
-    # ``code_path`` wins over any same-named package already on sys.path, then
-    # restore sys.path exactly.
-    original = list(sys.path)
+    def _package_modules() -> list[str]:
+        return [
+            name
+            for name in sys.modules
+            if name == package or name.startswith(package + ".")
+        ]
+
+    # grimp resolves the package through the import system, so the result is
+    # whatever ``find_spec(package)`` returns. Two caches can shadow the explicit
+    # ``code_path``: sys.path ordering and an already-imported package in
+    # sys.modules. Put ``parent`` first on sys.path AND evict any cached
+    # same-named package so resolution re-runs against ``code_path``. Restore
+    # both exactly afterward.
+    original_path = list(sys.path)
+    cached_modules = {name: sys.modules[name] for name in _package_modules()}
+
     sys.path.insert(0, parent)
+    for name in cached_modules:
+        del sys.modules[name]
+    importlib.invalidate_caches()
     try:
         graph = grimp.build_graph(package)
     finally:
-        sys.path[:] = original
+        sys.path[:] = original_path
+        for name in _package_modules():
+            del sys.modules[name]
+        sys.modules.update(cached_modules)
+        importlib.invalidate_caches()
 
     internal = set(graph.modules)
     edges = frozenset(

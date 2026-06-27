@@ -89,6 +89,52 @@ def test_derive_honors_explicit_path_over_a_shadowing_sys_path(
     assert ("demo.a", "demo.b") in graph.edges  # the explicit target, not shadow
 
 
+def test_derive_ignores_an_already_imported_shadow_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A same-named package already imported (cached in sys.modules) must not
+    # shadow the explicit code_path — grimp would otherwise resolve the cached
+    # spec and derive drift from the wrong tree.
+    import importlib
+
+    shadow = tmp_path / "shadow"
+    shadow.mkdir()
+    _write_package(shadow, "demo", {"a": "x = 1\n"})
+    monkeypatch.syspath_prepend(str(shadow))
+    importlib.invalidate_caches()
+    importlib.import_module("demo")  # shadow now cached in sys.modules
+
+    try:
+        target = tmp_path / "target"
+        target.mkdir()
+        _write_package(target, "demo", {"a": "from demo import b\n", "b": "y = 2\n"})
+
+        graph = derive_actual_graph(target / "demo")
+
+        assert ("demo.a", "demo.b") in graph.edges  # the explicit target
+    finally:
+        for name in [n for n in sys.modules if n == "demo" or n.startswith("demo.")]:
+            del sys.modules[name]
+
+
+def test_derive_restores_sys_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    pkg = _write_package(tmp_path, "demo", {"a": "x = 1\n"})
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    cached = importlib.import_module("demo")  # demo cached before derive
+
+    try:
+        derive_actual_graph(pkg)
+        assert sys.modules.get("demo") is cached  # restored exactly
+    finally:
+        for name in [n for n in sys.modules if n == "demo" or n.startswith("demo.")]:
+            del sys.modules[name]
+
+
 def test_derive_restores_sys_path_exactly(tmp_path: Path) -> None:
     pkg = _write_package(tmp_path, "demo", {"a": "x = 1\n"})
     before = list(sys.path)

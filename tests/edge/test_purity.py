@@ -91,13 +91,23 @@ def _import_fromlist(node: ast.Call) -> list[str]:
             value = kw.value
     if value is None and len(node.args) >= 4:
         value = node.args[3]
-    if isinstance(value, (ast.List, ast.Tuple)):
+    if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
         return [
             elt.value
             for elt in value.elts
             if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
         ]
     return []
+
+
+def test_import_fromlist_handles_list_tuple_and_set() -> None:
+    # __import__ fromlists are commonly lists, but tuples/sets are also valid;
+    # all must expand so e.g. __import__("jig", fromlist={"orchestrator"}) is seen.
+    for literal in ('["orchestrator"]', '("orchestrator",)', '{"orchestrator"}'):
+        stmt = ast.parse(f'__import__("jig", fromlist={literal})').body[0]
+        assert isinstance(stmt, ast.Expr)
+        assert isinstance(stmt.value, ast.Call)
+        assert _import_fromlist(stmt.value) == ["orchestrator"]
 
 
 def test_edge_imports_only_itself() -> None:

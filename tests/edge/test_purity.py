@@ -46,8 +46,10 @@ _ALLOWED_PREFIXES: tuple[str, ...] = (
 
 def _allowed_parents(prefixes: tuple[str, ...]) -> frozenset[str]:
     """Parent packages of allowlisted leaves (e.g. ``jig.issues`` for
-    ``jig.issues.cli``) — importing a leaf loads its parent package, but a
-    sibling (``jig.issues.mcp``) stays forbidden."""
+    ``jig.issues.cli``). Used by the RUNTIME check only: importing a leaf loads
+    its parent package as a side effect, but a sibling (``jig.issues.mcp``) stays
+    forbidden. The static scan does NOT permit these — a written ``import
+    jig.issues`` must be an explicit leaf."""
     parents: set[str] = set()
     for prefix in prefixes:
         parts = prefix.split(".")
@@ -60,9 +62,10 @@ def _allowed_parents(prefixes: tuple[str, ...]) -> frozenset[str]:
 _ALLOWED_PARENTS = _allowed_parents(_ALLOWED_PREFIXES)
 
 
-def _is_allowed(module: str) -> bool:
-    if module in _ALLOWED_PARENTS:
-        return True
+def _under_allowed_prefix(module: str) -> bool:
+    """A statically-written import must target an explicit allowlisted module
+    (or the edge subtree) — NOT a bare parent like ``jig.issues``, whose package
+    init could pull in forbidden internals."""
     return any(module == a or module.startswith(a + ".") for a in _ALLOWED_PREFIXES)
 
 
@@ -123,7 +126,7 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                 continue
 
             for module in candidates:
-                if module.startswith("jig.") and not _is_allowed(module):
+                if module.startswith("jig.") and not _under_allowed_prefix(module):
                     offenders.append(f"{py.name}:{node.lineno} -> {module}")
 
     assert offenders == [], f"forbidden imports in jig/edge/: {offenders}"

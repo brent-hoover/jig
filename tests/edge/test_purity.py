@@ -2,17 +2,21 @@
 
 "No engine module is imported by ``jig/edge/`` except via the API contract."
 
-Enforced as **default-deny** two complementary ways:
+Bones holds the strictest honest form of this: ``jig.edge`` imports **only
+itself** (the contract is plain DTOs). So the allowlist is just ``jig.edge`` — any
+other ``jig.*`` module pulled in or written is a violation. Two complementary
+checks:
 
-- ``test_edge_imports_only_edge_appropriate_modules`` — a runtime ``sys.modules``
-  check after importing the whole package (module-level + *transitive* imports).
-- ``test_edge_has_no_forbidden_import_statements`` — a static AST scan of every
-  ``jig/edge/*.py`` import statement, including ``from jig import orchestrator``
-  forms and *lazy* (function-local) imports a runtime check would miss.
+- ``test_edge_imports_only_itself`` — runtime ``sys.modules`` after importing the
+  whole package (module-level + *transitive* imports).
+- ``test_edge_has_no_forbidden_import_statements`` — static AST scan of every
+  ``jig/edge/*.py`` import (absolute, ``from jig import X``, relative, lazy).
 
-Only edge-appropriate ``jig`` modules are allowed; everything else (every engine,
-store, MCP handler, workflow, agent, domain type) is a violation by default. See
-``architecture/edge-audit.md``.
+MVP expands the allowlist deliberately, one reviewed edge-appropriate dependency
+at a time, as it routes CLI/TUI through the daemon API (see
+``architecture/edge-audit.md`` for the surface it must retire). Keeping the
+allowlist minimal now means the test can never bless a front-door module that is
+itself still impure.
 """
 
 from __future__ import annotations
@@ -24,61 +28,23 @@ import sys
 
 import jig.edge
 
-# The ONLY jig modules the edge may import (architecture/edge-audit.md "keep"
-# list). MVP expands this deliberately as it routes CLI/TUI through the daemon
-# API. Everything else under jig.* is an engine internal.
-_ALLOWED_PREFIXES: tuple[str, ...] = (
-    "jig.edge",
-    "jig.daemon",
-    "jig.ws_server",
-    "jig.config",
-    "jig.events",
-    "jig.logging_setup",
-    "jig.safe_path",
-    "jig.container",
-    "jig.dev_env",
-    "jig.story",
-    "jig.tui",
-    "jig.issues.cli",
-    "jig.sim.cli",
-)
+# The only jig package the edge may touch today: itself. (MVP grows this.)
+_ALLOWED_PREFIXES: tuple[str, ...] = ("jig.edge",)
 
 
-def _allowed_parents(prefixes: tuple[str, ...]) -> frozenset[str]:
-    """Parent packages of allowlisted leaves (e.g. ``jig.issues`` for
-    ``jig.issues.cli``). Used by the RUNTIME check only: importing a leaf loads
-    its parent package as a side effect, but a sibling (``jig.issues.mcp``) stays
-    forbidden. The static scan does NOT permit these — a written ``import
-    jig.issues`` must be an explicit leaf."""
-    parents: set[str] = set()
-    for prefix in prefixes:
-        parts = prefix.split(".")
-        for i in range(2, len(parts)):  # skip bare "jig"
-            parents.add(".".join(parts[:i]))
-    return frozenset(parents)
-
-
-# Exact-match parents permitted (package init only, not their other contents).
-_ALLOWED_PARENTS = _allowed_parents(_ALLOWED_PREFIXES)
-
-
-def _under_allowed_prefix(module: str) -> bool:
-    """A statically-written import must target an explicit allowlisted module
-    (or the edge subtree) — NOT a bare parent like ``jig.issues``, whose package
-    init could pull in forbidden internals."""
+def _is_allowed(module: str) -> bool:
     return any(module == a or module.startswith(a + ".") for a in _ALLOWED_PREFIXES)
 
 
-def test_edge_imports_only_edge_appropriate_modules() -> None:
+def test_edge_imports_only_itself() -> None:
     """Runtime check — module-level + transitive imports."""
     code = (
         "import importlib, pkgutil, sys, jig.edge\n"
         "for m in pkgutil.walk_packages(jig.edge.__path__, prefix='jig.edge.'):\n"
         "    importlib.import_module(m.name)\n"
         f"allowed = {_ALLOWED_PREFIXES!r}\n"
-        f"parents = {set(_ALLOWED_PARENTS)!r}\n"
         "def ok(m):\n"
-        "    return m in parents or any(m == a or m.startswith(a + '.') for a in allowed)\n"
+        "    return any(m == a or m.startswith(a + '.') for a in allowed)\n"
         "leaked = sorted(m for m in sys.modules if m.startswith('jig.') and not ok(m))\n"
         "print(leaked)\n"
     )
@@ -86,7 +52,7 @@ def test_edge_imports_only_edge_appropriate_modules() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert out.stdout.strip() == "[]", (
-        f"jig.edge imported non-edge-appropriate modules: {out.stdout}"
+        f"jig.edge imported non-edge modules: {out.stdout}"
     )
 
 
@@ -126,7 +92,7 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                 continue
 
             for module in candidates:
-                if module.startswith("jig.") and not _under_allowed_prefix(module):
+                if module.startswith("jig.") and not _is_allowed(module):
                     offenders.append(f"{py.name}:{node.lineno} -> {module}")
 
     assert offenders == [], f"forbidden imports in jig/edge/: {offenders}"

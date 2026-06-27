@@ -82,8 +82,7 @@ async def eval_run(
         await fixture_agent(action)  # the only thing actually "run"
 
     async def _noop(action: object) -> None:
-        # Bones shims the real effects (merge/publish/unblock).
-        return None
+        """Bones shims the real effects (merge / publish / unblock)."""
 
     dispatcher = Dispatcher(
         {
@@ -105,7 +104,12 @@ async def eval_run(
             await coordinator.handle(AgentSucceeded(ticket_id=ticket))
             await coordinator.handle(WorktreeMerged(ticket_id=ticket))
         else:
-            terminal = _NON_SUCCESS_STATUS[build_config.agent_result.status]
+            terminal = _NON_SUCCESS_STATUS.get(build_config.agent_result.status)
+            if terminal is None:
+                raise ValueError(
+                    f"unexpected agent status {build_config.agent_result.status!r}; "
+                    f"expected 'success' or one of {list(_NON_SUCCESS_STATUS)}"
+                )
             await coordinator.handle(AgentCompleted(ticket_id=ticket, status=terminal))
 
     # Review loop: enforce the invariants over each fixture diff.

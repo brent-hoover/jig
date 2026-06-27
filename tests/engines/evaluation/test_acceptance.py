@@ -17,6 +17,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 from jig.engines.enforcement import InvariantContext
 from jig.engines.evaluation import BuildConfig, Fixture, eval_run
 from jig.model import Finding
@@ -37,16 +39,36 @@ async def test_headless_happy_path_runs_a_ticket_to_resolved() -> None:
     assert result.findings == ()  # MechanicalReview bones stub finds nothing
 
 
-async def test_failed_agent_leaves_the_ticket_failed() -> None:
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("failed", TicketStatus.FAILED),
+        ("blocked", TicketStatus.BLOCKED),
+        ("needs_info", TicketStatus.NEEDS_INFO),
+    ],
+)
+async def test_non_success_agent_maps_to_its_terminal_status(
+    status: str, expected: TicketStatus
+) -> None:
     config = BuildConfig(
         tickets=("jig-1",),
-        agent_result=AgentRunResult(status="failed", final_text="gave up"),
+        agent_result=AgentRunResult(status=status, final_text="x"),
     )
 
     result = await eval_run(config, fixtures=[])
 
-    assert result.final_states["jig-1"] == TicketStatus.FAILED.value
+    assert result.final_states["jig-1"] == expected.value
     assert result.agent_runs == 1
+
+
+async def test_unexpected_agent_status_fails_loudly() -> None:
+    config = BuildConfig(
+        tickets=("jig-1",),
+        agent_result=AgentRunResult(status="bogus", final_text=""),
+    )
+
+    with pytest.raises(ValueError, match="unexpected agent status"):
+        await eval_run(config, fixtures=[])
 
 
 async def test_drives_multiple_tickets() -> None:
@@ -94,10 +116,13 @@ async def test_review_loop_runs_over_each_fixture_diff() -> None:
 def test_the_path_is_headless_no_legacy_stack() -> None:
     """Importing the eval harness must NOT pull in the Orchestrator god-object,
     the MCP server, the daemon, or the TUI. Run in a clean subprocess."""
+    # The eval path must use FixtureRunAgent — never the real agent stack
+    # (jig.agent / jig.runtime.real) or the daemon/TUI/MCP/orchestrator.
     code = (
         "import jig.engines.evaluation, sys; "
         "legacy = [m for m in sys.modules if m in ('jig.orchestrator', "
-        "'jig.daemon', 'jig.mcp_server', 'jig.ws_server') or m.startswith('jig.tui')]; "
+        "'jig.daemon', 'jig.mcp_server', 'jig.ws_server', 'jig.agent', "
+        "'jig.runtime.real') or m.startswith('jig.tui')]; "
         "print(legacy)"
     )
     out = subprocess.run(

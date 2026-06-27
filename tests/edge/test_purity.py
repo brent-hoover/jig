@@ -2,18 +2,17 @@
 
 "No engine module is imported by ``jig/edge/`` except via the API contract."
 
-Enforced as **default-deny** two ways that complement each other:
+Enforced as **default-deny** two complementary ways:
 
 - ``test_edge_imports_only_edge_appropriate_modules`` — a runtime ``sys.modules``
-  check after importing the whole package, catching module-level + *transitive*
-  imports.
+  check after importing the whole package (module-level + *transitive* imports).
 - ``test_edge_has_no_forbidden_import_statements`` — a static AST scan of every
-  ``jig/edge/*.py`` import statement, catching *lazy* (function-local) imports a
-  runtime check would miss.
+  ``jig/edge/*.py`` import statement, including ``from jig import orchestrator``
+  forms and *lazy* (function-local) imports a runtime check would miss.
 
 Only edge-appropriate ``jig`` modules are allowed; everything else (every engine,
-store, MCP handler, workflow, agent, domain type) is a violation by default, so
-neither check false-negatives as the repo grows. See ``architecture/edge-audit.md``.
+store, MCP handler, workflow, agent, domain type) is a violation by default. See
+``architecture/edge-audit.md``.
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ import jig.edge
 # The ONLY jig modules the edge may import (architecture/edge-audit.md "keep"
 # list). MVP expands this deliberately as it routes CLI/TUI through the daemon
 # API. Everything else under jig.* is an engine internal.
-_ALLOWED_PREFIXES = (
+_ALLOWED_PREFIXES: tuple[str, ...] = (
     "jig.edge",
     "jig.daemon",
     "jig.ws_server",
@@ -45,7 +44,25 @@ _ALLOWED_PREFIXES = (
 )
 
 
+def _allowed_parents(prefixes: tuple[str, ...]) -> frozenset[str]:
+    """Parent packages of allowlisted leaves (e.g. ``jig.issues`` for
+    ``jig.issues.cli``) — importing a leaf loads its parent package, but a
+    sibling (``jig.issues.mcp``) stays forbidden."""
+    parents: set[str] = set()
+    for prefix in prefixes:
+        parts = prefix.split(".")
+        for i in range(2, len(parts)):  # skip bare "jig"
+            parents.add(".".join(parts[:i]))
+    return frozenset(parents)
+
+
+# Exact-match parents permitted (package init only, not their other contents).
+_ALLOWED_PARENTS = _allowed_parents(_ALLOWED_PREFIXES)
+
+
 def _is_allowed(module: str) -> bool:
+    if module in _ALLOWED_PARENTS:
+        return True
     return any(module == a or module.startswith(a + ".") for a in _ALLOWED_PREFIXES)
 
 
@@ -56,8 +73,9 @@ def test_edge_imports_only_edge_appropriate_modules() -> None:
         "for m in pkgutil.walk_packages(jig.edge.__path__, prefix='jig.edge.'):\n"
         "    importlib.import_module(m.name)\n"
         f"allowed = {_ALLOWED_PREFIXES!r}\n"
+        f"parents = {set(_ALLOWED_PARENTS)!r}\n"
         "def ok(m):\n"
-        "    return any(m == a or m.startswith(a + '.') for a in allowed)\n"
+        "    return m in parents or any(m == a or m.startswith(a + '.') for a in allowed)\n"
         "leaked = sorted(m for m in sys.modules if m.startswith('jig.') and not ok(m))\n"
         "print(leaked)\n"
     )
@@ -70,7 +88,8 @@ def test_edge_imports_only_edge_appropriate_modules() -> None:
 
 
 def test_edge_has_no_forbidden_import_statements() -> None:
-    """Static check — every import statement, including lazy/function-local."""
+    """Static check — every import statement, including ``from jig import X`` and
+    lazy/function-local imports."""
     pkg_dir = pathlib.Path(jig.edge.__file__).parent
     offenders: list[str] = []
 
@@ -78,14 +97,17 @@ def test_edge_has_no_forbidden_import_statements() -> None:
         tree = ast.parse(py.read_text(), filename=str(py))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
+                candidates = [alias.name for alias in node.names]
             # level == 0 -> absolute import; relative imports stay inside jig.edge.
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                modules = [node.module]
+                # Expand `from pkg import a, b` -> pkg.a, pkg.b so that
+                # `from jig import orchestrator` is caught, not just `pkg`.
+                candidates = [node.module]
+                candidates += [f"{node.module}.{alias.name}" for alias in node.names]
             else:
                 continue
 
-            for module in modules:
+            for module in candidates:
                 if module.startswith("jig.") and not _is_allowed(module):
                     offenders.append(f"{py.name}:{node.lineno} -> {module}")
 

@@ -286,7 +286,10 @@ headless, fixture-driven evals possible.
    ```
    Where `AgentRunContext` carries ticket, role, worktree, MCP config.
    `AgentRunResult` carries stream events, exit status, artifacts.
-3. Extract existing spawn logic from `jig/agent.py` into `RealRunAgent`.
+3. Wrap `jig.agent.run_agent` in `RealRunAgent` — a **wrapper seam**, not a
+   physical extraction: `RealRunAgent` delegates to the existing entangled
+   spawn + sandbox + MCP path. Real extraction of that logic into the runtime is
+   MVP/Final work (see below), not Bones.
 4. Add `FixtureRunAgent` (returns canned `AgentRunResult` — the bone for
    headless evals).
 
@@ -419,12 +422,14 @@ planning), `feature-work/sa-architect/problem.md` (grounded decisions),
    `jig/engines/visual_design/`.
 2. Define authority boundaries: Discovery writes `project://spec/...`,
    Architecture writes `project://arch/...`, VD writes `project://design/...`.
-3. Extract SA↔operator loop from `jig/init_workflow.py` into
-   `jig/engines/architecture/` (the ask/answer/approval flow).
-4. Extract the PO interview conversation from `jig/init_workflow.py` into
-   `jig/engines/discovery/` (replaces the v1 flat / v2 L0-L3 split with one
-   Discovery interview at architectural resolution — from
-   `medium-l0-l3-pipeline/problem.md` and `jig-init-process/problem.md`).
+3. Expose the SA↔operator loop (the ask/answer/approval flow) at
+   `jig/engines/architecture/` via a **re-export/wrapper seam** over
+   `jig/init_workflow.py`. Real extraction of the flow is MVP work, not Bones.
+4. Expose the PO interview conversation at `jig/engines/discovery/` via a
+   **re-export/wrapper seam** over `jig/init_workflow.py`. Replacing the v1 flat /
+   v2 L0-L3 split with one Discovery interview at architectural resolution is
+   MVP work (from `medium-l0-l3-pipeline/problem.md` and
+   `jig-init-process/problem.md`) — Bones only stands up the seam.
 
 **MVP:**
 1. **Unify the three SA roles** (sa, sa_mvp, sa_v2) into one size-adaptive
@@ -533,7 +538,8 @@ architecture to the current code.
 
 **Goal:** Drive the Build + review loop headless on fixture corpora — reviewer
 precision/recall against labeled diffs and a fix-loop convergence metric. This
-epic's bones acceptance test is the gate for the whole bones phase.
+epic's bones run is the **code-pipeline composition check** — one (important) item
+on the aggregate bones gate, not the whole gate.
 
 **Bones:**
 1. Create `jig/engines/evaluation/`.
@@ -591,11 +597,33 @@ is imported by `jig/edge/` except via the API contract.
 
 ---
 
-## Bones acceptance test (the gate for the bones phase)
+## Bones acceptance gate (before any MVP starts)
 
-All epic bones must land before any epic's MVP starts. This acceptance test
-validates the **code-pipeline composition (Epics 1, 3, 4, 5)** specifically — the
-headless path Jig is hardest on:
+The bones phase ends — and MVP may begin — only when **both** of the following
+hold. The first is the global gate; the second is one (important) item within it,
+not a substitute for it.
+
+### 1. Aggregate bones checklist (the global gate)
+
+Every epic's **Bones** task list is complete **and** its **Verify** block passes.
+No single test stands in for this — the per-epic **Verify** blocks above are the
+source of truth. Tick each before any MVP starts:
+
+- [ ] Epic 1 — Model: `tests/model/` invariant-fn signatures + `OntologyTerm` single home
+- [ ] Epic 2 — Substrate: `tests/substrate/` composition test (read routes/raises, write raises)
+- [ ] Epic 3 — Runtime: `tests/runtime/` seam with `Real`/`Fixture` impls
+- [ ] Epic 4 — Build: `tests/engines/build/test_decide.py` pure state machine
+- [ ] Epic 5 — Enforcement: `tests/engines/enforcement/` `async Review` + mechanical checks
+- [ ] Epic 6 — Authoring: authority-boundary tests (Discovery/Architecture/VD seams)
+- [ ] Epic 7 — Reconciliation: `tests/engines/reconciliation/` `derive`/`diff` contracts
+- [ ] Epic 8 — Evaluation: the code-pipeline composition check below
+- [ ] Epic 9 — EDGE: `jig/edge/api.py` daemon-API contract + CLI/TUI coupling audit list
+
+### 2. Code-pipeline composition check (one checklist item, the hardest composition)
+
+The single hardest composition — the headless code-pipeline — runs green. This is
+**Epic 8's Bones Verify**, named explicitly because it exercises four epics at
+once:
 
 > The code-pipeline and review loop run **headless on a fixture**, without the
 > daemon/TUI, using `FixtureRunAgent` (Epic 3) + pure `decide()` (Epic 4) +
@@ -603,19 +631,24 @@ headless path Jig is hardest on:
 > god-object, no `mcp_server.py`, no daemon, no TUI in the path.
 > (See `jig/engines/evaluation/harness.py` / `tests/engines/evaluation/test_acceptance.py`.)
 
-**Scope of this gate — what it does and does not cover:**
+This check validates the **Epics 1, 3, 4, 5** composition specifically. It is one
+row on the checklist above — **not** the whole gate. It does **not** exercise
+Epic 2 (Substrate), 6 (Authoring), 7 (Reconciliation), or 9 (EDGE); those are
+gated by their own **Verify** blocks in item 1. Passing this check alone does not
+authorize MVP — the full checklist must be green.
 
-- **`StoreAuthority` (Epic 2) is *not* on this path and is not gated here.** The
-  shipped harness composes Model + Runtime + Build + Enforcement; it does not read
-  or write artifacts through `StoreAuthority`. Listing Substrate in the gate while
-  the harness never exercises it would be a false validation, so it is removed.
-  Substrate composition is instead verified by a **dedicated Epic 2 composition
-  test** (see Epic 2 **Verify**) — `read` routes through the authority and raises
-  `UnimplementedAuthorityError` for unwired authorities; `write` raises until MVP.
+**Scope of the composition check — what it does and does not cover:**
+
+- **`StoreAuthority` (Epic 2) is *not* on this path.** The shipped harness
+  composes Model + Runtime + Build + Enforcement; it does not read or write
+  artifacts through `StoreAuthority`. Listing Substrate here would be a false
+  validation, so it is excluded — Substrate composition is gated separately by the
+  **Epic 2 composition test** (item 1): `read` routes through the authority and
+  raises `UnimplementedAuthorityError` for unwired authorities; `write` raises
+  until MVP.
 - **`EDGE` (Epic 9) is not on this path either.** Its bones (the daemon API
-  contract in `jig/edge/api.py` + the CLI/TUI coupling audit) are verified by
-  Epic 9's own **Verify**, not by the headless run. "Bones before MVP" still holds
-  globally; this particular *test* gates the Epics 1–8 pipeline, not the edge.
+  contract in `jig/edge/api.py` + the CLI/TUI coupling audit) are gated by Epic 9's
+  own **Verify** (item 1), not by the headless run.
 
 This is the evaluability driver from `jig-instance.md` → Build suite signal #4.
 If the bones compose, the architecture is validated on Jig's own hardest case
@@ -785,3 +818,11 @@ the migration hasn't broken anything.
   deps alongside Epic 8's full-composition exception. Normalized the
   `BuildCoordinator` module docstring to "decide, dispatch, then commit" (the
   module header still said "advance state, dispatch", contradicting the code).
+- 2026-06-26: Addressed fifth-round design-review findings (job 720). Split the
+  bones gate into an **aggregate bones checklist** (every epic's Bones + Verify —
+  the real global gate) and the **code-pipeline composition check** (the Epic 8
+  headless run, renamed from "the gate for the whole bones phase" since it only
+  covers Epics 1/3/4/5). Reworded Bones tasks that said "extract" real logic to
+  "wrapper / re-export seam" to match the shipped shim-first pattern: Epic 3
+  (`RealRunAgent` wraps `jig.agent.run_agent`) and Epic 6 (SA/PO flows exposed via
+  seam, real extraction deferred to MVP).

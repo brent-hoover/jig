@@ -17,7 +17,9 @@ from __future__ import annotations
 import subprocess
 import sys
 
+from jig.engines.enforcement import InvariantContext
 from jig.engines.evaluation import BuildConfig, Fixture, eval_run
+from jig.model import Finding
 from jig.runtime import AgentRunResult
 from jig.ticket import TicketStatus
 
@@ -58,6 +60,35 @@ async def test_drives_multiple_tickets() -> None:
     assert result.final_states["jig-1"] == TicketStatus.RESOLVED.value
     assert result.final_states["jig-2"] == TicketStatus.RESOLVED.value
     assert result.agent_runs == 2
+
+
+async def test_review_loop_runs_over_each_fixture_diff() -> None:
+    # Prove the review loop actually runs (the default stub returns nothing, so
+    # it can't show this): inject a Review that records the diffs it sees and
+    # returns a finding, then assert both reached EvalResult.
+    seen_diffs: list[str] = []
+
+    class _RecordingReview:
+        async def __call__(
+            self, diff: str, invariant_context: InvariantContext
+        ) -> list[Finding]:
+            seen_diffs.append(diff)
+            return [Finding(invariant="containment", message=f"drift in {diff}")]
+
+    config = BuildConfig(
+        tickets=("jig-1",),
+        agent_result=AgentRunResult(status="success", final_text="ok"),
+    )
+
+    result = await eval_run(
+        config,
+        fixtures=[Fixture(name="a", diff="diffA"), Fixture(name="b", diff="diffB")],
+        review=_RecordingReview(),
+    )
+
+    assert seen_diffs == ["diffA", "diffB"]
+    assert {f.message for f in result.findings} == {"drift in diffA", "drift in diffB"}
+    assert all(isinstance(f, Finding) for f in result.findings)
 
 
 def test_the_path_is_headless_no_legacy_stack() -> None:

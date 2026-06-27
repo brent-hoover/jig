@@ -13,9 +13,10 @@ from pathlib import Path
 from jig.engines.reconciliation.graph import DependencyGraph
 
 
-def derive_actual_graph(code_path: Path) -> DependencyGraph:
-    """Build the actual module dependency graph rooted at ``code_path``.
+def derive_actual_graph(_code_path: Path) -> DependencyGraph:
+    """Build the actual module dependency graph rooted at ``_code_path``.
 
-    Bones: returns an empty graph (Spike 2 picks the tool; MVP implements).
+    Bones: returns an empty graph (Spike 2 picks the tool; MVP implements). The
+    parameter is intentionally unused for now — hence the ``_`` prefix.
     """
     return DependencyGraph.of()

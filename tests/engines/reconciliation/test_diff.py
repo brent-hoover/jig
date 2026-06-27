@@ -20,6 +20,21 @@ def test_no_drift_when_graphs_match() -> None:
     assert not report.has_drift
     assert report.undeclared_edges == frozenset()
     assert report.missing_edges == frozenset()
+    assert report.undeclared_nodes == frozenset()
+    assert report.missing_nodes == frozenset()
+
+
+def test_empty_graphs_have_no_drift() -> None:
+    report = diff(declared=DependencyGraph.of(), actual=DependencyGraph.of())
+    assert not report.has_drift
+
+
+def test_edge_implied_nodes_do_not_cause_spurious_node_drift() -> None:
+    # Neither graph declares nodes explicitly; both are implied by the edge.
+    declared = DependencyGraph.of(edges=[("a", "b")])
+    actual = DependencyGraph.of(edges=[("a", "b")])
+
+    assert not diff(declared=declared, actual=actual).has_drift
 
 
 def test_undeclared_edge_is_drift() -> None:

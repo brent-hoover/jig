@@ -28,6 +28,6 @@ class DependencyGraph:
     ) -> DependencyGraph:
         """Build from any iterables, normalizing to frozensets. Edge endpoints
         are also added to ``nodes`` so the node set is always complete."""
-        edge_set = frozenset((a, b) for a, b in edges)
+        edge_set = frozenset(edges)
         node_set = frozenset(nodes) | {n for edge in edge_set for n in edge}
         return cls(nodes=node_set, edges=edge_set)

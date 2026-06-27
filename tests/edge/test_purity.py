@@ -88,6 +88,24 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                     f"{base}.{alias.name}" if base else alias.name
                     for alias in node.names
                 ]
+            elif isinstance(node, ast.Call):
+                # Constant-string dynamic imports: importlib.import_module("jig.x")
+                # or __import__("jig.x"). (Non-constant args aren't statically
+                # resolvable; the runtime check is the backstop for those.)
+                func = node.func
+                is_dynamic_import = (
+                    isinstance(func, ast.Name)
+                    and func.id in ("__import__", "import_module")
+                ) or (isinstance(func, ast.Attribute) and func.attr == "import_module")
+                if (
+                    is_dynamic_import
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    candidates = [node.args[0].value]
+                else:
+                    continue
             else:
                 continue
 

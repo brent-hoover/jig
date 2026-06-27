@@ -11,6 +11,12 @@ problem: ./problem.md
 
 # Project Onboarding — Design
 
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): onboarding is extracted
+> behind `project://spec/` as `engines/discovery/onboard.py` (Epic 6 MVP 6).
+> This design is retained for historical context only; follow the plan, not the
+> steps below.
+
 ## Summary
 
 Add a `jig onboard <path>` CLI command that imports an existing codebase into the jig workflow. A new

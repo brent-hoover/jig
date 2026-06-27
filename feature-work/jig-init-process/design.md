@@ -11,6 +11,11 @@ problem: ./problem.md
 
 # jig init process — Design
 
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the init conversation
+> becomes the Discovery interview (Epic 6 Bones 4). This design is retained for
+> historical context only; follow the plan, not the steps below.
+
 ## Summary
 
 `jig init <name>` becomes a multi-phase, ticket-backed workflow. The

@@ -11,6 +11,12 @@ design: ./design.md
 
 # SA as Architect — Phase 1 Implementation Plan
 
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the grounded-decision
+> protocol is preserved in the unified SAU (Epic 6 MVP 2). This plan is retained
+> for historical context only; follow `architecture/plan.md`, not the steps
+> below.
+
 ## Overview
 
 Six implementation steps plus one full-verification step, each independently testable. Schema goes first —

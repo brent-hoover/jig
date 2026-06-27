@@ -11,6 +11,11 @@ design: ./design.md
 
 # jig init process — Implementation Plan
 
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the init conversation
+> becomes the Discovery interview (Epic 6 Bones 4). This plan is retained for
+> historical context only; follow `architecture/plan.md`, not the steps below.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > superpowers:subagent-driven-development (recommended) or
 > superpowers:executing-plans to implement this plan task-by-task.

@@ -11,6 +11,11 @@ problem: ./problem.md
 
 # SA as Architect — Design
 
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the grounded-decision
+> protocol is preserved in the unified SAU (Epic 6 MVP 2). This design is
+> retained for historical context only; follow the plan, not the steps below.
+
 ## Summary
 
 Two-phase delivery. **Phase 1** (pending egress verification — see Open questions): add research tools

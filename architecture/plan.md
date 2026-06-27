@@ -136,12 +136,14 @@ without them, but each must be resolved before its epic's MVP.
 
 ## Epic dependency matrix
 
-Epic **Bones** are deliberately decoupled: each stands up a boundary/seam with
-logic shimmed, so all nine can proceed independently and in parallel (the only
+Most epic **Bones** are deliberately decoupled: each stands up a boundary/seam
+with logic shimmed, so they can proceed independently and in parallel (the
 global gate is that all bones land before any MVP — see the bones acceptance
-test). **MVP** work is where cross-epic contracts bind. The matrix below makes
-that ordering explicit so contributors don't build against an incomplete
-contract or duplicate ownership.
+test). **Epic 8 Bones is the exception**: its harness composes Epics 1, 3, 4, 5
+(and Epic 2 while `StoreAuthority` is in the gate), so it must land after those
+bones exist. **MVP** work is where the remaining cross-epic contracts bind. The
+matrix below makes the ordering explicit so contributors don't build against an
+incomplete contract or duplicate ownership.
 
 | Epic | Bones depends on | MVP depends on | Blocks (downstream) |
 |---|---|---|---|
@@ -152,7 +154,7 @@ contract or duplicate ownership.
 | 5 — Enforcement | Epic 1 (`Finding`) | Epic 1 | 4 (Build invokes `Review`), 8 (headless Enforcement) |
 | 6 — Authoring | — | Epic 1, Epic 2 (authorities) | — (terminal for this migration) |
 | 7 — Reconciliation | Epic 1 | Spike 2, Epic 4 (surfaces drift via Build) | — |
-| 8 — Evaluation | — | Epics 3, 4, 5, 1 | — (terminal; the bones acceptance gate) |
+| 8 — Evaluation | Epics 1, 3, 4, 5 Bones (+ 2 while `StoreAuthority` is in the gate) | Epics 3, 4, 5, 1 | — (terminal; the bones acceptance gate) |
 | 9 — EDGE | — | all engines (daemon API over them) | — (terminal) |
 
 Reading: a row's **MVP depends on** entries must reach at least MVP before that
@@ -201,8 +203,9 @@ Foundational — everything depends on it.
    graph query.
 3. Implement `vocabulary` (one concept, one home — count concepts with >1
    definition).
-4. Migrate consumers to import from `jig/model/` directly (remove re-export
-   shims where feasible).
+4. Migrate consumers to import from `jig/model/` directly. Leave the re-export
+   shims in place — shim *removal* is a Final task, not MVP (see shim-removal
+   policy).
 
 **Final:**
 1. Implement `conformance` (requires code analysis — may defer to
@@ -227,8 +230,12 @@ engines depend on without knowing the JSONL backing.
    `project://spec/`, `project://arch/`, `project://design/`, `project://plan/`,
    `project://store/`. Backed by existing JSONL stores (no new persistence).
 3. Define `TypedEvent` schema (pydantic) for bus events. Map existing
-   magic-string topics (`"orchestrator"`, `"tickets.{id}"`) to typed equivalents
-   (`TicketScheduled`, `TicketCompleted`, etc.).
+   magic-string topics (`"orchestrator"`, `"tickets.{id}"`) to typed equivalents.
+   The bus-scoped lifecycle events are `TicketCreated` and `TicketUpdated`
+   (status transitions) — faithful to `jig.ticket_events._build_payload`.
+   Completion/failure are `TicketUpdated` status transitions; the operator-facing
+   relay (the emitter channel the TUI reads) is a separate, later concern, not a
+   new bus event type.
 4. Add a typed-event adapter in the Bus that accepts both old string topics and
    new typed events (compatibility layer).
 
@@ -304,9 +311,14 @@ and the precondition for headless code-pipeline evals.
 4. Extract `Supervisor` in `jig/engines/build/supervisor.py` — deadlock/stall
    detection that emits events into `decide()` (never mutates tickets
    directly). Based on existing `jig/deadlock.py` and `jig/stall_detector.py`.
-5. Wire `Orchestrator` as the thin coordinator: `decide()` + `dispatch` +
-   `supervisor` + bus subscription. Existing `orchestrator.py` becomes a
-   facade that delegates to the new modules (backwards compat for tests).
+5. Wire the thin coordinator (`decide()` + `dispatch` + `supervisor` + bus
+   subscription) and exercise it with **synthetic events in tests only**. The
+   one-transition bones `decide()` must **not** own real production dispatch:
+   the live `orchestrator.py` keeps its existing dispatch path, and the facade
+   delegates only the migrated transition. Routing production traffic through the
+   state machine is Epic 4 MVP work, gated on the transition/idempotency design
+   (see Seam stubs & post-bones blockers). This keeps Bones synthetic-only and
+   avoids an incomplete machine taking real side effects.
 
 **MVP:**
 1. Resolve Spike 1 (`decide()` purity). If pure works, migrate all ticket
@@ -332,16 +344,21 @@ modules directly.
 ### Epic 5 — Enforcement
 
 **Goal:** Checks + reviewer federation extracted into a headless-invocable
-`Review(diff, invariant_context) -> list[Finding]` library that Build calls, with
-mechanical (non-LLM) boundary and vocabulary enforcement. Absorbs
+`async Review(diff, invariant_context) -> list[Finding]` library that Build
+calls, with mechanical (non-LLM) boundary and vocabulary enforcement. Absorbs
 `feature-work/module-boundaries/problem.md` (module boundary enforcement).
 
 **Bones:**
 1. Create `jig/engines/enforcement/` package.
-2. Define `Review(diff, invariant_context) -> list[Finding]` as the
-   headless-invocable contract.
-3. Move `jig/boundary_rules.py` → `jig/engines/enforcement/mechanical/`.
-4. Move `jig/reviewers/dispatch.py` → `jig/engines/enforcement/reviewers/`.
+2. Define `async Review(diff, invariant_context) -> list[Finding]` as the
+   headless-invocable contract (an async `Protocol.__call__` — reviewers spawn
+   agents, so the contract is async, not sync).
+3. Expose `jig/boundary_rules.py` at its new home
+   `jig/engines/enforcement/mechanical/` via re-export (old path stays a shim
+   until Final — see shim-removal policy).
+4. Expose `jig/reviewers/dispatch.py` at its new home
+   `jig/engines/enforcement/reviewers/` via re-export (old path stays a shim
+   until Final).
 
 **MVP:**
 1. Migrate `jig/check_runner.py` into the enforcement library.
@@ -564,9 +581,18 @@ acceptance test for the bones phase is:
 
 > The code-pipeline and review loop run **headless on a fixture**, without the
 > daemon/TUI, using `FixtureRunAgent` (Epic 3) + pure `decide()` (Epic 4) +
-> `Review` contract (Epic 5) + `StoreAuthority` (Epic 2) + Model entities
-> (Epic 1). No `Orchestrator` god-object, no `mcp_server.py`, no daemon, no TUI
-> in the path.
+> `async Review` contract (Epic 5) + Model entities (Epic 1). No `Orchestrator`
+> god-object, no `mcp_server.py`, no daemon, no TUI in the path.
+
+**On `StoreAuthority` (Epic 2) and the gate.** For the bones gate to genuinely
+validate the Substrate seam, it is not enough for `StoreAuthority` to merely
+exist — the headless path must *route through it*. The acceptance harness
+therefore asserts that the pipeline's artifact reads/writes go through
+`StoreAuthority` and that the pipeline imports **no** `jig/store/*` module
+directly. If a contributor prefers to keep the eval harness minimal, the
+alternative (per the review) is to drop `StoreAuthority` from this gate and
+verify Substrate composition in a dedicated Epic 2 composition test instead — but
+do one or the other, never list it in the gate while leaving it unexercised.
 
 This is the evaluability driver from `jig-instance.md` → Build suite signal #4.
 If the bones compose, the architecture is validated on Jig's own hardest case
@@ -596,24 +622,37 @@ before production use.
 
 ### Concrete requirements for the **Yes** blockers
 
-- **`StoreAuthority.write()` security (Epic 2 MVP).** Before any production write
-  routes through the authority, `write()` must enforce: (a) authority-scoped
-  authorization — a caller holding `project://spec/` cannot write `project://arch/`;
-  (b) `project://` URI validation and path safety — reject traversal,
-  out-of-authority paths, and malformed URIs loudly (no silent normalization);
-  (c) payload schema validation against the target authority's typed model. These
-  are acceptance criteria for Epic 2 MVP, not Final polish.
+- **`StoreAuthority.write()` security (Epic 2 MVP).** The bones signature
+  `async write(self, uri: str, doc: dict) -> str` carries no caller identity, so
+  authority-scoped authorization is **not expressible against it as written** —
+  closing this requires an API change at MVP, not just logic. Before any
+  production write routes through the authority, MVP must: (a) add a caller
+  context to the write path — the chosen model is an **authority-scoped handle**
+  (`StoreAuthority.for_authority("spec") -> ScopedWriter`) so a `spec` caller
+  physically cannot address `project://arch/...`; a caller-principal or capability
+  token passed to `write()` are the considered alternatives, decided in the Epic 2
+  MVP design before implementation; (b) enforce `project://` URI validation and
+  path safety — reject traversal, out-of-authority paths, and malformed URIs
+  loudly (no silent normalization); (c) validate the payload schema against the
+  target authority's typed model. All three are Epic 2 MVP acceptance criteria,
+  not Final polish.
 - **Partial multi-action dispatch (Epic 4 MVP).** `decide()` can return multiple
   actions; the shell may succeed on some and fail on others. Before real side
-  effects are wired, the plan must pin the failure semantics: per-action ack,
+  effects are wired, the failure semantics must be pinned: per-action ack,
   idempotent re-dispatch on retry (so a re-run can't double-spawn or double-merge),
-  and a defined state for "ticket whose action set partially applied". Design lands
-  before, not alongside, the first real effect handler.
+  and a defined state for "ticket whose action set partially applied". **This
+  design lands as an ADR in `docs/reference/` (e.g. `ADR-NNN-dispatch-semantics`),
+  linked from Epic 4 MVP, before — not alongside — the first real effect handler.**
+  (Migration epics get no `feature-work/` docs; cross-cutting dispatch semantics
+  are a long-lived decision, so they belong in `docs/reference/`, not the
+  throwaway plan.)
 - **Build coordinator concurrency (Epic 4 Final).** Serializing the coordinator is
-  acceptable for bones/MVP. Before production use, add an explicit acceptance
-  criterion: dispatch throughput under N concurrent in-flight tickets stays within
-  a stated bound (no head-of-line blocking on a single slow agent). Per-ticket
-  concurrency is Final work, but the criterion is recorded now so it isn't lost.
+  acceptable for bones/MVP. Before production use, the acceptance criterion is
+  concrete: with **N = 8** concurrent in-flight tickets (matching the default
+  agent-concurrency cap), the coordinator adds **< 50 ms p95** dispatch overhead
+  beyond agent-runtime time, and a single slow/blocked agent never stalls dispatch
+  for other ready tickets (no head-of-line blocking). Per-ticket concurrency is
+  Final work; the numeric criterion is recorded now so it isn't lost.
 
 ## Compatibility & shim-removal policy
 
@@ -692,3 +731,14 @@ the migration hasn't broken anything.
   blockers" register with concrete acceptance criteria for `StoreAuthority.write()`
   security, partial multi-action dispatch semantics, and Build-coordinator
   concurrency. Added a compatibility & shim-removal policy.
+- 2026-06-26: Addressed second-round design-review findings (job 703).
+  Reconciled plan text with the shipped code: `Review` is `async`; bus events are
+  `TicketCreated`/`TicketUpdated` (not `TicketScheduled`/`TicketCompleted`).
+  `StoreAuthority.write()` security now names the API change (authority-scoped
+  handle) since the bones `write(uri, doc)` signature carries no caller identity.
+  Marked Epic 8 Bones as depending on Epics 1/3/4/5 (+2) in the matrix. Scoped
+  Epic 4 Bones coordinator to synthetic-only (no production dispatch). Reworded
+  Epic 1 MVP / Epic 5 Bones to "expose via re-export", not "remove"/"move", per
+  the shim policy. Pinned the coordinator perf criterion (N=8, <50ms p95) and the
+  partial-dispatch ADR location (`docs/reference/`). Added "do not implement"
+  banners to the eight superseded design/plan bodies.

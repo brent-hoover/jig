@@ -11,6 +11,12 @@ design: ./design.md
 
 # Project Onboarding — Implementation Plan
 
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): onboarding is extracted
+> behind `project://spec/` as `engines/discovery/onboard.py` (Epic 6 MVP 6).
+> This plan is retained for historical context only; follow
+> `architecture/plan.md`, not the steps below.
+
 ## Overview
 
 We build `jig onboard` in two phases. Phase 1 (steps 1–6) covers everything up to and including the

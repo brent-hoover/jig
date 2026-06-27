@@ -8,6 +8,8 @@ what the edge depends on.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+
 from jig.edge.api import (
     ApproveTicket,
     Command,
@@ -46,7 +48,7 @@ async def test_a_daemon_api_impl_satisfies_the_protocol() -> None:
         async def snapshot(self) -> Snapshot:
             return Snapshot(tickets=())
 
-        async def events(self):
+        async def events(self) -> AsyncGenerator[Event, None]:
             return
             yield  # make it an async generator
 
@@ -56,3 +58,5 @@ async def test_a_daemon_api_impl_satisfies_the_protocol() -> None:
     await daemon.send(ApproveTicket(ref="jig-1"))
     assert daemon.sent == [ApproveTicket(ref="jig-1")]
     assert await daemon.snapshot() == Snapshot(tickets=())
+    events = [e async for e in daemon.events()]
+    assert events == []

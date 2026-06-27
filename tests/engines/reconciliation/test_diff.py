@@ -29,6 +29,16 @@ def test_empty_graphs_have_no_drift() -> None:
     assert not report.has_drift
 
 
+def test_of_completes_nodes_from_edge_endpoints() -> None:
+    # Pins the invariant directly: an edge endpoint is always a node. Without
+    # this, the no-spurious-drift test below would pass vacuously if `of`
+    # stopped completing nodes (both graphs would just have empty node sets).
+    graph = DependencyGraph.of(edges=[("a", "b"), ("a", "b")])
+
+    assert graph.nodes == frozenset({"a", "b"})
+    assert graph.edges == frozenset({("a", "b")})  # deduplicated
+
+
 def test_edge_implied_nodes_do_not_cause_spurious_node_drift() -> None:
     # Neither graph declares nodes explicitly; both are implied by the edge.
     declared = DependencyGraph.of(edges=[("a", "b")])

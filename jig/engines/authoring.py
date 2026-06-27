@@ -14,22 +14,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from jig.substrate import StoreAuthority
 from jig.uri.parser import parse_project_uri
+
+# The authoring authorities — the artifact stores the engines author. ``plan``
+# and ``store`` are not authored by an engine (PM/Build own those), so they are
+# NOT valid here even though they are valid ``StoreAuthority`` authorities.
+AUTHORING_AUTHORITIES: tuple[str, ...] = ("spec", "arch", "design")
 
 
 @dataclass(frozen=True)
 class AuthoringEngine:
-    """An authoring engine that owns one ``project://`` authority."""
+    """An authoring engine that owns one ``project://`` authoring authority."""
 
     name: str
     authority: str
 
     def __post_init__(self) -> None:
-        if self.authority not in StoreAuthority.AUTHORITIES:
+        if self.authority not in AUTHORING_AUTHORITIES:
             raise ValueError(
-                f"unknown authority {self.authority!r} for engine {self.name!r}; "
-                f"must be one of {StoreAuthority.AUTHORITIES}"
+                f"{self.authority!r} is not an authoring authority for engine "
+                f"{self.name!r}; must be one of {AUTHORING_AUTHORITIES}"
             )
 
     def owns(self, uri: str) -> bool:

@@ -37,6 +37,14 @@ def test_authoring_engine_rejects_an_unknown_authority() -> None:
         AuthoringEngine(name="bogus", authority="not-an-authority")
 
 
+def test_authoring_engine_rejects_non_authoring_authorities() -> None:
+    # `plan` and `store` are valid StoreAuthority authorities, but they are not
+    # authored by an engine — PM/Build own them. The boundary must reject them.
+    for non_authoring in ("plan", "store"):
+        with pytest.raises(ValueError):
+            AuthoringEngine(name="x", authority=non_authoring)
+
+
 def test_discovery_exposes_the_po_interview_flow() -> None:
     import jig.init_workflow as canonical
     from jig.engines.discovery import interview

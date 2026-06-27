@@ -144,6 +144,19 @@ without them, but each must be resolved before its epic's MVP.
   Build a `RecordedAgent` impl of `RunAgent` that replays them. Verify a
   downstream consumer (the check runner) can't tell the difference.
 - **Time-box:** One session.
+- **Resolved (#203): yes.** An agent's streaming output is the sequence of
+  `JigEvent`s it emits to an `EventEmitter` during the run; its final state is
+  the `AgentRunResult`. A `Recording` captures both, serializably (persistable as
+  a fixture). `record(make_run_agent, ctx)` wraps any `RunAgent` — incl.
+  `RealRunAgent`, so `record(lambda em: RealRunAgent(emitter=em), ctx)` records a
+  real run — with a capturing emitter. `RecordedRunAgent` re-emits the recorded
+  events to an emitter then returns the recorded result, so a consumer subscribed
+  to the emitter observes an **identical stream and result** (proven by a
+  fidelity test: live vs replay observations are equal). Replay reproduces event
+  order/content, not wall-clock timing — what fixture-based evals want.
+  Implemented in `jig/runtime/recorded.py` (this also delivers Agent Runtime MVP
+  task 1, #217). Capturing a real live run is an operator action; the eval
+  corpus of recorded runs lands in #222.
 
 ## Epic dependency matrix
 

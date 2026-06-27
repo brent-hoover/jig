@@ -1,10 +1,11 @@
 ---
 title: SA as Architect — Phase 1 Implementation Plan
 type: plan
-status: draft
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-08
+updated: 2026-06-26
 design: ./design.md
 ---
 

@@ -45,17 +45,26 @@ def test_authoring_engine_rejects_non_authoring_authorities() -> None:
             AuthoringEngine(name="x", authority=non_authoring)
 
 
-def test_discovery_exposes_the_po_interview_flow() -> None:
+def test_owns_fails_loudly_on_a_malformed_uri() -> None:
+    # owns() is a routing predicate over valid project:// URIs; a malformed one
+    # is a programming error, not a "no".
+    from jig.uri.errors import ProjectUriError
+
+    with pytest.raises(ProjectUriError):
+        DISCOVERY_ENGINE.owns("not-a-project-uri")
+
+
+def test_discovery_exposes_the_full_po_interview_flow() -> None:
     import jig.init_workflow as canonical
     from jig.engines.discovery import interview
 
-    assert interview.run_po_conversation is canonical.run_po_conversation
-    assert interview.next_incomplete_level is canonical.next_incomplete_level
+    for name in interview.__all__:
+        assert getattr(interview, name) is getattr(canonical, name), name
 
 
-def test_architecture_exposes_the_sa_operator_loop() -> None:
+def test_architecture_exposes_the_full_sa_operator_loop() -> None:
     import jig.init_workflow as canonical
     from jig.engines.architecture import sa_loop
 
-    assert sa_loop.run_sa_conversation is canonical.run_sa_conversation
-    assert sa_loop.prompt_sa_confirm is canonical.prompt_sa_confirm
+    for name in sa_loop.__all__:
+        assert getattr(sa_loop, name) is getattr(canonical, name), name

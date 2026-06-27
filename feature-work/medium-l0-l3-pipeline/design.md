@@ -1,10 +1,11 @@
 ---
 title: Medium L0–L3 PO Pipeline — Design
 type: design
-status: active
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-10
+updated: 2026-06-26
 problem: ./problem.md
 ---
 

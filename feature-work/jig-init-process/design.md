@@ -1,10 +1,11 @@
 ---
 title: jig init process — Design
 type: design
-status: draft
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent
 created: 2026-04-24
-updated: 2026-04-24
+updated: 2026-06-26
 problem: ./problem.md
 ---
 

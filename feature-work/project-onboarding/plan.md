@@ -1,10 +1,11 @@
 ---
 title: Project Onboarding — Implementation Plan
 type: plan
-status: active
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-11
+updated: 2026-06-26
 design: ./design.md
 ---
 

@@ -10,13 +10,13 @@ checks:
 - ``test_edge_imports_only_itself`` — runtime ``sys.modules`` after importing the
   whole package (module-level + *transitive* imports).
 - ``test_edge_has_no_forbidden_import_statements`` — static AST scan of every
-  ``jig/edge/*.py`` import (absolute, ``from jig import X``, relative, lazy).
+  ``jig/edge/*.py``: ``import`` / ``from`` (absolute + relative), lazy
+  function-local imports, and constant-string dynamic imports via
+  ``importlib.import_module`` / ``__import__`` — including aliased helpers.
 
-MVP expands the allowlist deliberately, one reviewed edge-appropriate dependency
-at a time, as it routes CLI/TUI through the daemon API (see
-``architecture/edge-audit.md`` for the surface it must retire). Keeping the
-allowlist minimal now means the test can never bless a front-door module that is
-itself still impure.
+MVP expands the allowlist deliberately as it routes CLI/TUI through the daemon
+API (see ``architecture/edge-audit.md``). ``_scan_source`` is factored out so the
+scanner's coverage of each form is unit-tested directly.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def _is_allowed(module: str) -> bool:
 
 
 def _resolve_relative(level: int, module: str, package_parts: tuple[str, ...]) -> str:
-    """Resolve a relative import (``level`` leading dots + ``module`` suffix)
+    """Resolve a relative import (``level`` leading levels + ``module`` suffix)
     against ``package_parts`` to an absolute dotted module name."""
     kept = package_parts[: len(package_parts) - (level - 1)]
     base = ".".join(kept)
@@ -46,28 +46,7 @@ def _resolve_relative(level: int, module: str, package_parts: tuple[str, ...]) -
     return base
 
 
-def _dynamic_import_package(
-    node: ast.Call, package_parts: tuple[str, ...]
-) -> tuple[str, ...] | None:
-    """The ``package`` for a relative ``import_module`` call: the ``package=``
-    keyword or 2nd positional arg, resolving ``__package__`` to this module's
-    package. Returns ``None`` when it can't be resolved statically."""
-    candidates_for_pkg: list[ast.expr] = [
-        kw.value for kw in node.keywords if kw.arg == "package"
-    ]
-    if not candidates_for_pkg and len(node.args) >= 2:
-        candidates_for_pkg = [node.args[1]]
-    for value in candidates_for_pkg:
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            return tuple(value.value.split("."))
-        if isinstance(value, ast.Name) and value.id == "__package__":
-            return package_parts
-        return None
-    return None
-
-
 def _const_int_arg(node: ast.Call, *, kw: str, pos: int) -> int | None:
-    """A constant int argument by keyword name or positional index, else None."""
     for keyword in node.keywords:
         if keyword.arg == kw:
             value = keyword.value
@@ -82,9 +61,8 @@ def _const_int_arg(node: ast.Call, *, kw: str, pos: int) -> int | None:
 
 
 def _import_fromlist(node: ast.Call) -> list[str]:
-    """Constant ``fromlist`` entries of ``__import__(name, ..., fromlist, ...)``
-    — the ``fromlist`` keyword or the 4th positional arg. Lets
-    ``__import__("jig", fromlist=["orchestrator"])`` expand to ``jig.orchestrator``."""
+    """Constant ``fromlist`` entries of ``__import__`` (list/tuple/set), so
+    ``__import__("jig", fromlist=["orchestrator"])`` expands to ``jig.orchestrator``."""
     value: ast.expr | None = None
     for kw in node.keywords:
         if kw.arg == "fromlist":
@@ -100,14 +78,111 @@ def _import_fromlist(node: ast.Call) -> list[str]:
     return []
 
 
-def test_import_fromlist_handles_list_tuple_and_set() -> None:
-    # __import__ fromlists are commonly lists, but tuples/sets are also valid;
-    # all must expand so e.g. __import__("jig", fromlist={"orchestrator"}) is seen.
-    for literal in ('["orchestrator"]', '("orchestrator",)', '{"orchestrator"}'):
-        stmt = ast.parse(f'__import__("jig", fromlist={literal})').body[0]
-        assert isinstance(stmt, ast.Expr)
-        assert isinstance(stmt.value, ast.Call)
-        assert _import_fromlist(stmt.value) == ["orchestrator"]
+def _dynamic_import_package(
+    node: ast.Call, package_parts: tuple[str, ...]
+) -> tuple[str, ...] | None:
+    """The ``package`` for a relative ``import_module`` call (``package=`` keyword
+    or 2nd positional; ``__package__`` => this module's). ``None`` if unresolvable."""
+    pkg_args: list[ast.expr] = [kw.value for kw in node.keywords if kw.arg == "package"]
+    if not pkg_args and len(node.args) >= 2:
+        pkg_args = [node.args[1]]
+    for value in pkg_args:
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            return tuple(value.value.split("."))
+        if isinstance(value, ast.Name) and value.id == "__package__":
+            return package_parts
+        return None
+    return None
+
+
+def _dynamic_import_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """Names that refer to ``importlib.import_module`` / ``__import__`` in this
+    module — via ``from importlib import import_module as X``, ``from builtins
+    import __import__ as Y``, or simple ``f = __import__`` assignments."""
+    import_module = {"import_module"}
+    dunder = {"__import__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "importlib":
+            for alias in node.names:
+                if alias.name == "import_module":
+                    import_module.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module == "builtins":
+            for alias in node.names:
+                if alias.name == "__import__":
+                    dunder.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            rhs = node.value
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if isinstance(rhs, ast.Name) and rhs.id in import_module:
+                import_module.update(targets)
+            elif isinstance(rhs, ast.Name) and rhs.id in dunder:
+                dunder.update(targets)
+            elif isinstance(rhs, ast.Attribute) and rhs.attr == "import_module":
+                import_module.update(targets)
+    return import_module, dunder
+
+
+def _scan_source(source: str, package_parts: tuple[str, ...]) -> list[tuple[int, str]]:
+    """Return ``(lineno, forbidden-jig-module)`` for every import in ``source``
+    that targets a non-allowlisted ``jig.*`` module, across every import form."""
+    tree = ast.parse(source)
+    import_module_aliases, dunder_aliases = _dynamic_import_aliases(tree)
+    offenders: list[tuple[int, str]] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            candidates = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                base = node.module or ""
+            else:
+                base = _resolve_relative(node.level, node.module or "", package_parts)
+            candidates = [base] if base else []
+            candidates += [
+                f"{base}.{alias.name}" if base else alias.name for alias in node.names
+            ]
+        elif isinstance(node, ast.Call):
+            func = node.func
+            is_import_module = (
+                isinstance(func, ast.Attribute) and func.attr == "import_module"
+            ) or (isinstance(func, ast.Name) and func.id in import_module_aliases)
+            is_dunder = isinstance(func, ast.Name) and func.id in dunder_aliases
+            if not (
+                (is_import_module or is_dunder)
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                continue
+            name = node.args[0].value
+            if is_dunder:
+                level = _const_int_arg(node, kw="level", pos=4) or 0
+                base = (
+                    _resolve_relative(level, name, package_parts) if level > 0 else name
+                )
+                candidates = [base] if base else []
+                if base:
+                    candidates += [f"{base}.{e}" for e in _import_fromlist(node)]
+            elif name.startswith("."):
+                level = len(name) - len(name.lstrip("."))
+                pkg = _dynamic_import_package(node, package_parts)
+                if pkg is None:
+                    offenders.append(
+                        (node.lineno, f"unresolved relative dynamic import {name!r}")
+                    )
+                    continue
+                base = _resolve_relative(level, name[level:], pkg)
+                candidates = [base] if base else []
+            else:
+                candidates = [name]
+        else:
+            continue
+
+        for module in candidates:
+            if module.startswith("jig.") and not _is_allowed(module):
+                offenders.append((node.lineno, module))
+
+    return offenders
 
 
 def test_edge_imports_only_itself() -> None:
@@ -131,85 +206,49 @@ def test_edge_imports_only_itself() -> None:
 
 
 def test_edge_has_no_forbidden_import_statements() -> None:
-    """Static check — every import statement: absolute, ``from jig import X``,
-    relative (``from ..orchestrator import X``), and lazy/function-local."""
+    """Static check over the real package — every import form, including lazy."""
     pkg_dir = pathlib.Path(jig.edge.__file__).parent
-    jig_root = pkg_dir.parent  # the jig/ directory
+    jig_root = pkg_dir.parent
     offenders: list[str] = []
 
     for py in sorted(pkg_dir.rglob("*.py")):
-        # The package containing this module (drop the module name / __init__).
         module_parts = ("jig", *py.relative_to(jig_root).with_suffix("").parts)
         package_parts = module_parts[:-1]
-        tree = ast.parse(py.read_text(), filename=str(py))
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                candidates = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level == 0:
-                    base = node.module or ""
-                else:
-                    # Resolve relative imports against this module's package.
-                    base = _resolve_relative(
-                        node.level, node.module or "", package_parts
-                    )
-                # Expand `from base import a, b` -> base.a, base.b so that
-                # `from jig import orchestrator` is caught, not just `base`.
-                candidates = [base] if base else []
-                candidates += [
-                    f"{base}.{alias.name}" if base else alias.name
-                    for alias in node.names
-                ]
-            elif isinstance(node, ast.Call):
-                # Constant-string dynamic imports: importlib.import_module(...),
-                # __import__(...). (Non-constant module names aren't statically
-                # resolvable; the runtime check is the backstop for those.)
-                func = node.func
-                is_import_module = (
-                    isinstance(func, ast.Attribute) and func.attr == "import_module"
-                ) or (isinstance(func, ast.Name) and func.id == "import_module")
-                is_dunder = isinstance(func, ast.Name) and func.id == "__import__"
-                if not (
-                    (is_import_module or is_dunder)
-                    and node.args
-                    and isinstance(node.args[0], ast.Constant)
-                    and isinstance(node.args[0].value, str)
-                ):
-                    continue
-                name = node.args[0].value
-
-                if is_dunder:
-                    # __import__(name, globals, locals, fromlist, level).
-                    level = _const_int_arg(node, kw="level", pos=4) or 0
-                    base = (
-                        _resolve_relative(level, name, package_parts)
-                        if level > 0
-                        else name
-                    )
-                    candidates = [base] if base else []
-                    if base:
-                        candidates += [f"{base}.{e}" for e in _import_fromlist(node)]
-                elif name.startswith("."):
-                    # Relative import_module — resolve against the `package` arg
-                    # (2nd positional or keyword; `__package__` => this module's).
-                    level = len(name) - len(name.lstrip("."))
-                    pkg = _dynamic_import_package(node, package_parts)
-                    if pkg is None:
-                        offenders.append(
-                            f"{py.name}:{node.lineno} -> unresolved relative "
-                            f"dynamic import {name!r}"
-                        )
-                        continue
-                    base = _resolve_relative(level, name[level:], pkg)
-                    candidates = [base] if base else []
-                else:
-                    candidates = [name]
-            else:
-                continue
-
-            for module in candidates:
-                if module.startswith("jig.") and not _is_allowed(module):
-                    offenders.append(f"{py.name}:{node.lineno} -> {module}")
+        for lineno, module in _scan_source(py.read_text(), package_parts):
+            offenders.append(f"{py.name}:{lineno} -> {module}")
 
     assert offenders == [], f"forbidden imports in jig/edge/: {offenders}"
+
+
+def test_scanner_catches_every_forbidden_import_form() -> None:
+    """The scanner detects each evasion form, so the real-package test above can't
+    pass merely because a form is unhandled."""
+    pkg = ("jig", "edge")
+    cases = [
+        "import jig.orchestrator",
+        "from jig.store import tickets",
+        "from jig import orchestrator",  # bare-jig alias expansion
+        "from ..orchestrator import Orchestrator",  # relative
+        "import importlib\nimportlib.import_module('jig.orchestrator')",  # dynamic
+        "import importlib\nimportlib.import_module('..orchestrator', __package__)",  # rel dyn
+        "__import__('jig', fromlist=['orchestrator'])",  # fromlist (list)
+        "__import__('jig', fromlist={'orchestrator'})",  # fromlist (set)
+        "__import__('orchestrator', globals(), locals(), [], 2)",  # __import__ level
+        "from importlib import import_module as load\nload('jig.orchestrator')",  # alias
+        "im = __import__\nim('jig', fromlist=['store'])",  # assigned alias
+    ]
+    for source in cases:
+        found = {module for _, module in _scan_source(source, pkg)}
+        assert any(m.startswith(("jig.orchestrator", "jig.store")) for m in found), (
+            f"scanner missed a forbidden import in:\n{source}\n-> found {found}"
+        )
+
+
+def test_scanner_allows_edge_internal_imports() -> None:
+    pkg = ("jig", "edge")
+    for source in (
+        "from jig.edge.api import Snapshot",
+        "from .api import Snapshot",
+        "import importlib\nimportlib.import_module('.api', __package__)",
+    ):
+        assert _scan_source(source, pkg) == [], source

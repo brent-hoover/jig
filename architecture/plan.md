@@ -139,9 +139,10 @@ without them, but each must be resolved before its epic's MVP.
 Most epic **Bones** are deliberately decoupled: each stands up a boundary/seam
 with logic shimmed, so they can proceed independently and in parallel (the
 global gate is that all bones land before any MVP — see the bones acceptance
-test). **Epic 8 Bones is the exception**: its harness composes Epics 1, 3, 4, 5
-(and Epic 2 while `StoreAuthority` is in the gate), so it must land after those
-bones exist. **MVP** work is where the remaining cross-epic contracts bind. The
+test). **Epic 8 Bones is the exception**: its harness composes Epics 1, 3, 4, 5,
+so it must land after those bones exist (it does not touch Epic 2 / `StoreAuthority`
+— see the bones-gate scope note). **MVP** work is where the remaining cross-epic
+contracts bind. The
 matrix below makes the ordering explicit so contributors don't build against an
 incomplete contract or duplicate ownership.
 
@@ -154,7 +155,7 @@ incomplete contract or duplicate ownership.
 | 5 — Enforcement | Epic 1 (`Finding`) | Epic 1 | 4 (Build invokes `Review`), 8 (headless Enforcement) |
 | 6 — Authoring | — | Epic 1, Epic 2 (authorities) | — (terminal for this migration) |
 | 7 — Reconciliation | Epic 1 | Spike 2, Epic 4 (surfaces drift via Build) | — |
-| 8 — Evaluation | Epics 1, 3, 4, 5 Bones (+ 2 while `StoreAuthority` is in the gate) | Epics 3, 4, 5, 1 | — (terminal; the bones acceptance gate) |
+| 8 — Evaluation | Epics 1, 3, 4, 5 Bones | Epics 3, 4, 5, 1 | — (terminal; the bones acceptance gate) |
 | 9 — EDGE | — | all engines (daemon API over them) | — (terminal) |
 
 Reading: a row's **MVP depends on** entries must reach at least MVP before that
@@ -228,7 +229,11 @@ engines depend on without knowing the JSONL backing.
 1. Create `jig/substrate/` package.
 2. Define `StoreAuthority` — a unified read/write interface for
    `project://spec/`, `project://arch/`, `project://design/`, `project://plan/`,
-   `project://store/`. Backed by existing JSONL stores (no new persistence).
+   `project://store/`. Bones **defines, parses, and routes the facade only**:
+   `read` delegates to the existing resolver for wired authorities and raises
+   `UnimplementedAuthorityError` for the rest; **all** `write` calls raise until
+   MVP (the URI is still parsed first, so malformed URIs fail fast). No new
+   persistence — MVP routes the existing JSONL stores through it.
 3. Define `TypedEvent` schema (pydantic) for bus events. Map existing
    magic-string topics (`"orchestrator"`, `"tickets.{id}"`) to typed equivalents.
    The bus-scoped lifecycle events are `TicketCreated` and `TicketUpdated`
@@ -250,8 +255,11 @@ engines depend on without knowing the JSONL backing.
 1. Remove the string-topic compatibility layer.
 2. Delete `jig/events.py` if fully superseded.
 
-**Verify:** `pytest tests/` passes. New `tests/substrate/` covers authority
-routing and typed events. Bus tests (`tests/test_bus.py`,
+**Verify:** `pytest tests/` passes. New `tests/substrate/` is the **Substrate
+composition test** — the dedicated home for validating the seam the bones
+acceptance gate deliberately does *not* cover: `read` routes to the right
+authority and raises `UnimplementedAuthorityError` for unwired ones, `write`
+raises until MVP, and typed events round-trip. Bus tests (`tests/test_bus.py`,
 `tests/test_bus_recent.py`) pass unchanged through the compat layer, then
 updated.
 
@@ -527,13 +535,16 @@ epic's bones acceptance test is the gate for the whole bones phase.
    EvalResult`.
 3. Wire the harness to use `FixtureRunAgent` (Epic 3) + headless Build
    (Epic 4) + headless Enforcement (Epic 5).
+4. **Run the code-pipeline eval headless on a fixture end-to-end — this *is* the
+   bones acceptance test, and it lands in Bones, not MVP** (so the "bones before
+   MVP" gate is satisfiable by bones alone).
 
-**MVP:**
+**MVP:** (expand the harness beyond the single happy-path fixture)
 1. Build a fixture corpus of labeled diffs → expected findings (for reviewer
    precision/recall).
 2. Build a fix-loop convergence metric.
-3. Run the code-pipeline eval headless on a fixture (the bones acceptance
-   test).
+3. Wire the real dispatch feedback loop (dispatch emits the next event from the
+   agent run, rather than the bones script driving the event sequence directly).
 
 **Final:**
 1. Full eval corpus.
@@ -576,23 +587,29 @@ is imported by `jig/edge/` except via the API contract.
 
 ## Bones acceptance test (the gate for the bones phase)
 
-All epic bones (Epic 1–9 bones) must land before any epic's MVP starts. The
-acceptance test for the bones phase is:
+All epic bones must land before any epic's MVP starts. This acceptance test
+validates the **code-pipeline composition (Epics 1, 3, 4, 5)** specifically — the
+headless path Jig is hardest on:
 
 > The code-pipeline and review loop run **headless on a fixture**, without the
 > daemon/TUI, using `FixtureRunAgent` (Epic 3) + pure `decide()` (Epic 4) +
 > `async Review` contract (Epic 5) + Model entities (Epic 1). No `Orchestrator`
 > god-object, no `mcp_server.py`, no daemon, no TUI in the path.
+> (See `jig/engines/evaluation/harness.py` / `tests/engines/evaluation/test_acceptance.py`.)
 
-**On `StoreAuthority` (Epic 2) and the gate.** For the bones gate to genuinely
-validate the Substrate seam, it is not enough for `StoreAuthority` to merely
-exist — the headless path must *route through it*. The acceptance harness
-therefore asserts that the pipeline's artifact reads/writes go through
-`StoreAuthority` and that the pipeline imports **no** `jig/store/*` module
-directly. If a contributor prefers to keep the eval harness minimal, the
-alternative (per the review) is to drop `StoreAuthority` from this gate and
-verify Substrate composition in a dedicated Epic 2 composition test instead — but
-do one or the other, never list it in the gate while leaving it unexercised.
+**Scope of this gate — what it does and does not cover:**
+
+- **`StoreAuthority` (Epic 2) is *not* on this path and is not gated here.** The
+  shipped harness composes Model + Runtime + Build + Enforcement; it does not read
+  or write artifacts through `StoreAuthority`. Listing Substrate in the gate while
+  the harness never exercises it would be a false validation, so it is removed.
+  Substrate composition is instead verified by a **dedicated Epic 2 composition
+  test** (see Epic 2 **Verify**) — `read` routes through the authority and raises
+  `UnimplementedAuthorityError` for unwired authorities; `write` raises until MVP.
+- **`EDGE` (Epic 9) is not on this path either.** Its bones (the daemon API
+  contract in `jig/edge/api.py` + the CLI/TUI coupling audit) are verified by
+  Epic 9's own **Verify**, not by the headless run. "Bones before MVP" still holds
+  globally; this particular *test* gates the Epics 1–8 pipeline, not the edge.
 
 This is the evaluability driver from `jig-instance.md` → Build suite signal #4.
 If the bones compose, the architecture is validated on Jig's own hardest case
@@ -742,3 +759,13 @@ the migration hasn't broken anything.
   the shim policy. Pinned the coordinator perf criterion (N=8, <50ms p95) and the
   partial-dispatch ADR location (`docs/reference/`). Added "do not implement"
   banners to the eight superseded design/plan bodies.
+- 2026-06-26: Addressed third-round design-review findings (job 711). Removed
+  `StoreAuthority` from the bones acceptance gate entirely — the shipped harness
+  (`jig/engines/evaluation/harness.py`) composes Model+Runtime+Build+Enforcement
+  and never routes through Substrate, so the prior "harness asserts StoreAuthority
+  routing" text was aspirational; Substrate is now verified by a dedicated Epic 2
+  composition test instead. Scoped the gate explicitly to the Epics 1–8
+  code-pipeline (Epic 9 EDGE bones verified by its own Verify). Moved the headless
+  fixture run from Epic 8 MVP into Epic 8 Bones (so "bones before MVP" is
+  satisfiable by bones). Reworded Epic 2 Bones to "facade only — reads/writes
+  raise until MVP". Removed the now-moot "+2" gate dependency from the matrix.

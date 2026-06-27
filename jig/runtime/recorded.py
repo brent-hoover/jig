@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from jig.events import EventEmitter, JigEvent
 from jig.runtime.contract import AgentRunResult
@@ -73,10 +74,10 @@ class Recording:
             events=list(self.result_events),
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """A JSON-serializable form so a recording can be saved as a fixture.
-        (Assumes ``result_events`` is JSON-serializable; real runs leave it
-        empty, streaming through the emitter instead.)"""
+        (Real runs leave ``result_events`` empty, streaming through the emitter
+        instead; TODO validate JSON-serializability before that's populated.)"""
         return {
             "status": self.status,
             "final_text": self.final_text,
@@ -89,10 +90,15 @@ class Recording:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> Recording:
+    def from_dict(cls, data: dict[str, Any]) -> Recording:
+        try:
+            status = data["status"]
+            final_text = data["final_text"]
+        except KeyError as exc:
+            raise ValueError(f"malformed Recording fixture: missing {exc}") from exc
         return cls(
-            status=data["status"],
-            final_text=data["final_text"],
+            status=status,
+            final_text=final_text,
             stream=tuple(
                 JigEvent(type=e["type"], data=e["data"]) for e in data.get("stream", [])
             ),
@@ -153,5 +159,6 @@ class RecordedRunAgent:
 __all__ = [
     "Recording",
     "RecordedRunAgent",
+    "RunAgentFactory",
     "record",
 ]

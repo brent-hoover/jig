@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from jig.events import EventEmitter, JigEvent
 from jig.runtime import (
     AgentRunResult,
@@ -89,27 +91,21 @@ async def test_replay_returns_the_recorded_result() -> None:
     assert result.final_text == "need info"
 
 
-async def test_a_consumer_cannot_tell_live_from_replay() -> None:
-    # Live: a capturing emitter both records the run AND forwards to a subscribed
-    # consumer.
-    live_emitter = EventEmitter()
-    # record() builds its own capturing emitter; to observe the live stream too,
-    # run the agent against an emitter the consumer is subscribed to.
-    live_queue = live_emitter.subscribe()
-    agent = _FakeEmittingAgent(live_emitter, _EVENTS, _RESULT)
-    live_result = await agent(ctx=object())
-    observed_live = _drain(live_queue)
+async def test_record_then_replay_reproduces_the_run() -> None:
+    # The full chain an operator uses: record(factory, ctx) -> RecordedRunAgent.
+    # The fake agent deterministically emits _EVENTS and returns _RESULT, so a
+    # consumer of the replay observes exactly what the live run produced.
+    recording = await record(
+        lambda em: _FakeEmittingAgent(em, _EVENTS, _RESULT), ctx=object()
+    )
 
-    recording = Recording.from_result(live_result, _EVENTS)
-
-    # Replay: a fresh emitter + consumer; the recorded agent re-emits.
     replay_emitter = EventEmitter()
     replay_queue = replay_emitter.subscribe()
     replay_result = await RecordedRunAgent(recording, replay_emitter)(ctx=object())
-    observed_replay = _drain(replay_queue)
+    observed = _drain(replay_queue)
 
-    assert observed_replay == observed_live  # identical stream
-    assert replay_result == live_result  # identical result (incl. .events field)
+    assert observed == _EVENTS  # the live stream, reproduced
+    assert replay_result == _RESULT  # the live result, reproduced exactly
 
 
 async def test_replay_preserves_a_result_events_field_unchanged() -> None:
@@ -125,9 +121,21 @@ async def test_replay_preserves_a_result_events_field_unchanged() -> None:
 
 
 def test_recording_round_trips_through_a_dict_fixture() -> None:
-    recording = Recording.from_result(_RESULT, _EVENTS)
+    result = AgentRunResult(
+        status="failed",
+        final_text="gave up",
+        total_cost_usd=0.5,
+        warnings=["audit write failed"],  # exercise warnings serialization
+    )
+    recording = Recording.from_result(result, _EVENTS)
 
     again = Recording.from_dict(recording.to_dict())
 
     assert again == recording
     assert list(again.stream) == _EVENTS
+    assert again.warnings == ("audit write failed",)
+
+
+def test_from_dict_fails_loudly_on_a_malformed_fixture() -> None:
+    with pytest.raises(ValueError, match="malformed Recording fixture"):
+        Recording.from_dict({"final_text": "x"})  # missing "status"

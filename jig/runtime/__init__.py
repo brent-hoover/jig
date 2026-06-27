@@ -21,7 +21,12 @@ from jig.runtime.contract import (
     RunAgent,
 )
 from jig.runtime.fixture import FixtureRunAgent
-from jig.runtime.recorded import Recording, RecordedRunAgent, record
+from jig.runtime.recorded import (
+    Recording,
+    RecordedRunAgent,
+    RunAgentFactory,
+    record,
+)
 from jig.runtime.spawn_context import AgentSpawnContext, SpawnReason
 
 __all__ = [
@@ -32,6 +37,7 @@ __all__ = [
     "Recording",
     "RecordedRunAgent",
     "RunAgent",
+    "RunAgentFactory",
     "SpawnReason",
     "record",
 ]

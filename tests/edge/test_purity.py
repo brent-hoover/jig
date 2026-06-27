@@ -88,22 +88,37 @@ def test_edge_imports_only_edge_appropriate_modules() -> None:
 
 
 def test_edge_has_no_forbidden_import_statements() -> None:
-    """Static check — every import statement, including ``from jig import X`` and
-    lazy/function-local imports."""
+    """Static check — every import statement: absolute, ``from jig import X``,
+    relative (``from ..orchestrator import X``), and lazy/function-local."""
     pkg_dir = pathlib.Path(jig.edge.__file__).parent
+    jig_root = pkg_dir.parent  # the jig/ directory
     offenders: list[str] = []
 
     for py in sorted(pkg_dir.rglob("*.py")):
+        # The package containing this module (drop the module name / __init__).
+        module_parts = ("jig", *py.relative_to(jig_root).with_suffix("").parts)
+        package_parts = module_parts[:-1]
         tree = ast.parse(py.read_text(), filename=str(py))
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 candidates = [alias.name for alias in node.names]
-            # level == 0 -> absolute import; relative imports stay inside jig.edge.
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                # Expand `from pkg import a, b` -> pkg.a, pkg.b so that
-                # `from jig import orchestrator` is caught, not just `pkg`.
-                candidates = [node.module]
-                candidates += [f"{node.module}.{alias.name}" for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level == 0:
+                    base = node.module or ""
+                else:
+                    # Resolve relative imports against this module's package.
+                    kept = package_parts[: len(package_parts) - (node.level - 1)]
+                    base = ".".join(kept)
+                    if node.module:
+                        base = f"{base}.{node.module}" if base else node.module
+                # Expand `from base import a, b` -> base.a, base.b so that
+                # `from jig import orchestrator` is caught, not just `base`.
+                candidates = [base] if base else []
+                candidates += [
+                    f"{base}.{alias.name}" if base else alias.name
+                    for alias in node.names
+                ]
             else:
                 continue
 

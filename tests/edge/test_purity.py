@@ -46,18 +46,29 @@ def _resolve_relative(level: int, module: str, package_parts: tuple[str, ...]) -
     return base
 
 
-def _const_int_arg(node: ast.Call, *, kw: str, pos: int) -> int | None:
+def _const_arg(node: ast.Call, *, kw: str, pos: int, typ: type) -> object | None:
+    """A constant arg of type ``typ`` by keyword name or positional index."""
     for keyword in node.keywords:
         if keyword.arg == kw:
             value = keyword.value
-            if isinstance(value, ast.Constant) and isinstance(value.value, int):
+            if isinstance(value, ast.Constant) and isinstance(value.value, typ):
                 return value.value
             return None
     if len(node.args) > pos:
         value = node.args[pos]
-        if isinstance(value, ast.Constant) and isinstance(value.value, int):
+        if isinstance(value, ast.Constant) and isinstance(value.value, typ):
             return value.value
     return None
+
+
+def _const_int_arg(node: ast.Call, *, kw: str, pos: int) -> int | None:
+    value = _const_arg(node, kw=kw, pos=pos, typ=int)
+    return value if isinstance(value, int) else None
+
+
+def _const_str_arg(node: ast.Call, *, kw: str, pos: int) -> str | None:
+    value = _const_arg(node, kw=kw, pos=pos, typ=str)
+    return value if isinstance(value, str) else None
 
 
 def _import_fromlist(node: ast.Call) -> list[str]:
@@ -147,14 +158,10 @@ def _scan_source(source: str, package_parts: tuple[str, ...]) -> list[tuple[int,
                 isinstance(func, ast.Attribute) and func.attr == "import_module"
             ) or (isinstance(func, ast.Name) and func.id in import_module_aliases)
             is_dunder = isinstance(func, ast.Name) and func.id in dunder_aliases
-            if not (
-                (is_import_module or is_dunder)
-                and node.args
-                and isinstance(node.args[0], ast.Constant)
-                and isinstance(node.args[0].value, str)
-            ):
+            # ``name`` may be positional (arg 0) or keyword (import_module(name=...)).
+            name = _const_str_arg(node, kw="name", pos=0)
+            if not ((is_import_module or is_dunder) and name is not None):
                 continue
-            name = node.args[0].value
             if is_dunder:
                 level = _const_int_arg(node, kw="level", pos=4) or 0
                 base = (
@@ -236,6 +243,7 @@ def test_scanner_catches_every_forbidden_import_form() -> None:
         "__import__('orchestrator', globals(), locals(), [], 2)",  # __import__ level
         "from importlib import import_module as load\nload('jig.orchestrator')",  # alias
         "im = __import__\nim('jig', fromlist=['store'])",  # assigned alias
+        "import importlib\nimportlib.import_module(name='jig.orchestrator')",  # kw name
     ]
     for source in cases:
         found = {module for _, module in _scan_source(source, pkg)}

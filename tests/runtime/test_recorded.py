@@ -67,7 +67,7 @@ async def test_record_captures_the_event_stream_and_result() -> None:
         lambda em: _FakeEmittingAgent(em, _EVENTS, _RESULT), ctx=object()
     )
 
-    assert list(recording.events) == _EVENTS
+    assert list(recording.stream) == _EVENTS
     assert recording.status == "success"
     assert recording.final_text == "done"
 
@@ -78,16 +78,15 @@ def test_recorded_run_agent_satisfies_the_protocol() -> None:
     )
 
 
-async def test_replay_returns_the_recorded_result_with_events() -> None:
+async def test_replay_returns_the_recorded_result() -> None:
     recording = Recording(
-        status="blocked", final_text="need info", events=tuple(_EVENTS)
+        status="blocked", final_text="need info", stream=tuple(_EVENTS)
     )
 
     result = await RecordedRunAgent(recording)(ctx=object())
 
     assert result.status == "blocked"
     assert result.final_text == "need info"
-    assert result.events == list(_EVENTS)
 
 
 async def test_a_consumer_cannot_tell_live_from_replay() -> None:
@@ -110,8 +109,19 @@ async def test_a_consumer_cannot_tell_live_from_replay() -> None:
     observed_replay = _drain(replay_queue)
 
     assert observed_replay == observed_live  # identical stream
-    assert replay_result.status == live_result.status
-    assert replay_result.final_text == live_result.final_text
+    assert replay_result == live_result  # identical result (incl. .events field)
+
+
+async def test_replay_preserves_a_result_events_field_unchanged() -> None:
+    # If a run's AgentRunResult carried its own .events, replay returns them
+    # unchanged — the re-emitted stream is captured separately, not folded in.
+    result = AgentRunResult(status="success", final_text="ok", events=["sentinel"])
+    recording = Recording.from_result(result, _EVENTS)
+
+    replayed = await RecordedRunAgent(recording)(ctx=object())
+
+    assert replayed.events == ["sentinel"]  # not the _EVENTS stream
+    assert tuple(recording.stream) == tuple(_EVENTS)
 
 
 def test_recording_round_trips_through_a_dict_fixture() -> None:
@@ -120,4 +130,4 @@ def test_recording_round_trips_through_a_dict_fixture() -> None:
     again = Recording.from_dict(recording.to_dict())
 
     assert again == recording
-    assert list(again.events) == _EVENTS
+    assert list(again.stream) == _EVENTS

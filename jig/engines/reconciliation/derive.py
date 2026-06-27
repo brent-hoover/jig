@@ -34,14 +34,15 @@ def derive_actual_graph(code_path: Path) -> DependencyGraph:
     package = code_path.name
     parent = str(code_path.parent)
 
-    added = parent not in sys.path
-    if added:
-        sys.path.insert(0, parent)
+    # Make the given path's parent the FIRST finder entry so the package at
+    # ``code_path`` wins over any same-named package already on sys.path, then
+    # restore sys.path exactly.
+    original = list(sys.path)
+    sys.path.insert(0, parent)
     try:
         graph = grimp.build_graph(package)
     finally:
-        if added:
-            sys.path.remove(parent)
+        sys.path[:] = original
 
     internal = set(graph.modules)
     edges = frozenset(

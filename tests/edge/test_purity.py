@@ -66,6 +66,21 @@ def _dynamic_import_package(
     return None
 
 
+def _const_int_arg(node: ast.Call, *, kw: str, pos: int) -> int | None:
+    """A constant int argument by keyword name or positional index, else None."""
+    for keyword in node.keywords:
+        if keyword.arg == kw:
+            value = keyword.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, int):
+                return value.value
+            return None
+    if len(node.args) > pos:
+        value = node.args[pos]
+        if isinstance(value, ast.Constant) and isinstance(value.value, int):
+            return value.value
+    return None
+
+
 def _import_fromlist(node: ast.Call) -> list[str]:
     """Constant ``fromlist`` entries of ``__import__(name, ..., fromlist, ...)``
     — the ``fromlist`` keyword or the 4th positional arg. Lets
@@ -137,30 +152,36 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                     for alias in node.names
                 ]
             elif isinstance(node, ast.Call):
-                # Constant-string dynamic imports: importlib.import_module("jig.x"),
-                # __import__("jig.x"), or relative import_module("..x", __package__).
-                # (Non-constant module names aren't statically resolvable; the
-                # runtime check is the backstop for those.)
+                # Constant-string dynamic imports: importlib.import_module(...),
+                # __import__(...). (Non-constant module names aren't statically
+                # resolvable; the runtime check is the backstop for those.)
                 func = node.func
-                is_dynamic_import = (
-                    isinstance(func, ast.Name)
-                    and func.id in ("__import__", "import_module")
-                ) or (isinstance(func, ast.Attribute) and func.attr == "import_module")
+                is_import_module = (
+                    isinstance(func, ast.Attribute) and func.attr == "import_module"
+                ) or (isinstance(func, ast.Name) and func.id == "import_module")
+                is_dunder = isinstance(func, ast.Name) and func.id == "__import__"
                 if not (
-                    is_dynamic_import
+                    (is_import_module or is_dunder)
                     and node.args
                     and isinstance(node.args[0], ast.Constant)
                     and isinstance(node.args[0].value, str)
                 ):
                     continue
                 name = node.args[0].value
-                if not name.startswith("."):
-                    candidates = [name]
-                    # __import__("jig", fromlist=["orchestrator"]) -> jig.orchestrator
-                    if isinstance(func, ast.Name) and func.id == "__import__":
-                        candidates += [f"{name}.{e}" for e in _import_fromlist(node)]
-                else:
-                    # Relative dynamic import — resolve against the `package` arg
+
+                if is_dunder:
+                    # __import__(name, globals, locals, fromlist, level).
+                    level = _const_int_arg(node, kw="level", pos=4) or 0
+                    base = (
+                        _resolve_relative(level, name, package_parts)
+                        if level > 0
+                        else name
+                    )
+                    candidates = [base] if base else []
+                    if base:
+                        candidates += [f"{base}.{e}" for e in _import_fromlist(node)]
+                elif name.startswith("."):
+                    # Relative import_module — resolve against the `package` arg
                     # (2nd positional or keyword; `__package__` => this module's).
                     level = len(name) - len(name.lstrip("."))
                     pkg = _dynamic_import_package(node, package_parts)
@@ -170,8 +191,10 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                             f"dynamic import {name!r}"
                         )
                         continue
-                    resolved = _resolve_relative(level, name[level:], pkg)
-                    candidates = [resolved] if resolved else []
+                    base = _resolve_relative(level, name[level:], pkg)
+                    candidates = [base] if base else []
+                else:
+                    candidates = [name]
             else:
                 continue
 

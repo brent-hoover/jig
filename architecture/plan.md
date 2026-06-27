@@ -4,7 +4,7 @@ type: plan
 status: draft
 owner: brent-hoover
 created: 2026-06-25
-updated: 2026-06-26
+updated: 2026-06-27
 design: ./jig-instance.md
 ---
 
@@ -685,7 +685,7 @@ before production use.
 | `FixtureRunAgent` canned results | Epic 3 | Epic 3 MVP (`RecordedRunAgent`), Final | No — fixtures are eval-only; production uses `RealRunAgent` |
 | `Review` contract returns from moved code, not headless loop | Epic 5 | Epic 5 MVP 3 | No — Build keeps calling existing reviewers until the headless loop lands |
 | Merge-conflict transition not modeled | Epic 4 | Epic 4 Final 1 | No — falls back to existing orchestrator facade path until migrated |
-| `derive_actual_graph()` returns empty graph | Epic 7 | Epic 7 MVP 1 (Spike 2) | No — Reconciliation produces no drift work until real; never wired to Build before then |
+| ~~`derive_actual_graph()` returns empty graph~~ — **resolved (Spike 2, #202): real grimp-backed implementation landed** | Epic 7 | ~~Epic 7 MVP 1~~ done | n/a — drift surfacing still wires to Build in #221 |
 
 ### Concrete requirements for the **Yes** blockers
 

@@ -9,7 +9,6 @@ test over Jig's own code (the dogfood target).
 from __future__ import annotations
 
 import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -22,7 +21,7 @@ def _write_package(root: Path, name: str, modules: dict[str, str]) -> Path:
     pkg.mkdir()
     (pkg / "__init__.py").write_text("")
     for mod, body in modules.items():
-        (pkg / f"{mod}.py").write_text(textwrap.dedent(body))
+        (pkg / f"{mod}.py").write_text(body)
     return pkg
 
 
@@ -103,5 +102,7 @@ def test_derive_on_jig_itself_is_the_dogfood_target() -> None:
     graph = derive_actual_graph(jig_pkg)
 
     assert "jig.orchestrator" in graph.nodes
-    assert ("jig.orchestrator", "jig.agent") in graph.edges
+    # jig.config is imported broadly and stable across the migration (unlike
+    # jig.agent, which Epic 3 MVP routes behind the runtime seam).
+    assert ("jig.orchestrator", "jig.config") in graph.edges
     assert len(graph.nodes) > 100  # the real package is large

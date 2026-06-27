@@ -4,23 +4,25 @@ These are the payload of the Living-Invariant model (see ``architecture/model.md
 §"The invariants"). Each returns the violations it finds — an empty list means
 the invariant holds.
 
-Bones phase: the bodies are stubs returning no findings. The MVP fills in real
-graph queries over the Model's trace edges (coverage, containment, vocabulary
-are deterministic; conformance and ownership land in Final). The signatures are
-the contract Build and Enforcement depend on, so they are pinned now.
+The three deterministic invariants (``coverage``, ``containment``, ``vocabulary``)
+are implemented as pure graph/set queries over the ``Model`` aggregate (#215).
+``conformance`` and ``ownership`` remain stubs — they land in Final (conformance
+needs code analysis; ownership pairs with the cascade work).
 
-Pure: no I/O imports. ``Model`` and ``Code`` are placeholders for the entity
-aggregates that later epics build; typed as ``Any`` until then.
+Pure: no I/O imports. ``Code`` is a placeholder for the code aggregate
+``conformance`` will range over; typed ``Any`` until Final.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict
 
-# Placeholder aliases — replaced by real entity aggregates in later epics.
-Model: TypeAlias = Any
+from jig.model.entities import Model, TraceKind
+
+# ``conformance`` ranges over code structure (Final). Placeholder until then.
 Code: TypeAlias = Any
 
 
@@ -41,27 +43,145 @@ class Finding(BaseModel):
 
 def coverage(model: Model) -> list[Finding]:
     """Every Capability is realized by >=1 Contract and every Journey covered
-    by >=1 Suite — no orphans in either direction."""
-    return []
+    by >=1 Suite — no orphans in either direction (model.md invariant 1).
+
+    Only trace edges whose *both* endpoints are declared count: a trace pointing
+    at a phantom contract doesn't realize a capability, and a trace from a
+    phantom capability doesn't rescue a contract from being an orphan.
+    """
+    capabilities = set(model.capabilities)
+    contracts = set(model.contracts)
+    journeys = set(model.journeys)
+    suites = set(model.suites)
+
+    realized_by = [
+        t
+        for t in model.traces
+        if t.kind is TraceKind.REALIZED_BY
+        and t.src in capabilities
+        and t.dst in contracts
+    ]
+    covered_by = [
+        t
+        for t in model.traces
+        if t.kind is TraceKind.COVERED_BY and t.src in journeys and t.dst in suites
+    ]
+    realized_caps = {t.src for t in realized_by}
+    realizing_contracts = {t.dst for t in realized_by}
+    covered_journeys = {t.src for t in covered_by}
+    covering_suites = {t.dst for t in covered_by}
+
+    findings: list[Finding] = []
+    for cap in model.capabilities:
+        if cap not in realized_caps:
+            findings.append(
+                Finding(
+                    invariant="coverage",
+                    message="capability realized by no contract",
+                    subject=cap,
+                )
+            )
+    for journey in model.journeys:
+        if journey not in covered_journeys:
+            findings.append(
+                Finding(
+                    invariant="coverage",
+                    message="journey covered by no suite",
+                    subject=journey,
+                )
+            )
+    for contract in model.contracts:
+        if contract not in realizing_contracts:
+            findings.append(
+                Finding(
+                    invariant="coverage",
+                    message="contract realizes no capability",
+                    subject=contract,
+                )
+            )
+    for suite in model.suites:
+        if suite not in covering_suites:
+            findings.append(
+                Finding(
+                    invariant="coverage",
+                    message="suite covers no journey",
+                    subject=suite,
+                )
+            )
+    return findings
 
 
 def conformance(model: Model, code: Code) -> list[Finding]:
-    """The code honors its Contracts; declared Behaviors pass."""
+    """The code honors its Contracts; declared Behaviors pass. Stub — needs code
+    analysis (Final)."""
     return []
 
 
-def containment(model: Model, code: Code) -> list[Finding]:
-    """No Boundary reaches into another except through a declared Dependency on
-    a declared Contract."""
-    return []
+def containment(model: Model, code: Code = None) -> list[Finding]:
+    """No Boundary reaches into another except through a declared Dependency on a
+    declared Contract (model.md invariant 3).
+
+    The pure model check: every declared ``Dependency`` must target a real
+    boundary and a contract that boundary actually exposes. (Checking *actual*
+    code reaches against the declared dependencies needs code analysis and lands
+    with Reconciliation / Final; ``code`` is accepted but unused here.)
+    """
+    boundary_by_id = {b.id: b for b in model.boundaries}
+    findings: list[Finding] = []
+    for dep in model.dependencies:
+        if dep.consumer not in boundary_by_id:
+            findings.append(
+                Finding(
+                    invariant="containment",
+                    message=f"dependency from undeclared boundary {dep.consumer!r}",
+                    subject=dep.consumer,
+                )
+            )
+            continue
+        provider = boundary_by_id.get(dep.provider)
+        if provider is None:
+            findings.append(
+                Finding(
+                    invariant="containment",
+                    message=f"dependency on undeclared boundary {dep.provider!r}",
+                    subject=dep.consumer,
+                )
+            )
+        elif dep.contract not in provider.contracts:
+            findings.append(
+                Finding(
+                    invariant="containment",
+                    message=(
+                        f"dependency on contract {dep.contract!r} not exposed by "
+                        f"boundary {dep.provider!r}"
+                    ),
+                    subject=dep.consumer,
+                )
+            )
+    return findings
 
 
 def vocabulary(model: Model) -> list[Finding]:
-    """Every term used exists in the Ontology and every concept has exactly one
-    canonical home (count concepts with >1 home)."""
-    return []
+    """Every concept has exactly one canonical home — count concepts with >1 home
+    (model.md invariant 4, "one concept, one home")."""
+    homes: dict[str, set[str]] = defaultdict(set)
+    for entry in model.ontology:
+        homes[entry.term.strip().lower()].add(entry.home)
+
+    findings: list[Finding] = []
+    for term, term_homes in homes.items():
+        if len(term_homes) > 1:
+            findings.append(
+                Finding(
+                    invariant="vocabulary",
+                    message=f"concept has {len(term_homes)} homes: {sorted(term_homes)}",
+                    subject=term,
+                )
+            )
+    return findings
 
 
 def ownership(model: Model) -> list[Finding]:
-    """Every Boundary has exactly one owning role."""
+    """Every Boundary has exactly one owning role (model.md invariant 5). Stub —
+    lands in Final with the cascade work."""
     return []

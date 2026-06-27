@@ -51,7 +51,8 @@ from jig.schemas.plan import (
     EpicLayers,
     LayerStatus,
 )
-from jig.schemas.po import Ontology, OntologyTerm, Suite, SuitesIndex
+from jig.model import OntologyTerm
+from jig.schemas.po import Ontology, Suite, SuitesIndex
 from jig.sim.assertions import (
     AnalyticsEventEmittedAssertion,
     ArtifactWrittenAssertion,

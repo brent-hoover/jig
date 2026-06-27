@@ -11,6 +11,14 @@ not pull in the store layer.
 
 from __future__ import annotations
 
+from jig.model.entities import (
+    Boundary,
+    Dependency,
+    Model,
+    OntologyHome,
+    Trace,
+    TraceKind,
+)
 from jig.model.invariants import (
     Finding,
     conformance,
@@ -22,8 +30,14 @@ from jig.model.invariants import (
 from jig.model.ontology import OntologyTerm
 
 __all__ = [
+    "Boundary",
+    "Dependency",
     "Finding",
+    "Model",
+    "OntologyHome",
     "OntologyTerm",
+    "Trace",
+    "TraceKind",
     "conformance",
     "containment",
     "coverage",

@@ -1,8 +1,10 @@
-"""CORE Model bones — the 5 invariants as pure function signatures (Epic 1, task 4).
+"""CORE Model — invariant signatures, the ``Finding`` type, and the remaining
+stubs (Epic 1).
 
-Bones phase: the bodies are stubs returning no findings. This test pins the
-signatures and the ``Finding`` return type so later MVP work fills in real
-graph-query logic without changing the contract.
+Pins the pinned signatures + ``Finding`` contract, that an empty ``Model`` is
+clean, and that ``conformance`` / ``ownership`` are still stubs (Final). The
+deterministic invariant *logic* (coverage/containment/vocabulary) is exercised
+in ``test_invariant_logic.py``.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import inspect
 import pytest
 from pydantic import ValidationError
 
+from jig.model.entities import Model
 from jig.model.invariants import (
     Finding,
     conformance,
@@ -43,12 +46,20 @@ def test_finding_forbids_extra_keys() -> None:
         Finding(invariant="coverage", message="m", typo_field="oops")
 
 
-def test_stub_invariants_return_no_findings() -> None:
-    assert coverage(None) == []
-    assert conformance(None, None) == []
-    assert containment(None, None) == []
-    assert vocabulary(None) == []
-    assert ownership(None) == []
+def test_invariants_on_an_empty_model_return_no_findings() -> None:
+    empty = Model()
+    assert coverage(empty) == []
+    assert conformance(empty, None) == []
+    assert containment(empty, None) == []
+    assert vocabulary(empty) == []
+    assert ownership(empty) == []
+
+
+def test_conformance_and_ownership_are_still_stubs() -> None:
+    # These two land in Final; a populated model still yields nothing yet.
+    model = Model(capabilities=("cap-1",), boundaries=())
+    assert conformance(model, None) == []
+    assert ownership(model) == []
 
 
 def test_invariant_signatures_are_pinned() -> None:

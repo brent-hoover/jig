@@ -4,7 +4,7 @@ type: plan
 status: draft
 owner: brent-hoover
 created: 2026-06-25
-updated: 2026-06-26
+updated: 2026-06-27
 design: ./jig-instance.md
 ---
 
@@ -123,6 +123,17 @@ without them, but each must be resolved before its epic's MVP.
   module graph, compare it to the declared architecture. If `grimp` is too
   opinionated about package layout, fall back to a custom `ast`-based importer.
 - **Time-box:** One session.
+- **Resolved (#202): use grimp.** Empirically, grimp built a 318-module graph of
+  `jig/` in ~0.03s with no package-layout complaints, and correctly resolved the
+  `from pkg import module` module-vs-name ambiguity a naive `ast` walk can't
+  (without reimplementing module resolution). grimp is the import-graph engine
+  behind import-linter — purpose-built for "actual structure from code" and
+  reusable by Enforcement's boundary checks. Footprint is negligible: its only
+  requirement, `typing-extensions`, is already a Jig dependency. `ast` fallback
+  not needed. `derive_actual_graph` is now implemented in
+  `jig/engines/reconciliation/derive.py` (this also delivers Reconciliation MVP
+  task 1, #221); the dogfood drift run + surfacing drift as tickets remain in
+  #221.
 
 ### Spike 3: Agent record/replay for fixture-based evals
 
@@ -674,7 +685,7 @@ before production use.
 | `FixtureRunAgent` canned results | Epic 3 | Epic 3 MVP (`RecordedRunAgent`), Final | No — fixtures are eval-only; production uses `RealRunAgent` |
 | `Review` contract returns from moved code, not headless loop | Epic 5 | Epic 5 MVP 3 | No — Build keeps calling existing reviewers until the headless loop lands |
 | Merge-conflict transition not modeled | Epic 4 | Epic 4 Final 1 | No — falls back to existing orchestrator facade path until migrated |
-| `derive_actual_graph()` returns empty graph | Epic 7 | Epic 7 MVP 1 (Spike 2) | No — Reconciliation produces no drift work until real; never wired to Build before then |
+| ~~`derive_actual_graph()` returns empty graph~~ — **resolved (Spike 2, #202): real grimp-backed implementation landed** | Epic 7 | ~~Epic 7 MVP 1~~ done | n/a — drift surfacing still wires to Build in #221 |
 
 ### Concrete requirements for the **Yes** blockers
 

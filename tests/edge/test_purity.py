@@ -66,6 +66,25 @@ def _dynamic_import_package(
     return None
 
 
+def _import_fromlist(node: ast.Call) -> list[str]:
+    """Constant ``fromlist`` entries of ``__import__(name, ..., fromlist, ...)``
+    — the ``fromlist`` keyword or the 4th positional arg. Lets
+    ``__import__("jig", fromlist=["orchestrator"])`` expand to ``jig.orchestrator``."""
+    value: ast.expr | None = None
+    for kw in node.keywords:
+        if kw.arg == "fromlist":
+            value = kw.value
+    if value is None and len(node.args) >= 4:
+        value = node.args[3]
+    if isinstance(value, (ast.List, ast.Tuple)):
+        return [
+            elt.value
+            for elt in value.elts
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        ]
+    return []
+
+
 def test_edge_imports_only_itself() -> None:
     """Runtime check — module-level + transitive imports."""
     code = (
@@ -137,6 +156,9 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                 name = node.args[0].value
                 if not name.startswith("."):
                     candidates = [name]
+                    # __import__("jig", fromlist=["orchestrator"]) -> jig.orchestrator
+                    if isinstance(func, ast.Name) and func.id == "__import__":
+                        candidates += [f"{name}.{e}" for e in _import_fromlist(node)]
                 else:
                     # Relative dynamic import — resolve against the `package` arg
                     # (2nd positional or keyword; `__package__` => this module's).

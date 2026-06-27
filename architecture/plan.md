@@ -33,33 +33,25 @@ the system. The architecture lives in `model.md` and `jig-instance.md`.
 ## Absorbed feature-work docs
 
 This plan supersedes the following `feature-work/` problem statements, whose
-requirements are folded into the epics below:
+requirements are folded into the epics below. Each row maps the superseded doc
+to the **exact epic and phase** that absorbs it, so a contributor recovering
+intent (e.g. for "Project Onboarding" or "SA as Architect") lands on the precise
+task list without re-reading the old doc.
 
-- [x] `feature-work/larger-projects/problem.md` — SA role unification + tracer-bullet
-      planning phase. **Absorbed into Epic 6** (SAU unification, TB planning phase,
-      graph tools, derisker ordering, TracerSpec integration, medium eval scenario).
-- [x] `feature-work/sa-architect/problem.md` — SA grounded decisions (Context7,
-      WebFetch). **Absorbed into Epic 6** (Architecture engine MVP — grounded
-      decision protocol preserved in unified SAU).
-- [x] `feature-work/architecture-skeleton/problem.md` — Architecture artifacts
-      incomplete (modules, contracts). **Absorbed into Epic 6** (Architecture
-      engine produces full artifact set: modules, contracts, boundaries).
-- [x] `feature-work/module-boundaries/problem.md` — Module boundary enforcement.
-      **Absorbed into Epic 5** (Enforcement — mechanical structure checks +
-      boundary rules).
-- [x] `feature-work/medium-l0-l3-pipeline/problem.md` — PO L0-L3 pipeline, v1 vs
-      v2 topology. **Absorbed into Epic 6** (Discovery engine — L0-L3 pipeline
-      becomes the Discovery interview at architectural resolution).
-- [x] `feature-work/project-onboarding/problem.md` — Brownfield onboarding path.
-      **Absorbed into Epic 6** (Discovery engine — onboarding extracted as
-      `jig/engines/discovery/onboard.py`; brownfield TB support is a design
-      target, not a requirement, per larger-projects constraints).
-- [x] `feature-work/jig-init-process/problem.md` — Init flow has no
-      conversation/architecture. **Absorbed into Epic 6** (Discovery engine —
-      init conversation becomes the Discovery interview).
+| Superseded doc | Absorbed into | Phase(s) | Key absorbed requirements |
+|---|---|---|---|
+| `larger-projects/problem.md` | Epic 6 | MVP 1–5, Final 3–4 | SAU role unification, TB planning phase, graph tools, derisker ordering, TracerSpec integration, medium eval |
+| `sa-architect/problem.md` | Epic 6 | MVP 2 | Grounded-decision protocol (Context7 + WebFetch) preserved in unified SAU |
+| `architecture-skeleton/problem.md` | Epic 6 | MVP 2 | Full artifact set: modules, contracts, boundaries, data ownership |
+| `module-boundaries/problem.md` | Epic 5 | MVP 4–5 | Mechanical (non-LLM-adjudicated) boundary + vocabulary enforcement |
+| `medium-l0-l3-pipeline/problem.md` | Epic 6 | Bones 4 | Discovery interview replaces the v1/v2 L0-L3 split |
+| `project-onboarding/problem.md` | Epic 6 | MVP 6 | Onboarding behind `project://spec/` (`engines/discovery/onboard.py`) |
+| `jig-init-process/problem.md` | Epic 6 | Bones 4 | Init conversation becomes the Discovery interview |
 
 All docs above are marked `status: superseded` with
-`superseded_by: ../../architecture/plan.md`.
+`superseded_by: ../../architecture/plan.md`. Phase numbers refer to the
+numbered task lists under each epic below (e.g. "MVP 4–5" = items 4 and 5 of
+that epic's **MVP** list).
 
 ## Preconditions
 
@@ -142,18 +134,49 @@ without them, but each must be resolved before its epic's MVP.
   downstream consumer (the check runner) can't tell the difference.
 - **Time-box:** One session.
 
+## Epic dependency matrix
+
+Epic **Bones** are deliberately decoupled: each stands up a boundary/seam with
+logic shimmed, so all nine can proceed independently and in parallel (the only
+global gate is that all bones land before any MVP — see the bones acceptance
+test). **MVP** work is where cross-epic contracts bind. The matrix below makes
+that ordering explicit so contributors don't build against an incomplete
+contract or duplicate ownership.
+
+| Epic | Bones depends on | MVP depends on | Blocks (downstream) |
+|---|---|---|---|
+| 1 — CORE Model | — | — | 2, 4, 5, 7, 8 (all consume `Finding`/entities) |
+| 2 — Substrate | — | Epic 1 (entities) | 4 (typed events), 6 (`project://` authorities) |
+| 3 — Agent Runtime | — | Spike 3 | 8 (`FixtureRunAgent`) |
+| 4 — Build engine | — | Epic 1, Epic 2 (typed events), Spike 1 | 7 (drift→tickets), 8 (headless Build) |
+| 5 — Enforcement | Epic 1 (`Finding`) | Epic 1 | 4 (Build invokes `Review`), 8 (headless Enforcement) |
+| 6 — Authoring | — | Epic 1, Epic 2 (authorities) | — (terminal for this migration) |
+| 7 — Reconciliation | Epic 1 | Spike 2, Epic 4 (surfaces drift via Build) | — |
+| 8 — Evaluation | — | Epics 3, 4, 5, 1 | — (terminal; the bones acceptance gate) |
+| 9 — EDGE | — | all engines (daemon API over them) | — (terminal) |
+
+Reading: a row's **MVP depends on** entries must reach at least MVP before that
+row's MVP can wire real behavior. Epics 6, 8, 9 are terminal — nothing depends
+on them, so they can land last. Epic 1 is the universal prerequisite.
+
 ## Epics (dependency order)
 
 Each epic has three phases: **Bones** (tracer bullet — boundary + seam, logic
 shimmed), **MVP** (real logic migrated behind the boundary), **Final** (edge
 cases, full coverage). Bones for all epics should land before any epic's MVP.
 
+Every epic below carries an explicit **Goal** (one-line intent), its phased task
+lists, and a **Verify** block that doubles as the epic's acceptance gate — so the
+plan is implementable from the repo alone, with GitHub issues as links rather
+than required context.
+
 ---
 
 ### Epic 1 — CORE Model
 
-Extract the Living-Invariant entities and invariants into a pure, I/O-free
-module. This is foundational — everything depends on it.
+**Goal:** A pure, I/O-free `jig/model/` holding the Living-Invariant entities and
+the five invariant functions, with `OntologyTerm` defined exactly once.
+Foundational — everything depends on it.
 
 **Bones:**
 1. Create `jig/model/` package (pure, no I/O imports).
@@ -194,8 +217,9 @@ module. This is foundational — everything depends on it.
 
 ### Epic 2 — Substrate (Store + Bus)
 
-Extract the store layer behind `project://` authorities and replace magic-string
-bus topics with typed events.
+**Goal:** The store layer reachable through unified `project://` authorities and
+the Bus carrying typed events instead of magic-string topics — a substrate the
+engines depend on without knowing the JSONL backing.
 
 **Bones:**
 1. Create `jig/substrate/` package.
@@ -228,8 +252,9 @@ updated.
 
 ### Epic 3 — Agent Runtime seam
 
-Extract the agent spawn/sandbox/MCP lifecycle into a `RunAgent` contract with
-real/recorded/fixture implementations.
+**Goal:** A `RunAgent` contract that abstracts agent spawn/sandbox/MCP lifecycle,
+with real/recorded/fixture implementations — the substitutable seam that makes
+headless, fixture-driven evals possible.
 
 **Bones:**
 1. Create `jig/runtime/` package.
@@ -263,8 +288,9 @@ all three implementations. Existing agent tests
 
 ### Epic 4 — Build engine (the god-object fix)
 
-Split `orchestrator.py` into pure `decide()` + dispatch/effects shell +
-supervisor. This is the highest-risk, highest-coupling epic.
+**Goal:** `orchestrator.py` split into a pure `decide()` state machine + an async
+dispatch/effects shell + a supervisor — the highest-risk, highest-coupling epic,
+and the precondition for headless code-pipeline evals.
 
 **Bones:**
 1. Create `jig/engines/build/` package.
@@ -305,7 +331,9 @@ modules directly.
 
 ### Epic 5 — Enforcement
 
-Extract checks + reviewer federation into a library that Build invokes. Absorbs
+**Goal:** Checks + reviewer federation extracted into a headless-invocable
+`Review(diff, invariant_context) -> list[Finding]` library that Build calls, with
+mechanical (non-LLM) boundary and vocabulary enforcement. Absorbs
 `feature-work/module-boundaries/problem.md` (module boundary enforcement).
 
 **Bones:**
@@ -345,7 +373,9 @@ Extract checks + reviewer federation into a library that Build invokes. Absorbs
 
 ### Epic 6 — Authoring engines (Discovery, Architecture, VD)
 
-Extract the init/onboard/SA workflows behind their `project://` authorities.
+**Goal:** The init/onboard/SA workflows extracted behind their `project://`
+authorities, with the three SA roles unified into one size-adaptive SAU that
+produces both architecture (Phase 1) and a tracer-bullet plan (Phase 2).
 Absorbs `feature-work/larger-projects/problem.md` (SAU unification + TB
 planning), `feature-work/sa-architect/problem.md` (grounded decisions),
 `feature-work/architecture-skeleton/problem.md` (architecture artifacts),
@@ -442,8 +472,9 @@ planning), `feature-work/sa-architect/problem.md` (grounded decisions),
 
 ### Epic 7 — Reconciliation
 
-New: derive actual structure from code, diff against declared model, surface
-drift as work.
+**Goal:** Derive the actual structure from code, diff it against the declared
+model, and surface drift as work (tickets via Build). New capability — no
+existing implementation to extract.
 
 **Bones:**
 1. Create `jig/engines/reconciliation/`.
@@ -469,7 +500,9 @@ architecture to the current code.
 
 ### Epic 8 — Evaluation (headless harness)
 
-Drive Build + review loop headless on fixture corpora.
+**Goal:** Drive the Build + review loop headless on fixture corpora — reviewer
+precision/recall against labeled diffs and a fix-loop convergence metric. This
+epic's bones acceptance test is the gate for the whole bones phase.
 
 **Bones:**
 1. Create `jig/engines/evaluation/`.
@@ -497,8 +530,9 @@ on a fixture, without the daemon/TUI, using fake agents.
 
 ### Epic 9 — EDGE (thin client)
 
-Make the TUI/CLI/daemon a thin client over a daemon API, persona variation
-localized.
+**Goal:** The TUI/CLI/daemon reduced to a thin client over a daemon API, with no
+direct engine/store imports and persona variation (developer vs founder)
+localized to the edge layer.
 
 **Bones:**
 1. Define the daemon API contract (command/event/snapshot protocol) in
@@ -537,6 +571,62 @@ acceptance test for the bones phase is:
 This is the evaluability driver from `jig-instance.md` → Build suite signal #4.
 If the bones compose, the architecture is validated on Jig's own hardest case
 before any real logic migrates.
+
+## Seam stubs & post-bones blockers
+
+The bones phase intentionally ships seams whose behavior is shimmed, stubbed, or
+empty. Each is fine as a bone, but several encode behavioral commitments that
+must be made real **before any production routing depends on them** — otherwise a
+skeleton silently becomes load-bearing. This table is the register of those
+stubs: where the real implementation lands, and whether it is a hard blocker
+before production use.
+
+| Stub / seam | Introduced (bones) | Real impl lands | Blocker before production routing? |
+|---|---|---|---|
+| `StoreAuthority.write()` unimplemented | Epic 2 | Epic 2 MVP 1 | **Yes** — see security requirements below; no production write may route through it until done |
+| Invariant fns are stub bodies (`coverage`, `conformance`, …) | Epic 1 | Epic 1 MVP/Final | No — Enforcement/Reconciliation gate on these, not production traffic |
+| `decide()` handles one transition only | Epic 4 | Epic 4 MVP 1 (all transitions), Final (sad paths) | **Yes** — partial state machine must not own real dispatch |
+| At-least-once dispatch + idempotent effect handlers | Epic 4 (dispatch shell) | Epic 4 MVP | **Yes** — ack/idempotency tracking required before real side effects (spawn/merge) run |
+| Partial multi-action dispatch error handling | Epic 4 (dispatch shell) | Epic 4 MVP (design first) | **Yes** — concrete failure-semantics design required before real side effects; see below |
+| Build coordinator serialized (single in-flight) | Epic 4 | Epic 4 Final (per-ticket concurrency) | No — but carries a perf acceptance criterion before production use; see below |
+| `FixtureRunAgent` canned results | Epic 3 | Epic 3 MVP (`RecordedRunAgent`), Final | No — fixtures are eval-only; production uses `RealRunAgent` |
+| `Review` contract returns from moved code, not headless loop | Epic 5 | Epic 5 MVP 3 | No — Build keeps calling existing reviewers until the headless loop lands |
+| Merge-conflict transition not modeled | Epic 4 | Epic 4 Final 1 | No — falls back to existing orchestrator facade path until migrated |
+| `derive_actual_graph()` returns empty graph | Epic 7 | Epic 7 MVP 1 (Spike 2) | No — Reconciliation produces no drift work until real; never wired to Build before then |
+
+### Concrete requirements for the **Yes** blockers
+
+- **`StoreAuthority.write()` security (Epic 2 MVP).** Before any production write
+  routes through the authority, `write()` must enforce: (a) authority-scoped
+  authorization — a caller holding `project://spec/` cannot write `project://arch/`;
+  (b) `project://` URI validation and path safety — reject traversal,
+  out-of-authority paths, and malformed URIs loudly (no silent normalization);
+  (c) payload schema validation against the target authority's typed model. These
+  are acceptance criteria for Epic 2 MVP, not Final polish.
+- **Partial multi-action dispatch (Epic 4 MVP).** `decide()` can return multiple
+  actions; the shell may succeed on some and fail on others. Before real side
+  effects are wired, the plan must pin the failure semantics: per-action ack,
+  idempotent re-dispatch on retry (so a re-run can't double-spawn or double-merge),
+  and a defined state for "ticket whose action set partially applied". Design lands
+  before, not alongside, the first real effect handler.
+- **Build coordinator concurrency (Epic 4 Final).** Serializing the coordinator is
+  acceptable for bones/MVP. Before production use, add an explicit acceptance
+  criterion: dispatch throughput under N concurrent in-flight tickets stays within
+  a stated bound (no head-of-line blocking on a single slow agent). Per-ticket
+  concurrency is Final work, but the criterion is recorded now so it isn't lost.
+
+## Compatibility & shim-removal policy
+
+The migration is backwards-compatible at each step via re-export shims and
+string-topic compat layers (see Rollback). To keep "when does the old path go
+away" from being implicit:
+
+- A shim or old import path stays until its epic's **Final** phase.
+- A shim may only be removed once **all** consumers import the new path and the
+  full suite is green; removal is itself a Final-phase task (e.g. Epic 1 Final 3,
+  Epic 2 Final 1–2), never bundled into Bones or MVP.
+- Old import paths become thin re-export shims at Bones, are dual-supported
+  through MVP, and are deleted at Final — in that order, never skipping a step.
 
 ## Rollback
 
@@ -595,3 +685,10 @@ the migration hasn't broken anything.
   into Epic 5 (mechanical boundary + vocabulary enforcement). Added absorbed
   feature-work docs section. Added open questions from larger-projects to
   Epic 6. Updated out-of-scope for consistency. (Frank)
+- 2026-06-26: Addressed design-review findings (job 698). Converted the absorbed
+  feature-work list into a supersession table mapping each doc to its exact
+  epic+phase. Added an epic dependency matrix and per-epic **Goal** lines (plan
+  is now implementable from the repo alone). Added a "Seam stubs & post-bones
+  blockers" register with concrete acceptance criteria for `StoreAuthority.write()`
+  security, partial multi-action dispatch semantics, and Build-coordinator
+  concurrency. Added a compatibility & shim-removal policy.

@@ -59,6 +59,28 @@ def test_coverage_flags_orphans_in_both_directions() -> None:
     assert subjects == {"api-unused", "s-unused"}
 
 
+def test_coverage_ignores_traces_to_undeclared_endpoints() -> None:
+    # A trace pointing at a contract that doesn't exist must NOT satisfy the
+    # capability's coverage (a dangling edge isn't realization).
+    model = Model(
+        capabilities=("cap-login",),
+        traces=(
+            Trace(src="cap-login", dst="ghost-contract", kind=TraceKind.REALIZED_BY),
+        ),
+    )
+    assert [f.subject for f in coverage(model)] == ["cap-login"]
+
+
+def test_coverage_ignores_traces_from_undeclared_endpoints() -> None:
+    # A trace from a non-declared capability must NOT rescue a contract from
+    # being an orphan.
+    model = Model(
+        contracts=("api-auth",),
+        traces=(Trace(src="ghost-cap", dst="api-auth", kind=TraceKind.REALIZED_BY),),
+    )
+    assert [f.subject for f in coverage(model)] == ["api-auth"]
+
+
 # --- containment -------------------------------------------------------------
 
 
@@ -98,6 +120,19 @@ def test_containment_flags_dependency_on_unknown_boundary() -> None:
         dependencies=(Dependency(consumer="web", provider="ghost", contract="api-x"),),
     )
     assert len(containment(model)) == 1
+
+
+def test_containment_flags_dependency_from_unknown_consumer() -> None:
+    # A dependency whose consumer boundary isn't declared is malformed too.
+    model = Model(
+        boundaries=(Boundary(id="auth", owner="po", contracts=("api-auth",)),),
+        dependencies=(
+            Dependency(consumer="ghost", provider="auth", contract="api-auth"),
+        ),
+    )
+    findings = containment(model)
+    assert len(findings) == 1
+    assert findings[0].subject == "ghost"
 
 
 # --- vocabulary --------------------------------------------------------------

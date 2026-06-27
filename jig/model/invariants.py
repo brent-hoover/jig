@@ -43,13 +43,33 @@ class Finding(BaseModel):
 
 def coverage(model: Model) -> list[Finding]:
     """Every Capability is realized by >=1 Contract and every Journey covered
-    by >=1 Suite — no orphans in either direction (model.md invariant 1)."""
-    realized_caps = {t.src for t in model.traces if t.kind is TraceKind.REALIZED_BY}
-    realizing_contracts = {
-        t.dst for t in model.traces if t.kind is TraceKind.REALIZED_BY
-    }
-    covered_journeys = {t.src for t in model.traces if t.kind is TraceKind.COVERED_BY}
-    covering_suites = {t.dst for t in model.traces if t.kind is TraceKind.COVERED_BY}
+    by >=1 Suite — no orphans in either direction (model.md invariant 1).
+
+    Only trace edges whose *both* endpoints are declared count: a trace pointing
+    at a phantom contract doesn't realize a capability, and a trace from a
+    phantom capability doesn't rescue a contract from being an orphan.
+    """
+    capabilities = set(model.capabilities)
+    contracts = set(model.contracts)
+    journeys = set(model.journeys)
+    suites = set(model.suites)
+
+    realized_by = [
+        t
+        for t in model.traces
+        if t.kind is TraceKind.REALIZED_BY
+        and t.src in capabilities
+        and t.dst in contracts
+    ]
+    covered_by = [
+        t
+        for t in model.traces
+        if t.kind is TraceKind.COVERED_BY and t.src in journeys and t.dst in suites
+    ]
+    realized_caps = {t.src for t in realized_by}
+    realizing_contracts = {t.dst for t in realized_by}
+    covered_journeys = {t.src for t in covered_by}
+    covering_suites = {t.dst for t in covered_by}
 
     findings: list[Finding] = []
     for cap in model.capabilities:
@@ -109,6 +129,15 @@ def containment(model: Model, code: Code = None) -> list[Finding]:
     boundary_by_id = {b.id: b for b in model.boundaries}
     findings: list[Finding] = []
     for dep in model.dependencies:
+        if dep.consumer not in boundary_by_id:
+            findings.append(
+                Finding(
+                    invariant="containment",
+                    message=f"dependency from undeclared boundary {dep.consumer!r}",
+                    subject=dep.consumer,
+                )
+            )
+            continue
         provider = boundary_by_id.get(dep.provider)
         if provider is None:
             findings.append(

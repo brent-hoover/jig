@@ -137,12 +137,18 @@ without them, but each must be resolved before its epic's MVP.
 ## Epic dependency matrix
 
 Most epic **Bones** are deliberately decoupled: each stands up a boundary/seam
-with logic shimmed, so they can proceed independently and in parallel (the
-global gate is that all bones land before any MVP — see the bones acceptance
-test). **Epic 8 Bones is the exception**: its harness composes Epics 1, 3, 4, 5,
-so it must land after those bones exist (it does not touch Epic 2 / `StoreAuthority`
-— see the bones-gate scope note). **MVP** work is where the remaining cross-epic
-contracts bind. The
+with logic shimmed, so they can proceed largely in parallel (the global gate is
+that all bones land before any MVP — see the bones acceptance test). Two caveats
+to "independent":
+- **Epic 8 Bones is the full-composition exception** — its harness wires Epics
+  1, 3, 4, 5 together, so it must land after those bones exist (it does not touch
+  Epic 2 / `StoreAuthority` — see the bones-gate scope note).
+- **Epics 5 and 7 Bones each carry a narrow Epic 1 contract dependency** — they
+  import model-layer types (`Finding`, the dependency-graph types), so Epic 1's
+  bones must define those before Epic 5/7 bones compile. This is a type-contract
+  dependency, not a full composition like Epic 8.
+
+**MVP** work is where the remaining cross-epic contracts bind. The
 matrix below makes the ordering explicit so contributors don't build against an
 incomplete contract or duplicate ownership.
 
@@ -644,11 +650,12 @@ before production use.
   authority-scoped authorization is **not expressible against it as written** —
   closing this requires an API change at MVP, not just logic. Before any
   production write routes through the authority, MVP must: (a) add a caller
-  context to the write path — the chosen model is an **authority-scoped handle**
-  (`StoreAuthority.for_authority("spec") -> ScopedWriter`) so a `spec` caller
-  physically cannot address `project://arch/...`; a caller-principal or capability
-  token passed to `write()` are the considered alternatives, decided in the Epic 2
-  MVP design before implementation; (b) enforce `project://` URI validation and
+  context via an **authority-scoped handle** — this is the decided model, not an
+  open question: `StoreAuthority.for_authority("spec") -> ScopedWriter`, so a
+  `spec` caller physically cannot address `project://arch/...`. (Caller-principal
+  and capability-token designs were considered and rejected as heavier than the
+  problem; do not reopen the API choice — extend the handle if more is needed.)
+  (b) enforce `project://` URI validation and
   path safety — reject traversal, out-of-authority paths, and malformed URIs
   loudly (no silent normalization); (c) validate the payload schema against the
   target authority's typed model. All three are Epic 2 MVP acceptance criteria,
@@ -769,3 +776,12 @@ the migration hasn't broken anything.
   fixture run from Epic 8 MVP into Epic 8 Bones (so "bones before MVP" is
   satisfiable by bones). Reworded Epic 2 Bones to "facade only — reads/writes
   raise until MVP". Removed the now-moot "+2" gate dependency from the matrix.
+- 2026-06-26: Addressed fourth-round design-review findings (job 715). Committed
+  firmly to the authority-scoped-handle write model (removed the "alternatives
+  decided later" language that left the API ambiguous). Marked
+  `feature-work/module-boundaries/{design,plan}.md` superseded with do-not-implement
+  banners pointing to Epic 5 MVP 4–5 (only `problem.md` had been marked before).
+  Reworded the dependency intro to name Epic 5/7's narrow Epic 1 type-contract
+  deps alongside Epic 8's full-composition exception. Normalized the
+  `BuildCoordinator` module docstring to "decide, dispatch, then commit" (the
+  module header still said "advance state, dispatch", contradicting the code).

@@ -2,8 +2,10 @@
 
 Wires the three pieces together: the pure ``decide`` core, the async
 ``Dispatcher`` shell, and the ``Supervisor``. ``handle(event)`` runs one step —
-decide the transition, advance state, dispatch the actions. ``supervise(...)``
-turns detector signals into supervisory events (which never mutate state).
+decide the transition, dispatch the actions, then commit state (state is
+committed only after dispatch succeeds, so a failed effect leaves the prior
+state intact). ``supervise(...)`` turns detector signals into supervisory events
+(which never mutate state).
 
 Bones proves the loop on the happy path with shimmed effect handlers. MVP
 subscribes this to the bus, routes the orchestrator's ticket transitions through

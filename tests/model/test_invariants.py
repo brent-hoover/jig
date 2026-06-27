@@ -1,8 +1,10 @@
-"""CORE Model bones — the 5 invariants as pure function signatures (Epic 1, task 4).
+"""CORE Model — invariant signatures, the ``Finding`` type, and the remaining
+stubs (Epic 1).
 
-Bones phase: the bodies are stubs returning no findings. This test pins the
-signatures and the ``Finding`` return type so later MVP work fills in real
-graph-query logic without changing the contract.
+Pins the pinned signatures + ``Finding`` contract, that an empty ``Model`` is
+clean, and that ``conformance`` / ``ownership`` are still stubs (Final). The
+deterministic invariant *logic* (coverage/containment/vocabulary) is exercised
+in ``test_invariant_logic.py``.
 """
 
 from __future__ import annotations

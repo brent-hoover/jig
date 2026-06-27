@@ -30,7 +30,7 @@ class Trace(BaseModel):
     """One trace edge: ``src`` (capability/journey) ``kind`` ``dst``
     (contract/suite)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     src: str
     dst: str
@@ -41,7 +41,7 @@ class Boundary(BaseModel):
     """A unit with an inside and an outside; exposes ``contracts`` across its
     edge and has exactly one ``owner`` (the ownership invariant — Final)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str
     owner: str | None = None
@@ -52,7 +52,7 @@ class Dependency(BaseModel):
     """An *allowed* edge: ``consumer`` boundary may consume ``contract`` of
     ``provider`` boundary."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     consumer: str
     provider: str
@@ -63,7 +63,7 @@ class OntologyHome(BaseModel):
     """A place a concept (``term``) is defined. A term with >1 distinct home is
     the "one concept, one home" violation (vocabulary invariant)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     term: str
     home: str

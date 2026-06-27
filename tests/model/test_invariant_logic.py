@@ -81,6 +81,15 @@ def test_coverage_ignores_traces_from_undeclared_endpoints() -> None:
     assert [f.subject for f in coverage(model)] == ["api-auth"]
 
 
+def test_model_and_sub_models_are_immutable() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    boundary = Boundary(id="auth", owner="po")
+    with pytest.raises(ValidationError):
+        boundary.owner = "injected"  # sub-models frozen too, not just Model
+
+
 # --- containment -------------------------------------------------------------
 
 

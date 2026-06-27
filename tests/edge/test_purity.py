@@ -36,6 +36,36 @@ def _is_allowed(module: str) -> bool:
     return any(module == a or module.startswith(a + ".") for a in _ALLOWED_PREFIXES)
 
 
+def _resolve_relative(level: int, module: str, package_parts: tuple[str, ...]) -> str:
+    """Resolve a relative import (``level`` leading dots + ``module`` suffix)
+    against ``package_parts`` to an absolute dotted module name."""
+    kept = package_parts[: len(package_parts) - (level - 1)]
+    base = ".".join(kept)
+    if module:
+        base = f"{base}.{module}" if base else module
+    return base
+
+
+def _dynamic_import_package(
+    node: ast.Call, package_parts: tuple[str, ...]
+) -> tuple[str, ...] | None:
+    """The ``package`` for a relative ``import_module`` call: the ``package=``
+    keyword or 2nd positional arg, resolving ``__package__`` to this module's
+    package. Returns ``None`` when it can't be resolved statically."""
+    candidates_for_pkg: list[ast.expr] = [
+        kw.value for kw in node.keywords if kw.arg == "package"
+    ]
+    if not candidates_for_pkg and len(node.args) >= 2:
+        candidates_for_pkg = [node.args[1]]
+    for value in candidates_for_pkg:
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            return tuple(value.value.split("."))
+        if isinstance(value, ast.Name) and value.id == "__package__":
+            return package_parts
+        return None
+    return None
+
+
 def test_edge_imports_only_itself() -> None:
     """Runtime check — module-level + transitive imports."""
     code = (
@@ -77,10 +107,9 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                     base = node.module or ""
                 else:
                     # Resolve relative imports against this module's package.
-                    kept = package_parts[: len(package_parts) - (node.level - 1)]
-                    base = ".".join(kept)
-                    if node.module:
-                        base = f"{base}.{node.module}" if base else node.module
+                    base = _resolve_relative(
+                        node.level, node.module or "", package_parts
+                    )
                 # Expand `from base import a, b` -> base.a, base.b so that
                 # `from jig import orchestrator` is caught, not just `base`.
                 candidates = [base] if base else []
@@ -89,23 +118,38 @@ def test_edge_has_no_forbidden_import_statements() -> None:
                     for alias in node.names
                 ]
             elif isinstance(node, ast.Call):
-                # Constant-string dynamic imports: importlib.import_module("jig.x")
-                # or __import__("jig.x"). (Non-constant args aren't statically
-                # resolvable; the runtime check is the backstop for those.)
+                # Constant-string dynamic imports: importlib.import_module("jig.x"),
+                # __import__("jig.x"), or relative import_module("..x", __package__).
+                # (Non-constant module names aren't statically resolvable; the
+                # runtime check is the backstop for those.)
                 func = node.func
                 is_dynamic_import = (
                     isinstance(func, ast.Name)
                     and func.id in ("__import__", "import_module")
                 ) or (isinstance(func, ast.Attribute) and func.attr == "import_module")
-                if (
+                if not (
                     is_dynamic_import
                     and node.args
                     and isinstance(node.args[0], ast.Constant)
                     and isinstance(node.args[0].value, str)
                 ):
-                    candidates = [node.args[0].value]
-                else:
                     continue
+                name = node.args[0].value
+                if not name.startswith("."):
+                    candidates = [name]
+                else:
+                    # Relative dynamic import — resolve against the `package` arg
+                    # (2nd positional or keyword; `__package__` => this module's).
+                    level = len(name) - len(name.lstrip("."))
+                    pkg = _dynamic_import_package(node, package_parts)
+                    if pkg is None:
+                        offenders.append(
+                            f"{py.name}:{node.lineno} -> unresolved relative "
+                            f"dynamic import {name!r}"
+                        )
+                        continue
+                    resolved = _resolve_relative(level, name[level:], pkg)
+                    candidates = [resolved] if resolved else []
             else:
                 continue
 

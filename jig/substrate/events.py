@@ -70,6 +70,23 @@ class TypedEvent(BaseModel):
             correlation_id=self.correlation_id,
         )
 
+    @classmethod
+    def from_message(cls, msg: Message) -> "TypedEvent":
+        """Reconstruct the typed event from a legacy :class:`Message` — the
+        inverse of :meth:`to_message`. Only concrete events implement it;
+        decoding is dispatched by ``kind`` via :func:`decode_event`."""
+        raise NotImplementedError(f"{cls.__name__} cannot decode a Message")
+
+    @staticmethod
+    def _envelope(msg: Message) -> dict[str, Any]:
+        """The routing envelope of a received message, as ``from_message`` kwargs."""
+        return {
+            "topic": msg.topic,
+            "sender": msg.sender,
+            "recipient": msg.to,
+            "correlation_id": msg.correlation_id,
+        }
+
 
 class _TicketLifecycleEvent(TypedEvent):
     """Shared base for per-ticket lifecycle events.
@@ -116,6 +133,25 @@ class TicketCreated(_TicketLifecycleEvent):
         payload["type"] = self.work_type
         return payload
 
+    @classmethod
+    def from_message(cls, msg: Message) -> "TicketCreated":
+        p = msg.payload or {}
+        # ``type`` is the derived legacy alias of ``work_type`` — don't feed it
+        # back (extra="forbid"); reconstruct from the model fields only.
+        return cls(
+            **cls._envelope(msg),
+            ticket_id=p["ticket_id"],
+            title=p["title"],
+            description=p.get("description", ""),
+            work_type=p["work_type"],
+            size=p["size"],
+            assignee=p.get("assignee"),
+            parent_id=p.get("parent_id"),
+            depends_on=p.get("depends_on", []),
+            workflow=p.get("workflow"),
+            status=p["status"],
+        )
+
 
 class TicketUpdated(_TicketLifecycleEvent):
     """``ticket_updated`` — the status-transition event the service loop
@@ -139,10 +175,39 @@ class TicketUpdated(_TicketLifecycleEvent):
             payload["_internal"] = True
         return payload
 
+    @classmethod
+    def from_message(cls, msg: Message) -> "TicketUpdated":
+        p = msg.payload or {}
+        return cls(
+            **cls._envelope(msg),
+            ticket_id=p["ticket_id"],
+            status=p["status"],
+            internal=bool(p.get("_internal", False)),
+        )
+
+
+# kind -> concrete event, for decoding received messages back into typed events.
+_BY_KIND: dict[str, type[TypedEvent]] = {
+    TicketCreated.kind: TicketCreated,
+    TicketUpdated.kind: TicketUpdated,
+}
+
+
+def decode_event(msg: Message) -> TypedEvent | None:
+    """Reconstruct the typed event a legacy :class:`Message` carries.
+
+    Returns ``None`` for a payload whose ``kind`` is outside the typed set
+    (``shutdown_request``, ``comment_posted``, …) so subscribers can fall back
+    to raw-payload handling for events not yet migrated."""
+    kind = (msg.payload or {}).get("kind")
+    decoder = _BY_KIND.get(kind) if isinstance(kind, str) else None
+    return None if decoder is None else decoder.from_message(msg)
+
 
 __all__ = [
     "TicketCreated",
     "TicketUpdated",
     "TypedEvent",
+    "decode_event",
     "ticket_topic",
 ]

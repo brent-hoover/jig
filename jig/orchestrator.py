@@ -49,6 +49,7 @@ from jig.persistence import load_role
 from jig.project import Project, load_project
 from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
+from jig.substrate.events import TicketCreated, TicketUpdated, decode_event
 from jig.store.check_results import CheckResultsStore
 from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
@@ -1782,25 +1783,24 @@ class Orchestrator:
                     msg = await asyncio.wait_for(queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
-                payload = msg.payload or {}
-                kind = payload.get("kind")
-                _logger.debug("service loop received: %s", kind)
-                if kind == "ticket_created":
-                    ticket_id = payload.get("ticket_id")
-                    if ticket_id:
-                        _logger.info("ticket_created event: %s", ticket_id)
-                        await self._handle_schedule(ticket_id)
-                elif kind == "ticket_updated":
-                    ticket_id = payload.get("ticket_id")
-                    new_status = payload.get("status")
+                event = decode_event(msg)
+                _logger.debug(
+                    "service loop received: %s",
+                    event.kind if event else (msg.payload or {}).get("kind"),
+                )
+                if isinstance(event, TicketCreated):
+                    _logger.info("ticket_created event: %s", event.ticket_id)
+                    await self._handle_schedule(event.ticket_id)
+                elif isinstance(event, TicketUpdated):
                     # Re-enqueue tickets reset to "open" (e.g. retry after failure)
-                    if ticket_id and new_status == TicketStatus.OPEN.value:
+                    if event.status == TicketStatus.OPEN.value:
                         _logger.info(
-                            "ticket %s reset to open — re-scheduling", ticket_id
+                            "ticket %s reset to open — re-scheduling", event.ticket_id
                         )
-                        self._running_tickets.pop(ticket_id, None)
-                        await self._handle_schedule(ticket_id)
-                elif kind == "shutdown_request":
+                        self._running_tickets.pop(event.ticket_id, None)
+                        await self._handle_schedule(event.ticket_id)
+                elif (msg.payload or {}).get("kind") == "shutdown_request":
+                    # Not a typed lifecycle event (out of MVP scope); raw-kind path.
                     self._running = False
         finally:
             await self.bus.unsubscribe("orchestrator", queue)
@@ -4008,17 +4008,7 @@ class Orchestrator:
         """Update ticket status AND publish a bus event so the TUI sees it."""
         await self.tickets.update_status(ticket_id, status)
         await self.bus.publish(
-            Message(
-                sender="orchestrator",
-                to="broadcast",
-                type=MessageType.CONTEXT_UPDATE,
-                payload={
-                    "kind": "ticket_updated",
-                    "ticket_id": ticket_id,
-                    "status": status.value,
-                },
-                topic=f"tickets.{ticket_id}",
-            )
+            TicketUpdated(ticket_id=ticket_id, status=status.value).to_message()
         )
 
     async def _build_verify_bundle_for_ticket(self, ticket_id: str) -> dict | None:

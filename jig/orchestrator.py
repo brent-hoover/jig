@@ -50,6 +50,7 @@ from jig.project import Project, load_project
 from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.substrate.events import TicketCreated, TicketUpdated, decode_event
+from jig.substrate.store_authority import StoreAuthority
 from jig.store.check_results import CheckResultsStore
 from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
@@ -290,6 +291,10 @@ class Orchestrator:
         self._emitter = emitter
         self._prompt_registry = prompt_registry
         self._project: Project | None = None
+        # Composition root (ADR-0001): owns + vends the typed domain stores.
+        # ``self.tickets`` / ``self.threads`` / … below are authority-sourced
+        # aliases set in ``startup()``.
+        self.store: StoreAuthority | None = None
         self.tickets: TicketStore | None = None
         self.threads: ThreadStore | None = None
         self.checkpoints: CheckpointStore | None = None
@@ -417,27 +422,25 @@ class Orchestrator:
                 return
             store_dir = self._project_path / ".jig" / "store"
             store_dir.mkdir(parents=True, exist_ok=True)
-            self.tickets = TicketStore(store_dir / "tickets.jsonl")
-            self.threads = ThreadStore(store_dir / "comments.jsonl")
-            # CheckpointStore is a separate channel per doc 09.
-            self.checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
-            self.memory = MemoryStore(store_dir)
+            # Composition root (ADR-0001): StoreAuthority owns construction +
+            # loading of the domain stores; the attributes below are
+            # authority-sourced aliases (same instances), so the URI write path
+            # and runtime share one TicketStore + its callbacks. Bus + analytics
+            # are substrate infra, constructed here.
+            store = self.store = StoreAuthority(self._project_path)
             self.bus = MessageBus(store_dir / "messages.jsonl")
-            self.check_results = CheckResultsStore(store_dir / "check_results.jsonl")
-            self.review_comments = ReviewCommentsStore(
-                store_dir / "review_comments.jsonl"
-            )
             self.analytics = AnalyticsStore(store_dir / "analytics.jsonl")
             await asyncio.gather(
-                self.tickets.load(),
-                self.threads.load(),
-                self.checkpoints.load(),
-                self.memory.load(),
+                store.load(),
                 self.bus.load(),
-                self.check_results.load(),
-                self.review_comments.load(),
                 self.analytics.load(),
             )
+            self.tickets = store.tickets
+            self.threads = store.threads
+            self.checkpoints = store.checkpoints
+            self.memory = store.memory
+            self.check_results = store.check_results
+            self.review_comments = store.review_comments
             self._analytics_emitter = AnalyticsEmitter(self.analytics)
             self.tickets.set_status_change_callback(self._on_ticket_status_change)
             from jig.ticket_events import wire_create_publisher
@@ -1712,6 +1715,7 @@ class Orchestrator:
         self._analyzer_task = None
         self._reconcile_task = None
         self._project = None
+        self.store = None
         self.tickets = None
         self.threads = None
         self.memory = None

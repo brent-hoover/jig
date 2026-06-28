@@ -23,6 +23,7 @@ until their owning tracks wire persistence.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Iterable
 from pathlib import Path
@@ -44,6 +45,11 @@ _SAFE_SEGMENT = re.compile(r"^[a-z0-9_-]+$")
 _RESERVED_KEY_ID = re.compile(r"^jig-\d+$")
 
 if TYPE_CHECKING:
+    from jig.store.check_results import CheckResultsStore
+    from jig.store.checkpoints import CheckpointStore
+    from jig.store.memory import MemoryStore
+    from jig.store.review_comments import ReviewCommentsStore
+    from jig.store.threads import ThreadStore
     from jig.store.tickets import TicketStore
     from jig.uri.cache import UriResolverCache
 
@@ -77,6 +83,14 @@ class StoreAuthority:
         # still enforces every schema/transition/lock invariant. Either way each
         # write reloads it before deciding create vs update (see ``_write_store``).
         self._ticket_store = tickets
+        # Composition-root state (ADR-0001): the other domain stores this
+        # authority owns + vends as typed ports. Built and loaded by ``load()``;
+        # ``None`` until then. URI-only callers never touch these.
+        self._threads: "ThreadStore | None" = None
+        self._memory: "MemoryStore | None" = None
+        self._checkpoints: "CheckpointStore | None" = None
+        self._check_results: "CheckResultsStore | None" = None
+        self._review_comments: "ReviewCommentsStore | None" = None
         # The authorities this instance may write. Default: all five. A scoped
         # instance (e.g. Discovery -> {"spec"}) rejects writes elsewhere; the
         # empty set is a valid **read-only** authority (every write rejected,
@@ -104,6 +118,80 @@ class StoreAuthority:
     def read(self, uri: str) -> ResolvedUri:
         """Resolve a ``project://`` URI to its artifact (or fragment thereof)."""
         return resolve_project_uri(uri, self._root, cache=self._cache)
+
+    # ---- composition root: typed runtime ports (ADR-0001) ---------------
+
+    async def load(self) -> None:
+        """Construct + load the domain stores this authority owns and vends.
+
+        Composition-root mode: runtime/in-engine code obtains typed ports
+        (:attr:`tickets`, :attr:`threads`, …) from the authority instead of
+        constructing its own stores. Call once at startup. URI read/write keep
+        working without ``load()`` (the write path builds its ticket store
+        on demand); only the typed accessors require it.
+
+        An injected ticket store (the write-path back-compat / test seam) is
+        used as-is and assumed already loaded; everything else is built here on
+        the canonical ``.jig/store`` paths and loaded together.
+        """
+        from jig.store.check_results import CheckResultsStore
+        from jig.store.checkpoints import CheckpointStore
+        from jig.store.memory import MemoryStore
+        from jig.store.review_comments import ReviewCommentsStore
+        from jig.store.threads import ThreadStore
+        from jig.store.tickets import TicketStore
+
+        store_dir = self._root / ".jig" / "store"
+        store_dir.mkdir(parents=True, exist_ok=True)
+        self._threads = ThreadStore(store_dir / "comments.jsonl")
+        self._checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
+        self._memory = MemoryStore(store_dir)
+        self._check_results = CheckResultsStore(store_dir / "check_results.jsonl")
+        self._review_comments = ReviewCommentsStore(store_dir / "review_comments.jsonl")
+        to_load = [
+            self._threads.load(),
+            self._checkpoints.load(),
+            self._memory.load(),
+            self._check_results.load(),
+            self._review_comments.load(),
+        ]
+        if self._ticket_store is None:
+            self._ticket_store = TicketStore(store_dir / "tickets.jsonl")
+            to_load.append(self._ticket_store.load())
+        await asyncio.gather(*to_load)
+
+    @staticmethod
+    def _require(store: Any, name: str) -> Any:
+        if store is None:
+            raise RuntimeError(
+                f"StoreAuthority.load() must be called before accessing the "
+                f"{name!r} port"
+            )
+        return store
+
+    @property
+    def tickets(self) -> "TicketStore":
+        return self._require(self._ticket_store, "tickets")
+
+    @property
+    def threads(self) -> "ThreadStore":
+        return self._require(self._threads, "threads")
+
+    @property
+    def memory(self) -> "MemoryStore":
+        return self._require(self._memory, "memory")
+
+    @property
+    def checkpoints(self) -> "CheckpointStore":
+        return self._require(self._checkpoints, "checkpoints")
+
+    @property
+    def check_results(self) -> "CheckResultsStore":
+        return self._require(self._check_results, "check_results")
+
+    @property
+    def review_comments(self) -> "ReviewCommentsStore":
+        return self._require(self._review_comments, "review_comments")
 
     async def write(self, uri: str, doc: dict[str, Any]) -> str:
         """Write ``doc`` to the artifact addressed by ``uri`` — through the

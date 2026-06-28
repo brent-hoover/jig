@@ -53,6 +53,28 @@ async def test_load_leaves_live_state_intact_on_replay_error(tmp_path):
     assert await store.find_by("n", 1) == [{"_id": "a", "n": 1}]
 
 
+async def test_load_leaves_live_state_intact_on_index_rebuild_error(tmp_path):
+    """The index rebuild is staged too: an unhashable indexed value in the
+    replayed file must raise without swapping in the new docs or partial
+    indexes — the live store keeps its prior, consistent state."""
+    path = tmp_path / "s.jsonl"
+    store = JsonlStore(path, index_fields=["n"])
+    await store.load()
+    await store.insert({"_id": "a", "n": 1})
+
+    # Append a valid op-log line whose indexed field is unhashable (a list);
+    # replay succeeds but the index rebuild raises.
+    with path.open("a") as f:
+        f.write('{"_op": "insert", "_id": "b", "n": [1, 2]}\n')
+    with pytest.raises(TypeError):
+        await store.load()
+
+    # Prior state survived: 'a' still present + indexed; 'b' never swapped in.
+    assert await store.get("a") == {"_id": "a", "n": 1}
+    assert await store.get("b") is None
+    assert await store.find_by("n", 1) == [{"_id": "a", "n": 1}]
+
+
 async def test_insert_rejects_oversize_record(tmp_path):
     """SEC-I2: per-record cap stops a single agent call from writing
     a multi-megabyte blob into the store."""

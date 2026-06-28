@@ -94,11 +94,17 @@ class JsonlStore:
                         raise ValueError(
                             f"{self._path}: unknown _op {op!r} on line {line_no}"
                         )
-            # Whole file validated — commit the new state and rebuild indexes.
+            # Build the new indexes into a *local* map too, so an index-rebuild
+            # failure (e.g. an unhashable indexed value) also leaves the live
+            # store intact. Swap docs AND indexes in together, only after both
+            # are fully built.
+            indexes: dict[str, dict[Any, set[str]]] = {
+                field: {} for field in self._index_fields
+            }
+            for doc in docs.values():
+                self._index_insert(doc, indexes)
             self._docs = docs
-            self._indexes = {field: {} for field in self._index_fields}
-            for doc in self._docs.values():
-                self._index_insert(doc)
+            self._indexes = indexes
             self._loaded = True
 
     def _append_line(self, record: dict) -> None:
@@ -112,10 +118,13 @@ class JsonlStore:
         with self._path.open("a") as f:
             f.write(line + "\n")
 
-    def _index_insert(self, doc: dict) -> None:
+    def _index_insert(
+        self, doc: dict, indexes: dict[str, dict[Any, set[str]]] | None = None
+    ) -> None:
+        target = self._indexes if indexes is None else indexes
         for field in self._index_fields:
             if field in doc:
-                self._indexes[field].setdefault(doc[field], set()).add(doc["_id"])
+                target[field].setdefault(doc[field], set()).add(doc["_id"])
 
     def _index_remove(self, doc: dict) -> None:
         for field in self._index_fields:

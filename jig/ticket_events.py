@@ -23,39 +23,43 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from jig.store.bus import Message, MessageBus, MessageType
+from jig.store.bus import MessageBus
+from jig.substrate.events import TicketCreated
 from jig.ticket import Ticket
 
 if TYPE_CHECKING:
     from jig.store.tickets import TicketStore
 
 
-def _build_payload(ticket: Ticket, *, depends_on: list[str] | None = None) -> dict:
-    """Compose the ``ticket_created`` payload from a Ticket model.
+def _ticket_created_event(
+    ticket: Ticket,
+    *,
+    sender: str,
+    recipient: str,
+    topic: str = "",
+    depends_on: list[str] | None = None,
+) -> TicketCreated:
+    """Build the ``ticket_created`` typed event from a Ticket model.
 
-    The shape mirrors what ``ticket_mcp.handle_create_ticket`` emits
-    so TUI subscribers see a uniform envelope regardless of which
-    creation path produced the ticket. Fields included are the
-    minimum every consumer needs to render a meaningful entry
-    without round-tripping back to the store.
-    """
-    return {
-        "kind": "ticket_created",
-        "ticket_id": ticket.id,
-        "title": ticket.title,
-        "description": ticket.description,
-        "work_type": ticket.work_type.value,
-        # Legacy alias kept while older subscribers still read ``type``.
-        # Drop in lockstep with ``ticket_mcp.handle_create_ticket`` once
-        # the TUI fully migrates to ``work_type``.
-        "type": ticket.work_type.value,
-        "size": ticket.size.value,
-        "assignee": ticket.assignee,
-        "parent_id": ticket.parent_id,
-        "depends_on": list(depends_on) if depends_on else list(ticket.blocked_by),
-        "workflow": ticket.workflow,
-        "status": ticket.status.value,
-    }
+    One uniform envelope regardless of which creation path produced the ticket,
+    so TUI subscribers never see a half-empty dict. ``topic=""`` defaults to the
+    per-ticket topic; ``to_message`` renders the legacy payload (including the
+    ``type`` alias of ``work_type``)."""
+    return TicketCreated(
+        sender=sender,
+        recipient=recipient,
+        topic=topic,
+        ticket_id=ticket.id,
+        title=ticket.title,
+        description=ticket.description,
+        work_type=ticket.work_type.value,
+        size=ticket.size.value,
+        assignee=ticket.assignee,
+        parent_id=ticket.parent_id,
+        depends_on=list(depends_on) if depends_on else list(ticket.blocked_by),
+        workflow=ticket.workflow,
+        status=ticket.status.value,
+    )
 
 
 async def publish_ticket_created(
@@ -99,25 +103,23 @@ async def publish_ticket_created(
     explicit dependency list from the creation path; falls back to
     ``ticket.blocked_by`` when omitted.
     """
-    payload = _build_payload(ticket, depends_on=depends_on)
     if for_dispatch:
         await bus.publish(
-            Message(
+            _ticket_created_event(
+                ticket,
                 sender=sender,
-                to=ticket.assignee or "orchestrator",
-                type=MessageType.CONTEXT_UPDATE,
-                payload=payload,
+                recipient=ticket.assignee or "orchestrator",
                 topic="orchestrator",
-            )
+                depends_on=depends_on,
+            ).to_message()
         )
     await bus.publish(
-        Message(
+        _ticket_created_event(
+            ticket,
             sender=sender,
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=payload,
-            topic=f"tickets.{ticket.id}",
-        )
+            recipient="broadcast",
+            depends_on=depends_on,
+        ).to_message()
     )
 
 

@@ -23,7 +23,7 @@ from jig.uri.design import resolve_design_uri
 from jig.uri.errors import ProjectUriError
 from jig.uri.parser import ProjectUri, parse_project_uri
 from jig.uri.plan import resolve_plan_uri
-from jig.uri.store import resolve_store_uri
+from jig.uri.store import reject_unsupported_store_uri, resolve_store_uri
 
 if TYPE_CHECKING:
     from jig.uri.cache import UriResolverCache
@@ -57,6 +57,13 @@ def resolve_project_uri(
     backward-compatible for callers that haven't adopted caching yet.
     """
     parsed = parse_project_uri(uri) if isinstance(uri, str) else uri
+
+    # Reject unsupported store shapes (fragment / @revision / sub-paths / unwired
+    # collections) BEFORE the cache: cache keys omit the fragment, so a fragmented
+    # store URI would otherwise be answered from a non-fragmented cache entry
+    # instead of raising.
+    if parsed.authority == "store":
+        reject_unsupported_store_uri(parsed)
 
     if cache is not None:
         cached = cache.get(parsed)

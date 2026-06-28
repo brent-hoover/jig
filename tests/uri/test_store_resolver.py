@@ -12,19 +12,28 @@ from pathlib import Path
 import pytest
 
 from jig.store.collection import Collection
+from jig.ticket import Ticket
 from jig.uri.errors import UnimplementedAuthorityError
 from jig.uri.parser import parse_project_uri
 from jig.uri.store import resolve_store_uri
 
 
-async def _seed_ticket(project_root: Path, ticket: dict) -> None:
+def _ticket_row(ticket_id: str, title: str = "A") -> dict:
+    # A valid Ticket (docs work_type is exempt from the AC requirement), in the
+    # serialized form the store persists.
+    return Ticket(
+        id=ticket_id, title=title, work_type="docs", created_by="po"
+    ).model_dump(mode="json", by_alias=True)
+
+
+async def _seed_ticket(project_root: Path, row: dict) -> None:
     store = Collection(project_root / ".jig" / "store" / "tickets.jsonl")
     await store.load()
-    await store.insert(ticket)
+    await store.insert(row)
 
 
 async def test_resolve_a_single_ticket(tmp_path: Path) -> None:
-    await _seed_ticket(tmp_path, {"_id": "jig-1", "title": "Login"})
+    await _seed_ticket(tmp_path, _ticket_row("jig-1", title="Login"))
 
     result = resolve_store_uri(
         parse_project_uri("project://store/tickets/jig-1"), tmp_path
@@ -32,10 +41,13 @@ async def test_resolve_a_single_ticket(tmp_path: Path) -> None:
 
     assert result["kind"] == "ticket"
     assert result["data"]["title"] == "Login"
+    # Normalized through the Ticket model — defaulted fields are present.
+    assert "work_type" in result["data"]
+    assert result["data"]["_id"] == "jig-1"
 
 
 async def test_resolve_a_missing_ticket_returns_none_data(tmp_path: Path) -> None:
-    await _seed_ticket(tmp_path, {"_id": "jig-1", "title": "Login"})
+    await _seed_ticket(tmp_path, _ticket_row("jig-1", title="Login"))
 
     result = resolve_store_uri(
         parse_project_uri("project://store/tickets/ghost"), tmp_path
@@ -45,8 +57,8 @@ async def test_resolve_a_missing_ticket_returns_none_data(tmp_path: Path) -> Non
 
 
 async def test_resolve_the_ticket_list(tmp_path: Path) -> None:
-    await _seed_ticket(tmp_path, {"_id": "jig-1", "title": "A"})
-    await _seed_ticket(tmp_path, {"_id": "jig-2", "title": "B"})
+    await _seed_ticket(tmp_path, _ticket_row("jig-1", title="A"))
+    await _seed_ticket(tmp_path, _ticket_row("jig-2", title="B"))
 
     result = resolve_store_uri(parse_project_uri("project://store/tickets"), tmp_path)
 

@@ -256,6 +256,26 @@ async def test_ticket_state_change_invalidates_the_ticket_list(emitter):
     assert cache.get(sibling) is not None  # but an unrelated ticket survives
 
 
+async def test_ticket_create_invalidates_list_and_previously_missing_entry(emitter):
+    # A create fires TicketStateChanged(from_state=None); it must invalidate the
+    # ticket list AND any previously-cached "missing" entry for the new id.
+    cache = UriResolverCache()
+    ticket_list = parse_project_uri("project://store/tickets")
+    new_id = parse_project_uri("project://store/tickets/t-099")
+    cache.put(ticket_list, _resolved(kind="store"))
+    cache.put(new_id, _resolved(kind="store", data=None))  # cached miss
+    cache.subscribe_to_events(emitter)
+
+    await emitter.emit(
+        TicketStateChanged(
+            ticket_id="t-099", from_state=None, to_state="open", timestamp=_ts()
+        )
+    )
+
+    assert cache.get(ticket_list) is None
+    assert cache.get(new_id) is None
+
+
 async def test_unrelated_event_does_not_invalidate(emitter):
     cache = UriResolverCache()
     arch = parse_project_uri("project://arch/architecture")

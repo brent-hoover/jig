@@ -51,16 +51,21 @@ def _replay_jsonl(path: Path) -> dict[str, dict[str, Any]]:
     return docs
 
 
-def resolve_store_uri(uri: ProjectUri, project_root: Path) -> dict[str, Any]:
+def reject_unsupported_store_uri(uri: ProjectUri) -> None:
+    """Raise for store URIs PR B doesn't resolve. Called *before* the resolver
+    cache (whose key omits the fragment) so a fragmented URI can't be answered
+    from a non-fragmented cache entry; also called at the top of
+    ``resolve_store_uri`` for direct callers.
+
+    Rejects: unwired collections (only ``tickets``), sub-document paths,
+    fragments, and ``@revision`` pins (resolving the latest while reporting a
+    pinned revision would mislead the caller).
+    """
     collection = uri.path[0] if uri.path else None
     if collection not in _WIRED_FILES:
         raise UnimplementedAuthorityError(
             f"store collection {collection!r} not yet wired; got {uri!r}"
         )
-    # Only the exact wired shapes resolve: `tickets` and `tickets/<id>`. Deeper
-    # paths (sub-document addressing), fragments, and @revision pins are a
-    # follow-on — reject them rather than silently resolving the parent / the
-    # latest state (which would let a caller believe they pinned a revision).
     if uri.fragment is not None or len(uri.path) > 2:
         raise UnimplementedAuthorityError(
             f"store sub-addressing not yet wired; got {uri!r}"
@@ -70,11 +75,28 @@ def resolve_store_uri(uri: ProjectUri, project_root: Path) -> dict[str, Any]:
             f"store @revision pinning not yet wired; got {uri!r}"
         )
 
+
+def _normalize_ticket(row: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a raw JSONL row through the ``Ticket`` model so a URI read
+    matches what ``TicketStore`` returns (defaults applied, aliases canonical)."""
+    from jig.ticket import Ticket
+
+    return Ticket.model_validate(row).model_dump(mode="json", by_alias=True)
+
+
+def resolve_store_uri(uri: ProjectUri, project_root: Path) -> dict[str, Any]:
+    reject_unsupported_store_uri(uri)
+    collection = uri.path[0]
+
     path = project_root / ".jig" / "store" / f"{_WIRED_FILES[collection]}.jsonl"
     docs = _replay_jsonl(path)
 
     if len(uri.path) == 1:  # project://store/tickets -> the list
-        return {"kind": "ticket_list", "data": list(docs.values())}
+        return {
+            "kind": "ticket_list",
+            "data": [_normalize_ticket(d) for d in docs.values()],
+        }
 
     doc_id = uri.path[1]  # project://store/tickets/<id> -> one (or None)
-    return {"kind": "ticket", "data": docs.get(doc_id)}
+    row = docs.get(doc_id)
+    return {"kind": "ticket", "data": _normalize_ticket(row) if row else None}

@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from jig.uri.errors import ProjectUriError, UnimplementedAuthorityError
 from jig.uri.parser import parse_project_uri
@@ -56,7 +56,9 @@ class StoreAuthority:
         self._root = Path(project_root)
         self._cache = cache
         # The authorities this instance may write. Default: all five. A scoped
-        # instance (e.g. Discovery -> {"spec"}) rejects writes elsewhere.
+        # instance (e.g. Discovery -> {"spec"}) rejects writes elsewhere; the
+        # empty set is a valid **read-only** authority (every write rejected,
+        # reads still work).
         if writable is None:
             self._writable: frozenset[str] = frozenset(self.AUTHORITIES)
         else:
@@ -81,7 +83,7 @@ class StoreAuthority:
         """Resolve a ``project://`` URI to its artifact (or fragment thereof)."""
         return resolve_project_uri(uri, self._root, cache=self._cache)
 
-    async def write(self, uri: str, doc: dict) -> str:
+    async def write(self, uri: str, doc: dict[str, Any]) -> str:
         """Write ``doc`` to the artifact addressed by ``uri`` — through the
         security gate.
 

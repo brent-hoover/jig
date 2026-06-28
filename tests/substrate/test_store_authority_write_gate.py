@@ -96,3 +96,13 @@ def test_construction_rejects_a_writable_authority_outside_the_closed_set(
 ) -> None:
     with pytest.raises(ValueError, match="not a valid authority"):
         StoreAuthority(tmp_path, writable=("spec", "bogus"))
+
+
+async def test_empty_writable_is_a_read_only_authority(tmp_path) -> None:
+    # writable=() is a valid read-only StoreAuthority: every write is rejected,
+    # but reads still work.
+    sa = StoreAuthority(tmp_path, writable=())
+    assert sa.writable == frozenset()
+    for authority in StoreAuthority.AUTHORITIES:
+        with pytest.raises(WriteNotAuthorizedError):
+            await sa.write(f"project://{authority}/x", {"x": 1})

@@ -64,12 +64,12 @@ class StoreAuthority:
         self._cache = cache
         # The typed ticket store backing ``store`` writes. When injected (the
         # orchestrator passes its already-loaded, callback-wired instance) we
-        # share it — one loaded store, so create-lock/seq state and the bus
-        # callbacks are consistent. When ``None`` we lazily build + load one on
-        # the canonical path; that owned instance has no callbacks (nothing to
-        # announce to) but still enforces every schema/transition/lock invariant.
+        # share it — one store, so create-lock/seq state and the bus callbacks
+        # are consistent. When ``None`` we lazily build one on the canonical
+        # path; that instance has no callbacks (nothing to announce to) but
+        # still enforces every schema/transition/lock invariant. Either way each
+        # write reloads it before deciding create vs update (see ``_write_store``).
         self._ticket_store = tickets
-        self._owns_ticket_store = tickets is None
         # The authorities this instance may write. Default: all five. A scoped
         # instance (e.g. Discovery -> {"spec"}) rejects writes elsewhere; the
         # empty set is a valid **read-only** authority (every write rejected,
@@ -169,15 +169,16 @@ class StoreAuthority:
 
         ticket_id = parsed.path[1]
         store = await self._tickets()
-        if self._owns_ticket_store:
-            # An owned store's in-memory snapshot can go stale relative to
-            # another process between writes. Reload so the create-vs-update
-            # decision reflects current disk state — otherwise a write to a
-            # ticket another process already created would wrongly take the
-            # create branch (spurious "already exists", or a partial body
-            # failing full-ticket validation). An *injected* store is the
-            # caller's live, authoritative instance; we trust it's current.
-            await store.load()
+        # Reload before the create-vs-update decision so it reflects current disk
+        # state. ANY store — owned or injected — can be stale relative to another
+        # process that created this ticket since the store last loaded; a stale
+        # miss would wrongly take the create branch (a spurious "already exists"
+        # from enforce_unique_id, or a partial body failing full-ticket
+        # validation). Reload preserves the store's callbacks (they live on the
+        # TicketStore, not the reloaded collection). The genuinely-concurrent
+        # create window that remains is closed under the flock by
+        # ``enforce_unique_id`` below.
+        await store.load()
         existing = await store.get(ticket_id)
         if existing is None:
             from jig.ticket import Ticket

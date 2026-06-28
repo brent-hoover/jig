@@ -124,6 +124,24 @@ async def test_write_to_an_unwired_store_collection_raises(tmp_path) -> None:
         await sa.write("project://store/threads/jig-1", {"x": 1})
 
 
+async def test_write_through_a_stale_injected_store_still_updates(tmp_path) -> None:
+    # An injected store that loaded before another process created the ticket is
+    # also stale; the write must still reload and UPDATE, not take the create
+    # branch. (Covers the injected case, not just owned stores.)
+    injected = TicketStore(tmp_path / ".jig" / "store" / "tickets.jsonl")
+    await injected.load()  # empty snapshot
+
+    other = StoreAuthority(tmp_path)  # a separate "process"
+    await other.write("project://store/tickets/jig-1", _doc(title="From other"))
+
+    sa = StoreAuthority(tmp_path, tickets=injected)  # injected store is now stale
+    await sa.write("project://store/tickets/jig-1", {"title": "Updated via injected"})
+    assert (
+        sa.read("project://store/tickets/jig-1").data["data"]["title"]
+        == "Updated via injected"
+    )
+
+
 async def test_write_create_validates_the_schema(tmp_path) -> None:
     # Missing required fields (work_type/created_by) must fail at the model, not
     # land a malformed row on disk.

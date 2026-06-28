@@ -157,22 +157,41 @@ def test_decode_round_trips_ticket_created() -> None:
     assert decoded.sender == "cli"
 
 
-def test_decode_round_trips_ticket_updated_including_internal() -> None:
-    for internal in (False, True):
-        event = TicketUpdated(
-            sender="dev",
-            recipient="orchestrator",
-            topic="orchestrator",
-            ticket_id="jig-1",
-            status="resolved",
-            internal=internal,
-        )
-        decoded = decode_event(event.to_message())
-        assert isinstance(decoded, TicketUpdated)
-        assert decoded.internal is internal
-        assert decoded.status == "resolved"
-        assert decoded.topic == "orchestrator"
-        assert decoded.to_message().payload == event.to_message().payload
+def test_decode_preserves_an_explicit_dispatch_topic() -> None:
+    # The orchestrator-dispatch copy sets topic="orchestrator" explicitly; the
+    # envelope (not just the default per-ticket topic) must survive the decode.
+    event = TicketCreated(
+        sender="cli",
+        recipient="orchestrator",
+        topic="orchestrator",
+        ticket_id="jig-1",
+        title="T",
+        work_type="feature",
+        size="m",
+        status="open",
+    )
+    decoded = decode_event(event.to_message())
+    assert isinstance(decoded, TicketCreated)
+    assert decoded.topic == "orchestrator"
+    assert decoded.recipient == "orchestrator"
+
+
+@pytest.mark.parametrize("internal", [False, True])
+def test_decode_round_trips_ticket_updated_including_internal(internal: bool) -> None:
+    event = TicketUpdated(
+        sender="dev",
+        recipient="orchestrator",
+        topic="orchestrator",
+        ticket_id="jig-1",
+        status="resolved",
+        internal=internal,
+    )
+    decoded = decode_event(event.to_message())
+    assert isinstance(decoded, TicketUpdated)
+    assert decoded.internal is internal
+    assert decoded.status == "resolved"
+    assert decoded.topic == "orchestrator"
+    assert decoded.to_message().payload == event.to_message().payload
 
 
 def test_decode_returns_none_for_an_untyped_kind() -> None:

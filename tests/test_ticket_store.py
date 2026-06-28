@@ -26,25 +26,29 @@ async def test_create_and_get(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_enforce_unique_id_rejects_cross_instance_duplicate(
+async def test_write_addressed_decides_create_vs_update_against_fresh_disk(
     tmp_path: Path,
 ) -> None:
     # Two stores on one path, both loaded empty (i.e. two processes that loaded
-    # before either wrote). enforce_unique_id re-reads disk inside the flock, so
-    # the second create of the same explicit id is rejected rather than silently
-    # appending a duplicate insert. (The default in-memory check would miss it.)
+    # before either wrote). write_addressed reloads under the flock, so the
+    # second call sees the first's create and UPDATES rather than failing the
+    # create — the decision reflects current disk state, not a stale snapshot.
     path = tmp_path / "tickets.jsonl"
     s1 = TicketStore(path)
     s2 = TicketStore(path)
     await s1.load()
     await s2.load()
 
-    def _t(title: str) -> Ticket:
-        return Ticket(id="dup", work_type=WorkType.DOCS, title=title, created_by="po")
+    base = {"work_type": "docs", "created_by": "po"}
+    ticket1, created1 = await s1.write_addressed("login", {**base, "title": "first"})
+    assert created1 is True
+    assert ticket1.key == "jig-1"
 
-    await s1.create(_t("first"), enforce_unique_id=True)
-    with pytest.raises(ValueError, match="already exists"):
-        await s2.create(_t("second"), enforce_unique_id=True)
+    # s2's snapshot is stale (empty); write_addressed must reload and update.
+    ticket2, created2 = await s2.write_addressed("login", {**base, "title": "second"})
+    assert created2 is False
+    assert ticket2.title == "second"
+    assert ticket2.id == "login"
 
 
 @pytest.mark.asyncio

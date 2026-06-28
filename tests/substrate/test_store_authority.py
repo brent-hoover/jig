@@ -8,6 +8,8 @@ typed ``TicketStore`` (PR B2); the other authorities remain the declared seam.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -166,15 +168,28 @@ async def test_write_create_rejects_a_caller_supplied_key(tmp_path) -> None:
         await sa.write("project://store/tickets/login", _doc(key="jig-999"))
 
 
-async def test_write_update_cannot_change_the_key_but_may_echo_it(tmp_path) -> None:
+async def test_write_update_rejects_any_caller_supplied_key(tmp_path) -> None:
+    # The key is server-owned; a write body may never carry it, even the current
+    # value (a full-ticket round-trip must drop it).
     sa = StoreAuthority(tmp_path)
     await sa.write("project://store/tickets/login", _doc(title="A"))  # gets key jig-1
-    # Echoing the assigned key is fine (read-modify-write round-trip).
-    await sa.write("project://store/tickets/login", {"key": "jig-1", "title": "B"})
-    assert sa.read("project://store/tickets/login").data["data"]["title"] == "B"
-    # Changing it is rejected.
     with pytest.raises(ProjectUriError, match="key"):
-        await sa.write("project://store/tickets/login", {"key": "jig-2"})
+        await sa.write("project://store/tickets/login", {"key": "jig-1", "title": "B"})
+
+
+async def test_concurrent_writes_to_a_new_id_create_then_update(tmp_path) -> None:
+    # Two concurrent writes to the same brand-new id on a shared store. The
+    # decision is made under the cross-process lock, so exactly one creates and
+    # the other updates — neither fails. (Without the under-lock decision, both
+    # would miss and one create would collide.)
+    sa = StoreAuthority(tmp_path)
+    await asyncio.gather(
+        sa.write("project://store/tickets/login", _doc(title="A")),
+        sa.write("project://store/tickets/login", _doc(title="B")),
+    )
+    data = sa.read("project://store/tickets/login").data["data"]
+    assert data["title"] in {"A", "B"}
+    assert data["key"] == "jig-1"  # one create -> one key assigned
 
 
 async def test_write_to_a_ticket_another_instance_created_updates_it(tmp_path) -> None:

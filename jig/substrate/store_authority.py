@@ -180,55 +180,33 @@ class StoreAuthority:
                 f"store-write ticket id {ticket_id!r} uses the reserved jig-N "
                 "key namespace; ids and server-assigned keys must be disjoint"
             )
+        body = self._prepare_body(ticket_id, doc)
         store = await self._tickets()
-        # Reload before the create-vs-update decision so it reflects current disk
-        # state. ANY store — owned or injected — can be stale relative to another
-        # process that created this ticket since the store last loaded; a stale
-        # miss would wrongly take the create branch (a spurious "already exists"
-        # from enforce_unique_id, or a partial body failing full-ticket
-        # validation). Reload preserves the store's callbacks (they live on the
-        # TicketStore, not the reloaded collection). The genuinely-concurrent
-        # create window that remains is closed under the flock by
-        # ``enforce_unique_id`` below.
-        await store.load()
-        existing = await store.get(ticket_id)
-        if existing is None:
-            from jig.ticket import Ticket
-
-            # current_key="" — no ticket yet, so the body must not preset a key.
-            body = self._prepare_body(ticket_id, doc, current_key="")
-            # enforce_unique_id: the explicit URI id is checked against disk
-            # under the store's cross-process lock (the in-memory miss above can
-            # be stale relative to a concurrent writer).
-            await store.create(
-                Ticket.model_validate({**body, "_id": ticket_id}),
-                enforce_unique_id=True,
-            )
-        else:
-            body = self._prepare_body(ticket_id, doc, current_key=existing.key)
-            await store.update(ticket_id, **body)
+        # The create-vs-update decision is made atomically inside TicketStore
+        # under the cross-process lock against fresh disk state — so a write can
+        # never race a concurrent create into a spurious failure (partial body
+        # failing create-validation, or a full body raising duplicate-id).
+        await store.write_addressed(ticket_id, body)
         return ticket_id
 
     @staticmethod
-    def _prepare_body(
-        ticket_id: str, doc: dict[str, Any], *, current_key: str
-    ) -> dict[str, Any]:
+    def _prepare_body(ticket_id: str, doc: dict[str, Any]) -> dict[str, Any]:
         """Strip the server-owned identity fields (``id``/``_id``, ``key``) from
-        the write body and reject any attempt to set them to a new value.
+        the write body and reject any attempt to set them.
 
-        The id is the address, not a mutable field. The ``jig-N`` ``key`` is
-        assigned by ``TicketStore`` and is immutable. A body may *echo* the
-        correct value (natural for a read-modify-write round-trip), but a
-        *different* value is a caller bug surfaced loudly, never silently won."""
+        The id is the address, not a mutable field — a body naming a different id
+        is a caller bug, surfaced loudly. The ``jig-N`` ``key`` is server-assigned
+        and never accepted from a writer (a non-empty value is rejected; strip it
+        so a full-ticket round-trip drops it rather than fighting the store)."""
         for id_key in ("id", "_id"):
             if id_key in doc and doc[id_key] != ticket_id:
                 raise ProjectUriError(
                     f"ticket body {id_key}={doc[id_key]!r} conflicts with "
                     f"URI id {ticket_id!r}"
                 )
-        if "key" in doc and doc["key"] not in ("", current_key):
+        if doc.get("key"):
             raise ProjectUriError(
-                f"ticket body key={doc['key']!r} cannot set or change the "
-                f"server-assigned jig-N key (current {current_key!r})"
+                f"ticket body key={doc['key']!r} cannot be set; the jig-N key is "
+                "server-assigned"
             )
         return {k: v for k, v in doc.items() if k not in ("id", "_id", "key")}

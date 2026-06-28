@@ -82,9 +82,32 @@ async def test_typed_port_and_uri_door_share_one_ticket_store(tmp_path) -> None:
 
     # write via the URI door -> visible through the typed port (same instance)
     await sa.write("project://store/tickets/signup", _doc(title="Signup"))
-    assert sa.tickets is sa._ticket_store  # one instance
     fetched = await sa.tickets.get("signup")
     assert fetched is not None and fetched.title == "Signup"
+
+
+async def test_load_reuses_an_injected_ticket_store(tmp_path) -> None:
+    # load() must not replace an injected ticket store — the URI-write/runtime
+    # shared-instance guarantee (and its callbacks) depends on it.
+    store_dir = tmp_path / ".jig" / "store"
+    store_dir.mkdir(parents=True)
+    injected = TicketStore(store_dir / "tickets.jsonl")
+    await injected.load()
+
+    sa = StoreAuthority(tmp_path, tickets=injected)
+    await sa.load()
+    assert sa.tickets is injected
+
+
+async def test_load_is_idempotent(tmp_path) -> None:
+    # A second load() is a no-op: the vended ports keep their identity rather
+    # than being silently replaced (which would orphan the originals).
+    sa = StoreAuthority(tmp_path)
+    await sa.load()
+    threads, tickets = sa.threads, sa.tickets
+    await sa.load()
+    assert sa.threads is threads
+    assert sa.tickets is tickets
 
 
 async def test_uri_write_fires_the_vended_ports_create_callback(tmp_path) -> None:

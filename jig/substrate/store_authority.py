@@ -27,7 +27,7 @@ import asyncio
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from jig.uri.errors import ProjectUriError, UnimplementedAuthorityError
 from jig.uri.parser import ProjectUri, parse_project_uri
@@ -36,6 +36,8 @@ from jig.uri.resolver import ResolvedUri, resolve_project_uri
 # Same grammar the parser applies to path segments; the parser does NOT apply it
 # to fragment components, so the write gate validates those itself.
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9_-]+$")
+
+_StoreT = TypeVar("_StoreT")
 
 # The ``jig-N`` namespace is reserved for the server-assigned ticket ``key``
 # (TicketStore.create issues ``jig-1``, ``jig-2``, …). A store-write URI id must
@@ -133,7 +135,13 @@ class StoreAuthority:
         An injected ticket store (the write-path back-compat / test seam) is
         used as-is and assumed already loaded; everything else is built here on
         the canonical ``.jig/store`` paths and loaded together.
+
+        Idempotent: a second call is a no-op — re-running it would orphan the
+        already-vended stores (and break the shared-instance invariant for
+        everything but tickets). Call once at startup.
         """
+        if self._threads is not None:
+            return
         from jig.store.check_results import CheckResultsStore
         from jig.store.checkpoints import CheckpointStore
         from jig.store.memory import MemoryStore
@@ -161,7 +169,7 @@ class StoreAuthority:
         await asyncio.gather(*to_load)
 
     @staticmethod
-    def _require(store: Any, name: str) -> Any:
+    def _require(store: "_StoreT | None", name: str) -> "_StoreT":
         if store is None:
             raise RuntimeError(
                 f"StoreAuthority.load() must be called before accessing the "

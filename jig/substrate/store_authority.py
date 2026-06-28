@@ -169,6 +169,15 @@ class StoreAuthority:
 
         ticket_id = parsed.path[1]
         store = await self._tickets()
+        if self._owns_ticket_store:
+            # An owned store's in-memory snapshot can go stale relative to
+            # another process between writes. Reload so the create-vs-update
+            # decision reflects current disk state — otherwise a write to a
+            # ticket another process already created would wrongly take the
+            # create branch (spurious "already exists", or a partial body
+            # failing full-ticket validation). An *injected* store is the
+            # caller's live, authoritative instance; we trust it's current.
+            await store.load()
         existing = await store.get(ticket_id)
         if existing is None:
             from jig.ticket import Ticket

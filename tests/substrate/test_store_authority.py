@@ -151,16 +151,18 @@ async def test_write_update_cannot_change_the_key_but_may_echo_it(tmp_path) -> N
         await sa.write("project://store/tickets/jig-1", {"key": "jig-2"})
 
 
-async def test_write_create_is_cross_instance_id_unique(tmp_path) -> None:
-    # Two StoreAuthority instances (separate in-memory TicketStores on one path,
-    # i.e. two processes) must not both create the same explicit URI id. The
-    # second's stale in-memory miss is caught against disk under the store lock.
+async def test_write_to_a_ticket_another_instance_created_updates_it(tmp_path) -> None:
+    # Two StoreAuthority instances on one path (i.e. two processes). sa2's
+    # in-memory snapshot predates jig-1's creation by sa1; a write to jig-1 must
+    # reload and UPDATE the existing on-disk ticket, not wrongly take the create
+    # branch (which would spuriously fail).
     sa1 = StoreAuthority(tmp_path)
     sa2 = StoreAuthority(tmp_path)
-    # sa2 loads its store now (writing an unrelated ticket); its snapshot
-    # predates sa1's write below.
-    await sa2.write("project://store/tickets/other", _doc())
-    await sa1.write("project://store/tickets/jig-1", _doc())
+    await sa2.write("project://store/tickets/other", _doc())  # sa2 snapshot: {other}
+    await sa1.write("project://store/tickets/jig-1", _doc(title="From sa1"))
 
-    with pytest.raises(ValueError, match="already exists"):
-        await sa2.write("project://store/tickets/jig-1", _doc())
+    await sa2.write("project://store/tickets/jig-1", {"title": "Updated by sa2"})
+    assert (
+        sa1.read("project://store/tickets/jig-1").data["data"]["title"]
+        == "Updated by sa2"
+    )

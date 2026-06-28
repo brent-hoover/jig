@@ -26,6 +26,28 @@ async def test_create_and_get(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_enforce_unique_id_rejects_cross_instance_duplicate(
+    tmp_path: Path,
+) -> None:
+    # Two stores on one path, both loaded empty (i.e. two processes that loaded
+    # before either wrote). enforce_unique_id re-reads disk inside the flock, so
+    # the second create of the same explicit id is rejected rather than silently
+    # appending a duplicate insert. (The default in-memory check would miss it.)
+    path = tmp_path / "tickets.jsonl"
+    s1 = TicketStore(path)
+    s2 = TicketStore(path)
+    await s1.load()
+    await s2.load()
+
+    def _t(title: str) -> Ticket:
+        return Ticket(id="dup", work_type=WorkType.DOCS, title=title, created_by="po")
+
+    await s1.create(_t("first"), enforce_unique_id=True)
+    with pytest.raises(ValueError, match="already exists"):
+        await s2.create(_t("second"), enforce_unique_id=True)
+
+
+@pytest.mark.asyncio
 async def test_find_in_progress_top_level(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()

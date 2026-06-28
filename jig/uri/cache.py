@@ -86,21 +86,28 @@ class UriResolverCache:
         self,
         authority: Authority | str,
         path_prefix: tuple[str, ...] | None = None,
+        *,
+        exact: bool = False,
     ) -> None:
-        """Drop entries for ``authority`` (and optionally a path prefix).
+        """Drop entries for ``authority`` (and optionally a path).
 
-        ``path_prefix=None`` drops every entry under ``authority``.  When
-        a prefix is given, only entries whose path *starts with* that
-        prefix are dropped — sibling artifacts in the same authority
-        survive.
+        ``path_prefix=None`` drops every entry under ``authority``.  With a
+        path, the match is *prefix* by default (drops the path and everything
+        under it); ``exact=True`` drops only entries whose path *equals*
+        ``path_prefix`` — e.g. the bare collection-list key, leaving its member
+        entries alone.  Sibling artifacts in the same authority always survive.
         """
         to_drop: list[_Key] = []
         for key in self._entries:
             ent_authority, ent_path, _ = key
             if ent_authority != authority:
                 continue
-            if path_prefix is not None and ent_path[: len(path_prefix)] != path_prefix:
-                continue
+            if path_prefix is not None:
+                if exact:
+                    if ent_path != path_prefix:
+                        continue
+                elif ent_path[: len(path_prefix)] != path_prefix:
+                    continue
             to_drop.append(key)
         for key in to_drop:
             self._entries.pop(key, None)
@@ -169,7 +176,11 @@ class UriResolverCache:
             # currently unreachable via normal resolution. It's retained for
             # manual cachers / parity and exercised directly in tests; if store
             # reads ever become cacheable this invalidation is already wired.
+            # Drop the changed ticket AND the ``project://store/tickets`` list
+            # (its key is the bare ``("tickets",)`` path) — both go stale on any
+            # ticket change — while leaving sibling ticket entries intact.
             self.invalidate("store", path_prefix=("tickets", event.ticket_id))
+            self.invalidate("store", path_prefix=("tickets",), exact=True)
             return
 
 

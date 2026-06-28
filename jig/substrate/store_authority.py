@@ -18,13 +18,18 @@ for now.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jig.uri.errors import UnimplementedAuthorityError
+from jig.uri.errors import ProjectUriError, UnimplementedAuthorityError
 from jig.uri.parser import parse_project_uri
 from jig.uri.resolver import ResolvedUri, resolve_project_uri
+
+# Same grammar the parser applies to path segments; the parser does NOT apply it
+# to fragment components, so the write gate validates those itself.
+_SAFE_SEGMENT = re.compile(r"^[a-z0-9_-]+$")
 
 if TYPE_CHECKING:
     from jig.uri.cache import UriResolverCache
@@ -81,11 +86,19 @@ class StoreAuthority:
         security gate.
 
         Order: (1) parse/validate the URI — malformed, path-traversal, and
-        out-of-set authorities all fail here via the parser's strict rules;
-        (2) authorize the authority against this instance's writable set;
-        (3) persist (not yet wired — raises ``UnimplementedAuthorityError``).
+        out-of-set authorities all fail here via the parser's strict rules, plus
+        a fragment-safety check the parser doesn't do; (2) authorize the
+        authority against this instance's writable set; (3) persist (not yet
+        wired — raises ``UnimplementedAuthorityError``).
         """
-        authority = parse_project_uri(uri).authority  # (1) validate
+        parsed = parse_project_uri(uri)  # (1) validate path + authority
+        if parsed.fragment is not None:  # ...and the fragment (parser skips it)
+            for component in parsed.fragment.split("/"):
+                if not _SAFE_SEGMENT.match(component):
+                    raise ProjectUriError(
+                        f"unsafe fragment component {component!r} in {uri!r}"
+                    )
+        authority = parsed.authority
         if authority not in self._writable:  # (2) authorize
             raise WriteNotAuthorizedError(
                 f"not authorized to write authority {authority!r}; "

@@ -43,6 +43,28 @@ async def test_write_rejects_an_unknown_authority(tmp_path) -> None:
         await sa.write("project://bogus/x", {"x": 1})
 
 
+async def test_write_rejects_fragment_traversal(tmp_path) -> None:
+    # The parser validates path segments but not the fragment; the gate must.
+    sa = StoreAuthority(tmp_path)
+    for uri in (
+        "project://arch/x#../../plan/secret",  # path-style traversal
+        "project://arch/x#..",  # anchor-style traversal
+        "project://spec/name#a/../b",  # interior traversal
+    ):
+        # Must be rejected by the gate, NOT reach persistence
+        # (UnimplementedAuthorityError is a ProjectUriError subclass, so match
+        # the fragment-rejection message to avoid a vacuous pass).
+        with pytest.raises(ProjectUriError, match="fragment"):
+            await sa.write(uri, {"x": 1})
+
+
+async def test_write_allows_a_safe_nested_fragment(tmp_path) -> None:
+    # Legitimate nested addressing (e.g. a thread entry) still passes the gate.
+    sa = StoreAuthority(tmp_path)
+    with pytest.raises(UnimplementedAuthorityError):
+        await sa.write("project://store/tickets/jig-1#entries/e1", {"x": 1})
+
+
 # --- authorization-by-authority ----------------------------------------------
 
 

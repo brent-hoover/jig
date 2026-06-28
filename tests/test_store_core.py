@@ -1,6 +1,33 @@
 # tests/test_store_core.py
+import asyncio
+
 import pytest
 from jig.store.core import JsonlStore, RecordTooLargeError
+
+
+async def test_load_is_serialized_against_concurrent_writes(tmp_path):
+    """load() clears and rebuilds _docs/_indexes, so it must hold the write lock
+    — otherwise a refresh of a live store interleaves with insert/update/delete
+    and corrupts the in-memory map (KeyError, lost writes). Hammering reload
+    against concurrent writers must stay consistent and exception-free."""
+    store = JsonlStore(tmp_path / "s.jsonl", index_fields=["n"])
+    await store.load()
+    await store.insert({"_id": "a", "n": 0})
+
+    async def writer():
+        for i in range(1, 101):
+            await store.update("a", {"n": i})
+
+    async def reloader():
+        for _ in range(100):
+            await store.load()
+
+    # No exception (a race would surface as a KeyError in load()'s update replay
+    # or update()'s in-memory mutation), and the doc survives intact.
+    await asyncio.gather(writer(), reloader(), reloader())
+    doc = await store.get("a")
+    assert doc is not None
+    assert isinstance(doc["n"], int)
 
 
 async def test_insert_rejects_oversize_record(tmp_path):

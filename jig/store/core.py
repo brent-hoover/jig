@@ -40,55 +40,63 @@ class JsonlStore:
     async def load(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.touch(exist_ok=True)
-        self._docs.clear()
-        for field in self._index_fields:
-            self._indexes[field] = {}
-        live_ids: set[str] = set()
-        with self._path.open("r") as f:
-            for line_no, raw in enumerate(f, start=1):
-                line = raw.rstrip("\n")
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError as e:
-                    raise ValueError(
-                        f"{self._path}: malformed JSON on line {line_no}: {e}"
-                    ) from e
-                if "_op" not in record:
-                    raise ValueError(f"{self._path}: missing _op on line {line_no}")
-                if "_id" not in record:
-                    raise ValueError(f"{self._path}: missing _id on line {line_no}")
-                op = record["_op"]
-                doc_id = record["_id"]
-                if op == "insert":
-                    doc = {k: v for k, v in record.items() if k != "_op"}
-                    self._docs[doc_id] = doc
-                    live_ids.add(doc_id)
-                elif op == "update":
-                    if doc_id not in live_ids:
+        # Hold the write lock for the whole rebuild: load() clears and repopulates
+        # _docs/_indexes, so it must not interleave with a concurrent
+        # insert/update/delete (which mutate the same maps under this lock). This
+        # makes load() safe to call on a *live* store to refresh it from disk —
+        # e.g. StoreAuthority reloading a shared TicketStore before a write.
+        async with self._lock:
+            self._docs.clear()
+            for field in self._index_fields:
+                self._indexes[field] = {}
+            live_ids: set[str] = set()
+            with self._path.open("r") as f:
+                for line_no, raw in enumerate(f, start=1):
+                    line = raw.rstrip("\n")
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError as e:
                         raise ValueError(
-                            f"{self._path}:{line_no}: update for unknown id {doc_id!r}"
-                        )
-                    current = self._docs[doc_id]
-                    changes = {
-                        k: v for k, v in record.items() if k not in ("_op", "_id")
-                    }
-                    current.update(changes)
-                elif op == "delete":
-                    if doc_id not in live_ids:
+                            f"{self._path}: malformed JSON on line {line_no}: {e}"
+                        ) from e
+                    if "_op" not in record:
+                        raise ValueError(f"{self._path}: missing _op on line {line_no}")
+                    if "_id" not in record:
+                        raise ValueError(f"{self._path}: missing _id on line {line_no}")
+                    op = record["_op"]
+                    doc_id = record["_id"]
+                    if op == "insert":
+                        doc = {k: v for k, v in record.items() if k != "_op"}
+                        self._docs[doc_id] = doc
+                        live_ids.add(doc_id)
+                    elif op == "update":
+                        if doc_id not in live_ids:
+                            raise ValueError(
+                                f"{self._path}:{line_no}: update for unknown id "
+                                f"{doc_id!r}"
+                            )
+                        current = self._docs[doc_id]
+                        changes = {
+                            k: v for k, v in record.items() if k not in ("_op", "_id")
+                        }
+                        current.update(changes)
+                    elif op == "delete":
+                        if doc_id not in live_ids:
+                            raise ValueError(
+                                f"{self._path}:{line_no}: delete for unknown id "
+                                f"{doc_id!r}"
+                            )
+                        self._docs.pop(doc_id, None)
+                        live_ids.discard(doc_id)
+                    else:
                         raise ValueError(
-                            f"{self._path}:{line_no}: delete for unknown id {doc_id!r}"
+                            f"{self._path}: unknown _op {op!r} on line {line_no}"
                         )
-                    self._docs.pop(doc_id, None)
-                    live_ids.discard(doc_id)
-                else:
-                    raise ValueError(
-                        f"{self._path}: unknown _op {op!r} on line {line_no}"
-                    )
-        for doc in self._docs.values():
-            self._index_insert(doc)
-        self._loaded = True
+            for doc in self._docs.values():
+                self._index_insert(doc)
+            self._loaded = True
 
     def _append_line(self, record: dict) -> None:
         line = json.dumps(record)

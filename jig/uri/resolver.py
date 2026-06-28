@@ -58,7 +58,15 @@ def resolve_project_uri(
     """
     parsed = parse_project_uri(uri) if isinstance(uri, str) else uri
 
-    if cache is not None:
+    # The resolver cache is for *declared artifacts* (spec/arch/design/plan) —
+    # they change rarely and via events the cache subscribes to. The ``store``
+    # authority is mutable runtime state: tickets are created/updated through
+    # many paths (TicketStore.create() and non-status update() emit no
+    # invalidation event), and a JSONL replay is cheap. Caching it would trade
+    # correctness for negligible savings, so store reads always bypass the cache.
+    cacheable = parsed.authority != "store"
+
+    if cache is not None and cacheable:
         cached = cache.get(parsed)
         if cached is not None:
             return cached
@@ -88,7 +96,7 @@ def resolve_project_uri(
     else:
         raise ProjectUriError(f"unhandled authority {parsed.authority!r}")
 
-    if cache is not None:
+    if cache is not None and cacheable:
         cache.put(parsed, result)
     return result
 

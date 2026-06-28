@@ -252,6 +252,14 @@ def test_dispatcher_plan_raises_unimplemented(tmp_path):
         resolve_project_uri("project://plan/build/epics/x", tmp_path)
 
 
-def test_dispatcher_store_raises_unimplemented(tmp_path):
+def test_dispatcher_store_tickets_resolves(tmp_path):
+    # store/tickets read is wired (PR B, #216) — an empty store yields no ticket.
+    resolved = resolve_project_uri("project://store/tickets/t-001", tmp_path)
+    assert resolved.kind == "store"
+    assert resolved.data == {"kind": "ticket", "data": None}
+
+
+def test_dispatcher_store_unwired_collection_raises(tmp_path):
+    # threads/events/etc. are a follow-on.
     with pytest.raises(UnimplementedAuthorityError, match="store"):
-        resolve_project_uri("project://store/tickets/t-001", tmp_path)
+        resolve_project_uri("project://store/threads/t-001", tmp_path)

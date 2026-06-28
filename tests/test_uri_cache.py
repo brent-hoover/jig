@@ -219,6 +219,10 @@ async def test_subscribe_invalidates_on_wireframe_revised(emitter):
 
 
 async def test_subscribe_invalidates_on_ticket_state_changed(emitter):
+    # Exercises handle_event's store-invalidation mechanism directly. NOTE:
+    # resolve_project_uri never caches store reads (see its ``cacheable``
+    # guard), so this path isn't reachable via normal resolution today — this
+    # asserts the invalidation logic is correct should store ever be cached.
     cache = UriResolverCache()
     target = parse_project_uri("project://store/tickets/t-001")
     sibling = parse_project_uri("project://store/tickets/t-002")

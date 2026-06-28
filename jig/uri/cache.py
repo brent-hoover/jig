@@ -164,6 +164,11 @@ class UriResolverCache:
             self.invalidate("design", path_prefix=("wireframes", event.screen_id))
             return
         if isinstance(event, TicketStateChanged):
+            # NB: ``resolve_project_uri`` never caches ``store`` reads (mutable
+            # runtime state — see its ``cacheable`` guard), so this branch is
+            # currently unreachable via normal resolution. It's retained for
+            # manual cachers / parity and exercised directly in tests; if store
+            # reads ever become cacheable this invalidation is already wired.
             self.invalidate("store", path_prefix=("tickets", event.ticket_id))
             return
 

@@ -29,12 +29,12 @@ def test_authority_of_routes_uri_to_its_authority(tmp_path) -> None:
 
 
 def test_read_routes_unwired_authority_to_unimplemented(tmp_path) -> None:
+    # store read is wired (PR B, #216); arch/design/plan remain follow-on.
     sa = StoreAuthority(tmp_path)
     for uri in (
         "project://arch/architecture",
         "project://design/frontend",
         "project://plan/build-plan",
-        "project://store/tickets/jig-1",
     ):
         with pytest.raises(UnimplementedAuthorityError):
             sa.read(uri)
@@ -46,7 +46,9 @@ def test_read_rejects_unknown_authority(tmp_path) -> None:
         sa.read("project://bogus/x")
 
 
-async def test_write_is_the_declared_bones_seam(tmp_path) -> None:
+async def test_write_persistence_is_the_declared_seam(tmp_path) -> None:
+    # Read is wired (PR B); write persistence is a follow-on (must route through
+    # the typed stores), so a gate-passing write still raises.
     sa = StoreAuthority(tmp_path)
     with pytest.raises(UnimplementedAuthorityError):
         await sa.write("project://store/tickets/jig-1", {"id": "jig-1"})

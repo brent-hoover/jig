@@ -240,6 +240,22 @@ async def test_subscribe_invalidates_on_ticket_state_changed(emitter):
     assert cache.get(sibling) is not None
 
 
+async def test_ticket_state_change_invalidates_the_ticket_list(emitter):
+    cache = UriResolverCache()
+    ticket_list = parse_project_uri("project://store/tickets")
+    sibling = parse_project_uri("project://store/tickets/t-002")
+    cache.put(ticket_list, _resolved(kind="store"))
+    cache.put(sibling, _resolved(kind="store"))
+    cache.subscribe_to_events(emitter)
+
+    await emitter.emit(
+        TicketStateChanged(ticket_id="t-001", to_state="done", timestamp=_ts())
+    )
+
+    assert cache.get(ticket_list) is None  # the list went stale
+    assert cache.get(sibling) is not None  # but an unrelated ticket survives
+
+
 async def test_unrelated_event_does_not_invalidate(emitter):
     cache = UriResolverCache()
     arch = parse_project_uri("project://arch/architecture")

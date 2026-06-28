@@ -58,11 +58,16 @@ def resolve_store_uri(uri: ProjectUri, project_root: Path) -> dict[str, Any]:
             f"store collection {collection!r} not yet wired; got {uri!r}"
         )
     # Only the exact wired shapes resolve: `tickets` and `tickets/<id>`. Deeper
-    # paths (sub-document addressing) and fragments are a follow-on — reject them
-    # rather than silently resolving to the parent artifact.
+    # paths (sub-document addressing), fragments, and @revision pins are a
+    # follow-on — reject them rather than silently resolving the parent / the
+    # latest state (which would let a caller believe they pinned a revision).
     if uri.fragment is not None or len(uri.path) > 2:
         raise UnimplementedAuthorityError(
             f"store sub-addressing not yet wired; got {uri!r}"
+        )
+    if uri.revision is not None:
+        raise UnimplementedAuthorityError(
+            f"store @revision pinning not yet wired; got {uri!r}"
         )
 
     path = project_root / ".jig" / "store" / f"{_WIRED_FILES[collection]}.jsonl"

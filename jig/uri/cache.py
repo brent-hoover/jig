@@ -86,21 +86,28 @@ class UriResolverCache:
         self,
         authority: Authority | str,
         path_prefix: tuple[str, ...] | None = None,
+        *,
+        exact: bool = False,
     ) -> None:
-        """Drop entries for ``authority`` (and optionally a path prefix).
+        """Drop entries for ``authority`` (and optionally a path).
 
-        ``path_prefix=None`` drops every entry under ``authority``.  When
-        a prefix is given, only entries whose path *starts with* that
-        prefix are dropped — sibling artifacts in the same authority
-        survive.
+        ``path_prefix=None`` drops every entry under ``authority``.  With a
+        path, only matching entries are dropped — sibling artifacts survive.
+        By default the match is *prefix* (drops the path and everything under
+        it); ``exact=True`` drops only entries whose path *equals* ``path_prefix``
+        (e.g. the bare collection-list key, leaving its members alone).
         """
         to_drop: list[_Key] = []
         for key in self._entries:
             ent_authority, ent_path, _ = key
             if ent_authority != authority:
                 continue
-            if path_prefix is not None and ent_path[: len(path_prefix)] != path_prefix:
-                continue
+            if path_prefix is not None:
+                if exact:
+                    if ent_path != path_prefix:
+                        continue
+                elif ent_path[: len(path_prefix)] != path_prefix:
+                    continue
             to_drop.append(key)
         for key in to_drop:
             self._entries.pop(key, None)
@@ -165,6 +172,10 @@ class UriResolverCache:
             return
         if isinstance(event, TicketStateChanged):
             self.invalidate("store", path_prefix=("tickets", event.ticket_id))
+            # The ``project://store/tickets`` list (cache key = bare ("tickets",)
+            # path) also goes stale on any ticket change; drop it without
+            # touching sibling tickets.
+            self.invalidate("store", path_prefix=("tickets",), exact=True)
             return
 
 

@@ -81,3 +81,12 @@ def test_ticket_fragment_raises(tmp_path: Path) -> None:
         resolve_store_uri(
             parse_project_uri("project://store/tickets/jig-1#sub"), tmp_path
         )
+
+
+def test_ticket_revision_pin_raises(tmp_path: Path) -> None:
+    # @revision pinning isn't materialized; resolving the latest while reporting
+    # a pinned revision would mislead the caller, so reject it.
+    with pytest.raises(UnimplementedAuthorityError):
+        resolve_store_uri(
+            parse_project_uri("project://store/tickets/jig-1@revision:3"), tmp_path
+        )

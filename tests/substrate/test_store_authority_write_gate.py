@@ -6,8 +6,9 @@ outside the closed set) and enforces authorization-by-authority — a StoreAutho
 may be scoped to a set of writable authorities, and a write outside that set is
 rejected with a typed error, never silently coerced.
 
-Persistence is deferred (PR B); a write that passes the gate raises
-``UnimplementedAuthorityError`` for now.
+These tests cover the gate in isolation. Past it, ``store`` persistence is wired
+(PR B2; see ``test_store_authority.py``) while spec/arch/design/plan still raise
+``UnimplementedAuthorityError`` — this file uses those for "passes the gate".
 """
 
 from __future__ import annotations
@@ -59,10 +60,12 @@ async def test_write_rejects_fragment_traversal(tmp_path) -> None:
 
 
 async def test_write_allows_a_safe_nested_fragment(tmp_path) -> None:
-    # Legitimate nested addressing (e.g. a thread entry) still passes the gate.
+    # Legitimate nested addressing passes the gate's fragment-safety check and
+    # reaches persistence. Uses arch (persistence still deferred) so the test
+    # isolates the gate — store now rejects fragments at its own write layer.
     sa = StoreAuthority(tmp_path)
     with pytest.raises(UnimplementedAuthorityError):
-        await sa.write("project://store/tickets/jig-1#entries/e1", {"x": 1})
+        await sa.write("project://arch/modules/x#entries/e1", {"x": 1})
 
 
 # --- authorization-by-authority ----------------------------------------------

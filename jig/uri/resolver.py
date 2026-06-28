@@ -23,7 +23,7 @@ from jig.uri.design import resolve_design_uri
 from jig.uri.errors import ProjectUriError
 from jig.uri.parser import ProjectUri, parse_project_uri
 from jig.uri.plan import resolve_plan_uri
-from jig.uri.store import reject_unsupported_store_uri, resolve_store_uri
+from jig.uri.store import resolve_store_uri
 
 if TYPE_CHECKING:
     from jig.uri.cache import UriResolverCache
@@ -58,14 +58,15 @@ def resolve_project_uri(
     """
     parsed = parse_project_uri(uri) if isinstance(uri, str) else uri
 
-    # Reject unsupported store shapes (fragment / @revision / sub-paths / unwired
-    # collections) BEFORE the cache: cache keys omit the fragment, so a fragmented
-    # store URI would otherwise be answered from a non-fragmented cache entry
-    # instead of raising.
-    if parsed.authority == "store":
-        reject_unsupported_store_uri(parsed)
+    # The resolver cache is for *declared artifacts* (spec/arch/design/plan) —
+    # they change rarely and via events the cache subscribes to. The ``store``
+    # authority is mutable runtime state: tickets are created/updated through
+    # many paths (TicketStore.create() and non-status update() emit no
+    # invalidation event), and a JSONL replay is cheap. Caching it would trade
+    # correctness for negligible savings, so store reads always bypass the cache.
+    cacheable = parsed.authority != "store"
 
-    if cache is not None:
+    if cache is not None and cacheable:
         cached = cache.get(parsed)
         if cached is not None:
             return cached
@@ -95,7 +96,7 @@ def resolve_project_uri(
     else:
         raise ProjectUriError(f"unhandled authority {parsed.authority!r}")
 
-    if cache is not None:
+    if cache is not None and cacheable:
         cache.put(parsed, result)
     return result
 

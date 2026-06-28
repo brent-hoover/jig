@@ -102,3 +102,29 @@ def test_ticket_revision_pin_raises(tmp_path: Path) -> None:
         resolve_store_uri(
             parse_project_uri("project://store/tickets/jig-1@revision:3"), tmp_path
         )
+
+
+def _write_oplog(project_root: Path, *lines: str) -> None:
+    path = project_root / ".jig" / "store" / "tickets.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(line + "\n" for line in lines))
+
+
+def test_replay_rejects_update_before_insert(tmp_path: Path) -> None:
+    # Corrupt op-log: a raw dict-replay would raise KeyError; we raise a
+    # contextual ValueError matching the canonical store, not mask it.
+    _write_oplog(tmp_path, '{"_op": "update", "_id": "jig-1", "title": "X"}')
+    with pytest.raises(ValueError, match="update for unknown id"):
+        resolve_store_uri(parse_project_uri("project://store/tickets"), tmp_path)
+
+
+def test_replay_rejects_delete_before_insert(tmp_path: Path) -> None:
+    _write_oplog(tmp_path, '{"_op": "delete", "_id": "jig-1"}')
+    with pytest.raises(ValueError, match="delete for unknown id"):
+        resolve_store_uri(parse_project_uri("project://store/tickets"), tmp_path)
+
+
+def test_replay_rejects_unknown_op(tmp_path: Path) -> None:
+    _write_oplog(tmp_path, '{"_op": "frobnicate", "_id": "jig-1"}')
+    with pytest.raises(ValueError, match="unknown _op"):
+        resolve_store_uri(parse_project_uri("project://store/tickets"), tmp_path)

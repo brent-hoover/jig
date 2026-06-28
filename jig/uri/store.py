@@ -29,33 +29,56 @@ _WIRED_FILES: dict[str, str] = {"tickets": "tickets"}
 
 def _replay_jsonl(path: Path) -> dict[str, dict[str, Any]]:
     """Replay a JSONL op-log to the current ``{_id: doc}`` state. Missing file ->
-    empty (a store that hasn't been written yet)."""
+    empty (a store that hasn't been written yet).
+
+    Validation mirrors ``jig.store.core.JsonlStore.load`` so a resolver read of a
+    corrupt op-log fails the same way the canonical async store would, rather than
+    masking it (e.g. update-before-insert -> ``KeyError``) or silently dropping it.
+    """
     docs: dict[str, dict[str, Any]] = {}
     if not path.exists():
         return docs
     with path.open("r") as f:
-        for line in f:
-            line = line.rstrip("\n")
+        for line_no, raw in enumerate(f, start=1):
+            line = raw.rstrip("\n")
             if not line:
                 continue
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"{path}: malformed JSON on line {line_no}: {e}"
+                ) from e
+            if "_op" not in record:
+                raise ValueError(f"{path}: missing _op on line {line_no}")
+            if "_id" not in record:
+                raise ValueError(f"{path}: missing _id on line {line_no}")
             op, doc_id = record["_op"], record["_id"]
             if op == "insert":
                 docs[doc_id] = {k: v for k, v in record.items() if k != "_op"}
             elif op == "update":
+                if doc_id not in docs:
+                    raise ValueError(
+                        f"{path}:{line_no}: update for unknown id {doc_id!r}"
+                    )
                 docs[doc_id].update(
                     {k: v for k, v in record.items() if k not in ("_op", "_id")}
                 )
             elif op == "delete":
+                if doc_id not in docs:
+                    raise ValueError(
+                        f"{path}:{line_no}: delete for unknown id {doc_id!r}"
+                    )
                 docs.pop(doc_id, None)
+            else:
+                raise ValueError(f"{path}: unknown _op {op!r} on line {line_no}")
     return docs
 
 
 def reject_unsupported_store_uri(uri: ProjectUri) -> None:
-    """Raise for store URIs PR B doesn't resolve. Called *before* the resolver
-    cache (whose key omits the fragment) so a fragmented URI can't be answered
-    from a non-fragmented cache entry; also called at the top of
-    ``resolve_store_uri`` for direct callers.
+    """Raise for store URIs PR B doesn't resolve. Called at the top of
+    ``resolve_store_uri``. (The resolver never caches store reads, so there's no
+    cache-bypass concern here — store is mutable runtime state, always read fresh.)
 
     Rejects: unwired collections (only ``tickets``), sub-document paths,
     fragments, and ``@revision`` pins (resolving the latest while reporting a

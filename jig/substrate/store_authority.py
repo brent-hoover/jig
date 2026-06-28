@@ -11,9 +11,14 @@ parses + validates the URI (rejecting malformed/traversal URIs and authorities
 outside the closed set — enforced by the parser's strict segment rule) and
 enforces **authorization-by-authority**. A ``StoreAuthority`` may be scoped to a
 set of *writable* authorities; a write outside that set is rejected with a typed
-``WriteNotAuthorizedError``, never silently coerced. Persistence is wired in a
-follow-on PR — a write that passes the gate raises ``UnimplementedAuthorityError``
-for now.
+``WriteNotAuthorizedError``, never silently coerced.
+
+Past the gate, ``store`` writes persist through the typed ``TicketStore`` (PR B2)
+— never a raw dict append — so the store's invariants hold: schema validation,
+the operator-gated ``PROPOSED -> OPEN`` transition rule, the cross-process create
+lock + ``jig-N`` key counter, and the create/status-change callbacks. The other
+four authorities (spec/arch/design/plan) raise ``UnimplementedAuthorityError``
+until their owning tracks wire persistence.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from jig.uri.errors import ProjectUriError, UnimplementedAuthorityError
-from jig.uri.parser import parse_project_uri
+from jig.uri.parser import ProjectUri, parse_project_uri
 from jig.uri.resolver import ResolvedUri, resolve_project_uri
 
 # Same grammar the parser applies to path segments; the parser does NOT apply it
@@ -32,6 +37,7 @@ from jig.uri.resolver import ResolvedUri, resolve_project_uri
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9_-]+$")
 
 if TYPE_CHECKING:
+    from jig.store.tickets import TicketStore
     from jig.uri.cache import UriResolverCache
 
 
@@ -52,9 +58,18 @@ class StoreAuthority:
         *,
         cache: "UriResolverCache | None" = None,
         writable: Iterable[str] | None = None,
+        tickets: "TicketStore | None" = None,
     ) -> None:
         self._root = Path(project_root)
         self._cache = cache
+        # The typed ticket store backing ``store`` writes. When injected (the
+        # orchestrator passes its already-loaded, callback-wired instance) we
+        # share it — one loaded store, so create-lock/seq state and the bus
+        # callbacks are consistent. When ``None`` we lazily build + load one on
+        # the canonical path; that owned instance has no callbacks (nothing to
+        # announce to) but still enforces every schema/transition/lock invariant.
+        self._ticket_store = tickets
+        self._owns_ticket_store = tickets is None
         # The authorities this instance may write. Default: all five. A scoped
         # instance (e.g. Discovery -> {"spec"}) rejects writes elsewhere; the
         # empty set is a valid **read-only** authority (every write rejected,
@@ -106,10 +121,72 @@ class StoreAuthority:
                 f"not authorized to write authority {authority!r}; "
                 f"this StoreAuthority may write {sorted(self._writable)}"
             )
-        # (3) persist — follow-on PR. Store writes must route through the typed
-        # stores (TicketStore etc.) to preserve their invariants (schema
-        # validation, transition rules, create lock), not append raw dicts.
+        # (3) persist. ``store`` routes through the typed TicketStore (preserving
+        # schema/transition/lock/callbacks); the other authorities are follow-on.
+        if authority == "store":
+            return await self._write_store(parsed, doc)
         raise UnimplementedAuthorityError(
             f"StoreAuthority.write persistence for authority {authority!r} "
             "is not yet wired"
         )
+
+    async def _tickets(self) -> "TicketStore":
+        """The TicketStore backing ``store`` writes. Injected instances are used
+        as-is (caller owns their load/callback lifecycle); an owned instance is
+        built + loaded once on the canonical path and cached."""
+        from jig.store.tickets import TicketStore
+
+        if self._ticket_store is None:
+            store = TicketStore(self._root / ".jig" / "store" / "tickets.jsonl")
+            await store.load()
+            self._ticket_store = store
+        return self._ticket_store
+
+    async def _write_store(self, parsed: ProjectUri, doc: dict[str, Any]) -> str:
+        """Persist a ``project://store/tickets/<id>`` write through TicketStore.
+
+        Create when the id is new, update when it exists. The URI id is
+        authoritative — a conflicting id in the body is rejected, not coerced.
+        Only the ``tickets`` collection is wired; other store collections raise.
+        """
+        collection = parsed.path[0] if parsed.path else None
+        if collection != "tickets":
+            raise UnimplementedAuthorityError(
+                f"store write for collection {collection!r} is not yet wired; "
+                "only project://store/tickets/<id> is supported"
+            )
+        if parsed.revision is not None:
+            raise ProjectUriError(f"store writes cannot pin @revision; got {parsed!r}")
+        if parsed.fragment is not None:
+            raise ProjectUriError(
+                f"store writes cannot target a fragment; got {parsed!r}"
+            )
+        if len(parsed.path) != 2:
+            raise ProjectUriError(
+                "store write must target a single ticket "
+                f"(project://store/tickets/<id>); got {parsed!r}"
+            )
+
+        ticket_id = parsed.path[1]
+        body = self._ticket_body(ticket_id, doc)
+        store = await self._tickets()
+        if await store.get(ticket_id) is None:
+            from jig.ticket import Ticket
+
+            await store.create(Ticket.model_validate({**body, "_id": ticket_id}))
+        else:
+            await store.update(ticket_id, **body)
+        return ticket_id
+
+    @staticmethod
+    def _ticket_body(ticket_id: str, doc: dict[str, Any]) -> dict[str, Any]:
+        """Strip the id alias from the write body after asserting it agrees with
+        the URI. The id is the address, not a mutable field — a body that names a
+        different id is a caller bug, surfaced loudly rather than silently won."""
+        for id_key in ("id", "_id"):
+            if id_key in doc and doc[id_key] != ticket_id:
+                raise ProjectUriError(
+                    f"ticket body {id_key}={doc[id_key]!r} conflicts with "
+                    f"URI id {ticket_id!r}"
+                )
+        return {k: v for k, v in doc.items() if k not in ("id", "_id")}

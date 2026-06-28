@@ -36,6 +36,13 @@ from jig.uri.resolver import ResolvedUri, resolve_project_uri
 # to fragment components, so the write gate validates those itself.
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9_-]+$")
 
+# The ``jig-N`` namespace is reserved for the server-assigned ticket ``key``
+# (TicketStore.create issues ``jig-1``, ``jig-2``, …). A store-write URI id must
+# not borrow it: ``TicketStore.resolve_ref`` checks ids before keys, so a ticket
+# whose *id* is ``jig-1`` would shadow whatever ticket later gets *key* ``jig-1``.
+# Keep the two namespaces disjoint by rejecting key-shaped ids at the write seam.
+_RESERVED_KEY_ID = re.compile(r"^jig-\d+$")
+
 if TYPE_CHECKING:
     from jig.store.tickets import TicketStore
     from jig.uri.cache import UriResolverCache
@@ -168,6 +175,11 @@ class StoreAuthority:
             )
 
         ticket_id = parsed.path[1]
+        if _RESERVED_KEY_ID.match(ticket_id):
+            raise ProjectUriError(
+                f"store-write ticket id {ticket_id!r} uses the reserved jig-N "
+                "key namespace; ids and server-assigned keys must be disjoint"
+            )
         store = await self._tickets()
         # Reload before the create-vs-update decision so it reflects current disk
         # state. ANY store — owned or injected — can be stale relative to another

@@ -16,7 +16,7 @@ from jig.substrate.events import (
     TypedEvent,
     ticket_topic,
 )
-from jig.substrate.store_authority import StoreAuthority
+from jig.substrate.store_authority import StoreAuthority, WriteNotAuthorizedError
 
 __all__ = [
     "StoreAuthority",
@@ -24,5 +24,6 @@ __all__ = [
     "TicketUpdated",
     "TypedBus",
     "TypedEvent",
+    "WriteNotAuthorizedError",
     "ticket_topic",
 ]

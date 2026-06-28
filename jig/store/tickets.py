@@ -164,7 +164,13 @@ class TicketStore:
         matches = await self._collection.find(lambda t: t.key == ref)
         return matches[0] if matches else None
 
-    async def create(self, ticket: Ticket, *, fire_create_callback: bool = True) -> str:
+    async def create(
+        self,
+        ticket: Ticket,
+        *,
+        fire_create_callback: bool = True,
+        enforce_unique_id: bool = False,
+    ) -> str:
         # Uniqueness is enforced inside Collection.insert under its
         # asyncio.Lock — no TOCTOU window between check and append.
         # We re-raise with a ticket-specific message so callers (CLI,
@@ -175,8 +181,21 @@ class TicketStore:
         # jig-N key, append, then persist the counter — all before releasing
         # the lock so a concurrent process can never observe a half-updated
         # counter or reissue a key.
+        #
+        # ``enforce_unique_id`` re-reads disk state *inside* the flock before
+        # inserting. The default in-memory uniqueness check only sees this
+        # process's snapshot, which is safe for the bulk uuid-id creators (a
+        # uuid collision is impossible) but not for callers that supply an
+        # explicit, human/agent-chosen id (StoreAuthority.write addresses a
+        # ticket by URI): two processes that loaded before either wrote would
+        # both see an in-memory miss and both append an insert for the same id.
+        # Reloading under the lock closes that cross-process window.
         try:
             async with self._key_lock():
+                if enforce_unique_id:
+                    await self._collection.load()
+                    if await self._collection.get(ticket.id) is not None:
+                        raise ValueError(f"ticket with id {ticket.id!r} already exists")
                 if not ticket.key:
                     next_seq = self._read_seq() + 1
                     ticket.key = f"jig-{next_seq}"

@@ -168,25 +168,45 @@ class StoreAuthority:
             )
 
         ticket_id = parsed.path[1]
-        body = self._ticket_body(ticket_id, doc)
         store = await self._tickets()
-        if await store.get(ticket_id) is None:
+        existing = await store.get(ticket_id)
+        if existing is None:
             from jig.ticket import Ticket
 
-            await store.create(Ticket.model_validate({**body, "_id": ticket_id}))
+            # current_key="" — no ticket yet, so the body must not preset a key.
+            body = self._prepare_body(ticket_id, doc, current_key="")
+            # enforce_unique_id: the explicit URI id is checked against disk
+            # under the store's cross-process lock (the in-memory miss above can
+            # be stale relative to a concurrent writer).
+            await store.create(
+                Ticket.model_validate({**body, "_id": ticket_id}),
+                enforce_unique_id=True,
+            )
         else:
+            body = self._prepare_body(ticket_id, doc, current_key=existing.key)
             await store.update(ticket_id, **body)
         return ticket_id
 
     @staticmethod
-    def _ticket_body(ticket_id: str, doc: dict[str, Any]) -> dict[str, Any]:
-        """Strip the id alias from the write body after asserting it agrees with
-        the URI. The id is the address, not a mutable field — a body that names a
-        different id is a caller bug, surfaced loudly rather than silently won."""
+    def _prepare_body(
+        ticket_id: str, doc: dict[str, Any], *, current_key: str
+    ) -> dict[str, Any]:
+        """Strip the server-owned identity fields (``id``/``_id``, ``key``) from
+        the write body and reject any attempt to set them to a new value.
+
+        The id is the address, not a mutable field. The ``jig-N`` ``key`` is
+        assigned by ``TicketStore`` and is immutable. A body may *echo* the
+        correct value (natural for a read-modify-write round-trip), but a
+        *different* value is a caller bug surfaced loudly, never silently won."""
         for id_key in ("id", "_id"):
             if id_key in doc and doc[id_key] != ticket_id:
                 raise ProjectUriError(
                     f"ticket body {id_key}={doc[id_key]!r} conflicts with "
                     f"URI id {ticket_id!r}"
                 )
-        return {k: v for k, v in doc.items() if k not in ("id", "_id")}
+        if "key" in doc and doc["key"] not in ("", current_key):
+            raise ProjectUriError(
+                f"ticket body key={doc['key']!r} cannot set or change the "
+                f"server-assigned jig-N key (current {current_key!r})"
+            )
+        return {k: v for k, v in doc.items() if k not in ("id", "_id", "key")}

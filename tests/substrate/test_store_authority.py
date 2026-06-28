@@ -130,3 +130,37 @@ async def test_write_create_validates_the_schema(tmp_path) -> None:
     sa = StoreAuthority(tmp_path)
     with pytest.raises(ValidationError):
         await sa.write("project://store/tickets/jig-1", {"title": "no work_type"})
+
+
+async def test_write_create_rejects_a_caller_supplied_key(tmp_path) -> None:
+    # The jig-N key is server-assigned; a create body cannot preset it (that
+    # would let a caller forge or duplicate keys, breaking the counter).
+    sa = StoreAuthority(tmp_path)
+    with pytest.raises(ProjectUriError, match="key"):
+        await sa.write("project://store/tickets/jig-1", _doc(key="jig-999"))
+
+
+async def test_write_update_cannot_change_the_key_but_may_echo_it(tmp_path) -> None:
+    sa = StoreAuthority(tmp_path)
+    await sa.write("project://store/tickets/jig-1", _doc(title="A"))
+    # Echoing the assigned key is fine (read-modify-write round-trip).
+    await sa.write("project://store/tickets/jig-1", {"key": "jig-1", "title": "B"})
+    assert sa.read("project://store/tickets/jig-1").data["data"]["title"] == "B"
+    # Changing it is rejected.
+    with pytest.raises(ProjectUriError, match="key"):
+        await sa.write("project://store/tickets/jig-1", {"key": "jig-2"})
+
+
+async def test_write_create_is_cross_instance_id_unique(tmp_path) -> None:
+    # Two StoreAuthority instances (separate in-memory TicketStores on one path,
+    # i.e. two processes) must not both create the same explicit URI id. The
+    # second's stale in-memory miss is caught against disk under the store lock.
+    sa1 = StoreAuthority(tmp_path)
+    sa2 = StoreAuthority(tmp_path)
+    # sa2 loads its store now (writing an unrelated ticket); its snapshot
+    # predates sa1's write below.
+    await sa2.write("project://store/tickets/other", _doc())
+    await sa1.write("project://store/tickets/jig-1", _doc())
+
+    with pytest.raises(ValueError, match="already exists"):
+        await sa2.write("project://store/tickets/jig-1", _doc())

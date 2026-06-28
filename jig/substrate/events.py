@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from jig.store.bus import Message, MessageType
 
@@ -196,12 +196,20 @@ _BY_KIND: dict[str, type[TypedEvent]] = {
 def decode_event(msg: Message) -> TypedEvent | None:
     """Reconstruct the typed event a legacy :class:`Message` carries.
 
-    Returns ``None`` for a payload whose ``kind`` is outside the typed set
-    (``shutdown_request``, ``comment_posted``, …) so subscribers can fall back
-    to raw-payload handling for events not yet migrated."""
+    Returns ``None`` when the payload's ``kind`` is outside the typed set
+    (``shutdown_request``, ``comment_posted``, …) **or** when a typed-kind
+    payload is too partial/malformed to reconstruct (a legacy message carrying
+    only ``kind``/``ticket_id``, say). Decoding never raises — a subscriber gets
+    a typed event or ``None`` and falls back to raw-payload handling for the
+    latter, so a stray message can't kill a dispatch loop."""
     kind = (msg.payload or {}).get("kind")
     decoder = _BY_KIND.get(kind) if isinstance(kind, str) else None
-    return None if decoder is None else decoder.from_message(msg)
+    if decoder is None:
+        return None
+    try:
+        return decoder.from_message(msg)
+    except (KeyError, ValidationError):
+        return None
 
 
 __all__ = [

@@ -199,6 +199,21 @@ def test_decode_returns_none_when_payload_has_no_kind() -> None:
     assert decode_event(msg) is None
 
 
+def test_decode_is_tolerant_of_a_partial_typed_payload() -> None:
+    # A legacy/partial ``ticket_created`` (only kind + ticket_id, missing the
+    # required title/work_type/…) must decode to None, NOT raise — the
+    # subscriber falls back to raw handling and a stray message can't kill the
+    # dispatch loop.
+    msg = Message(
+        sender="x",
+        to="orchestrator",
+        type=MessageType.CONTEXT_UPDATE,
+        payload={"kind": "ticket_created", "ticket_id": "jig-1"},
+        topic="orchestrator",
+    )
+    assert decode_event(msg) is None
+
+
 def test_base_from_message_is_not_implemented() -> None:
     msg = TicketUpdated(ticket_id="jig-1", status="open").to_message()
     with pytest.raises(NotImplementedError):

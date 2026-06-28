@@ -1784,26 +1784,41 @@ class Orchestrator:
                 except asyncio.TimeoutError:
                     continue
                 event = decode_event(msg)
-                _logger.debug(
-                    "service loop received: %s",
-                    event.kind if event else (msg.payload or {}).get("kind"),
-                )
+                payload = msg.payload or {}
+                kind = event.kind if event else payload.get("kind")
+                _logger.debug("service loop received: %s", kind)
                 if isinstance(event, TicketCreated):
                     _logger.info("ticket_created event: %s", event.ticket_id)
                     await self._handle_schedule(event.ticket_id)
                 elif isinstance(event, TicketUpdated):
                     # Re-enqueue tickets reset to "open" (e.g. retry after failure)
                     if event.status == TicketStatus.OPEN.value:
-                        _logger.info(
-                            "ticket %s reset to open — re-scheduling", event.ticket_id
-                        )
-                        self._running_tickets.pop(event.ticket_id, None)
-                        await self._handle_schedule(event.ticket_id)
-                elif (msg.payload or {}).get("kind") == "shutdown_request":
+                        await self._reschedule_reset_ticket(event.ticket_id)
+                elif kind == "ticket_created":
+                    # Undecodable (partial/legacy) lifecycle message — fall back
+                    # to the raw fields the loop actually needs, preserving the
+                    # pre-typed tolerant behavior so a stray message still
+                    # schedules rather than being dropped.
+                    ticket_id = payload.get("ticket_id")
+                    if ticket_id:
+                        _logger.info("ticket_created event: %s", ticket_id)
+                        await self._handle_schedule(ticket_id)
+                elif kind == "ticket_updated":
+                    ticket_id = payload.get("ticket_id")
+                    if ticket_id and payload.get("status") == TicketStatus.OPEN.value:
+                        await self._reschedule_reset_ticket(ticket_id)
+                elif kind == "shutdown_request":
                     # Not a typed lifecycle event (out of MVP scope); raw-kind path.
                     self._running = False
         finally:
             await self.bus.unsubscribe("orchestrator", queue)
+
+    async def _reschedule_reset_ticket(self, ticket_id: str) -> None:
+        """Re-enqueue a ticket that was reset to ``open`` (e.g. a retry after
+        failure): forget any running state and schedule it afresh."""
+        _logger.info("ticket %s reset to open — re-scheduling", ticket_id)
+        self._running_tickets.pop(ticket_id, None)
+        await self._handle_schedule(ticket_id)
 
     async def _run_deadlock_loop(self) -> None:
         """Periodically sweep open blocking thread entries for age-based

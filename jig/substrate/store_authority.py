@@ -112,8 +112,9 @@ class StoreAuthority:
         Order: (1) parse/validate the URI — malformed, path-traversal, and
         out-of-set authorities all fail here via the parser's strict rules, plus
         a fragment-safety check the parser doesn't do; (2) authorize the
-        authority against this instance's writable set; (3) persist (not yet
-        wired — raises ``UnimplementedAuthorityError``).
+        authority against this instance's writable set; (3) persist: ``store``
+        routes through ``TicketStore``; ``spec``/``arch``/``design``/``plan``
+        raise ``UnimplementedAuthorityError`` until wired.
         """
         parsed = parse_project_uri(uri)  # (1) validate path + authority
         if parsed.fragment is not None:  # ...and the fragment (parser skips it)

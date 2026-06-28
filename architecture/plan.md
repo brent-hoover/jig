@@ -4,7 +4,7 @@ type: plan
 status: draft
 owner: brent-hoover
 created: 2026-06-25
-updated: 2026-06-27
+updated: 2026-06-28
 design: ./jig-instance.md
 ---
 
@@ -276,7 +276,10 @@ engines depend on without knowing the JSONL backing.
 
 **MVP:**
 1. Route all store access through `StoreAuthority` (existing stores become
-   internal impls).
+   internal impls). **Routing model: see
+   `../docs/reference/adr-0001-runtime-store-access-routing.md` (ADR-0001)** —
+   runtime uses typed `StoreAuthority` ports; `project://` URIs are the
+   cross-boundary serialization surface delegating to the same stores.
 2. Migrate orchestrator's bus publishes from `"orchestrator"` string to typed
    events.
 3. Migrate bus subscribers to consume typed events.

@@ -35,6 +35,95 @@ def test_authorities_are_the_five_project_authorities() -> None:
     assert StoreAuthority.AUTHORITIES == ("spec", "arch", "design", "plan", "store")
 
 
+# --- composition root: typed runtime ports (ADR-0001) ------------------------
+
+
+async def test_load_vends_the_typed_domain_ports(tmp_path) -> None:
+    from jig.store.check_results import CheckResultsStore
+    from jig.store.checkpoints import CheckpointStore
+    from jig.store.memory import MemoryStore
+    from jig.store.review_comments import ReviewCommentsStore
+    from jig.store.threads import ThreadStore
+
+    sa = StoreAuthority(tmp_path)
+    await sa.load()
+
+    assert isinstance(sa.tickets, TicketStore)
+    assert isinstance(sa.threads, ThreadStore)
+    assert isinstance(sa.memory, MemoryStore)
+    assert isinstance(sa.checkpoints, CheckpointStore)
+    assert isinstance(sa.check_results, CheckResultsStore)
+    assert isinstance(sa.review_comments, ReviewCommentsStore)
+    # Loaded + usable.
+    assert await sa.tickets.all() == []
+
+
+def test_typed_port_access_before_load_raises(tmp_path) -> None:
+    sa = StoreAuthority(tmp_path)
+    with pytest.raises(RuntimeError, match="load"):
+        _ = sa.threads
+
+
+async def test_typed_port_and_uri_door_share_one_ticket_store(tmp_path) -> None:
+    # The vended ``tickets`` port and the URI write path are the SAME instance,
+    # so a create through one is visible through the other (ADR-0001: the URI
+    # door delegates to the same typed store; no drift).
+    sa = StoreAuthority(tmp_path)
+    await sa.load()
+
+    # create via the typed port -> read back via the URI door
+    from jig.ticket import Ticket
+
+    await sa.tickets.create(
+        Ticket(id="login", work_type="docs", title="Login", created_by="po")
+    )
+    resolved = sa.read("project://store/tickets/login")
+    assert resolved.data["data"]["title"] == "Login"
+
+    # write via the URI door -> visible through the typed port (same instance)
+    await sa.write("project://store/tickets/signup", _doc(title="Signup"))
+    fetched = await sa.tickets.get("signup")
+    assert fetched is not None and fetched.title == "Signup"
+
+
+async def test_load_reuses_an_injected_ticket_store(tmp_path) -> None:
+    # load() must not replace an injected ticket store — the URI-write/runtime
+    # shared-instance guarantee (and its callbacks) depends on it.
+    store_dir = tmp_path / ".jig" / "store"
+    store_dir.mkdir(parents=True)
+    injected = TicketStore(store_dir / "tickets.jsonl")
+    await injected.load()
+
+    sa = StoreAuthority(tmp_path, tickets=injected)
+    await sa.load()
+    assert sa.tickets is injected
+
+
+async def test_load_is_idempotent(tmp_path) -> None:
+    # A second load() is a no-op: the vended ports keep their identity rather
+    # than being silently replaced (which would orphan the originals).
+    sa = StoreAuthority(tmp_path)
+    await sa.load()
+    threads, tickets = sa.threads, sa.tickets
+    await sa.load()
+    assert sa.threads is threads
+    assert sa.tickets is tickets
+
+
+async def test_uri_write_fires_the_vended_ports_create_callback(tmp_path) -> None:
+    # A callback wired on the vended typed port fires for a URI-door create —
+    # proof the URI write routes through the same callback-wired instance.
+    sa = StoreAuthority(tmp_path)
+    await sa.load()
+    created: list[str] = []
+    sa.tickets.set_create_callback(lambda t: created.append(t.id))
+
+    await sa.write("project://store/tickets/login", _doc())
+    await sa.tickets.drain_background_tasks()
+
+    assert created == ["login"]
+
+
 def test_authority_of_routes_uri_to_its_authority(tmp_path) -> None:
     sa = StoreAuthority(tmp_path)
     assert sa.authority_of("project://spec/name") == "spec"

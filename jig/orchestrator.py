@@ -50,6 +50,7 @@ from jig.project import Project, load_project
 from jig.thread import Handoff, Note, SystemEvent
 from jig.store import Message, MessageBus, MessageType
 from jig.substrate.events import TicketCreated, TicketUpdated, decode_event
+from jig.substrate.store_authority import StoreAuthority
 from jig.store.check_results import CheckResultsStore
 from jig.store.review_comments import ReviewCommentsStore
 from jig.store.checkpoints import CheckpointStore
@@ -290,6 +291,10 @@ class Orchestrator:
         self._emitter = emitter
         self._prompt_registry = prompt_registry
         self._project: Project | None = None
+        # Composition root (ADR-0001): owns + vends the typed domain stores.
+        # ``self.tickets`` / ``self.threads`` / … below are authority-sourced
+        # aliases set in ``startup()``.
+        self.store: StoreAuthority | None = None
         self.tickets: TicketStore | None = None
         self.threads: ThreadStore | None = None
         self.checkpoints: CheckpointStore | None = None
@@ -417,27 +422,25 @@ class Orchestrator:
                 return
             store_dir = self._project_path / ".jig" / "store"
             store_dir.mkdir(parents=True, exist_ok=True)
-            self.tickets = TicketStore(store_dir / "tickets.jsonl")
-            self.threads = ThreadStore(store_dir / "comments.jsonl")
-            # CheckpointStore is a separate channel per doc 09.
-            self.checkpoints = CheckpointStore(store_dir / "checkpoints.jsonl")
-            self.memory = MemoryStore(store_dir)
+            # Composition root (ADR-0001): StoreAuthority owns construction +
+            # loading of the domain stores; the attributes below are
+            # authority-sourced aliases (same instances), so the URI write path
+            # and runtime share one TicketStore + its callbacks. Bus + analytics
+            # are substrate infra, constructed here.
+            store = self.store = StoreAuthority(self._project_path)
             self.bus = MessageBus(store_dir / "messages.jsonl")
-            self.check_results = CheckResultsStore(store_dir / "check_results.jsonl")
-            self.review_comments = ReviewCommentsStore(
-                store_dir / "review_comments.jsonl"
-            )
             self.analytics = AnalyticsStore(store_dir / "analytics.jsonl")
             await asyncio.gather(
-                self.tickets.load(),
-                self.threads.load(),
-                self.checkpoints.load(),
-                self.memory.load(),
+                store.load(),
                 self.bus.load(),
-                self.check_results.load(),
-                self.review_comments.load(),
                 self.analytics.load(),
             )
+            self.tickets = store.tickets
+            self.threads = store.threads
+            self.checkpoints = store.checkpoints
+            self.memory = store.memory
+            self.check_results = store.check_results
+            self.review_comments = store.review_comments
             self._analytics_emitter = AnalyticsEmitter(self.analytics)
             self.tickets.set_status_change_callback(self._on_ticket_status_change)
             from jig.ticket_events import wire_create_publisher
@@ -1712,6 +1715,7 @@ class Orchestrator:
         self._analyzer_task = None
         self._reconcile_task = None
         self._project = None
+        self.store = None
         self.tickets = None
         self.threads = None
         self.memory = None
@@ -1783,35 +1787,43 @@ class Orchestrator:
                     msg = await asyncio.wait_for(queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
-                event = decode_event(msg)
-                payload = msg.payload or {}
-                kind = event.kind if event else payload.get("kind")
-                _logger.debug("service loop received: %s", kind)
-                if isinstance(event, TicketCreated):
-                    _logger.info("ticket_created event: %s", event.ticket_id)
-                    await self._handle_schedule(event.ticket_id)
-                elif isinstance(event, TicketUpdated):
-                    # Re-enqueue tickets reset to "open" (e.g. retry after failure)
-                    if event.status == TicketStatus.OPEN.value:
-                        await self._reschedule_reset_ticket(event.ticket_id)
-                elif kind == "ticket_created":
-                    # Undecodable (partial/legacy) lifecycle message — fall back
-                    # to the raw fields the loop actually needs, preserving the
-                    # pre-typed tolerant behavior so a stray message still
-                    # schedules rather than being dropped.
-                    ticket_id = payload.get("ticket_id")
-                    if ticket_id:
-                        _logger.info("ticket_created event: %s", ticket_id)
-                        await self._handle_schedule(ticket_id)
-                elif kind == "ticket_updated":
-                    ticket_id = payload.get("ticket_id")
-                    if ticket_id and payload.get("status") == TicketStatus.OPEN.value:
-                        await self._reschedule_reset_ticket(ticket_id)
-                elif kind == "shutdown_request":
-                    # Not a typed lifecycle event (out of MVP scope); raw-kind path.
-                    self._running = False
+                await self._handle_service_message(msg)
         finally:
             await self.bus.unsubscribe("orchestrator", queue)
+
+    async def _handle_service_message(self, msg: Message) -> None:
+        """Dispatch one ``"orchestrator"``-topic message. Typed lifecycle events
+        (``TicketCreated`` / ``TicketUpdated``) drive scheduling; an undecodable
+        partial/legacy payload falls back to raw fields, and ``shutdown_request``
+        stops the loop. A malformed payload must never crash the loop — a raw id
+        is scheduled only when it is a non-empty *string* (e.g. an unhashable
+        list id is ignored, not handed to the scheduler)."""
+        event = decode_event(msg)
+        payload = msg.payload or {}
+        kind = event.kind if event else payload.get("kind")
+        _logger.debug("service loop received: %s", kind)
+        if isinstance(event, TicketCreated):
+            _logger.info("ticket_created event: %s", event.ticket_id)
+            await self._handle_schedule(event.ticket_id)
+        elif isinstance(event, TicketUpdated):
+            # Re-enqueue tickets reset to "open" (e.g. retry after failure).
+            if event.status == TicketStatus.OPEN.value:
+                await self._reschedule_reset_ticket(event.ticket_id)
+        elif kind == "ticket_created":
+            ticket_id = payload.get("ticket_id")
+            if isinstance(ticket_id, str) and ticket_id:
+                _logger.info("ticket_created event: %s", ticket_id)
+                await self._handle_schedule(ticket_id)
+        elif kind == "ticket_updated":
+            ticket_id = payload.get("ticket_id")
+            if (
+                isinstance(ticket_id, str)
+                and ticket_id
+                and payload.get("status") == TicketStatus.OPEN.value
+            ):
+                await self._reschedule_reset_ticket(ticket_id)
+        elif kind == "shutdown_request":
+            self._running = False
 
     async def _reschedule_reset_ticket(self, ticket_id: str) -> None:
         """Re-enqueue a ticket that was reset to ``open`` (e.g. a retry after

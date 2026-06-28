@@ -40,15 +40,18 @@ class JsonlStore:
     async def load(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.touch(exist_ok=True)
-        # Hold the write lock for the whole rebuild: load() clears and repopulates
-        # _docs/_indexes, so it must not interleave with a concurrent
-        # insert/update/delete (which mutate the same maps under this lock). This
-        # makes load() safe to call on a *live* store to refresh it from disk —
-        # e.g. StoreAuthority reloading a shared TicketStore before a write.
+        # Hold the write lock for the whole rebuild: load() replaces _docs/_indexes,
+        # so it must not interleave with a concurrent insert/update/delete (which
+        # mutate the same maps under this lock). This makes load() safe to call on
+        # a *live* store to refresh it from disk — e.g. StoreAuthority reloading a
+        # shared TicketStore before a write.
+        #
+        # Replay into a *local* map and swap it in only after the whole file
+        # validates. A replay error (malformed JSON, unknown op, update/delete of
+        # an unknown id) must leave the live store's current state intact, not
+        # half-rebuilt or emptied — critical now that live stores are reloaded.
         async with self._lock:
-            self._docs.clear()
-            for field in self._index_fields:
-                self._indexes[field] = {}
+            docs: dict[str, dict] = {}
             live_ids: set[str] = set()
             with self._path.open("r") as f:
                 for line_no, raw in enumerate(f, start=1):
@@ -68,8 +71,7 @@ class JsonlStore:
                     op = record["_op"]
                     doc_id = record["_id"]
                     if op == "insert":
-                        doc = {k: v for k, v in record.items() if k != "_op"}
-                        self._docs[doc_id] = doc
+                        docs[doc_id] = {k: v for k, v in record.items() if k != "_op"}
                         live_ids.add(doc_id)
                     elif op == "update":
                         if doc_id not in live_ids:
@@ -77,23 +79,24 @@ class JsonlStore:
                                 f"{self._path}:{line_no}: update for unknown id "
                                 f"{doc_id!r}"
                             )
-                        current = self._docs[doc_id]
-                        changes = {
-                            k: v for k, v in record.items() if k not in ("_op", "_id")
-                        }
-                        current.update(changes)
+                        docs[doc_id].update(
+                            {k: v for k, v in record.items() if k not in ("_op", "_id")}
+                        )
                     elif op == "delete":
                         if doc_id not in live_ids:
                             raise ValueError(
                                 f"{self._path}:{line_no}: delete for unknown id "
                                 f"{doc_id!r}"
                             )
-                        self._docs.pop(doc_id, None)
+                        docs.pop(doc_id, None)
                         live_ids.discard(doc_id)
                     else:
                         raise ValueError(
                             f"{self._path}: unknown _op {op!r} on line {line_no}"
                         )
+            # Whole file validated — commit the new state and rebuild indexes.
+            self._docs = docs
+            self._indexes = {field: {} for field in self._index_fields}
             for doc in self._docs.values():
                 self._index_insert(doc)
             self._loaded = True

@@ -23,11 +23,34 @@ async def test_load_is_serialized_against_concurrent_writes(tmp_path):
             await store.load()
 
     # No exception (a race would surface as a KeyError in load()'s update replay
-    # or update()'s in-memory mutation), and the doc survives intact.
+    # or update()'s in-memory mutation), and the final value is exactly the
+    # writer's last update — every op is on disk, so any later reload converges
+    # on it (a lost-update interleave would leave a stale n).
     await asyncio.gather(writer(), reloader(), reloader())
     doc = await store.get("a")
     assert doc is not None
-    assert isinstance(doc["n"], int)
+    assert doc["n"] == 100
+
+
+async def test_load_leaves_live_state_intact_on_replay_error(tmp_path):
+    """A reload of a live store whose file is corrupt must raise without
+    damaging the current in-memory state (no empty/half-rebuilt store)."""
+    path = tmp_path / "s.jsonl"
+    store = JsonlStore(path, index_fields=["n"])
+    await store.load()
+    await store.insert({"_id": "a", "n": 1})
+
+    # Append a malformed line, then reload: it must raise but keep the good doc.
+    with path.open("a") as f:
+        f.write("{ not valid json\n")
+    with pytest.raises(ValueError, match="malformed JSON"):
+        await store.load()
+
+    doc = await store.get("a")
+    assert doc is not None
+    assert doc["n"] == 1
+    # Index still consistent (not emptied by the failed reload).
+    assert await store.find_by("n", 1) == [{"_id": "a", "n": 1}]
 
 
 async def test_insert_rejects_oversize_record(tmp_path):

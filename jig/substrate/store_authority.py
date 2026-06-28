@@ -106,7 +106,10 @@ class StoreAuthority:
                 f"not authorized to write authority {authority!r}; "
                 f"this StoreAuthority may write {sorted(self._writable)}"
             )
-        raise UnimplementedAuthorityError(  # (3) persistence: follow-on PR
+        # (3) persist — follow-on PR. Store writes must route through the typed
+        # stores (TicketStore etc.) to preserve their invariants (schema
+        # validation, transition rules, create lock), not append raw dicts.
+        raise UnimplementedAuthorityError(
             f"StoreAuthority.write persistence for authority {authority!r} "
             "is not yet wired"
         )

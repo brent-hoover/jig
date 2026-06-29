@@ -59,6 +59,15 @@ def resolve_project_uri(
     """
     parsed = parse_project_uri(uri) if isinstance(uri, str) else uri
 
+    # Reject store *before* the cache: store reads must always route through
+    # StoreAuthority.read (the typed-store path), so a retained/manually-populated
+    # cache entry for project://store/... must not be served from here.
+    if parsed.authority == "store":
+        raise ProjectUriError(
+            "store reads are resolved by StoreAuthority.read (async, through the "
+            "typed stores), not the sync project-URI dispatcher"
+        )
+
     if cache is not None:
         cached = cache.get(parsed)
         if cached is not None:
@@ -80,11 +89,6 @@ def resolve_project_uri(
         data = resolve_plan_uri(parsed, project_root)
         result = ResolvedUri(
             kind="plan", data=data, source_path=None, revision=parsed.revision
-        )
-    elif parsed.authority == "store":
-        raise ProjectUriError(
-            "store reads are resolved by StoreAuthority.read (async, through the "
-            "typed stores), not the sync project-URI dispatcher"
         )
     else:
         raise ProjectUriError(f"unhandled authority {parsed.authority!r}")

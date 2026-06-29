@@ -137,6 +137,15 @@ class StoreAuthority:
         from jig.uri.store import reject_unsupported_store_uri, serialize_ticket
 
         reject_unsupported_store_uri(parsed)
+        if len(parsed.path) == 2 and _RESERVED_KEY_ID.match(parsed.path[1]):
+            # Symmetric with the write path: jig-N is the reserved key namespace,
+            # not an addressable id. The URI door addresses tickets by id; a
+            # jig-N read would just miss (get-by-id), so reject it as a category
+            # error rather than silently return null. (Keys resolve via the CLI.)
+            raise ProjectUriError(
+                f"store-read ticket id {parsed.path[1]!r} uses the reserved jig-N "
+                "key namespace; address tickets by id"
+            )
         tickets = await self._tickets()
         # The URI read is the cross-boundary serialization surface — it must
         # reflect current *persisted* state, not a possibly-stale in-memory

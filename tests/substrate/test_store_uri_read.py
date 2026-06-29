@@ -16,7 +16,7 @@ import pytest
 from jig.store.tickets import TicketStore
 from jig.substrate.store_authority import StoreAuthority
 from jig.ticket import Ticket
-from jig.uri.errors import UnimplementedAuthorityError
+from jig.uri.errors import ProjectUriError, UnimplementedAuthorityError
 
 
 def _ticket(ticket_id: str, title: str = "A") -> Ticket:
@@ -90,6 +90,13 @@ async def test_ticket_revision_pin_raises(tmp_path: Path) -> None:
     # a pinned revision would mislead the caller, so reject it.
     with pytest.raises(UnimplementedAuthorityError):
         await StoreAuthority(tmp_path).read("project://store/tickets/alpha@revision:3")
+
+
+async def test_jig_n_shaped_id_is_rejected_on_read(tmp_path: Path) -> None:
+    # jig-N is the reserved key namespace, not an addressable id (symmetric with
+    # the write path) — a store URI using it is a category error, not a null read.
+    with pytest.raises(ProjectUriError, match="reserved jig-N"):
+        await StoreAuthority(tmp_path).read("project://store/tickets/jig-1")
 
 
 def _write_oplog(project_root: Path, *lines: str) -> None:

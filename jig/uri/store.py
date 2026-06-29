@@ -21,8 +21,8 @@ from jig.uri.parser import ProjectUri
 if TYPE_CHECKING:
     from jig.ticket import Ticket
 
-# Store collection -> ``.jig/store/<file>.jsonl``. PR B wires ``tickets`` only.
-_WIRED_FILES: dict[str, str] = {"tickets": "tickets"}
+# Store collections the read path resolves. PR B wires ``tickets`` only.
+_WIRED_COLLECTIONS: frozenset[str] = frozenset({"tickets"})
 
 
 def reject_unsupported_store_uri(uri: ProjectUri) -> None:
@@ -33,7 +33,7 @@ def reject_unsupported_store_uri(uri: ProjectUri) -> None:
     pinned revision would mislead the caller).
     """
     collection = uri.path[0] if uri.path else None
-    if collection not in _WIRED_FILES:
+    if collection not in _WIRED_COLLECTIONS:
         raise UnimplementedAuthorityError(
             f"store collection {collection!r} not yet wired; got {uri!r}"
         )

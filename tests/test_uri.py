@@ -252,14 +252,10 @@ def test_dispatcher_plan_raises_unimplemented(tmp_path):
         resolve_project_uri("project://plan/build/epics/x", tmp_path)
 
 
-def test_dispatcher_store_tickets_resolves(tmp_path):
-    # store/tickets read is wired (PR B, #216) — an empty store yields no ticket.
-    resolved = resolve_project_uri("project://store/tickets/t-001", tmp_path)
-    assert resolved.kind == "store"
-    assert resolved.data == {"kind": "ticket", "data": None}
-
-
-def test_dispatcher_store_unwired_collection_raises(tmp_path):
-    # threads/events/etc. are a follow-on.
-    with pytest.raises(UnimplementedAuthorityError, match="store"):
-        resolve_project_uri("project://store/threads/t-001", tmp_path)
+def test_dispatcher_does_not_handle_store_reads(tmp_path):
+    # store reads moved to StoreAuthority.read (async, through the typed stores —
+    # ADR-0001); the sync dispatcher rejects store URIs rather than re-replaying
+    # JSONL. Any store collection routes the same way (no per-collection branch).
+    for uri in ("project://store/tickets/t-001", "project://store/threads/t-001"):
+        with pytest.raises(ProjectUriError, match="StoreAuthority"):
+            resolve_project_uri(uri, tmp_path)

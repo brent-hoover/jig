@@ -23,7 +23,6 @@ from jig.uri.design import resolve_design_uri
 from jig.uri.errors import ProjectUriError
 from jig.uri.parser import ProjectUri, parse_project_uri
 from jig.uri.plan import resolve_plan_uri
-from jig.uri.store import resolve_store_uri
 
 if TYPE_CHECKING:
     from jig.uri.cache import UriResolverCache
@@ -48,9 +47,11 @@ def resolve_project_uri(
     """Resolve a project URI by dispatching to the per-authority resolver.
 
     Loads the matching artifact from ``project_root`` and applies the URI
-    fragment. Spec authority is the only resolver wired up for bones — it
-    loads ``.jig/spec/spec.structured.yaml`` and dispatches into the existing
-    spec resolver.
+    fragment. This dispatcher handles the **declared artifacts** only —
+    ``spec`` / ``arch`` / ``design`` / ``plan`` (sync disk loads). The ``store``
+    authority is mutable runtime state read through the *typed* stores; it is
+    resolved by :meth:`StoreAuthority.read` (async), which projects over those
+    stores, so it is not handled here.
 
     ``cache`` is opt-in; when provided we consult it before dispatching and
     populate it on miss. ``None`` (default) keeps every call a fresh load —
@@ -58,15 +59,7 @@ def resolve_project_uri(
     """
     parsed = parse_project_uri(uri) if isinstance(uri, str) else uri
 
-    # The resolver cache is for *declared artifacts* (spec/arch/design/plan) —
-    # they change rarely and via events the cache subscribes to. The ``store``
-    # authority is mutable runtime state: tickets are created/updated through
-    # many paths (TicketStore.create() and non-status update() emit no
-    # invalidation event), and a JSONL replay is cheap. Caching it would trade
-    # correctness for negligible savings, so store reads always bypass the cache.
-    cacheable = parsed.authority != "store"
-
-    if cache is not None and cacheable:
+    if cache is not None:
         cached = cache.get(parsed)
         if cached is not None:
             return cached
@@ -89,14 +82,14 @@ def resolve_project_uri(
             kind="plan", data=data, source_path=None, revision=parsed.revision
         )
     elif parsed.authority == "store":
-        data = resolve_store_uri(parsed, project_root)
-        result = ResolvedUri(
-            kind="store", data=data, source_path=None, revision=parsed.revision
+        raise ProjectUriError(
+            "store reads are resolved by StoreAuthority.read (async, through the "
+            "typed stores), not the sync project-URI dispatcher"
         )
     else:
         raise ProjectUriError(f"unhandled authority {parsed.authority!r}")
 
-    if cache is not None and cacheable:
+    if cache is not None:
         cache.put(parsed, result)
     return result
 

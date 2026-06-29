@@ -112,7 +112,6 @@ async def test_mcp_tool_call_logs_carry_correlation(
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
     orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.thread import Note
 
@@ -121,7 +120,7 @@ async def test_mcp_tool_call_logs_carry_correlation(
         logging.getLogger("jig.test.during_tool").info("mid-tool")
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     await orch.startup()
     try:

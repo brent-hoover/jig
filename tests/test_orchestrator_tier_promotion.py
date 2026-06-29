@@ -42,7 +42,6 @@ async def test_blocked_with_signal_promotes_standard_to_senior(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         class _FakeResult:
             status = "blocked"
@@ -54,7 +53,7 @@ async def test_blocked_with_signal_promotes_standard_to_senior(
         async def _fake_run_agent(ctx, emitter=None):
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="tb-cat",
@@ -117,7 +116,6 @@ async def test_success_status_does_not_promote(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         class _FakeResult:
             status = "success"
@@ -129,7 +127,7 @@ async def test_success_status_does_not_promote(
         async def _fake_run_agent(ctx, emitter=None):
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="tb-cat",
@@ -182,7 +180,6 @@ async def test_blocked_without_signals_does_not_promote(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         class _FakeResult:
             status = "blocked"
@@ -194,7 +191,7 @@ async def test_blocked_without_signals_does_not_promote(
         async def _fake_run_agent(ctx, emitter=None):
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="tb-cat",
@@ -232,7 +229,6 @@ async def test_sa_tier_no_further_promotion(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         class _FakeResult:
             status = "blocked"
@@ -244,7 +240,7 @@ async def test_sa_tier_no_further_promotion(
         async def _fake_run_agent(ctx, emitter=None):
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="tb-cat",

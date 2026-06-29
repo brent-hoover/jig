@@ -79,7 +79,6 @@ async def test_required_check_fails_then_agent_fixes_and_phase_advances(
         monkeypatch=monkeypatch,
     )
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
     run_calls: list[str] = []  # records ctx.phase.name per invocation
@@ -119,7 +118,7 @@ async def test_required_check_fails_then_agent_fixes_and_phase_advances(
             )
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     await orch.startup()
     try:

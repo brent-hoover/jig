@@ -555,17 +555,17 @@ class Orchestrator:
 
         Routes the spawn through ``self._run_agent`` (Epic 3 MVP) and returns its
         ``AgentRunResult`` (a field-superset of the legacy ``RunAgentResult``, so
-        existing callers are unaffected). Bones
-        scope: model is recorded as ``"default"`` since per-spawn model
-        selection isn't yet plumbed through the orchestrator. Duration is
-        wall-clock from the spawn-emit point.
+        existing callers are unaffected). Model is recorded as ``"default"`` since
+        per-spawn model selection isn't yet plumbed through the orchestrator.
+        Duration is wall-clock from the spawn-emit point.
 
         Track E MVP: provisions per-agent dev-env namespaces (Postgres
-        schema, NATS subject prefix, etc.) before invoking ``run_agent``
-        and cleans them up after. Best-effort — provisioning failures
-        leave ``ctx.extra_env`` empty rather than failing the spawn;
-        cleanup failures are logged and swallowed (mirrors the
-        analytics-drain-on-shutdown pattern).
+        schema, NATS subject prefix, etc.) before the spawn and cleans them up
+        after. A manifest-declared service whose provisioning fails marks the
+        ticket ``failed`` (SF-1) rather than running against default services;
+        when no services are declared the env map is simply empty. Cleanup
+        failures are logged and swallowed (mirrors the analytics-drain-on-
+        shutdown pattern).
         """
         agent_id = f"{ctx.role}:{ctx.ticket.id[:8]}"
         emitter = self._analytics_emitter

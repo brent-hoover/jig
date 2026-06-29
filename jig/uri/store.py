@@ -1,91 +1,39 @@
-"""Resolver for ``project://store/...`` URIs (runtime JSONL stores).
+"""Helpers for ``project://store/...`` URIs (runtime stores).
 
-Reads the ``.jig/store/*.jsonl`` op-logs. PR B (#216) wires the canonical
-``tickets`` collection — ``_id``-keyed, the simplest shape. Threads (keyed by
-ticket-id, in ``comments.jsonl``), messages, events, and checkpoints have
-different keying/filtering and land in a follow-on; they raise
-``UnimplementedAuthorityError`` for now.
+Store URIs are resolved by :meth:`jig.substrate.store_authority.StoreAuthority.read`,
+which projects over the *typed* stores (``TicketStore`` etc.) — the same instances
+the engines use — rather than a parallel JSONL replay. This module keeps only the
+URI-shape validation and the canonical serialization the read path shares; there is
+no second op-log replay here (that would be the drift ADR-0001 forbids).
 
-This read path is synchronous (the resolver is sync and may run inside an event
-loop), so it replays the JSONL op-log directly rather than going through the
-async store classes. The op-log format mirrors ``jig.store.core.JsonlStore``:
-each line is ``{"_op": insert|update|delete, "_id": ..., ...}``.
-
-See ``docs/v2.0/uri-scheme/design.md`` §"`project://store/...`".
+PR B (#216) wires the canonical ``tickets`` collection — ``_id``-keyed, the simplest
+shape. Threads/messages/events/checkpoints have different keying and land in a
+follow-on; they raise ``UnimplementedAuthorityError`` for now.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jig.uri.errors import UnimplementedAuthorityError
 from jig.uri.parser import ProjectUri
 
-# Store collection -> ``.jig/store/<file>.jsonl``. PR B wires ``tickets`` only.
-_WIRED_FILES: dict[str, str] = {"tickets": "tickets"}
+if TYPE_CHECKING:
+    from jig.ticket import Ticket
 
-
-def _replay_jsonl(path: Path) -> dict[str, dict[str, Any]]:
-    """Replay a JSONL op-log to the current ``{_id: doc}`` state. Missing file ->
-    empty (a store that hasn't been written yet).
-
-    Validation mirrors ``jig.store.core.JsonlStore.load`` so a resolver read of a
-    corrupt op-log fails the same way the canonical async store would, rather than
-    masking it (e.g. update-before-insert -> ``KeyError``) or silently dropping it.
-    """
-    docs: dict[str, dict[str, Any]] = {}
-    if not path.exists():
-        return docs
-    with path.open("r") as f:
-        for line_no, raw in enumerate(f, start=1):
-            line = raw.rstrip("\n")
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as e:
-                raise ValueError(
-                    f"{path}: malformed JSON on line {line_no}: {e}"
-                ) from e
-            if "_op" not in record:
-                raise ValueError(f"{path}: missing _op on line {line_no}")
-            if "_id" not in record:
-                raise ValueError(f"{path}: missing _id on line {line_no}")
-            op, doc_id = record["_op"], record["_id"]
-            if op == "insert":
-                docs[doc_id] = {k: v for k, v in record.items() if k != "_op"}
-            elif op == "update":
-                if doc_id not in docs:
-                    raise ValueError(
-                        f"{path}:{line_no}: update for unknown id {doc_id!r}"
-                    )
-                docs[doc_id].update(
-                    {k: v for k, v in record.items() if k not in ("_op", "_id")}
-                )
-            elif op == "delete":
-                if doc_id not in docs:
-                    raise ValueError(
-                        f"{path}:{line_no}: delete for unknown id {doc_id!r}"
-                    )
-                docs.pop(doc_id, None)
-            else:
-                raise ValueError(f"{path}: unknown _op {op!r} on line {line_no}")
-    return docs
+# Store collections the read path resolves. PR B wires ``tickets`` only.
+_WIRED_COLLECTIONS: frozenset[str] = frozenset({"tickets"})
 
 
 def reject_unsupported_store_uri(uri: ProjectUri) -> None:
-    """Raise for store URIs PR B doesn't resolve. Called at the top of
-    ``resolve_store_uri``. (The resolver never caches store reads, so there's no
-    cache-bypass concern here — store is mutable runtime state, always read fresh.)
+    """Raise for store URIs the read path doesn't resolve.
 
     Rejects: unwired collections (only ``tickets``), sub-document paths,
     fragments, and ``@revision`` pins (resolving the latest while reporting a
     pinned revision would mislead the caller).
     """
     collection = uri.path[0] if uri.path else None
-    if collection not in _WIRED_FILES:
+    if collection not in _WIRED_COLLECTIONS:
         raise UnimplementedAuthorityError(
             f"store collection {collection!r} not yet wired; got {uri!r}"
         )
@@ -99,27 +47,8 @@ def reject_unsupported_store_uri(uri: ProjectUri) -> None:
         )
 
 
-def _normalize_ticket(row: dict[str, Any]) -> dict[str, Any]:
-    """Normalize a raw JSONL row through the ``Ticket`` model so a URI read
-    matches what ``TicketStore`` returns (defaults applied, aliases canonical)."""
-    from jig.ticket import Ticket
-
-    return Ticket.model_validate(row).model_dump(mode="json", by_alias=True)
-
-
-def resolve_store_uri(uri: ProjectUri, project_root: Path) -> dict[str, Any]:
-    reject_unsupported_store_uri(uri)
-    collection = uri.path[0]
-
-    path = project_root / ".jig" / "store" / f"{_WIRED_FILES[collection]}.jsonl"
-    docs = _replay_jsonl(path)
-
-    if len(uri.path) == 1:  # project://store/tickets -> the list
-        return {
-            "kind": "ticket_list",
-            "data": [_normalize_ticket(d) for d in docs.values()],
-        }
-
-    doc_id = uri.path[1]  # project://store/tickets/<id> -> one (or None)
-    row = docs.get(doc_id)
-    return {"kind": "ticket", "data": _normalize_ticket(row) if row else None}
+def serialize_ticket(ticket: "Ticket") -> dict[str, Any]:
+    """The canonical dict a URI read returns for a ticket — the same serialization
+    ``TypedCollection`` persists (``by_alias``, json mode), so the URI door and the
+    typed store never disagree on shape."""
+    return ticket.model_dump(mode="json", by_alias=True)

@@ -1,9 +1,10 @@
 """Substrate — StoreAuthority routing (Epic 2).
 
-The authority is a unified facade. ``read`` delegates to the existing
-``project://`` resolver — store reads are wired (PR B); arch/design/plan still
-surface ``UnimplementedAuthorityError``. ``write`` persists ``store`` through the
-typed ``TicketStore`` (PR B2); the other authorities remain the declared seam.
+The authority is a unified facade. ``read`` is async: ``store`` reads project over
+the typed stores (the same instances the engines use — ADR-0001), while
+arch/design/plan are sync disk loads via the dispatcher and still surface
+``UnimplementedAuthorityError``. ``write`` persists ``store`` through the typed
+``TicketStore`` (PR B2); the other authorities remain the declared seam.
 """
 
 from __future__ import annotations
@@ -77,7 +78,7 @@ async def test_typed_port_and_uri_door_share_one_ticket_store(tmp_path) -> None:
     await sa.tickets.create(
         Ticket(id="login", work_type="docs", title="Login", created_by="po")
     )
-    resolved = sa.read("project://store/tickets/login")
+    resolved = await sa.read("project://store/tickets/login")
     assert resolved.data["data"]["title"] == "Login"
 
     # write via the URI door -> visible through the typed port (same instance)
@@ -130,7 +131,7 @@ def test_authority_of_routes_uri_to_its_authority(tmp_path) -> None:
     assert sa.authority_of("project://store/tickets/jig-1") == "store"
 
 
-def test_read_routes_unwired_authority_to_unimplemented(tmp_path) -> None:
+async def test_read_routes_unwired_authority_to_unimplemented(tmp_path) -> None:
     # store read is wired (PR B, #216); arch/design/plan remain follow-on.
     sa = StoreAuthority(tmp_path)
     for uri in (
@@ -139,13 +140,13 @@ def test_read_routes_unwired_authority_to_unimplemented(tmp_path) -> None:
         "project://plan/build-plan",
     ):
         with pytest.raises(UnimplementedAuthorityError):
-            sa.read(uri)
+            await sa.read(uri)
 
 
-def test_read_rejects_unknown_authority(tmp_path) -> None:
+async def test_read_rejects_unknown_authority(tmp_path) -> None:
     sa = StoreAuthority(tmp_path)
     with pytest.raises((UnknownAuthorityError, ProjectUriError)):
-        sa.read("project://bogus/x")
+        await sa.read("project://bogus/x")
 
 
 async def test_write_creates_a_ticket_that_reads_back(tmp_path) -> None:
@@ -153,7 +154,7 @@ async def test_write_creates_a_ticket_that_reads_back(tmp_path) -> None:
     returned = await sa.write("project://store/tickets/login", _doc(title="Login"))
     assert returned == "login"
 
-    resolved = sa.read("project://store/tickets/login")
+    resolved = await sa.read("project://store/tickets/login")
     assert resolved.data["kind"] == "ticket"
     assert resolved.data["data"]["title"] == "Login"
     assert resolved.data["data"]["_id"] == "login"
@@ -167,7 +168,7 @@ async def test_write_updates_an_existing_ticket(tmp_path) -> None:
     await sa.write("project://store/tickets/login", _doc(title="Old"))
     await sa.write("project://store/tickets/login", {"title": "New"})
 
-    data = sa.read("project://store/tickets/login").data["data"]
+    data = (await sa.read("project://store/tickets/login")).data["data"]
     assert data["title"] == "New"
     assert data["created_by"] == "po"  # untouched fields survive the merge
 
@@ -235,10 +236,9 @@ async def test_write_through_a_stale_injected_store_still_updates(tmp_path) -> N
 
     sa = StoreAuthority(tmp_path, tickets=injected)  # injected store is now stale
     await sa.write("project://store/tickets/login", {"title": "Updated via injected"})
-    assert (
-        sa.read("project://store/tickets/login").data["data"]["title"]
-        == "Updated via injected"
-    )
+    assert (await sa.read("project://store/tickets/login")).data["data"][
+        "title"
+    ] == "Updated via injected"
 
 
 async def test_write_create_validates_the_schema(tmp_path) -> None:
@@ -276,7 +276,7 @@ async def test_concurrent_writes_to_a_new_id_create_then_update(tmp_path) -> Non
         sa.write("project://store/tickets/login", _doc(title="A")),
         sa.write("project://store/tickets/login", _doc(title="B")),
     )
-    data = sa.read("project://store/tickets/login").data["data"]
+    data = (await sa.read("project://store/tickets/login")).data["data"]
     assert data["title"] in {"A", "B"}
     assert data["key"] == "jig-1"  # one create -> one key assigned
 
@@ -292,7 +292,6 @@ async def test_write_to_a_ticket_another_instance_created_updates_it(tmp_path) -
     await sa1.write("project://store/tickets/login", _doc(title="From sa1"))
 
     await sa2.write("project://store/tickets/login", {"title": "Updated by sa2"})
-    assert (
-        sa1.read("project://store/tickets/login").data["data"]["title"]
-        == "Updated by sa2"
-    )
+    assert (await sa1.read("project://store/tickets/login")).data["data"][
+        "title"
+    ] == "Updated by sa2"

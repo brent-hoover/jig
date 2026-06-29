@@ -117,9 +117,56 @@ class StoreAuthority:
         """Which of the 5 authorities a ``project://`` URI routes to."""
         return parse_project_uri(uri).authority
 
-    def read(self, uri: str) -> ResolvedUri:
-        """Resolve a ``project://`` URI to its artifact (or fragment thereof)."""
-        return resolve_project_uri(uri, self._root, cache=self._cache)
+    async def read(self, uri: str) -> ResolvedUri:
+        """Resolve a ``project://`` URI to its artifact (or fragment thereof).
+
+        ``store`` reads project over the *typed* stores (the same instances the
+        engines use) — no parallel JSONL replay (ADR-0001). The declared
+        artifacts (spec/arch/design/plan) are sync disk loads via the
+        per-authority dispatcher.
+        """
+        parsed = parse_project_uri(uri)
+        if parsed.authority == "store":
+            return await self._read_store(parsed)
+        return resolve_project_uri(parsed, self._root, cache=self._cache)
+
+    async def _read_store(self, parsed: ProjectUri) -> ResolvedUri:
+        """Read a ``project://store/...`` URI through the typed store, serialized
+        to a dict (the cross-boundary surface). Uses the same ``TicketStore`` the
+        write path uses — lazily loaded if the authority wasn't ``load()``-ed."""
+        from jig.uri.store import reject_unsupported_store_uri, serialize_ticket
+
+        reject_unsupported_store_uri(parsed)
+        if len(parsed.path) == 2 and _RESERVED_KEY_ID.match(parsed.path[1]):
+            # Symmetric with the write path: jig-N is the reserved key namespace,
+            # not an addressable id. The URI door addresses tickets by id; a
+            # jig-N read would just miss (get-by-id), so reject it as a category
+            # error rather than silently return null. (Keys resolve via the CLI.)
+            raise ProjectUriError(
+                f"store-read ticket id {parsed.path[1]!r} uses the reserved jig-N "
+                "key namespace; address tickets by id"
+            )
+        tickets = await self._tickets()
+        # The URI read is the cross-boundary serialization surface — it must
+        # reflect current *persisted* state, not a possibly-stale in-memory
+        # snapshot (another process may have written since this store loaded).
+        # Reload first; lock-safe (PR C) and the same O(file) cost the prior
+        # disk-replay read paid, but through the one canonical load.
+        await tickets.load()
+        if len(parsed.path) == 1:  # project://store/tickets -> the list
+            data: dict[str, Any] = {
+                "kind": "ticket_list",
+                "data": [serialize_ticket(t) for t in await tickets.all()],
+            }
+        else:  # project://store/tickets/<id> -> one (or None)
+            ticket = await tickets.get(parsed.path[1])
+            data = {
+                "kind": "ticket",
+                "data": serialize_ticket(ticket) if ticket else None,
+            }
+        return ResolvedUri(
+            kind="store", data=data, source_path=None, revision=parsed.revision
+        )
 
     # ---- composition root: typed runtime ports (ADR-0001) ---------------
 

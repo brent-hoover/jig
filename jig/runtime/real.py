@@ -37,6 +37,8 @@ class RealRunAgent:
             total_cost_usd=result.total_cost_usd,
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
-            warnings=list(result.warnings),
+            # ``warnings`` is optional/additive (SF-I5: ``None`` when there's
+            # nothing to report), so tolerate a result that omits it entirely.
+            warnings=list(getattr(result, "warnings", None) or []),
             # events left empty in Bones; populated by RecordedRunAgent in MVP.
         )

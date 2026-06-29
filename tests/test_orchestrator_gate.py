@@ -401,7 +401,6 @@ class TestEvaluatorSpawn:
         stub completes immediately so ``_cleanup`` runs and the
         live_subscribers slot clears.
         """
-        import jig.orchestrator as orch_module
         from jig.agent import RunAgentResult
 
         calls: list[tuple[str, str]] = []
@@ -410,7 +409,7 @@ class TestEvaluatorSpawn:
             calls.append((ctx.role, ctx.spawn_reason.value))
             return RunAgentResult(status="success", final_text="ok")
 
-        monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
         async def fake_ensure(ticket):
             return tmp_path / "worktree"
@@ -630,7 +629,6 @@ class TestEvaluatorSpawn:
         evaluator bundle (handoff id + check_results payload) before
         handing control to ``run_agent``.
         """
-        import jig.orchestrator as orch_module
         from jig.agent import RunAgentResult
 
         bundles: list[dict] = []
@@ -639,7 +637,7 @@ class TestEvaluatorSpawn:
             bundles.append(ctx.initial_bus_message)
             return RunAgentResult(status="success", final_text="ok")
 
-        monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
         async def fake_ensure(ticket):
             return tmp_path / "worktree"

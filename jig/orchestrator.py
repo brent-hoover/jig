@@ -21,7 +21,8 @@ if TYPE_CHECKING:
     from jig.reviewers.comment import ReviewerComment
     from jig.ticket import Ticket
 
-from jig.agent import run_agent
+from jig.runtime.contract import AgentRunResult, RunAgent
+from jig.runtime.real import RealRunAgent
 from jig.stall_detector import StallDetector
 from jig.analytics.emitter import EventEmitter as AnalyticsEmitter
 from jig.analytics.events import (
@@ -286,10 +287,15 @@ class Orchestrator:
         project_path: Path,
         emitter: "EventEmitter | None" = None,
         prompt_registry: "PromptRegistry | None" = None,
+        run_agent: "RunAgent | None" = None,
     ) -> None:
         self._project_path = project_path
         self._emitter = emitter
         self._prompt_registry = prompt_registry
+        # Epic 3 MVP: all spawns route through the RunAgent seam (not agent.py
+        # directly), so headless evals can inject a Fixture/Recorded RunAgent.
+        # Production default wraps the real spawn+sandbox+MCP path.
+        self._run_agent: RunAgent = run_agent or RealRunAgent(emitter=emitter)
         self._project: Project | None = None
         # Composition root (ADR-0001): owns + vends the typed domain stores.
         # ``self.tickets`` / ``self.threads`` / … below are authority-sourced
@@ -545,19 +551,21 @@ class Orchestrator:
         )
 
     async def _run_agent_with_analytics(self, ctx, *, spawned_by: str = "orchestrator"):
-        """Wrap run_agent with AgentSpawned/AgentCompleted emission.
+        """Wrap the RunAgent seam with AgentSpawned/AgentCompleted emission.
 
-        Returns the same ``RunAgentResult`` ``run_agent`` would. Bones
-        scope: model is recorded as ``"default"`` since per-spawn model
-        selection isn't yet plumbed through the orchestrator. Duration is
-        wall-clock from the spawn-emit point.
+        Routes the spawn through ``self._run_agent`` (Epic 3 MVP) and returns its
+        ``AgentRunResult`` (a field-superset of the legacy ``RunAgentResult``, so
+        existing callers are unaffected). Model is recorded as ``"default"`` since
+        per-spawn model selection isn't yet plumbed through the orchestrator.
+        Duration is wall-clock from the spawn-emit point.
 
         Track E MVP: provisions per-agent dev-env namespaces (Postgres
-        schema, NATS subject prefix, etc.) before invoking ``run_agent``
-        and cleans them up after. Best-effort — provisioning failures
-        leave ``ctx.extra_env`` empty rather than failing the spawn;
-        cleanup failures are logged and swallowed (mirrors the
-        analytics-drain-on-shutdown pattern).
+        schema, NATS subject prefix, etc.) before the spawn and cleans them up
+        after. A manifest-declared service whose provisioning fails marks the
+        ticket ``failed`` (SF-1) rather than running against default services;
+        when no services are declared the env map is simply empty. Cleanup
+        failures are logged and swallowed (mirrors the analytics-drain-on-
+        shutdown pattern).
         """
         agent_id = f"{ctx.role}:{ctx.ticket.id[:8]}"
         emitter = self._analytics_emitter
@@ -620,9 +628,7 @@ class Orchestrator:
                 )
             )
             await ctx.tickets.update(ctx.ticket.id, status=TicketStatus.FAILED)
-            from jig.agent import RunAgentResult
-
-            return RunAgentResult(
+            return AgentRunResult(
                 status="failed",
                 final_text=f"dev-env provisioning failed: {exc}",
             )
@@ -664,7 +670,7 @@ class Orchestrator:
         tokens_in: int | None = None
         tokens_out: int | None = None
         try:
-            result = await run_agent(ctx, emitter=self._emitter)
+            result = await self._run_agent(ctx)
             result_status = self._map_result_status(result.status)
             cost_usd = result.total_cost_usd
             tokens_in = result.tokens_in

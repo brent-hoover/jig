@@ -58,15 +58,13 @@ async def test_fixture_env_replay_only_for_non_spike_ticket(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
-
         captured: dict = {}
 
         async def _fake_run_agent(ctx, emitter=None):
             captured["extra_env"] = dict(getattr(ctx, "extra_env", None) or {})
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="t-feature",
@@ -94,15 +92,13 @@ async def test_fixture_env_record_new_for_spike_ticket(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
-
         captured: dict = {}
 
         async def _fake_run_agent(ctx, emitter=None):
             captured["extra_env"] = dict(getattr(ctx, "extra_env", None) or {})
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="t-spike",
@@ -151,7 +147,7 @@ async def test_fixture_env_does_not_clobber_dev_env_urls(
         async def _fake_cleanup(*args, **kwargs):
             return None
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
         monkeypatch.setattr(orchestrator_module, "provision_for_agent", _fake_provision)
         monkeypatch.setattr(orchestrator_module, "cleanup_for_agent", _fake_cleanup)
 

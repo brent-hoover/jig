@@ -290,7 +290,7 @@ async def test_run_agent_with_analytics_injects_dev_env_vars(
             captured["extra_env"] = dict(getattr(ctx, "extra_env", None) or {})
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         # Replace the orchestrator's hook helpers with versions that
         # use an in-memory recorder so no live Postgres is needed.
@@ -364,7 +364,7 @@ async def test_run_agent_with_analytics_archives_on_failure(
         async def _boom(ctx, emitter=None):
             raise RuntimeError("crash")
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _boom)
+        monkeypatch.setattr("jig.agent.run_agent", _boom)
 
         rec = _Recorder()
         reg = ProvisioningRegistry(postgres_sql_executor=rec)
@@ -429,8 +429,6 @@ async def test_orchestrator_skips_dev_env_when_no_manifest(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
-
         captured: dict = {}
 
         class _FakeResult:
@@ -445,7 +443,7 @@ async def test_orchestrator_skips_dev_env_when_no_manifest(
             captured["extra_env"] = dict(getattr(ctx, "extra_env", None) or {})
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             id="t-002",

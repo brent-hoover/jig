@@ -94,7 +94,6 @@ async def test_run_agent_with_analytics_emits_spawn_and_complete(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         class _FakeResult:
             status = "success"
@@ -107,7 +106,7 @@ async def test_run_agent_with_analytics_emits_spawn_and_complete(
             await asyncio.sleep(0)
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             work_type=WorkType.FEATURE,
@@ -158,7 +157,6 @@ async def test_run_agent_status_mapping_needs_info_to_blocked(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         class _FakeResult:
             status = "needs_info"
@@ -170,7 +168,7 @@ async def test_run_agent_status_mapping_needs_info_to_blocked(
         async def _fake_run_agent(ctx, emitter=None):
             return _FakeResult()
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _fake_run_agent)
+        monkeypatch.setattr("jig.agent.run_agent", _fake_run_agent)
 
         ticket = Ticket(
             work_type=WorkType.FEATURE,
@@ -203,12 +201,11 @@ async def test_run_agent_failure_still_emits_completion(
     orch = Orchestrator(project_path=tmp_path)
     await orch.startup()
     try:
-        from jig import orchestrator as orchestrator_module
 
         async def _boom(ctx, emitter=None):
             raise RuntimeError("agent crashed")
 
-        monkeypatch.setattr(orchestrator_module, "run_agent", _boom)
+        monkeypatch.setattr("jig.agent.run_agent", _boom)
 
         class _FakeCtx:
             role = "dev"

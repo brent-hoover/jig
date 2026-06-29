@@ -33,7 +33,6 @@ async def test_orchestrator_log_records_carry_ticket_and_phase(
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
     orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
     async def fake_run_agent(ctx, emitter=None):
@@ -41,7 +40,7 @@ async def test_orchestrator_log_records_carry_ticket_and_phase(
         logging.getLogger("jig.test.agent").info("hello from agent")
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     await orch.startup()
     try:

@@ -67,6 +67,19 @@ def test_build_with_no_allowed_mcps_is_jig_only(tmp_path: Path) -> None:
     assert list(servers) == ["jig"]
 
 
+def _patch_home(monkeypatch, home: Path) -> None:
+    # Patch the Path symbol the module actually uses (more robust across Python
+    # versions than mutating stdlib Path.home).
+    import jig.runtime.mcp as mcp_mod
+
+    class _Path(type(home)):  # type: ignore[misc]
+        @classmethod
+        def home(cls) -> Path:
+            return home
+
+    monkeypatch.setattr(mcp_mod, "Path", _Path)
+
+
 def test_build_merges_external_mcps(tmp_path: Path, monkeypatch) -> None:
     # A role-allowed external MCP resolved from ~/.claude/.mcp.json is merged
     # alongside the jig server.
@@ -75,7 +88,7 @@ def test_build_merges_external_mcps(tmp_path: Path, monkeypatch) -> None:
     (home / ".claude" / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"weather": {"command": "weather-mcp"}}})
     )
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    _patch_home(monkeypatch, home)
 
     servers = build_agent_mcp_servers(
         _ctx(tmp_path, allowed_mcps=["weather"]), can_waive=frozenset()
@@ -86,6 +99,18 @@ def test_build_merges_external_mcps(tmp_path: Path, monkeypatch) -> None:
 
 def test_resolve_external_mcps_empty_is_empty() -> None:
     assert resolve_external_mcps([]) == {}
+
+
+def test_resolve_external_mcps_tolerates_malformed_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # A non-dict root (here a JSON array) must be skipped, not crash the spawn.
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / ".mcp.json").write_text(json.dumps(["not", "an", "object"]))
+    _patch_home(monkeypatch, home)
+
+    assert resolve_external_mcps(["weather"]) == {}
 
 
 def test_effective_ticket_base_ref_prefers_delta_base(tmp_path: Path) -> None:

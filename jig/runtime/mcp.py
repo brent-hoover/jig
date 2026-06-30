@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from jig.mcp_server import create_agent_mcp_server
 from jig.persistence import list_roles
@@ -40,7 +40,7 @@ def effective_ticket_base_ref(ctx: AgentSpawnContext) -> str:
     return ctx.delta_base or ctx.project.default_branch
 
 
-def resolve_external_mcps(allowed_mcps: list[str]) -> dict:
+def resolve_external_mcps(allowed_mcps: list[str]) -> dict[str, Any]:
     """Resolve allowed MCP names to stdio server configs.
 
     Searches two locations for each name:
@@ -48,19 +48,24 @@ def resolve_external_mcps(allowed_mcps: list[str]) -> dict:
     2. Installed plugin cache (``~/.claude/plugins/cache/*/*/.mcp.json``)
 
     Returns a dict of ``{server_name: McpStdioServerConfig}`` suitable for
-    merging into the ``mcp_servers`` option.
+    merging into the ``mcp_servers`` option. A malformed config (bad JSON, or a
+    non-dict root) is logged and skipped — config resolution is best-effort and
+    must not crash an agent spawn.
     """
     if not allowed_mcps:
         return {}
 
-    result: dict = {}
+    result: dict[str, Any] = {}
     remaining = set(allowed_mcps)
 
     # 1. User-level .mcp.json
     user_mcp = Path.home() / ".claude" / ".mcp.json"
     if user_mcp.exists():
         try:
-            servers = json.loads(user_mcp.read_text()).get("mcpServers", {})
+            root = json.loads(user_mcp.read_text())
+            servers = root.get("mcpServers", {}) if isinstance(root, dict) else {}
+            if not isinstance(servers, dict):
+                servers = {}
             for name in list(remaining):
                 if name in servers:
                     result[name] = servers[name]
@@ -90,6 +95,11 @@ def resolve_external_mcps(allowed_mcps: list[str]) -> dict:
                         continue
                     try:
                         servers = json.loads(mcp_json.read_text())
+                        if not isinstance(servers, dict):
+                            _logger.warning(
+                                "Ignoring %s: root is not an object", mcp_json
+                            )
+                            break
                         for server_name, config in servers.items():
                             result[server_name] = config
                         remaining.discard(name)
@@ -107,7 +117,7 @@ def resolve_external_mcps(allowed_mcps: list[str]) -> dict:
 
 def build_agent_mcp_servers(
     ctx: AgentSpawnContext, *, can_waive: frozenset[str]
-) -> dict:
+) -> dict[str, Any]:
     """Assemble the ``{name: server}`` MCP map for one real agent run.
 
     Builds the in-process ``jig`` server via the tool-registration factory and
@@ -153,7 +163,7 @@ def build_agent_mcp_servers(
         ticket_base_ref=effective_ticket_base_ref(ctx),
     )
 
-    mcp_servers: dict = {"jig": jig_server}
+    mcp_servers: dict[str, Any] = {"jig": jig_server}
     external = resolve_external_mcps(ctx.role_cfg.allowed_mcps)
     mcp_servers.update(external)
     if external:

@@ -4,7 +4,7 @@ type: plan
 status: draft
 owner: brent-hoover
 created: 2026-06-25
-updated: 2026-06-26
+updated: 2026-06-28
 design: ./jig-instance.md
 ---
 
@@ -33,33 +33,25 @@ the system. The architecture lives in `model.md` and `jig-instance.md`.
 ## Absorbed feature-work docs
 
 This plan supersedes the following `feature-work/` problem statements, whose
-requirements are folded into the epics below:
+requirements are folded into the epics below. Each row maps the superseded doc
+to the **exact epic and phase** that absorbs it, so a contributor recovering
+intent (e.g. for "Project Onboarding" or "SA as Architect") lands on the precise
+task list without re-reading the old doc.
 
-- [x] `feature-work/larger-projects/problem.md` — SA role unification + tracer-bullet
-      planning phase. **Absorbed into Epic 6** (SAU unification, TB planning phase,
-      graph tools, derisker ordering, TracerSpec integration, medium eval scenario).
-- [x] `feature-work/sa-architect/problem.md` — SA grounded decisions (Context7,
-      WebFetch). **Absorbed into Epic 6** (Architecture engine MVP — grounded
-      decision protocol preserved in unified SAU).
-- [x] `feature-work/architecture-skeleton/problem.md` — Architecture artifacts
-      incomplete (modules, contracts). **Absorbed into Epic 6** (Architecture
-      engine produces full artifact set: modules, contracts, boundaries).
-- [x] `feature-work/module-boundaries/problem.md` — Module boundary enforcement.
-      **Absorbed into Epic 5** (Enforcement — mechanical structure checks +
-      boundary rules).
-- [x] `feature-work/medium-l0-l3-pipeline/problem.md` — PO L0-L3 pipeline, v1 vs
-      v2 topology. **Absorbed into Epic 6** (Discovery engine — L0-L3 pipeline
-      becomes the Discovery interview at architectural resolution).
-- [x] `feature-work/project-onboarding/problem.md` — Brownfield onboarding path.
-      **Absorbed into Epic 6** (Discovery engine — onboarding extracted as
-      `jig/engines/discovery/onboard.py`; brownfield TB support is a design
-      target, not a requirement, per larger-projects constraints).
-- [x] `feature-work/jig-init-process/problem.md` — Init flow has no
-      conversation/architecture. **Absorbed into Epic 6** (Discovery engine —
-      init conversation becomes the Discovery interview).
+| Superseded doc | Absorbed into | Phase(s) | Key absorbed requirements |
+|---|---|---|---|
+| `larger-projects/problem.md` | Epic 6 | MVP 1–5, Final 3–4 | SAU role unification, TB planning phase, graph tools, derisker ordering, TracerSpec integration, medium eval |
+| `sa-architect/problem.md` | Epic 6 | MVP 2 | Grounded-decision protocol (Context7 + WebFetch) preserved in unified SAU |
+| `architecture-skeleton/problem.md` | Epic 6 | MVP 2 | Full artifact set: modules, contracts, boundaries, data ownership |
+| `module-boundaries/problem.md` | Epic 5 | MVP 4–5 | Mechanical (non-LLM-adjudicated) boundary + vocabulary enforcement |
+| `medium-l0-l3-pipeline/problem.md` | Epic 6 | Bones 4 | Discovery interview replaces the v1/v2 L0-L3 split |
+| `project-onboarding/problem.md` | Epic 6 | MVP 6 | Onboarding behind `project://spec/` (`engines/discovery/onboard.py`) |
+| `jig-init-process/problem.md` | Epic 6 | Bones 4 | Init conversation becomes the Discovery interview |
 
 All docs above are marked `status: superseded` with
-`superseded_by: ../../architecture/plan.md`.
+`superseded_by: ../../architecture/plan.md`. Phase numbers refer to the
+numbered task lists under each epic below (e.g. "MVP 4–5" = items 4 and 5 of
+that epic's **MVP** list).
 
 ## Preconditions
 
@@ -114,6 +106,13 @@ without them, but each must be resolved before its epic's MVP.
   asynchronously. If `decide` must `await` to decide, purity breaks and we need a
   different seam.
 - **Time-box:** One session.
+- **Resolved (#201):** **Purity holds.** A synchronous
+  `decide(state, event) -> (next_state, actions)` handles `OPEN → IN_PROGRESS`
+  and returns an inert `SpawnAgent` dataclass; an async dispatch shell executes
+  it. `decide` never awaits, never mutates input state, and is deterministic.
+  The Build seam is functional-core (`jig/engines/build/decide.py`, pure) /
+  imperative-shell (`dispatch.py`, async). Proof + tests landed in
+  `jig/engines/build/` ahead of Epic 4 bones.
 
 ### Spike 2: Static-analysis approach for Reconciliation
 
@@ -124,6 +123,17 @@ without them, but each must be resolved before its epic's MVP.
   module graph, compare it to the declared architecture. If `grimp` is too
   opinionated about package layout, fall back to a custom `ast`-based importer.
 - **Time-box:** One session.
+- **Resolved (#202): use grimp.** Empirically, grimp built a 318-module graph of
+  `jig/` in ~0.03s with no package-layout complaints, and correctly resolved the
+  `from pkg import module` module-vs-name ambiguity a naive `ast` walk can't
+  (without reimplementing module resolution). grimp is the import-graph engine
+  behind import-linter — purpose-built for "actual structure from code" and
+  reusable by Enforcement's boundary checks. Footprint is negligible: its only
+  requirement, `typing-extensions`, is already a Jig dependency. `ast` fallback
+  not needed. `derive_actual_graph` is now implemented in
+  `jig/engines/reconciliation/derive.py` (this also delivers Reconciliation MVP
+  task 1, #221); the dogfood drift run + surfacing drift as tickets remain in
+  #221.
 
 ### Spike 3: Agent record/replay for fixture-based evals
 
@@ -134,6 +144,53 @@ without them, but each must be resolved before its epic's MVP.
   Build a `RecordedAgent` impl of `RunAgent` that replays them. Verify a
   downstream consumer (the check runner) can't tell the difference.
 - **Time-box:** One session.
+- **Resolved (#203): yes.** An agent's streaming output is the sequence of
+  `JigEvent`s it emits to an `EventEmitter` during the run; its final state is
+  the `AgentRunResult`. A `Recording` captures both, serializably (persistable as
+  a fixture). `record(make_run_agent, ctx)` wraps any `RunAgent` — incl.
+  `RealRunAgent`, so `record(lambda em: RealRunAgent(emitter=em), ctx)` records a
+  real run — with a capturing emitter. `RecordedRunAgent` re-emits the recorded
+  events to an emitter then returns the recorded result, so a consumer subscribed
+  to the emitter observes an **identical stream and result** (proven by a
+  fidelity test: live vs replay observations are equal). Replay reproduces event
+  order/content, not wall-clock timing — what fixture-based evals want.
+  Implemented in `jig/runtime/recorded.py` (this also delivers Agent Runtime MVP
+  task 1, #217). Capturing a real live run is an operator action; the eval
+  corpus of recorded runs lands in #222.
+
+## Epic dependency matrix
+
+Most epic **Bones** are deliberately decoupled: each stands up a boundary/seam
+with logic shimmed, so they can proceed largely in parallel (the global gate is
+that all bones land before any MVP — see the bones acceptance test). Two caveats
+to "independent":
+- **Epic 8 Bones is the full-composition exception** — its harness wires Epics
+  1, 3, 4, 5 together, so it must land after those bones exist (it does not touch
+  Epic 2 / `StoreAuthority` — see the bones-gate scope note).
+- **Epics 5 and 7 Bones each carry a narrow Epic 1 contract dependency** — they
+  import model-layer types (`Finding`, the dependency-graph types), so Epic 1's
+  bones must define those before Epic 5/7 bones compile. This is a type-contract
+  dependency, not a full composition like Epic 8.
+
+**MVP** work is where the remaining cross-epic contracts bind. The
+matrix below makes the ordering explicit so contributors don't build against an
+incomplete contract or duplicate ownership.
+
+| Epic | Bones depends on | MVP depends on | Blocks (downstream) |
+|---|---|---|---|
+| 1 — CORE Model | — | — | 2, 4, 5, 7, 8 (all consume `Finding`/entities) |
+| 2 — Substrate | — | Epic 1 (entities) | 4 (typed events), 6 (`project://` authorities) |
+| 3 — Agent Runtime | — | Spike 3 | 8 (`FixtureRunAgent`) |
+| 4 — Build engine | — | Epic 1, Epic 2 (typed events), Spike 1 | 7 (drift→tickets), 8 (headless Build) |
+| 5 — Enforcement | Epic 1 (`Finding`) | Epic 1 | 4 (Build invokes `Review`), 8 (headless Enforcement) |
+| 6 — Authoring | — | Epic 1, Epic 2 (authorities) | — (terminal for this migration) |
+| 7 — Reconciliation | Epic 1 | Spike 2, Epic 4 (surfaces drift via Build) | — |
+| 8 — Evaluation | Epics 1, 3, 4, 5 Bones | Epics 3, 4, 5, 1 | — (terminal; the bones acceptance gate) |
+| 9 — EDGE | — | all engines (daemon API over them) | — (terminal) |
+
+Reading: a row's **MVP depends on** entries must reach at least MVP before that
+row's MVP can wire real behavior. Epics 6, 8, 9 are terminal — nothing depends
+on them, so they can land last. Epic 1 is the universal prerequisite.
 
 ## Epics (dependency order)
 
@@ -141,12 +198,18 @@ Each epic has three phases: **Bones** (tracer bullet — boundary + seam, logic
 shimmed), **MVP** (real logic migrated behind the boundary), **Final** (edge
 cases, full coverage). Bones for all epics should land before any epic's MVP.
 
+Every epic below carries an explicit **Goal** (one-line intent), its phased task
+lists, and a **Verify** block that doubles as the epic's acceptance gate — so the
+plan is implementable from the repo alone, with GitHub issues as links rather
+than required context.
+
 ---
 
 ### Epic 1 — CORE Model
 
-Extract the Living-Invariant entities and invariants into a pure, I/O-free
-module. This is foundational — everything depends on it.
+**Goal:** A pure, I/O-free `jig/model/` holding the Living-Invariant entities and
+the five invariant functions, with `OntologyTerm` defined exactly once.
+Foundational — everything depends on it.
 
 **Bones:**
 1. Create `jig/model/` package (pure, no I/O imports).
@@ -171,8 +234,9 @@ module. This is foundational — everything depends on it.
    graph query.
 3. Implement `vocabulary` (one concept, one home — count concepts with >1
    definition).
-4. Migrate consumers to import from `jig/model/` directly (remove re-export
-   shims where feasible).
+4. Migrate consumers to import from `jig/model/` directly. Leave the re-export
+   shims in place — shim *removal* is a Final task, not MVP (see shim-removal
+   policy).
 
 **Final:**
 1. Implement `conformance` (requires code analysis — may defer to
@@ -187,23 +251,35 @@ module. This is foundational — everything depends on it.
 
 ### Epic 2 — Substrate (Store + Bus)
 
-Extract the store layer behind `project://` authorities and replace magic-string
-bus topics with typed events.
+**Goal:** The store layer reachable through unified `project://` authorities and
+the Bus carrying typed events instead of magic-string topics — a substrate the
+engines depend on without knowing the JSONL backing.
 
 **Bones:**
 1. Create `jig/substrate/` package.
 2. Define `StoreAuthority` — a unified read/write interface for
    `project://spec/`, `project://arch/`, `project://design/`, `project://plan/`,
-   `project://store/`. Backed by existing JSONL stores (no new persistence).
+   `project://store/`. Bones **defines, parses, and routes the facade only**:
+   `read` delegates to the existing resolver for wired authorities and raises
+   `UnimplementedAuthorityError` for the rest; **all** `write` calls raise until
+   MVP (the URI is still parsed first, so malformed URIs fail fast). No new
+   persistence — MVP routes the existing JSONL stores through it.
 3. Define `TypedEvent` schema (pydantic) for bus events. Map existing
-   magic-string topics (`"orchestrator"`, `"tickets.{id}"`) to typed equivalents
-   (`TicketScheduled`, `TicketCompleted`, etc.).
+   magic-string topics (`"orchestrator"`, `"tickets.{id}"`) to typed equivalents.
+   The bus-scoped lifecycle events are `TicketCreated` and `TicketUpdated`
+   (status transitions) — faithful to `jig.ticket_events._build_payload`.
+   Completion/failure are `TicketUpdated` status transitions; the operator-facing
+   relay (the emitter channel the TUI reads) is a separate, later concern, not a
+   new bus event type.
 4. Add a typed-event adapter in the Bus that accepts both old string topics and
    new typed events (compatibility layer).
 
 **MVP:**
 1. Route all store access through `StoreAuthority` (existing stores become
-   internal impls).
+   internal impls). **Routing model: see
+   `../docs/reference/adr-0001-runtime-store-access-routing.md` (ADR-0001)** —
+   runtime uses typed `StoreAuthority` ports; `project://` URIs are the
+   cross-boundary serialization surface delegating to the same stores.
 2. Migrate orchestrator's bus publishes from `"orchestrator"` string to typed
    events.
 3. Migrate bus subscribers to consume typed events.
@@ -212,8 +288,11 @@ bus topics with typed events.
 1. Remove the string-topic compatibility layer.
 2. Delete `jig/events.py` if fully superseded.
 
-**Verify:** `pytest tests/` passes. New `tests/substrate/` covers authority
-routing and typed events. Bus tests (`tests/test_bus.py`,
+**Verify:** `pytest tests/` passes. New `tests/substrate/` is the **Substrate
+composition test** — the dedicated home for validating the seam the bones
+acceptance gate deliberately does *not* cover: `read` routes to the right
+authority and raises `UnimplementedAuthorityError` for unwired ones, `write`
+raises until MVP, and typed events round-trip. Bus tests (`tests/test_bus.py`,
 `tests/test_bus_recent.py`) pass unchanged through the compat layer, then
 updated.
 
@@ -221,8 +300,9 @@ updated.
 
 ### Epic 3 — Agent Runtime seam
 
-Extract the agent spawn/sandbox/MCP lifecycle into a `RunAgent` contract with
-real/recorded/fixture implementations.
+**Goal:** A `RunAgent` contract that abstracts agent spawn/sandbox/MCP lifecycle,
+with real/recorded/fixture implementations — the substitutable seam that makes
+headless, fixture-driven evals possible.
 
 **Bones:**
 1. Create `jig/runtime/` package.
@@ -233,7 +313,10 @@ real/recorded/fixture implementations.
    ```
    Where `AgentRunContext` carries ticket, role, worktree, MCP config.
    `AgentRunResult` carries stream events, exit status, artifacts.
-3. Extract existing spawn logic from `jig/agent.py` into `RealRunAgent`.
+3. Wrap `jig.agent.run_agent` in `RealRunAgent` — a **wrapper seam**, not a
+   physical extraction: `RealRunAgent` delegates to the existing entangled
+   spawn + sandbox + MCP path. Real extraction of that logic into the runtime is
+   MVP/Final work (see below), not Bones.
 4. Add `FixtureRunAgent` (returns canned `AgentRunResult` — the bone for
    headless evals).
 
@@ -256,8 +339,9 @@ all three implementations. Existing agent tests
 
 ### Epic 4 — Build engine (the god-object fix)
 
-Split `orchestrator.py` into pure `decide()` + dispatch/effects shell +
-supervisor. This is the highest-risk, highest-coupling epic.
+**Goal:** `orchestrator.py` split into a pure `decide()` state machine + an async
+dispatch/effects shell + a supervisor — the highest-risk, highest-coupling epic,
+and the precondition for headless code-pipeline evals.
 
 **Bones:**
 1. Create `jig/engines/build/` package.
@@ -271,9 +355,14 @@ supervisor. This is the highest-risk, highest-coupling epic.
 4. Extract `Supervisor` in `jig/engines/build/supervisor.py` — deadlock/stall
    detection that emits events into `decide()` (never mutates tickets
    directly). Based on existing `jig/deadlock.py` and `jig/stall_detector.py`.
-5. Wire `Orchestrator` as the thin coordinator: `decide()` + `dispatch` +
-   `supervisor` + bus subscription. Existing `orchestrator.py` becomes a
-   facade that delegates to the new modules (backwards compat for tests).
+5. Wire the thin coordinator (`decide()` + `dispatch` + `supervisor` + bus
+   subscription) and exercise it with **synthetic events in tests only**. The
+   one-transition bones `decide()` must **not** own real production dispatch:
+   the live `orchestrator.py` keeps its existing dispatch path, and the facade
+   delegates only the migrated transition. Routing production traffic through the
+   state machine is Epic 4 MVP work, gated on the transition/idempotency design
+   (see Seam stubs & post-bones blockers). This keeps Bones synthetic-only and
+   avoids an incomplete machine taking real side effects.
 
 **MVP:**
 1. Resolve Spike 1 (`decide()` purity). If pure works, migrate all ticket
@@ -298,15 +387,22 @@ modules directly.
 
 ### Epic 5 — Enforcement
 
-Extract checks + reviewer federation into a library that Build invokes. Absorbs
+**Goal:** Checks + reviewer federation extracted into a headless-invocable
+`async Review(diff, invariant_context) -> list[Finding]` library that Build
+calls, with mechanical (non-LLM) boundary and vocabulary enforcement. Absorbs
 `feature-work/module-boundaries/problem.md` (module boundary enforcement).
 
 **Bones:**
 1. Create `jig/engines/enforcement/` package.
-2. Define `Review(diff, invariant_context) -> list[Finding]` as the
-   headless-invocable contract.
-3. Move `jig/boundary_rules.py` → `jig/engines/enforcement/mechanical/`.
-4. Move `jig/reviewers/dispatch.py` → `jig/engines/enforcement/reviewers/`.
+2. Define `async Review(diff, invariant_context) -> list[Finding]` as the
+   headless-invocable contract (an async `Protocol.__call__` — reviewers spawn
+   agents, so the contract is async, not sync).
+3. Expose `jig/boundary_rules.py` at its new home
+   `jig/engines/enforcement/mechanical/` via re-export (old path stays a shim
+   until Final — see shim-removal policy).
+4. Expose `jig/reviewers/dispatch.py` at its new home
+   `jig/engines/enforcement/reviewers/` via re-export (old path stays a shim
+   until Final).
 
 **MVP:**
 1. Migrate `jig/check_runner.py` into the enforcement library.
@@ -338,7 +434,9 @@ Extract checks + reviewer federation into a library that Build invokes. Absorbs
 
 ### Epic 6 — Authoring engines (Discovery, Architecture, VD)
 
-Extract the init/onboard/SA workflows behind their `project://` authorities.
+**Goal:** The init/onboard/SA workflows extracted behind their `project://`
+authorities, with the three SA roles unified into one size-adaptive SAU that
+produces both architecture (Phase 1) and a tracer-bullet plan (Phase 2).
 Absorbs `feature-work/larger-projects/problem.md` (SAU unification + TB
 planning), `feature-work/sa-architect/problem.md` (grounded decisions),
 `feature-work/architecture-skeleton/problem.md` (architecture artifacts),
@@ -351,12 +449,14 @@ planning), `feature-work/sa-architect/problem.md` (grounded decisions),
    `jig/engines/visual_design/`.
 2. Define authority boundaries: Discovery writes `project://spec/...`,
    Architecture writes `project://arch/...`, VD writes `project://design/...`.
-3. Extract SA↔operator loop from `jig/init_workflow.py` into
-   `jig/engines/architecture/` (the ask/answer/approval flow).
-4. Extract the PO interview conversation from `jig/init_workflow.py` into
-   `jig/engines/discovery/` (replaces the v1 flat / v2 L0-L3 split with one
-   Discovery interview at architectural resolution — from
-   `medium-l0-l3-pipeline/problem.md` and `jig-init-process/problem.md`).
+3. Expose the SA↔operator loop (the ask/answer/approval flow) at
+   `jig/engines/architecture/` via a **re-export/wrapper seam** over
+   `jig/init_workflow.py`. Real extraction of the flow is MVP work, not Bones.
+4. Expose the PO interview conversation at `jig/engines/discovery/` via a
+   **re-export/wrapper seam** over `jig/init_workflow.py`. Replacing the v1 flat /
+   v2 L0-L3 split with one Discovery interview at architectural resolution is
+   MVP work (from `medium-l0-l3-pipeline/problem.md` and
+   `jig-init-process/problem.md`) — Bones only stands up the seam.
 
 **MVP:**
 1. **Unify the three SA roles** (sa, sa_mvp, sa_v2) into one size-adaptive
@@ -435,8 +535,9 @@ planning), `feature-work/sa-architect/problem.md` (grounded decisions),
 
 ### Epic 7 — Reconciliation
 
-New: derive actual structure from code, diff against declared model, surface
-drift as work.
+**Goal:** Derive the actual structure from code, diff it against the declared
+model, and surface drift as work (tickets via Build). New capability — no
+existing implementation to extract.
 
 **Bones:**
 1. Create `jig/engines/reconciliation/`.
@@ -462,7 +563,10 @@ architecture to the current code.
 
 ### Epic 8 — Evaluation (headless harness)
 
-Drive Build + review loop headless on fixture corpora.
+**Goal:** Drive the Build + review loop headless on fixture corpora — reviewer
+precision/recall against labeled diffs and a fix-loop convergence metric. This
+epic's bones run is the **code-pipeline composition check** — one (important) item
+on the aggregate bones gate, not the whole gate.
 
 **Bones:**
 1. Create `jig/engines/evaluation/`.
@@ -470,13 +574,16 @@ Drive Build + review loop headless on fixture corpora.
    EvalResult`.
 3. Wire the harness to use `FixtureRunAgent` (Epic 3) + headless Build
    (Epic 4) + headless Enforcement (Epic 5).
+4. **Run the code-pipeline eval headless on a fixture end-to-end — this *is* the
+   bones acceptance test, and it lands in Bones, not MVP** (so the "bones before
+   MVP" gate is satisfiable by bones alone).
 
-**MVP:**
+**MVP:** (expand the harness beyond the single happy-path fixture)
 1. Build a fixture corpus of labeled diffs → expected findings (for reviewer
    precision/recall).
 2. Build a fix-loop convergence metric.
-3. Run the code-pipeline eval headless on a fixture (the bones acceptance
-   test).
+3. Wire the real dispatch feedback loop (dispatch emits the next event from the
+   agent run, rather than the bones script driving the event sequence directly).
 
 **Final:**
 1. Full eval corpus.
@@ -490,8 +597,9 @@ on a fixture, without the daemon/TUI, using fake agents.
 
 ### Epic 9 — EDGE (thin client)
 
-Make the TUI/CLI/daemon a thin client over a daemon API, persona variation
-localized.
+**Goal:** The TUI/CLI/daemon reduced to a thin client over a daemon API, with no
+direct engine/store imports and persona variation (developer vs founder)
+localized to the edge layer.
 
 **Bones:**
 1. Define the daemon API contract (command/event/snapshot protocol) in
@@ -516,20 +624,132 @@ is imported by `jig/edge/` except via the API contract.
 
 ---
 
-## Bones acceptance test (the gate for the bones phase)
+## Bones acceptance gate (before any MVP starts)
 
-All epic bones (Epic 1–9 bones) must land before any epic's MVP starts. The
-acceptance test for the bones phase is:
+The bones phase ends — and MVP may begin — only when **both** of the following
+hold. The first is the global gate; the second is one (important) item within it,
+not a substitute for it.
+
+### 1. Aggregate bones checklist (the global gate)
+
+Every epic's **Bones** task list is complete **and** its **Verify** block passes.
+No single test stands in for this — the per-epic **Verify** blocks above are the
+source of truth. Tick each before any MVP starts:
+
+- [ ] Epic 1 — Model: `tests/model/` invariant-fn signatures + `OntologyTerm` single home
+- [ ] Epic 2 — Substrate: `tests/substrate/` composition test (read routes/raises, write raises)
+- [ ] Epic 3 — Runtime: `tests/runtime/` seam with `Real`/`Fixture` impls
+- [ ] Epic 4 — Build: `tests/engines/build/test_decide.py` pure state machine
+- [ ] Epic 5 — Enforcement: `tests/engines/enforcement/` `async Review` + mechanical checks
+- [ ] Epic 6 — Authoring: authority-boundary tests (Discovery/Architecture/VD seams)
+- [ ] Epic 7 — Reconciliation: `tests/engines/reconciliation/` `derive`/`diff` contracts
+- [ ] Epic 8 — Evaluation: the code-pipeline composition check below
+- [ ] Epic 9 — EDGE: `jig/edge/api.py` daemon-API contract + CLI/TUI coupling audit list
+
+### 2. Code-pipeline composition check (one checklist item, the hardest composition)
+
+The single hardest composition — the headless code-pipeline — runs green. This is
+**Epic 8's Bones Verify**, named explicitly because it exercises four epics at
+once:
 
 > The code-pipeline and review loop run **headless on a fixture**, without the
 > daemon/TUI, using `FixtureRunAgent` (Epic 3) + pure `decide()` (Epic 4) +
-> `Review` contract (Epic 5) + `StoreAuthority` (Epic 2) + Model entities
-> (Epic 1). No `Orchestrator` god-object, no `mcp_server.py`, no daemon, no TUI
-> in the path.
+> `async Review` contract (Epic 5) + Model entities (Epic 1). No `Orchestrator`
+> god-object, no `mcp_server.py`, no daemon, no TUI in the path.
+> (See `jig/engines/evaluation/harness.py` / `tests/engines/evaluation/test_acceptance.py`.)
+
+This check validates the **Epics 1, 3, 4, 5** composition specifically. It is one
+row on the checklist above — **not** the whole gate. It does **not** exercise
+Epic 2 (Substrate), 6 (Authoring), 7 (Reconciliation), or 9 (EDGE); those are
+gated by their own **Verify** blocks in item 1. Passing this check alone does not
+authorize MVP — the full checklist must be green.
+
+**Scope of the composition check — what it does and does not cover:**
+
+- **`StoreAuthority` (Epic 2) is *not* on this path.** The shipped harness
+  composes Model + Runtime + Build + Enforcement; it does not read or write
+  artifacts through `StoreAuthority`. Listing Substrate here would be a false
+  validation, so it is excluded — Substrate composition is gated separately by the
+  **Epic 2 composition test** (item 1): `read` routes through the authority and
+  raises `UnimplementedAuthorityError` for unwired authorities; `write` raises
+  until MVP.
+- **`EDGE` (Epic 9) is not on this path either.** Its bones (the daemon API
+  contract in `jig/edge/api.py` + the CLI/TUI coupling audit) are gated by Epic 9's
+  own **Verify** (item 1), not by the headless run.
 
 This is the evaluability driver from `jig-instance.md` → Build suite signal #4.
 If the bones compose, the architecture is validated on Jig's own hardest case
 before any real logic migrates.
+
+## Seam stubs & post-bones blockers
+
+The bones phase intentionally ships seams whose behavior is shimmed, stubbed, or
+empty. Each is fine as a bone, but several encode behavioral commitments that
+must be made real **before any production routing depends on them** — otherwise a
+skeleton silently becomes load-bearing. This table is the register of those
+stubs: where the real implementation lands, and whether it is a hard blocker
+before production use.
+
+| Stub / seam | Introduced (bones) | Real impl lands | Blocker before production routing? |
+|---|---|---|---|
+| `StoreAuthority.write()` unimplemented | Epic 2 | Epic 2 MVP 1 | **Yes** — see security requirements below; no production write may route through it until done |
+| Invariant fns are stub bodies (`coverage`, `conformance`, …) | Epic 1 | Epic 1 MVP/Final | No — Enforcement/Reconciliation gate on these, not production traffic |
+| `decide()` handles one transition only | Epic 4 | Epic 4 MVP 1 (all transitions), Final (sad paths) | **Yes** — partial state machine must not own real dispatch |
+| At-least-once dispatch + idempotent effect handlers | Epic 4 (dispatch shell) | Epic 4 MVP | **Yes** — ack/idempotency tracking required before real side effects (spawn/merge) run |
+| Partial multi-action dispatch error handling | Epic 4 (dispatch shell) | Epic 4 MVP (design first) | **Yes** — concrete failure-semantics design required before real side effects; see below |
+| Build coordinator serialized (single in-flight) | Epic 4 | Epic 4 Final (per-ticket concurrency) | No — but carries a perf acceptance criterion before production use; see below |
+| `FixtureRunAgent` canned results | Epic 3 | Epic 3 MVP (`RecordedRunAgent`), Final | No — fixtures are eval-only; production uses `RealRunAgent` |
+| `Review` contract returns from moved code, not headless loop | Epic 5 | Epic 5 MVP 3 | No — Build keeps calling existing reviewers until the headless loop lands |
+| Merge-conflict transition not modeled | Epic 4 | Epic 4 Final 1 | No — falls back to existing orchestrator facade path until migrated |
+| ~~`derive_actual_graph()` returns empty graph~~ — **resolved (Spike 2, #202): real grimp-backed implementation landed** | Epic 7 | ~~Epic 7 MVP 1~~ done | n/a — drift surfacing still wires to Build in #221 |
+
+### Concrete requirements for the **Yes** blockers
+
+- **`StoreAuthority.write()` security (Epic 2 MVP).** The bones signature
+  `async write(self, uri: str, doc: dict) -> str` carries no caller identity, so
+  authority-scoped authorization is **not expressible against it as written** —
+  closing this requires an API change at MVP, not just logic. Before any
+  production write routes through the authority, MVP must: (a) add a caller
+  context via an **authority-scoped handle** — this is the decided model, not an
+  open question: `StoreAuthority.for_authority("spec") -> ScopedWriter`, so a
+  `spec` caller physically cannot address `project://arch/...`. (Caller-principal
+  and capability-token designs were considered and rejected as heavier than the
+  problem; do not reopen the API choice — extend the handle if more is needed.)
+  (b) enforce `project://` URI validation and
+  path safety — reject traversal, out-of-authority paths, and malformed URIs
+  loudly (no silent normalization); (c) validate the payload schema against the
+  target authority's typed model. All three are Epic 2 MVP acceptance criteria,
+  not Final polish.
+- **Partial multi-action dispatch (Epic 4 MVP).** `decide()` can return multiple
+  actions; the shell may succeed on some and fail on others. Before real side
+  effects are wired, the failure semantics must be pinned: per-action ack,
+  idempotent re-dispatch on retry (so a re-run can't double-spawn or double-merge),
+  and a defined state for "ticket whose action set partially applied". **This
+  design lands as an ADR in `docs/reference/` (e.g. `ADR-NNN-dispatch-semantics`),
+  linked from Epic 4 MVP, before — not alongside — the first real effect handler.**
+  (Migration epics get no `feature-work/` docs; cross-cutting dispatch semantics
+  are a long-lived decision, so they belong in `docs/reference/`, not the
+  throwaway plan.)
+- **Build coordinator concurrency (Epic 4 Final).** Serializing the coordinator is
+  acceptable for bones/MVP. Before production use, the acceptance criterion is
+  concrete: with **N = 8** concurrent in-flight tickets (matching the default
+  agent-concurrency cap), the coordinator adds **< 50 ms p95** dispatch overhead
+  beyond agent-runtime time, and a single slow/blocked agent never stalls dispatch
+  for other ready tickets (no head-of-line blocking). Per-ticket concurrency is
+  Final work; the numeric criterion is recorded now so it isn't lost.
+
+## Compatibility & shim-removal policy
+
+The migration is backwards-compatible at each step via re-export shims and
+string-topic compat layers (see Rollback). To keep "when does the old path go
+away" from being implicit:
+
+- A shim or old import path stays until its epic's **Final** phase.
+- A shim may only be removed once **all** consumers import the new path and the
+  full suite is green; removal is itself a Final-phase task (e.g. Epic 1 Final 3,
+  Epic 2 Final 1–2), never bundled into Bones or MVP.
+- Old import paths become thin re-export shims at Bones, are dual-supported
+  through MVP, and are deleted at Final — in that order, never skipping a step.
 
 ## Rollback
 
@@ -588,3 +808,48 @@ the migration hasn't broken anything.
   into Epic 5 (mechanical boundary + vocabulary enforcement). Added absorbed
   feature-work docs section. Added open questions from larger-projects to
   Epic 6. Updated out-of-scope for consistency. (Frank)
+- 2026-06-26: Addressed design-review findings (job 698). Converted the absorbed
+  feature-work list into a supersession table mapping each doc to its exact
+  epic+phase. Added an epic dependency matrix and per-epic **Goal** lines (plan
+  is now implementable from the repo alone). Added a "Seam stubs & post-bones
+  blockers" register with concrete acceptance criteria for `StoreAuthority.write()`
+  security, partial multi-action dispatch semantics, and Build-coordinator
+  concurrency. Added a compatibility & shim-removal policy.
+- 2026-06-26: Addressed second-round design-review findings (job 703).
+  Reconciled plan text with the shipped code: `Review` is `async`; bus events are
+  `TicketCreated`/`TicketUpdated` (not `TicketScheduled`/`TicketCompleted`).
+  `StoreAuthority.write()` security now names the API change (authority-scoped
+  handle) since the bones `write(uri, doc)` signature carries no caller identity.
+  Marked Epic 8 Bones as depending on Epics 1/3/4/5 (+2) in the matrix. Scoped
+  Epic 4 Bones coordinator to synthetic-only (no production dispatch). Reworded
+  Epic 1 MVP / Epic 5 Bones to "expose via re-export", not "remove"/"move", per
+  the shim policy. Pinned the coordinator perf criterion (N=8, <50ms p95) and the
+  partial-dispatch ADR location (`docs/reference/`). Added "do not implement"
+  banners to the eight superseded design/plan bodies.
+- 2026-06-26: Addressed third-round design-review findings (job 711). Removed
+  `StoreAuthority` from the bones acceptance gate entirely — the shipped harness
+  (`jig/engines/evaluation/harness.py`) composes Model+Runtime+Build+Enforcement
+  and never routes through Substrate, so the prior "harness asserts StoreAuthority
+  routing" text was aspirational; Substrate is now verified by a dedicated Epic 2
+  composition test instead. Scoped the gate explicitly to the Epics 1–8
+  code-pipeline (Epic 9 EDGE bones verified by its own Verify). Moved the headless
+  fixture run from Epic 8 MVP into Epic 8 Bones (so "bones before MVP" is
+  satisfiable by bones). Reworded Epic 2 Bones to "facade only — reads/writes
+  raise until MVP". Removed the now-moot "+2" gate dependency from the matrix.
+- 2026-06-26: Addressed fourth-round design-review findings (job 715). Committed
+  firmly to the authority-scoped-handle write model (removed the "alternatives
+  decided later" language that left the API ambiguous). Marked
+  `feature-work/module-boundaries/{design,plan}.md` superseded with do-not-implement
+  banners pointing to Epic 5 MVP 4–5 (only `problem.md` had been marked before).
+  Reworded the dependency intro to name Epic 5/7's narrow Epic 1 type-contract
+  deps alongside Epic 8's full-composition exception. Normalized the
+  `BuildCoordinator` module docstring to "decide, dispatch, then commit" (the
+  module header still said "advance state, dispatch", contradicting the code).
+- 2026-06-26: Addressed fifth-round design-review findings (job 720). Split the
+  bones gate into an **aggregate bones checklist** (every epic's Bones + Verify —
+  the real global gate) and the **code-pipeline composition check** (the Epic 8
+  headless run, renamed from "the gate for the whole bones phase" since it only
+  covers Epics 1/3/4/5). Reworded Bones tasks that said "extract" real logic to
+  "wrapper / re-export seam" to match the shipped shim-first pattern: Epic 3
+  (`RealRunAgent` wraps `jig.agent.run_agent`) and Epic 6 (SA/PO flows exposed via
+  seam, real extraction deferred to MVP).

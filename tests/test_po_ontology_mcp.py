@@ -15,7 +15,8 @@ from jig.po_ontology_mcp import (
     parse_ontology_md,
     render_ontology_md,
 )
-from jig.schemas.po import Ontology, OntologyTerm
+from jig.model import OntologyTerm
+from jig.schemas.po import Ontology
 from jig.spec_loader import (
     load_ontology,
     ontology_path,

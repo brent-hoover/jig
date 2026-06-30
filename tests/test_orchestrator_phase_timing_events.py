@@ -22,13 +22,12 @@ async def test_phase_start_and_end_events_emitted(tmp_path: Path, monkeypatch) -
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
     orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
     async def fake_run_agent(ctx, emitter=None):
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     await orch.startup()
     try:
@@ -83,12 +82,10 @@ async def test_phase_end_fires_with_failed_outcome_when_agent_raises(
     roles = [RoleConfig(role="spec", phase_prompt="spec")]
     orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
-    from jig import orchestrator as orch_module
-
     async def boom_run_agent(ctx, emitter=None):
         raise RuntimeError("agent exploded")
 
-    monkeypatch.setattr(orch_module, "run_agent", boom_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", boom_run_agent)
 
     await orch.startup()
     try:

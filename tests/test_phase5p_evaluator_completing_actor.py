@@ -57,7 +57,6 @@ async def test_evaluator_equal_to_completing_role_does_not_advance(
         monkeypatch=monkeypatch,
     )
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.runtime import SpawnReason
 
@@ -106,7 +105,7 @@ async def test_evaluator_equal_to_completing_role_does_not_advance(
             pass
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     await orch.startup()
     try:

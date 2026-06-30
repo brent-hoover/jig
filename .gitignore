@@ -89,6 +89,9 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+# ...but the Build engine source lives in jig/engines/build/ — not a build artifact.
+!jig/engines/build/
+!tests/engines/build/
 develop-eggs/
 dist/
 downloads/

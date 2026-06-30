@@ -219,6 +219,10 @@ async def test_subscribe_invalidates_on_wireframe_revised(emitter):
 
 
 async def test_subscribe_invalidates_on_ticket_state_changed(emitter):
+    # Exercises handle_event's store-invalidation mechanism directly. NOTE:
+    # resolve_project_uri never caches store reads (see its ``cacheable``
+    # guard), so this path isn't reachable via normal resolution today — this
+    # asserts the invalidation logic is correct should store ever be cached.
     cache = UriResolverCache()
     target = parse_project_uri("project://store/tickets/t-001")
     sibling = parse_project_uri("project://store/tickets/t-002")
@@ -238,6 +242,25 @@ async def test_subscribe_invalidates_on_ticket_state_changed(emitter):
 
     assert cache.get(target) is None
     assert cache.get(sibling) is not None
+
+
+async def test_ticket_state_change_also_invalidates_the_cached_list(emitter):
+    # The retained store-invalidation branch (kept for manual cachers / parity)
+    # must also drop a manually cached ``project://store/tickets`` list, which
+    # goes stale on any ticket change — without touching sibling ticket entries.
+    cache = UriResolverCache()
+    ticket_list = parse_project_uri("project://store/tickets")
+    sibling = parse_project_uri("project://store/tickets/t-002")
+    cache.put(ticket_list, _resolved(kind="store"))
+    cache.put(sibling, _resolved(kind="store"))
+    cache.subscribe_to_events(emitter)
+
+    await emitter.emit(
+        TicketStateChanged(ticket_id="t-001", to_state="done", timestamp=_ts())
+    )
+
+    assert cache.get(ticket_list) is None  # the list went stale
+    assert cache.get(sibling) is not None  # an unrelated ticket survives
 
 
 async def test_unrelated_event_does_not_invalidate(emitter):

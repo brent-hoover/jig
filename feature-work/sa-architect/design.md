@@ -1,14 +1,20 @@
 ---
 title: SA as Architect — Design
 type: design
-status: active
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-08
+updated: 2026-06-26
 problem: ./problem.md
 ---
 
 # SA as Architect — Design
+
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the grounded-decision
+> protocol is preserved in the unified SAU (Epic 6 MVP 2). This design is
+> retained for historical context only; follow the plan, not the steps below.
 
 ## Summary
 

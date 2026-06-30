@@ -86,6 +86,17 @@ statements — their requirements are now explicit tasks in the plan's epics:
 
 Each is marked `status: superseded` with `superseded_by: ../../architecture/plan.md`.
 
+### No per-epic `feature-work/` docs for this migration
+
+The migration epics (#192–#200, sub-issues of #191) deliberately do **not** get
+their own `feature-work/<epic>/` problem→design→plan docs. Their canonical design
+home is `architecture/plan.md` (per-epic Bones/MVP/Final breakdown) plus the
+epic's GitHub issue. This is the same "one concept, one home" rule the migration
+exists to enforce: a `feature-work/substrate/` (and eight siblings) would
+re-fork design state that already lives here. Contributors and reviewers should
+read `architecture/plan.md` + the linked issue for an epic's intent, not look for
+a `feature-work/` dir.
+
 ## Fragments this unifies
 
 The territory already exists in the codebase, scattered across features that grew **without an organizing

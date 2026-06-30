@@ -1,14 +1,21 @@
 ---
 title: SA as Architect — Phase 1 Implementation Plan
 type: plan
-status: draft
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-07
-updated: 2026-06-08
+updated: 2026-06-26
 design: ./design.md
 ---
 
 # SA as Architect — Phase 1 Implementation Plan
+
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the grounded-decision
+> protocol is preserved in the unified SAU (Epic 6 MVP 2). This plan is retained
+> for historical context only; follow `architecture/plan.md`, not the steps
+> below.
 
 ## Overview
 

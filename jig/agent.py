@@ -33,10 +33,10 @@ from jig.logging_setup import (
     _role_var,
     _ticket_id_var,
 )
-from jig.mcp_server import create_agent_mcp_server
 from jig.persistence import list_roles, load_conventions
 from jig.prompt_builder import build_initial_prompt
 from jig.runtime import AgentSpawnContext, SpawnReason
+from jig.runtime.mcp import build_agent_mcp_servers
 from jig.agent_config import SANDBOX_CLAUDE_CONFIG_PATH, ensure_agent_config_dir
 from jig.worktree import sync_project_claude_md
 from jig.sandbox import (
@@ -208,17 +208,6 @@ class RunAgentResult:
     # "succeeded fully" apart from "succeeded but the audit trail is
     # incomplete". None when there's nothing to report.
     warnings: list[str] = field(default_factory=list)
-
-
-def _effective_ticket_base_ref(ctx: AgentSpawnContext) -> str:
-    """Base ref for the reviewer's ``reviewer_get_diff`` tool.
-
-    review-severity-binary §4: on a re-review round ``ctx.delta_base`` is the
-    last-reviewed commit, so the reviewer's diff contains only the fix delta
-    (matching the prompt's Re-review Scope note). On first-round reviews it is
-    None and we fall back to the project default branch (full-ticket diff).
-    """
-    return ctx.delta_base or ctx.project.default_branch
 
 
 async def build_agent_prompt(ctx: AgentSpawnContext) -> str:
@@ -426,73 +415,6 @@ def _materialize_capability_policy(
         return _CapabilityMaterialization(policy_dir=None, can_waive=can_waive)
 
 
-def _resolve_external_mcps(allowed_mcps: list[str]) -> dict:
-    """Resolve allowed MCP names to stdio server configs.
-
-    Searches two locations for each name:
-    1. User-level ``~/.claude/.mcp.json`` (``mcpServers`` key)
-    2. Installed plugin cache (``~/.claude/plugins/cache/*/*/.mcp.json``)
-
-    Returns a dict of ``{server_name: McpStdioServerConfig}`` suitable for
-    merging into the ``mcp_servers`` option.
-    """
-    if not allowed_mcps:
-        return {}
-
-    from pathlib import Path
-
-    result: dict = {}
-    remaining = set(allowed_mcps)
-
-    # 1. User-level .mcp.json
-    user_mcp = Path.home() / ".claude" / ".mcp.json"
-    if user_mcp.exists():
-        try:
-            servers = json.loads(user_mcp.read_text()).get("mcpServers", {})
-            for name in list(remaining):
-                if name in servers:
-                    result[name] = servers[name]
-                    remaining.discard(name)
-        except (json.JSONDecodeError, OSError):
-            _logger.warning("Failed to parse %s", user_mcp)
-
-    if not remaining:
-        return result
-
-    # 2. Plugin cache — each plugin dir has .mcp.json with server configs
-    plugins_cache = Path.home() / ".claude" / "plugins" / "cache"
-    if plugins_cache.is_dir():
-        for marketplace_dir in plugins_cache.iterdir():
-            if not marketplace_dir.is_dir():
-                continue
-            for name in list(remaining):
-                plugin_dir = marketplace_dir / name
-                if not plugin_dir.is_dir():
-                    continue
-                # Find any version subdirectory containing .mcp.json
-                for version_dir in plugin_dir.iterdir():
-                    if not version_dir.is_dir():
-                        continue
-                    mcp_json = version_dir / ".mcp.json"
-                    if not mcp_json.exists():
-                        continue
-                    try:
-                        servers = json.loads(mcp_json.read_text())
-                        for server_name, config in servers.items():
-                            result[server_name] = config
-                        remaining.discard(name)
-                    except (json.JSONDecodeError, OSError):
-                        _logger.warning("Failed to parse %s", mcp_json)
-                    break
-
-    for name in remaining:
-        _logger.warning(
-            "MCP '%s' not found in user settings or installed plugins", name
-        )
-
-    return result
-
-
 async def run_agent(
     ctx: AgentSpawnContext, emitter: EventEmitter | None = None
 ) -> RunAgentResult:
@@ -536,63 +458,12 @@ async def run_agent(
         # the compiled ``can_waive`` set can flow into the factory.
         cap = _materialize_capability_policy(ctx)
 
-        all_roles = list_roles(ctx.project.path_or_default())
-        # Phase 5 Task K: per-phase thread-target allow-lists feed into
-        # thread_ask / thread_escalate as hard refusals. Missing ctx.phase
-        # (standalone spawns, tests) or empty lists keep today's permissive
-        # behavior — the MCP factory treats an empty frozenset as "no
-        # restriction declared".
-        phase_q_to: frozenset[str] = (
-            frozenset(ctx.phase.questions_to) if ctx.phase else frozenset()
-        )
-        phase_esc_targets: frozenset[str] = (
-            frozenset(ctx.phase.escalation_targets) if ctx.phase else frozenset()
-        )
-
-        mcp_server = create_agent_mcp_server(
-            tickets=ctx.tickets,
-            threads=ctx.threads,
-            memory=ctx.memory,
-            bus=ctx.bus,
-            agent_role=ctx.role,
-            agent_cfg=ctx.role_cfg,
-            worktree_path=ctx.worktree_path,
-            project_path=ctx.project.path_or_default(),
-            valid_roles=frozenset(r.role for r in all_roles),
-            package_manager=ctx.project.package_manager,
-            checkpoints=ctx.checkpoints,
-            phase_name=ctx.phase.name if ctx.phase else "",
-            can_waive=cap.can_waive,
-            phase_questions_to=phase_q_to,
-            phase_escalation_targets=phase_esc_targets,
-            ticket_id=ctx.ticket.id,
-            cycle=ctx.cycle,
-            adjudication=ctx.adjudication_collector,
-            # Block 2 — analytics emitter rides through so MCP tool
-            # handlers that emit analytics events (ontology edits, etc.)
-            # actually emit when invoked from a real agent.
-            analytics_emitter=ctx.analytics_emitter,
-            # Per-ticket diff base for ``reviewer_get_diff``. All
-            # worktrees in jig branch from ``project.default_branch``
-            # (see ``orchestrator._create_worktree``), so the same
-            # ref serves as the ticket-base diff target for every
-            # reviewer spawn. Without this, ``reviewer_get_diff``
-            # falls back to env vars and branch probes which can
-            # show only the latest commit on chained / fix-loop
-            # tickets.
-            #
-            # review-severity-binary §4: on a re-review round ``delta_base``
-            # is the last-reviewed commit, so the reviewer's ``reviewer_get_diff``
-            # sees only the fix delta — matching the prompt's Re-review Scope
-            # note. Falls back to the default branch on first-round reviews.
-            ticket_base_ref=_effective_ticket_base_ref(ctx),
-        )
-
-        mcp_servers: dict = {"jig": mcp_server}
-        external = _resolve_external_mcps(ctx.role_cfg.allowed_mcps)
-        mcp_servers.update(external)
-        if external:
-            _logger.info("external MCPs for %s: %s", ctx.role, list(external.keys()))
+        # Epic 3 MVP (task 3): the per-agent MCP server set is assembled by the
+        # runtime (jig.runtime.mcp), which owns the jig-server build + external
+        # MCP resolution. ``cap.can_waive`` (compiled by the capability-policy
+        # step above, which also writes the enforcement artefacts) flows in;
+        # everything else derives from ``ctx``.
+        mcp_servers = build_agent_mcp_servers(ctx, can_waive=cap.can_waive)
 
         # Strict-tools roles (PO, SA, spec-generator) get a curated
         # disallow list of dangerous built-ins so e.g. PO can't reach

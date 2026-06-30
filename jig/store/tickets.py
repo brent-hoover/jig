@@ -177,15 +177,7 @@ class TicketStore:
         # counter or reissue a key.
         try:
             async with self._key_lock():
-                if not ticket.key:
-                    next_seq = self._read_seq() + 1
-                    ticket.key = f"jig-{next_seq}"
-                    # Persist the counter BEFORE the append. If the process
-                    # dies between here and the insert, the consumed number
-                    # becomes a harmless gap; the alternative ordering would
-                    # let the next creator reissue the same jig-N key.
-                    self._write_seq(next_seq)
-                ticket_id = await self._collection.insert(ticket)
+                ticket_id = await self._create_locked(ticket)
         except ValueError as e:
             if "already exists" in str(e):
                 raise ValueError(f"ticket with id {ticket.id!r} already exists") from e
@@ -201,6 +193,58 @@ class TicketStore:
         if fire_create_callback and self._on_create is not None:
             self._fire_create(ticket)
         return ticket_id
+
+    async def _create_locked(self, ticket: Ticket) -> str:
+        """Key-assign + insert, assuming ``self._key_lock()`` is already held.
+
+        Shared by ``create()`` and ``write_addressed()`` so both reuse one
+        key-assignment path inside the cross-process lock. Uniqueness is enforced
+        by ``Collection.insert`` (raises if the id already exists); ``create``
+        maps that to a ticket-specific message, and ``write_addressed`` only
+        reaches here after a fresh under-lock miss.
+        """
+        if not ticket.key:
+            next_seq = self._read_seq() + 1
+            ticket.key = f"jig-{next_seq}"
+            # Persist the counter BEFORE the append. If the process dies between
+            # here and the insert, the consumed number becomes a harmless gap;
+            # the alternative ordering would let the next creator reissue the key.
+            self._write_seq(next_seq)
+        return await self._collection.insert(ticket)
+
+    async def write_addressed(
+        self, ticket_id: str, fields: dict
+    ) -> tuple[Ticket, bool]:
+        """Create-if-absent-else-update a ticket addressed by an explicit id,
+        deciding *atomically under the cross-process lock* against fresh disk
+        state. Returns ``(ticket, created)``.
+
+        This is the persistence primitive behind ``StoreAuthority.write`` (URI
+        addresses a ticket by id). Making the create-vs-update decision under the
+        lock — rather than in the caller before the lock — is what prevents a
+        concurrent create from turning a partial update into a failed create, or
+        a full write into a spurious duplicate-id error: by the time we decide,
+        the snapshot is current and can't change until we've written.
+
+        The same invariants as the dedicated paths apply: schema validation, the
+        operator-gated ``PROPOSED -> OPEN`` transition, the jig-N key counter,
+        and the create / status-change callbacks.
+        """
+        async with self._key_lock():
+            await self._collection.load()  # fresh disk state, held until we write
+            existing = await self._collection.get(ticket_id)
+            if existing is None:
+                ticket = Ticket.model_validate({**fields, "_id": ticket_id})
+                await self._create_locked(ticket)
+                result, created = ticket, True
+            else:
+                self._check_transition_gate(existing, fields)
+                result, created = await self._write_update(ticket_id, fields), False
+        # Callbacks fire after the write commits (and the lock releases), matching
+        # create()/update(); _write_update already fired any status-change one.
+        if created and self._on_create is not None:
+            self._fire_create(result)
+        return result, created
 
     def _fire_create(self, ticket: Ticket) -> None:
         cb = self._on_create
@@ -252,26 +296,32 @@ class TicketStore:
         prev = await self._collection.get(ticket_id)
         if prev is None:
             raise KeyError(ticket_id)
-        # Operator-only approval gate: PROPOSED -> OPEN is reachable only via
-        # ``approve()``. There is deliberately no escape-hatch parameter on this
-        # public method — every generic update is gated, so the transition
-        # cannot be smuggled through (e.g. an MCP/agent update_ticket call).
-        new_status = fields.get("status")
-        if new_status is not None:
-            new_value = (
-                new_status.value
-                if isinstance(new_status, TicketStatus)
-                else str(new_status)
-            )
-            if (
-                prev.status is TicketStatus.PROPOSED
-                and new_value == TicketStatus.OPEN.value
-            ):
-                raise ValueError(
-                    f"ticket {ticket_id!r}: PROPOSED -> OPEN requires approval; "
-                    "use TicketStore.approve()"
-                )
+        self._check_transition_gate(prev, fields)
         return await self._write_update(ticket_id, fields)
+
+    @staticmethod
+    def _check_transition_gate(prev: Ticket, fields: dict) -> None:
+        """Operator-only approval gate: PROPOSED -> OPEN is reachable only via
+        ``approve()``. There is deliberately no escape-hatch parameter on the
+        generic update paths — every generic update is gated, so the transition
+        cannot be smuggled through (e.g. an MCP/agent update_ticket call, or a
+        ``StoreAuthority.write`` status change)."""
+        new_status = fields.get("status")
+        if new_status is None:
+            return
+        new_value = (
+            new_status.value
+            if isinstance(new_status, TicketStatus)
+            else str(new_status)
+        )
+        if (
+            prev.status is TicketStatus.PROPOSED
+            and new_value == TicketStatus.OPEN.value
+        ):
+            raise ValueError(
+                f"ticket {prev.id!r}: PROPOSED -> OPEN requires approval; "
+                "use TicketStore.approve()"
+            )
 
     async def _write_update(self, ticket_id: str, fields: dict) -> Ticket:
         """Validated write of an update row. NOT gated — callers (``update``,

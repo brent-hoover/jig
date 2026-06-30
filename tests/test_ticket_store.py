@@ -26,6 +26,32 @@ async def test_create_and_get(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_write_addressed_decides_create_vs_update_against_fresh_disk(
+    tmp_path: Path,
+) -> None:
+    # Two stores on one path, both loaded empty (i.e. two processes that loaded
+    # before either wrote). write_addressed reloads under the flock, so the
+    # second call sees the first's create and UPDATES rather than failing the
+    # create — the decision reflects current disk state, not a stale snapshot.
+    path = tmp_path / "tickets.jsonl"
+    s1 = TicketStore(path)
+    s2 = TicketStore(path)
+    await s1.load()
+    await s2.load()
+
+    base = {"work_type": "docs", "created_by": "po"}
+    ticket1, created1 = await s1.write_addressed("login", {**base, "title": "first"})
+    assert created1 is True
+    assert ticket1.key == "jig-1"
+
+    # s2's snapshot is stale (empty); write_addressed must reload and update.
+    ticket2, created2 = await s2.write_addressed("login", {**base, "title": "second"})
+    assert created2 is False
+    assert ticket2.title == "second"
+    assert ticket2.id == "login"
+
+
+@pytest.mark.asyncio
 async def test_find_in_progress_top_level(tmp_path: Path) -> None:
     store = TicketStore(tmp_path / "tickets.jsonl")
     await store.load()

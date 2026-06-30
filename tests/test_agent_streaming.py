@@ -547,7 +547,9 @@ class TestCompiledWaiverPlumbing:
         # exercises the full materialisation path which is what the
         # production call-site hits inside the container.
         monkeypatch.setenv("JIG_IN_CONTAINER", "1")
-        monkeypatch.setattr(agent_module, "create_agent_mcp_server", _spy)
+        # The factory call now lives in the runtime assembly (Epic 3 task 3);
+        # can_waive still threads through build_agent_mcp_servers into it.
+        monkeypatch.setattr("jig.runtime.mcp.create_agent_mcp_server", _spy)
 
         async def _run() -> None:
             ctx = await _make_context(tmp_path)

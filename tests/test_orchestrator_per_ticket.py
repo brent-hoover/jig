@@ -58,12 +58,10 @@ async def test_run_agent_exception_marks_ticket_failed(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
-
     async def exploding_run_agent(ctx, emitter=None):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(orch_module, "run_agent", exploding_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", exploding_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -159,14 +157,13 @@ async def test_merge_conflict_routes_to_merge_conflict_status(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.worktree import MergeConflictError
 
     async def fake_run_agent(ctx, emitter=None):
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -248,7 +245,6 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.orchestrator import DependencyMergeError
 
     run_calls: list[str] = []
@@ -259,7 +255,7 @@ async def test_dep_merge_failure_fails_ticket_and_emits_event(
 
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     async def failing_ensure(ticket):
         raise DependencyMergeError(
@@ -478,14 +474,13 @@ async def test_resolver_success_routes_to_resolved(tmp_path: Path, monkeypatch) 
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.worktree import MergeConflictError
 
     async def fake_run_agent(ctx, emitter=None):
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -560,14 +555,13 @@ async def test_resolver_failure_routes_to_merge_conflict(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.worktree import MergeConflictError
 
     async def fake_run_agent(ctx, emitter=None):
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -649,7 +643,6 @@ async def test_start_ready_tickets_respects_max_parallel(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
     gate = asyncio.Event()
@@ -658,7 +651,7 @@ async def test_start_ready_tickets_respects_max_parallel(
         await gate.wait()
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", slow_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", slow_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -718,7 +711,6 @@ async def test_start_ready_tickets_no_cap_when_max_parallel_none(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
 
     gate = asyncio.Event()
@@ -727,7 +719,7 @@ async def test_start_ready_tickets_no_cap_when_max_parallel_none(
         await gate.wait()
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", slow_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", slow_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -894,14 +886,13 @@ async def test_replan_fired_after_successful_conflict_resolution(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.worktree import MergeConflictError
 
     async def fake_run_agent(ctx, emitter=None):
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"
@@ -987,14 +978,13 @@ async def test_replan_not_fired_when_resolver_fails(
 
     orch = Orchestrator(project_path=tmp_path)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.worktree import MergeConflictError
 
     async def fake_run_agent(ctx, emitter=None):
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     async def fake_ensure(ticket):
         return tmp_path / "worktree"

@@ -252,6 +252,31 @@ def test_dispatcher_plan_raises_unimplemented(tmp_path):
         resolve_project_uri("project://plan/build/epics/x", tmp_path)
 
 
-def test_dispatcher_store_raises_unimplemented(tmp_path):
-    with pytest.raises(UnimplementedAuthorityError, match="store"):
-        resolve_project_uri("project://store/tickets/t-001", tmp_path)
+def test_dispatcher_does_not_handle_store_reads(tmp_path):
+    # store reads moved to StoreAuthority.read (async, through the typed stores —
+    # ADR-0001); the sync dispatcher rejects store URIs rather than re-replaying
+    # JSONL. Any store collection routes the same way (no per-collection branch).
+    for uri in ("project://store/tickets/t-001", "project://store/threads/t-001"):
+        with pytest.raises(ProjectUriError, match="StoreAuthority"):
+            resolve_project_uri(uri, tmp_path)
+
+
+def test_dispatcher_rejects_store_before_consulting_the_cache(tmp_path):
+    # A retained/manual cache entry for a store URI must NOT be served by the
+    # sync dispatcher — store always routes to StoreAuthority.read. The store
+    # rejection fires before the cache lookup.
+    from jig.uri.cache import UriResolverCache
+    from jig.uri.parser import parse_project_uri
+    from jig.uri.resolver import ResolvedUri
+
+    cache = UriResolverCache()
+    parsed = parse_project_uri("project://store/tickets/t-001")
+    cache.put(
+        parsed,
+        ResolvedUri(
+            kind="store", data={"stale": True}, source_path=None, revision=None
+        ),
+    )
+
+    with pytest.raises(ProjectUriError, match="StoreAuthority"):
+        resolve_project_uri("project://store/tickets/t-001", tmp_path, cache=cache)

@@ -1,14 +1,20 @@
 ---
 title: Medium L0–L3 PO Pipeline — Implementation Plan
 type: plan
-status: active
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-10
+updated: 2026-06-26
 design: ./design.md
 ---
 
 # Medium L0–L3 PO Pipeline — Implementation Plan
+
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): the Discovery interview
+> replaces the v1/v2 L0–L3 split (Epic 6 Bones 4). This plan is retained for
+> historical context only; follow `architecture/plan.md`, not the steps below.
 
 ## Overview
 

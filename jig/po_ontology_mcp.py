@@ -40,7 +40,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from jig.analytics.emitter import EventEmitter
 from jig.analytics.events import OntologyTermEdited, OntologyTermRemoved
 from jig.atomic import atomic_write_text
-from jig.schemas.po import Ontology, OntologyTerm, PendingOntologyTerm
+from jig.model import OntologyTerm
+from jig.schemas.po import Ontology, PendingOntologyTerm
 
 __all__ = [
     "handle_ontology_stash_term",

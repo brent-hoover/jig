@@ -50,7 +50,6 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
     ]
     orch = build_orch(tmp_path, workflow=workflow, roles=roles, monkeypatch=monkeypatch)
 
-    from jig import orchestrator as orch_module
     from jig.agent import RunAgentResult
     from jig.runtime import SpawnReason
 
@@ -127,7 +126,7 @@ async def test_deferred_item_promoted_on_accept_yields_child_ticket(
             await ctx.tickets.update_status(ctx.ticket.id, TicketStatus.RESOLVED)
         return RunAgentResult(status="success", final_text="ok")
 
-    monkeypatch.setattr(orch_module, "run_agent", fake_run_agent)
+    monkeypatch.setattr("jig.agent.run_agent", fake_run_agent)
 
     await orch.startup()
     try:

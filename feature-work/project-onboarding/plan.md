@@ -1,14 +1,21 @@
 ---
 title: Project Onboarding — Implementation Plan
 type: plan
-status: active
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-09
-updated: 2026-06-11
+updated: 2026-06-26
 design: ./design.md
 ---
 
 # Project Onboarding — Implementation Plan
+
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 6 — Authoring engines): onboarding is extracted
+> behind `project://spec/` as `engines/discovery/onboard.py` (Epic 6 MVP 6).
+> This plan is retained for historical context only; follow
+> `architecture/plan.md`, not the steps below.
 
 ## Overview
 

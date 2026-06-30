@@ -1,14 +1,20 @@
 ---
 title: Module Boundaries — Design
 type: design
-status: draft
+status: superseded
+superseded_by: ../../architecture/plan.md
 owner: brent-hoover
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-26
 problem: ./problem.md
 ---
 
 # Module Boundaries — Design
+
+> **Superseded — do not implement from this doc.** Absorbed into
+> `architecture/plan.md` (Epic 5 — Enforcement): mechanical, non-LLM-adjudicated
+> module boundary + vocabulary enforcement is Epic 5 MVP 4–5. This design is
+> retained for historical context only; follow the plan, not the steps below.
 
 ## Summary
 

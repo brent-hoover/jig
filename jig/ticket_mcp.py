@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from jig.models import RoleConfig
 from jig.safe_path import safe_resolve_within
 from jig.store import Message, MessageBus, MessageType
+from jig.substrate.events import TicketUpdated
 from jig.store.memory import MemoryStore
 from jig.store.threads import ThreadStore
 from jig.store.tickets import TicketStore
@@ -510,31 +511,26 @@ async def handle_update_ticket(
         and "status" in update_fields
         and update_fields["status"] in (TicketStatus.RESOLVED, TicketStatus.FAILED)
     )
-    update_payload = {
-        "kind": "ticket_updated",
-        "ticket_id": ticket_id,
-        "status": updated.status.value,
-        **({"_internal": True} if internal else {}),
-    }
     await bus.publish(
-        Message(
+        TicketUpdated(
             sender=sender,
-            to="broadcast",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=update_payload,
-            topic=f"tickets.{ticket_id}",
-        )
+            recipient="broadcast",
+            ticket_id=ticket_id,
+            status=updated.status.value,
+            internal=internal,
+        ).to_message()
     )
     # Also notify the orchestrator so it can react to status changes
     # (e.g. re-enqueue a ticket reset to "open" for retry).
     await bus.publish(
-        Message(
+        TicketUpdated(
             sender=sender,
-            to="orchestrator",
-            type=MessageType.CONTEXT_UPDATE,
-            payload=update_payload,
+            recipient="orchestrator",
             topic="orchestrator",
-        )
+            ticket_id=ticket_id,
+            status=updated.status.value,
+            internal=internal,
+        ).to_message()
     )
     return updated
 

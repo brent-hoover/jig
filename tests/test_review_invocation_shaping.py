@@ -306,16 +306,16 @@ class TestReviewerDiffBase:
         )
 
     def test_re_review_uses_delta_base(self, tmp_path: Path) -> None:
-        from jig.agent import _effective_ticket_base_ref
+        from jig.runtime.mcp import effective_ticket_base_ref
 
         ctx = self._ctx(tmp_path, delta_base="abc123def456")
-        assert _effective_ticket_base_ref(ctx) == "abc123def456"
+        assert effective_ticket_base_ref(ctx) == "abc123def456"
 
     def test_first_round_falls_back_to_default_branch(self, tmp_path: Path) -> None:
-        from jig.agent import _effective_ticket_base_ref
+        from jig.runtime.mcp import effective_ticket_base_ref
 
         ctx = self._ctx(tmp_path, delta_base=None)
-        assert _effective_ticket_base_ref(ctx) == "develop"
+        assert effective_ticket_base_ref(ctx) == "develop"
 
 
 class TestMultiPassCrash:
